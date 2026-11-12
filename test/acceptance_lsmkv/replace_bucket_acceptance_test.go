@@ -27,6 +27,50 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+// maxSlowOpsPerWorker bounds how many puts, and separately how many gets, may
+// exceed the latency threshold in one run. It is a per-worker budget because a
+// put holds the memtable's exclusive lock while it writes the commit log, so
+// every stall delays one operation in each of the other workers
+// (weaviate/0-weaviate-issues#525), and a run flushes tens of times.
+//
+// At 4 workers the limit is 100. Measured over 15 healthy and 11 regressed runs
+// alternated on one machine so both arms saw the same background load, where
+// the regression is a 200ms stall inside that lock on every 50,000th put:
+//
+//	          slow puts   slow gets
+//	healthy      0 - 33      0 - 77
+//	regressed  173 - 218    61 - 107
+//
+// Only the put counts separate: 100 sits 3.0x above the worst healthy run and
+// 1.7x below the weakest regressed one. The get counts overlap, so no limit
+// separates them there. The get arm is not a second detector for a write-side
+// stall; it is the gate for a read-side regression, which this one is not.
+//
+// The margin protecting a green run is therefore 1.3x, not 3.0x: both arms are
+// checked against this same constant and either one failing fails the run, so
+// 100 has to clear 77. Counts recorded before this file started reporting them
+// are not comparable, because the older instrumentation drained per-worker
+// worst-10 heaps and so could not express more than 40 per category.
+//
+// The healthy column tracks how contended the host is, not the code under test:
+// with three competing fsync writers a healthy run reached 283 slow puts. Below
+// 4 workers the signal shrinks faster than the limit does, so the gate gets less
+// sensitive rather than more: at 2 workers the same regression produced 66 to 84
+// slow puts against a limit of 50. Both are reasons to suspect the machine
+// before the code when this goes red, not reasons to move the number.
+//
+// A count, not a share of all operations. A share separates these two arms just
+// as well, but it moves with throughput: a faster machine inflates the
+// denominator and loosens the gate without anyone editing it.
+const maxSlowOpsPerWorker = 25
+
+// maxSingleOpStall fails a run on one catastrophically slow operation. A hang
+// delays too few operations to reach maxSlowOps, so the count gate alone would
+// pass it. The limit sits two orders of magnitude above the latency threshold
+// because the worst healthy operation measured here is 806ms, and scheduling
+// noise on a shared runner must not be able to reach it.
+const maxSingleOpStall = 10 * time.Second
+
 func TestLSMKV_ReplaceBucket(t *testing.T) {
 	putThreshold := 100 * time.Millisecond
 	getThreshold := 100 * time.Millisecond
@@ -44,6 +88,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		workers = n
 		logger.Infof("reducing workers to %d", workers)
 	}
+	maxSlowOps := maxSlowOpsPerWorker * workers
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", logger, 1)
 	compactionCallbacks := cyclemanager.NewCallbackGroup("compaction", logger, 1)
@@ -77,41 +122,53 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 	wg.Wait()
 	logger.WithField("concurrency", workers).Infof("%d workers completed", workers)
 
-	var putOutsideThreshold []float32
-	var getOutsideThreshold []float32
-
 	totalIngested := 0
 	totalSpotChecks := 0
+	totalSlowPuts := 0
+	totalSlowGets := 0
+	var worstPutMs, worstGetMs float32
 
 	for _, r := range results {
 		totalIngested += r.ingested
 		totalSpotChecks += r.getSpotChecks
+		totalSlowPuts += r.slowPuts
+		totalSlowGets += r.slowGets
 
 		for r.worstPutQueries.Len() > 0 {
-			tookMs := r.worstPutQueries.Pop().Dist * 1000
-			if tookMs > float32(putThreshold.Milliseconds()) {
-				putOutsideThreshold = append(putOutsideThreshold, tookMs)
+			if tookMs := r.worstPutQueries.Pop().Dist * 1000; tookMs > worstPutMs {
+				worstPutMs = tookMs
 			}
 		}
 
 		for r.worstGetQueries.Len() > 0 {
-			tookMs := r.worstGetQueries.Pop().Dist * 1000
-			if tookMs > float32(getThreshold.Milliseconds()) {
-				getOutsideThreshold = append(getOutsideThreshold, tookMs)
+			if tookMs := r.worstGetQueries.Pop().Dist * 1000; tookMs > worstGetMs {
+				worstGetMs = tookMs
 			}
 		}
 	}
 
-	if len(putOutsideThreshold) > 0 {
-		t.Errorf("%d put queries outside threshold (%s): %v", len(putOutsideThreshold), putThreshold, putOutsideThreshold)
-	} else {
-		logger.Infof("all put queries were within threshold (%s)", putThreshold)
+	// The two lines below are what a future maintainer recalibrates maxSlowOps
+	// from, so they are logged on every run and not only when the gate trips.
+	// test/run.sh passes -v for this package because `go test` throws the test
+	// binary's output away otherwise.
+	logger.Infof("puts: %d of %d outside threshold (%s), limit %d, worst %.2fms",
+		totalSlowPuts, totalIngested, putThreshold, maxSlowOps, worstPutMs)
+	logger.Infof("gets: %d of %d outside threshold (%s), limit %d, worst %.2fms",
+		totalSlowGets, totalSpotChecks, getThreshold, maxSlowOps, worstGetMs)
+
+	if totalSlowPuts > maxSlowOps {
+		t.Errorf("%d puts were outside threshold (%s), limit is %d; %d puts total, worst %.2fms",
+			totalSlowPuts, putThreshold, maxSlowOps, totalIngested, worstPutMs)
 	}
 
-	if len(getOutsideThreshold) > 0 {
-		t.Errorf("%d get queries outside threshold (%s) : %v", len(getOutsideThreshold), getThreshold, getOutsideThreshold)
-	} else {
-		logger.Infof("all get queries were within threshold (%s)", getThreshold)
+	if totalSlowGets > maxSlowOps {
+		t.Errorf("%d gets were outside threshold (%s), limit is %d; %d gets total, worst %.2fms",
+			totalSlowGets, getThreshold, maxSlowOps, totalSpotChecks, worstGetMs)
+	}
+
+	if maxStallMs := float32(maxSingleOpStall.Milliseconds()); worstPutMs > maxStallMs || worstGetMs > maxStallMs {
+		t.Errorf("worst put took %.2fms and worst get took %.2fms, a single operation may not exceed %s",
+			worstPutMs, worstGetMs, maxSingleOpStall)
 	}
 
 	// This a sanity check to make sure the test actually ran. The expected total
@@ -135,6 +192,8 @@ type result struct {
 	worstGetQueries *priorityqueue.Queue[float32]
 	ingested        int
 	getSpotChecks   int
+	slowPuts        int
+	slowGets        int
 }
 
 func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int, bucket *lsmkv.Bucket, logger logrus.FieldLogger,
@@ -148,16 +207,42 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 
 	i := 0
 	totalAsserted := 0
+	slowPuts := 0
+	slowGets := 0
+
+	// deferred so that a worker returning early still reports what it measured.
+	// The caller sums every entry of results and calls Len() on the two queues,
+	// which panics on the zero value. Registered after wg.Done() so it runs
+	// before it.
+	defer func() {
+		results[workerID] = result{
+			workerID:        workerID,
+			worstPutQueries: worstPutQueries,
+			worstGetQueries: worstGetQueries,
+			ingested:        i,
+			getSpotChecks:   totalAsserted,
+			slowPuts:        slowPuts,
+			slowGets:        slowGets,
+		}
+
+		logger.WithField("imported", i).WithField("get_spot_checks", totalAsserted).Infof("completed worker")
+	}()
+
 	for {
 		if ctx.Err() != nil {
 			break
 		}
 		before := time.Now()
-		bucket.Put([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, i)), []byte(fmt.Sprintf("value-%d", i)))
+		if err := bucket.Put([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, i)),
+			[]byte(fmt.Sprintf("value-%d", i))); err != nil {
+			t.Errorf("failed to put key-%d: %s", i, err)
+			return
+		}
 		took := time.Since(before)
 		trackWorstQuery(worstPutQueries, i, took, trackWorstQueries)
 		if took > putThreshold {
-			logger.Warnf("put took too long: %s", time.Since(before))
+			slowPuts++
+			logger.Warnf("put took too long: %s", took)
 		}
 
 		// perform spot checks every 10000 iterations
@@ -173,7 +258,8 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 				}
 				took := time.Since(before)
 				if took > getThreshold {
-					logger.Warnf("get took too long: %s", time.Since(before))
+					slowGets++
+					logger.Warnf("get took too long: %s", took)
 				}
 
 				if string(val) != fmt.Sprintf("value-%d", j) {
@@ -193,16 +279,6 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 
 		i++
 	}
-
-	results[workerID] = result{
-		workerID:        workerID,
-		worstPutQueries: worstPutQueries,
-		worstGetQueries: worstGetQueries,
-		ingested:        i,
-		getSpotChecks:   totalAsserted,
-	}
-
-	logger.WithField("imported", i).WithField("get_spot_checks", totalAsserted).Infof("completed worker")
 }
 
 func trackWorstQuery(heap *priorityqueue.Queue[float32], i int, took time.Duration, trackWorstQueries int) {
