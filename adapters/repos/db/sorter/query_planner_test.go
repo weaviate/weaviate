@@ -108,20 +108,54 @@ func TestQueryPlanner(t *testing.T) {
 			shouldChooseInverted: false,
 		},
 		{
-			name:        "more than one sort arg – not supported yet",
-			objectCount: 1000,
-			matchCount:  800,
-			limit:       100,
-			sort: []filters.Sort{
-				{
-					Path:  []string{"int"},
-					Order: "desc",
-				},
-				{
-					Path:  []string{"number"},
-					Order: "asc",
-				},
-			},
+			name:                 "multiple sort args, first one eligible",
+			objectCount:          1000,
+			matchCount:           800,
+			limit:                100,
+			sort:                 sortsBy("int", "desc", "text", "asc"),
+			shouldChooseInverted: true,
+		},
+		{
+			name:                 "multiple sort args, first one is text",
+			objectCount:          1000,
+			matchCount:           800,
+			limit:                100,
+			sort:                 sortsBy("text", "asc", "int", "asc"),
+			shouldChooseInverted: false,
+		},
+		{
+			name:                 "multiple sort args, first one is not indexed",
+			objectCount:          1000,
+			matchCount:           800,
+			limit:                100,
+			sort:                 sortsBy("int_not_indexed", "asc", "int", "asc"),
+			shouldChooseInverted: false,
+		},
+		{
+			name:                 "multiple sort args, first one eligible, but globally disabled",
+			objectCount:          1000,
+			matchCount:           800,
+			limit:                100,
+			disabled:             true,
+			sort:                 sortsBy("int", "asc", "text", "asc"),
+			shouldChooseInverted: false,
+		},
+		{
+			name:                 "single sort arg, cheaper than objects bucket",
+			objectCount:          50,
+			matchCount:           11,
+			limit:                10,
+			sort:                 sortsBy("int", "asc"),
+			shouldChooseInverted: true,
+		},
+		{
+			// the same query, but reading the candidates from the objects bucket
+			// tips it over
+			name:                 "multiple sort args, candidate reads make it costlier than objects bucket",
+			objectCount:          50,
+			matchCount:           11,
+			limit:                10,
+			sort:                 sortsBy("int", "asc", "number", "asc"),
 			shouldChooseInverted: false,
 		},
 		{
