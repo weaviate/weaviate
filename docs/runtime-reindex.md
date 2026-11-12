@@ -1724,9 +1724,8 @@ to this version assumes two things:
    `ready`. Finish every reindex before the first node restarts, and submit
    or cancel none until the last node runs this build.
 
-As far as we know, no customer ran runtime reindex on v1.38, and the
-customers on v1.39 ran only tokenization changes and enable-rangeable,
-which never build BlockMax buckets with the flag off.
+If you moved a property to BlockMax on v1.38 with the collection flag off,
+submit `{"algorithm":"blockmax"}` for it again after upgrading.
 
 **Status of an old run after upgrading from v1.39.15 or v1.39.16.** A node that
 replays such a run from its RAFT log, instead of restoring it from a
