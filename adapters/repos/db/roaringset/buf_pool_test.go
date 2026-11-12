@@ -634,8 +634,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		}
 
 		t.Run("sync pools return buffers of sizes", func(t *testing.T) {
-			syncMaxBufSize := 1024 // all sync pools
-			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, testIdleBudget, ranges...)
+			pool := NewBitmapBufPoolRanged(metrics, testIdleBudget, ranges, nil)
 
 			for i, tc := range testCases {
 				t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
@@ -649,8 +648,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		})
 
 		t.Run("sync + inmemo pools return buffers of sizes", func(t *testing.T) {
-			syncMaxBufSize := 256 // sync pools + inmemo pools (512, 1024)
-			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, testIdleBudget, ranges...)
+			pool := NewBitmapBufPoolRanged(metrics, testIdleBudget, ranges[:4], ranges[4:])
 
 			for i, tc := range testCases {
 				t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
@@ -667,60 +665,60 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 
 func TestCalculateSyncBufferRanges(t *testing.T) {
 	testCases := []struct {
-		minRangeP2     int
-		maxRangeP2     int
+		minRangePo2    int
+		maxRangePo2    int
 		expectedRanges []int
 	}{
 		{
-			minRangeP2:     1,
-			maxRangeP2:     5,
+			minRangePo2:    1,
+			maxRangePo2:    5,
 			expectedRanges: []int{2, 4, 8, 16, 32},
 		},
 		{
-			minRangeP2:     7,
-			maxRangeP2:     10,
+			minRangePo2:    7,
+			maxRangePo2:    10,
 			expectedRanges: []int{128, 256, 512, 1024},
 		},
 		{
-			minRangeP2:     9,
-			maxRangeP2:     20,
+			minRangePo2:    9,
+			maxRangePo2:    20,
 			expectedRanges: []int{512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576},
 		},
 		{
-			minRangeP2:     7,
-			maxRangeP2:     10,
+			minRangePo2:    7,
+			maxRangePo2:    10,
 			expectedRanges: []int{128, 256, 512, 1024},
 		},
 		{
-			minRangeP2:     0,
-			maxRangeP2:     0,
+			minRangePo2:    0,
+			maxRangePo2:    0,
 			expectedRanges: []int{1},
 		},
 		{
-			minRangeP2:     0,
-			maxRangeP2:     1,
+			minRangePo2:    0,
+			maxRangePo2:    1,
 			expectedRanges: []int{1, 2},
 		},
 		{
-			minRangeP2:     -1,
-			maxRangeP2:     0,
+			minRangePo2:    -1,
+			maxRangePo2:    0,
 			expectedRanges: []int{},
 		},
 		{
-			minRangeP2:     0,
-			maxRangeP2:     -1,
+			minRangePo2:    0,
+			maxRangePo2:    -1,
 			expectedRanges: []int{},
 		},
 		{
-			minRangeP2:     9,
-			maxRangeP2:     7,
+			minRangePo2:    9,
+			maxRangePo2:    7,
 			expectedRanges: []int{},
 		},
 	}
 
 	for i, tc := range testCases {
 		t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
-			ranges := calculateSyncBufferRanges(tc.minRangeP2, tc.maxRangeP2)
+			ranges := calculateSyncBufferRanges(tc.minRangePo2, tc.maxRangePo2)
 			require.Equal(t, tc.expectedRanges, ranges)
 		})
 	}
@@ -779,37 +777,6 @@ func TestNewBitmapBufPoolDefaultClose(t *testing.T) {
 		_, put = pool.Get(2 << 20)
 		put()
 	})
-}
-
-func TestValidateBufferRanges(t *testing.T) {
-	testCases := []struct {
-		ranges         []int
-		expectedRanges []int
-	}{
-		{
-			ranges:         []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
-			expectedRanges: []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
-		},
-		{
-			ranges:         []int{1, 2, 3, 1, 2, 3, 1, 2, 3},
-			expectedRanges: []int{1, 2, 3},
-		},
-		{
-			ranges:         []int{-3, -2, -1, 0, 1, 2, 3},
-			expectedRanges: []int{1, 2, 3},
-		},
-		{
-			ranges:         []int{3, 2, 1, 0, -1, -2, -3},
-			expectedRanges: []int{1, 2, 3},
-		},
-	}
-
-	for i, tc := range testCases {
-		t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
-			ranges := validateBufferRanges(tc.ranges)
-			require.Equal(t, tc.expectedRanges, ranges)
-		})
-	}
 }
 
 func TestBitmapBufPoolTrackingForTests_Get(t *testing.T) {
@@ -906,11 +873,11 @@ func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 // TestPooledBitmapStructReuse pins that a struct still held is never handed out
 // again, and that put leaves nothing of a grown bitmap in it.
 func TestPooledBitmapStructReuse(t *testing.T) {
-	// syncMaxBufSize 0 puts every range on the in-memory tier. Its stack returns
-	// the buffer put last, the budget keeps it, and NewBitmapBufPoolRanged starts
-	// no decay ticker, so buffers are reused deterministically.
+	// Every size is on the in-memory tier. Its stack returns the buffer put last,
+	// the budget keeps it, and NewBitmapBufPoolRanged starts no decay ticker, so
+	// buffers are reused deterministically.
 	newRanged := func() *bitmapBufPoolRanged {
-		return NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
+		return NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})
 	}
 
 	src := sroar.NewBitmap()
@@ -952,9 +919,9 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 			name string
 			pool BitmapBufPool
 		}{
-			{"idle-stack-backed", NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)},
-			{"sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, testIdleBudget, 512, 1024)},
-			{"oversized, on the heap", NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 8)},
+			{"idle-stack-backed", NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})},
+			{"sync.Pool-backed", NewBitmapBufPoolRanged(nil, testIdleBudget, []int{512, 1024}, nil)},
+			{"oversized, on the heap", NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{8})},
 		}
 		for _, tc := range pools {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1083,7 +1050,7 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 // grown size inside its ranges, with no heap or disposable buffer.
 func TestPooledBitmapGrowthAllocatesNothing(t *testing.T) {
 	disposable := &countingDisposableMetrics{}
-	pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, calculateSyncBufferRanges(9, 20)...)
+	pool := NewBitmapBufPoolRanged(nil, testIdleBudget, nil, calculateSyncBufferRanges(9, 20))
 	pool.disposableMetrics = disposable
 	src := sroar.NewBitmap()
 	src.Set(1)
@@ -1122,8 +1089,8 @@ func TestAccumulatorToBuf(t *testing.T) {
 		pool BitmapBufPool
 	}{
 		{"noop", NewBitmapBufPoolNoop()},
-		{"ranged idle-stack-backed", NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)},
-		{"ranged sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, testIdleBudget, 512, 1024)},
+		{"ranged idle-stack-backed", NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})},
+		{"ranged sync.Pool-backed", NewBitmapBufPoolRanged(nil, testIdleBudget, []int{512, 1024}, nil)},
 		{"tracking", NewBitmapBufPoolTrackingForTests()},
 	}
 	for _, tc := range pools {
@@ -1137,7 +1104,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 	}
 
 	t.Run("empty accumulator yields an empty bitmap", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})
 		bm, put := pool.AccumulatorToBuf(sroar.NewAccumulator())
 		require.NotNil(t, put, "put must always be callable")
 		defer put()
@@ -1146,12 +1113,12 @@ func TestAccumulatorToBuf(t *testing.T) {
 	})
 
 	t.Run("nil accumulator panics, as documented", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})
 		require.Panics(t, func() { pool.AccumulatorToBuf(nil) })
 	})
 
 	t.Run("allocates nothing warm", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})
 		acc := newAcc()
 		_, put := pool.AccumulatorToBuf(acc)
 		put()
@@ -1165,7 +1132,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 	})
 
 	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, testIdleBudget, nil, []int{512, 1024})
 		acc := newAcc()
 		bm1, put1 := pool.AccumulatorToBuf(acc)
 		for i := uint64(0); i < 100_000; i += 7 {
@@ -1266,7 +1233,7 @@ func TestBitmapBufPoolRangedDisposableMetrics(t *testing.T) {
 	counter := newTestBitmapBuffersUsage()
 	pool := NewBitmapBufPoolRanged(&monitoring.PrometheusMetrics{
 		LSMBitmapBuffersUsage: counter,
-	}, 1024, testIdleBudget, 512, 1024)
+	}, testIdleBudget, []int{512, 1024}, nil)
 
 	_, put := pool.Get(2048)
 	put()
@@ -1280,7 +1247,7 @@ func TestBitmapBufPoolRangedInMemoMetrics(t *testing.T) {
 	counter := newTestBitmapBuffersUsage()
 	pool := NewBitmapBufPoolRanged(&monitoring.PrometheusMetrics{
 		LSMBitmapBuffersUsage: counter,
-	}, 256, 1024, 512, 1024)
+	}, 1024, nil, []int{512, 1024})
 
 	_, putA := pool.Get(512)
 	_, putB := pool.Get(512)
@@ -1290,4 +1257,29 @@ func TestBitmapBufPoolRangedInMemoMetrics(t *testing.T) {
 	putC()
 
 	assert.Equal(t, 2.0, testutil.ToFloat64(counter.WithLabelValues("512 B", "inmemo_evicted")))
+}
+
+func TestPromBufPoolInMemoMetricsLabels(t *testing.T) {
+	counter := newTestBitmapBuffersUsage()
+	m := newPromBufPoolInMemoMetrics(&monitoring.PrometheusMetrics{LSMBitmapBuffersUsage: counter}, 2<<20)
+	// Each method runs a distinct number of times, so a swapped label shows.
+	calls := []struct {
+		op  string
+		inc func()
+	}{
+		{"inmemo_created", m.bufCreated},
+		{"inmemo_got", m.bufGot},
+		{"inmemo_put", m.bufPut},
+		{"inmemo_discarded", m.bufDiscarded},
+		{"inmemo_cleanedUp", m.bufCleanedUp},
+		{"inmemo_evicted", m.bufEvicted},
+	}
+	for i, c := range calls {
+		for range i + 1 {
+			c.inc()
+		}
+	}
+	for i, c := range calls {
+		assert.Equal(t, float64(i+1), testutil.ToFloat64(counter.WithLabelValues("2.0 MiB", c.op)), c.op)
+	}
 }
