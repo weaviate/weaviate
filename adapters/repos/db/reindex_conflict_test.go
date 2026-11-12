@@ -13,10 +13,14 @@ package db
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -136,132 +140,22 @@ func TestTypesConflictReason_RebuildSearchableDoesNotPanic(t *testing.T) {
 	require.NotEmpty(t, reason, "overlapping in-flight task must yield a conflict reason")
 }
 
-// TestSearchablePropertyBlockmaxFromRAFT pins the RAFT-only derivation:
-// class flag OR a FINISHED blockmax-producing task on this property — nothing
-// else (other statuses, migration types, properties, or collections) counts.
-func TestSearchablePropertyBlockmaxFromRAFT(t *testing.T) {
-	task := func(collection string, mt ReindexMigrationType, status distributedtask.TaskStatus, props ...string) *distributedtask.Task {
-		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection, MigrationType: mt, Properties: props})
-		require.NoError(t, err)
-		return &distributedtask.Task{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt) + ":" + status.String()},
-			Status:         status,
-			Payload:        payload,
-		}
-	}
-
-	tests := []struct {
-		name      string
-		classFlag bool
-		tasks     []*distributedtask.Task
-		want      bool
-	}{
-		{name: "class flag on, no task → blockmax", classFlag: true, want: true},
-		{name: "class flag off, no task → WAND", classFlag: false, want: false},
-		{
-			name:  "finished change-algorithm on P → blockmax",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
-			want:  true,
-		},
-		{
-			name:  "finished enable-searchable on P → blockmax (created as blockmax)",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeEnableSearchable, distributedtask.TaskStatusFinished, "text")},
-			want:  true,
-		},
-		{
-			name:  "finished rebuild-searchable on P → blockmax",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeRebuildSearchable, distributedtask.TaskStatusFinished, "text")},
-			want:  true,
-		},
-		{
-			name:  "finished change-tokenization on P → not blockmax (strategy preserved)",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeTokenization, distributedtask.TaskStatusFinished, "text")},
-			want:  false,
-		},
-		{
-			name:  "started change-algorithm on P → not yet blockmax",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusStarted, "text")},
-			want:  false,
-		},
-		{
-			name:  "swapping change-algorithm on P → not yet blockmax",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusSwapping, "text")},
-			want:  false,
-		},
-		{
-			name:  "failed change-algorithm on P → not blockmax",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text")},
-			want:  false,
-		},
-		{
-			name:  "cancelled change-algorithm on P → not blockmax",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusCancelled, "text")},
-			want:  false,
-		},
-		{
-			name:  "finished change-algorithm on a different property → P still WAND",
-			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "other")},
-			want:  false,
-		},
-		{
-			name:  "finished change-algorithm on a different collection → P still WAND",
-			tasks: []*distributedtask.Task{task("Other", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
-			want:  false,
-		},
-		{
-			name:  "collection match is case-insensitive",
-			tasks: []*distributedtask.Task{task("c", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
-			want:  true,
-		},
-		{
-			name: "class flag on wins even with a failed task present",
-			tasks: []*distributedtask.Task{
-				task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text"),
-			},
-			classFlag: true,
-			want:      true,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := SearchablePropertyBlockmaxFromRAFT(tc.classFlag, "C", "text", tc.tasks)
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 // TestSearchablePropertyIsBlockmax_TruthTable pins the stamp-first resolver
-// across (classFlag, stamp, taskList); the load-bearing row is a
-// stamped-blockmax property with flag OFF and an aged-out (empty) task list,
-// which must resolve to blockmax, not the legacy WAND fallback.
+// across (classFlag, stamp).
 func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
-	finishedBlockmaxTask := func() []*distributedtask.Task {
-		payload, err := json.Marshal(ReindexTaskPayload{
-			Collection: "C", MigrationType: ReindexTypeChangeAlgorithm, Properties: []string{"text"},
-		})
-		require.NoError(t, err)
-		return []*distributedtask.Task{{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t"},
-			Status:         distributedtask.TaskStatusFinished,
-			Payload:        payload,
-		}}
-	}
 	ptr := func(b bool) *bool { return &b }
 
 	tests := []struct {
 		name      string
 		classFlag bool
 		stamp     *bool
-		tasks     []*distributedtask.Task
 		want      bool
 	}{
-		{name: "stamp true, class flag off, aged-out (empty) task list → blockmax [the fix]", classFlag: false, stamp: ptr(true), tasks: nil, want: true},
-		{name: "stamp true, class flag off, unrelated live tasks → blockmax", classFlag: false, stamp: ptr(true), tasks: finishedBlockmaxTask(), want: true},
-		{name: "stamp false, class flag off → WAND", classFlag: false, stamp: ptr(false), tasks: nil, want: false},
-		{name: "stamp false, class flag on → stamp-first wins (unreachable in prod; stamp is only ever written true)", classFlag: true, stamp: ptr(false), tasks: nil, want: false},
-		{name: "nil stamp, class flag on → blockmax (nil-backfill / all-migrated + snapshot from old node)", classFlag: true, stamp: nil, tasks: nil, want: true},
-		{name: "nil stamp, class flag off, finished blockmax task → blockmax (legacy fallback, task still in TTL window)", classFlag: false, stamp: nil, tasks: finishedBlockmaxTask(), want: true},
-		{name: "nil stamp, class flag off, empty task list → WAND (legacy hole; reachable only for pre-stamp migrations, closed by read-repair)", classFlag: false, stamp: nil, tasks: nil, want: false},
+		{name: "stamp true, class flag off → blockmax", classFlag: false, stamp: ptr(true), want: true},
+		{name: "stamp false, class flag off → WAND", classFlag: false, stamp: ptr(false), want: false},
+		{name: "stamp false, class flag on → stamp-first wins (unreachable in prod; stamp is only ever written true)", classFlag: true, stamp: ptr(false), want: false},
+		{name: "nil stamp, class flag on → blockmax", classFlag: true, stamp: nil, want: true},
+		{name: "nil stamp, class flag off → WAND", classFlag: false, stamp: nil, want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,68 +164,7 @@ func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
 				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
 				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
 			}
-			require.Equal(t, tc.want, SearchablePropertyIsBlockmax(class, "text", tc.tasks))
-		})
-	}
-}
-
-// TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed pins that the
-// pre-parsed GET-handler variant resolves identically to
-// SearchablePropertyIsBlockmax across the full (stamp, classFlag,
-// finished-task) space.
-func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
-	ptr := func(b bool) *bool { return &b }
-	finishedTask := func(mt ReindexMigrationType, props ...string) *distributedtask.Task {
-		payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: mt, Properties: props})
-		require.NoError(t, err)
-		return &distributedtask.Task{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt)},
-			Status:         distributedtask.TaskStatusFinished,
-			Payload:        payload,
-		}
-	}
-
-	tests := []struct {
-		name      string
-		classFlag bool
-		stamp     *bool
-		tasks     []*distributedtask.Task
-	}{
-		{name: "stamp true, flag off, empty tasks", classFlag: false, stamp: ptr(true)},
-		{name: "stamp false, flag off", classFlag: false, stamp: ptr(false)},
-		{name: "nil stamp, flag on", classFlag: true, stamp: nil},
-		{name: "nil stamp, flag off, finished change-algorithm on prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeAlgorithm, "text")}},
-		{name: "nil stamp, flag off, finished change-tokenization on prop (not blockmax)", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeTokenization, "text")}},
-		{name: "nil stamp, flag off, finished blockmax task on OTHER prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeRebuildSearchable, "other")}},
-		{name: "nil stamp, flag off, empty tasks", classFlag: false, stamp: nil},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			class := &models.Class{
-				Class:               "C",
-				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
-				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
-			}
-
-			// Build the set exactly as the GET handler does.
-			finishedBlockmaxProps := make(map[string]struct{})
-			for _, task := range tc.tasks {
-				if task.Status != distributedtask.TaskStatusFinished {
-					continue
-				}
-				var p ReindexTaskPayload
-				require.NoError(t, json.Unmarshal(task.Payload, &p))
-				if _, _, producesBlockmax, _ := ReindexBucketEffect(p.MigrationType); !producesBlockmax {
-					continue
-				}
-				for _, prop := range p.Properties {
-					finishedBlockmaxProps[prop] = struct{}{}
-				}
-			}
-
-			want := SearchablePropertyIsBlockmax(class, "text", tc.tasks)
-			got := SearchablePropertyIsBlockmaxParsed(class, "text", finishedBlockmaxProps)
-			require.Equal(t, want, got, "parsed variant must match the task-list resolver")
+			require.Equal(t, tc.want, SearchablePropertyIsBlockmax(class, "text"))
 		})
 	}
 }
@@ -353,24 +186,23 @@ var allReindexMigrationTypesForTest = []ReindexMigrationType{
 
 // TestReindexBucketEffect_Exhaustive enforces at dev-time that every
 // ReindexMigrationType is explicitly classified, and pins the fail-safe
-// defaults (touches both buckets, produces blockmax) for an unrecognized type.
+// defaults (touches both buckets) for an unrecognized type.
 func TestReindexBucketEffect_Exhaustive(t *testing.T) {
 	// Adding a ReindexMigrationType here without a row below fails the "every
 	// listed type is covered" assertion.
 	want := map[ReindexMigrationType]struct {
 		touchesSearchable bool
 		touchesFilterable bool
-		producesBlockmax  bool
 	}{
-		ReindexTypeChangeAlgorithm:              {true, false, true},
-		ReindexTypeRebuildSearchable:            {true, false, true},
-		ReindexTypeEnableSearchable:             {true, false, true},
-		ReindexTypeChangeTokenization:           {true, true, false},
-		ReindexTypeChangeTokenizationFilterable: {false, true, false},
-		ReindexTypeRepairFilterable:             {false, true, false},
-		ReindexTypeEnableFilterable:             {false, true, false},
-		ReindexTypeEnableRangeable:              {false, false, false},
-		ReindexTypeRepairRangeable:              {false, false, false},
+		ReindexTypeChangeAlgorithm:              {true, false},
+		ReindexTypeRebuildSearchable:            {true, false},
+		ReindexTypeEnableSearchable:             {true, false},
+		ReindexTypeChangeTokenization:           {true, true},
+		ReindexTypeChangeTokenizationFilterable: {false, true},
+		ReindexTypeRepairFilterable:             {false, true},
+		ReindexTypeEnableFilterable:             {false, true},
+		ReindexTypeEnableRangeable:              {false, false},
+		ReindexTypeRepairRangeable:              {false, false},
 	}
 
 	for _, mt := range allReindexMigrationTypesForTest {
@@ -378,29 +210,25 @@ func TestReindexBucketEffect_Exhaustive(t *testing.T) {
 		require.Truef(t, hasRow,
 			"migration type %q is in allReindexMigrationTypesForTest but has no expected row in this test — classify it", mt)
 
-		ts, tf, pb, ok := ReindexBucketEffect(mt)
+		ts, tf, ok := ReindexBucketEffect(mt)
 		require.Truef(t, ok,
 			"migration type %q is not explicitly classified by ReindexBucketEffect (hit the fail-safe default) — add an explicit case", mt)
 		require.Equalf(t, exp.touchesSearchable, ts, "%s touchesSearchable", mt)
 		require.Equalf(t, exp.touchesFilterable, tf, "%s touchesFilterable", mt)
-		require.Equalf(t, exp.producesBlockmax, pb, "%s producesBlockmax", mt)
 	}
 
 	// An unknown (peer-written) type must fail SAFE, not panic.
-	ts, tf, pb, ok := ReindexBucketEffect(ReindexMigrationType("bogus-future-type"))
+	ts, tf, ok := ReindexBucketEffect(ReindexMigrationType("bogus-future-type"))
 	require.False(t, ok, "unknown type must report ok=false")
 	require.True(t, ts, "unknown type must conservatively touch searchable")
 	require.True(t, tf, "unknown type must conservatively touch filterable")
-	require.True(t, pb, "unknown type must be assumed blockmax (post-GA safe direction)")
-	require.NotPanics(t, func() { _ = producesBlockmaxSearchable(ReindexMigrationType("bogus-future-type")) },
-		"unknown type must never panic on the forward-compat hot path")
 }
 
 // TestCheckConflict_AcceptsNonOverlapping pins the happy path:
 // CheckConflict returns nil when the new payload doesn't overlap with
 // any STARTED existing task.
 func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -424,7 +252,7 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, provider.CheckConflict(newPayload, existing))
+	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
 // TestCheckConflict_RejectsParallelOnSameProp pins the
@@ -434,7 +262,7 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 // these states leaves on-disk migration state that a parallel migration
 // would race on.
 func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -459,7 +287,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 					Payload:        existPayload,
 				},
 			}
-			err := provider.CheckConflict(newPayload, existing)
+			err := detector.CheckConflict(newPayload, existing)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "conflicts")
 			require.Contains(t, err.Error(), "enable-filterable")
@@ -472,7 +300,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 // / CANCELLED tasks are not consulted — only STARTED tasks can
 // conflict.
 func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -500,7 +328,7 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 				Payload:        existPayload,
 			},
 		}
-		require.NoError(t, provider.CheckConflict(newPayload, existing),
+		require.NoError(t, detector.CheckConflict(newPayload, existing),
 			"status=%s must NOT block a new task — only STARTED tasks conflict", status)
 	}
 }
@@ -509,7 +337,7 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 // scoped to (collection, property) — same property name in two
 // different collections is not a conflict.
 func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "CollectionA",
@@ -533,7 +361,7 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, provider.CheckConflict(newPayload, existing))
+	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
 // TestCheckConflict_CaseInsensitiveCollection pins that the collection
@@ -541,7 +369,7 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 // case-fold class names, so a parallel submit on the same property of
 // the same class with different casing must still be rejected.
 func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "MyCollection",
@@ -565,15 +393,15 @@ func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
 		},
 	}
 
-	err := provider.CheckConflict(newPayload, existing)
+	err := detector.CheckConflict(newPayload, existing)
 	require.Error(t, err)
 }
 
 // TestCheckConflict_UnparseableNewPayload pins that a corrupted new
 // payload is rejected up-front rather than silently allowed through.
 func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
-	provider := &ReindexProvider{}
-	err := provider.CheckConflict([]byte("not json"), nil)
+	detector := ReindexDetector{}
+	err := detector.CheckConflict([]byte("not json"), nil)
 	require.Error(t, err)
 }
 
@@ -582,7 +410,7 @@ func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
 // be rejected. The safer choice — we cannot prove non-conflict, so
 // refuse rather than allow a race.
 func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -599,7 +427,7 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 		},
 	}
 
-	err := provider.CheckConflict(newPayload, existing)
+	err := detector.CheckConflict(newPayload, existing)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T1")
 	require.Contains(t, err.Error(), "unparseable")
@@ -610,9 +438,9 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 // target property, CheckPropertyUpdate must return nil so external
 // schema mutations are not spuriously rejected.
 func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
-	require.NoError(t, provider.CheckPropertyUpdate("C", "name", nil))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "name", nil))
 
 	// FINISHED / FAILED / CANCELLED in the task list also must not block.
 	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
@@ -631,7 +459,54 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 				Status:         status,
 				Payload:        terminalPayload,
 			}}
-			require.NoError(t, provider.CheckPropertyUpdate("C", "name", tasks))
+			require.NoError(t, detector.CheckPropertyUpdate("C", "name", tasks))
+		})
+	}
+}
+
+// A cutover write lands only while the run it names is SWAPPING, even if another run on the property is.
+func TestCheckMigrationPropertyUpdate(t *testing.T) {
+	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		status     distributedtask.TaskStatus
+		class      string
+		prop       string
+		run        api.MigrationRun
+		wantRefuse bool
+	}{
+		{status: distributedtask.TaskStatusSwapping, class: "c", prop: "name"},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "other", wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "D", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusFailed, class: "C", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusFinished, class: "C", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusPreparing, class: "C", prop: "name", wantRefuse: true},
+		{
+			status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
+			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 2},
+		},
+		{
+			status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
+			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "gone", Version: 1},
+		},
+	} {
+		if tc.run == (api.MigrationRun{}) {
+			tc.run = api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 1}
+		}
+		t.Run(fmt.Sprintf("%s/%s.%s/%s.v%d", tc.status, tc.class, tc.prop, tc.run.ID, tc.run.Version), func(t *testing.T) {
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload},
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "U", Version: 1}, Status: distributedtask.TaskStatusSwapping, Payload: payload},
+			}}})
+			require.NoError(t, err)
+			logger, _ := test.NewNullLogger()
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:                  logger,
+				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
+			})
+			require.NoError(t, mgr.Restore(snapshot))
+			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
+			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
 		})
 	}
 }
@@ -643,7 +518,7 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 // migration wipes the in-flight searchable_retokenize working dir and
 // produces a torn filterable bucket.
 func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -658,7 +533,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := provider.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_change_tok")
 			require.Contains(t, err.Error(), "change-tokenization")
@@ -674,7 +549,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 // mutations on a different property "category" in the same collection.
 // Without this the guard would block legitimate parallel schema work.
 func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -688,8 +563,8 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckPropertyUpdate("C", "category", tasks))
-	require.NoError(t, provider.CheckPropertyUpdate("C", "title", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "category", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "title", tasks))
 }
 
 // TestCheckPropertyUpdate_DifferentCollectionAllows pins the per-
@@ -697,7 +572,7 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 // block schema mutations on collection "B" — they share no on-disk
 // state.
 func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "A",
@@ -711,7 +586,7 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckPropertyUpdate("B", "name", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("B", "name", tasks))
 }
 
 // TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
@@ -735,7 +610,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 		ReindexTypeRepairRangeable,
 	}
 
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	for _, mt := range migrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
@@ -749,7 +624,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        payload,
 			}}
-			err := provider.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err, "migration type %s in flight on name must block schema mutations on name", mt)
 			require.Contains(t, err.Error(), string(mt))
 		})
@@ -761,7 +636,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 // properties" / whole-collection rebuild) blocks every property in
 // that collection. Mirrors the wildcard semantics in ReindexPropsOverlap.
 func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -778,7 +653,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 
 	for _, prop := range []string{"name", "category", "title", "description"} {
 		t.Run(prop, func(t *testing.T) {
-			err := provider.CheckPropertyUpdate("C", prop, tasks)
+			err := detector.CheckPropertyUpdate("C", prop, tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_wildcard")
 		})
@@ -791,7 +666,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 // guard refuses the mutation rather than silently allow it through.
 // Mirrors the same convention in CheckConflict above.
 func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	tasks := []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
@@ -799,7 +674,7 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 		Payload:        []byte("garbage"),
 	}}
 
-	err := provider.CheckPropertyUpdate("C", "name", tasks)
+	err := detector.CheckPropertyUpdate("C", "name", tasks)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -811,8 +686,8 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 // conflict, regardless of which property the migration targets.
 
 func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
-	require.NoError(t, provider.CheckClassMutation("C", nil))
+	detector := ReindexDetector{}
+	require.NoError(t, detector.CheckClassMutation("C", nil))
 
 	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -824,12 +699,12 @@ func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
 		Status:         distributedtask.TaskStatusFinished,
 		Payload:        terminalPayload,
 	}}
-	require.NoError(t, provider.CheckClassMutation("C", tasks),
+	require.NoError(t, detector.CheckClassMutation("C", tasks),
 		"FINISHED tasks must not block DeleteClass")
 }
 
 func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -846,7 +721,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := provider.CheckClassMutation("C", tasks)
+			err := detector.CheckClassMutation("C", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_class")
 			require.Contains(t, err.Error(), "bucket↔schema inversion")
@@ -855,7 +730,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 }
 
 func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "A",
@@ -869,18 +744,18 @@ func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckClassMutation("B", tasks),
+	require.NoError(t, detector.CheckClassMutation("B", tasks),
 		"in-flight reindex on class A must not block DeleteClass on class B")
 }
 
 func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 	tasks := []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte("garbage"),
 	}}
-	err := provider.CheckClassMutation("C", tasks)
+	err := detector.CheckClassMutation("C", tasks)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -890,12 +765,12 @@ func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
 // (DeleteTenants / UpdateTenants-away-from-ACTIVE).
 
 func TestCheckTenantMutation_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
-	require.NoError(t, provider.CheckTenantMutation("C", []string{"t1"}, nil))
+	detector := ReindexDetector{}
+	require.NoError(t, detector.CheckTenantMutation("C", []string{"t1"}, nil))
 }
 
 func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -910,7 +785,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := provider.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
+			err := detector.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_tenant")
 			require.Contains(t, err.Error(), "[t1 t2]",
@@ -920,7 +795,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 }
 
 func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "A",
@@ -933,7 +808,7 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckTenantMutation("B", []string{"t1"}, tasks),
+	require.NoError(t, detector.CheckTenantMutation("B", []string{"t1"}, tasks),
 		"in-flight reindex on class A must not block tenant mutation on class B")
 }
 
@@ -944,7 +819,7 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 // shape we no longer recognize and the missing fields dropped to zero
 // values during Unmarshal.
 func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	tests := []struct {
 		name    string
@@ -974,7 +849,7 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        b,
 			}}
-			err := provider.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_empty")
 		})
@@ -998,18 +873,13 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// Pins: a mutation refusal tells the operator to cancel the reindex only
-// for the status the cancel API accepts one for. STARTED is that status.
-// A coordination phase gets 409 because stopping mid-cutover is unsafe,
-// and a status this build cannot classify gets 409 on every node — so
-// naming a cancel for either sends the operator down a road that
-// dead-ends.
+// Pins that a mutation refusal names a cancel only for a status the cancel API accepts.
 //
 // The expectations are spelled out per status rather than derived from
 // IsCancellable, so re-keying the helper onto a different predicate
 // shows up here as a failure instead of moving the goalposts with it.
 func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,
@@ -1031,19 +901,19 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	}{
 		"property update": {
 			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckPropertyUpdate("C", "name", tasks)
+				return detector.CheckPropertyUpdate("C", "name", tasks)
 			},
 			cancelAdvice: "cancel it via the reindex REST API before retrying",
 		},
 		"class mutation": {
 			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckClassMutation("C", tasks)
+				return detector.CheckClassMutation("C", tasks)
 			},
 			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
 		},
 		"tenant mutation": {
 			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+				return detector.CheckTenantMutation("C", []string{"t1"}, tasks)
 			},
 			cancelAdvice: "cancel the reindex via the REST API before mutating these tenants",
 		},
@@ -1055,14 +925,8 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 		wantReason       string
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
-		{
-			status:     distributedtask.TaskStatusPreparing,
-			wantReason: "past the point where a cancel is accepted",
-		},
-		{
-			status:     distributedtask.TaskStatusSwapping,
-			wantReason: "past the point where a cancel is accepted",
-		},
+		{status: distributedtask.TaskStatusPreparing, wantCancelAdvice: true},
+		{status: distributedtask.TaskStatusSwapping, wantReason: "finishes on its own, so wait for it"},
 		{
 			status:     unknownFutureStatus,
 			wantReason: "cannot classify that status",
@@ -1078,7 +942,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 					return
 				}
 				require.NotContains(t, err.Error(), guard.cancelAdvice,
-					"a cancel for %q is refused with 409, so the refusal must not name one", tc.status)
+					"a cancel for %q does nothing, so the refusal must not name one", tc.status)
 				require.Contains(t, err.Error(), tc.wantReason)
 			})
 		}

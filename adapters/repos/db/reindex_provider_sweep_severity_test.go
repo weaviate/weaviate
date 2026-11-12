@@ -29,9 +29,6 @@ import (
 
 // The walk ranks its outcome by the sweep's taxonomy, so an operator alerting
 // on one level sees every cleanup that left the same thing behind.
-//
-// Two rows, because they land on opposite sides of the taxonomy: a level
-// hardcoded to either one fails on the other.
 func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -39,10 +36,29 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 		// the shard the payload names.
 		fixture     func(t *testing.T) (idx *Index, shardName string)
 		wantOutcome CleanupSweepOutcome
+		wantAlso    string
 	}{
 		{
-			name:        "a shard the walk reached and could not settle",
+			name:        "a shard the walk reached and left untouched",
 			fixture:     shardWithAnUnreadableRecordStore,
+			wantOutcome: CleanupSweepWithheld,
+			wantAlso:    "; the cleanup then runs if this task is still listed",
+		},
+		{
+			name: "a shard the walk reached and could not settle",
+			fixture: func(t *testing.T) (*Index, string) {
+				ctx := testCtx()
+				shard, idx := testShard(t, ctx, "BusyUnit"+uuid.NewString()[:8])
+				concrete, err := unwrapShard(ctx, shard)
+				require.NoError(t, err)
+				subject := testMigrationSubject(1, StrategyCodeSearchableRetokenize, "title")
+				subject.TaskID, subject.Key.UnitID = "T_terminal", testMigrationUnitFor(idx, shard.Name())
+				require.NoError(t, concrete.migrationRecords.Put(NewMigrationRecordIterated(subject)))
+				idx.db.SetReindexUnitSeal(func() ReindexUnitSeal {
+					return func(distributedtask.TaskDescriptor, string) (func(), bool) { return nil, false }
+				})
+				return idx, shard.Name()
+			},
 			wantOutcome: CleanupSweepFailed,
 		},
 		{
@@ -95,6 +111,7 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 				summary[0].Level, wantLevel, summary[0].Message)
 			require.Contains(t, summary[0].Message, wantMsg,
 				"the operator has to read one wording for one outcome")
+			require.Contains(t, summary[0].Message, tc.wantAlso)
 		})
 	}
 }

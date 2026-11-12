@@ -242,6 +242,14 @@ func TestUnreachedShardsWordingFollowsThePhase(t *testing.T) {
 	}
 }
 
+// A submit's sweep withholds this shard's cleanup too, so cancel must not
+// promise that the next submit sweeps it.
+func TestCancelTellsThatNoSubmitCleansAWithheldShard(t *testing.T) {
+	got := sweepConsequence(sweepPhaseCancel, db.CleanupSweepWithheld)
+	require.NotEqual(t, sweepConsequence(sweepPhaseCancel, db.CleanupSweepUnknown), got)
+	require.Contains(t, got, "no submit cleans up this shard")
+}
+
 // A deleted collection has no next submit to retry cleanup, so cancel must
 // neither promise one nor claim a cleanup that never ran.
 func TestCancelCleanupOutcome(t *testing.T) {

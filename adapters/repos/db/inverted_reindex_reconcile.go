@@ -36,6 +36,9 @@ type migrationStagedBucketCloser interface {
 }
 
 type migrationReconcileDeps struct {
+	// Shard is this shard's name, mapped to the run's group by [distributedtask.Task.StatusEntryFor].
+	Shard string
+
 	LocalTasks func() ([]distributedtask.TaskStatusEntry, bool)
 
 	SealUnit func(distributedtask.TaskDescriptor, string) (func(), bool)
@@ -346,7 +349,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
-	statuses := migrationTaskStatuses(tasks)
+	statuses := migrationTaskStatuses(tasks, r.deps.Shard)
 	for _, rec := range r.store.Records() {
 		if ctx.Err() != nil {
 			return
@@ -558,7 +561,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	}
 
 	// Above clearForPromotion, not just above the rename: clearing deletes the canonical and displaced dirs.
-	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop, r.overridesSchema(rec)); swept {
 		return rec, false, why, nil
 	}
 
@@ -711,11 +714,39 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	})
 }
 
+// RedecideOverrides re-decides the records a load kept without the task list, returning those released.
+func (r *migrationReconciler) RedecideOverrides(ctx context.Context) []MigrationSubject {
+	if _, readable := r.localTasks(); !readable || !r.store.overridesUnsure.Swap(false) {
+		return nil
+	}
+	var released []MigrationSubject
+	failed := errorcompounder.New()
+	for _, rec := range r.store.Records() {
+		promoted, ok := rec.(MigrationRecordPromoted)
+		if !ok || r.overridesSchema(rec) {
+			continue
+		}
+		key := rec.Subject().Key
+		if err := r.reconcilePromoted(ctx, promoted, len(r.store.Unreadable()) > 0); err != nil {
+			failed.AddWrapf(err, "%s", key)
+		}
+		if _, kept := r.store.Get(key); !kept {
+			released = append(released, rec.Subject())
+		}
+	}
+	if err := failed.ToErrorLimited(maxReportedErrors); err != nil {
+		r.logger.WithField("migrations", failed.Len()).
+			Errorf("release %d migration(s) the schema answers for: %v", failed.Len(), err)
+	}
+	return released
+}
+
 func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec MigrationRecordPromoted) error {
 	subject := rec.Subject()
 	all := r.store.Records()
+	overrides := r.overridesSchema(rec)
 
-	withheld, err := r.repromoteWhatTheRecordOutran(ctx, all, subject)
+	withheld, err := r.repromoteWhatTheRecordOutran(ctx, all, subject, overrides)
 	if err != nil {
 		return err
 	}
@@ -737,7 +768,7 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 			"a promoted migration's collection is not in the schema, so nothing here can confirm its effect; keeping the record")
 		return nil
 	}
-	if effect, missing := migrationEffectStatus(class, subject); effect == migrationEffectPending {
+	if effect, missing := migrationEffectStatus(class, subject); effect == migrationEffectPending && overrides {
 		r.logger.WithField("record", subject.Key.String()).WithField("properties_pending", len(missing)).Warn(
 			"this shard promoted a migration whose effect is not in the schema; keeping the record, " +
 				"which is what answers for the property until the effect lands")
@@ -754,7 +785,7 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 }
 
 func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, all []MigrationRecord,
-	subject MigrationSubject,
+	subject MigrationSubject, overridesSchema bool,
 ) (withheld []string, err error) {
 	var ambiguous, repromoted []string
 	deferring := errorcompounder.New()
@@ -797,7 +828,7 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 			ambiguous = append(ambiguous, prop)
 			continue
 		}
-		if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+		if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop, overridesSchema); swept {
 			withheld = append(withheld, prop)
 			deferring.Addf("%s", why)
 			continue
@@ -829,6 +860,11 @@ func (r *migrationReconciler) localTasks() ([]distributedtask.TaskStatusEntry, b
 	return r.deps.LocalTasks()
 }
 
+func (r *migrationReconciler) overridesSchema(rec MigrationRecord) bool {
+	tasks, readable := r.localTasks()
+	return migrationOverridesSchema(rec, tasks, readable)
+}
+
 func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationVerdict, string) {
 	tasks, readable := r.localTasks()
 	if !readable {
@@ -843,7 +879,7 @@ func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []d
 		return migrationVerdictLeave, migrationTaskMapUnreadable
 	}
 	if task, found := findMigrationTask(subject, local); found {
-		return migrationVerdictForTask(task)
+		return r.verdictForTask(task)
 	}
 	return r.verdictFrom(subject, tasks, taskListIsComplete)
 }
@@ -878,7 +914,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 	completeness taskListCompleteness,
 ) (migrationVerdict, string) {
 	if task, found := findMigrationTask(subject, tasks); found {
-		return migrationVerdictForTask(task)
+		return r.verdictForTask(task)
 	}
 
 	class := r.deps.Class()
@@ -907,11 +943,14 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }
 
-func migrationVerdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
+func (r *migrationReconciler) verdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
 	switch task.Status {
 	case distributedtask.TaskStatusFinished:
 		return migrationVerdictCommit, "owning task finished"
 	case distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed:
+		if task.GroupDecided {
+			return migrationVerdictLeave, fmt.Sprintf("owning task (%s) decided this shard's swap, which the scheduler runs", task.Status)
+		}
 		return migrationVerdictDiscard, fmt.Sprintf("owning task %s", task.Status)
 	default:
 		// Active, or a status this build does not recognize.
@@ -928,11 +967,11 @@ func findMigrationTask(subject MigrationSubject, tasks []distributedtask.TaskSta
 	return distributedtask.TaskStatusEntry{}, false
 }
 
-func migrationTaskStatuses(tasks []*distributedtask.Task) []distributedtask.TaskStatusEntry {
+func migrationTaskStatuses(tasks []*distributedtask.Task, shard string) []distributedtask.TaskStatusEntry {
 	out := make([]distributedtask.TaskStatusEntry, 0, len(tasks))
 	for _, task := range tasks {
 		if task != nil {
-			out = append(out, task.StatusEntry())
+			out = append(out, task.StatusEntryFor(shard))
 		}
 	}
 	return out
@@ -948,14 +987,15 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 
 // Unlike the passes, returns what it could not discard: terminal cleanup reports it.
 func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
-	if len(r.store.Unreadable()) > 0 {
-		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
+	if unreadable := r.store.Unreadable(); len(unreadable) > 0 {
+		return &cleanupWithheldError{faults: unreadable}
 	}
-	verdict, why := migrationVerdictForTask(task.StatusEntry())
+	entry := task.StatusEntryFor(r.deps.Shard)
+	verdict, why := r.verdictForTask(entry)
 	if verdict != migrationVerdictDiscard {
 		return nil
 	}
-	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
+	tasks := []distributedtask.TaskStatusEntry{entry}
 	discarding := errorcompounder.New()
 	for _, rec := range r.store.Records() {
 		if err := ctx.Err(); err != nil {

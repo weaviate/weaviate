@@ -74,8 +74,7 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 			require.True(t, inFlight.FinishedAt.IsZero(),
 				"a task in %q must not carry a finish time", inFlight.Status)
 
-			// An hour, so the retention probe below has half an hour of
-			// margin on each side of the TTL boundary.
+			// Later than any earlier phase change, so a stamp taken then would differ.
 			h.clock.Advance(time.Hour)
 			wantFinishedAt := h.clock.Now()
 			tt.terminal(t, h, ns, id, version)
@@ -84,15 +83,6 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 			require.Equal(t, tt.wantStatus, got.Status)
 			require.Equal(t, wantFinishedAt.UnixMilli(), got.FinishedAt.UnixMilli(),
 				"FinishedAt must be the terminal moment, not an earlier phase change")
-
-			// Retention counts from the stamp above; a stamp taken when the
-			// units stopped instead would already read as expired here.
-			h.clock.Advance(h.completedTaskTTL - 30*time.Minute)
-			require.ErrorContains(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace: ns,
-				Id:        id,
-				Version:   version,
-			})), "too fresh")
 		})
 	}
 }

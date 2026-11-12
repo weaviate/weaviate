@@ -133,24 +133,22 @@ func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *provid
 // newTask creates a Task with sensible defaults (ID "test-task", Version 1,
 // ShardNoopProviderNamespace, TaskStatusStarted) and the given units.
 func (f *providerFixture) newTask(units map[string]*Unit) *Task {
-	return &Task{
+	return withUnits(&Task{
 		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
 		Namespace:      ShardNoopProviderNamespace,
 		Status:         TaskStatusStarted,
-		Units:          units,
-	}
+	}, units)
 }
 
 // newTaskWithPayload is like newTask but also marshals the given payload.
 func (f *providerFixture) newTaskWithPayload(payload ShardNoopProviderPayload, units map[string]*Unit) *Task {
 	raw, _ := json.Marshal(payload)
-	return &Task{
+	return withUnits(&Task{
 		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
 		Namespace:      ShardNoopProviderNamespace,
 		Status:         TaskStatusStarted,
 		Payload:        raw,
-		Units:          units,
-	}
+	}, units)
 }
 
 // startAndAwaitCompleted starts the task, waits until expectedCount units

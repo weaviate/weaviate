@@ -36,7 +36,7 @@ type stubMigrationTaskRaft struct {
 
 func (s *stubMigrationTaskRaft) FSMHasCaughtUp() bool { return s.caughtUp }
 
-func (s *stubMigrationTaskRaft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
+func (s *stubMigrationTaskRaft) LocalTaskStatuses(namespace, _ string) []distributedtask.TaskStatusEntry {
 	s.localReads++
 	return s.local[namespace]
 }
@@ -63,7 +63,7 @@ func reindexTasks(ids ...string) []*distributedtask.Task {
 func reindexTaskStatuses(ids ...string) []distributedtask.TaskStatusEntry {
 	var out []distributedtask.TaskStatusEntry
 	for _, task := range reindexTasks(ids...) {
-		out = append(out, task.StatusEntry())
+		out = append(out, task.StatusEntryFor(""))
 	}
 	return out
 }
@@ -109,7 +109,7 @@ func TestMigrationLocalTaskSourceWithholdsUntilTheFSMHasCaughtUp(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			raft := &stubMigrationTaskRaft{caughtUp: test.caughtUp, local: test.local}
 
-			tasks, known := newMigrationLocalTaskSource(raft)()
+			tasks, known := newMigrationLocalTaskSource(raft)("")
 
 			assert.Equal(t, test.wantKnown, known)
 			assert.Equal(t, test.wantTasks, tasks)

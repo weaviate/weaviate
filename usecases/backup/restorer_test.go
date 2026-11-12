@@ -185,6 +185,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 			{name: "uncompressed 1.0", version: "1.0", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "uncompressed 1", version: "1", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "flat file structure", version: metadata.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+			{name: "unreadable server version", version: metadata.Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -200,6 +201,21 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 				assert.Equal(t, time.Duration(0), resp.Timeout)
 			})
 		}
+	})
+
+	t.Run("RejectClassNameOutsideStagingDir", func(t *testing.T) {
+		crafted := metadata
+		crafted.Classes = []backup.ClassDescriptor{metadata.Classes[0]}
+		crafted.Classes[0].Name = "../../../../bin"
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(crafted), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &Request{
+			Method: OpRestore, ID: backupID, Backend: backendName, Duration: time.Millisecond * 20,
+		})
+		assert.Contains(t, resp.Err, "is not a valid class name")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {

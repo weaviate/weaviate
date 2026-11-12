@@ -55,10 +55,12 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 	fixtureLogger, _ := logrustest.NewNullLogger()
 
 	tests := []struct {
-		name     string
-		seed     func(t *testing.T, lsm string)
-		about    string
-		wantText []string
+		name  string
+		seed  func(t *testing.T, lsm string)
+		about string
+		// The count and the capped error list show one line per shard for every record.
+		migrations int
+		more       string
 	}{
 		{
 			name: "records recovery cannot build a task from",
@@ -70,8 +72,9 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 					require.NoError(t, NewMigrationRecordStore(lsm, fixtureLogger).Put(NewMigrationRecordMerged(subject)))
 				}
 			},
-			about:    "builds no reindex task",
-			wantText: []string{fmt.Sprintf("%d migration(s)", records), fmt.Sprintf("and %d more", records-maxReportedErrors)},
+			about:      "reindex recovery: the record of",
+			migrations: records,
+			more:       fmt.Sprintf("and %d more", records-maxReportedErrors),
 		},
 		{
 			name: "one record that cannot be read",
@@ -90,14 +93,15 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			store := NewMigrationRecordStore(lsm, logger)
 			require.NoError(t, store.Load())
-			recovered := NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(store, "tenant-00")
+			recovered := NewMigrationRecoveryReindexer(logger, nil, nil).recoverFromStore(store, "tenant-00")
 			require.Empty(t, recovered)
 
 			about := entriesAbout(hook, tt.about)
 			require.Len(t, about, 1, "one line for the shard: %v", linesOf(about))
 			require.Equal(t, logrus.WarnLevel, about[0].Level)
-			for _, want := range tt.wantText {
-				require.Contains(t, about[0].Message, want)
+			if tt.migrations > 0 {
+				require.Equal(t, tt.migrations, about[0].Data["migrations"])
+				require.Contains(t, about[0].Message, tt.more)
 			}
 		})
 	}
@@ -107,7 +111,7 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
 	const dropped = 5
 	logger, hook := logrustest.NewNullLogger()
-	recovery := NewMigrationRecoveryReindexer(true, logger, nil, nil)
+	recovery := NewMigrationRecoveryReindexer(logger, nil, nil)
 	recoverShard := func(seed func(lsm string)) {
 		lsm := filepath.Join(t.TempDir(), "books_abc", "tenant", "lsm")
 		seed(lsm)
@@ -130,7 +134,7 @@ func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
 		require.NoError(t, os.MkdirAll(lsm, 0o777))
 		require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
 	})
-	require.Len(t, entriesAbout(hook, "builds no reindex task"), 1, "another kind still reports")
+	require.Len(t, entriesAbout(hook, "reindex recovery: the record of"), 1, "another kind still reports")
 }
 
 // The apply's sweep summary must print: record_set_reads is where a

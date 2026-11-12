@@ -16,14 +16,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -42,34 +44,21 @@ type Manager struct {
 	tasks map[string]map[string]*Task // namespace -> taskID -> Task
 
 	// conflictDetectors is the per-namespace registry consulted by
-	// [Manager.AddTask] before appending a new task. nil-safe (and any
-	// missing namespace is also nil-safe): no detector → no extra
-	// rejection, behavior matches the pre-hook code.
-	//
-	// Set once at startup via [Manager.SetConflictDetectors]. Reading
-	// it during AddTask under m.mu is safe — the setter takes m.mu, so
-	// no concurrent read/write race.
+	// [Manager.AddTask] before appending a new task. A missing namespace
+	// adds no rejection.
 	conflictDetectors map[string]ConflictDetector
 
 	// schemaMutationDetectors is the per-namespace registry consulted
-	// by the schema FSM's UpdateProperty apply path (see
+	// by the schema FSM's mutation apply paths (see
 	// [SchemaMutationDetector] godoc for the motivating bug).
-	// nil-safe per the same convention as conflictDetectors.
-	//
-	// Set once at startup via
-	// [Manager.SetSchemaMutationDetectors]. The schema FSM consults
-	// these via [Manager.CheckPropertyUpdate]; reading under m.mu is
-	// safe — the setter takes m.mu.
 	schemaMutationDetectors map[string]SchemaMutationDetector
+
+	readOnlyClass func(collection string) *models.Class
 
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors   map[string]CollectionExtractor
 	targetVectorExtractors map[string]TargetVectorExtractor
-
-	completedTaskTTL time.Duration
-
-	clock clockwork.Clock
 
 	logger logrus.FieldLogger
 
@@ -82,33 +71,6 @@ type Manager struct {
 	// Manager's write lock to ensure every successful apply produces a
 	// wake-up that observers cannot miss.
 	notifier SchedulerNotifier
-}
-
-// SetConflictDetectors installs the per-namespace conflict-detection
-// hook called by [Manager.AddTask]. Safe to call once at startup after
-// both the Manager and the providers exist (see configure_api.go
-// wiring). Subsequent calls overwrite the previous registration.
-//
-// Pass nil to disable conflict checking (e.g. unit tests that exercise
-// AddTask in isolation).
-func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.conflictDetectors = detectors
-}
-
-// SetSchemaMutationDetectors installs the per-namespace registry
-// consulted by [Manager.CheckPropertyUpdate] from the schema FSM's
-// UpdateProperty apply path. Safe to call once at startup after both
-// the Manager and the providers exist (configure_api.go wiring).
-// Subsequent calls overwrite the previous registration.
-//
-// Pass nil to disable the schema-mutation guard (e.g. unit tests that
-// exercise schema applies in isolation).
-func (m *Manager) SetSchemaMutationDetectors(detectors map[string]SchemaMutationDetector) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.schemaMutationDetectors = detectors
 }
 
 // CheckPropertyUpdate consults every registered
@@ -130,6 +92,20 @@ func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
 	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckPropertyUpdate(className, propertyName, existing)
 	})
+}
+
+func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, run api.MigrationRun) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	gate, ok := m.schemaMutationDetectors[run.Namespace].(CutoverOutcome)
+	if !ok {
+		return nil
+	}
+	task := m.tasks[run.Namespace][run.ID]
+	if task != nil && task.Version != run.Version {
+		task = nil
+	}
+	return gate.CheckMigrationPropertyUpdate(className, propertyName, task)
 }
 
 // CheckClassMutation consults every registered
@@ -233,26 +209,26 @@ func (m *Manager) notifySchedulerWithLock() {
 }
 
 type ManagerParameters struct {
-	Clock clockwork.Clock
-
-	CompletedTaskTTL time.Duration
-
 	Logger logrus.FieldLogger
+
+	// ConflictDetectors and SchemaMutationDetectors decide which applies the
+	// Manager refuses. They are set only here, before RAFT replay starts, so a
+	// replayed entry gets the verdict this build gives it live.
+	ConflictDetectors       map[string]ConflictDetector
+	SchemaMutationDetectors map[string]SchemaMutationDetector
+	ReadOnlyClass           func(collection string) *models.Class
 }
 
 func NewManager(params ManagerParameters) *Manager {
-	if params.Clock == nil {
-		params.Clock = clockwork.NewRealClock()
-	}
-
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
 		collectionExtractors:   make(map[string]CollectionExtractor),
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
-		completedTaskTTL: params.CompletedTaskTTL,
+		conflictDetectors:       params.ConflictDetectors,
+		schemaMutationDetectors: params.SchemaMutationDetectors,
+		readOnlyClass:           params.ReadOnlyClass,
 
-		clock:  params.Clock,
 		logger: params.Logger,
 	}
 }
@@ -308,9 +284,7 @@ var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targe
 // inheritance — the caller must refuse the marker introduction and let the
 // client retry once the task settles. NOTE: SWAPPING normally lasts
 // milliseconds, but a node that dies before delivering its post-completion
-// ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
-// accepts only STARTED, the TTL pruner skips active tasks) — until that is
-// operable, only DeleteClass clears such a wedge.
+// ack holds SWAPPING until it acks.
 //
 // Overlap semantics: a record is purged WHOLE when ANY of its target vectors
 // overlaps `targets` — records are atomic, so a multi-target record's
@@ -408,6 +382,21 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
+func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for namespace := range m.collectionExtractors {
+		for _, task := range m.tasks[namespace] {
+			if task.Status.IsActive() || !task.NeedsPreparationBarrier ||
+				!strings.EqualFold(task.collection, collection) {
+				continue
+			}
+			task.forgetGroups(groups)
+		}
+	}
+}
+
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
 	extractor := m.collectionExtractor(namespace)
 	if extractor == nil {
@@ -460,8 +449,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		}
 	}
 
-	// Cluster-wide conflict check: if a provider registered a
-	// [ConflictDetector] for this namespace, give it the chance to
+	// Cluster-wide conflict check: if [ManagerParameters.ConflictDetectors]
+	// holds a [ConflictDetector] for this namespace, give it the chance to
 	// reject the new task based on the FSM-stored task list. This
 	// closes the multi-node parallel-submit race the REST handler's
 	// per-node submit lock cannot cover (#10675 family,
@@ -510,6 +499,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	} else {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
+	newTask.IndexGroups()
 
 	m.cacheCollectionWithLock(newTask)
 	m.setTaskWithLock(newTask)
@@ -530,8 +520,8 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 		return nil, nil, errTaskNotRunning(namespace, taskID, task.Version)
 	}
 
-	u, ok := task.Units[unitID]
-	if !ok {
+	u := task.Units[unitID]
+	if u == nil {
 		// "unit ... does not exist" → ErrTaskDoesNotExist is the closest
 		// existing sentinel; both phrases use the "does not exist"
 		// substring and are classified as the same permanent state.
@@ -629,6 +619,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
 // late acks against terminal states are silently dropped.
+// A barrier task's ack pays a swap debt instead.
 func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -644,6 +635,11 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
 		return err
+	}
+	if task.NeedsPreparationBarrier {
+		recordSwapAck(task, &r)
+		m.notifySchedulerWithLock()
+		return nil
 	}
 
 	switch task.Status {
@@ -675,11 +671,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
-		if task.Error != "" {
-			task.Error = task.Error + "; " + ackErr
-		} else {
-			task.Error = ackErr
-		}
+		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
 	}
 
@@ -687,36 +679,49 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	return nil
 }
 
-// RecordPreparationCompleteAck records one node's PREP-phase ack on the task.
-// Gates PREPARING → SWAPPING on every expected ack landing successfully;
-// any Success=false flips the task to FAILED, holding the barrier so no
-// node proceeds to the atomic swap. Idempotent: first ack per (task,
-// node) wins; late acks against terminal states are silently dropped.
-//
-// Specifically:
-//
-//   - Ack arrives for an idempotently-already-acked (task, node): no-op,
-//     the first ack wins.
-//   - Ack arrives for a task no longer in a state that can use it
-//     (FAILED / FINISHED / CANCELLED, or SWAPPING/FINISHED after the
-//     barrier has already lifted): no-op.
-//   - Ack with Success==false arrives while the task is PREPARING:
-//     records the ack AND transitions the task to FAILED.
-//   - Ack with Success==true arrives while the task is STARTED or
-//     PREPARING: records the ack. If every expected node (i.e. every
-//     node that owns at least one local unit on this task) has now
-//     ack'd with Success=true, transitions the task PREPARING →
-//     SWAPPING. The scheduler tick on each node observes SWAPPING and
-//     fires the per-node atomic swap (OnSwapRequested).
-//
-// Idempotent: every node's scheduler may re-fire this on tick / wake
-// retries until the apply commits. The first ack per (task, node)
-// sticks; later acks for the same node are silently discarded.
-//
-// FSM-determinism: the PREPARING → SWAPPING transition is computed
-// purely from the task's Units → NodeID map (which is RAFT-replicated
-// and identical on every node) plus the PreparationCompletionAcks state — so
-// every node's Manager arrives at the transition on the same apply.
+func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequest) {
+	if r.Success {
+		task.paySwap(r.GroupId, r.NodeId)
+		return
+	}
+	if task.Status != TaskStatusSwapping {
+		return
+	}
+	ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
+	if r.GroupId != "" {
+		ackErr = fmt.Sprintf("post-completion swap failed on node %s for group %q: %s", r.NodeId, r.GroupId, r.Error)
+	}
+	task.appendError(ackErr)
+	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.AckedAtUnixMillis))
+}
+
+func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparationCompleteAckRequest) {
+	if _, present := task.NodePreparationAcks[r.NodeId]; present {
+		return
+	}
+	if task.NodePreparationAcks == nil {
+		task.NodePreparationAcks = map[string]PostCompletionAck{}
+	}
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
+	task.NodePreparationAcks[r.NodeId] = PostCompletionAck{Success: r.Success, Error: r.Error, AckedAt: ackedAt}
+	if task.Status != TaskStatusPreparing {
+		return
+	}
+	if !r.Success {
+		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
+		task.appendError(ackErr)
+		task.markTerminal(TaskStatusFailed, ackedAt)
+		return
+	}
+	for _, u := range task.Units {
+		if ack, ok := task.NodePreparationAcks[u.NodeID]; u.NodeID != "" && (!ok || !ack.Success) {
+			return
+		}
+	}
+	task.Status = TaskStatusSwapping
+}
+
+// RecordPreparationCompleteAck decides a group's swap for good once every owning node acked success.
 func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -736,75 +741,61 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled, TaskStatusSwapping:
-		// Past the barrier — silently drop the late ack.
 		return nil
 	case TaskStatusStarted, TaskStatusPreparing:
-		// STARTED accepted defensively to absorb the AllUnitsTerminal-vs-
-		// PrepAck emission race.
 	default:
 		return wrapPermanent(ErrTaskNotInFinalizingState,
 			fmt.Sprintf("task %s/%s/%d cannot record prep-complete ack from status %s",
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	if task.PreparationCompletionAcks == nil {
-		task.PreparationCompletionAcks = map[string]PostCompletionAck{}
+	if r.GroupId == nil {
+		recordNodePreparationAck(task, &r)
+		m.notifySchedulerWithLock()
+		return nil
 	}
-	if _, present := task.PreparationCompletionAcks[r.NodeId]; present {
-		// Idempotent: the first ack per (task, node) wins.
+
+	group := *r.GroupId
+	expected := task.groupNodes(group)
+	if task.GroupSwapDecided(group) || !task.AllGroupUnitsTerminal(group) {
+		return nil
+	}
+	if !slices.Contains(expected, r.NodeId) {
+		return nil
+	}
+	acks := task.PreparedGroups[group]
+	if _, present := acks[r.NodeId]; present {
 		return nil
 	}
 
 	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
-	task.PreparationCompletionAcks[r.NodeId] = PostCompletionAck{
-		Success: r.Success,
-		Error:   r.Error,
-		AckedAt: ackedAt,
-	}
-
-	// Failure path: the task fails immediately. No node proceeds to the
-	// atomic swap.
-	if !r.Success && task.Status == TaskStatusPreparing {
-		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
-		if task.Error != "" {
-			task.Error = task.Error + "; " + ackErr
-		} else {
-			task.Error = ackErr
-		}
+	if !r.Success {
+		ackErr := fmt.Sprintf("prep failed on node %s for group %q: %s", r.NodeId, group, r.Error)
+		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	// Success path: if every expected ack has landed successfully,
-	// transition PREPARING → SWAPPING. This is the moment the barrier
-	// lifts cluster-wide.
-	if r.Success && task.Status == TaskStatusPreparing && allExpectedPreparationAcksLanded(task) {
-		task.Status = TaskStatusSwapping
+	if task.PreparedGroups == nil {
+		task.PreparedGroups = map[string]map[string]PostCompletionAck{}
+	}
+	// Clones share inner maps and encode them without the lock, so replace, never edit.
+	acks = maps.Clone(acks)
+	if acks == nil {
+		acks = map[string]PostCompletionAck{}
+	}
+	acks[r.NodeId] = PostCompletionAck{Success: true, AckedAt: ackedAt}
+	task.PreparedGroups[group] = acks
+	if len(acks) == len(expected) {
+		task.decideSwap(group, ackedAt)
+		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
+			task.Status = TaskStatusSwapping
+		}
 	}
 
 	m.notifySchedulerWithLock()
 	return nil
-}
-
-// allExpectedPreparationAcksLanded returns true iff every node owning at least
-// one unit on the task has recorded a successful PrepCompletionAck. Pure
-// transform; caller holds [Manager.mu]. By the time the task is in
-// PREPARING, every unit is terminal so the expected set is fully known.
-func allExpectedPreparationAcksLanded(task *Task) bool {
-	expected := map[string]struct{}{}
-	for _, u := range task.Units {
-		if u.NodeID != "" {
-			expected[u.NodeID] = struct{}{}
-		}
-	}
-	for node := range expected {
-		ack, ok := task.PreparationCompletionAcks[node]
-		if !ok || !ack.Success {
-			return false
-		}
-	}
-	return true
 }
 
 // MarkTaskFinalized transitions a task from SWAPPING to FINISHED. It
@@ -855,6 +846,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // [UnitAwareProvider.OnTaskCompleted] returns a terminal error, so a
 // swallowed cutover failure can't leave the task FINISHED with an
 // un-flipped schema (weaviate/0-weaviate-issues#297).
+// It records FINISHED instead when [CutoverOutcome.CutoverLanded] reports the write landed.
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
@@ -886,12 +878,13 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
+	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
+		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
+		m.notifySchedulerWithLock()
+		return nil
+	}
 	if r.Error != "" {
-		if task.Error != "" {
-			task.Error = task.Error + "; " + r.Error
-		} else {
-			task.Error = r.Error
-		}
+		task.appendError(r.Error)
 	}
 	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.FailedAtUnixMillis))
 	m.notifySchedulerWithLock()
@@ -962,9 +955,8 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
-// CancelTask transitions a STARTED task to CANCELLED and refuses every other status,
-// including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
-// are not waited for — the [Scheduler] will terminate their local handles on the next tick.
+// CancelTask moves a STARTED or PREPARING task to CANCELLED and refuses every other status
+// (see [TaskStatus.IsCancellable]). Decided groups keep their swap; SWAPPING answers [ErrNothingLeftToCancel].
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -979,6 +971,10 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
+	if task.Status == TaskStatusSwapping {
+		return wrapPermanent(ErrNothingLeftToCancel,
+			fmt.Sprintf("task %s/%s/%d is SWAPPING and finishes on its own", r.Namespace, r.Id, task.Version))
+	}
 	// Follower apply errors are discarded, so two binaries disagreeing on
 	// what may be cancelled would diverge here silently.
 	if !task.Status.IsCancellable() {
@@ -991,9 +987,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 }
 
 // CleanUpTask removes a task from the Manager's state. It refuses a task that is both
-// [TaskStatus.IsActive] and [TaskStatus.IsRecognized], and a task whose completedTaskTTL
-// has not yet elapsed, preventing premature removal of status information that other
-// nodes may still need to observe.
+// [TaskStatus.IsActive] and [TaskStatus.IsRecognized]. The TTL is judged by the proposing sweep.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1008,16 +1002,8 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Without this guard an in-flight task — never FinishedAt-stamped — would
-	// read as long expired by the check below. An unrecognized status is let
-	// through deliberately: the TTL sweep is the sole proposer and reads the
-	// leader's view, so a clean-up for it means the cluster already calls it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
-	}
-
-	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
-		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)
@@ -1060,14 +1046,14 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 
 // LocalTaskStatuses copies no units: a decider can read once per record, under
 // the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
-func (m *Manager) LocalTaskStatuses(namespace string) []TaskStatusEntry {
+func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	tasks := m.tasks[namespace]
 	out := make([]TaskStatusEntry, 0, len(tasks))
 	for _, task := range tasks {
-		out = append(out, task.StatusEntry())
+		out = append(out, task.StatusEntryFor(shard))
 	}
 	return out
 }
@@ -1146,6 +1132,21 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 	return json.Marshal(&ListDistributedTasksResponse{
 		Tasks: tasks,
 	})
+}
+
+func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
+	var response ListDistributedTasksResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for namespace, list := range response.Tasks {
+		for _, task := range list {
+			task.shareGroups(m.tasks[namespace][task.ID])
+		}
+	}
+	return response.Tasks, nil
 }
 
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
@@ -1232,6 +1233,7 @@ func (m *Manager) Restore(bytes []byte) error {
 				task.FinishedAt = time.Time{}
 			}
 
+			task.IndexGroups()
 			m.cacheCollectionWithLock(task)
 			m.tasks[namespace][task.ID] = task
 		}

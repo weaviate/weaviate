@@ -125,14 +125,9 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 
 	// Check if user can manage roles with matching permissions
 	if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_MATCH), authorization.Roles(roleName)...); err == nil {
-		// Verify user has all permissions they're trying to grant
-		var errs error
-		for _, policy := range policies {
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-		return errs
+		// Verify user has all permissions they're trying to grant. The policies
+		// are in stored form already, so nothing is projected.
+		return rolevisibility.AuthorizePolicies(ctx, h.authorizer, principal, "", policies)
 	}
 
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
@@ -276,37 +271,10 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 
 // authorizeAssignRolePermissions blocks privilege escalation via role
 // assignment: the caller must already hold every permission the assigned roles
-// grant, else assign_and_revoke_users alone could be used to grant admin. For a
-// namespaced caller each permission is projected into the assignee's namespace
-// before the check, so a global template role is evaluated as it applies to the
-// assignee rather than against its raw unqualified resource strings.
+// grant, else assign_and_revoke_users alone could be used to grant admin.
 func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
-	namespaced := rolevisibility.CallerConfined(h.namespacesEnabled, principal)
-	var errs error
-	for _, policies := range roles {
-		for _, policy := range policies {
-			// GetRoles returns this placeholder for permission-less roles; it grants nothing.
-			if policy.Resource == conv.InternalPlaceHolder {
-				continue
-			}
-			resource := policy.Resource
-			if namespaced {
-				projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
-				if err != nil {
-					// A role bound elsewhere can't be granted here; deny without
-					// echoing the foreign resource back to the caller.
-					errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
-					continue
-				}
-				resource = projected
-			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-	}
-	if errs != nil {
-		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", errs)
+	if err := rolevisibility.AuthorizeRolePermissions(ctx, h.authorizer, h.namespacesEnabled, principal, targetNamespace, roles); err != nil {
+		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", err)
 	}
 	return nil
 }

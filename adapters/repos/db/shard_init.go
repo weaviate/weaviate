@@ -51,10 +51,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
-		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
-	}
-
 	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
 		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
 	}
@@ -162,6 +158,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// opened at a name it is about to move would serve the wrong data.
 	s.finalizeLegacyMigrations(class)
 	recovered := s.reconcileMigrationRecords(ctx, class)
+	s.restoreMigratedOverlays(class, reindexer.UnbuildableFaults())
+
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
+		index.path(), shardName, class, s.migratedIndexStands); err != nil {
+		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
+	}
 
 	markInFlightRangeableMigrationsNotReady(s)
 
@@ -196,7 +198,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
-	// A caller giving up must not stamp a healthy migration for good.
+	// This ignores ctx's cancellation because a lazy load's client can disconnect mid-load.
+	// Otherwise OnAfterLsmInit fails on the cancelled ctx, and AbandonUnarmed marks the
+	// migration Unmirrored, so it is never swapped in and has to be resubmitted.
 	if unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(ctx), recovered); err != nil {
 		s.holdReadOnlyForUnarmed(unarmed, err)
 	}

@@ -355,7 +355,7 @@ func NewReplicateConflict() *ReplicateConflict {
 /*
 ReplicateConflict describes a response with status code 409, with default header values.
 
-The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.
+The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection.
 */
 type ReplicateConflict struct {
 	Payload *models.ErrorResponse

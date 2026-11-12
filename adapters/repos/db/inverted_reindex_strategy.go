@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -129,6 +130,7 @@ func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.Propert
 func applyPerPropertySchemaUpdate(
 	ctx context.Context,
 	mgr *schema.Manager,
+	run api.MigrationRun,
 	className string,
 	propNames []string,
 	fields []string,
@@ -158,13 +160,7 @@ func applyPerPropertySchemaUpdate(
 		if !mutate(&updated) {
 			continue
 		}
-		// Route through the migration-aware path so the
-		// FromInFlightMigration flag is set on the resulting RAFT
-		// command. Without this flag the schema FSM's MutationGuard
-		// would reject this update because the in-flight reindex task
-		// is in STARTED/FINALIZING — the very guard the migration
-		// completion depends on bypassing.
-		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, &updated, fields...); err != nil {
+		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, run, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}
 	}

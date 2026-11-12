@@ -163,8 +163,7 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 	// Build a manager and ingest two pre-existing tasks: one in
 	// namespace "ns-shared" and one in namespace "ns-orphan".
 	preRestore := NewManager(ManagerParameters{
-		CompletedTaskTTL: 24 * time.Hour,
-		Logger:           nullLogger,
+		Logger: nullLogger,
 	})
 	structuralInvariantSeedTask(t, preRestore, "ns-shared", "pre-existing-task", []byte("pre"), now, 1)
 	structuralInvariantSeedTask(t, preRestore, "ns-orphan", "orphan-task", []byte("orph"), now, 2)
@@ -173,8 +172,7 @@ func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) 
 	// DIFFERENT task in "ns-shared" (different ID, so a merge would
 	// keep both) and nothing in "ns-orphan".
 	snapshotSource := NewManager(ManagerParameters{
-		CompletedTaskTTL: 24 * time.Hour,
-		Logger:           nullLogger,
+		Logger: nullLogger,
 	})
 	structuralInvariantSeedTask(t, snapshotSource, "ns-shared", "snapshot-task", []byte("snap"), now, 3)
 
@@ -227,7 +225,7 @@ func structuralInvariantSeedTask(
 	if _, ok := m.tasks[namespace]; !ok {
 		m.tasks[namespace] = map[string]*Task{}
 	}
-	m.tasks[namespace][id] = &Task{
+	m.tasks[namespace][id] = withUnits(&Task{
 		Namespace: namespace,
 		TaskDescriptor: TaskDescriptor{
 			ID:      id,
@@ -236,10 +234,9 @@ func structuralInvariantSeedTask(
 		Payload:   payload,
 		Status:    TaskStatusStarted,
 		StartedAt: now,
-		Units: map[string]*Unit{
-			"u-1": {ID: "u-1", Status: UnitStatusPending},
-		},
-	}
+	}, map[string]*Unit{
+		"u-1": {ID: "u-1", Status: UnitStatusPending},
+	})
 }
 
 // TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer pins the fact

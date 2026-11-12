@@ -16,9 +16,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,9 +68,6 @@ type ReindexProvider struct {
 	localNode     string
 	concurrency   func() int
 
-	// taskLister backs shouldDeferBlockmaxFlip's flip decision with
-	// cluster-consistent state instead of node-local shard buckets.
-	// cluster.Raft satisfies it.
 	taskLister distributedtask.TaskLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
@@ -91,18 +90,11 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
-	// A load after a task ended must not cache it again. Guarded by [mu].
+	// A load after a task ended in this process does not cache it again. A restart empties it. Guarded by [mu].
 	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
-	// activeWorkers tracks units that currently have a per-unit goroutine
-	// inside processOneUnit's iteration body. The re-entry guard reads
-	// this (not the reindexTasks cache) so post-restart recovery — which
-	// seeds reindexTasks via [SeedReindexTaskCache] for OnGroupCompleted's
-	// callback preservation — does NOT short-circuit the resumed unit.
-	// weaviate/0-weaviate-issues#239 Mode 2.
-	//
-	// Guarded by [mu]. Set after the guard, cleared from a defer so any
-	// return path (failure, context.Canceled, panic) releases the slot.
+	// activeWorkers tracks units with a live worker goroutine. The re-entry guard
+	// reads this, not the reindexTasks cache, which a shard load seeds. Guarded by [mu].
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
 	// liveUnits counts this node's workers per (task, unit), guarded by [mu]. A count, not a flag: two can hold one unit.
@@ -110,6 +102,10 @@ type ReindexProvider struct {
 
 	teardownHeldOnce sync.Once
 	teardownHeld     *logrusext.Sampler
+	swapFailedOnce   sync.Once
+	swapFailed       *logrusext.Sampler
+	swapRetryOnce    sync.Once
+	swapRetry        *logrusext.Sampler
 
 	// sealedUnits/sealedTasks count teardowns, guarded by [mu]. A seal, not a [liveUnits] read, which is stale on return.
 	sealedUnits unitClaims
@@ -220,15 +216,9 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 	p.recorder = recorder
 }
 
-// SeedReindexTaskCache pre-populates the per-descriptor task cache with
-// instances recovered as shards load (see [MigrationRecoveryReindexer]). The
-// purpose is to make OnGroupCompleted reuse the recovered instances —
-// whose double-write callbacks were re-registered during shard init —
-// rather than fall through to the rehydrate branch and call
-// OnAfterLsmInit a second time (which would attempt to load already
-// loaded ingest buckets).
-//
-// Safe to call concurrently with StartTask: both write under p.mu, and seeding fills only empty entries.
+// SeedReindexTaskCache caches the tasks a shard load recovered, so OnGroupCompleted and OnSwapRequested
+// reuse their armed instances instead of rehydrating new ones. It fills only a unit with no cached tasks
+// and skips a task in endedTasks.
 func (p *ReindexProvider) SeedReindexTaskCache(
 	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
 ) {
@@ -253,7 +243,15 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 }
 
 func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
-	return nil
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	descs := slices.Collect(maps.Keys(p.payloads))
+	for desc := range p.reindexTasks {
+		if _, ok := p.payloads[desc]; !ok {
+			descs = append(descs, desc)
+		}
+	}
+	return descs
 }
 
 // Lock-coupled getters/setters for the in-memory caches keyed by
@@ -286,6 +284,12 @@ func (p *ReindexProvider) cachedPayload(desc distributedtask.TaskDescriptor) *Re
 	return p.payloads[desc]
 }
 
+func (p *ReindexProvider) cachePayload(desc distributedtask.TaskDescriptor, payload *ReindexTaskPayload) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.payloads[desc] = payload
+}
+
 func (p *ReindexProvider) cachedReindexTasks(desc distributedtask.TaskDescriptor, unitID string) []*ShardReindexTaskGeneric {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -307,12 +311,14 @@ func (p *ReindexProvider) evictReindexTasks(desc distributedtask.TaskDescriptor,
 	delete(p.reindexTasks[desc], unitID)
 }
 
-func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor) {
+func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor, ended bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.payloads, desc)
 	delete(p.reindexTasks, desc)
-	p.endedTasks[desc] = struct{}{}
+	if ended {
+		p.endedTasks[desc] = struct{}{}
+	}
 }
 
 // claimActiveWorker reserves the (desc, unitID) slot in activeWorkers.
@@ -418,6 +424,20 @@ func (p *ReindexProvider) teardownHeldSampler() *logrusext.Sampler {
 	return p.teardownHeld
 }
 
+func (p *ReindexProvider) swapFailedSampler() *logrusext.Sampler {
+	p.swapFailedOnce.Do(func() {
+		p.swapFailed = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
+	})
+	return p.swapFailed
+}
+
+func (p *ReindexProvider) swapRetrySampler() *logrusext.Sampler {
+	p.swapRetryOnce.Do(func() {
+		p.swapRetry = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
+	})
+	return p.swapRetry
+}
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -427,7 +447,8 @@ func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescripto
 	}
 }
 
-func (p *ReindexProvider) CleanupTask(_ distributedtask.TaskDescriptor) error {
+func (p *ReindexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
+	p.clearTaskCaches(desc, true)
 	return nil
 }
 
@@ -550,12 +571,12 @@ func (p *ReindexProvider) processOneUnit(
 	// A rerun swap deletes the canonical directory, which an unreadable record
 	// may still need: it could hold writes the staged copy never saw.
 	if store := concreteShard.migrationRecordStore(); store != nil {
-		if fault := unreadableRecordFault(unitID, store); fault != "" {
+		if fault := unreadableRecordFault(store); fault != "" {
 			p.failUnit(ctx, task, unitID, recorder, fault)
 			return
 		}
 	}
-	// A held shard's unit is not failed, so the next tick relaunches it.
+	// A held shard's unit is not failed, so the scheduler relaunches the task once its other local units end.
 	if p.unitWaitsOnHold(concreteShard, task.ID, unitID) {
 		return
 	}
@@ -584,24 +605,8 @@ func (p *ReindexProvider) processOneUnit(
 	// For format-only migrations, RunOnShard runs the full lifecycle per shard.
 	semantic := IsSemanticMigration(payload.MigrationType)
 
-	// Re-entry guard. The DTM scheduler can relaunch our task handle a
-	// few tens of ms after the previous handle's per-unit goroutines
-	// finished — wg.Wait() returns once recordUnitCompletion is called
-	// from the worker, but the RAFT apply that flips the unit to
-	// Completed (and lets the scheduler skip the relaunch) races the
-	// next scheduler tick. We've observed the two "starting unit" logs
-	// ~70ms apart on the same unit in CI (acceptance large
-	// reindex-multinode-aj, MultiRoundRobin round 1).
-	//
-	// Guard signal is `activeWorkers` (per-unit "a goroutine is inside
-	// the iteration body right now"), NOT the `reindexTasks` cache.
-	// weaviate/0-weaviate-issues#239 Mode 2: post-restart recovery
-	// seeds `reindexTasks` so OnGroupCompleted can reuse the in-flight
-	// task instances with their registered double-write callbacks —
-	// using the cache as the guard signal trapped the resumed unit
-	// forever after a leader restart (the QA c01-leader-postfix repro
-	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
-	// failure both surfaced this).
+	// Re-entry guard: the scheduler can relaunch a unit before the RAFT apply
+	// marking it Completed lands.
 	if semantic {
 		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
 			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
@@ -610,10 +615,6 @@ func (p *ReindexProvider) processOneUnit(
 		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
 
-	// Use cached task instances when present. Two populating paths land
-	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
-	// resume; (b) the FSM-lag re-entry case, where the cached instances
-	// still carry the registered double-write callbacks.
 	var (
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
@@ -680,9 +681,6 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
-	// On the cached-tasks path (post-restart recovery or FSM-lag re-entry)
-	// we already have these instances in the map; only write on the
-	// fresh-tasks path.
 	if semantic && !cached {
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}
@@ -906,6 +904,7 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 	if err := json.Unmarshal(task.Payload, &pl); err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
+	p.cachePayload(task.TaskDescriptor, &pl)
 	return &pl, nil
 }
 
@@ -1070,8 +1069,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	shardName := payload.UnitToShard[unitID]
 	resolvedShard, err := lookupShardByName(idx, shardName)
 	if err != nil {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Errorf("reindex provider: resolveUnitForPhase: shard lookup failed: %v", err)
 		return phaseUnitResolution{
 			Errs: []string{fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err)},
 		}
@@ -1079,15 +1076,13 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 	concreteShard, unwrapErr := unwrapShard(ctx, resolvedShard)
 	if unwrapErr != nil {
-		logger.WithField("unit", unitID).
-			Errorf("reindex provider: resolveUnitForPhase: unwrap shard for rehydrate: %v", unwrapErr)
 		return phaseUnitResolution{
 			Errs:      []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)},
 			Transient: errors.Is(unwrapErr, context.Canceled),
 		}
 	}
 	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
-		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
+		return p.resolveCachedUnit(resolvedShard, concreteShard, unitID, cached)
 	}
 	store := concreteShard.migrationRecordStore()
 	if store == nil {
@@ -1097,28 +1092,22 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 	// Get reads only decoded records, so an unreadable one would read as a
 	// migration already finalized, and the schema would flip over an unrebuilt bucket.
-	if fault := unreadableRecordFault(unitID, store); fault != "" {
-		logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
-		return phaseUnitResolution{Errs: []string{fault}}
+	if fault := unreadableRecordFault(store); fault != "" {
+		return phaseUnitResolution{Errs: []string{fmt.Sprintf("unit %s: %s", unitID, fault)}}
 	}
 	built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 	if err != nil {
-		logger.WithField("unit", unitID).
-			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
 		return phaseUnitResolution{
 			Errs:      []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)},
 			Transient: errors.Is(err, context.Canceled),
 		}
 	}
-	var fresh []*ShardReindexTaskGeneric
-	for _, t := range built {
-		if _, ok := store.Get(t.migrationRecordKey()); ok {
-			fresh = append(fresh, t)
-		}
-	}
+	fresh := tasksWithRecord(built, store)
 	if len(fresh) == 0 {
-		logger.WithField("unit", unitID).
-			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
+		p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("unit", unitID).
+				Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (migration already finalized); skipping")
+		})
 		return phaseUnitResolution{Skip: true}
 	}
 
@@ -1127,20 +1116,58 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	p.cacheReindexTasks(task.TaskDescriptor, unitID, fresh)
 
 	logger.WithField("unit", unitID).
-		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
+		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (no cached tasks for this unit, e.g. after a node restart); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
+}
+
+func (p *ReindexProvider) resolveCachedUnit(resolvedShard ShardLike, concreteShard *Shard,
+	unitID string, cached []*ShardReindexTaskGeneric,
+) phaseUnitResolution {
+	store := concreteShard.migrationRecordStore()
+	if store == nil || len(tasksWithRecord(cached, store)) > 0 {
+		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
+	}
+	if fault := unreadableRecordFault(store); fault != "" {
+		return phaseUnitResolution{Errs: []string{fmt.Sprintf("unit %s: %s", unitID, fault)}}
+	}
+	p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+		l.WithField("unit", unitID).
+			Info("reindex provider: resolveUnitForPhase: this unit's migration records are gone; skipping")
+	})
+	return phaseUnitResolution{Skip: true}
+}
+
+func tasksWithRecord(tasks []*ShardReindexTaskGeneric, store *MigrationRecordStore) []*ShardReindexTaskGeneric {
+	var out []*ShardReindexTaskGeneric
+	for _, t := range tasks {
+		if _, ok := store.Get(t.migrationRecordKey()); ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
 // migration record on its shard is readable.
-func unreadableRecordFault(unitID string, store *MigrationRecordStore) string {
+func unreadableRecordFault(store *MigrationRecordStore) string {
 	unreadable := store.Unreadable()
 	if len(unreadable) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("unit %s: migration record %q could not be read, so whether this unit "+
-		"is still in flight is unknown: %s", unitID, unreadable[0].FileName, unreadable[0].Reason)
+	names := make([]string, 0, maxNamedUnreadableRecords+1)
+	for _, u := range unreadable[:min(len(unreadable), maxNamedUnreadableRecords)] {
+		names = append(names, strconv.Quote(u.FileName))
+	}
+	if more := len(unreadable) - maxNamedUnreadableRecords; more > 0 {
+		names = append(names, fmt.Sprintf("(and %d more)", more))
+	}
+	return fmt.Sprintf("%d migration record fault(s) on this shard (%s), so whether this unit is "+
+		"still in flight is unknown and it is refused. Fix them and restart the node (or deactivate "+
+		"and reactivate the tenant) before migrating it again; first reason: %s",
+		len(unreadable), strings.Join(names, ", "), unreadable[0].Reason)
 }
+
+const maxNamedUnreadableRecords = 5
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
 func (p *ReindexProvider) runShardPrepPhase(
@@ -1187,6 +1214,9 @@ func (p *ReindexProvider) runShardSwapPhase(
 	unitTasks []*ShardReindexTaskGeneric,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
+	for _, reindexTask := range unitTasks {
+		reindexTask.swapPhaseRan.Store(true)
+	}
 	// Swapping a sibling of a refused half would leave the migration half-applied on this shard.
 	for _, reindexTask := range unitTasks {
 		rec, ok := reindexTask.migrationRecord(shard)
@@ -1198,12 +1228,10 @@ func (p *ReindexProvider) runShardSwapPhase(
 		}
 	}
 	if len(out.Errs) > 0 {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Errorf("reindex provider: shard swap refused for every task of the unit: %s", strings.Join(out.Errs, "; "))
 		return out
 	}
 
-	allSwapped := true
+	allSwapped, newlySwapped := true, false
 
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
@@ -1218,23 +1246,31 @@ func (p *ReindexProvider) runShardSwapPhase(
 	maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
 	for _, reindexTask := range unitTasks {
-		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
-			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				Errorf("reindex provider: shard swap — swap failed; migration is half-applied on this shard: %v", err)
+		if err := reindexTask.runSwapOnShard(ctx, shard, reindexTask.swapLogger(p.swapRetrySampler())); err != nil {
+			p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+				l.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+					Errorf("reindex provider: shard swap — swap failed on this shard: %v", err)
+			})
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				out.Transient = true
 			}
 			allSwapped = false
+			continue
 		}
+		newlySwapped = !reindexTask.swapSucceeded.Swap(true) || newlySwapped
 	}
 
 	if allSwapped {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Info("reindex provider: swap complete")
+		if newlySwapped {
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Info("reindex provider: swap complete")
+		}
 	} else {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
+		p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("unit", unitID).WithField("shard", shardName).WithField("node", p.localNode).
+				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error")
+		})
 	}
 	return out
 }
@@ -1277,6 +1313,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	refused := map[string]struct{}{}
 	// started logs start once a unit passes the hold check, so a group that only waits on a hold logs no start line per tick.
 	var started sync.Once
+	retried := false
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1296,9 +1333,16 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 
 		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
+			failsTask := task.NeedsPreparationBarrier && task.Status == distributedtask.TaskStatusSwapping
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
+				if failsTask {
+					agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex migration's "+
+						"double-write mirror; a SWAPPING task cannot wait on it, so it fails and its swap stays owed until the shard is set READY",
+						unitID, res.Shard.Name()))
+					return
+				}
 				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex "+
 					"migration's double-write mirror; the step waits until a status update makes it writable",
 					unitID, res.Shard.Name()))
@@ -1306,7 +1350,15 @@ func (p *ReindexProvider) runPerUnitPhase(
 			}()
 			return
 		}
-		started.Do(func() { logger.Info(start) })
+		started.Do(func() {
+			// A decided swap that keeps failing or is refused re-fires every tick, so a retry logs within the node-wide sample.
+			if !slices.ContainsFunc(res.UnitTasks, func(t *ShardReindexTaskGeneric) bool { return t.swapPhaseRan.Load() }) {
+				logger.Info(start)
+				return
+			}
+			retried = true
+			p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) { logger.Info(start) })
+		})
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		if !entered {
 			func() {
@@ -1360,8 +1412,15 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// The task error drops acks from nodes that fail after the first one, so
 	// this line is the only record such a node leaves.
 	if len(refused) > 0 {
-		logger.WithField("shards", reportedShardNames(refused)).
-			Errorf("reindex provider: swap refused on %d shard(s): property overlay could not be installed; first error: %v", len(refused), agg.OverlayUnwrapErr)
+		logRefused := func(logrus.FieldLogger) {
+			logger.WithField("shards", reportedShardNames(refused)).
+				Errorf("reindex provider: swap refused on %d shard(s): property overlay could not be installed; first error: %v", len(refused), agg.OverlayUnwrapErr)
+		}
+		if retried {
+			p.swapRetrySampler().WithSampling(logRefused)
+		} else {
+			logRefused(logger)
+		}
 	}
 
 	if len(agg.Errs) == 0 {
@@ -1476,17 +1535,13 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	return out
 }
 
-// OnSwapRequested runs OVERLAY+SWAP for NeedsPreparationBarrier=true tasks. The
-// scheduler only fires this after the cluster-wide PREPARING → SWAPPING
-// transition. Returns non-nil on any per-shard swap failure; the resulting
-// PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
-	if task.Status.IsTerminal() {
+	if !task.GroupSwapDecided(groupID) {
 		logger.WithField("status", task.Status).
-			Debug("reindex provider: swap-requested: skipping replay on past-terminal task")
+			Debug("reindex provider: swap-requested: group's swap is not decided; skipping")
 		return nil
 	}
 
@@ -1511,7 +1566,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier", true,
+		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
@@ -1558,14 +1613,16 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
 //
-// Returns a non-nil error on the SWAPPING path when the flip fails: wrapped
+// Returns a non-nil error on the SWAPPING path when the cutover write fails: wrapped
 // in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
 // when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
 // always returns nil.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
-	p.clearTaskCaches(task.TaskDescriptor)
+	p.clearTaskCaches(task.TaskDescriptor, !slices.ContainsFunc(task.Groups(), func(g string) bool {
+		return task.SwapOwedBy(g, p.localNode)
+	}))
 
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: task-completion")
@@ -1577,18 +1634,18 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
-				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
+				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status, p.reindexRunsWith(task, payload))
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// Acks can be missing: a late ack on an already-CANCELLED task is dropped, so the costlier shard walk backs them up.
 				tornLocally := len(task.PostCompletionAcks) > 0 ||
-					len(task.PreparationCompletionAcks) > 0
+					len(task.PreparedGroups) > 0 || len(task.SwapDecidedGroups) > 0
 				if !tornLocally {
 					tornLocally = p.probeLocalPostMergeState(payload)
 				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
 				if tornLocally {
-					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
+					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status, p.reindexRunsWith(task, payload))
 				}
 			case distributedtask.TaskStatusFinished,
 				distributedtask.TaskStatusStarted,
@@ -1613,7 +1670,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
-	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
+	if err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{Namespace: task.Namespace, ID: task.ID, Version: task.Version}, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		return fmt.Errorf("schema flip: %w", err)
 	}
@@ -1655,6 +1712,10 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	defer cancel()
 	outcome, failures := p.discardTaskRecords(cleanupCtx, task, payload.Collection, shards)
 	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
+	if outcome == CleanupSweepWithheld {
+		msg += "; the cleanup then runs if this task is still listed, and a repair or rebuild " +
+			"record whose task has left the list stays and needs a new migration on its properties"
+	}
 	summary := logger.WithField("operation", "autoCleanupAfterTerminal")
 	if failures != nil {
 		summary.Logf(level, "%s: %v", msg, failures)
@@ -1719,13 +1780,16 @@ func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *dis
 		if truncated := truncatedByCancellation(err); truncated != nil {
 			return truncated
 		}
+		if errors.Is(err, errCleanupShardWithheld) {
+			return err
+		}
 		return fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
 	}
 	return nil
 }
 
 // CleanupSweepOutcome is what one stale-partial-reindex sweep left for the
-// operator, ordered by how certain it is that actionable state remains, so a
+// operator, ordered by how certain it is that an operator has to act, so a
 // caller running several sweeps can report the max as the run's outcome.
 //
 // "Every shard" means every shard in the index's map when the sweep starts:
@@ -1746,6 +1810,8 @@ const (
 	// partway through one. What is on them is unknown, which is not the same as
 	// knowing state is there.
 	CleanupSweepUnknown
+	// CleanupSweepWithheld: a shard was reached and left untouched over a migration record fault.
+	CleanupSweepWithheld
 	// CleanupSweepFailed: a shard was reached and could not be swept. It can
 	// fail after already removing part of its state, so what the shard holds
 	// is an unknown remainder rather than the state the sweep found.
@@ -1767,6 +1833,8 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 		return CleanupSweepDropped, nil
 	case errors.Is(err, ErrCleanupShardFailed):
 		return CleanupSweepFailed, err
+	case errors.Is(err, errCleanupShardWithheld):
+		return CleanupSweepWithheld, err
 	case errors.Is(err, ErrCleanupSweepTruncated):
 		return CleanupSweepUnknown, err
 	default:
@@ -1784,7 +1852,7 @@ const (
 // the caller, and everything after it is shared, so the same outcome never
 // reaches an operator as two claims at two severities.
 //
-// [CleanupSweepFailed] is the only Error. It reports a shard that was reached
+// [CleanupSweepFailed] and [CleanupSweepWithheld] are Errors. Failed reports a shard that was reached
 // and could not be swept, and was left partly swept with nothing scheduled to
 // finish it, so an operator has to act. A cancelled run can also stop a shard
 // partway through — that reaches the operator as unverified, not as confirmed.
@@ -1807,6 +1875,10 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 	case CleanupSweepFailed:
 		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
 				"scheduled to finish it",
+			logrus.ErrorLevel
+	case CleanupSweepWithheld:
+		return phase + ": a shard has a migration record fault, so its cleanup is withheld. Fix that " +
+				"fault and restart the node (or deactivate and reactivate the tenant)",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
@@ -1878,8 +1950,8 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
-		records, someRecordsUnreadable, recordSetErr := migrationRecordsAt(lsmPath, p.logger)
-		if someRecordsUnreadable || recordSetErr != nil {
+		records, faults, _ := migrationRecordsAt(lsmPath, p.logger)
+		if len(faults) > 0 {
 			unreadable[shardName] = struct{}{}
 			return true
 		}
@@ -2027,7 +2099,29 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
+func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *ReindexTaskPayload) []ReindexRun {
+	runs := []ReindexRun{{Task: task, Payload: *payload}}
+	if p.taskLister == nil {
+		return runs
+	}
+	tasksByNS, err := p.taskLister.ListDistributedTasks(p.serverCtx)
+	if err != nil {
+		p.logger.WithField("taskID", task.ID).Warnf("reindex provider: cannot list earlier runs for the repair guidance: %v", err)
+		return runs
+	}
+	for _, other := range tasksByNS[ReindexNamespace] {
+		var otherPayload ReindexTaskPayload
+		if other.TaskDescriptor == task.TaskDescriptor || json.Unmarshal(other.Payload, &otherPayload) != nil {
+			continue
+		}
+		runs = append(runs, ReindexRun{Task: other, Payload: otherPayload})
+	}
+	return runs
+}
+
+func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload,
+	outcome distributedtask.TaskStatus, runs []ReindexRun,
+) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
 	}
@@ -2040,6 +2134,18 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 		return
 	}
 	for _, propName := range payload.Properties {
+		if migrated, _, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
+			logger.WithFields(map[string]any{
+				"property":         propName,
+				"migration_type":   payload.MigrationType,
+				"migrated_tenants": len(migrated),
+				"total_tenants":    len(covered),
+				"resubmit_command": ReindexResubmitCommand(payload, propName),
+			}).Warnf("reindex provider: %s on %s.%s %s; %s; "+
+				"resubmit the same request to finish the migration", payload.MigrationType, payload.Collection,
+				propName, outcome, ReindexMigratedPhrase(migrated, covered, propName, true))
+			continue
+		}
 		repairCommands := repairCommandsForFailedMigration(payload, propName)
 		logger.WithFields(map[string]any{
 			"property":       propName,
@@ -2058,32 +2164,40 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	}
 }
 
+func ReindexResubmitCommand(payload *ReindexTaskPayload, propName string) string {
+	put := func(indexType, body string) string {
+		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", payload.Collection, propName, indexType, body)
+	}
+	tok := payload.TargetTokenization
+	if tok == "" {
+		tok = "<tokenization>"
+	}
+	switch payload.MigrationType {
+	case ReindexTypeEnableFilterable:
+		return put("filterable", "{}")
+	case ReindexTypeEnableRangeable:
+		return put("rangeFilters", "{}")
+	case ReindexTypeChangeAlgorithm:
+		return put("searchable", `{"algorithm":"blockmax"}`)
+	case ReindexTypeChangeTokenizationFilterable:
+		return put("filterable", fmt.Sprintf(`{"tokenization":%q}`, tok))
+	default:
+		return put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))
+	}
+}
+
 // repairCommandsForFailedMigration returns the operator command(s) to recover
 // propName after payload's migration stopped without succeeding (FAILED or
 // CANCELLED). enable-*/change-algorithm never flip their flag then, so
 // /rebuild would 400 — those re-run via PUT instead; retokenize migrations
 // rebuild the pre-existing bucket.
 func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
-	c := payload.Collection
 	rebuild := func(indexType string) string {
-		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", c, propName, indexType)
-	}
-	put := func(indexType, body string) string {
-		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", c, propName, indexType, body)
+		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", payload.Collection, propName, indexType)
 	}
 	switch payload.MigrationType {
-	case ReindexTypeEnableSearchable:
-		tok := payload.TargetTokenization
-		if tok == "" {
-			tok = "<tokenization>"
-		}
-		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
-	case ReindexTypeEnableFilterable:
-		return []string{put("filterable", "{}")}
-	case ReindexTypeEnableRangeable:
-		return []string{put("rangeFilters", "{}")}
-	case ReindexTypeChangeAlgorithm:
-		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
+	case ReindexTypeEnableSearchable, ReindexTypeEnableFilterable, ReindexTypeEnableRangeable, ReindexTypeChangeAlgorithm:
+		return []string{ReindexResubmitCommand(payload, propName)}
 	case ReindexTypeChangeTokenization:
 		return []string{rebuild("filterable"), rebuild("searchable")}
 	case ReindexTypeChangeTokenizationFilterable:
@@ -2093,112 +2207,6 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 		// index and let the operator inspect.
 		return []string{rebuild("filterable"), rebuild("searchable"), rebuild("rangeFilters")}
 	}
-}
-
-// LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
-func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
-	var payload ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &payload); err != nil {
-		return true
-	}
-	if !IsSemanticMigration(payload.MigrationType) {
-		return true
-	}
-	if p.db == nil {
-		return true
-	}
-	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
-	if idx == nil {
-		return true
-	}
-	if len(semanticMigrationIndexTypes(payload.MigrationType)) == 0 {
-		return true
-	}
-
-	// One walk for every unit this node owns: a per-name lookup walks the
-	// shard map again for each of them. The record sits at a path this
-	// node can join, so nothing here loads a shard.
-	//
-	// Strict, not lenient: a lenient walk answers nil while the index is closing, reporting a pending swap as done.
-	hosted := map[string]bool{}
-	for unitID, nodeName := range payload.UnitToNode {
-		if nodeName != localNode {
-			continue
-		}
-		if shardName := payload.UnitToShard[unitID]; shardName != "" {
-			hosted[shardName] = false
-		}
-	}
-	if len(hosted) == 0 {
-		return true
-	}
-	if err := idx.forEachShardStrict(nil, func(name string, _ ShardLike) error {
-		if _, wanted := hosted[name]; wanted {
-			hosted[name] = true
-		}
-		return nil
-	}); err != nil {
-		return false
-	}
-
-	recordReads := 0
-	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.
-	unreadable := map[string]struct{}{}
-	defer func() {
-		p.logger.WithField("collection", payload.Collection).
-			WithField("shards", len(hosted)).WithField("record_set_reads", recordReads).
-			Debug("local callbacks probe: read migration records")
-		if len(unreadable) > 0 {
-			p.logger.WithField("collection", payload.Collection).
-				WithField("shards", reportedShardNames(unreadable)).
-				Warnf("local callbacks probe: the migration records of %d shard(s) could not be read, so "+
-					"this node's local callbacks are reported as not done", len(unreadable))
-		}
-	}()
-	for shardName, isHosted := range hosted {
-		if !isHosted {
-			continue
-		}
-		recordReads++
-		records, someRecordsUnreadable, recordSetErr := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
-		if someRecordsUnreadable || recordSetErr != nil {
-			unreadable[shardName] = struct{}{}
-			return false
-		}
-		if migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordStagingIncomplete) {
-			return false
-		}
-	}
-	return true
-}
-
-// semanticMigrationIndexTypes returns the inverted-index discriminators
-// each semantic migration type writes per-property sidecars for.
-// Format-only migrations don't appear here because LocalCallbacksDone
-// short-circuits on !IsSemanticMigration before calling this.
-func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
-	switch mt {
-	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableSearchable:
-		return []string{"searchable"}
-	case ReindexTypeEnableFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableRangeable:
-		return []string{"rangeable"}
-	case ReindexTypeChangeAlgorithm:
-		return []string{"searchable"}
-	case ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeRepairRangeable:
-		// Format-only migrations. Returning nil short-circuits
-		// LocalCallbacksDone's recovery check — they don't go through
-		// the swap barrier so there's nothing to recover at this layer.
-		return nil
-	}
-	return nil
 }
 
 // flipSemanticMigrationSchema issues the cluster-wide RAFT update that
@@ -2212,7 +2220,7 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 // apply=false when the value already matches) so multiple nodes firing
 // OnTaskCompleted produce at most one RAFT commit.
 func (p *ReindexProvider) flipSemanticMigrationSchema(
-	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+	ctx context.Context, run api.MigrationRun, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) error {
 	if p.schemaManager == nil {
 		// Defensive: tests can construct the provider without a schema
@@ -2226,7 +2234,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		if payload.TargetTokenization == "" {
 			return fmt.Errorf("change-tokenization without targetTokenization in payload")
 		}
-		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldTokenization},
 			func(prop *models.Property) bool {
 				if propertyTokenizationAtTarget(prop, payload.TargetTokenization) {
@@ -2250,7 +2258,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 
 	case ReindexTypeEnableFilterable:
 		trueVal := true
-		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexFilterable},
 			func(prop *models.Property) bool {
 				if propertyFilterableEnabled(prop) {
@@ -2269,7 +2277,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 
 	case ReindexTypeEnableRangeable:
 		trueVal := true
-		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexRangeFilters},
 			func(prop *models.Property) bool {
 				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -2293,7 +2301,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		trueVal := true
 		// EnableSearchableStrategy.TargetStrategy() is hardcoded blockmax, so
 		// stamp SearchableBlockmax alongside the flag flip — one RAFT commit.
-		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
 				if propertySearchableAtTarget(prop, payload.TargetTokenization) {
@@ -2314,8 +2322,8 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	case ReindexTypeChangeAlgorithm:
 		// Stamp FIRST and unconditionally: per-property truth must be durable
 		// before a sibling's same-tick defer check runs, or that sibling would
-		// read a not-yet-FINISHED task instead of this stamp.
-		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
+		// read this property as WAND.
+		if err := p.stampSearchableBlockmax(ctx, run, payload.Collection, payload.Properties); err != nil {
 			return fmt.Errorf("stamp searchableBlockmax: %w", err)
 		}
 		// Defer the cluster-wide class-flag flip until every local searchable
@@ -2327,13 +2335,20 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// /v1/schema/{class}/indexes never reads it: it resolves
 		// models.IndexStatus.Algorithm from the per-property
 		// SearchableBlockmax stamp written above, which lands before FINISHED.
-		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
-			return err
+		// The stamp landed, so a failed flip is only logged: failing would lock the property behind the run.
+		if defer_, err := p.shouldDeferBlockmaxFlip(payload, logger); err != nil {
+			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
+				"can use blockmax by default; a later change-algorithm cutover on this class, or a class update while " +
+				"USE_INVERTED_SEARCHABLE is on, sets the flag")
+			return nil
 		} else if defer_ {
 			return nil
 		}
 		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
-			return fmt.Errorf("flip UsingBlockMaxWAND: %w", err)
+			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: the property is migrated, but the " +
+				"class-level blockmax flag did not flip; a later change-algorithm cutover on this class, or a class update " +
+				"while USE_INVERTED_SEARCHABLE is on, sets it")
+			return nil
 		}
 		logger.Info("reindex provider: change-algorithm cutover committed")
 		return nil
@@ -2345,12 +2360,10 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 }
 
 // stampSearchableBlockmax durably records propNames as blockmax via a masked
-// RAFT UpdateProperty. Idempotent — already-stamped properties are skipped —
-// so repeated firings/replays/read-repair produce at most one commit per
-// property. Shared by the change-algorithm cutover and [RunSearchableBlockmaxRepair].
-func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
+// RAFT UpdateProperty. Idempotent: already-stamped properties are skipped.
+func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, run api.MigrationRun, collection string, propNames []string) error {
 	trueVal := true
-	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
+	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, collection, propNames,
 		[]string{api.PropertyFieldSearchableBlockmax},
 		func(prop *models.Property) bool {
 			if propertyBlockmaxStamped(prop) {
@@ -2366,22 +2379,14 @@ func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collectio
 // searchable property is off WAND (weaviate/0-weaviate-issues#254), using
 // RAFT-consistent state so every node agrees. The property completing now
 // counts as done despite still showing SWAPPING, avoiding self-deferral.
-func (p *ReindexProvider) shouldDeferBlockmaxFlip(
-	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
-) (bool, error) {
-	if p.schemaManager == nil || p.taskLister == nil {
-		// Tests may construct the provider without these deps; don't defer.
+func (p *ReindexProvider) shouldDeferBlockmaxFlip(payload *ReindexTaskPayload, logger logrus.FieldLogger) (bool, error) {
+	if p.schemaManager == nil {
 		return false, nil
 	}
 	class := p.schemaManager.ReadOnlyClass(payload.Collection)
 	if class == nil {
 		return false, fmt.Errorf("collection %q not found in schema", payload.Collection)
 	}
-	tasksByNS, err := p.taskLister.ListDistributedTasks(ctx)
-	if err != nil {
-		return false, fmt.Errorf("list distributed tasks for blockmax flip: %w", err)
-	}
-	reindexTasks := tasksByNS[ReindexNamespace]
 
 	completing := make(map[string]struct{}, len(payload.Properties))
 	for _, prop := range payload.Properties {
@@ -2394,9 +2399,7 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 		if _, ok := completing[prop.Name]; ok {
 			continue // finalizing to blockmax now
 		}
-		// Durable-stamp resolver: a sibling stamped by its own completion no
-		// longer forces a spurious defer once its task ages out or is SWAPPING.
-		if !SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if !SearchablePropertyIsBlockmax(class, prop.Name) {
 			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
 			return true, nil
 		}

@@ -123,7 +123,7 @@ func (o *SchemaObjectsPropertiesDeleteForbidden) WriteResponse(rw http.ResponseW
 const SchemaObjectsPropertiesDeleteUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsPropertiesDeleteUnprocessableEntity Invalid index, property or collection provided.
+SchemaObjectsPropertiesDeleteUnprocessableEntity Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.
 
 swagger:response schemaObjectsPropertiesDeleteUnprocessableEntity
 */

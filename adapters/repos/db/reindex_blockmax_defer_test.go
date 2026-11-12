@@ -12,37 +12,24 @@
 package db
 
 import (
-	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-type taskListerStub struct{ tasks []*distributedtask.Task }
-
-func (s taskListerStub) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
-	return map[string][]*distributedtask.Task{ReindexNamespace: s.tasks}, nil
-}
-
-// TestShouldDeferBlockmaxFlip_StampBreaksWedge pins the same-tick sibling
-// wedge fix: reading the durable stamp (not the FINISHED-task list) lets the
-// second of two siblings completing in the same tick flip the class flag,
-// instead of both wedging forever.
+// Pins that the durable stamp lets the second of two siblings completing in one tick flip the class flag.
 func TestShouldDeferBlockmaxFlip_StampBreaksWedge(t *testing.T) {
-	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	tr := true
 
-	newProvider := func(cls *models.Class, tasks []*distributedtask.Task) *ReindexProvider {
+	newProvider := func(cls *models.Class) *ReindexProvider {
 		return &ReindexProvider{
 			logger:        logger,
 			schemaManager: &schema.Manager{SchemaReader: classReaderStub{class: cls}},
-			taskLister:    taskListerStub{tasks: tasks},
 		}
 	}
 
@@ -57,23 +44,22 @@ func TestShouldDeferBlockmaxFlip_StampBreaksWedge(t *testing.T) {
 		}
 	}
 
-	// propY is completing its change-algorithm cutover; the empty task list means
-	// propX's FINISHED task has aged out (or is not yet FINISHED in the same tick).
+	// propY is completing its change-algorithm cutover.
 	completeY := &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeAlgorithm, Collection: "Docs", Properties: []string{"propY"},
 	}
 
 	t.Run("sibling stamped blockmax → no spurious defer (wedge broken)", func(t *testing.T) {
-		p := newProvider(classWith(&tr), nil)
-		deferFlip, err := p.shouldDeferBlockmaxFlip(ctx, completeY, logger)
+		p := newProvider(classWith(&tr))
+		deferFlip, err := p.shouldDeferBlockmaxFlip(completeY, logger)
 		require.NoError(t, err)
-		require.False(t, deferFlip, "a stamped sibling must not force a defer once its task has aged out")
+		require.False(t, deferFlip, "a stamped sibling must not force a defer")
 	})
 
-	t.Run("sibling unstamped + aged-out task → defer (genuinely still WAND)", func(t *testing.T) {
-		p := newProvider(classWith(nil), nil)
-		deferFlip, err := p.shouldDeferBlockmaxFlip(ctx, completeY, logger)
+	t.Run("sibling unstamped → defer (genuinely still WAND)", func(t *testing.T) {
+		p := newProvider(classWith(nil))
+		deferFlip, err := p.shouldDeferBlockmaxFlip(completeY, logger)
 		require.NoError(t, err)
-		require.True(t, deferFlip, "an unstamped sibling with no live task is genuinely WAND → defer")
+		require.True(t, deferFlip, "an unstamped sibling is genuinely WAND → defer")
 	})
 }

@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -66,6 +65,7 @@ func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
 func (s *Shard) releaseCountedStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
+	s.migrationMirrors.stopCountingHeld()
 
 	if s.countedStatus == "" {
 		return
@@ -197,11 +197,9 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	return nil
 }
 
-// A status change can run inside a RAFT apply.
-const liftRetryTimeout = 30 * time.Second
-
-// retryHeldMigrations runs before the status lock so reads never wait on the disk. Only the wait is bounded,
-// because a cancelled arm would stamp a healthy migration for good. The shard's teardown waits for the arm's shard reference.
+// retryHeldMigrations starts the arm and refuses at once: a status change can run inside a RAFT apply,
+// which must never wait on the disk.
+// A shutdown waits for the arm's shard reference, and a drop waits about 30 s for it.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()
@@ -217,28 +215,17 @@ func (s *Shard) retryHeldMigrations(in string) error {
 		release()
 		return s.heldReadOnlyErr(errors.New("a recovery retry is already running"))
 	}
-	done := make(chan error, 1)
 	enterrors.GoWrapper(func() {
 		defer release()
 		defer s.liftRetry.Unlock()
-		done <- s.rearmHeld()
-	}, s.index.logger)
-	wait := time.NewTimer(liftRetryTimeout)
-	defer wait.Stop()
-	select {
-	case err := <-done:
-		if err != nil {
-			return s.heldReadOnlyErr(err)
+		if err := s.rearmHeld(); err != nil {
+			s.index.logger.WithField("shard", s.name).Errorf("recovery retry of a held shard failed: %v", err)
 		}
-		return nil
-	case <-wait.C:
-		return s.heldReadOnlyErr(fmt.Errorf("the recovery retry did not finish within %s; it keeps running, so set the status again later", liftRetryTimeout))
-	case <-s.shutCtx.Done():
-		return s.heldReadOnlyErr(fmt.Errorf("the shard is shutting down: %w", context.Cause(s.shutCtx)))
-	}
+	}, s.index.logger)
+	return s.heldReadOnlyErr(errors.New("a recovery retry started; this node's log names a failure"))
 }
 
-// rearmHeld reads the held set under liftRetry, because an arm an earlier lift stopped waiting for may have armed or stamped it.
+// rearmHeld reads the held set under liftRetry, because an earlier lift's arm may have armed or stamped it since.
 // It arms only units ClaimUnits claimed, which a cleanup's seal waits for, so a teardown cannot remove what the arm re-creates.
 func (s *Shard) rearmHeld() error {
 	held := s.migrationMirrors.heldUnarmed()
@@ -259,11 +246,12 @@ func (s *Shard) rearmHeld() error {
 		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))
 	} else {
 		s.migrationMirrors.markHeldSettled()
+		ec.Add(s.index.db.liftHeldShard(s))
 	}
 	return ec.ToError()
 }
 
 func (s *Shard) heldReadOnlyErr(cause error) error {
-	return fmt.Errorf("shard %q stays %s: a reindex migration's double-write mirror is not armed and "+
-		"cannot be stamped Unmirrored: %w", s.name, storagestate.StatusReadOnly, cause)
+	return fmt.Errorf("shard %q: a reindex migration's double-write mirror is not armed and "+
+		"cannot be stamped Unmirrored: %w", s.name, cause)
 }

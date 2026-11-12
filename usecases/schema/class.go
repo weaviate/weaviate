@@ -32,6 +32,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -352,6 +353,9 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		err := json.Unmarshal(d.ShardingState, &shardingState)
 		if err != nil {
 			return fmt.Errorf("unmarshal sharding state: %w", err)
+		}
+		if err := shardingState.ValidateShardNames(); err != nil {
+			return fmt.Errorf("sharding state: %w", err)
 		}
 	}
 
@@ -694,8 +698,7 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // variant of [UpdatePropertyInternal]. It routes the RAFT command
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
-// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -705,11 +708,11 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // applies to external mutations.
 //
 // Returns only after the local FSM has applied the update.
-func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
-	fields ...string,
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run command.MigrationRun,
+	prop *models.Property, fields ...string,
 ) error {
 	setPropertyDefaults(prop)
-	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, run, prop, fields...)
 	if err != nil {
 		return err
 	}
@@ -819,10 +822,7 @@ func setPropertyDefaults(props ...*models.Property) {
 
 // clearInternalPropertyFields nils RAFT-internal per-property fields on
 // client-provided properties so they can only be set inside the engine.
-// SearchableBlockmax comes from on-disk state or the read-repair (which only
-// touches nil stamps); a client-seeded value would be a wrong stamp nothing
-// corrects. Create paths only — UpdateProperty's DeepEqual guard already
-// blocks mutation on update.
+// SearchableBlockmax is set only by a migration's cutover; nothing corrects a client value. Create paths only.
 func clearInternalPropertyFields(props ...*models.Property) {
 	for _, prop := range props {
 		if prop != nil {

@@ -58,11 +58,10 @@ type replicationFSM interface {
 // FSM-determinism: implementations MUST be pure functions of their
 // arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	// CheckPropertyUpdate gates UpdateProperty. The migration completion
-	// path bypasses this by setting FromInFlightMigration=true on its
-	// own scheduled flip, since the task is still FINALIZING when the
-	// flip lands.
 	CheckPropertyUpdate(className, propertyName string) error
+
+	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
+	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
 	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
@@ -89,6 +88,7 @@ type MutationGuard interface {
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
+	ForgetGroupsForCollection(collection string, groups []string)
 }
 
 type SchemaManager struct {
@@ -884,17 +884,22 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
-	// Cross-FSM mutation guard — see [MutationGuard.CheckPropertyUpdate].
-	// FromInFlightMigration=true bypasses the guard for the migration's
-	// own scheduled schema flip; see the bypass clause in that godoc.
-	if s.mutationGuard != nil && !req.FromInFlightMigration {
-		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
+	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run (older binary) is admitted.
+	if s.mutationGuard != nil {
+		var err error
+		switch {
+		case !req.FromInFlightMigration:
+			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name)
+		case req.MigrationRun != nil:
+			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
+		}
+		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
 	}
 
 	// Disabling an index deletes the property's LSM buckets, which an in-flight movement's
-	// snapshot+CCL can't reconcile. FromInFlightMigration bypasses, as with the reindex guard.
+	// snapshot+CCL can't reconcile. A migration's own flip skips this check.
 	if s.replicationFSM != nil && !req.FromInFlightMigration &&
 		s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
 		if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {
@@ -1082,6 +1087,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 					return err
 				}
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				if s.distributedTaskManager != nil {
+					s.distributedTaskManager.ForgetGroupsForCollection(cmd.Class, req.Tenants)
+				}
 				return nil
 			},
 			updateStore: func() error {

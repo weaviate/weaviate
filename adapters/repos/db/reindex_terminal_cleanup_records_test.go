@@ -103,7 +103,7 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 		require.False(t, lazy.isLoaded(), "%s holds no record of the task that cleanup could end", name)
 	}
 
-	recovery := NewMigrationRecoveryReindexer(true, logger, nil, nil)
+	recovery := NewMigrationRecoveryReindexer(logger, nil, nil)
 	var rebuilt []string
 	for _, name := range []string{loadedA.Name(), unloadedB, loadedC, otherTaskD, decidedFlipE} {
 		store := NewMigrationRecordStore(shardPathLSM(idx.path(), name), logger)
@@ -121,7 +121,8 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 // The walk folds shards by max, so the outcome order is what makes a later
 // clean shard unable to hide one that kept its records.
 func TestTerminalCleanupReportsTheWorstShardNotTheLast(t *testing.T) {
-	require.Greater(t, CleanupSweepFailed, CleanupSweepUnknown, "knowing state is left outranks not knowing")
+	require.Greater(t, CleanupSweepFailed, CleanupSweepWithheld, "a partly swept shard outranks an untouched one")
+	require.Greater(t, CleanupSweepWithheld, CleanupSweepUnknown, "a known record fault outranks not knowing")
 	require.Greater(t, CleanupSweepUnknown, CleanupSweepDropped, "an unvisited shard outranks a collection going away")
 	require.Greater(t, CleanupSweepDropped, CleanupSweepClean)
 
@@ -133,6 +134,6 @@ func TestTerminalCleanupReportsTheWorstShardNotTheLast(t *testing.T) {
 	for _, shards := range [][]string{{failing, "absent-tenant"}, {"absent-tenant", failing}} {
 		outcome, _ := p.discardTaskRecords(testCtx(), testTask("T", 1, distributedtask.TaskStatusCancelled),
 			string(idx.Config.ClassName), shards)
-		require.Equal(t, CleanupSweepFailed, outcome, "shards %v", shards)
+		require.Equal(t, CleanupSweepWithheld, outcome, "shards %v", shards)
 	}
 }

@@ -29,13 +29,12 @@ const migrationClusterReconcileInterval = time.Minute
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
 // task namespace. ok=false means "not installed", which licenses no discard.
-type MigrationLocalTaskSource func() ([]distributedtask.TaskStatusEntry, bool)
+type MigrationLocalTaskSource func(shard string) ([]distributedtask.TaskStatusEntry, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
 
-// migrationClusterReconciler decides this node's undecided migration records
-// against the leader's reindex task list.
+// migrationClusterReconciler decides undecided records and unsure load overrides against the leader's tasks.
 type migrationClusterReconciler struct {
 	db *DB
 
@@ -175,7 +174,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 			if store == nil || len(store.Unreadable()) > 0 {
 				return nil
 			}
-			if store.HasUndecided() {
+			if store.HasUndecided() || store.overridesUnsure.Load() {
 				names = append(names, name)
 			}
 			return nil
@@ -187,7 +186,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 	return found
 }
 
-func (r *migrationClusterReconciler) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) {
+func (r *migrationClusterReconciler) LocalTasks(group string) ([]distributedtask.TaskStatusEntry, bool) {
 	source := func() MigrationLocalTaskSource {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
@@ -197,7 +196,7 @@ func (r *migrationClusterReconciler) LocalTasks() ([]distributedtask.TaskStatusE
 	if source == nil {
 		return nil, false
 	}
-	return source()
+	return source(group)
 }
 
 // clusterTasksBounded puts a timeout on the leader query alone, so an

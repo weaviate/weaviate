@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // DeleteMarkerAdd marks folders of indices that have been deleted during an ongoing backup and are already removed from
@@ -223,6 +224,13 @@ func (d *DistributedBackupDescriptor) Validate() error {
 	}
 	if len(d.Nodes) == 0 {
 		return fmt.Errorf("empty list of node descriptors")
+	}
+	// Each node's BackupDescriptor.Validate refuses the same names, but only
+	// after the restore request was accepted.
+	for _, c := range d.Classes() {
+		if _, err := schema.ValidateQualifiedClassName(c); err != nil {
+			return fmt.Errorf("class=%q: %w", c, err)
+		}
 	}
 	return nil
 }
@@ -625,6 +633,11 @@ func (d *BackupDescriptor) Validate() error {
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
 			return fmt.Errorf("class=%q: invalid attributes [name schema sharding]", c.Name)
+		}
+		// fileWriter.Write deletes and refills path.Join(tempDir, name), so a
+		// ".." in the name would delete a directory outside the staging dir.
+		if _, err := schema.ValidateQualifiedClassName(c.Name); err != nil {
+			return fmt.Errorf("class=%q: %w", c.Name, err)
 		}
 		for _, s := range c.Shards {
 			if s.Name == "" || s.Node == "" {

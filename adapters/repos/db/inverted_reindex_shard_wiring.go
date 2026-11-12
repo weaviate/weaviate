@@ -83,15 +83,34 @@ func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 	})
 }
 
+// migrationSwapCommitted reports whether a stamp would refuse a swap the cluster made or will make.
+func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
+	if rec.FlipDecided() {
+		return true
+	}
+	tasks, readable := s.migrations().LocalTasks()
+	if !readable {
+		return true
+	}
+	task, ok := findMigrationTask(rec.Subject(), tasks)
+	if !ok {
+		return false
+	}
+	acked := task.Status.IsActive() && slices.Contains(task.PrepAckedBy, s.index.getSchema.NodeName())
+	return task.GroupDecided || acked
+}
+
 // holdReadOnlyForUnarmed sets the shard READONLY, because a write would miss the unguarded staged copy.
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)
 	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s and its reindex migrations wait: "+
-		"%v. Clear that cause, then set the shard to %s or restart the node (a repaired unreadable record needs the restart); if a staged bucket cannot "+
-		"open because a segment file is damaged, repair that file in place first. A migration not yet "+
-		"swapped in also leaves the hold once its Unmirrored stamp can be written, unless a migration already swapped in is "+
-		"held on the same shard; then both wait until the shard is repaired and set READY. "+
-		"A manual READY also overrides disk or memory pressure, so free space first",
+		"%v. Clear that cause, then set the shard to %s, which starts a retry, or restart the node (a repaired unreadable record needs the restart); "+
+		"if a staged bucket cannot open because a segment file is damaged, repair that file in place first. "+
+		"A migration whose swap is not committed also leaves the hold at that retry once its Unmirrored stamp can be written, "+
+		"unless a migration with a committed swap or already swapped in is held on the same shard. "+
+		"A committed swap cannot be given up on this node, because its other replicas made or will make it; "+
+		"if its staged data cannot be repaired, read the reindex recovery docs before deleting anything: "+
+		"recovering from a healthy replica or a backup comes first",
 		storagestate.StatusReadOnly, cause, storagestate.StatusReady)
 	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
 		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
@@ -112,6 +131,7 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(),
 		s.index.logger.WithField("shard", s.ID()),
 		migrationReconcileDeps{
+			Shard:      s.name,
 			LocalTasks: s.migrations().LocalTasks,
 			SealUnit:   s.migrations().SealUnit,
 			Class:      class,

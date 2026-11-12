@@ -102,7 +102,7 @@ func TestResolveFilterableUpsert_Idempotency(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, tc.tasks)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, tc.tasks, true)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
 			assert.Equal(t, tc.wantJoin, plan.joinTaskID, "joinTaskID")
@@ -152,7 +152,7 @@ func TestResolveRangeableUpsert_Idempotency(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", &models.IndexUpsertRequest{}, tc.tasks)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", &models.IndexUpsertRequest{}, tc.tasks, true)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
 			assert.Equal(t, tc.wantJoin, plan.joinTaskID, "joinTaskID")

@@ -175,7 +175,7 @@ func TestRecoveryStampsAMigrationItCouldNotArm(t *testing.T) {
 			require.NoError(t, store.Load())
 			require.NoError(t, store.Put(tt.rec(subject)))
 
-			NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(store, "shard-1")
+			NewMigrationRecoveryReindexer(logger, nil, nil).recoverFromStore(store, "shard-1")
 
 			reread := NewMigrationRecordStore(lsm, logger)
 			require.NoError(t, reread.Load())

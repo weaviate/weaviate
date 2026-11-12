@@ -28,7 +28,6 @@ import (
 // MigrationRecoveryReindexer builds, as each shard loads, the tasks whose mirrors the shard re-arms,
 // and stamps Unmirrored the records it cannot build a task from.
 type MigrationRecoveryReindexer struct {
-	enabled       bool
 	logger        logrus.FieldLogger
 	schemaManager *schema.Manager
 	provider      *ReindexProvider
@@ -37,12 +36,11 @@ type MigrationRecoveryReindexer struct {
 	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults *logrusext.Sampler
 }
 
-func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.FieldLogger,
+func NewMigrationRecoveryReindexer(logger logrus.FieldLogger,
 	schemaManager *schema.Manager, provider *ReindexProvider,
 ) *MigrationRecoveryReindexer {
 	faults := func() *logrusext.Sampler { return logrusext.NewSampler(logger, maxReportedErrors, time.Minute) }
 	return &MigrationRecoveryReindexer{
-		enabled:       runtimeReindexEnabled,
 		logger:        logger,
 		schemaManager: schemaManager,
 		provider:      provider,
@@ -68,9 +66,12 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		if !ok {
 			continue
 		}
-		// Past the swap, a stamp would block the promotion that serves the new index.
-		if rec.FlipDecided() {
-			return unarmed, fmt.Errorf("migration %s is already swapped in, so only its mirror can finish it: %w",
+		if rec.Subject().Unmirrored && !rec.FlipDecided() {
+			records = append(records, rec) // its stamp already refuses the swap, so holding saves nothing
+			continue
+		}
+		if shard.migrationSwapCommitted(rec) {
+			return unarmed, fmt.Errorf("migration %s has a committed swap, so only its mirror can finish it: %w",
 				t.migrationRecordKey(), cause)
 		}
 		records = append(records, rec)
@@ -125,6 +126,10 @@ func (r *MigrationRecoveryReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric
 	}
 }
 
+func (r *MigrationRecoveryReindexer) UnbuildableFaults() *logrusext.Sampler {
+	return r.unbuildableFaults
+}
+
 // evictUnits drops whole units, because a cached sibling alone would swap half a migration.
 func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGeneric) {
 	for _, t := range unarmed {
@@ -135,10 +140,6 @@ func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGener
 func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStore,
 	shardName string,
 ) []*ShardReindexTaskGeneric {
-	// With RUNTIME_REINDEX_ENABLED off, recovery returns no task and stamps no record, so the load re-arms no mirror.
-	if !r.enabled {
-		return nil
-	}
 	logger := r.logger.WithField("shard", shardName)
 	someRecordsUnreadable := len(store.Unreadable()) > 0
 	if someRecordsUnreadable {
@@ -169,7 +170,7 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 	}
 	if unbuildableCount > 0 {
 		r.unbuildableFaults.WithSampling(func(logrus.FieldLogger) {
-			logger.Warnf("reindex recovery: the record of %d migration(s) builds no reindex task, so those "+
+			logger.WithField("migrations", unbuildableCount).Warnf("reindex recovery: the record of %d migration(s) builds no reindex task, so those "+
 				"migrations' mirrors stay unarmed: %v", unbuildableCount, unbuildable.ToErrorLimited(maxReportedErrors))
 		})
 	}

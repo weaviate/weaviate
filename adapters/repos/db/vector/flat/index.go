@@ -60,6 +60,7 @@ type flat struct {
 	metadata          *bolt.DB
 	metadataLock      *sync.RWMutex
 	store             *lsmkv.Store
+	makeBucketOptions lsmkv.MakeBucketOptions
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
 	initOnce          sync.Once
@@ -107,6 +108,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		compressionType:      extractCompression(uc),
 		pool:                 newPools(),
 		store:                store,
+		makeBucketOptions:    cfg.MakeBucketOptions,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	if err := index.initBuckets(context.Background(), cfg); err != nil {
@@ -305,24 +307,8 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	); err != nil {
 		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
-	if index.compressionType != CompressionNone {
-		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
-			cfg.MakeBucketOptions(lsmkv.StrategyReplace,
-				lsmkv.WithForceCompaction(forceCompaction),
-				lsmkv.WithUseBloomFilter(false),
-				// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
-				// was simply missing. Now we want to explicitly set it to false for
-				// performance reasons. There are pread performance improvements in the
-				// pipeline, but as of now, mmap is much more performant – especially for
-				// parallel cache prefilling.
-				//
-				// In the future when the pure pread performance is on par with mmap, we
-				// should update this to pass the global setting.
-				lsmkv.WithPread(false),
-			)...,
-		); err != nil {
-			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
-		}
+	if err := index.CreateOrLoadCompressedBucket(ctx); err != nil {
+		return err
 	}
 
 	bucket, release, err := index.getBucket(index.getBucketName())
@@ -332,6 +318,30 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	defer release()
 	atomic.StoreUint64(&index.count, uint64(bucket.CountAsync()))
 
+	return nil
+}
+
+func (index *flat) CreateOrLoadCompressedBucket(ctx context.Context) error {
+	if index.compressionType == CompressionNone {
+		return nil
+	}
+	if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
+		index.makeBucketOptions(lsmkv.StrategyReplace,
+			lsmkv.WithForceCompaction(shouldForceCompaction()),
+			lsmkv.WithUseBloomFilter(false),
+			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+			// was simply missing. Now we want to explicitly set it to false for
+			// performance reasons. There are pread performance improvements in the
+			// pipeline, but as of now, mmap is much more performant – especially for
+			// parallel cache prefilling.
+			//
+			// In the future when the pure pread performance is on par with mmap, we
+			// should update this to pass the global setting.
+			lsmkv.WithPread(false),
+		)...,
+	); err != nil {
+		return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
+	}
 	return nil
 }
 
