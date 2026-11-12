@@ -69,7 +69,6 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/replicate/{id}", // for the same reason as backups above
 		"/replication/replicate/{id}/cancel",
 		"/replication/sharding-state",
-		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 		"/tokenize",             // stateless compute, no authz; POST only because it needs a body
 		// MCP's HTTP methods are protocol operations (GET=SSE session, DELETE=session
