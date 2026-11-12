@@ -14,6 +14,7 @@ package ent
 import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -52,6 +53,9 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 	if err := cs.BaseClassSettings.ValidateBaseURL(cs.BaseURL()); err != nil {
+		return err
+	}
+	if err := weaviateembed.ValidateBaseURL(cs.BaseURL()); err != nil {
 		return err
 	}
 

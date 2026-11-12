@@ -18,7 +18,6 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -262,12 +261,10 @@ func TestArenaUint64CacheFlushPreloadSummary(t *testing.T) {
 	require.True(t, ok)
 	summarizer.FlushPreloadSummary()
 
-	var warnings []string
-	for _, e := range hook.AllEntries() {
-		if e.Level == logrus.WarnLevel {
-			warnings = append(warnings, e.Message)
-		}
-	}
-	require.Len(t, warnings, 2)
-	assert.Contains(t, warnings[1], "skipped 49 more records")
+	// invariants, not the schedule (as in the byte-arena rate-limit test):
+	// one detailed line, and summaries that account for every other refusal
+	details, skips := badRecordWarnings(t, hook)
+	assert.Equal(t, 1, details)
+	assert.EqualValues(t, 49, sumInt64(skips),
+		"the adapter must forward the flush so every refusal is summarized")
 }

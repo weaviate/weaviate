@@ -36,7 +36,7 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 	if err := s.refuseIfEditOpsPending(); err != nil {
 		return nil, err
 	}
-	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+	if err := s.HaltForTransfer(ctx, false); err != nil {
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}
 	defer func() {
@@ -45,7 +45,7 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 		}
 	}()
 
-	files, err = s.collectShardRelativeFiles(ctx, stagingRoot, true)
+	files, err = s.collectShardRelativeFiles(ctx, stagingRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -90,20 +90,9 @@ func (s *Shard) refuseIfEditOpsPending() error {
 	return nil
 }
 
-// ListReplicaSnapshotFiles copies mutable bookkeeping files into stagingRoot and
-// returns the shard-relative file list. It does NOT hardlink segments.
-//
-// In halt-for-duration fallback mode the shard is halted by the caller and stays
-// halted until the caller releases it.
-func (s *Shard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	return s.collectShardRelativeFiles(ctx, stagingRoot, false)
-}
-
-func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot string, hardlinkSegments bool) ([]string, error) {
+func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot string) ([]string, error) {
 	// Backstop for the pre-halt refusal (see refuseIfEditOpsPending): it closes
-	// the window where an op arms between that check and this one, and covers
-	// the fallback path, which is already halted by the Index before it gets
-	// here.
+	// the window where an op arms between that check and this one.
 	//
 	// The wait can be long. Draining shares one goroutine with compaction,
 	// which takes precedence, so on a write-active shard the rows can sit
@@ -128,15 +117,12 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 		if err != nil {
 			return nil, err
 		}
-		if hardlinkSegments {
-			hardlinks = append(hardlinks, file.HardlinkPair{
-				Src: filepath.Join(s.index.Config.RootPath, dbRel),
-				Dst: filepath.Join(stagingRoot, shardRel),
-			})
-		}
+		hardlinks = append(hardlinks, file.HardlinkPair{
+			Src: filepath.Join(s.index.Config.RootPath, dbRel),
+			Dst: filepath.Join(stagingRoot, shardRel),
+		})
 		out = append(out, shardRel)
 	}
-	// hardlinks is nil in halt-for-duration mode, where HardlinkFiles is a no-op.
 	if err := file.HardlinkFiles(hardlinks); err != nil {
 		return nil, fmt.Errorf("hardlink replica snapshot files to staging: %w", err)
 	}

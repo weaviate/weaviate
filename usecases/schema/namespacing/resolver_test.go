@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -120,6 +121,7 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 		principal         *models.Principal
 		raw               string
 		want              string
+		wantErr           bool
 	}{
 		{
 			name:              "ns-disabled passes through bare",
@@ -157,12 +159,11 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 			want:              "ns1:alice",
 		},
 		{
-			// Lookups never reject — double-qualify just misses downstream.
-			name:              "ns-enabled namespaced principal double-qualifies an already-qualified name",
+			name:              "ns-enabled namespaced principal refuses a qualified name",
 			namespacesEnabled: true,
 			principal:         &models.Principal{Namespace: "ns1"},
 			raw:               "ns1:alice",
-			want:              "ns1:ns1:alice",
+			wantErr:           true,
 		},
 		{
 			name:              "ns-enabled nil principal passes through",
@@ -174,7 +175,13 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, namespacing.QualifyUserIDForLookup(tc.principal, tc.namespacesEnabled, tc.raw))
+			got, err := namespacing.QualifyUserIDForLookup(tc.principal, tc.namespacesEnabled, tc.raw)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -1478,6 +1485,38 @@ func TestStripOwnNamespace(t *testing.T) {
 		t.Run(tc.testName, func(t *testing.T) {
 			got := namespacing.StripOwnNamespace(tc.principal, tc.input)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestKeepOwnNamespace(t *testing.T) {
+	names := []string{"customer1:Movies", "customer10:Movies", "customer2:Movies", "Movies", "customer1:Books"}
+	confined := &models.Principal{Username: "u", Namespace: "customer1"}
+	cases := []struct {
+		testName  string
+		principal *models.Principal
+		input     []string
+		want      []string
+	}{
+		{
+			testName:  "confined caller keeps only exact own-namespace names",
+			principal: confined,
+			input:     names,
+			want:      []string{"customer1:Movies", "customer1:Books"},
+		},
+		{
+			testName:  "unconfined caller keeps everything",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			input:     names,
+			want:      names,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.testName, func(t *testing.T) {
+			input := slices.Clone(tc.input)
+			got := namespacing.KeepOwnNamespace(tc.principal, input, namespacing.NamespaceFromQualified)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.input, input, "input must not be modified")
 		})
 	}
 }

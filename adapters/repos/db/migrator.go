@@ -203,7 +203,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			}(),
 			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
 			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,
@@ -940,7 +939,9 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 	// A vector this update adds must not own a file an existing vector owns:
 	// file names derive from the name, so "compressed" next to the legacy
 	// vector shares its quantized bucket. Checked here, before the schema
-	// commits; the shard checks again against its own records.
+	// commits; the shard checks again against its own records. Names are
+	// enough: a vector rebuilt under a generated ID owns only names with a
+	// "-", which no vector name has (see validateVectorIndexID).
 	owners := make(map[string]vectorIndexOwner, len(old))
 	for name, cfg := range old {
 		if vectorIndexHasStorage(cfg) {

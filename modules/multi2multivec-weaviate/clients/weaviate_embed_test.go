@@ -17,9 +17,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -34,6 +36,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine and we send image", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 
 		c := New(0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
@@ -51,6 +54,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine and we send text query", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 
 		c := New(0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
@@ -71,6 +75,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"cluster-url"})
@@ -84,6 +89,7 @@ func TestClient(t *testing.T) {
 	t.Run("fails when vectorizing text data", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 
 		_, err := c.Vectorize(context.Background(), []string{"text data"}, []string{"base64"}, defaultSettings(server.URL))
@@ -94,12 +100,45 @@ func TestClient(t *testing.T) {
 	t.Run("fails when vectorizing image queries", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 
 		_, err := c.VectorizeImages(context.Background(), []string{"base64"}, defaultSettings(server.URL))
 
 		assert.EqualError(t, err, "vectorizing image queries is not supported for multi2multivec-weaviate module")
 	})
+}
+
+func TestBaseURLNotOnAllowlistIsNotCalled(t *testing.T) {
+	entryPoints := map[string]func(c *vectorizer, ctx context.Context, cfg fakeClassConfig) error{
+		"Vectorize (insert, update)": func(c *vectorizer, ctx context.Context, cfg fakeClassConfig) error {
+			_, err := c.Vectorize(ctx, nil, []string{"base64"}, cfg)
+			return err
+		},
+		"VectorizeQuery (nearText)": func(c *vectorizer, ctx context.Context, cfg fakeClassConfig) error {
+			_, err := c.VectorizeQuery(ctx, []string{"text"}, cfg)
+			return err
+		},
+	}
+	for name, callEntryPoint := range entryPoints {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(weaviateembed.AllowedBaseURLsEnv, "")
+			var hits atomic.Int32
+			unlisted := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				hits.Add(1)
+			}))
+			defer unlisted.Close()
+			ctx := context.WithValue(context.Background(), "Authorization", []string{"Bearer token"})
+			ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"https://cluster.example.com"})
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": unlisted.URL}}
+
+			err := callEntryPoint(New(0), ctx, cfg)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is not allowed")
+			assert.Zero(t, hits.Load())
+		})
+	}
 }
 
 type fakeHandler struct {

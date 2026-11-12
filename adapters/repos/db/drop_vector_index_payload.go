@@ -91,6 +91,11 @@ type DropVectorIndexTaskPayload struct {
 	DeferredShards []string `json:"deferredShards,omitempty"`
 }
 
+// DropVectorIndexTaskVisiblePayloadFields are the payload fields GET /v1/tasks
+// shows a caller without tenant read. Any other field could name tenants,
+// shards or nodes, so it stays hidden until it is listed here.
+var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId"}
+
 // ResolvedByShardDeletion reports whether p's recorded coverage spans every
 // shard in shards while a shard p still OWED has since disappeared — i.e. the
 // drop's outstanding work did not get done, it ceased to exist along with its

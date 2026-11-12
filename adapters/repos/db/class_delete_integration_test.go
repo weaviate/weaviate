@@ -15,12 +15,14 @@ package db
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -127,47 +129,40 @@ func TestClassLifecycle(t *testing.T) {
 	assert.NotEmpty(t, statuses[0].Shards)
 }
 
-// TestDeleteClassDuringBackup deletes a class while a backup of it is still
-// open. On a filesystem without hardlink support a backup keeps its shard
-// write-locked under backupLock until ReleaseBackup, so the delete parks in
-// dropShard. While it is parked the node must stay live: the dropping class
-// reads as absent, unrelated classes keep serving, and releasing the backup
-// lets the delete finish.
+// TestDeleteClassDuringBackup deletes a class while a backup of it is open.
+// The backup has already staged its files, so the delete does not wait on it
+// and removes the class directory. The staged files stay for the backup.
 func TestDeleteClassDuringBackup(t *testing.T) {
-	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
 	ctx := context.Background()
 	repo, migrator, sg := newTestRepo(t, true,
 		makeTestClass(deleteTestClass), makeTestClass(deleteTestOtherClass))
 
+	addObject(t, ctx, repo, deleteTestClass, "backed up")
 	addObject(t, ctx, repo, deleteTestOtherClass, "bystander")
 
+	var staged []string
 	for d := range repo.BackupDescriptors(ctx, deleteTestBackupID, []string{deleteTestClass}, nil, nil) {
 		require.NoError(t, d.Error)
+		for _, shard := range d.Shards {
+			for _, f := range shard.Files {
+				staged = append(staged, filepath.Join(d.StagingDir, f))
+			}
+		}
 	}
+	require.NotEmpty(t, staged)
 
-	deleted := make(chan struct{})
-	go func() {
-		defer close(deleted)
-		_ = migrator.DropClass(ctx, deleteTestClass, false)
-	}()
+	var dropErr error
+	requireNoHang(t, "delete of a class with an open backup", func() {
+		dropErr = migrator.DropClass(ctx, deleteTestClass, false)
+	})
+	require.NoError(t, dropErr)
 	unpublish(sg, deleteTestClass)
 
-	require.Eventually(t, func() bool {
-		return repo.GetIndex(schema.ClassName(deleteTestClass)) == nil
-	}, deadline, 50*time.Millisecond, "class must stop resolving as soon as its delete starts")
-
-	select {
-	case <-deleted:
-		t.Fatal("precondition: the open backup must hold the delete")
-	case <-time.After(500 * time.Millisecond):
-	}
-
-	// The parked delete must not freeze the node.
-	var droppingErr, bystanderErr *objects.Error
+	var droppedErr, bystanderErr *objects.Error
 	var bystander search.Results
 	var writeErr error
-	requireNoHang(t, "read of the dropping class", func() {
-		_, droppingErr = queryClass(ctx, repo, deleteTestClass)
+	requireNoHang(t, "read of the dropped class", func() {
+		_, droppedErr = queryClass(ctx, repo, deleteTestClass)
 	})
 	requireNoHang(t, "read of an unrelated class", func() {
 		bystander, bystanderErr = queryClass(ctx, repo, deleteTestOtherClass)
@@ -176,24 +171,49 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 		writeErr = putObject(ctx, repo, deleteTestOtherClass, "still writable")
 	})
 
-	require.NotNil(t, droppingErr, "reading a class being deleted must fail")
-	assert.Equal(t, objects.StatusNotFound, droppingErr.Code, "got %v", droppingErr.Msg)
+	require.NotNil(t, droppedErr, "reading a deleted class must fail")
+	assert.Equal(t, objects.StatusNotFound, droppedErr.Code, "got %v", droppedErr.Msg)
 	require.Nil(t, bystanderErr)
 	assert.Len(t, bystander, 1)
 	assert.NoError(t, writeErr)
 
-	require.NoError(t, repo.ReleaseBackup(ctx, deleteTestBackupID, deleteTestClass))
-
-	select {
-	case <-deleted:
-	case <-time.After(deadline):
-		t.Fatal("releasing the backup must unblock the delete")
+	id := indexID(schema.ClassName(deleteTestClass))
+	assert.NoDirExists(t, filepath.Join(repo.config.RootPath, id))
+	assert.NoDirExists(t, filepath.Join(repo.config.RootPath, backup.DeleteMarker+id))
+	for _, f := range staged {
+		assert.FileExists(t, f, "the delete must leave the backup's staged files")
 	}
+
+	staging := backupStagingDir(repo.config.RootPath, deleteTestBackupID, schema.ClassName(deleteTestClass))
+	require.NoError(t, repo.ReleaseBackup(ctx, deleteTestBackupID, deleteTestClass))
+	assert.NoDirExists(t, staging, "releasing the backup must remove the staging dir")
 }
 
-// requireNoHang fails instead of stalling when fn blocks on a lock the parked
-// delete holds. fn runs on its own goroutine, so it records results for the
-// caller to assert on rather than calling require itself.
+// TestDeleteRecreatedClassDuringBackup deletes a class during a backup and
+// recreates it before the release, twice. A directory the first delete leaves
+// behind breaks only the second, so the class recreated last must start empty.
+func TestDeleteRecreatedClassDuringBackup(t *testing.T) {
+	ctx := context.Background()
+	repo, migrator, sg := newTestRepo(t, false, makeTestClass(deleteTestClass))
+
+	for _, backupID := range []string{"first-backup", "second-backup"} {
+		addObject(t, ctx, repo, deleteTestClass, backupID)
+		for d := range repo.BackupDescriptors(ctx, backupID, []string{deleteTestClass}, nil, nil) {
+			require.NoError(t, d.Error)
+		}
+		deleteClass(t, ctx, migrator, sg, deleteTestClass)
+		createClass(t, ctx, migrator, sg, deleteTestClass)
+		require.NoError(t, repo.ReleaseBackup(ctx, backupID, deleteTestClass))
+	}
+
+	res, objErr := queryClass(ctx, repo, deleteTestClass)
+	require.Nil(t, objErr)
+	assert.Empty(t, res, "the recreated class must not serve objects of a deleted one")
+}
+
+// requireNoHang fails instead of stalling when fn blocks. fn runs on its own
+// goroutine, so it records results for the caller to assert on rather than
+// calling require itself.
 func requireNoHang(t *testing.T, what string, fn func()) {
 	t.Helper()
 	done := make(chan struct{})
@@ -204,6 +224,6 @@ func requireNoHang(t *testing.T, what string, fn func()) {
 	select {
 	case <-done:
 	case <-time.After(deadline):
-		t.Fatalf("%s blocked behind the parked delete", what)
+		t.Fatalf("%s blocked", what)
 	}
 }

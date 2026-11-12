@@ -12,6 +12,7 @@
 package file
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,21 +78,59 @@ func TestSafeStagingDirName(t *testing.T) {
 
 func TestProbeHardlinkSupport(t *testing.T) {
 	t.Run("supported on a normal temp dir", func(t *testing.T) {
-		dir := t.TempDir()
-		assert.True(t, ProbeHardlinkSupport(dir))
+		supported, err := ProbeHardlinkSupport(t.TempDir())
+		require.NoError(t, err)
+		assert.True(t, supported)
 	})
 
-	t.Run("false for a non-existent dir", func(t *testing.T) {
-		assert.False(t, ProbeHardlinkSupport(filepath.Join(t.TempDir(), "does-not-exist")))
+	t.Run("env var forces unsupported without an error", func(t *testing.T) {
+		t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+		supported, err := ProbeHardlinkSupport(t.TempDir())
+		require.NoError(t, err)
+		assert.False(t, supported)
+	})
+
+	t.Run("a non-existent dir is a probe error, not unsupported", func(t *testing.T) {
+		_, err := ProbeHardlinkSupport(filepath.Join(t.TempDir(), "does-not-exist"))
+		require.Error(t, err)
+		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
 
 	t.Run("leaves no probe files behind", func(t *testing.T) {
 		dir := t.TempDir()
-		require.True(t, ProbeHardlinkSupport(dir))
+		supported, err := ProbeHardlinkSupport(dir)
+		require.NoError(t, err)
+		require.True(t, supported)
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err)
 		assert.Empty(t, entries, "probe must clean up its temp files")
 	})
+}
+
+func TestHardlinkUnsupported(t *testing.T) {
+	linkErr := func(errno syscall.Errno) error {
+		return &os.LinkError{Op: "link", Old: "src", New: "dst", Err: errno}
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "ENOTSUP", err: linkErr(syscall.ENOTSUP), want: true},
+		{name: "EOPNOTSUPP", err: linkErr(syscall.EOPNOTSUPP), want: true},
+		{name: "EXDEV", err: linkErr(syscall.EXDEV), want: true},
+		{name: "EPERM", err: linkErr(syscall.EPERM), want: true},
+		{name: "ENOSYS", err: linkErr(syscall.ENOSYS), want: true},
+		{name: "ENOSPC", err: linkErr(syscall.ENOSPC), want: false},
+		{name: "EACCES", err: linkErr(syscall.EACCES), want: false},
+		{name: "EIO", err: linkErr(syscall.EIO), want: false},
+		{name: "generic error", err: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, hardlinkUnsupported(tt.err))
+		})
+	}
 }
 
 func TestHardlinkFiles(t *testing.T) {

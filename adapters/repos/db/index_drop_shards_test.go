@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 )
@@ -79,7 +77,7 @@ func TestIndexDropShards(t *testing.T) {
 			if tt.loaded {
 				shard := NewMockShardLike(t)
 				shard.EXPECT().ID().Return(loadedShardID).Maybe()
-				shard.EXPECT().drop(false).Return(tt.shardDropErr).Once()
+				shard.EXPECT().drop().Return(tt.shardDropErr).Once()
 				idx.shards.Store(shardName, shard)
 			}
 
@@ -215,13 +213,13 @@ func TestIndexDropShardsReportsWorkerPanic(t *testing.T) {
 
 	panickingShard := func(t *testing.T) *MockShardLike {
 		shard := NewMockShardLike(t)
-		shard.EXPECT().drop(false).Run(func(bool) { panic("drop panicked") }).Return(nil).Once()
+		shard.EXPECT().drop().Run(func() { panic("drop panicked") }).Return(nil).Once()
 		return shard
 	}
 	failingShardMock := func(t *testing.T) *MockShardLike {
 		shard := NewMockShardLike(t)
 		shard.EXPECT().ID().Return(failingShard).Maybe()
-		shard.EXPECT().drop(false).Return(errors.New("shard drop failed")).Once()
+		shard.EXPECT().drop().Return(errors.New("shard drop failed")).Once()
 		return shard
 	}
 
@@ -310,8 +308,6 @@ func TestIndexDropReportsFailures(t *testing.T) {
 		// stallCompactions keeps both compaction cycles from reporting a stop, so
 		// they only fail once the drop timeout expires
 		stallCompactions bool
-		// keepFiles stands in for a backup in progress
-		keepFiles bool
 		// blockRename makes the root read-only so renaming the index fails
 		blockRename     bool
 		wantErrContains []string
@@ -371,23 +367,6 @@ func TestIndexDropReportsFailures(t *testing.T) {
 			wantErrContains: []string{"drop failed", "rename index for async delete"},
 			wantShardLog:    loadedShardID,
 		},
-		{
-			name:      "backup in progress keeps the files",
-			keepFiles: true,
-		},
-		{
-			name:            "backup in progress still reports the shard failure",
-			keepFiles:       true,
-			shardDropErr:    errDrop,
-			wantErrContains: []string{"drop failed"},
-			wantShardLog:    loadedShardID,
-		},
-		{
-			name:            "delete marker rename failure is reported",
-			keepFiles:       true,
-			blockRename:     true,
-			wantErrContains: []string{"rename index for delete marker"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -398,24 +377,20 @@ func TestIndexDropReportsFailures(t *testing.T) {
 			idx, hook := newDropTestIndex(t)
 			require.NoError(t, os.MkdirAll(shardPath(idx.path(), shardName), 0o755))
 
-			if tt.keepFiles {
-				idx.lastBackup.Store(&BackupState{BackupID: "backup1", InProgress: true})
-			}
-
 			if !tt.noShards {
 				shard := NewMockShardLike(t)
 				shard.EXPECT().ID().Return(loadedShardID).Maybe()
 				if tt.panicDrop {
-					shard.EXPECT().drop(tt.keepFiles).Run(func(bool) { panic("drop panicked") }).Return(nil).Once()
+					shard.EXPECT().drop().Run(func() { panic("drop panicked") }).Return(nil).Once()
 				} else {
-					shard.EXPECT().drop(tt.keepFiles).Return(tt.shardDropErr).Once()
+					shard.EXPECT().drop().Return(tt.shardDropErr).Once()
 				}
 				idx.shards.Store(shardName, shard)
 			}
 			if tt.secondShardFails {
 				shard := NewMockShardLike(t)
 				shard.EXPECT().ID().Return("abc_" + secondShard).Maybe()
-				shard.EXPECT().drop(tt.keepFiles).Return(errors.New("second drop failed")).Once()
+				shard.EXPECT().drop().Return(errors.New("second drop failed")).Once()
 				idx.shards.Store(secondShard, shard)
 			}
 
@@ -450,8 +425,6 @@ func TestIndexDropReportsFailures(t *testing.T) {
 
 			_, pathErr := os.Stat(idx.path())
 			require.Equal(t, tt.blockRename, pathErr == nil)
-			_, markerErr := os.Stat(filepath.Join(idx.Config.RootPath, backup.DeleteMarkerAdd(idx.ID())))
-			require.Equal(t, tt.keepFiles && !tt.blockRename, markerErr == nil)
 		})
 	}
 }

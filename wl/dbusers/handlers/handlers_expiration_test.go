@@ -85,6 +85,7 @@ func TestSetUserExpiration(t *testing.T) {
 		wantKey           string
 		wantCode          int
 		wantSet           *setCall
+		noAuthz           bool
 	}{
 		{name: "authz denied", body: futureBody, users: existing, authzErr: errors.New("forbidden"), wantCode: http.StatusForbidden},
 		{
@@ -98,6 +99,12 @@ func TestSetUserExpiration(t *testing.T) {
 			principal: &models.Principal{Username: "customer1:admin", UserType: models.UserTypeInputDb, Namespace: "customer1"}, namespacesEnabled: true,
 			userID: "ns-root", body: futureBody, users: map[string]apikey.UserView{"customer1:ns-root": {Id: "customer1:ns-root"}},
 			wantKey: "customer1:ns-root", wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:      "namespaced caller names another namespace",
+			principal: &models.Principal{Username: "customer1:admin", UserType: models.UserTypeInputDb, Namespace: "customer1"}, namespacesEnabled: true,
+			userID: "customer2:user", body: futureBody, users: map[string]apikey.UserView{"customer2:user": {Id: "customer2:user"}},
+			noAuthz: true, wantCode: http.StatusUnprocessableEntity,
 		},
 		{name: "static user", userID: "static-user", body: futureBody, static: config.StaticAPIKey{Enabled: true, Users: []string{"static-user"}}, wantCode: http.StatusUnprocessableEntity},
 		{
@@ -132,7 +139,9 @@ func TestSetUserExpiration(t *testing.T) {
 			}
 
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.EXPECT().Authorize(mock.Anything, principal, authorization.UPDATE, authorization.Users(wantKey)[0]).Return(tc.authzErr)
+			if !tc.noAuthz {
+				authorizer.EXPECT().Authorize(mock.Anything, principal, authorization.UPDATE, authorization.Users(wantKey)[0]).Return(tc.authzErr)
+			}
 			raft := &fakeRaft{users: tc.users, getErr: tc.getErr, setErr: tc.setErr}
 			api := operations.NewWeaviateAPI(nil)
 			SetupHandlers(api, raft, authorizer, dbusers.NewValidatingExpiry(),

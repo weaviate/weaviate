@@ -128,7 +128,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %w", err)
 	}

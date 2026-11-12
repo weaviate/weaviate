@@ -137,7 +137,7 @@ func (c *Counter) Close() error {
 	return nil
 }
 
-func (c *Counter) Drop(keepFiles bool) error {
+func (c *Counter) Drop() error {
 	c.Lock()
 	defer c.Unlock()
 	if c.f == nil {
@@ -145,11 +145,8 @@ func (c *Counter) Drop(keepFiles bool) error {
 	}
 	filename := c.FileName()
 	c.f.Close()
-	if !keepFiles {
-		err := os.Remove(filename)
-		if err != nil {
-			return errors.Wrap(err, "drop counter file")
-		}
+	if err := os.Remove(filename); err != nil {
+		return errors.Wrap(err, "drop counter file")
 	}
 	return nil
 }

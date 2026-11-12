@@ -75,13 +75,13 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "mark vector index creating")
 	}
 
-	err = vidx.Drop(ctx, false)
+	err = vidx.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop vector index")
 	}
 
 	if isHFresh {
-		err = s.removeHFreshArtifacts(ctx, targetVector, rec.PhysicalID)
+		err = s.removeHFreshArtifacts(ctx, targetVector, rec.storageID())
 		if err != nil {
 			return errors.Wrap(err, "remove hfresh files")
 		}
@@ -89,7 +89,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, rec.PhysicalID, newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, rec.storageID(), newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}
@@ -126,7 +126,7 @@ func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector, physica
 			return fmt.Errorf("vector %q: %w", other, err)
 		}
 		if ok {
-			otherIDs = append(otherIDs, rec.PhysicalID)
+			otherIDs = append(otherIDs, rec.storageID())
 		}
 	}
 	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
@@ -174,7 +174,7 @@ func (s *Shard) DebugResetGeoIndex(ctx context.Context, propName string) error {
 
 	// drop the graph, not the geo index: searches may still hold the geo index,
 	// and geo.Index.Drop leaves it with a nil graph
-	err := graph.Drop(ctx, false)
+	err := graph.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop geo index")
 	}

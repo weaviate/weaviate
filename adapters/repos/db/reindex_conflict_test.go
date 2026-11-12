@@ -400,7 +400,7 @@ func TestReindexBucketEffect_Exhaustive(t *testing.T) {
 // CheckConflict returns nil when the new payload doesn't overlap with
 // any STARTED existing task.
 func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -424,7 +424,7 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, provider.CheckConflict(newPayload, existing))
+	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
 // TestCheckConflict_RejectsParallelOnSameProp pins the
@@ -434,7 +434,7 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 // these states leaves on-disk migration state that a parallel migration
 // would race on.
 func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -459,7 +459,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 					Payload:        existPayload,
 				},
 			}
-			err := provider.CheckConflict(newPayload, existing)
+			err := detector.CheckConflict(newPayload, existing)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "conflicts")
 			require.Contains(t, err.Error(), "enable-filterable")
@@ -472,7 +472,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 // / CANCELLED tasks are not consulted — only STARTED tasks can
 // conflict.
 func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -500,7 +500,7 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 				Payload:        existPayload,
 			},
 		}
-		require.NoError(t, provider.CheckConflict(newPayload, existing),
+		require.NoError(t, detector.CheckConflict(newPayload, existing),
 			"status=%s must NOT block a new task — only STARTED tasks conflict", status)
 	}
 }
@@ -509,7 +509,7 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 // scoped to (collection, property) — same property name in two
 // different collections is not a conflict.
 func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "CollectionA",
@@ -533,7 +533,7 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, provider.CheckConflict(newPayload, existing))
+	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
 // TestCheckConflict_CaseInsensitiveCollection pins that the collection
@@ -541,7 +541,7 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 // case-fold class names, so a parallel submit on the same property of
 // the same class with different casing must still be rejected.
 func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "MyCollection",
@@ -565,15 +565,15 @@ func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
 		},
 	}
 
-	err := provider.CheckConflict(newPayload, existing)
+	err := detector.CheckConflict(newPayload, existing)
 	require.Error(t, err)
 }
 
 // TestCheckConflict_UnparseableNewPayload pins that a corrupted new
 // payload is rejected up-front rather than silently allowed through.
 func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
-	provider := &ReindexProvider{}
-	err := provider.CheckConflict([]byte("not json"), nil)
+	detector := ReindexDetector{}
+	err := detector.CheckConflict([]byte("not json"), nil)
 	require.Error(t, err)
 }
 
@@ -582,7 +582,7 @@ func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
 // be rejected. The safer choice — we cannot prove non-conflict, so
 // refuse rather than allow a race.
 func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	newP := ReindexTaskPayload{
 		Collection:    "C",
@@ -599,7 +599,7 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 		},
 	}
 
-	err := provider.CheckConflict(newPayload, existing)
+	err := detector.CheckConflict(newPayload, existing)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T1")
 	require.Contains(t, err.Error(), "unparseable")
@@ -610,9 +610,9 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 // target property, CheckPropertyUpdate must return nil so external
 // schema mutations are not spuriously rejected.
 func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
-	require.NoError(t, provider.CheckPropertyUpdate("C", "name", nil))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "name", nil))
 
 	// FINISHED / FAILED / CANCELLED in the task list also must not block.
 	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
@@ -631,7 +631,7 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 				Status:         status,
 				Payload:        terminalPayload,
 			}}
-			require.NoError(t, provider.CheckPropertyUpdate("C", "name", tasks))
+			require.NoError(t, detector.CheckPropertyUpdate("C", "name", tasks))
 		})
 	}
 }
@@ -643,7 +643,7 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 // migration wipes the in-flight searchable_retokenize working dir and
 // produces a torn filterable bucket.
 func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -658,7 +658,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := provider.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_change_tok")
 			require.Contains(t, err.Error(), "change-tokenization")
@@ -674,7 +674,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 // mutations on a different property "category" in the same collection.
 // Without this the guard would block legitimate parallel schema work.
 func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -688,8 +688,8 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckPropertyUpdate("C", "category", tasks))
-	require.NoError(t, provider.CheckPropertyUpdate("C", "title", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "category", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "title", tasks))
 }
 
 // TestCheckPropertyUpdate_DifferentCollectionAllows pins the per-
@@ -697,7 +697,7 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 // block schema mutations on collection "B" — they share no on-disk
 // state.
 func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "A",
@@ -711,7 +711,7 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckPropertyUpdate("B", "name", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("B", "name", tasks))
 }
 
 // TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
@@ -735,7 +735,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 		ReindexTypeRepairRangeable,
 	}
 
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	for _, mt := range migrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
@@ -749,7 +749,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        payload,
 			}}
-			err := provider.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err, "migration type %s in flight on name must block schema mutations on name", mt)
 			require.Contains(t, err.Error(), string(mt))
 		})
@@ -761,7 +761,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 // properties" / whole-collection rebuild) blocks every property in
 // that collection. Mirrors the wildcard semantics in ReindexPropsOverlap.
 func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -778,7 +778,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 
 	for _, prop := range []string{"name", "category", "title", "description"} {
 		t.Run(prop, func(t *testing.T) {
-			err := provider.CheckPropertyUpdate("C", prop, tasks)
+			err := detector.CheckPropertyUpdate("C", prop, tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_wildcard")
 		})
@@ -791,7 +791,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 // guard refuses the mutation rather than silently allow it through.
 // Mirrors the same convention in CheckConflict above.
 func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	tasks := []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
@@ -799,7 +799,7 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 		Payload:        []byte("garbage"),
 	}}
 
-	err := provider.CheckPropertyUpdate("C", "name", tasks)
+	err := detector.CheckPropertyUpdate("C", "name", tasks)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -811,8 +811,8 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 // conflict, regardless of which property the migration targets.
 
 func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
-	require.NoError(t, provider.CheckClassMutation("C", nil))
+	detector := ReindexDetector{}
+	require.NoError(t, detector.CheckClassMutation("C", nil))
 
 	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -824,12 +824,12 @@ func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
 		Status:         distributedtask.TaskStatusFinished,
 		Payload:        terminalPayload,
 	}}
-	require.NoError(t, provider.CheckClassMutation("C", tasks),
+	require.NoError(t, detector.CheckClassMutation("C", tasks),
 		"FINISHED tasks must not block DeleteClass")
 }
 
 func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -846,7 +846,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := provider.CheckClassMutation("C", tasks)
+			err := detector.CheckClassMutation("C", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_class")
 			require.Contains(t, err.Error(), "bucket↔schema inversion")
@@ -855,7 +855,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 }
 
 func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "A",
@@ -869,18 +869,18 @@ func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckClassMutation("B", tasks),
+	require.NoError(t, detector.CheckClassMutation("B", tasks),
 		"in-flight reindex on class A must not block DeleteClass on class B")
 }
 
 func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 	tasks := []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte("garbage"),
 	}}
-	err := provider.CheckClassMutation("C", tasks)
+	err := detector.CheckClassMutation("C", tasks)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -890,12 +890,12 @@ func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
 // (DeleteTenants / UpdateTenants-away-from-ACTIVE).
 
 func TestCheckTenantMutation_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
-	require.NoError(t, provider.CheckTenantMutation("C", []string{"t1"}, nil))
+	detector := ReindexDetector{}
+	require.NoError(t, detector.CheckTenantMutation("C", []string{"t1"}, nil))
 }
 
 func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
@@ -910,7 +910,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := provider.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
+			err := detector.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_tenant")
 			require.Contains(t, err.Error(), "[t1 t2]",
@@ -920,7 +920,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 }
 
 func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "A",
@@ -933,7 +933,7 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, provider.CheckTenantMutation("B", []string{"t1"}, tasks),
+	require.NoError(t, detector.CheckTenantMutation("B", []string{"t1"}, tasks),
 		"in-flight reindex on class A must not block tenant mutation on class B")
 }
 
@@ -944,7 +944,7 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 // shape we no longer recognize and the missing fields dropped to zero
 // values during Unmarshal.
 func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 
 	tests := []struct {
 		name    string
@@ -974,7 +974,7 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        b,
 			}}
-			err := provider.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", tasks)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_empty")
 		})
@@ -1009,7 +1009,7 @@ var blockingStatuses = []distributedtask.TaskStatus{
 // IsCancellable, so re-keying the helper onto a different predicate
 // shows up here as a failure instead of moving the goalposts with it.
 func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
-	provider := &ReindexProvider{}
+	detector := ReindexDetector{}
 	payload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,
@@ -1031,19 +1031,19 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	}{
 		"property update": {
 			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckPropertyUpdate("C", "name", tasks)
+				return detector.CheckPropertyUpdate("C", "name", tasks)
 			},
 			cancelAdvice: "cancel it via the reindex REST API before retrying",
 		},
 		"class mutation": {
 			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckClassMutation("C", tasks)
+				return detector.CheckClassMutation("C", tasks)
 			},
 			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
 		},
 		"tenant mutation": {
 			call: func(tasks []*distributedtask.Task) error {
-				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+				return detector.CheckTenantMutation("C", []string{"t1"}, tasks)
 			},
 			cancelAdvice: "cancel the reindex via the REST API before mutating these tenants",
 		},

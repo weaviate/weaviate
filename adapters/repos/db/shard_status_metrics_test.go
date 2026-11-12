@@ -247,7 +247,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			act: func(t *testing.T, e env) {
 				shard, ok := e.idx.shards.LoadAndDelete(e.shardName)
 				require.True(t, ok)
-				require.Error(t, shard.drop(false))
+				require.Error(t, shard.drop())
 			},
 		},
 		{
@@ -256,7 +256,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			act: func(t *testing.T, e env) {
 				shard, ok := e.idx.shards.LoadAndDelete(e.shardName)
 				require.True(t, ok)
-				require.NoError(t, shard.drop(false))
+				require.NoError(t, shard.drop())
 				// A dropped shard still reports READY; reading it must not recount it.
 				require.Equal(t, storagestate.StatusReady, shard.GetStatus())
 			},
