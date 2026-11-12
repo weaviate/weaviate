@@ -565,14 +565,17 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 		// PathSeer uses two-hop neighbors as expansion-zone neighbors, avoiding changes to the HNSW index.
 		extStart := len(connectionsReusable)
-		maxSecondOrder := h.maximumConnectionsLayerZero
+		// Layer-zero maximumConnectionsLayerZero is the 2M degree bound.
+		// Each first-hop node gets this many filter-matching second-hop IDs.
+		maxSecondOrder := int(math.Round(math.Log(float64(h.maximumConnectionsLayerZero))))
+		if maxSecondOrder < 1 {
+			maxSecondOrder = 1
+		}
+		var filteredSecondOrder []uint64
 		if results.Len() < ef && strategy == PATHSEER && level == 0 {
 			secondOrderBuf := sliceSecondOrder.Slice[:0]
-			secondOrderCount := 0
 			for _, firstOrderID := range connectionsReusable {
-				if secondOrderCount >= maxSecondOrder {
-					break
-				}
+				satisfactoryCount := 0
 				h.shardedNodeLocks.RLock(firstOrderID)
 				firstOrderNode := h.nodes[firstOrderID]
 				h.shardedNodeLocks.RUnlock(firstOrderID)
@@ -583,12 +586,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				secondOrderBuf = firstOrderNode.connections.CopyLayer(secondOrderBuf[:0], 0)
 				firstOrderNode.Unlock()
 				for _, secID := range secondOrderBuf {
-					if secondOrderCount >= maxSecondOrder {
+					if satisfactoryCount >= maxSecondOrder {
 						break
-					}
-					secondOrderCount++
-					if visited.Visited(secID) {
-						continue
 					}
 					if isMultivec {
 						var docID uint64
@@ -598,9 +597,20 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							docID, _ = h.cache.GetKeys(secID)
 						}
 						if !allowList.Contains(docID) {
+							if !visited.Visited(secID) {
+								filteredSecondOrder = append(filteredSecondOrder, secID)
+							}
 							continue
 						}
 					} else if !allowList.Contains(secID) {
+						if !visited.Visited(secID) {
+							filteredSecondOrder = append(filteredSecondOrder, secID)
+						}
+						continue
+					}
+					// Already visited matching IDs still consume this node's quota.
+					satisfactoryCount++
+					if visited.Visited(secID) {
 						continue
 					}
 					connectionsReusable = append(connectionsReusable, secID)
@@ -659,6 +669,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 			}
 			unvisited = append(unvisited, neighborID)
+		}
+		// A second-hop ID may also be a direct neighbor. Mark filtered
+		// second-hop IDs after collecting direct neighbors so phase-1 still
+		// computes distances for every unvisited first-hop neighbor.
+		for _, secID := range filteredSecondOrder {
+			visited.Visit(secID)
 		}
 
 		if cap(distSlice.Slice) < len(unvisited) {
