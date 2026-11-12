@@ -111,11 +111,8 @@ func TestParseAcceptsOutOfBoundsMuvera(t *testing.T) {
 	require.Error(t, ValidateMuveraUpperBounds(uc), "the same config must fail the create/update bounds")
 }
 
-// TestParseMultiVectorModuleEnablesMuvera pins how hfresh reacts to a
-// multi-vector vectorizer module (isMultiVector == true). hfresh has exactly
-// one multi-vector mode, MUVERA, so a multi-vector module implies muvera the
-// same way it implies multivector.enabled on hnsw. Only an explicit
-// muvera.enabled=false is a contradiction and rejected.
+// TestParseMultiVectorModuleEnablesMuvera: a multi-vector vectorizer implies
+// muvera on hfresh; only an explicit muvera.enabled=false is rejected.
 func TestParseMultiVectorModuleEnablesMuvera(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -181,9 +178,7 @@ func TestParseMultiVectorModuleEnablesMuvera(t *testing.T) {
 			wantErr:       "muvera",
 		},
 		{
-			// startup-safety: without a multi-vector module the parser must
-			// keep accepting this shape, a class persisted this way must load.
-			// Create/update rejects it via ValidateMultiVectorRequiresMuvera.
+			// must still parse: a persisted class with this shape has to load
 			name: "no module, multivector enabled without muvera still parses",
 			input: map[string]interface{}{
 				"multivector": map[string]interface{}{"enabled": true},
@@ -223,10 +218,6 @@ func TestParseMultiVectorModuleEnablesMuvera(t *testing.T) {
 	}
 }
 
-// TestValidateMultiVectorRequiresMuvera pins the create/update-only rule:
-// hfresh only takes multi-vectors MUVERA-encoded, so multivector.enabled
-// without muvera.enabled is a config that accepts no insert and must be
-// refused up front rather than stored.
 func TestValidateMultiVectorRequiresMuvera(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -245,7 +236,6 @@ func TestValidateMultiVectorRequiresMuvera(t *testing.T) {
 			wantErr: "muvera",
 		},
 		{
-			// muvera on its own implies multivector; nothing to reject
 			name: "muvera without the multivector flag",
 			uc: func() UserConfig {
 				uc := NewDefaultUserConfig()

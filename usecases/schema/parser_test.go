@@ -759,10 +759,6 @@ func TestParseClassUpdate_LegacyVectorReachesTheValidator(t *testing.T) {
 	require.ErrorContains(t, err, `share "vectors_compressed"`)
 }
 
-// TestParseGivenVectorIndexConfig_MultiVectorIndexTypes pins which index
-// types accept a multi-vector vectorizer module. hfresh encodes multi-vectors
-// with MUVERA and must be allowed next to hnsw; flat and dynamic have no
-// multi-vector support and stay rejected.
 func TestParseGivenVectorIndexConfig_MultiVectorIndexTypes(t *testing.T) {
 	cs := fakes.NewFakeClusterState()
 	p := NewParser(cs, vectorindex.ParseAndValidateConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
@@ -790,9 +786,6 @@ func TestParseGivenVectorIndexConfig_MultiVectorIndexTypes(t *testing.T) {
 	}
 }
 
-// TestParseClass_MultiVectorModuleWithHFresh runs the full ParseClass path a
-// RAFT apply takes for a named vector backed by a multi-vector module on
-// hfresh: the stored config must come out MUVERA-enabled.
 func TestParseClass_MultiVectorModuleWithHFresh(t *testing.T) {
 	cs := fakes.NewFakeClusterState()
 	p := NewParser(cs, vectorindex.ParseAndValidateConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
@@ -802,8 +795,7 @@ func TestParseClass_MultiVectorModuleWithHFresh(t *testing.T) {
 		VectorConfig: map[string]models.VectorConfig{
 			"colbert": {
 				VectorIndexType: vectorindex.VectorIndexTypeHFresh,
-				// "colbert" satisfies both HasModule and IsMultiVector on fakeModulesProvider
-				Vectorizer: map[string]interface{}{"text2multivec-colbert": map[string]interface{}{}},
+				Vectorizer:      map[string]interface{}{"text2multivec-colbert": map[string]interface{}{}},
 			},
 		},
 	}

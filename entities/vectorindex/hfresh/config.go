@@ -212,12 +212,8 @@ func ValidateMuveraUpperBounds(uc UserConfig) error {
 }
 
 // ValidateMultiVectorRequiresMuvera rejects multivector.enabled without
-// multivector.muvera.enabled. hfresh only stores multi-vectors MUVERA-encoded
-// (IsMultiVector follows the muvera flag alone), so such a config would be
-// stored and then refuse every multi-vector insert. Like
-// ValidateMuveraUpperBounds it runs on schema create/update only: the parser
-// also runs on startup and RAFT replay, where a class persisted this way must
-// still load.
+// muvera: hfresh only stores multi-vectors MUVERA-encoded. Like
+// ValidateMuveraUpperBounds it runs on schema create/update only.
 func ValidateMultiVectorRequiresMuvera(uc UserConfig) error {
 	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 		return errors.New("invalid hfresh config: multivector.enabled requires multivector.muvera.enabled, hfresh only stores multi-vectors MUVERA-encoded")
@@ -295,10 +291,8 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 	uc := UserConfig{}
 	uc.SetDefaults()
 
-	// A multi-vector vectorizer module (ColBERT-style) always emits
-	// [][]float32, and hfresh has exactly one way to store those: MUVERA.
-	// So a multi-vector module implies muvera the same way it implies
-	// multivector.enabled on hnsw, with or without an explicit config.
+	// a multi-vector vectorizer implies muvera, hfresh has no other
+	// multi-vector mode
 	if isMultiVector {
 		uc.Multivector.Enabled = true
 		uc.Multivector.MuveraConfig.Enabled = true
@@ -382,8 +376,6 @@ func parseMultivectorConfig(in map[string]interface{}, multivector *hnsw.Multive
 	var muveraErr error
 	if err := vectorIndexCommon.OptionalBoolFromMap(muveraMap, "enabled", func(v bool) {
 		if isMultiVector && !v {
-			// contradiction: the module emits multi-vectors and hfresh can
-			// only hold them MUVERA-encoded
 			muveraErr = errors.New("invalid hfresh config: multivector.muvera.enabled cannot be false with a multi-vector vectorizer, hfresh only stores multi-vectors MUVERA-encoded")
 			return
 		}

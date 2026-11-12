@@ -1528,10 +1528,6 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed != nil && parsed.IsMultiVector() {
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
-		// Create/update-only hard limits, mirroring the named-vector loop
-		// below. They must not live in the config parser itself: that also
-		// runs on startup/restore, where a persisted out-of-range class must
-		// not prevent the node from starting.
 		if parsed != nil {
 			if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
 				return err

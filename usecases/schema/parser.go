@@ -262,9 +262,6 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	// hnsw holds multi-vectors natively (maxSim) or MUVERA-encoded; hfresh
-	// holds them MUVERA-encoded only. flat and dynamic have no multi-vector
-	// support at all.
 	if isMultiVector && vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
 		return nil, errors.Errorf(
 			"parse vector index config: multi vector index is not supported for vector index type: %q, supported types are hnsw and hfresh",

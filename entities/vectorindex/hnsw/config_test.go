@@ -1302,11 +1302,6 @@ func TestUserConfigMuveraKSimBound(t *testing.T) {
 	}
 }
 
-// TestParseAndValidateConfig_MultiVectorModuleWithoutBlock pins that a
-// multi-vector vectorizer module yields a multi-vector index even when the
-// request carries no "multivector" block at all: the module emits
-// [][]float32, and an index parsed as single-vector would refuse every
-// insert.
 func TestParseAndValidateConfig_MultiVectorModuleWithoutBlock(t *testing.T) {
 	tests := []struct {
 		name          string

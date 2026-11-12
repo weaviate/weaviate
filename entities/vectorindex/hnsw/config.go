@@ -144,10 +144,8 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 	uc := UserConfig{}
 	uc.SetDefaults()
 
-	// A multi-vector vectorizer module always emits [][]float32, so the index
-	// must be a multi-vector index whether or not the request carries a
-	// "multivector" block. parseMultivectorMap only sees the flag when the
-	// block is present; set it here so nil and block-less configs agree.
+	// a multi-vector vectorizer implies a multi-vector index, even without a
+	// "multivector" block for parseMultivectorMap to see
 	if isMultiVector {
 		uc.Multivector.Enabled = true
 	}

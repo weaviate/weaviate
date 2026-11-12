@@ -151,11 +151,8 @@ func hfreshClassWithMultivector(muvera *bool) *models.Class {
 	}
 }
 
-// TestHFreshMultiVectorRequiresMuveraOnSchemaWrites: hfresh only takes
-// multi-vectors MUVERA-encoded, so a BYO-vector class that enables
-// multivector without muvera would be stored and then refuse every
-// multi-vector insert. Create and update reject it; startup parsing keeps
-// accepting it so an already persisted class still loads.
+// TestHFreshMultiVectorRequiresMuveraOnSchemaWrites: multivector without
+// muvera is rejected on hfresh create and update.
 func TestHFreshMultiVectorRequiresMuveraOnSchemaWrites(t *testing.T) {
 	boolPtr := func(b bool) *bool { return &b }
 	tests := []struct {
@@ -195,9 +192,6 @@ func TestHFreshMultiVectorRequiresMuveraOnSchemaWrites(t *testing.T) {
 	}
 }
 
-// TestHFreshMultiVectorModuleOnSchemaWrites: a multi-vector vectorizer
-// module on an hfresh named vector is accepted on create without any
-// explicit multivector config, and the parsed config is MUVERA-enabled.
 func TestHFreshMultiVectorModuleOnSchemaWrites(t *testing.T) {
 	handler := newTestHandlerWithRealVectorConfigParser(t)
 	class := &models.Class{
@@ -205,14 +199,12 @@ func TestHFreshMultiVectorModuleOnSchemaWrites(t *testing.T) {
 		VectorConfig: map[string]models.VectorConfig{
 			"colbert": {
 				VectorIndexType: "hfresh",
-				// "colbert" is a multi-vector module on fakeModulesProvider
-				Vectorizer: map[string]interface{}{"text2multivec-colbert": map[string]interface{}{}},
+				Vectorizer:      map[string]interface{}{"text2multivec-colbert": map[string]interface{}{}},
 			},
 		},
 	}
 	require.NoError(t, handler.validateVectorSettingsAgainst(class, nil))
 
-	// the RAFT apply path parses the (here absent) raw config into its typed form
 	require.NoError(t, handler.parser.ParseClass(class))
 	parsed, ok := class.VectorConfig["colbert"].VectorIndexConfig.(enthfresh.UserConfig)
 	require.True(t, ok, "expected hfresh config, got %T", class.VectorConfig["colbert"].VectorIndexConfig)

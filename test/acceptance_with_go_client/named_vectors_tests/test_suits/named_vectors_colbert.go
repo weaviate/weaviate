@@ -623,9 +623,6 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				assert.True(t, mv["enabled"].(bool))
 			})
 			t.Run("multi vector index with hfresh vector index type", func(t *testing.T) {
-				// hfresh stores multi-vectors MUVERA-encoded, so a multi-vector
-				// vectorizer on hfresh is accepted without any explicit
-				// multivector config and comes back with muvera enabled.
 				cleanup()
 				class := &models.Class{
 					Class: "NamedVectorVectorizerWithMultiVectorIndex",
