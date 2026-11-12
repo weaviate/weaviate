@@ -6376,7 +6376,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is not active.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6641,7 +6641,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is not active.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19776,7 +19776,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is not active.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20041,7 +20041,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is not active.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

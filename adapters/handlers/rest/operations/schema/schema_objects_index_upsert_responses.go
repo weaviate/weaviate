@@ -323,7 +323,7 @@ func (o *SchemaObjectsIndexUpsertConflict) WriteResponse(rw http.ResponseWriter,
 const SchemaObjectsIndexUpsertUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsIndexUpsertUnprocessableEntity Invalid `indexName` path value.
+SchemaObjectsIndexUpsertUnprocessableEntity Invalid `indexName` path value, or the collection's namespace is not active.
 
 swagger:response schemaObjectsIndexUpsertUnprocessableEntity
 */

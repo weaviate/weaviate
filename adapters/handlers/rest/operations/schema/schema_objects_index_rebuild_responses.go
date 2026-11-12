@@ -278,7 +278,7 @@ func (o *SchemaObjectsIndexRebuildConflict) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsIndexRebuildUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsIndexRebuildUnprocessableEntity Invalid `indexName` path value.
+SchemaObjectsIndexRebuildUnprocessableEntity Invalid `indexName` path value, or the collection's namespace is not active.
 
 swagger:response schemaObjectsIndexRebuildUnprocessableEntity
 */

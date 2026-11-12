@@ -737,8 +737,7 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
 	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
 	// returns before this and is deliberately not refused: it starts nothing.
-	// Refused here as well as at the leader because the stale-state sweep
-	// below loads and rewrites this node's shards before the submit.
+	// Before the stale-state sweep below loads this node's shards.
 	if err := usecasesNamespaces.RequireActive(h.appState.NamespacesController,
 		namespacing.NamespaceFromQualified(collection)); err != nil {
 		return h.mapSubmitTaskError(principal, collection, "", err)
@@ -996,6 +995,9 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 	}
 	if cerrors.NamespaceErrRendersUnprocessable(err) {
 		return jsonResponder(http.StatusUnprocessableEntity, errPayloadFromSingleErr(principal, err))
+	}
+	if errors.Is(err, usecasesNamespaces.ErrNamespaceResuming) {
+		return jsonResponder(http.StatusServiceUnavailable, errPayloadFromSingleErr(principal, err))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))
