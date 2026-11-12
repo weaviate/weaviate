@@ -40,7 +40,7 @@ type iteratorStrategy struct {
 	name     string
 	strategy string
 	put      func(tb testing.TB, b *lsmkv.Bucket, i int)
-	newCurs  func(ctx context.Context, b *lsmkv.Bucket) func() Cursor
+	newCurs  func(b *lsmkv.Bucket) func(ctx context.Context) Cursor
 }
 
 func iteratorStrategies() []iteratorStrategy {
@@ -51,8 +51,8 @@ func iteratorStrategies() []iteratorStrategy {
 			put: func(tb testing.TB, b *lsmkv.Bucket, i int) {
 				require.NoError(tb, b.Put(iteratorKey(i), []byte(fmt.Sprintf("value-%06d", i))))
 			},
-			newCurs: func(_ context.Context, b *lsmkv.Bucket) func() Cursor {
-				return func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }
+			newCurs: func(b *lsmkv.Bucket) func(context.Context) Cursor {
+				return func(context.Context) Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }
 			},
 		},
 		{
@@ -61,8 +61,8 @@ func iteratorStrategies() []iteratorStrategy {
 			put: func(tb testing.TB, b *lsmkv.Bucket, i int) {
 				require.NoError(tb, b.SetAdd(iteratorKey(i), [][]byte{[]byte(fmt.Sprintf("value-%06d", i))}))
 			},
-			newCurs: func(_ context.Context, b *lsmkv.Bucket) func() Cursor {
-				return func() Cursor { return SetCursor{b.SetCursor()} }
+			newCurs: func(b *lsmkv.Bucket) func(context.Context) Cursor {
+				return func(context.Context) Cursor { return SetCursor{b.SetCursor()} }
 			},
 		},
 		{
@@ -71,9 +71,8 @@ func iteratorStrategies() []iteratorStrategy {
 			put: func(tb testing.TB, b *lsmkv.Bucket, i int) {
 				require.NoError(tb, b.RoaringSetAddOne(iteratorKey(i), uint64(i)))
 			},
-			newCurs: func(ctx context.Context, b *lsmkv.Bucket) func() Cursor {
-				// the call sites hand the query's context to the cursor, so do the same
-				return func() Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }
+			newCurs: func(b *lsmkv.Bucket) func(context.Context) Cursor {
+				return func(ctx context.Context) Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }
 			},
 		},
 	}
@@ -106,7 +105,7 @@ func TestIteratorConcurrentlyStopsWhenTheCallerGivesUp(t *testing.T) {
 				defer cancel()
 
 				var seen atomic.Int64
-				err := iteratorConcurrently(scanCtx, b, bs.newCurs(scanCtx, b),
+				err := iteratorConcurrently(scanCtx, b, bs.newCurs(b),
 					func(k, v []byte, vv [][]byte, bi *sroar.Bitmap) error {
 						if seen.Add(1) == 1 {
 							cancel()
@@ -133,7 +132,7 @@ func TestIteratorConcurrentlyScansEverythingForACallerThatStays(t *testing.T) {
 				b := bucketFixture(t, ctx, bs, iteratorCancelKeyCount, flush)
 
 				var seen atomic.Int64
-				err := iteratorConcurrently(ctx, b, bs.newCurs(ctx, b),
+				err := iteratorConcurrently(ctx, b, bs.newCurs(b),
 					func(k, v []byte, vv [][]byte, bi *sroar.Bitmap) error {
 						seen.Add(1)
 						return nil
@@ -147,35 +146,43 @@ func TestIteratorConcurrentlyScansEverythingForACallerThatStays(t *testing.T) {
 }
 
 // TestIteratorConcurrentlyRunsNoMoreWorkersThanItsBudget pins that a scan
-// over many ranges runs at most as many of them at once as the query's
-// admission grant allows, and still reads every key.
+// over many ranges stays within the query's admission grant: it runs at most as
+// many ranges at once as the grant allows, each range's cursor gets only its
+// share of the grant for its own merges, and every key is still read.
 func TestIteratorConcurrentlyRunsNoMoreWorkersThanItsBudget(t *testing.T) {
 	ranges := 2*runtime.GOMAXPROCS(0) + 1
 	count := ranges * 20
-	for _, budget := range []int{1, 2} {
-		t.Run(fmt.Sprintf("budget=%d", budget), func(t *testing.T) {
-			ctx := context.Background()
-			logger, _ := test.NewNullLogger()
-			bs := iteratorStrategies()[0]
-			b := bucketFixture(t, ctx, bs, count, true)
-			ctx = concurrency.CtxWithBudget(ctx, budget)
+	for _, bs := range iteratorStrategies() {
+		for _, budget := range []int{1, 2, 4 * ranges} {
+			t.Run(fmt.Sprintf("%s/budget=%d", bs.name, budget), func(t *testing.T) {
+				ctx := context.Background()
+				logger, _ := test.NewNullLogger()
+				b := bucketFixture(t, ctx, bs, count, true)
+				ctx = concurrency.CtxWithBudget(ctx, budget)
 
-			var seen, running, most atomic.Int64
-			err := iteratorConcurrently(ctx, b, bs.newCurs(ctx, b),
-				func(k, v []byte, vv [][]byte, bi *sroar.Bitmap) error {
-					seen.Add(1)
-					now := running.Add(1)
-					defer running.Add(-1)
-					for m := most.Load(); now > m && !most.CompareAndSwap(m, now); m = most.Load() {
-					}
-					time.Sleep(100 * time.Microsecond)
-					return nil
-				}, logger)
+				var seen, running, most, cursorBudget atomic.Int64
+				newCursor := func(ctx context.Context) Cursor {
+					cursorBudget.Store(int64(concurrency.BudgetFromCtx(ctx, 0)))
+					return bs.newCurs(b)(ctx)
+				}
+				err := iteratorConcurrently(ctx, b, newCursor,
+					func(k, v []byte, vv [][]byte, bi *sroar.Bitmap) error {
+						seen.Add(1)
+						now := running.Add(1)
+						defer running.Add(-1)
+						for m := most.Load(); now > m && !most.CompareAndSwap(m, now); m = most.Load() {
+						}
+						time.Sleep(100 * time.Microsecond)
+						return nil
+					}, logger)
 
-			require.NoError(t, err)
-			require.Equal(t, int64(count), seen.Load())
-			require.LessOrEqual(t, most.Load(), int64(budget))
-		})
+				require.NoError(t, err)
+				require.Equal(t, int64(count), seen.Load())
+				require.LessOrEqual(t, most.Load(), int64(budget))
+				require.Positive(t, cursorBudget.Load())
+				require.LessOrEqual(t, most.Load()*cursorBudget.Load(), int64(budget))
+			})
+		}
 	}
 }
 
