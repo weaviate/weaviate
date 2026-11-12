@@ -349,9 +349,7 @@ func TestAShardLoadLeavesAnUndecidedRecordExactlyAsItFoundIt(t *testing.T) {
 }
 
 // The counters answer two different operator questions, and the call site is
-// the only place that decides which count goes where. A swap of the two
-// arguments shows up nowhere unless a test drives a real load and gives the
-// two counts different values.
+// the only place that decides which count goes where.
 func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing.T) {
 	ctx := testCtx()
 	className := "WiringRecordCounters_" + uuid.NewString()[:8]
@@ -362,7 +360,6 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	// The freeze these files raise wedges nothing, so the two counts differ.
 	records := shard.migrationRecords.Dir()
 	require.NoError(t, os.MkdirAll(records, 0o755))
 	for _, version := range []uint64{7, 8} {

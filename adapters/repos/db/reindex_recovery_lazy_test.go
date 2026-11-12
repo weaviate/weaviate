@@ -136,15 +136,16 @@ func TestAWriteBetweenShardLoadAndTheResumedIterationReachesTheNewIndex(t *testi
 	require.True(t, indexed, "the write landed after the cutoff, so the iteration skipped it")
 }
 
-// Boot 1 cannot record the restart a lost directory calls for. Whatever it
-// does instead must not leave a stale or resumable migration for boot 2.
+// Boot 1 cannot record a lost directory's restart, yet boot 2 must rebuild in full.
 func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		iterated    bool
 		sidecarOnly bool // the staged copy survives with what the mirror wrote
 		frozenLoad  bool // an unreadable sibling record refuses every write at boot 1
+		intact      bool // nothing lost: the load keeps the checkpoint and horizon
 	}{
+		{name: "iterating, every directory present: no restart", intact: true},
 		{name: "iterating, frozen load", frozenLoad: true},
 		{name: "iterated, frozen load", iterated: true, frozenLoad: true},
 		{name: "iterating, restart write fails at load, lifted in the same boot"},
@@ -172,7 +173,6 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
 			require.True(t, ok)
 			subject := rec.Subject()
-			// A checkpoint past every key: resuming from it rebuilds nothing.
 			planted := MigrationRecord(NewMigrationRecordIterating(subject,
 				MigrationCheckpoint{LastProcessedKey: bytes.Repeat([]byte{0xff}, 16), UpdatedAt: time.Now()}))
 			if tc.iterated {
@@ -184,6 +184,9 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			lost := migrationOwnedDirs(subject)
 			if tc.sidecarOnly {
 				lost = []string{subject.Props[propName].Sidecar}
+			}
+			if tc.intact {
+				lost = nil
 			}
 			for _, dir := range lost {
 				require.NoError(t, os.RemoveAll(filepath.Join(lsm, dir)))
@@ -207,6 +210,8 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 				require.NoError(t, boot1.Shutdown(ctx))
 				require.NoError(t, os.Remove(unreadable))
 				live = load()
+			} else if tc.intact {
+				live = load()
 			} else {
 				require.NoError(t, os.Chmod(records, 0o555))
 				live = load()
@@ -217,6 +222,15 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			}
 			defer live.Shutdown(context.Background())
 			require.Equal(t, storagestate.StatusReady, live.GetStatus())
+
+			if tc.intact {
+				kept, ok := live.migrationRecords.Get(task.migrationRecordKey())
+				require.True(t, ok)
+				require.Equal(t, planted.(MigrationRecordIterating).Checkpoint().LastProcessedKey,
+					kept.(MigrationRecordIterating).Checkpoint().LastProcessedKey)
+				require.True(t, subject.IterationCutoff.Equal(kept.Subject().IterationCutoff))
+				return
+			}
 
 			resumed, _ := newFilterableToRangeableTask(t, idx, className, propName, live.migrationUnit())
 			require.NoError(t, resumed.RunOnShard(ctx, live))

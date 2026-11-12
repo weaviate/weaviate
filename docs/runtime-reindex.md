@@ -19,7 +19,7 @@ godoc wins — and that's a bug in this doc.
 > **How migration state is stored, as of this build.** One JSON record per
 > (shard, migration) at `<shard>/lsm/.migrations/records/` holds it, in five
 > states — Iterating, Iterated, Merged, Swapped, Promoted — and
-> reconciliation at shard load makes every load-time decision. The record
+> reconciliation at shard load makes every load-time decision but the restart. The record
 > names each directory the migration touches, so the swap removes the
 > directory it displaces at the recorded handle rather than renaming it to a
 > derived backup name. `inverted_reindex_record.go` and
@@ -1812,7 +1812,7 @@ collection, or run its swap and schema flip again. Before rolling back:
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
 - [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
-- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition.
+- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition but the restart.
 
 **LSM primitives**
 

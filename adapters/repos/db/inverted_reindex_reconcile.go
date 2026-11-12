@@ -224,8 +224,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 	case migrationVerdictDiscard:
 		return r.discard(ctx, subject, why)
 	case migrationVerdictCommit:
-		// Wedged so the arm skips it: a committed migration can never finish
-		// here, so restarting its rebuild would repeat on every load.
+		// Wedged so the arm skips it: restarting this committed migration would leave its record never terminating.
 		r.wedgeUncommittable(ctx, rec, why)
 		return nil
 	case migrationVerdictLeave:

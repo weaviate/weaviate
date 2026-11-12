@@ -110,9 +110,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 	}
 }
 
-// The stamp carries a failed arm across the restart, so prepare (or, once
-// swapped, the promotion) refuses the stale staged data even if a later step
-// arms the mirror.
+// The stamp carries a failed arm across the restart, so the flip refuses the stale staged data.
 func TestRecoveryStampsAMigrationItCouldNotArm(t *testing.T) {
 	// The writer accepts this record; recovery cannot build a task from it.
 	noTokenization := func(s MigrationSubject) MigrationSubject {

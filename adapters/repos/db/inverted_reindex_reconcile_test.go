@@ -662,12 +662,6 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 }
 
 func TestReconcileUncommitted(t *testing.T) {
-	checkpointed := func(subject MigrationSubject) MigrationRecord {
-		return NewMigrationRecordIterating(subject, MigrationCheckpoint{
-			LastProcessedKey: []byte("halfway"),
-		})
-	}
-
 	uncheckpointed := func(subject MigrationSubject) MigrationRecord {
 		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
 	}
@@ -675,28 +669,19 @@ func TestReconcileUncommitted(t *testing.T) {
 	tests := []struct {
 		name       string
 		plant      func(MigrationSubject) MigrationRecord
-		present    []string
 		taskStatus distributedtask.TaskStatus
 		wantState  MigrationState
 		wantGone   bool
 		wantWedged bool
 	}{
 		{
-			name:      "iterated with every owned directory on disk: stay iterated",
+			name:      "an iterated migration stays iterated",
 			plant:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
-			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
 			wantState: MigrationStateIterated,
-		},
-		{
-			name:      "a checkpoint with every owned directory on disk keeps its place",
-			plant:     checkpointed,
-			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
-			wantState: MigrationStateIterating,
 		},
 		{
 			name:       "a committed migration wedges",
 			plant:      uncheckpointed,
-			present:    []string{"property_title_searchable"},
 			taskStatus: distributedtask.TaskStatusFinished,
 			wantState:  MigrationStateIterating,
 			wantWedged: true,
@@ -704,7 +689,6 @@ func TestReconcileUncommitted(t *testing.T) {
 		{
 			name:       "a cancelled migration is discarded",
 			plant:      uncheckpointed,
-			present:    []string{"property_title_searchable"},
 			taskStatus: distributedtask.TaskStatusCancelled,
 			wantGone:   true,
 		},
@@ -721,7 +705,6 @@ func TestReconcileUncommitted(t *testing.T) {
 				status = distributedtask.TaskStatusStarted
 			}
 			f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, status)}
-			f.mkdirs(tt.present...)
 			f.put(tt.plant(subject))
 
 			r := f.reconcile()
