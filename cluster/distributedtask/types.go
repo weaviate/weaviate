@@ -221,7 +221,8 @@ type ConflictDetector interface {
 type SchemaMutationDetector interface {
 	// CheckPropertyUpdate is called under [Manager.mu] from the
 	// schema FSM's UpdateProperty apply path. existingTasks is the
-	// full namespace-scoped task list at apply time. Return a
+	// namespace's tasks on className, plus any whose collection the
+	// Manager could not extract, at apply time. Return a
 	// non-nil error to reject the property update; the error
 	// propagates back to the UpdateProperty caller.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
@@ -236,8 +237,8 @@ type SchemaMutationDetector interface {
 	// schema FSM's DeleteTenants / UpdateTenants apply paths when a
 	// transition would make one or more tenants' shards locally
 	// unavailable (DeleteTenants, or UpdateTenants toward OFFLOADED
-	// / FROZEN / OFFLOADING / FREEZING). existingTasks is the full
-	// namespace-scoped task list at apply time. Return a non-nil
+	// / FROZEN / OFFLOADING / FREEZING). existingTasks is filtered as
+	// for CheckPropertyUpdate. Return a non-nil
 	// error to reject the mutation.
 	//
 	// Today's reindex tasks are class-scoped (their payload names a

@@ -1538,6 +1538,31 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	})
 }
 
+func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
+	checks := map[string]func(m *Manager) error{
+		"property": func(m *Manager) error { return m.CheckPropertyUpdate("foo", "name") },
+		"class":    func(m *Manager) error { return m.CheckClassMutation("foo") },
+		"tenant":   func(m *Manager) error { return m.CheckTenantMutation("foo", []string{"t1"}) },
+	}
+	for name, check := range checks {
+		t.Run(name, func(t *testing.T) {
+			h := newTestHarness(t)
+			detector := &fakeSchemaMutationDetector{}
+			h.schemaMutationDetectors = map[string]SchemaMutationDetector{"reindex": detector}
+			h.init(t)
+			h.manager.RegisterCollectionExtractor("reindex", func(p []byte) (string, bool) { return string(p), len(p) > 0 })
+			for id, collection := range map[string]string{"same": "Foo", "other": "Bar", "unknown": ""} {
+				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+					Namespace: "reindex", Id: id, Payload: []byte(collection), UnitIds: []string{"u"},
+				}), 100))
+			}
+
+			require.NoError(t, check(h.manager))
+			require.Equal(t, 2, detector.lastTaskCount, "only the task on Foo and the one with no known collection")
+		})
+	}
+}
+
 // fakeRemovalGate is a SchemaMutationDetector that also implements
 // VectorConfigRemovalGate, so CheckVectorConfigRemoval can type-assert it out of
 // the shared detector registry.

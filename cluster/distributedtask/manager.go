@@ -89,7 +89,7 @@ type Manager struct {
 // namespace flags the update. Empty fast-path keeps the schema apply
 // path free of allocations in the common case.
 func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckPropertyUpdate(className, propertyName, existing)
 	})
 }
@@ -115,7 +115,7 @@ func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, r
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckClassMutation(className string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckClassMutation(className, existing)
 	})
 }
@@ -127,7 +127,7 @@ func (m *Manager) CheckClassMutation(className string) error {
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckTenantMutation(className string, tenants []string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckTenantMutation(className, tenants, existing)
 	})
 }
@@ -160,9 +160,10 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 
 // dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
 // CheckClassMutation / CheckTenantMutation. Walks every registered
-// [SchemaMutationDetector], hands it the namespace-scoped task list,
-// returns the first conflict the call closure reports.
-func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetector, []*Task) error) error {
+// [SchemaMutationDetector], hands it the namespace's tasks on className
+// (plus those whose collection is unknown), returns the first conflict
+// the call closure reports.
+func (m *Manager) dispatchSchemaMutation(className string, callDetector func(SchemaMutationDetector, []*Task) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.schemaMutationDetectors) == 0 {
@@ -174,6 +175,10 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
+			// Decoding another collection's payload takes seconds at 1M tenants; an unknown one still reaches the detector, which refuses what it cannot parse.
+			if t.collection != "" && !strings.EqualFold(t.collection, className) {
+				continue
+			}
 			existing = append(existing, t)
 		}
 		if err := callDetector(detector, existing); err != nil {
