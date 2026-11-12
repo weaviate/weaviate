@@ -124,16 +124,30 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			return 0, err
 		}
 
+		created := false
 		if schemaClass == nil {
 			// it returns the newly created class and version
-			schemaClass, schemaVersion, err = m.createClass(ctx, principal, namespacing.StripOwnNamespace(principal, object.Class), properties)
-			if err != nil {
-				return 0, fmt.Errorf("auto-schema: create collection: %w", err)
+			var createErr error
+			schemaClass, schemaVersion, createErr = m.createClass(ctx, principal, namespacing.StripOwnNamespace(principal, object.Class), properties)
+			if createErr == nil {
+				created = true
+				classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
+				classcache.RemoveClassFromContext(ctx, object.Class)
+			} else {
+				existing, ok := m.classCreatedConcurrently(ctx, object.Class)
+				if !ok {
+					return 0, fmt.Errorf("auto-schema: create collection: %w", createErr)
+				}
+				schemaClass, schemaVersion = existing.Class, existing.Version
+				classes[object.Class] = existing
+				// properties were derived without a class; derive them again
+				// against the class that now exists.
+				if properties, err = m.getProperties(ctx, object, principal, schemaClass); err != nil {
+					return 0, err
+				}
 			}
-
-			classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
-			classcache.RemoveClassFromContext(ctx, object.Class)
-		} else {
+		}
+		if !created {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
 				// AddClassProperty reads the class from this node's schema, which can
 				// lag the leader the class was fetched from or written through.
@@ -156,6 +170,25 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 	}
 	return maxSchemaVersion, nil
+}
+
+// classCreatedConcurrently re-reads a class whose creation just failed and
+// reports whether it exists now. Callers decide whether to create a class
+// from a schema snapshot taken before they acquired m.mutex, and the mutex
+// only serializes requests on this node, so a concurrent request may have
+// created the class in the meantime. Only an exact name match counts: a
+// similar name or an alias must still fail the create.
+func (m *AutoSchemaManager) classCreatedConcurrently(ctx context.Context, className string) (versioned.Class, bool) {
+	classcache.RemoveClassFromContext(ctx, className)
+	vclasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	if err != nil {
+		return versioned.Class{}, false
+	}
+	vclass, ok := vclasses[className]
+	if !ok || vclass.Class == nil || vclass.Class.Class != className {
+		return versioned.Class{}, false
+	}
+	return vclass, true
 }
 
 func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
