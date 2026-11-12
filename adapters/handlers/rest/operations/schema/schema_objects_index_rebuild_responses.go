@@ -278,7 +278,7 @@ func (o *SchemaObjectsIndexRebuildConflict) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsIndexRebuildUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsIndexRebuildUnprocessableEntity Invalid `indexName` path value, or the collection's namespace is not active.
+SchemaObjectsIndexRebuildUnprocessableEntity Invalid `indexName` path value, or the collection's namespace is suspended or being deleted.
 
 swagger:response schemaObjectsIndexRebuildUnprocessableEntity
 */
@@ -413,7 +413,7 @@ func (o *SchemaObjectsIndexRebuildInternalServerError) WriteResponse(rw http.Res
 const SchemaObjectsIndexRebuildServiceUnavailableCode int = 503
 
 /*
-SchemaObjectsIndexRebuildServiceUnavailable Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.
+SchemaObjectsIndexRebuildServiceUnavailable Cluster service unavailable; the collection's namespace is resuming; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.
 
 swagger:response schemaObjectsIndexRebuildServiceUnavailable
 */
