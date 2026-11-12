@@ -1333,16 +1333,9 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 
 		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
-			failsTask := task.NeedsPreparationBarrier && task.Status == distributedtask.TaskStatusSwapping
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
-				if failsTask {
-					agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex migration's "+
-						"double-write mirror; a SWAPPING task cannot wait on it, so it fails and its swap stays owed until the shard is set READY",
-						unitID, res.Shard.Name()))
-					return
-				}
 				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex "+
 					"migration's double-write mirror; the step waits until a status update makes it writable",
 					unitID, res.Shard.Name()))

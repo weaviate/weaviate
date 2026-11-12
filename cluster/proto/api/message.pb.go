@@ -2222,7 +2222,7 @@ func (x *MarkTaskFailedRequest) GetFailedAtUnixMillis() int64 {
 // MarkTaskFinalized commit lands.
 //
 // The scheduler gates MarkTaskFinalized on having an ack from every
-// node with local units in the task. If any ack reports success=false,
+// node with local units in the task. If any ack of a non-barrier task reports success=false,
 // the FSM transitions the task to FAILED instead of FINISHED, which
 // makes OnTaskCompleted skip the cluster-wide schema flip — so a
 // node that silently failed its local swap can no longer let the

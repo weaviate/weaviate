@@ -1375,8 +1375,8 @@ func corruptIngestSegments(t *testing.T, lsm string) func() {
 	}
 }
 
-// A committed swap whose shard is held fails the task rather than keeping it SWAPPING; the swap stays owed.
-func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
+// A committed swap whose shard is held waits in SWAPPING instead of failing the task; the swap stays owed.
+func TestAHeldCommittedSwapWaitsAndKeepsItsDebt(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-held-commit")
 	node, unitID := fx.idx.getSchema.NodeName(), fx.subject.Key.UnitID
 	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
@@ -1412,13 +1412,10 @@ func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 		tasks, _ := mgr.ListDistributedTasks(fx.ctx)
 		return tasks[ReindexNamespace][0]
 	}
-	require.Eventually(t, func() bool { sched.Wake(); return task().Status == distributedtask.TaskStatusFailed },
-		10*time.Second, 20*time.Millisecond, "the held swap's failure ack fails the task")
-	require.Contains(t, task().Error, "held READONLY")
+	require.Never(t, func() bool { sched.Wake(); return task().Status != distributedtask.TaskStatusSwapping },
+		time.Second, 20*time.Millisecond, "the held swap must not fail the task")
 	require.Equal(t, []string{node}, task().SwapsOwed[fx.name], "the swap stays owed")
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-	require.NoError(t, mgr.CheckClassMutation(fx.className))
-	require.NoError(t, mgr.CheckTenantMutation(fx.className, []string{fx.name}))
 }
 
 func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distributedtask.TaskDescriptor,

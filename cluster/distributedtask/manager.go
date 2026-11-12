@@ -619,7 +619,8 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
 // late acks against terminal states are silently dropped.
-// A barrier task's ack pays a swap debt instead.
+// A barrier task's successful ack pays a swap debt instead, and a failed one
+// changes nothing: its node retries the swap until it pays.
 func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -637,7 +638,9 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return err
 	}
 	if task.NeedsPreparationBarrier {
-		recordSwapAck(task, &r)
+		if r.Success {
+			task.paySwap(r.GroupId, r.NodeId)
+		}
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -677,22 +680,6 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 
 	m.notifySchedulerWithLock()
 	return nil
-}
-
-func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequest) {
-	if r.Success {
-		task.paySwap(r.GroupId, r.NodeId)
-		return
-	}
-	if task.Status != TaskStatusSwapping {
-		return
-	}
-	ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
-	if r.GroupId != "" {
-		ackErr = fmt.Sprintf("post-completion swap failed on node %s for group %q: %s", r.NodeId, r.GroupId, r.Error)
-	}
-	task.appendError(ackErr)
-	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.AckedAtUnixMillis))
 }
 
 func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparationCompleteAckRequest) {
