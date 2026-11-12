@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,7 +25,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-func TestRemoteNode_GetRebalanceMeasurement(t *testing.T) {
+func TestRemoteNode_GetRebalanceDraft(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    int
@@ -36,7 +37,8 @@ func TestRemoteNode_GetRebalanceMeasurement(t *testing.T) {
 			name:   "200 decodes every field",
 			status: http.StatusOK,
 			body: `{"node":"node-1","diskTotalBytes":1000,"diskAvailableBytes":400,"diskWarningPercentage":80,` +
-				`"memoryLimitBytes":2048,"replicationWorkers":5,"error":"partial"}`,
+				`"memoryLimitBytes":2048,"replicationWorkers":5,"error":"partial",` +
+				`"shards":[{"collection":"Articles","shard":"s1","bytes":300}]}`,
 			want: replicationTypes.RebalanceNodeMeasurement{
 				Node:                  "node-1",
 				DiskTotalBytes:        1000,
@@ -45,7 +47,14 @@ func TestRemoteNode_GetRebalanceMeasurement(t *testing.T) {
 				MemoryLimitBytes:      2048,
 				ReplicationWorkers:    5,
 				Error:                 "partial",
+				Shards:                []replicationTypes.RebalanceShardSize{{Collection: "Articles", Shard: "s1", Bytes: 300}},
 			},
+		},
+		{
+			name:      "404 for a missing draft returns an error",
+			status:    http.StatusNotFound,
+			body:      "read draft: no such file or directory",
+			wantErrAs: &enterrors.ErrUnexpectedStatusCode{},
 		},
 		{
 			name:      "non-200 returns an error",
@@ -66,13 +75,14 @@ func TestRemoteNode_GetRebalanceMeasurement(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/replication/rebalance/measurement", r.URL.Path)
+				assert.Equal(t, url.Values{"draftTask": {"plan-1"}, "draftVersion": {"7"}}, r.URL.Query())
 				w.WriteHeader(tt.status)
 				_, err := w.Write([]byte(tt.body))
 				assert.NoError(t, err)
 			}))
 			defer server.Close()
 
-			got, err := NewRemoteNode(server.Client()).GetRebalanceMeasurement(context.Background(), server.Listener.Addr().String())
+			got, err := NewRemoteNode(server.Client()).GetRebalanceDraft(context.Background(), server.Listener.Addr().String(), "plan-1", 7)
 			if tt.wantErrAs != nil {
 				require.ErrorAs(t, err, tt.wantErrAs)
 				require.Zero(t, got)

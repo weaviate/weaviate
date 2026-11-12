@@ -287,6 +287,27 @@ func TestRebalanceDraftProvider(t *testing.T) {
 		require.Len(t, entries, 1)
 		assert.Equal(t, "plan-1-3.json", entries[0].Name())
 	})
+
+	t.Run("a saved draft reads back by task and version", func(t *testing.T) {
+		dataPath := t.TempDir()
+		logger, _ := test.NewNullLogger()
+		sizer := &draftTestSizer{usage: map[string]*usagetypes.CollectionUsage{
+			"A": {Shards: usagetypes.ShardsUsage{{Name: "a1", FullShardStorageBytes: 100}}},
+		}}
+		p := NewRebalanceDraftProvider(sizer, func() []*models.Class { return []*models.Class{{Class: "A"}} },
+			dataPath, localNode, logger, context.Background())
+		p.SetCompletionRecorder(&draftTestRecorder{})
+
+		h, err := p.StartTask(newTask(distributedtask.UnitStatusPending, ""))
+		require.NoError(t, err)
+		waitDone(t, h)
+
+		shards, err := ReadRebalanceDraft(dataPath, "plan-1", 3)
+		require.NoError(t, err)
+		assert.Equal(t, []types.RebalanceShardSize{{Collection: "A", Shard: "a1", Bytes: 100}}, shards)
+		_, err = ReadRebalanceDraft(dataPath, "plan-1", 4)
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
 }
 
 // draftTestSizer returns canned usages per collection. A call for a collection

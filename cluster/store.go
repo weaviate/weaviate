@@ -241,9 +241,10 @@ type Config struct {
 	ReplicaMovementEnabled  *runtime.DynamicValue[bool]
 	ReplicaRebalanceEnabled *runtime.DynamicValue[bool]
 
-	// RebalanceMeasure reads one node's resources for the rebalance planner.
-	// When nil, every planning run ends PLANNING_FAILED.
-	RebalanceMeasure func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error)
+	// RebalanceMeasure reads one node's resources and its draft for task taskID
+	// at version, for the rebalance planner. When nil, every planning run that
+	// reaches collection ends PLANNING_FAILED.
+	RebalanceMeasure func(ctx context.Context, node, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error)
 
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.

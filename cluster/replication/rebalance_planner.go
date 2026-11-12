@@ -41,8 +41,17 @@ const (
 	capacityTolerance = 0.05
 	// balanceTolerance is the largest standard deviation of disk utilisation and
 	// of count ratio for which the baseline counts as balanced.
-	balanceTolerance   = 0.05
+	balanceTolerance = 0.05
+
+	// measurementTimeout limits each collection attempt on a node.
 	measurementTimeout = 30 * time.Second
+	// A failed collection round is retried after a backoff. The backoff starts
+	// at collectionBackoffMin and doubles up to collectionBackoffMax.
+	collectionBackoffMin = time.Second
+	collectionBackoffMax = 30 * time.Second
+	// collectionLimit is how long a node may keep failing collection rounds in
+	// a row before the plan ends PLANNING_FAILED.
+	collectionLimit = 10 * time.Minute
 
 	// TODO(PR 2): replace with the approval window. Until moves exist, a
 	// PROPOSED plan never expires; it stays until deleted.
@@ -73,18 +82,49 @@ type rebalanceSchemaReader interface {
 	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
 }
 
+// rebalanceDrafting is the draft task surface the planner needs. *cluster.Raft
+// satisfies it. RebalanceDraftTasks reads this node's FSM.
+type rebalanceDrafting interface {
+	AddRebalanceDraftTask(ctx context.Context, planID string, nodes []string) error
+	TerminateRebalanceDraftTask(ctx context.Context, planID string, version uint64) error
+	RebalanceDraftTasks() []DraftTask
+}
+
+// DraftUnitStatus is the status of one listed node's draft unit.
+type DraftUnitStatus string
+
+const (
+	DraftUnitPending    DraftUnitStatus = "PENDING"
+	DraftUnitInProgress DraftUnitStatus = "IN_PROGRESS"
+	DraftUnitCompleted  DraftUnitStatus = "COMPLETED"
+	DraftUnitFailed     DraftUnitStatus = "FAILED"
+)
+
+// DraftTask is a rebalance draft task as one node's FSM holds it. The task ID
+// is the plan ID.
+type DraftTask struct {
+	PlanID   string
+	Version  uint64
+	Terminal bool
+	Error    string
+	// Units holds each listed node's unit status, keyed by node name.
+	Units map[string]DraftUnitStatus
+}
+
 // RebalancePlannerParams are the dependencies of a RebalancePlanner. Every
 // field except Measure is required; NewRebalancePlanner rejects a nil one.
 type RebalancePlannerParams struct {
 	Logger     *logrus.Logger
 	FSM        *ShardReplicationFSM
 	Proposer   rebalanceProposer
+	Drafting   rebalanceDrafting
 	Clock      clockwork.Clock
 	Registerer prometheus.Registerer
 
-	// Measure reads one node's resources. When nil, every run ends
+	// Measure reads one node's resources and its draft for task taskID at
+	// version. When nil, every run that reaches collection ends
 	// PLANNING_FAILED with the reason "measurement unavailable".
-	Measure func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error)
+	Measure func(ctx context.Context, node, taskID string, version uint64) (types.RebalanceNodeMeasurement, error)
 	// Schema lists the collections and reads their sharding states.
 	Schema rebalanceSchemaReader
 	// CurrentTerm is the Raft term the run records; the FSM refuses a completion
@@ -96,9 +136,9 @@ type RebalancePlannerParams struct {
 	Enabled func() bool
 }
 
-// RebalancePlanner measures the plan's listed nodes and completes planning
-// with a verdict. Its loop runs on every node; a pass on a follower returns at
-// the ReadyToPlan gate.
+// RebalancePlanner drafts and collects the plan's listed nodes and completes
+// planning with a verdict. Its loop runs on every node; a pass on a follower
+// returns at the ReadyToPlan gate.
 type RebalancePlanner struct {
 	logger *logrus.Entry
 	p      RebalancePlannerParams
@@ -116,6 +156,8 @@ func NewRebalancePlanner(p RebalancePlannerParams) (*RebalancePlanner, error) {
 		return nil, errors.New("rebalance planner: FSM is required")
 	case p.Proposer == nil:
 		return nil, errors.New("rebalance planner: Proposer is required")
+	case p.Drafting == nil:
+		return nil, errors.New("rebalance planner: Drafting is required")
 	case p.Clock == nil:
 		return nil, errors.New("rebalance planner: Clock is required")
 	case p.Registerer == nil:
@@ -146,7 +188,7 @@ func NewRebalancePlanner(p RebalancePlannerParams) (*RebalancePlanner, error) {
 		duration: auto.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
 			Name:      "replication_rebalance_planning_duration_seconds",
-			Help:      "Duration of rebalance planning runs, from measurement start to the proposal's return",
+			Help:      "Duration of rebalance planning runs, from collection start to the proposal's return",
 			Buckets:   []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60},
 		}),
 	}, nil
@@ -173,12 +215,15 @@ func (rp *RebalancePlanner) Run(ctx context.Context) error {
 	}
 }
 
-// RunOnce plans the current plan once. It does nothing unless both flags are
-// on, this node is ready to plan, and the plan is PLANNING.
+// RunOnce takes the current plan one step. It does nothing unless this node is
+// ready to plan. First it ends every running draft task whose plan is not the
+// PLANNING plan. Then, with both flags on and the plan PLANNING, it acts on the
+// plan's latest draft task:
+//   - no task: it starts one.
+//   - every unit COMPLETED: it collects the drafts and completes planning.
+//   - task ended with a unit not COMPLETED: it fails the plan.
+//   - otherwise it waits.
 func (rp *RebalancePlanner) RunOnce(ctx context.Context) {
-	if !rp.p.Enabled() {
-		return
-	}
 	// Read the term before the leadership check. If this node loses
 	// leadership after the check, the run keeps the old term, and the FSM
 	// refuses it as stale.
@@ -187,7 +232,37 @@ func (rp *RebalancePlanner) RunOnce(ctx context.Context) {
 		return
 	}
 	plan, ok := rp.p.FSM.GetPlan()
-	if !ok || plan.State != PlanStatePlanning {
+	planningID := ""
+	if ok && plan.State == PlanStatePlanning {
+		planningID = plan.ID
+	}
+
+	// The sweep runs even with a flag off, so a stop made after a flag is
+	// turned off still ends drafting. If a terminate fails, RunOnce returns
+	// before it adds a task. So no new task starts while an older one may
+	// still run.
+	tasks := rp.p.Drafting.RebalanceDraftTasks()
+	if !rp.sweep(ctx, tasks, planningID) {
+		return
+	}
+
+	if !rp.p.Enabled() || planningID == "" {
+		return
+	}
+
+	logger := rp.logger.WithField("planId", plan.ID)
+	task, found := latestDraftTask(tasks, plan.ID)
+	if !found {
+		if err := rp.p.Drafting.AddRebalanceDraftTask(ctx, plan.ID, slices.Concat(plan.SourceNodes, plan.TargetNodes)); err != nil {
+			logger.Errorf("could not start rebalance drafting: %v", err)
+			return
+		}
+		logger.Info("rebalance drafting started")
+		return
+	}
+	unfinished := unfinishedNodes(task)
+	if len(unfinished) > 0 && !task.Terminal {
+		// The task's next unit change or its end wakes the planner again.
 		return
 	}
 
@@ -198,21 +273,29 @@ func (rp *RebalancePlanner) RunOnce(ctx context.Context) {
 		RunTerm:          term,
 		MeasuredAtUnixMs: start.UnixMilli(),
 	}
-	logger := rp.logger.WithFields(logrus.Fields{
-		"planId":  req.PlanID,
+	logger = logger.WithFields(logrus.Fields{
 		"runId":   req.RunID,
 		"runTerm": req.RunTerm,
 	})
 	logger.Info("rebalance planning started")
 
-	rp.assess(ctx, plan, req)
+	halt := ""
+	if len(unfinished) > 0 {
+		req.Outcome = PlanStatePlanningFailed
+		req.Reason = fmt.Sprintf("drafting did not finish on nodes: %s: %s", strings.Join(unfinished, ", "), task.Error)
+	} else {
+		halt = rp.assess(ctx, plan, task, req, logger)
+	}
 	var result string
-	if err := ctx.Err(); err != nil {
+	switch err := ctx.Err(); {
+	case err != nil:
 		// The measurements of a cancelled run reflect the cancellation, not
 		// the nodes.
-		logger.Infof("rebalance planning cancelled before proposing %s: %v", req.Outcome, err)
+		logger.Infof("rebalance planning cancelled before proposing: %v", err)
 		result = planningResultCancelled
-	} else {
+	case halt != "":
+		result = halt
+	default:
 		result = rp.propose(ctx, req, logger)
 	}
 
@@ -220,8 +303,53 @@ func (rp *RebalancePlanner) RunOnce(ctx context.Context) {
 	rp.duration.Observe(rp.p.Clock.Since(start).Seconds())
 }
 
-// assess measures the listed nodes and sets req's outcome, reason, rows and baseline.
-func (rp *RebalancePlanner) assess(ctx context.Context, plan Plan, req *CompletePlanningRequest) {
+// sweep terminates every running draft task whose plan ID is not planningID.
+// It returns false at the first terminate that fails.
+func (rp *RebalancePlanner) sweep(ctx context.Context, tasks []DraftTask, planningID string) bool {
+	for _, task := range tasks {
+		if task.Terminal || task.PlanID == planningID {
+			continue
+		}
+		logger := rp.logger.WithFields(logrus.Fields{"planId": task.PlanID, "version": task.Version})
+		if err := rp.p.Drafting.TerminateRebalanceDraftTask(ctx, task.PlanID, task.Version); err != nil {
+			logger.Errorf("could not end rebalance drafting of a plan that is no longer planning: %v", err)
+			return false
+		}
+		logger.Info("rebalance drafting ended, the plan is no longer planning")
+	}
+	return true
+}
+
+// latestDraftTask returns the highest-version task of planID.
+func latestDraftTask(tasks []DraftTask, planID string) (DraftTask, bool) {
+	var latest DraftTask
+	found := false
+	for _, task := range tasks {
+		if task.PlanID == planID && (!found || task.Version > latest.Version) {
+			latest, found = task, true
+		}
+	}
+	return latest, found
+}
+
+// unfinishedNodes returns the sorted nodes whose unit is not COMPLETED.
+func unfinishedNodes(task DraftTask) []string {
+	var nodes []string
+	for node, status := range task.Units {
+		if status != DraftUnitCompleted {
+			nodes = append(nodes, node)
+		}
+	}
+	slices.Sort(nodes)
+	return nodes
+}
+
+// assess collects the listed nodes' drafts and sets req's outcome, reason,
+// rows, measurement time and baseline, and returns "". If collection halts,
+// assess sets no outcome and returns collect's runs_total result.
+func (rp *RebalancePlanner) assess(ctx context.Context, plan Plan, task DraftTask, req *CompletePlanningRequest,
+	logger *logrus.Entry,
+) string {
 	nodes := slices.Concat(plan.SourceNodes, plan.TargetNodes)
 
 	if rp.p.Measure == nil {
@@ -230,31 +358,125 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan Plan, req *Complete
 			req.Nodes[i] = types.RebalanceNodeMeasurement{Node: node, Error: measurementUnavailable}
 		}
 		req.Outcome, req.Reason = PlanStatePlanningFailed, measurementUnavailable
-		return
+		return ""
 	}
 
-	req.Nodes = rp.measure(ctx, nodes)
+	if halt := rp.collect(ctx, plan.ID, task, nodes, req, logger); halt != "" {
+		return halt
+	}
+	// Draft sizes never enter the Raft log.
+	for i := range req.Nodes {
+		req.Nodes[i].Shards = nil
+	}
+	if req.Outcome != "" {
+		return ""
+	}
 	if reason := unmetPrecondition(req.Nodes); reason != "" {
 		req.Outcome, req.Reason = PlanStatePlanningFailed, reason
-		return
+		return ""
 	}
 
 	replicas, err := rp.countReplicas(req.Nodes)
 	if err != nil {
 		req.Outcome, req.Reason = PlanStatePlanningFailed, err.Error()
-		return
+		return ""
 	}
 	req.Baseline = baseline(req.Nodes, replicas)
 	if balanced(req.Baseline) {
 		req.Outcome = PlanStateNotNeeded
-		return
+		return ""
 	}
 	req.Outcome = PlanStateProposed
 	req.ApproveBeforeUnixMs = proposedApproveBeforeUnixMs
+	return ""
 }
 
-// measure reads every node in parallel under one measurementTimeout. Row i belongs to nodes[i].
-func (rp *RebalancePlanner) measure(ctx context.Context, nodes []string) []types.RebalanceNodeMeasurement {
+// collect runs collection rounds until a round reads every node. Each round
+// sets req.Nodes and req.MeasuredAtUnixMs. If a node keeps failing rounds for
+// collectionLimit, collect sets the PLANNING_FAILED outcome instead, and
+// req.Nodes keeps the last round's rows. Both cases return "".
+// collect can also halt with no outcome set. It then returns the runs_total
+// result. CANCELLED means ctx ended. STOPPED means that after a backoff the
+// plan is no longer planID in PLANNING. STALE means that after a backoff this
+// node is no longer ready to plan.
+func (rp *RebalancePlanner) collect(ctx context.Context, planID string, task DraftTask, nodes []string,
+	req *CompletePlanningRequest, logger *logrus.Entry,
+) string {
+	start := rp.p.Clock.Now()
+	failingSince := make(map[string]time.Time, len(nodes))
+	backoff := collectionBackoffMin
+	for round := 1; ; round++ {
+		roundStart := rp.p.Clock.Now()
+		req.Nodes, req.MeasuredAtUnixMs = rp.measure(ctx, nodes, task), roundStart.UnixMilli()
+
+		var stalled, failures []string
+		for _, r := range req.Nodes {
+			if r.Error == "" {
+				delete(failingSince, r.Node)
+				continue
+			}
+			failures = append(failures, r.Node+": "+r.Error)
+			since, failing := failingSince[r.Node]
+			if !failing {
+				since = roundStart
+				failingSince[r.Node] = since
+			}
+			if rp.p.Clock.Since(since) >= collectionLimit {
+				stalled = append(stalled, r.Node)
+			}
+		}
+		switch {
+		case len(failingSince) == 0:
+			if round > 1 {
+				logger.WithFields(logrus.Fields{
+					"rounds":  round,
+					"elapsed": rp.p.Clock.Since(start).String(),
+				}).Info("rebalance draft collection succeeded after failed rounds")
+			}
+			return ""
+		case ctx.Err() != nil:
+			return planningResultCancelled
+		case len(stalled) > 0:
+			req.Outcome = PlanStatePlanningFailed
+			req.Reason = "could not collect drafts from nodes: " + strings.Join(stalled, ", ")
+			return ""
+		}
+
+		logger.WithFields(logrus.Fields{
+			"round":   round,
+			"elapsed": rp.p.Clock.Since(start).String(),
+			"backoff": backoff.String(),
+		}).Warnf("rebalance draft collection round failed: %s", strings.Join(failures, "; "))
+		if !rp.sleep(ctx, backoff) {
+			return planningResultCancelled
+		}
+		backoff = min(2*backoff, collectionBackoffMax)
+		if current, ok := rp.p.FSM.GetPlan(); !ok || current.ID != planID || current.State != PlanStatePlanning {
+			logger.Info("rebalance planning ended without an outcome, the plan was stopped or replaced")
+			return planningResultStopped
+		}
+		if !rp.p.ReadyToPlan() {
+			logger.Info("rebalance planning ended without an outcome, this node is no longer ready to plan")
+			return planningResultStale
+		}
+	}
+}
+
+// sleep waits d on the planner's clock. It returns false if ctx ends first.
+func (rp *RebalancePlanner) sleep(ctx context.Context, d time.Duration) bool {
+	timer := rp.p.Clock.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.Chan():
+		return true
+	}
+}
+
+// measure reads every node's resources and its draft of task, in parallel and
+// under one measurementTimeout. Row i belongs to nodes[i].
+func (rp *RebalancePlanner) measure(ctx context.Context, nodes []string, task DraftTask) []types.RebalanceNodeMeasurement {
 	ctx, cancel := clockwork.WithTimeout(ctx, rp.p.Clock, measurementTimeout)
 	defer cancel()
 
@@ -264,7 +486,7 @@ func (rp *RebalancePlanner) measure(ctx context.Context, nodes []string) []types
 		// If Measure panics, the row keeps this notMeasured error.
 		rows[i] = types.RebalanceNodeMeasurement{Node: node, Error: notMeasured}
 		eg.Go(func() error {
-			m, err := rp.p.Measure(ctx, node)
+			m, err := rp.p.Measure(ctx, node, task.PlanID, task.Version)
 			if err != nil {
 				rows[i].Error = err.Error()
 				return nil
@@ -281,7 +503,7 @@ func (rp *RebalancePlanner) measure(ctx context.Context, nodes []string) []types
 }
 
 // unmetPrecondition returns why the measurements cannot be planned on, or ""
-// when every precondition holds.
+// when every precondition holds. Callers pass only rows without an error.
 func unmetPrecondition(rows []types.RebalanceNodeMeasurement) string {
 	if len(rows) == 0 {
 		// CreatePlan accepts empty node lists, and slices.Min below panics on an empty slice.
@@ -290,11 +512,9 @@ func unmetPrecondition(rows []types.RebalanceNodeMeasurement) string {
 	// Each node goes only into the first group whose check it fails. The
 	// groups are reported in the same order, so the reported group names
 	// every node that fails its check.
-	var errored, noDisk, noWarning, unlimited []string
+	var noDisk, noWarning, unlimited []string
 	for _, r := range rows {
 		switch {
-		case r.Error != "":
-			errored = append(errored, fmt.Sprintf("%s: %s", r.Node, r.Error))
 		case r.DiskTotalBytes <= 0:
 			noDisk = append(noDisk, r.Node)
 		case r.DiskWarningPercentage <= 0:
@@ -305,9 +525,6 @@ func unmetPrecondition(rows []types.RebalanceNodeMeasurement) string {
 		case r.MemoryLimitBytes == math.MaxInt64:
 			unlimited = append(unlimited, r.Node)
 		}
-	}
-	if len(errored) > 0 {
-		return "could not measure nodes due to error: " + strings.Join(errored, ", ")
 	}
 	if len(noDisk) > 0 {
 		return "no disk capacity on nodes: " + strings.Join(noDisk, ", ")

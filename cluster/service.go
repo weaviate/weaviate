@@ -185,6 +185,7 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		Logger:     cfg.Logger,
 		FSM:        fsm.replicationManager.GetReplicationFSM(),
 		Proposer:   raft,
+		Drafting:   raft,
 		Clock:      clockwork.NewRealClock(),
 		Registerer: prometheus.DefaultRegisterer,
 		Measure:    cfg.RebalanceMeasure,
@@ -210,8 +211,9 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	}
 	if rebalancePlanner != nil {
 		// Every node wakes its own planner when a plan create, stop or delete
-		// is applied. Only the leader runs a planning pass, and only when it is
-		// ready and both flags are on.
+		// is applied. A pass does nothing unless this node is a ready leader.
+		// A ready leader's pass ends the draft tasks of plans that are no longer
+		// planning, even with a flag off. It plans only with both flags on.
 		fsm.replicationManager.SetPlanChanged(rebalancePlanner.Wake)
 	}
 

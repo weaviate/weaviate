@@ -81,7 +81,7 @@ func NewRebalanceDraftProvider(sizer rebalanceDraftSizer, classes func() []*mode
 	return &RebalanceDraftProvider{
 		sizer:     sizer,
 		classes:   classes,
-		dir:       filepath.Join(dataPath, ".dtm", types.RebalanceDraftNamespace),
+		dir:       draftDir(dataPath),
 		localNode: localNode,
 		logger:    logger.WithField("namespace", types.RebalanceDraftNamespace),
 		serverCtx: serverCtx,
@@ -292,6 +292,25 @@ func (p *RebalanceDraftProvider) pruneDrafts(keep distributedtask.TaskDescriptor
 			p.logger.WithField("path", path).Warnf("rebalance draft: prune draft: %v", err)
 		}
 	}
+}
+
+// ReadRebalanceDraft returns the shard sizes this node saved for draft task
+// taskID at version. When no such draft exists, the error matches os.ErrNotExist.
+func ReadRebalanceDraft(dataPath, taskID string, version uint64) ([]types.RebalanceShardSize, error) {
+	name := draftFileName(distributedtask.TaskDescriptor{ID: taskID, Version: version})
+	content, err := os.ReadFile(filepath.Join(draftDir(dataPath), name))
+	if err != nil {
+		return nil, fmt.Errorf("read draft: %w", err)
+	}
+	var draft rebalanceDraft
+	if err := json.Unmarshal(content, &draft); err != nil {
+		return nil, fmt.Errorf("unmarshal draft %s: %w", name, err)
+	}
+	return draft.Shards, nil
+}
+
+func draftDir(dataPath string) string {
+	return filepath.Join(dataPath, ".dtm", types.RebalanceDraftNamespace)
 }
 
 func draftFileName(desc distributedtask.TaskDescriptor) string {

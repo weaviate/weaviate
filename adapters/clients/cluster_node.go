@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -99,10 +100,12 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, hostName string) (*model
 	return &statistics, nil
 }
 
-func (c *RemoteNode) GetRebalanceMeasurement(ctx context.Context, hostName string) (replicationTypes.RebalanceNodeMeasurement, error) {
+// GetRebalanceDraft reads the node's resources and the shard sizes of its draft for task taskID at version.
+func (c *RemoteNode) GetRebalanceDraft(ctx context.Context, hostName, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
 	p := "/replication/rebalance/measurement"
 	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: hostName, Path: p}
+	params := url.Values{"draftTask": []string{taskID}, "draftVersion": []string{strconv.FormatUint(version, 10)}}
+	url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {

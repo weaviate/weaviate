@@ -224,13 +224,13 @@ func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardRe
 
 // rebalanceMeasure builds the RebalanceMeasure func. For a node missing from
 // cluster membership it returns an error, never a zero measurement with a nil error.
-func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string) (replicationTypes.RebalanceNodeMeasurement, error) {
-	return func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error) {
+func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string, string, uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
+	return func(ctx context.Context, node, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
 		host, ok := nodeHostname(node)
 		if !ok {
 			return replicationTypes.RebalanceNodeMeasurement{}, fmt.Errorf("resolve host of node %q: node not in cluster membership", node)
 		}
-		return client.GetRebalanceMeasurement(ctx, host)
+		return client.GetRebalanceDraft(ctx, host, taskID, version)
 	}
 }
 

@@ -101,28 +101,30 @@ func TestService_SetDistributedTaskSchedulerNotifier(t *testing.T) {
 	}
 
 	logger, _ := logrustest.NewNullLogger()
-	newPlanner := func(t *testing.T, enabled func() bool) *replication.RebalancePlanner {
+	newPlanner := func(t *testing.T, ready func() bool) *replication.RebalancePlanner {
 		t.Helper()
 		planner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
 			Logger:      logger,
 			FSM:         replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry()),
 			Proposer:    &Raft{},
+			Drafting:    &Raft{},
 			Clock:       clockwork.NewFakeClock(),
 			Registerer:  prometheus.NewPedanticRegistry(),
 			Schema:      schema.SchemaReader{},
 			CurrentTerm: func() uint64 { return 0 },
-			ReadyToPlan: func() bool { return false },
-			Enabled:     enabled,
+			ReadyToPlan: ready,
+			Enabled:     func() bool { return false },
 		})
 		require.NoError(t, err)
 		return planner
 	}
 
 	t.Run("one wake reaches the scheduler and the planner", func(t *testing.T) {
-		// Run calls RunOnce only after a wake, and RunOnce calls Enabled first, so
-		// a send on gate proves the planner took a wake. The send never blocks, so
-		// Run always returns once ctx is cancelled. If Run panics, the deferred
-		// close still runs before GoWrapper recovers the panic.
+		// Run calls RunOnce only after a wake, and RunOnce's first gate is
+		// ReadyToPlan, so a send on gate proves the planner took a wake. The
+		// send never blocks, so Run always returns once ctx is cancelled. If
+		// Run panics, the deferred close still runs before GoWrapper recovers
+		// the panic.
 		gate := make(chan struct{}, 1)
 		planner := newPlanner(t, func() bool {
 			select {
@@ -161,7 +163,7 @@ func TestService_SetDistributedTaskSchedulerNotifier(t *testing.T) {
 
 	t.Run("a nil notifier with a planner disables wakes", func(t *testing.T) {
 		// synctest.Wait returns only once Run is durably blocked. A wake from
-		// AddTask would make Run call Enabled before it blocks again, so a zero
+		// AddTask would make Run call ReadyToPlan before it blocks again, so a zero
 		// count proves no wake arrived. Run counts as durably blocked only if the
 		// planner's wake channel is created inside the bubble.
 		synctest.Test(t, func(t *testing.T) {
