@@ -188,7 +188,7 @@ func (o *SchemaObjectsIndexCancelNotFound) WriteResponse(rw http.ResponseWriter,
 const SchemaObjectsIndexCancelConflictCode int = 409
 
 /*
-SchemaObjectsIndexCancelConflict The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled and finishes on its own. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.
+SchemaObjectsIndexCancelConflict The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.
 
 swagger:response schemaObjectsIndexCancelConflict
 */

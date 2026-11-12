@@ -209,9 +209,11 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		swap       bool
+		taskGone   bool // a restore brings back the shard's files and records but no task
 		wantRecord MigrationState
 	}{
 		{name: "swapped, then reloaded", swap: true, wantRecord: MigrationStatePromoted},
+		{name: "swapped, then reloaded with the task gone", swap: true, taskGone: true, wantRecord: MigrationStatePromoted},
 		{name: "crashed before the swap, tenant decided", wantRecord: MigrationStateMerged},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -246,11 +248,19 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			}
 			failed.IndexGroups()
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
-			installTestMigrationTaskSources(ctx, idx.db, nil, failed)
+			var tasks []*distributedtask.Task
+			if !tc.taskGone {
+				tasks = append(tasks, failed)
+			}
+			installTestMigrationTaskSources(ctx, idx.db, nil, tasks...)
 
 			require.NoError(t, shard.Shutdown(ctx))
 			idx.shardReindexer = &noRecoveryTaskReindexer{}
 			re := openShardFromDisk(t, ctx, idx, class, shard.Name())
+			if tc.swap {
+				// The second load is the one that settles the promoted record.
+				re = reloadShardFromDisk(t, ctx, idx, re, class)
+			}
 			defer re.Shutdown(ctx)
 
 			rec, present := task.migrationRecord(re)
