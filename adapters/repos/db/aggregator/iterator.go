@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -124,6 +125,8 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		return nil
 	}
 	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	// the ranges outnumber the workers an admitted query may run
+	eg.SetLimit(concurrency.BudgetFromCtx(ctx, len(seeds)+1))
 
 	// There are three scenarios:
 	// 1. Read from beginning to first checkpoint

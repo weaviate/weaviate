@@ -19,12 +19,14 @@ import (
 	"runtime"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -141,6 +143,39 @@ func TestIteratorConcurrentlyScansEverythingForACallerThatStays(t *testing.T) {
 				require.Equal(t, int64(iteratorCancelKeyCount), seen.Load())
 			})
 		}
+	}
+}
+
+// TestIteratorConcurrentlyRunsNoMoreWorkersThanItsBudget pins that a scan
+// over many ranges runs at most as many of them at once as the query's
+// admission grant allows, and still reads every key.
+func TestIteratorConcurrentlyRunsNoMoreWorkersThanItsBudget(t *testing.T) {
+	ranges := 2*runtime.GOMAXPROCS(0) + 1
+	count := ranges * 20
+	for _, budget := range []int{1, 2} {
+		t.Run(fmt.Sprintf("budget=%d", budget), func(t *testing.T) {
+			ctx := context.Background()
+			logger, _ := test.NewNullLogger()
+			bs := iteratorStrategies()[0]
+			b := bucketFixture(t, ctx, bs, count, true)
+			ctx = concurrency.CtxWithBudget(ctx, budget)
+
+			var seen, running, most atomic.Int64
+			err := iteratorConcurrently(ctx, b, bs.newCurs(ctx, b),
+				func(k, v []byte, vv [][]byte, bi *sroar.Bitmap) error {
+					seen.Add(1)
+					now := running.Add(1)
+					defer running.Add(-1)
+					for m := most.Load(); now > m && !most.CompareAndSwap(m, now); m = most.Load() {
+					}
+					time.Sleep(100 * time.Microsecond)
+					return nil
+				}, logger)
+
+			require.NoError(t, err)
+			require.Equal(t, int64(count), seen.Load())
+			require.LessOrEqual(t, most.Load(), int64(budget))
+		})
 	}
 }
 

@@ -17,10 +17,19 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
+// Aggregate holds a query admission grant until it returns: an aggregation can
+// scan the whole shard, and its workers are sized from the grant.
 func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
+	ctx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	var vectorIndex VectorIndex
 
 	// we only need the index queue for vector search
