@@ -45,6 +45,8 @@ type rebalanceManager interface {
 	ReadRebalancePlan() (rebalance.Plan, bool)
 	// QueryRebalancePlan retrieves the leader's state. It returns nil and no error when the leader holds no plan.
 	QueryRebalancePlan(ctx context.Context) (*rebalance.Plan, error)
+	// RebalanceDraftTasks reads this node's FSM, which can lag the leader.
+	RebalanceDraftTasks() []rebalance.DraftTask
 }
 
 // rebalanceNodes reports cluster membership
@@ -175,16 +177,53 @@ func (h *replicationHandler) getRebalancePlan(params replication.GetRebalancePla
 		if plan == nil {
 			return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 		}
-		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan))
+		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan, h.latestDraftTask(plan.ID)))
 	}
 	plan, ok := h.rebalanceManager.ReadRebalancePlan()
 	if !ok {
 		return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 	}
-	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan))
+	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan, h.latestDraftTask(plan.ID)))
 }
 
-func rebalancePlanResponse(plan rebalance.Plan) *models.ReplicationRebalancePlan {
+// latestDraftTask returns the highest-version draft task of planID in this
+// node's FSM, or nil when it holds none.
+func (h *replicationHandler) latestDraftTask(planID string) *rebalance.DraftTask {
+	var latest *rebalance.DraftTask
+	for _, task := range h.rebalanceManager.RebalanceDraftTasks() {
+		if task.PlanID == planID && (latest == nil || task.Version > latest.Version) {
+			latest = &task
+		}
+	}
+	return latest
+}
+
+// draftingStatus maps a node's draft unit status to the status GET reports.
+// A node with no unit in the task shows DRAFTING.
+func draftingStatus(unit rebalance.DraftUnitStatus) string {
+	switch unit {
+	case rebalance.DraftUnitCompleted:
+		return models.ReplicationRebalancePlanDraftingItems0StatusREPORTED
+	case rebalance.DraftUnitFailed:
+		return models.ReplicationRebalancePlanDraftingItems0StatusFAILED
+	default:
+		return models.ReplicationRebalancePlanDraftingItems0StatusDRAFTING
+	}
+}
+
+// rebalancePlanResponse builds the GET payload for plan. Drafting lists the
+// source and target nodes only while plan is PLANNING and task is plan's
+// draft task. Drafting is never nil, so its JSON is [] and not null.
+func rebalancePlanResponse(plan rebalance.Plan, task *rebalance.DraftTask) *models.ReplicationRebalancePlan {
+	drafting := make([]*models.ReplicationRebalancePlanDraftingItems0, 0)
+	if plan.State == rebalance.PlanStatePlanning && task != nil {
+		for _, node := range slices.Concat(plan.SourceNodes, plan.TargetNodes) {
+			drafting = append(drafting, &models.ReplicationRebalancePlanDraftingItems0{
+				Node:   node,
+				Status: draftingStatus(task.Units[node]),
+			})
+		}
+	}
 	nodes := make([]*models.ReplicationRebalancePlanNodesItems0, len(plan.Nodes))
 	for i, n := range plan.Nodes {
 		nodes[i] = &models.ReplicationRebalancePlanNodesItems0{
@@ -216,6 +255,7 @@ func rebalancePlanResponse(plan rebalance.Plan) *models.ReplicationRebalancePlan
 		Reason:           plan.Reason,
 		Nodes:            nodes,
 		Baseline:         baseline,
+		Drafting:         drafting,
 	}
 }
 

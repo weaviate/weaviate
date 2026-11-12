@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationRebalancePlan The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.
+// ReplicationRebalancePlan The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.
 //
 // swagger:model ReplicationRebalancePlan
 type ReplicationRebalancePlan struct {
@@ -40,6 +40,9 @@ type ReplicationRebalancePlan struct {
 
 	// The UNIX timestamp in ms when the plan was created.
 	CreatedAtUnixMs int64 `json:"createdAtUnixMs,omitempty"`
+
+	// The drafting status of each listed node, source nodes first, while the plan is `PLANNING`. Empty in every other state.
+	Drafting []*ReplicationRebalancePlanDraftingItems0 `json:"drafting"`
 
 	// The unique identifier (ID) of the rebalance plan.
 	ID string `json:"id,omitempty"`
@@ -69,6 +72,10 @@ func (m *ReplicationRebalancePlan) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateBaseline(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDrafting(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -102,6 +109,32 @@ func (m *ReplicationRebalancePlan) validateBaseline(formats strfmt.Registry) err
 					return ve.ValidateName("baseline" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
 					return ce.ValidateName("baseline" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ReplicationRebalancePlan) validateDrafting(formats strfmt.Registry) error {
+	if swag.IsZero(m.Drafting) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Drafting); i++ {
+		if swag.IsZero(m.Drafting[i]) { // not required
+			continue
+		}
+
+		if m.Drafting[i] != nil {
+			if err := m.Drafting[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("drafting" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("drafting" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -212,6 +245,10 @@ func (m *ReplicationRebalancePlan) ContextValidate(ctx context.Context, formats 
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateDrafting(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -232,6 +269,26 @@ func (m *ReplicationRebalancePlan) contextValidateBaseline(ctx context.Context, 
 					return ve.ValidateName("baseline" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
 					return ce.ValidateName("baseline" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ReplicationRebalancePlan) contextValidateDrafting(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Drafting); i++ {
+
+		if m.Drafting[i] != nil {
+			if err := m.Drafting[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("drafting" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("drafting" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -316,6 +373,101 @@ func (m *ReplicationRebalancePlanBaselineItems0) MarshalBinary() ([]byte, error)
 // UnmarshalBinary interface implementation
 func (m *ReplicationRebalancePlanBaselineItems0) UnmarshalBinary(b []byte) error {
 	var res ReplicationRebalancePlanBaselineItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// ReplicationRebalancePlanDraftingItems0 One node's drafting status.
+//
+// swagger:model ReplicationRebalancePlanDraftingItems0
+type ReplicationRebalancePlanDraftingItems0 struct {
+
+	// The name of the node.
+	Node string `json:"node"`
+
+	// `REPORTED` once the node has saved and reported its draft, `FAILED` if its drafting failed, and `DRAFTING` otherwise.
+	// Enum: [REPORTED DRAFTING FAILED]
+	Status string `json:"status"`
+}
+
+// Validate validates this replication rebalance plan drafting items0
+func (m *ReplicationRebalancePlanDraftingItems0) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var replicationRebalancePlanDraftingItems0TypeStatusPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["REPORTED","DRAFTING","FAILED"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		replicationRebalancePlanDraftingItems0TypeStatusPropEnum = append(replicationRebalancePlanDraftingItems0TypeStatusPropEnum, v)
+	}
+}
+
+const (
+
+	// ReplicationRebalancePlanDraftingItems0StatusREPORTED captures enum value "REPORTED"
+	ReplicationRebalancePlanDraftingItems0StatusREPORTED string = "REPORTED"
+
+	// ReplicationRebalancePlanDraftingItems0StatusDRAFTING captures enum value "DRAFTING"
+	ReplicationRebalancePlanDraftingItems0StatusDRAFTING string = "DRAFTING"
+
+	// ReplicationRebalancePlanDraftingItems0StatusFAILED captures enum value "FAILED"
+	ReplicationRebalancePlanDraftingItems0StatusFAILED string = "FAILED"
+)
+
+// prop value enum
+func (m *ReplicationRebalancePlanDraftingItems0) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationRebalancePlanDraftingItems0TypeStatusPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ReplicationRebalancePlanDraftingItems0) validateStatus(formats strfmt.Registry) error {
+	if swag.IsZero(m.Status) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validates this replication rebalance plan drafting items0 based on context it is used
+func (m *ReplicationRebalancePlanDraftingItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ReplicationRebalancePlanDraftingItems0) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ReplicationRebalancePlanDraftingItems0) UnmarshalBinary(b []byte) error {
+	var res ReplicationRebalancePlanDraftingItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
