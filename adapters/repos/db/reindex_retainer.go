@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -193,7 +194,8 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if len(task.SwapsOwed) > 0 {
 		return true
 	}
-	targets := reindexTargets{}
+	targets := p.retainerTargets.load(namespaceTasks)
+	defer p.retainerTargets.save(targets)
 	target := targets.of(task)
 	if target == nil {
 		return false // the status endpoint cannot read it either
@@ -235,9 +237,32 @@ type reindexTarget struct {
 	Properties    []string             `json:"properties"`
 }
 
-// reindexTargets decodes each task at most once per retention decision; nil
-// marks an unreadable payload.
+// reindexTargets decodes each task at most once; nil marks an unreadable payload.
 type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
+
+// reindexTargetCache keeps decoded targets across ticks: a payload never changes for an (ID, Version).
+type reindexTargetCache struct {
+	mu      sync.Mutex
+	targets reindexTargets
+}
+
+func (c *reindexTargetCache) load(namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task) reindexTargets {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	live := make(reindexTargets, len(namespaceTasks))
+	for desc, target := range c.targets {
+		if _, ok := namespaceTasks[desc]; ok {
+			live[desc] = target
+		}
+	}
+	return live
+}
+
+func (c *reindexTargetCache) save(targets reindexTargets) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.targets = targets
+}
 
 func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 	if target, ok := ts[task.TaskDescriptor]; ok {
