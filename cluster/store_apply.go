@@ -175,6 +175,9 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitReplicaMovement(req); err != nil {
 		return err
 	}
+	if err := st.admitTaskAdd(req.Type, collection); err != nil {
+		return err
+	}
 	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
 		return err
 	}
@@ -325,6 +328,16 @@ func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
 		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
 	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
+}
+
+// admitTaskAdd refuses a task outside the active state, since running it would
+// load and rewrite shards the namespace has released. collection is "" for a
+// task that names none, which leaves nothing to check.
+func (st *Store) admitTaskAdd(cmdType api.ApplyRequest_Type, collection string) error {
+	if cmdType != api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD {
+		return nil
+	}
+	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(collection))
 }
 
 // admitCreateLike refuses a create-like, property or class update command

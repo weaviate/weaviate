@@ -21,12 +21,14 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -735,6 +737,12 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
 	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
 	// returns before this and is deliberately not refused: it starts nothing.
+	// Refused here as well as at the leader because the stale-state sweep
+	// below loads and rewrites this node's shards before the submit.
+	if err := usecasesNamespaces.RequireActive(h.appState.NamespacesController,
+		namespacing.NamespaceFromQualified(collection)); err != nil {
+		return h.mapSubmitTaskError(principal, collection, "", err)
+	}
 	if err := validateNoSidecarShapedProperties(class); err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -985,6 +993,9 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			fmt.Sprintf("the shards or replicas of collection %q changed while the reindex was submitted; resubmit it against the current state", collection)))
+	}
+	if cerrors.NamespaceErrRendersUnprocessable(err) {
+		return jsonResponder(http.StatusUnprocessableEntity, errPayloadFromSingleErr(principal, err))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))

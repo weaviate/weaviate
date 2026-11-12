@@ -24,6 +24,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -57,7 +58,7 @@ const (
 // this test green. The TestExecuteGate_* tests pin the behaviour per state.
 
 // Commands gated by namespaces.RequireActive at propose time, in
-// store.admitCreateLike and store.admitShardStatus.
+// store.admitCreateLike, store.admitShardStatus and store.admitTaskAdd.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
@@ -72,6 +73,7 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
+	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:     {},
 }
 
 // Commands gated by namespaces.RequireActive in store.admitReplicaMovement, both
@@ -140,7 +142,6 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_COMPLETE_PLANNING:                    {},
 	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_STOP:                                 {},
 	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_DELETE:                               {},
-	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:                                       {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:                                    {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:                     {}, //nolint:staticcheck // deprecated but must stay classified for the drift check
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:                                  {},
@@ -483,6 +484,34 @@ func replicaMovementCommand() gatedCommand {
 	}
 }
 
+// taskAddTaskNamespace is the task namespace taskAddCommand submits under.
+const taskAddTaskNamespace = "reindex"
+
+// taskAddCommand drives a task add whose payload is the collection it names,
+// read back by taskCollectionIsPayload.
+func taskAddCommand() gatedCommand {
+	return gatedCommand{
+		cmdType: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+		build: func(target string) *api.ApplyRequest {
+			sub, err := json.Marshal(&api.AddDistributedTaskRequest{
+				Namespace: taskAddTaskNamespace, Id: "task1", UnitIds: []string{"unit1"},
+				Payload: []byte(target),
+			})
+			if err != nil {
+				panic(err)
+			}
+			return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+		},
+		seedEntity:    func(*testing.T, *MockStore, string) {},
+		expectApplied: func(*testing.T, *MockStore, string) {},
+		landed: func(ms *MockStore, _ string) bool {
+			return len(ms.store.distributedTasksManager.LocalDistributedTasks()[taskAddTaskNamespace]) == 1
+		},
+	}
+}
+
+func taskCollectionIsPayload(payload []byte) (string, bool) { return string(payload), true }
+
 // createLikeCommands are the gated commands that write schema and no store. The
 // RBAC and user commands belong here too but cannot be driven through this mock
 // store; see applyUndrivableGatedTypes.
@@ -758,7 +787,7 @@ func gatedCommands() []gatedCommand {
 	all = append(all, createLikeCommands()...)
 	all = append(all, schemaUpdateCommands()...)
 	all = append(all, shardMaterializingCommands()...)
-	all = append(all, shardStatusCommand())
+	all = append(all, shardStatusCommand(), taskAddCommand())
 	return all
 }
 
@@ -1404,6 +1433,39 @@ func TestExecuteGate_RejectsClassUpdateApplyType(t *testing.T) {
 				return
 			}
 			assertProposeAdmits(t, cmd, alphaAt(tt.state))
+		})
+	}
+}
+
+// TestExecuteGate_RejectsTaskAddApplyType drives a task add through the
+// propose-time check. Its namespace comes off the collection the task names.
+func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		collection string
+		state      api.NamespaceState
+		wantErr    error
+	}{
+		{"suspended namespace rejected", "alpha:Foo", api.NamespaceStateSuspended, namespaces.ErrNamespaceSuspended},
+		{"active namespace admitted", "alpha:Foo", api.NamespaceStateActive, nil},
+		{"an unqualified class is admitted", "Foo", api.NamespaceStateSuspended, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ms := NewMockStore(t, "Node-1", 0, func(c *Config) {
+				c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+					taskAddTaskNamespace: taskCollectionIsPayload,
+				}
+			})
+			seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", tc.state)
+
+			data, err := gproto.Marshal(taskAddCommand().build(tc.collection))
+			require.NoError(t, err)
+			err = admitProposeBytes(t, &ms, data)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
