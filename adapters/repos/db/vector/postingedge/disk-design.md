@@ -172,3 +172,23 @@ El mismo para las dos: re-estimar con el código completo del sidecar los mejore
 3. Cuántos candidatos se refinan por query en función de la banda, que es el coste.
 4. Que subir ef no baje el recall en ningún tramo.
 5. El ancho del código de scan. Solo está medido 256 bits; 512 bits (72 B) es el otro candidato, con menos ruido que corregir y menos ahorro por carga.
+
+## FastScan para el scan de un posting cargado
+
+FastScan puntúa 32 códigos de una vez. Agrupa sus bits de 4 en 4 dimensiones, y una tabla de 16 entradas por grupo, que depende solo de la query, se busca con una TBL para 16 códigos por instrucción. El prototipo está en `postingedge/kernelproto` (`ScanBlock`) y da el mismo entero que el kernel de hoy, bit a bit. Medido en el M1 Max sobre un posting de 236 códigos en caché (bench-report.md, "Coste por distancia"):
+
+| código | kernel de hoy, ns por código | FastScan | factor |
+|---|---|---|---|
+| 768 bits | 33.3 | 6.6 | 5.0x |
+| 1536 bits | 42.9 | 10.8 | 4.0x |
+
+- **En disco el layout no cuesta nada.** El posting de disco lleva sus propios códigos en cualquiera de los layouts de arriba, así que basta con escribirlos en bloques de 32, traspuestos por grupos de 4 dimensiones, en vez de en fila. Son los mismos bytes, con la cabecera de cada código aparte, y leerlos no pide decodificar nada.
+- **Los endpoints no se tocan:** se puntúan contra el sidecar residente, que sigue en fila.
+- **En memoria no se integra.** Postings y sidecar comparten hoy un solo array de códigos, y FastScan pediría una segunda copia: 992 MB más a 10M.
+- **Encaja con (c):** funciona a cualquier ancho múltiplo de 4 dimensiones, y con códigos cortos en el posting el scan por código baja todavía más.
+
+Lo que queda por medir:
+
+- **El scan con el posting recién leído,** no en caché.
+- **El último bloque de cada posting va a medias:** 236 son 7 bloques llenos y 12 códigos, y el bloque incompleto cuesta como uno lleno.
+- **Construir las tablas de la query,** que en el prototipo sin optimizar cuesta 15.8 µs a 768 bits.
