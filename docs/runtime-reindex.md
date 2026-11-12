@@ -143,7 +143,7 @@ body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
 `STARTED` or `PREPARING` task is cancelled; tenants whose swap is already
 decided (§6.3) keep it, every other tenant stops. `202` + `Status: NO_OP`
 (no `taskId`) when nothing matches (already finished, never submitted, or
-already cancelled). `409` for a `SWAPPING` task (it finishes on its own)
+already cancelled). `409` for a `SWAPPING` task (it ends once every replica that owes a swap has swapped; a node lost for good holds it)
 and for a status this build does not recognize. See §12. Never `404` for
 "nothing to cancel".
 
@@ -1105,8 +1105,8 @@ Then, per shard load:
        |---|---|
        | The disk fails reads or writes | Once it works, set the shard READY |
        | A staged bucket cannot open because a segment file is damaged | Repair that file in place, then set the shard READY or restart the node. Never put back an older copy: compaction reuses segment file names, so an older copy silently lacks entries a later compaction merged in. If the migration's swap is not committed, and no migration with a committed swap or already swapped in is held on the same shard, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted. The refused lift says when a swap is committed ("has a committed swap"); then see the next row |
-       | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. This node's swap step fails the task, so it ends FAILED and partial. So does every other `SWAPPING` migration that owes a swap on this shard; cancel any other migration on the collection that is still `STARTED` or `PREPARING`. The swap stays owed: once the segment is repaired and the shard set READY, the node makes it on its own, and a resubmit then lands the schema change. Once the task has ended, in the order we recommend: **1. Recover from a healthy replica.** With a replication factor above 1, the other replicas hold the migrated data. It may be possible to rebuild this replica from one of them with the replication API: copy the tenant to a node that does not hold it (`POST /v1/replication/replicate`, type `COPY`), then remove the held replica with a scale plan (`POST /v1/replication/scale`, `removeNodes`), after making its records dir writable. Removing a held replica has not been verified, so try it on a test cluster first. **2. Restore from a backup.** If no healthy replica exists, for example with a replication factor of 1, restore the collection from a backup. This replaces the whole collection: every write since the backup is lost, on every tenant. **3. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when neither a replica nor a backup can recover the data, and make the records dir writable first, or the delete leaves the record behind. **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. |
-       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit or prepare waits on this shard; a SWAPPING task that owes a swap on this shard fails, and a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED or PREPARING), and this shard stays READONLY. The replica copy below is refused while any task on the collection is still running; cancel one that is STARTED or PREPARING first. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, look for a healthy copy first. With a replication factor above 1, it may be possible to rebuild the tenant from a healthy replica with the replication API: copy it to a node that does not hold it (`POST /v1/replication/replicate`, type `COPY`), then remove the broken replica with a scale plan (`POST /v1/replication/scale`, `removeNodes`), after making its records dir writable. Removing a held replica has not been verified, so confirm on a test cluster before relying on it. With a replication factor of 1 there is no healthy copy: restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no copy or backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
+       | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. This node's swap step fails the task, so it ends FAILED and partial. So does every other `SWAPPING` migration that owes a swap on this shard; cancel any other migration on the collection that is still `STARTED` or `PREPARING`. The swap stays owed: once the segment is repaired and the shard set READY, the node makes it on its own, and a resubmit then lands the schema change. Once the task has ended, in the order we recommend: **1. Restore from a backup.** This replaces the whole collection: every write since the backup is lost, on every tenant. **2. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when a backup cannot recover the data, and make the records dir writable first, or the delete leaves the record behind. |
+       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit or prepare waits on this shard; a SWAPPING task that owes a swap on this shard fails, and a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED or PREPARING), and this shard stays READONLY. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
      - Reads are served while the retry runs, and a lift meanwhile is
        refused. The owning node runs a lift inside its schema apply, which
        therefore never waits on the disk. The shard's shutdown waits for a
@@ -1519,10 +1519,10 @@ breaks two things:
   (weaviate/etienne-claude-issues#449).
 
 With per-tenant swaps (§6.3) the window lasts until the slowest tenant
-finishes, and forever after a failure. So every shard load re-installs
+finishes, and after a failure until a resubmit of the same migration
+finishes (§8). So every shard load re-installs
 the overlay from its promoted migration records: each one whose flip is
-decided while its task is listed and not FINISHED (or the task list is
-not readable yet), limited to what the live schema does not show. The
+decided, except an index a run enabled once its task is gone, limited to what the live schema does not show. The
 load also opens the bucket of an index a migration turned on, and the
 schema's index-off sweeps leave that bucket alone.
 
@@ -1719,13 +1719,13 @@ to this version assumes two things:
    property (WAND counts it once, BlockMax every time).
 2. **No migration is running or stopped partway.** Let every running one
    finish, and resubmit every one that reads `partial` until it reads
-   `ready`.
+   `ready`. Finish every reindex before the first node restarts, and submit
+   or cancel none until the last node runs this build.
 
-As far as we know, no customer ran runtime reindex on v1.38, and the
-customers on v1.39 ran only tokenization changes and enable-rangeable,
-which never build BlockMax buckets with the flag off.
+If you moved a property to BlockMax on v1.38 with the collection flag off,
+submit `{"algorithm":"blockmax"}` for it again after upgrading.
 
-**Status of an old run after upgrading from v1.39.15.** A node that
+**Status of an old run after upgrading from v1.39.15 or v1.39.16.** A node that
 replays such a run from its RAFT log, instead of restoring it from a
 snapshot, can label it `failed` or `cancelled` on the indexes endpoint
 while the other nodes report it finished, and keeps the files of an index
@@ -1765,7 +1765,8 @@ derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
 this build never writes, so **disabling the index to fix the empty results is
 what destroys the data**. Upgrade again instead and let reconciliation promote.
 
-**Rolling back below this version after a reindex run.** Older releases
+**Rolling back below this version after a reindex run.** Older releases,
+v1.40.0 to v1.40.5 included (upgrade to the latest v1.40 patch instead),
 read neither per-tenant preparation nor a cancel during PREPARING as this
 build does. An older node that replays a reindex run from its RAFT log can
 keep the run PREPARING for good, refusing every schema change on the
