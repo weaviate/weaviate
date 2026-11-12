@@ -20,10 +20,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// TestShouldRetainCompletedTaskDecodesEachRunOnce swaps a payload for
-// unreadable bytes after the first tick: a run whose (ID, Version) was
-// already decoded keeps its verdict, a run that left the namespace and came
-// back is decoded again.
+// TestShouldRetainCompletedTaskDecodesEachRunOnce makes a payload unreadable after the first tick.
+// A run decoded earlier keeps its verdict, and one that left the namespace is decoded again.
 func TestShouldRetainCompletedTaskDecodesEachRunOnce(t *testing.T) {
 	failedRun := func(version uint64, prop string) *distributedtask.Task {
 		payload, err := json.Marshal(ReindexTaskPayload{
