@@ -46,7 +46,7 @@ func newTestServer(t *testing.T, writeEnabled bool) (*MCPServer, *prometheus.Reg
 	writeAccessEnabled := func() bool { return writeEnabled }
 	reg := prometheus.NewRegistry()
 	m := metrics.New(reg, writeAccessEnabled)
-	creator := create.NewWeaviateCreator(authHandler, nil, logger, writeAccessEnabled)
+	creator := create.NewWeaviateCreator(authHandler, nil, nil, logger, writeAccessEnabled)
 
 	s := &MCPServer{
 		server:         server.NewMCPServer("test", "0", serverOptions(m, writeAccessEnabled)...),
@@ -93,17 +93,19 @@ func TestToolFilter(t *testing.T) {
 	tests := []struct {
 		name         string
 		writeEnabled bool
-		wantUpsert   bool
+		wantWrite    bool
 	}{
-		{name: "write access enabled lists write tools", writeEnabled: true, wantUpsert: true},
-		{name: "write access disabled hides write tools", writeEnabled: false, wantUpsert: false},
+		{name: "write access enabled lists write tools", writeEnabled: true, wantWrite: true},
+		{name: "write access disabled hides write tools", writeEnabled: false, wantWrite: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, _ := newTestServer(t, tt.writeEnabled)
 			got := handleMessage(t, s, listBody)
 			require.Contains(t, got, `"weaviate-query-hybrid"`)
-			require.Equal(t, tt.wantUpsert, strings.Contains(got, `"weaviate-objects-upsert"`), got)
+			for _, tool := range []string{"weaviate-objects-upsert", "weaviate-collections-create"} {
+				require.Equal(t, tt.wantWrite, strings.Contains(got, `"`+tool+`"`), got)
+			}
 		})
 	}
 }
@@ -166,6 +168,24 @@ func TestInputSchemaValidation(t *testing.T) {
 			// also pins that the tool filter lets the call through
 			name:    "valid upsert call reaches the handler",
 			body:    call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{}}]}`),
+			want:    []string{"write access is disabled"},
+			notWant: []string{validationFailed, "not found"},
+		},
+		{
+			name:    "unknown key on collections-create is rejected",
+			body:    call("weaviate-collections-create", `{"collection_name":"Things","vectorizer":"none"}`),
+			want:    []string{validationFailed, "vectorizer"},
+			notWant: []string{"write access is disabled"},
+		},
+		{
+			name:    "null property entry on collections-create is rejected",
+			body:    call("weaviate-collections-create", `{"collection_name":"Things","properties":[null]}`),
+			want:    []string{validationFailed, "/properties/0"},
+			notWant: []string{"write access is disabled"},
+		},
+		{
+			name:    "valid collections-create call reaches the handler",
+			body:    call("weaviate-collections-create", `{"collection_name":"Things","properties":[{"name":"title","dataType":["text"]}],"vector_config":null}`),
 			want:    []string{"write access is disabled"},
 			notWant: []string{validationFailed, "not found"},
 		},
@@ -262,6 +282,14 @@ func TestToolInputSchemas(t *testing.T) {
 			name:       "weaviate-objects-upsert",
 			properties: []string{"collection_name", "tenant_name", "objects"},
 			required:   []string{"collection_name", "objects"},
+		},
+		{
+			name: "weaviate-collections-create",
+			properties: []string{
+				"collection_name", "description", "properties", "vector_config", "module_config",
+				"multi_tenancy_config", "inverted_index_config", "replication_config", "object_ttl_config",
+			},
+			required: []string{"collection_name"},
 		},
 	}
 	require.Len(t, byName, len(cases))

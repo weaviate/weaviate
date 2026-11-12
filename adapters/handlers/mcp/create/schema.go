@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Request types
@@ -32,6 +33,18 @@ type UpsertObjectArgs struct {
 	Objects        []ObjectToUpsert `json:"objects" jsonschema:"required" jsonschema_description:"Array of objects to upsert. Each object should have 'properties' (required) and optionally 'uuid' and 'vectors'. Minimum 1 object required."`
 }
 
+type CreateCollectionArgs struct {
+	CollectionName      string           `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of the collection to create. Letters, digits and underscores only; the first letter is stored capitalized (e.g., 'articles' becomes 'Articles')."`
+	Description         string           `json:"description,omitempty" jsonschema_description:"Description of the collection"`
+	Properties          []map[string]any `json:"properties,omitempty" jsonschema_description:"Properties in the REST property shape (e.g., [{'name': 'title', 'dataType': ['text']}]). dataType is one of text, int, number, boolean, date, uuid (each also as a [] array), geoCoordinates, phoneNumber, blob, object or object[]; 'object' takes nestedProperties; a collection name, written as stored with its first letter capitalized, makes a cross-reference. Property names are stored with a lowercase first letter."`
+	VectorConfig        map[string]any   `json:"vector_config,omitempty" jsonschema_description:"Named vectors in the REST vectorConfig shape, keyed by vector name; these names are the keys of 'vectors' in weaviate-objects-upsert. The vectorizer key is a module enabled on this server (e.g., {'default': {'vectorizer': {'text2vec-openai': {'properties': ['title']}}}}), or {'default': {'vectorizer': {'none': {}}}} to supply vectors yourself. Omit for a collection without vectors."`
+	ModuleConfig        map[string]any   `json:"module_config,omitempty" jsonschema_description:"REST moduleConfig shape for class-level module settings such as generative or reranker modules, keyed by module name (e.g., {'generative-openai': {'model': 'gpt-4o-mini'}}). Vectorizer settings belong in vector_config."`
+	MultiTenancyConfig  map[string]any   `json:"multi_tenancy_config,omitempty" jsonschema_description:"REST multiTenancyConfig shape (e.g., {'enabled': true, 'autoTenantCreation': true})"`
+	InvertedIndexConfig map[string]any   `json:"inverted_index_config,omitempty" jsonschema_description:"REST invertedIndexConfig shape (e.g., {'indexTimestamps': true})"`
+	ReplicationConfig   map[string]any   `json:"replication_config,omitempty" jsonschema_description:"REST replicationConfig shape (e.g., {'factor': 3})"`
+	ObjectTTLConfig     map[string]any   `json:"object_ttl_config,omitempty" jsonschema_description:"REST objectTtlConfig shape. defaultTtl is seconds added to deleteOn, which is '_creationTimeUnix', '_lastUpdateTimeUnix' or a date property (e.g., {'enabled': true, 'deleteOn': '_creationTimeUnix', 'defaultTtl': 3600})."`
+}
+
 // Response types
 
 type UpsertObjectResult struct {
@@ -41,6 +54,10 @@ type UpsertObjectResult struct {
 
 type UpsertObjectResp struct {
 	Results []UpsertObjectResult `json:"results" jsonschema_description:"Results for each object in the batch, in the same order as the input"`
+}
+
+type CreateCollectionResp struct {
+	Collection *models.Class `json:"collection" jsonschema_description:"The stored collection configuration"`
 }
 
 // Tool registration
@@ -58,7 +75,22 @@ func Tools(creator *WeaviateCreator, configs map[string]internal.ToolConfig, m *
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
 	internal.AllowNullForOptionalArguments(&tool)
+
+	createName := "weaviate-collections-create"
+	createTool := mcp.NewTool(
+		createName,
+		mcp.WithDescription(internal.GetDescription(configs, createName,
+			"Creates a collection. Nested arguments use the REST schema shapes that weaviate-collections-get-config returns. Fails if a collection with that name already exists.")),
+		mcp.WithInputSchema[CreateCollectionArgs](),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+	)
+	internal.ApplySchemaDescriptions(&createTool, createName, configs)
+	internal.AllowNullForOptionalArguments(&createTool)
+
 	return []server.ServerTool{
 		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, creator.UpsertObject))},
+		{Tool: createTool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, createName, creator.CreateCollection))},
 	}
 }
