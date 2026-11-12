@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -145,7 +146,7 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	if err := st.admitTaskAdd(req.Type, collection); err != nil {
+	if err := st.admitTaskAdd(task, collection); err != nil {
 		return err
 	}
 	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
@@ -255,11 +256,12 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
-// admitTaskAdd refuses a task outside the active state, since running it would
-// load and rewrite shards the namespace has released. collection is "" for a
-// task that names none, which leaves nothing to check.
-func (st *Store) admitTaskAdd(cmdType api.ApplyRequest_Type, collection string) error {
-	if cmdType != api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD {
+// admitTaskAdd refuses a reindex task outside the active state, since running it
+// would load and rewrite shards the namespace has released. Other task kinds are
+// not gated. collection is "" for a task that names none, which leaves nothing
+// to check.
+func (st *Store) admitTaskAdd(task *api.AddDistributedTaskRequest, collection string) error {
+	if task == nil || task.Namespace != db.ReindexNamespace {
 		return nil
 	}
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(collection))

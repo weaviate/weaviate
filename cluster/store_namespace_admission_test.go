@@ -21,6 +21,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -421,28 +422,30 @@ func shardStatusCommand() gatedCommand {
 	}
 }
 
-// taskAddTaskNamespace is the task namespace taskAddCommand submits under.
-const taskAddTaskNamespace = "reindex"
+// taskAddRequest builds a task add in the given task namespace whose payload is
+// the collection it names, read back by taskCollectionIsPayload.
+func taskAddRequest(taskNamespace, target string) *api.ApplyRequest {
+	sub, err := json.Marshal(&api.AddDistributedTaskRequest{
+		Namespace: taskNamespace, Id: "task1", UnitIds: []string{"unit1"},
+		Payload: []byte(target),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+}
 
-// taskAddCommand drives a task add whose payload is the collection it names,
-// read back by taskCollectionIsPayload.
+// taskAddCommand drives a reindex task add, the only task kind that is gated.
 func taskAddCommand() gatedCommand {
 	return gatedCommand{
 		cmdType: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
 		build: func(target string) *api.ApplyRequest {
-			sub, err := json.Marshal(&api.AddDistributedTaskRequest{
-				Namespace: taskAddTaskNamespace, Id: "task1", UnitIds: []string{"unit1"},
-				Payload: []byte(target),
-			})
-			if err != nil {
-				panic(err)
-			}
-			return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+			return taskAddRequest(db.ReindexNamespace, target)
 		},
 		seedEntity:    func(*testing.T, *MockStore, string) {},
 		expectApplied: func(*testing.T, *MockStore, string) {},
 		landed: func(ms *MockStore, _ string) bool {
-			return len(ms.store.distributedTasksManager.LocalDistributedTasks()[taskAddTaskNamespace]) == 1
+			return len(ms.store.distributedTasksManager.LocalDistributedTasks()[db.ReindexNamespace]) == 1
 		},
 	}
 }
@@ -1066,26 +1069,30 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 
 // TestExecuteGate_RejectsTaskAddApplyType drives a task add through the
 // propose-time check. Its namespace comes off the collection the task names.
+// Only reindex tasks are gated; a drop-vector-index task is admitted.
 func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		collection string
-		state      api.NamespaceState
-		wantErr    error
+		name          string
+		taskNamespace string
+		collection    string
+		state         api.NamespaceState
+		wantErr       error
 	}{
-		{"suspended namespace rejected", "alpha:Foo", api.NamespaceStateSuspended, namespaces.ErrNamespaceSuspended},
-		{"active namespace admitted", "alpha:Foo", api.NamespaceStateActive, nil},
-		{"an unqualified class is admitted", "Foo", api.NamespaceStateSuspended, nil},
+		{"suspended namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateSuspended, namespaces.ErrNamespaceSuspended},
+		{"active namespace admitted", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateActive, nil},
+		{"an unqualified class is admitted", db.ReindexNamespace, "Foo", api.NamespaceStateSuspended, nil},
+		{"drop-vector task in a suspended namespace is not gated", db.DropVectorIndexNamespace, "alpha:Foo", api.NamespaceStateSuspended, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ms := NewMockStore(t, "Node-1", 0, func(c *Config) {
 				c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-					taskAddTaskNamespace: taskCollectionIsPayload,
+					db.ReindexNamespace:         taskCollectionIsPayload,
+					db.DropVectorIndexNamespace: taskCollectionIsPayload,
 				}
 			})
 			seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", tc.state)
 
-			data, err := gproto.Marshal(taskAddCommand().build(tc.collection))
+			data, err := gproto.Marshal(taskAddRequest(tc.taskNamespace, tc.collection))
 			require.NoError(t, err)
 			err = admitProposeBytes(t, &ms, data)
 			if tc.wantErr != nil {
