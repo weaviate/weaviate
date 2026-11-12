@@ -81,7 +81,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	}
 
 	if isHFresh {
-		err = s.removeHFreshArtifacts(ctx, targetVector, rec.PhysicalID)
+		err = s.removeHFreshArtifacts(ctx, targetVector, rec.storageID())
 		if err != nil {
 			return errors.Wrap(err, "remove hfresh files")
 		}
@@ -89,7 +89,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, rec.PhysicalID, newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, rec.storageID(), newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}
@@ -126,7 +126,7 @@ func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector, physica
 			return fmt.Errorf("vector %q: %w", other, err)
 		}
 		if ok {
-			otherIDs = append(otherIDs, rec.PhysicalID)
+			otherIDs = append(otherIDs, rec.storageID())
 		}
 	}
 	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
