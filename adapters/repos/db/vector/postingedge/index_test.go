@@ -14,6 +14,7 @@ package postingedge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -1088,5 +1089,191 @@ func TestSearchDuringBuild(t *testing.T) {
 	close(unexpected)
 	for err := range unexpected {
 		t.Errorf("a search during the build returned neither a result nor ErrNotBuilt: %v", err)
+	}
+}
+
+// replaceEdges republishes one build with other edges: the memory accounting
+// follows them, a search reads them, and putting the full edges back gives
+// back the results of the build.
+func TestReplaceEdges(t *testing.T) {
+	ctx := context.Background()
+	provider := distancer.NewL2SquaredProvider()
+	vectors := clusteredVectors(3000, 24, 30, 271)
+	uc := smallConfig()
+	uc.Distance = "l2-squared"
+	uc.EF = 8
+	index := buildTestIndex(t, vectors, provider, uc)
+
+	full := index.state.Load().postings
+	fullStart, fullEdges := full.edgeStart, full.edges
+	queries := vectors[:200]
+	search := func() [][]uint64 {
+		out := make([][]uint64, len(queries))
+		for i, q := range queries {
+			ids, _, err := index.SearchByVector(ctx, q, 10, nil)
+			require.NoError(t, err)
+			out[i] = ids
+		}
+		return out
+	}
+	before := search()
+
+	tests := []struct {
+		name string
+		k    int
+	}{
+		{name: "one edge per vector", k: 1},
+		{name: "three edges per vector", k: 3},
+		{name: "no edges at all", k: -1},
+		{name: "the full edges again", k: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, edges := capDegree(fullStart, fullEdges, tt.k)
+			if tt.k < 0 {
+				start, edges = make([]uint32, len(fullStart)), []uint32{}
+			}
+			require.NoError(t, index.replaceEdges(start, edges))
+
+			memory, ok := index.MemoryStats()
+			require.True(t, ok)
+			assert.Equal(t, len(edges), memory.Edges)
+			assert.Equal(t, int64(len(edges)*4+len(start)*4), memory.EdgeBytes)
+
+			st := index.state.Load()
+			for slot := uint32(0); slot < uint32(st.postings.vectors()); slot++ {
+				require.Equal(t, edges[start[slot]:start[slot+1]], st.postings.edgesOf(slot))
+			}
+			// Everything else is the build as it was.
+			assert.Equal(t, full.docIDs, st.postings.docIDs)
+			assert.Equal(t, full.start, st.postings.start)
+
+			got := search()
+			if tt.k == 0 {
+				assert.Equal(t, before, got, "the full edges give back the results of the build")
+			}
+			// Every query is a stored vector, found through its own posting
+			// with or without edges.
+			for i, ids := range got {
+				assert.Containsf(t, ids, uint64(i), "query %d", i)
+			}
+		})
+	}
+}
+
+func TestReplaceEdgesRejectsWhatIsNotAnEdgeSet(t *testing.T) {
+	ctx := context.Background()
+	provider := distancer.NewL2SquaredProvider()
+	vectors := clusteredVectors(1000, 16, 10, 281)
+	uc := smallConfig()
+	uc.Distance = "l2-squared"
+	index := buildTestIndex(t, vectors, provider, uc)
+	st := index.state.Load()
+	n := st.postings.vectors()
+	good := func() ([]uint32, []uint32) {
+		return slices.Clone(st.postings.edgeStart), slices.Clone(st.postings.edges)
+	}
+
+	tests := []struct {
+		name  string
+		edges func() ([]uint32, []uint32)
+		want  string
+	}{
+		{name: "an offset short", want: "edge offsets", edges: func() ([]uint32, []uint32) {
+			start, edges := good()
+			return start[:n], edges
+		}},
+		{name: "offsets that do not start at zero", want: "span", edges: func() ([]uint32, []uint32) {
+			start, edges := good()
+			start[0] = 1
+			return start, edges
+		}},
+		{name: "offsets that do not reach the last edge", want: "span", edges: func() ([]uint32, []uint32) {
+			start, edges := good()
+			return start, append(edges, 0)
+		}},
+		{name: "decreasing offsets", want: "decrease", edges: func() ([]uint32, []uint32) {
+			start, edges := good()
+			start[1] = start[2] + 1
+			return start, edges
+		}},
+		{name: "an endpoint beyond the last slot", want: "ends at slot", edges: func() ([]uint32, []uint32) {
+			start, edges := good()
+			edges[len(edges)/2] = uint32(n)
+			return start, edges
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, edges := tt.edges()
+			err := index.replaceEdges(start, edges)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Same(t, st, index.state.Load(), "a rejected edge set publishes nothing")
+		})
+	}
+
+	t.Run("before the build", func(t *testing.T) {
+		empty, err := New(testConfig(t, vectors, 0, provider), uc)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, empty.Shutdown(ctx)) })
+		require.ErrorContains(t, empty.replaceEdges([]uint32{0}, nil), "not built")
+	})
+
+	t.Run("after shutdown", func(t *testing.T) {
+		closed := buildTestIndex(t, vectors, provider, uc)
+		start, edges := good()
+		require.NoError(t, closed.Shutdown(ctx))
+		require.ErrorContains(t, closed.replaceEdges(start, edges), "closed")
+	})
+}
+
+// Searches running while the edges are replaced read one edge set or the
+// other, never a mix: under -race this is also the check that the state a
+// search holds is not written.
+func TestReplaceEdgesDuringSearches(t *testing.T) {
+	ctx := context.Background()
+	provider := distancer.NewL2SquaredProvider()
+	vectors := clusteredVectors(3000, 16, 30, 291)
+	uc := smallConfig()
+	uc.Distance = "l2-squared"
+	index := buildTestIndex(t, vectors, provider, uc)
+	full := index.state.Load().postings
+	fullStart, fullEdges := full.edgeStart, full.edges
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	failures := make(chan error, 4)
+	for worker := 0; worker < 4; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := worker; ; i += 4 {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				doc := i % len(vectors)
+				ids, _, err := index.SearchByVector(ctx, vectors[doc], 5, nil)
+				if err == nil && !slices.Contains(ids, uint64(doc)) {
+					err = fmt.Errorf("vector %d not found with itself as the query: %v", doc, ids)
+				}
+				if err != nil {
+					failures <- err
+					return
+				}
+			}
+		}()
+	}
+	for round := 0; round < 50; round++ {
+		start, edges := capDegree(fullStart, fullEdges, round%4)
+		require.NoError(t, index.replaceEdges(start, edges))
+	}
+	close(stop)
+	wg.Wait()
+	close(failures)
+	for err := range failures {
+		t.Error(err)
 	}
 }

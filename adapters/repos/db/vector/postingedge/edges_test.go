@@ -13,6 +13,8 @@ package postingedge
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -252,5 +254,74 @@ func TestBuildEdgesWithASinglePostingHasNoEdges(t *testing.T) {
 	assert.Empty(t, f.edges)
 	for _, offset := range f.edgeStart {
 		assert.Zero(t, offset)
+	}
+}
+
+func TestCapDegree(t *testing.T) {
+	// Four sources with 3, 0, 1 and 5 edges, nearest first.
+	edgeStart := []uint32{0, 3, 3, 4, 9}
+	edges := []uint32{10, 11, 12, 20, 30, 31, 32, 33, 34}
+
+	tests := []struct {
+		name      string
+		k         int
+		wantStart []uint32
+		wantEdges []uint32
+	}{
+		{name: "k 0 keeps every edge", k: 0, wantStart: edgeStart, wantEdges: edges},
+		{name: "negative k keeps every edge", k: -1, wantStart: edgeStart, wantEdges: edges},
+		{name: "k 1 keeps the nearest", k: 1, wantStart: []uint32{0, 1, 1, 2, 3}, wantEdges: []uint32{10, 20, 30}},
+		{name: "k 2", k: 2, wantStart: []uint32{0, 2, 2, 3, 5}, wantEdges: []uint32{10, 11, 20, 30, 31}},
+		{name: "k 3 cuts the longest row only", k: 3, wantStart: []uint32{0, 3, 3, 4, 7}, wantEdges: []uint32{10, 11, 12, 20, 30, 31, 32}},
+		{name: "k at the longest row", k: 5, wantStart: edgeStart, wantEdges: edges},
+		{name: "k above every row", k: 16, wantStart: edgeStart, wantEdges: edges},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			startBefore, edgesBefore := slices.Clone(edgeStart), slices.Clone(edges)
+			gotStart, gotEdges := capDegree(edgeStart, edges, tt.k)
+			assert.Equal(t, tt.wantStart, gotStart)
+			assert.Equal(t, tt.wantEdges, gotEdges)
+			assert.Equal(t, startBefore, edgeStart, "the given offsets are left as they are")
+			assert.Equal(t, edgesBefore, edges, "the given edges are left as they are")
+			if tt.k > 0 {
+				gotEdges[0] = 99
+				assert.Equal(t, uint32(10), edges[0], "a capped result is a copy")
+			}
+		})
+	}
+
+	t.Run("no vectors", func(t *testing.T) {
+		gotStart, gotEdges := capDegree(nil, nil, 4)
+		assert.Empty(t, gotStart)
+		assert.Empty(t, gotEdges)
+	})
+}
+
+// A capped row is the start of the full one, so the cap keeps the nearest
+// edges of every vector of a real build, and only those.
+func TestCapDegreeKeepsTheNearestEdgesOfABuild(t *testing.T) {
+	const neighbors = 8
+	f := newEdgeFixture(t, clusteredVectors(1500, 24, 25, 43), distancer.NewL2SquaredProvider(), 30, 6, neighbors, 24)
+	n := len(f.edgeStart) - 1
+	longer := 0
+	for slot := 0; slot < n; slot++ {
+		if f.edgeStart[slot+1]-f.edgeStart[slot] > 3 {
+			longer++
+		}
+	}
+	require.Positive(t, longer, "the fixture must have rows the caps cut")
+
+	for _, k := range []int{1, 3, 5, neighbors} {
+		t.Run(fmt.Sprintf("k %d", k), func(t *testing.T) {
+			cappedStart, capped := capDegree(f.edgeStart, f.edges, k)
+			require.Len(t, cappedStart, n+1)
+			require.Equal(t, uint32(len(capped)), cappedStart[n])
+			for slot := uint32(0); slot < uint32(n); slot++ {
+				full := f.edgesOf(slot)
+				row := capped[cappedStart[slot]:cappedStart[slot+1]]
+				require.Equalf(t, full[:min(len(full), k)], row, "slot %d", slot)
+			}
+		})
 	}
 }
