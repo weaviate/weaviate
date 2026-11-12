@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -507,6 +508,35 @@ func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
 	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
+}
+
+// TestRemoteIndexAggregateRetriesOnce pins that a remote aggregation is sent
+// at most twice to a replica that keeps failing, as the caller then moves on
+// to the shard's other replicas.
+func TestRemoteIndexAggregateRetriesOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{http.StatusInternalServerError, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			t.Parallel()
+
+			path := "/indices/C1/shards/S1/objects/_aggregations"
+			fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+			ts := fs.server(t)
+			defer ts.Close()
+			client := newRemoteIndex(ts.Client())
+
+			var attempts atomic.Int64
+			fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+				attempts.Add(1)
+				w.WriteHeader(code)
+			}
+
+			_, err := client.Aggregate(t.Context(), fs.host, "C1", "S1", aggregation.Params{})
+			require.Error(t, err)
+			require.Equal(t, int64(2), attempts.Load())
+		})
+	}
 }
 
 // TestRemoteIndexAggregateBoundedByCallerDeadline pins that a remote
