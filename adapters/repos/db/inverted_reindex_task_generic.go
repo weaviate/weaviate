@@ -710,10 +710,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 	_, err := t.onAfterLsmInit(ctx, shard)
-	// The restart that must come first re-covers every write, so no mirror is owed until then.
-	if errors.Is(err, errMigrationDataGone) {
-		return nil
-	}
 	return err
 }
 
@@ -767,7 +763,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	} else {
 		if hasRecord {
 			// Opening a bucket creates its directory, which would pass an empty one off as the rebuild.
-			restarted, err := restartIfOwnedDirGone(shard.migrationRecordStore(), shardBucketDirs(shard.pathLSM()), logger, rec.Subject())
+			restarted, err := restartIfOwnedDirGone(logger, shard, rec.Subject())
 			if err != nil {
 				return false, err
 			}
@@ -813,6 +809,34 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	}
 
 	return true, nil
+}
+
+// A missing owned directory means the rebuild never reached disk, so
+// resuming would swap in an incomplete bucket. A failed write must fail the
+// arm: a directory that survived would miss this boot's writes.
+func restartIfOwnedDirGone(logger logrus.FieldLogger, shard *Shard, subject MigrationSubject) (MigrationRecord, error) {
+	dirs := shardBucketDirs(shard.pathLSM())
+	for _, dir := range migrationOwnedDirs(subject) {
+		there, err := dirs.Exists(dir)
+		if err != nil {
+			return nil, err
+		}
+		if there {
+			continue
+		}
+
+		restarted := subject
+		restarted.IterationCutoff = migrationHorizonEverything
+
+		logger.WithField("record", subject.Key.String()).Warnf(
+			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
+		rec := NewMigrationRecordIterating(restarted, MigrationCheckpoint{})
+		if err := shard.migrationRecordStore().Put(rec); err != nil {
+			return nil, fmt.Errorf("record the restart for lost %q: %w", dir, err)
+		}
+		return rec, nil
+	}
+	return nil, nil
 }
 
 // A load holds this promotion back while the schema leaves the index off, and

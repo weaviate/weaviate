@@ -20,7 +20,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
@@ -662,7 +661,7 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 	}
 }
 
-func TestReconcileReverseEdge(t *testing.T) {
+func TestReconcileUncommitted(t *testing.T) {
 	checkpointed := func(subject MigrationSubject) MigrationRecord {
 		return NewMigrationRecordIterating(subject, MigrationCheckpoint{
 			LastProcessedKey: []byte("halfway"),
@@ -674,15 +673,13 @@ func TestReconcileReverseEdge(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		plant             func(MigrationSubject) MigrationRecord
-		present           []string
-		taskStatus        distributedtask.TaskStatus
-		unreadableSibling bool
-		wantState         MigrationState
-		wantRestart       bool
-		wantGone          bool
-		wantWedged        bool
+		name       string
+		plant      func(MigrationSubject) MigrationRecord
+		present    []string
+		taskStatus distributedtask.TaskStatus
+		wantState  MigrationState
+		wantGone   bool
+		wantWedged bool
 	}{
 		{
 			name:      "iterated with every owned directory on disk: stay iterated",
@@ -691,71 +688,13 @@ func TestReconcileReverseEdge(t *testing.T) {
 			wantState: MigrationStateIterated,
 		},
 		{
-			name:        "iterated and the directory the rebuild wrote into is gone",
-			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
-			present:     []string{"property_title__g42_ingest", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:        "iterated and the directory the mirror writes into is gone",
-			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
-			present:     []string{"property_title__s42_reindex", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
 			name:      "a checkpoint with every owned directory on disk keeps its place",
 			plant:     checkpointed,
 			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
 			wantState: MigrationStateIterating,
 		},
 		{
-			name:        "a checkpoint whose rebuild directory is gone restarts",
-			plant:       checkpointed,
-			present:     []string{"property_title__g42_ingest", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:        "a checkpoint whose mirror directory is gone restarts",
-			plant:       checkpointed,
-			present:     []string{"property_title__s42_reindex", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:      "no checkpoint with every owned directory on disk keeps its place",
-			plant:     uncheckpointed,
-			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
-			wantState: MigrationStateIterating,
-		},
-		{
-			name:        "no checkpoint and the directory the mirror writes into is gone",
-			plant:       uncheckpointed,
-			present:     []string{"property_title__s42_reindex", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:        "no checkpoint and the directory the rebuild writes into is gone",
-			plant:       uncheckpointed,
-			present:     []string{"property_title__g42_ingest", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			// The restart writes, and a store nobody could read in full must
-			// not take a write: it would reset a live migration's checkpoint
-			// on evidence this build cannot see.
-			name:              "an unreadable sibling record withholds the reverse edge too",
-			plant:             checkpointed,
-			present:           []string{"property_title_searchable"},
-			unreadableSibling: true,
-			wantState:         MigrationStateIterating,
-		},
-		{
-			name:       "a committed migration whose rebuilt data is gone wedges instead of restarting",
+			name:       "a committed migration wedges",
 			plant:      uncheckpointed,
 			present:    []string{"property_title_searchable"},
 			taskStatus: distributedtask.TaskStatusFinished,
@@ -763,7 +702,7 @@ func TestReconcileReverseEdge(t *testing.T) {
 			wantWedged: true,
 		},
 		{
-			name:       "a cancelled migration whose directories are gone is discarded, not restarted",
+			name:       "a cancelled migration is discarded",
 			plant:      uncheckpointed,
 			present:    []string{"property_title_searchable"},
 			taskStatus: distributedtask.TaskStatusCancelled,
@@ -784,9 +723,6 @@ func TestReconcileReverseEdge(t *testing.T) {
 			f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, status)}
 			f.mkdirs(tt.present...)
 			f.put(tt.plant(subject))
-			if tt.unreadableSibling {
-				plantUnreadableRecord(t, f.store.Dir())
-			}
 
 			r := f.reconcile()
 
@@ -803,19 +739,6 @@ func TestReconcileReverseEdge(t *testing.T) {
 				require.False(t, f.store.HasUndecided(),
 					"and the wedge outlives this pass, or the record asks the leader once a minute forever")
 			}
-
-			rec, _ := f.store.Get(subject.Key)
-			if !tt.wantRestart {
-				require.Equal(t, subject.IterationCutoff, rec.Subject().IterationCutoff,
-					"a rebuild that was not restarted keeps the horizon it armed with")
-				return
-			}
-
-			require.Equal(t, MigrationCheckpoint{}, rec.(MigrationRecordIterating).Checkpoint(),
-				"the checkpoint has to clear with the state, or the rebuild resumes past data it never wrote")
-
-			require.True(t, rec.Subject().IterationCutoff.After(time.Now()),
-				"a restarted rebuild must skip nothing: the mirror it delegated to is gone")
 		})
 	}
 }

@@ -211,75 +211,29 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 	}
 }
 
-// Discard runs before the reverse edge: restarting when directories are
-// gone would arm a live mirror nothing will ever recreate them for.
 func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord,
 	someUnreadable bool,
 ) error {
-	subject := rec.Subject()
-
 	if someUnreadable {
-		_, err := r.restartIfRebuiltDataGone(subject)
-		return err
+		return nil
 	}
 
+	subject := rec.Subject()
 	verdict, why := r.localVerdict(subject)
 	switch verdict {
 	case migrationVerdictDiscard:
 		return r.discard(ctx, subject, why)
 	case migrationVerdictCommit:
-		// Above the restart edge, not below it: a migration the cluster
-		// committed can never be finished here, so restarting its rebuild
-		// would restart it on every load and the record would never terminate.
+		// Wedged so the arm skips it: a committed migration can never finish
+		// here, so restarting its rebuild would repeat on every load.
 		r.wedgeUncommittable(ctx, rec, why)
 		return nil
 	case migrationVerdictLeave:
+		r.leftStanding(subject, why)
+		return nil
 	default:
 		return fmt.Errorf("unhandled verdict %d", verdict)
 	}
-
-	restarted, err := r.restartIfRebuiltDataGone(subject)
-	if err != nil || restarted {
-		return err
-	}
-	r.leftStanding(subject, why)
-	return nil
-}
-
-func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
-	restarted, err := restartIfOwnedDirGone(r.store, r.dirs, r.logger, subject)
-	return restarted != nil, err
-}
-
-var errMigrationDataGone = errors.New("rebuilt data is gone and the restart could not be recorded")
-
-// A missing owned directory means the rebuild never reached disk, so
-// resuming would swap in an incomplete bucket. On a failed write it returns
-// errMigrationDataGone, and the caller must not open the directories.
-func restartIfOwnedDirGone(store *MigrationRecordStore, dirs bucketDirs, logger logrus.FieldLogger,
-	subject MigrationSubject,
-) (MigrationRecord, error) {
-	for _, dir := range migrationOwnedDirs(subject) {
-		there, err := dirs.Exists(dir)
-		if err != nil {
-			return nil, err
-		}
-		if there {
-			continue
-		}
-
-		restarted := subject
-		restarted.IterationCutoff = migrationHorizonEverything
-
-		logger.WithField("record", subject.Key.String()).Warnf(
-			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
-		rec := NewMigrationRecordIterating(restarted, MigrationCheckpoint{})
-		if err := store.Put(rec); err != nil {
-			return nil, fmt.Errorf("%w: %q: %w", errMigrationDataGone, dir, err)
-		}
-		return rec, nil
-	}
-	return nil, nil
 }
 
 func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec MigrationRecordMerged,

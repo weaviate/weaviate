@@ -137,16 +137,18 @@ func TestAWriteBetweenShardLoadAndTheResumedIterationReachesTheNewIndex(t *testi
 }
 
 // Boot 1 cannot record the restart a lost directory calls for. Whatever it
-// does instead must not leave the record looking resumable to boot 2.
+// does instead must not leave a stale or resumable migration for boot 2.
 func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		iterated   bool
-		frozenLoad bool // an unreadable sibling record refuses every write at boot 1
+		name        string
+		iterated    bool
+		sidecarOnly bool // the staged copy survives with what the mirror wrote
+		frozenLoad  bool // an unreadable sibling record refuses every write at boot 1
 	}{
 		{name: "iterating, frozen load", frozenLoad: true},
 		{name: "iterated, frozen load", iterated: true, frozenLoad: true},
-		{name: "iterating, restart write fails at load, unit resumes in the same boot"},
+		{name: "iterating, restart write fails at load, lifted in the same boot"},
+		{name: "iterating, only the sidecar lost, frozen load", sidecarOnly: true, frozenLoad: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const propName, docs = filterableToRangeablePropName, 25
@@ -155,11 +157,18 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			class := newFilterableToRangeableTestClass(className)
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
 			shard := shd.(*Shard)
-			for _, obj := range makeFilterableToRangeableTestObjects(t, docs, className) {
+			objs := makeFilterableToRangeableTestObjects(t, docs, className)
+			for _, obj := range objs {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 			require.NoError(t, startOnShard(ctx, task, shard))
+			update := func(s *Shard, v int64) error {
+				obj := &storobj.Object{MarshallerVersion: 1, Object: objs[0].Object}
+				obj.Object.Properties = map[string]interface{}{propName: v}
+				return s.PutObject(ctx, obj)
+			}
+			require.NoError(t, update(shard, 1))
 			rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
 			require.True(t, ok)
 			subject := rec.Subject()
@@ -172,7 +181,11 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			require.NoError(t, shard.migrationRecords.Put(planted))
 			lsm, records := shard.pathLSM(), shard.migrationRecords.Dir()
 			require.NoError(t, shard.Shutdown(ctx))
-			for _, dir := range migrationOwnedDirs(subject) {
+			lost := migrationOwnedDirs(subject)
+			if tc.sidecarOnly {
+				lost = []string{subject.Props[propName].Sidecar}
+			}
+			for _, dir := range lost {
 				require.NoError(t, os.RemoveAll(filepath.Join(lsm, dir)))
 			}
 
@@ -189,27 +202,36 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			var live *Shard
 			if tc.frozenLoad {
 				unreadable := plantUnreadableRecord(t, records)
-				require.NoError(t, load().Shutdown(ctx))
+				boot1 := load()
+				require.Error(t, update(boot1, 2), "a write the mirror would miss must be refused")
+				require.NoError(t, boot1.Shutdown(ctx))
 				require.NoError(t, os.Remove(unreadable))
 				live = load()
 			} else {
 				require.NoError(t, os.Chmod(records, 0o555))
 				live = load()
 				require.NoError(t, os.Chmod(records, 0o755))
+				require.Equal(t, storagestate.StatusReadOnly, live.GetStatus())
+				require.ErrorContains(t, liftReady(live)(), "a recovery retry started")
+				awaitRetry(t, live)
 			}
 			defer live.Shutdown(context.Background())
+			require.Equal(t, storagestate.StatusReady, live.GetStatus())
 
 			resumed, _ := newFilterableToRangeableTask(t, idx, className, propName, live.migrationUnit())
 			require.NoError(t, resumed.RunOnShard(ctx, live))
 
-			indexed := map[uint64]bool{}
 			bucket := live.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
-			for _, ids := range filterableToRangeableFingerprint(t, bucket) {
+			fp := filterableToRangeableFingerprint(t, bucket)
+			indexed := map[uint64]int{}
+			for _, ids := range fp {
 				for _, id := range ids {
-					indexed[id] = true
+					indexed[id]++
 				}
 			}
 			require.Len(t, indexed, docs, "the swapped-in index must cover every document, not resume over an empty rebuild")
+			require.Equal(t, 1, indexed[0], "doc 0 is indexed under one value")
+			require.Contains(t, fp[(uint64(1)<<63)+1], uint64(0), "doc 0 is indexed under its current value")
 		})
 	}
 }
