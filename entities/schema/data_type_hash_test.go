@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestIsLikelySHA256Hash(t *testing.T) {
@@ -94,6 +95,195 @@ func TestIsLikelySHA256Hash(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsLikelySHA256Hash(tt.input)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestHashBlobHashPrimitiveProperties(t *testing.T) {
+	tests := []struct {
+		name     string
+		class    *models.Class
+		props    map[string]interface{}
+		expected map[string]interface{}
+	}{
+		{
+			name: "flat top-level blobHash property",
+			class: &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name:     "image",
+						DataType: []string{"blobHash"},
+					},
+					{
+						Name:     "text",
+						DataType: []string{"text"},
+					},
+				},
+			},
+			props: map[string]interface{}{
+				"image": "aGVsbG8=",
+				"text":  "some text",
+			},
+			expected: map[string]interface{}{
+				"image": HashBlob("aGVsbG8="),
+				"text":  "some text",
+			},
+		},
+		{
+			name: "nested object blobHash property",
+			class: &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name:     "meta",
+						DataType: []string{"object"},
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:     "image",
+								DataType: []string{"blobHash"},
+							},
+							{
+								Name:     "title",
+								DataType: []string{"text"},
+							},
+						},
+					},
+				},
+			},
+			props: map[string]interface{}{
+				"meta": map[string]interface{}{
+					"image": "aGVsbG8=",
+					"title": "a title",
+				},
+			},
+			expected: map[string]interface{}{
+				"meta": map[string]interface{}{
+					"image": HashBlob("aGVsbG8="),
+					"title": "a title",
+				},
+			},
+		},
+		{
+			name: "nested object[] array blobHash properties",
+			class: &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name:     "gallery",
+						DataType: []string{"object[]"},
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:     "image",
+								DataType: []string{"blobHash"},
+							},
+							{
+								Name:     "caption",
+								DataType: []string{"text"},
+							},
+						},
+					},
+				},
+			},
+			props: map[string]interface{}{
+				"gallery": []interface{}{
+					map[string]interface{}{
+						"image":   "aGVsbG8=",
+						"caption": "cap 1",
+					},
+					map[string]interface{}{
+						"image":   "d29ybGQ=",
+						"caption": "cap 2",
+					},
+				},
+			},
+			expected: map[string]interface{}{
+				"gallery": []interface{}{
+					map[string]interface{}{
+						"image":   HashBlob("aGVsbG8="),
+						"caption": "cap 1",
+					},
+					map[string]interface{}{
+						"image":   HashBlob("d29ybGQ="),
+						"caption": "cap 2",
+					},
+				},
+			},
+		},
+		{
+			name: "deeply nested object properties",
+			class: &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name:     "meta",
+						DataType: []string{"object"},
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:     "submeta",
+								DataType: []string{"object"},
+								NestedProperties: []*models.NestedProperty{
+									{
+										Name:     "image",
+										DataType: []string{"blobHash"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			props: map[string]interface{}{
+				"meta": map[string]interface{}{
+					"submeta": map[string]interface{}{
+						"image": "aGVsbG8=",
+					},
+				},
+			},
+			expected: map[string]interface{}{
+				"meta": map[string]interface{}{
+					"submeta": map[string]interface{}{
+						"image": HashBlob("aGVsbG8="),
+					},
+				},
+			},
+		},
+		{
+			name: "nil and missing properties",
+			class: &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name:     "image",
+						DataType: []string{"blobHash"},
+					},
+					{
+						Name:     "meta",
+						DataType: []string{"object"},
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:     "image",
+								DataType: []string{"blobHash"},
+							},
+						},
+					},
+				},
+			},
+			props: map[string]interface{}{
+				"image": nil,
+				"meta":  nil,
+			},
+			expected: map[string]interface{}{
+				"image": nil,
+				"meta":  nil,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			HashBlobHashPrimitiveProperties(tt.class, tt.props)
+			assert.Equal(t, tt.expected, tt.props)
 		})
 	}
 }
