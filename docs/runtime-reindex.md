@@ -1523,7 +1523,7 @@ With per-tenant swaps (§6.3) the window lasts until the slowest tenant
 finishes, and after a failure until a resubmit of the same migration
 finishes (§8). So every shard load re-installs
 the overlay from its promoted migration records: each one whose flip is
-decided, limited to what the live schema does not show. The
+decided, except an index a run enabled once its task is gone, limited to what the live schema does not show. The
 load also opens the bucket of an index a migration turned on, and the
 schema's index-off sweeps leave that bucket alone.
 
