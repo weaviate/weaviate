@@ -314,6 +314,7 @@ func TestClient_Vectorize_HeaderBaseURLOverride(t *testing.T) {
 	}}
 
 	ctx := context.WithValue(context.Background(), "X-Digitalocean-Baseurl", []string{server.URL})
+	ctx = context.WithValue(ctx, "X-Digitalocean-Api-Key", []string{"callerKey"})
 	_, _, _, err := c.Vectorize(ctx, []string{"hi"}, cfg)
 	require.NoError(t, err)
 	assert.True(t, hit, "request should have hit the override server")

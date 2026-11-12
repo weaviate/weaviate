@@ -73,7 +73,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	cohereUrl, err := v.getCohereUrl(ctx, params.BaseURL)
+	cohereUrl, err := v.getCohereUrl(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
@@ -218,8 +218,8 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Cohere-Baseurl", baseURL)
+func (v *cohere) getCohereUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Cohere-Baseurl", baseURL, classBaseURL, "X-Cohere-Api-Key")
 	if err != nil {
 		return "", err
 	}

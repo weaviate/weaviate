@@ -232,6 +232,7 @@ func TestRank_client_getCohereUrl(t *testing.T) {
 	assert.Equal(t, "baseurl/v2/rerank", url)
 
 	ctxWithBaseURL := context.WithValue(ctx, "X-Cohere-Baseurl", []string{"base-url-from-ctx"})
+	ctxWithBaseURL = context.WithValue(ctxWithBaseURL, "X-Cohere-Api-Key", []string{"callerKey"})
 	url, err = c.getCohereUrl(ctxWithBaseURL, "base-url")
 	assert.NoError(t, err)
 	assert.Equal(t, "base-url-from-ctx/v2/rerank", url)

@@ -29,6 +29,7 @@ import (
 
 const (
 	baseURLKey        string = "X-ContextualAI-Baseurl"
+	apiKeyKey         string = "X-ContextualAI-Api-Key"
 	testAPIKey        string = "test-key"
 	contentTypeHeader string = "Content-Type"
 	applicationJSON   string = "application/json"
@@ -86,6 +87,7 @@ func TestGenerateAllResults(t *testing.T) {
 			c := New(testAPIKey, timeout, nullLogger())
 			cfg := fakeClassConfig{classConfig: map[string]any{}}
 			ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
+			ctx = context.WithValue(ctx, apiKeyKey, []string{testAPIKey})
 
 			res, err := c.GenerateAllResults(ctx, props, "What is my name?", nil, false, cfg)
 
@@ -157,6 +159,7 @@ func TestGenerateSingleResult(t *testing.T) {
 	cfg := fakeClassConfig{classConfig: map[string]any{}}
 
 	ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
+	ctx = context.WithValue(ctx, apiKeyKey, []string{testAPIKey})
 	res, err := c.GenerateSingleResult(ctx, prop, "test prompt", nil, false, cfg)
 
 	require.NoError(t, err)
@@ -239,6 +242,7 @@ func TestAPIErrorHandling(t *testing.T) {
 			c := New(testAPIKey, 30*time.Second, nullLogger())
 			cfg := fakeClassConfig{classConfig: map[string]any{}}
 			ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
+			ctx = context.WithValue(ctx, apiKeyKey, []string{testAPIKey})
 
 			prop := &modulecapabilities.GenerateProperties{Text: map[string]string{"content": "test"}}
 			_, err := c.GenerateSingleResult(ctx, prop, "test prompt", nil, false, cfg)

@@ -72,7 +72,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	params := c.parseOptions(cfg, options)
 	debugData := c.debugData(debug, prompt)
 
-	endpoint, err := c.url(ctx, params.BaseURL)
+	endpoint, err := c.url(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve endpoint")
 	}
@@ -229,8 +229,8 @@ func GetResponseParams(result map[string]any) *responseParams {
 	return nil
 }
 
-func (c *client) url(ctx context.Context, base string) (string, error) {
-	base, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Deepseek-Baseurl", base)
+func (c *client) url(ctx context.Context, base, classBase string) (string, error) {
+	base, _, err := modulecomponents.RequestBaseURL(ctx, "X-Deepseek-Baseurl", base, classBase, "X-Deepseek-Api-Key")
 	if err != nil {
 		return "", err
 	}

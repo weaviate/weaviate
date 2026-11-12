@@ -90,11 +90,11 @@ func TestGetAnswer(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Nvidia-BaseURL", []string{"https://integrate.api.nvidia.com"})
-		buildURL, err := c.getNvidiaUrl(ctxWithValue, baseUrl)
+		buildURL, err := c.getNvidiaUrl(ctxWithValue, baseUrl, baseUrl)
 		assert.NoError(t, err)
 		assert.Equal(t, "https://integrate.api.nvidia.com/v1/chat/completions", buildURL)
 
-		buildURL, err = c.getNvidiaUrl(context.Background(), baseUrl)
+		buildURL, err = c.getNvidiaUrl(context.Background(), baseUrl, baseUrl)
 		assert.NoError(t, err)
 		assert.Equal(t, "https://integrate.api.nvidia.com/v1/chat/completions", buildURL)
 	})

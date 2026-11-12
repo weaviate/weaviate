@@ -66,7 +66,7 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	mistralUrl, err := v.getMistralUrl(ctx, params.BaseURL)
+	mistralUrl, err := v.getMistralUrl(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "join Mistral API host and path")
 	}
@@ -183,8 +183,8 @@ func (v *mistral) getDebugInformation(debug bool, prompt string) *modulecapabili
 	return nil
 }
 
-func (v *mistral) getMistralUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Mistral-Baseurl", baseURL)
+func (v *mistral) getMistralUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Mistral-Baseurl", baseURL, classBaseURL, "X-Mistral-Api-Key")
 	if err != nil {
 		return "", err
 	}
