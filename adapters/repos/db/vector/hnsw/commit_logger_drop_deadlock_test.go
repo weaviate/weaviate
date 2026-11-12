@@ -58,7 +58,7 @@ func TestCommitLoggerDropDoesNotDeadlockWithMaintenanceCycle(t *testing.T) {
 
 	dropped := make(chan error, 1)
 	begin := time.Now()
-	go func() { dropped <- cl.Drop(ctx, false) }()
+	go func() { dropped <- cl.Drop(ctx) }()
 
 	select {
 	case <-gate.parked:

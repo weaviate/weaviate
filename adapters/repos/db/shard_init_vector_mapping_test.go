@@ -302,6 +302,110 @@ func TestInitShardVectors_RefusesTwoRecordsNamingOneQueue(t *testing.T) {
 	assert.Equal(t, mv, rec)
 }
 
+// The vectors_compressed link 1.30.19 to 1.40 kept to a named vector's
+// compressed bucket is gone after a load: a vector named "compressed" writes
+// its raw vectors into a bucket of its own, not through the link.
+func TestInitShardVectors_RemovesVectorsCompressedLink(t *testing.T) {
+	ctx := testCtx()
+	// the link only exists without a legacy vector, which owns vectors_compressed
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	class := &models.Class{
+		Class:        "CompressedLink",
+		VectorConfig: map[string]models.VectorConfig{"foo": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg}},
+	}
+	shardLike, _ := testShardWithSettings(t, ctx, class, nil, false, false, func(i *Index) {
+		i.vectorIndexUserConfig = nil
+		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": hnswCfg}
+	})
+	shard := underlyingShard(t, shardLike)
+	lsmDir := shard.pathLSM()
+	link := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+	fooCompressed := filepath.Join(lsmDir, helpers.GetCompressedBucketName("foo"))
+	fooCodes := filepath.Join(fooCompressed, "foo-codes")
+
+	flatCfg := entflat.UserConfig{}
+	flatCfg.SetDefaults()
+	class.VectorConfig["compressed"] = models.VectorConfig{VectorIndexType: flatCfg.IndexType(), VectorIndexConfig: flatCfg}
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs["compressed"] = flatCfg
+	shard.index.vectorIndexUserConfigLock.Unlock()
+
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.MkdirAll(fooCompressed, 0o755))
+		require.NoError(t, os.WriteFile(fooCodes, []byte("foo's codes"), 0o644))
+		require.NoError(t, os.Symlink(helpers.GetCompressedBucketName("foo"), link))
+	})
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: class.Class},
+		Vectors:           map[string][]float32{"compressed": {1, 2, 3}},
+	}
+	require.NoError(t, shard.PutObject(ctx, obj))
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
+
+	fi, err := os.Lstat(link)
+	require.NoError(t, err)
+	assert.Zero(t, fi.Mode()&os.ModeSymlink, "%s is a bucket of its own", link)
+	entries, err := os.ReadDir(fooCompressed)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "nothing written into foo's compressed bucket")
+	assert.Equal(t, "foo-codes", entries[0].Name())
+}
+
+// Only a link is removed: a real vectors_compressed is the legacy vector's
+// compressed bucket.
+func TestRemoveVectorsCompressedLink_KeepsABucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m := newCompressedVectorsMigrator(logger)
+	lsmDir := t.TempDir()
+	require.NoError(t, m.removeVectorsCompressedLink(lsmDir), "nothing to remove")
+
+	segment := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM, "segment-1.db")
+	require.NoError(t, os.MkdirAll(filepath.Dir(segment), 0o755))
+	require.NoError(t, os.WriteFile(segment, []byte("legacy codes"), 0o644))
+	require.NoError(t, m.removeVectorsCompressedLink(lsmDir))
+	assert.FileExists(t, segment)
+}
+
+// Records with generated IDs that name one file refuse the load before a
+// dropping one is finished: finishing it would delete the live vector's files.
+func TestInitShardVectors_RefusesGeneratedRecordsNamingOneFile(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shardDir := shard.path()
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
+	mv := recorded(shard, "mv", "vectors_mv", "ready")
+	live := foo
+	live.PhysicalID = "a-b"
+	dropping := mv
+	dropping.PhysicalID = "vectors_a-b"
+	dropping.State = vectorIndexStateDropping
+	commitLog := filepath.Join(shardDir, helpers.HNSWCommitLogDirNameForID("vectors_a-b"), "1")
+
+	reloadExpectingError(t, ctx, shard, class, `vectors "foo" and "mv" both name "vectors_a-b`, func() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(commitLog), 0o755))
+		require.NoError(t, os.WriteFile(commitLog, []byte("foo's graph"), 0o644))
+		withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", live))
+			require.NoError(t, m.Put("mv", dropping))
+		})
+	})
+	assert.FileExists(t, commitLog, "the refusal deletes nothing")
+	withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		records, _, err := m.Load()
+		require.NoError(t, err)
+		assert.Equal(t, live, records["foo"])
+		assert.Equal(t, dropping, records["mv"])
+		require.NoError(t, m.Put("foo", foo))
+		require.NoError(t, m.Put("mv", mv))
+	})
+	require.NoError(t, os.RemoveAll(filepath.Dir(commitLog)))
+	shard = reload(t, ctx, shard, class)
+	rec, _, err := shard.mapping.Get("mv")
+	require.NoError(t, err)
+	assert.Equal(t, mv, rec)
+}
+
 // A dropping record sharing a queue with a live one refuses the load before
 // the drop is finished: finishing it would delete the live vector's queue.
 func TestInitShardVectors_RefusesADroppingRecordSharingAQueue(t *testing.T) {
@@ -1130,4 +1234,433 @@ func TestInitShardVectors_FinishesADroppingRecordBeforeRecreatingTheName(t *test
 	})
 	require.NoError(t, err)
 	require.True(t, found)
+}
+
+// TestCompressedVectorsMigrator pins the pre-1.30.19 layout repair: the vector
+// recorded at main owns vectors_compressed, and only a target with an index of
+// its own gets a copy, at the bucket its recorded ID names.
+func TestCompressedVectorsMigrator(t *testing.T) {
+	const generated = "3f2a9c1e-0b7d"
+	bq := enthnsw.NewDefaultUserConfig()
+	bq.BQ.Enabled = true
+	hnswRec := func(id string) vectorIndexRecord {
+		return vectorIndexRecord{PhysicalID: id, IndexType: "hnsw", State: "ready", QueueID: id}
+	}
+	hfreshRec := vectorIndexRecord{PhysicalID: "main", IndexType: "hfresh", State: "ready", QueueID: "main"}
+
+	tests := []struct {
+		name    string
+		records map[string]vectorIndexRecord
+		// buckets that hold the shared bucket's content afterwards
+		wantCopies []string
+		// buckets that must not exist afterwards
+		wantAbsent []string
+		wantShared bool
+		wantDone   bool
+	}{
+		{
+			name:       "legacy owner keeps the bucket, targets get a copy",
+			records:    map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "mv": hnswRec("vectors_mv")},
+			wantCopies: []string{"vectors_compressed_foo", "vectors_compressed_mv"},
+			wantShared: true,
+			wantDone:   true,
+		},
+		{
+			name:       "a target without an index of its own gets nothing",
+			records:    map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantAbsent: []string{"vectors_compressed_new"},
+			wantShared: true,
+			wantDone:   true,
+		},
+		{
+			name:       "a named vector recorded at main owns the bucket",
+			records:    map[string]vectorIndexRecord{"default": hnswRec("main"), "foo": hnswRec("vectors_foo")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantAbsent: []string{"vectors_compressed_default"},
+			wantShared: true,
+			wantDone:   true,
+		},
+		{
+			name:       "an hfresh owner's bucket holds its centroids",
+			records:    map[string]vectorIndexRecord{"": hfreshRec, "foo": hnswRec("vectors_foo")},
+			wantAbsent: []string{"vectors_compressed_foo"},
+			wantShared: true,
+			wantDone:   true,
+		},
+		{
+			name:       "no owner, one target: the bucket moves",
+			records:    map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantDone:   true,
+		},
+		{
+			name:       "no owner, one target and a newcomer: the bucket moves to the target",
+			records:    map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantAbsent: []string{"vectors_compressed_new"},
+			wantDone:   true,
+		},
+		{
+			name:       "no owner, two targets: copies, then the bucket goes",
+			records:    map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo"), "mv": hnswRec("vectors_mv")},
+			wantCopies: []string{"vectors_compressed_foo", "vectors_compressed_mv"},
+		},
+		{
+			name:       "no owner, only a newcomer: the bucket stays unattributed",
+			records:    map[string]vectorIndexRecord{"new": hnswRec("vectors_new")},
+			wantAbsent: []string{"vectors_compressed_new"},
+			wantShared: true,
+			wantDone:   true,
+		},
+		{
+			name:       "a target at a generated ID gets its copy under that ID",
+			records:    map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec(generated)},
+			wantCopies: []string{"vectors_compressed_" + generated},
+			wantAbsent: []string{"vectors_compressed_foo"},
+			wantShared: true,
+			wantDone:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, _ := setupDropVectorShard(t, ctx)
+			lsmDir := shard.store.GetDir()
+			m := newCompressedVectorsMigrator(shard.index.logger)
+			require.NoError(t, os.RemoveAll(m.migrationDirectory(lsmDir)))
+			// the generated target's index exists, as after a rebuild
+			require.NoError(t, os.MkdirAll(filepath.Join(shard.path(), helpers.HNSWCommitLogDirNameForID("vectors_"+generated)), 0o755))
+
+			shared := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+			require.NoError(t, os.MkdirAll(shared, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(shared, "codes"), []byte("shared"), 0o600))
+
+			configs := make(map[string]schemaConfig.VectorIndexConfig, len(tt.records))
+			for name := range tt.records {
+				configs[name] = bq
+			}
+			require.NoError(t, m.do(shard, tt.records, configs))
+
+			for _, bucket := range tt.wantCopies {
+				content, err := os.ReadFile(filepath.Join(lsmDir, bucket, "codes"))
+				require.NoError(t, err, bucket)
+				assert.Equal(t, "shared", string(content), bucket)
+			}
+			for _, bucket := range tt.wantAbsent {
+				_, err := os.Stat(filepath.Join(lsmDir, bucket))
+				assert.True(t, os.IsNotExist(err), "%s must not exist", bucket)
+			}
+			_, err := os.Stat(filepath.Join(shared, "codes"))
+			assert.Equal(t, tt.wantShared, err == nil, "shared bucket kept")
+			assert.Equal(t, tt.wantDone, m.isMigrationDone(lsmDir), "done flag")
+		})
+	}
+}
+
+// The repair runs only on a shard without a mapping: a mapping is written by
+// a load that ran it. A repair that fails fails the load before the mapping
+// is written, so the next load retries it.
+func TestInitShardVectors_CompressedRepairOnlyWithoutMapping(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	m := newCompressedVectorsMigrator(shard.index.logger)
+	shared := filepath.Join(shard.pathLSM(), helpers.VectorsCompressedBucketLSM)
+	strayRename := filepath.Join(shard.pathLSM(), "vectors_compressed_foo")
+	sharedWithCodes := func() {
+		require.NoError(t, os.RemoveAll(m.migrationDirectory(shard.pathLSM())))
+		require.NoError(t, os.MkdirAll(shared, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(shared, "codes"), []byte("shared"), 0o600))
+	}
+	unmapped := func() {
+		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+			var keys [][]byte
+			require.NoError(t, ns.ForEach(func(k, _ []byte) error {
+				keys = append(keys, append([]byte(nil), k...))
+				return nil
+			}))
+			for _, k := range keys {
+				require.NoError(t, ns.Delete(k))
+			}
+		})
+	}
+
+	// with a mapping: a vectors_compressed folder is the legacy vector's
+	shard = reloadAfter(t, ctx, shard, class, sharedWithCodes)
+	assert.False(t, m.isMigrationDone(shard.pathLSM()), "the repair did not run")
+	_, err := os.Stat(strayRename)
+	assert.True(t, os.IsNotExist(err))
+
+	// without one: it runs, and a failure stops the load
+	migrations := m.migrationDirectory(shard.pathLSM())
+	reloadExpectingError(t, ctx, shard, class, "migrate compressed vectors", func() {
+		sharedWithCodes()
+		unmapped()
+		// the done flag cannot be written under a file
+		require.NoError(t, os.WriteFile(migrations, nil, 0o600))
+	})
+	version, _, err := shardmeta.GetOffline(shard.path(), vectorIndexMappingNamespace, []byte(vectorIndexMappingFormatVersionKey))
+	require.NoError(t, err)
+	assert.Nil(t, version, "a failed repair writes no mapping")
+
+	require.NoError(t, os.Remove(migrations))
+	shard = openShardFromDisk(t, ctx, shard.index, class, shard.Name())
+	assert.True(t, m.isMigrationDone(shard.pathLSM()), "the next load retried the repair")
+	records, initialized, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	assert.Len(t, records, 3)
+}
+
+const generatedIDsClassName = "GeneratedIDs"
+
+// generatedIDsVectors is one vector of every index type. The names carry a
+// token no other file name has, so a file named after a vector is found.
+func generatedIDsVectors() (legacy schemaConfig.VectorIndexConfig, named map[string]schemaConfig.VectorIndexConfig) {
+	bq := enthnsw.NewDefaultUserConfig()
+	bq.BQ.Enabled = true
+	rq := enthnsw.NewDefaultUserConfig()
+	rq.RQ.Enabled = true
+	flatBQ := entflat.UserConfig{}
+	flatBQ.SetDefaults()
+	flatBQ.BQ.Enabled = true
+	// 8-dimension binary codes tie often; rescore every doc so search is exact
+	flatBQ.BQ.RescoreLimit = 100
+	flatCfg := entflat.UserConfig{}
+	flatCfg.SetDefaults()
+	dynamicCfg := func(threshold uint64) entdynamic.UserConfig {
+		return entdynamic.UserConfig{
+			Threshold: threshold,
+			Distance:  flatCfg.Distance,
+			HnswUC:    enthnsw.NewDefaultUserConfig(),
+			FlatUC:    flatCfg,
+		}
+	}
+	muvera := enthnsw.NewDefaultMultiVectorUserConfig()
+	muvera.Multivector.MuveraConfig = enthnsw.MuveraConfig{
+		Enabled:      true,
+		KSim:         enthnsw.DefaultMultivectorKSim,
+		DProjections: enthnsw.DefaultMultivectorDProjections,
+		Repetitions:  enthnsw.DefaultMultivectorRepetitions,
+	}
+
+	return bq, map[string]schemaConfig.VectorIndexConfig{
+		"zebrahnsw":    rq,
+		"zebraflat":    flatBQ,
+		"zebradyn":     dynamicCfg(10),
+		"zebradynflat": dynamicCfg(1_000_000),
+		"zebrafresh":   enthfresh.NewDefaultUserConfig(),
+		"zebramuvera":  muvera,
+		"zebramulti":   enthnsw.NewDefaultMultiVectorUserConfig(),
+	}
+}
+
+func generatedIDsObject(i int, named map[string]schemaConfig.VectorIndexConfig) *storobj.Object {
+	vec := func(seed int) []float32 {
+		v := make([]float32, 8)
+		for d := range v {
+			v[d] = float32((seed*31+d*17)%97) - 48
+		}
+		return v
+	}
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: generatedIDsClassName,
+		},
+		Vector:       vec(i),
+		Vectors:      map[string][]float32{},
+		MultiVectors: map[string][][]float32{},
+	}
+	for name, cfg := range named {
+		if hnswCfg, ok := cfg.(enthnsw.UserConfig); ok && hnswCfg.Multivector.Enabled {
+			obj.MultiVectors[name] = [][]float32{vec(i), vec(i + 1000)}
+			continue
+		}
+		obj.Vectors[name] = vec(i)
+	}
+	return obj
+}
+
+// TestShardWithGeneratedVectorIndexIDs pins that a shard finds every vector
+// index and queue only through its mapping: every index type is built under a
+// generated ID, as a rebuild names it, and the shard searches, writes,
+// restarts, backs up and restores, and drops, without a file named after a
+// vector or after the ID the naming rule would give it.
+func TestShardWithGeneratedVectorIndexIDs(t *testing.T) {
+	ctx := testCtx()
+	legacy, named := generatedIDsVectors()
+	class := &models.Class{Class: generatedIDsClassName, VectorConfig: map[string]models.VectorConfig{}}
+	for name, cfg := range named {
+		class.VectorConfig[name] = models.VectorConfig{VectorIndexType: cfg.IndexType(), VectorIndexConfig: cfg}
+	}
+	all := map[string]schemaConfig.VectorIndexConfig{"": legacy}
+	for name, cfg := range named {
+		all[name] = cfg
+	}
+
+	var seeded map[string]vectorIndexRecord
+	shardLike, idx := testShardWithSettings(t, ctx, class, legacy, false, true, func(i *Index) {
+		i.vectorIndexUserConfigs = named
+		shardName := i.getSchema.(*fakeSchemaGetter).shardState.AllPhysicalShards()[0]
+		seeded = seedGeneratedVectorIndexRecords(t, shardPath(i.path(), shardName), all)
+	})
+	shard := underlyingShard(t, shardLike)
+
+	docs := 0
+	put := func(t *testing.T, shard *Shard, n int) {
+		for range n {
+			require.NoError(t, shard.PutObject(ctx, generatedIDsObject(docs, named)))
+			docs++
+		}
+		for name := range all {
+			waitForQueueToDrain(t, shard, name)
+		}
+	}
+	works := func(t *testing.T, shard *Shard) {
+		t.Helper()
+		for name, cfg := range all {
+			found, err := shard.WithVectorIndex(name, func(index VectorIndex) error {
+				for docID := range uint64(docs) {
+					require.True(t, index.ContainsDoc(docID), "vector %q holds doc %d", name, docID)
+				}
+				probe := generatedIDsObject(docs-1, named)
+				search := func() ([]uint64, error) {
+					if hnswCfg, ok := cfg.(enthnsw.UserConfig); ok && hnswCfg.Multivector.Enabled {
+						multi, ok := index.(VectorIndexMulti)
+						require.True(t, ok, "vector %q", name)
+						ids, _, err := multi.SearchByMultiVector(ctx, probe.MultiVectors[name], 1, nil)
+						return ids, err
+					}
+					vec := probe.Vectors[name]
+					if name == "" {
+						vec = probe.Vector
+					}
+					ids, _, err := index.SearchByVector(ctx, vec, 1, nil)
+					return ids, err
+				}
+				want := []uint64{uint64(docs - 1)}
+				if _, ok := cfg.(enthfresh.UserConfig); ok {
+					// after a restart, HFresh skips postings until its background
+					// analyze tasks have persisted their sizes
+					require.EventuallyWithT(t, func(c *assert.CollectT) {
+						ids, err := search()
+						assert.NoError(c, err)
+						assert.Equal(c, want, ids)
+					}, 30*time.Second, 50*time.Millisecond, "vector %q finds the last doc", name)
+					return nil
+				}
+				ids, err := search()
+				require.NoError(t, err)
+				require.Equal(t, want, ids, "vector %q finds the last doc", name)
+				return nil
+			})
+			require.NoError(t, err)
+			require.True(t, found, "vector %q", name)
+		}
+	}
+	// no file of the shard is named after a vector or a naming-rule ID
+	noNameDerivedFiles := func(t *testing.T, shard *Shard) {
+		t.Helper()
+		for _, dir := range []string{shard.path(), shard.pathLSM()} {
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			for _, e := range entries {
+				n := e.Name()
+				assert.NotContains(t, n, "zebra", "%s is named after a vector", filepath.Join(dir, n))
+				assert.False(t, n == "vectors" || n == "vectors_compressed" || strings.HasPrefix(n, "main.") || strings.HasPrefix(n, "main_"),
+					"%s is named after the legacy vector", filepath.Join(dir, n))
+			}
+		}
+	}
+	recordsAreSeeded := func(t *testing.T, shard *Shard) {
+		t.Helper()
+		records, _, err := shard.mapping.Load()
+		require.NoError(t, err)
+		require.Len(t, records, len(seeded))
+		for name, want := range seeded {
+			got := records[name]
+			assert.Equal(t, want.recordedID(), got.recordedID(), "vector %q", name)
+			assert.Equal(t, want.QueueID, got.QueueID, "vector %q", name)
+			assert.Equal(t, vectorIndexStateReady, got.State, "vector %q", name)
+			assert.NotEmpty(t, entriesWithID(t, shard, want.storageID()), "vector %q has files at its ID", name)
+		}
+	}
+
+	put(t, shard, 40)
+	require.Eventually(t, func() bool {
+		upgraded, err := dynamic.UpgradedInState(shard.metadataDB.Namespace(dynamic.StateNamespace), shard.path(), seeded["zebradyn"].storageID())
+		require.NoError(t, err)
+		return upgraded
+	}, 30*time.Second, 50*time.Millisecond, "precondition: the dynamic index went past its threshold")
+	recordsAreSeeded(t, shard)
+	works(t, shard)
+	noNameDerivedFiles(t, shard)
+
+	t.Run("restart and write", func(t *testing.T) {
+		shard = reload(t, ctx, shard, class)
+		recordsAreSeeded(t, shard)
+		works(t, shard)
+		put(t, shard, 5)
+		works(t, shard)
+		noNameDerivedFiles(t, shard)
+	})
+
+	t.Run("backup and restore", func(t *testing.T) {
+		shard = backupAndRestoreInPlace(t, ctx, shard, idx, class)
+		recordsAreSeeded(t, shard)
+		works(t, shard)
+		noNameDerivedFiles(t, shard)
+	})
+
+	t.Run("drop", func(t *testing.T) {
+		dropFromSchema := func(name string) {
+			markDropped(class, name)
+			shard.index.vectorIndexUserConfigLock.Lock()
+			delete(shard.index.vectorIndexUserConfigs, name)
+			shard.index.vectorIndexUserConfigLock.Unlock()
+		}
+
+		// loaded
+		dropFromSchema("zebrahnsw")
+		require.NoError(t, shard.DropVectorIndex(ctx, "zebrahnsw"))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrahnsw"].storageID()))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrahnsw"].QueueID))
+
+		// interrupted: the next load finishes it
+		dropFromSchema("zebrafresh")
+		dropping := seeded["zebrafresh"]
+		dropping.State = vectorIndexStateDropping
+		shard = reloadAfter(t, ctx, shard, class, func() {
+			withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+				require.NoError(t, m.Put("zebrafresh", dropping))
+			})
+		})
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrafresh"].storageID()))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrafresh"].QueueID))
+
+		// cold
+		dropFromSchema("zebradyn")
+		require.NoError(t, shard.Shutdown(ctx))
+		h := newVectorDropIndexHelper()
+		require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "zebradyn", otherTargetVectors(class, "zebradyn")))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebradyn"].storageID()))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebradyn"].QueueID))
+		upgraded, err := dynamic.UpgradedOnDisk(shard.path(), seeded["zebradyn"].storageID())
+		require.NoError(t, err)
+		assert.False(t, upgraded, "the dynamic state key went with it")
+
+		// the siblings are untouched
+		shard = openShardFromDisk(t, ctx, shard.index, class, shard.Name())
+		delete(all, "zebrahnsw")
+		delete(all, "zebrafresh")
+		delete(all, "zebradyn")
+		for _, name := range []string{"zebrahnsw", "zebrafresh", "zebradyn"} {
+			delete(seeded, name)
+		}
+		recordsAreSeeded(t, shard)
+		works(t, shard)
+		noNameDerivedFiles(t, shard)
+	})
 }

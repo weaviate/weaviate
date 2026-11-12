@@ -73,7 +73,10 @@ func SetupHandlers(
 
 func (h *expirationHandler) setUserExpiration(params users.SetUserExpirationParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	internalKey, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	if err != nil {
+		return unprocessable(principal, err)
+	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewSetUserExpirationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))

@@ -192,9 +192,9 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
-// ConflictDetector is an optional interface providers implement so the
-// [Manager.AddTask] RAFT-apply path can reject a new task whose payload
-// conflicts with an already-running task in the same namespace.
+// ConflictDetector lets the [Manager.AddTask] RAFT-apply path reject a new
+// task whose payload conflicts with an already-running task in the same
+// namespace.
 //
 // Motivation: the REST handler holds a per-(collection, property)
 // in-memory lock and runs [checkReindexConflict] before submitting,
@@ -218,8 +218,6 @@ type Provider interface {
 // (clocks, network, schema, RNG) — different nodes applying the same
 // log entry must reach the same accept/reject decision.
 type ConflictDetector interface {
-	Provider
-
 	// CheckConflict is called under [Manager.mu] before a new task is
 	// appended to the FSM-stored task list. existingTasks is the full
 	// namespace-scoped task list at apply time. Return a non-nil error
@@ -261,9 +259,9 @@ type TerminalCleanupProvider interface {
 	TerminalCleanupDone(task *Task, localNode string) bool
 }
 
-// SchemaMutationDetector is an optional interface providers implement so
-// the schema FSM's UpdateProperty apply path can reject external schema
-// mutations that would race with one of the provider's in-flight tasks.
+// SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
+// UpdateTenants and DeleteTenants apply paths reject a schema mutation that
+// would race with one of a namespace's in-flight tasks.
 //
 // Without it, a mutation landing mid-migration can let the FSM apply a
 // schema flip while the migration's own sub-task is still writing,
@@ -279,8 +277,6 @@ type TerminalCleanupProvider interface {
 // existingTasks) — no clocks, network, schema, or RNG — so every node
 // applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
-	Provider
-
 	// CheckPropertyUpdate is called under [Manager.mu] from the
 	// schema FSM's UpdateProperty apply path. existingTasks is the
 	// full namespace-scoped task list at apply time. Return a

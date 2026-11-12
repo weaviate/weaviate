@@ -44,6 +44,9 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	if err != nil {
 		return nil, err
 	}
+	aliases = namespacing.KeepOwnNamespace(principal, aliases, func(alias *models.Alias) string {
+		return namespacing.NamespaceFromQualified(alias.Alias)
+	})
 
 	filteredAliases := filter.New[*models.Alias](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,

@@ -145,10 +145,6 @@ type PrometheusMetrics struct {
 
 	LazyShardWarmupDecisions *prometheus.CounterVec
 
-	// ShardHaltForTransferForceResume: non-zero means a transfer was
-	// force-resumed mid-stream — compaction may have raced the transfer.
-	ShardHaltForTransferForceResume *prometheus.CounterVec
-
 	// RAFT-based schema metrics.
 	SchemaWrites              *prometheus.HistogramVec
 	SchemaReadsLocal          *prometheus.HistogramVec
@@ -880,11 +876,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_lazy_shard_warmup_decisions_total",
 			Help: "Number of shards the startup warmup sweep considered, by what it did with each",
 		}, []string{"outcome"}),
-
-		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "shard_halt_for_transfer_force_resume_total",
-			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
-		}, []string{}),
 
 		// Namespaced for consistency with the rest of the weaviate_* family.
 		SchemaWrites: promauto.NewHistogramVec(prometheus.HistogramOpts{

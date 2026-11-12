@@ -742,7 +742,7 @@ func TestAddAlias(t *testing.T) {
 func TestUpdateAlias_RejectsCrossNamespaceTarget(t *testing.T) {
 	t.Parallel()
 	handler, sm := newTestHandlerWithNamespaces(t, true)
-	sm.On("GetAliases", mock.Anything, "customer1:Films", mock.Anything).
+	sm.On("AliasesFromLeader", mock.Anything, "customer1:Films", mock.Anything).
 		Return([]*models.Alias{{Alias: "customer1:Films", Class: "customer1:Movies"}}, nil)
 	sm.On("ReadOnlyClass", "customer2:Secret").Return(&models.Class{Class: "customer2:Secret"})
 	sm.On("ReplaceAlias", mock.Anything, mock.Anything, mock.Anything).Return(nil)

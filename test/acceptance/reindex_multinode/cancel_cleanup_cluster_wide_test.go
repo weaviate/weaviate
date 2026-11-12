@@ -43,19 +43,11 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	// the API for ≥2 nodes. REINDEX_CONCURRENCY=1 keeps the race window
 	// wide enough to reproduce reliably on fast hardware.
 	const backupBucket = "cancel-clears-bucket"
-	compose, err := docker.New().
-		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
-		With3NodeCluster().
-		WithBackendS3(backupBucket, "us-east-1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
-		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("REINDEX_CONCURRENCY", "1").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
+	compose, cleanup := start3NodeReindexClusterWithS3Backup(ctx, t, backupBucket,
+		"USE_INVERTED_SEARCHABLE", "false",
+		"REINDEX_CONCURRENCY", "1",
+	)
+	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const (
@@ -478,9 +470,8 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS: an in-flight
-// backup sends Index.drop down the rename-aside keepFiles path, defeating the
-// post-delete "class dir removed" assertion. Budget sized for a starved VM.
+// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS. Budget sized
+// for a starved VM.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{

@@ -15,8 +15,20 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
+
+// DropVectorIndexDetector decides whether a RAFT apply refuses a new
+// drop-vector task or a vector config removal. It holds only a logger, so
+// MakeAppState builds it before the cluster service opens RAFT.
+type DropVectorIndexDetector struct {
+	logger logrus.FieldLogger
+}
+
+func NewDropVectorIndexDetector(logger logrus.FieldLogger) *DropVectorIndexDetector {
+	return &DropVectorIndexDetector{logger: logger}
+}
 
 // CheckConflict implements distributedtask.ConflictDetector. Called under the
 // Manager lock on the RAFT-apply AddTask path before a new task is stored, it
@@ -24,7 +36,7 @@ import (
 // collection, and (2) a payload whose inherited CleanedShards claim has no
 // surviving source records — the enqueue-to-commit TOCTOU guard.
 // FSM-deterministic: a pure function of (newPayload, existingTasks).
-func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
 	newP, err := decodeDropVectorIndexPayload(newPayload)
 	if err != nil {
 		return fmt.Errorf("unmarshal new drop-vector payload: %w", err)
@@ -62,7 +74,7 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 // CheckPropertyUpdate implements distributedtask.SchemaMutationDetector. A
 // drop-vector task touches named vectors, not inverted properties, so a property
 // update never conflicts with it.
-func (p *DropVectorIndexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 
@@ -72,7 +84,7 @@ func (p *DropVectorIndexProvider) CheckPropertyUpdate(className, propertyName st
 // cascade-deletes the namespace's tasks via DeleteTasksForCollection, so the
 // in-flight task is cleaned up rather than left blocking the delete. Always
 // returns nil.
-func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 
@@ -87,7 +99,7 @@ func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingT
 // once it activates again. The schema marker stays the source of truth
 // throughout, so no path here can lose data; blocking would only trade tenant
 // availability for one round's bookkeeping. Always returns nil.
-func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 
@@ -100,7 +112,7 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 // the name a stale record would remove the new drop's marker over unstripped
 // vectors. A marker whose finalize was missed heals through reconciliation
 // (fresh-epoch re-clean), not through record replay.
-func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
 	for _, targetVector := range removedVectors {
 		if id, active := p.dropCovers(className, targetVector, existingTasks, stillStrippingStatus); active {
 			return fmt.Errorf(
@@ -161,7 +173,7 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 // tasks cover the vector but none covers all shards, uncovered holds the
 // missing shards of the closest task — mirroring the finalize deferral, which
 // keeps the marker until a single task covers everyone.
-func (p *DropVectorIndexProvider) completedDropVoucher(className, targetVector string, shards []string,
+func (p *DropVectorIndexDetector) completedDropVoucher(className, targetVector string, shards []string,
 	existingTasks []*distributedtask.Task,
 ) (vouched, coversVec bool, uncovered []string) {
 	swappingOnly := func(s distributedtask.TaskStatus) bool { return s == distributedtask.TaskStatusSwapping }
@@ -194,7 +206,7 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, targetVector s
 // Mirrors the enqueuer, which finalizes on the same proof
 // (EpochAndInheritedCoverage); the two must agree or the enqueuer would
 // propose removals this apply refuses.
-func (p *DropVectorIndexProvider) deletionResolvedDropVoucher(className, targetVector string,
+func (p *DropVectorIndexDetector) deletionResolvedDropVoucher(className, targetVector string,
 	shards []string, existingTasks []*distributedtask.Task,
 ) bool {
 	terminal := func(s distributedtask.TaskStatus) bool {
@@ -219,7 +231,7 @@ func stillStrippingStatus(s distributedtask.TaskStatus) bool {
 
 // dropCovers reports whether a drop-vector task matching statusMatch covers targetVector
 // on className. Unparseable payloads warn and are skipped (fail-open).
-func (p *DropVectorIndexProvider) dropCovers(className, targetVector string, existingTasks []*distributedtask.Task,
+func (p *DropVectorIndexDetector) dropCovers(className, targetVector string, existingTasks []*distributedtask.Task,
 	statusMatch func(distributedtask.TaskStatus) bool,
 ) (id string, found bool) {
 	p.eachDropCovering(className, targetVector, existingTasks, statusMatch,
@@ -233,7 +245,7 @@ func (p *DropVectorIndexProvider) dropCovers(className, targetVector string, exi
 // eachDropCovering invokes fn for every task matching statusMatch whose payload
 // covers targetVector on className, until fn returns false. Unparseable payloads warn
 // and are skipped (fail-open).
-func (p *DropVectorIndexProvider) eachDropCovering(className, targetVector string,
+func (p *DropVectorIndexDetector) eachDropCovering(className, targetVector string,
 	existingTasks []*distributedtask.Task, statusMatch func(distributedtask.TaskStatus) bool,
 	fn func(*distributedtask.Task, *DropVectorIndexTaskPayload) bool,
 ) {

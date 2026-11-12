@@ -33,10 +33,13 @@ type replicationHandler struct {
 	// enabled is REPLICA_MOVEMENT_ENABLED.
 	enabled          *runtime.DynamicValue[bool]
 	rebalanceEnabled *runtime.DynamicValue[bool]
+	// dataPath is the node's persistence data root, probed for hardlink support.
+	dataPath string
 }
 
 func SetupHandlers(enabled, rebalanceEnabled *runtime.DynamicValue[bool], api *operations.WeaviateAPI, replicationManager replicationTypes.Manager,
 	rebalanceManager rebalanceManager, nodes rebalanceNodes, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	dataPath string,
 ) {
 	h := &replicationHandler{
 		authorizer:         authorizer,
@@ -47,6 +50,7 @@ func SetupHandlers(enabled, rebalanceEnabled *runtime.DynamicValue[bool], api *o
 		metrics:            metrics,
 		enabled:            enabled,
 		rebalanceEnabled:   rebalanceEnabled,
+		dataPath:           dataPath,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)

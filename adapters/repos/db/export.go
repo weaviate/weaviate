@@ -170,7 +170,11 @@ func (db *DB) SnapshotShards(ctx context.Context, className string, shardNames [
 }
 
 func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string, exportID string) ([]export.ShardSnapshotResult, error) {
-	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
+	supported, err := file.ProbeHardlinkSupport(i.Config.RootPath)
+	if err != nil {
+		return nil, fmt.Errorf("probe hardlink support: %w", err)
+	}
+	if !supported {
 		// Export snapshots rely on hard-linking immutable LSM segment files to
 		// create a frozen, read-only view without holding shard locks for the
 		// duration of the scan. Supporting filesystems without hard links would

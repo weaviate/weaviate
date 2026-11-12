@@ -188,6 +188,65 @@ func TestRevokeRoleFromUserNamespacedUserTypeRequired(t *testing.T) {
 	require.True(t, ok, "got %T", res)
 }
 
+// TestUserHandlers_NamespacedCallerQualifiedID requires a 400 from every user
+// handler whose user ID, sent by a namespaced caller, holds a ':'. The mocks
+// hold no expectations, so an authorize or controller call fails the case.
+func TestUserHandlers_NamespacedCallerQualifiedID(t *testing.T) {
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	tests := []struct {
+		name string
+		call func(h *authZHandlers) middleware.Responder
+		want middleware.Responder
+	}{
+		{
+			name: "assign",
+			call: func(h *authZHandlers) middleware.Responder {
+				return h.assignRoleToUser(authz.AssignRoleToUserParams{
+					HTTPRequest: req,
+					ID:          "x:bob",
+					Body:        authz.AssignRoleToUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputDb},
+				}, principal)
+			},
+			want: &authz.AssignRoleToUserBadRequest{},
+		},
+		{
+			name: "revoke",
+			call: func(h *authZHandlers) middleware.Responder {
+				return h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+					HTTPRequest: req,
+					ID:          "x:bob",
+					Body:        authz.RevokeRoleFromUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputDb},
+				}, principal)
+			},
+			want: &authz.RevokeRoleFromUserBadRequest{},
+		},
+		{
+			name: "get roles",
+			call: func(h *authZHandlers) middleware.Responder {
+				return h.getRolesForUser(authz.GetRolesForUserParams{
+					HTTPRequest: req,
+					ID:          "x:bob",
+					UserType:    string(models.UserTypeInputDb),
+				}, principal)
+			},
+			want: &authz.GetRolesForUserBadRequest{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			h := &authZHandlers{
+				authorizer:        authorization.NewMockAuthorizer(t),
+				controller:        NewMockControllerAndGetUsers(t),
+				logger:            logger,
+				rbacconfig:        rbacconf.Config{Enabled: true},
+				namespacesEnabled: true,
+			}
+			require.IsType(t, tt.want, tt.call(h))
+		})
+	}
+}
+
 func TestRevokeRoleFromUserNamespaced(t *testing.T) {
 	h, _ := nsAssignHandler(t, "customer1")
 	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}

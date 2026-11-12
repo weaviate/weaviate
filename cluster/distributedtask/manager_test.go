@@ -27,18 +27,10 @@ import (
 
 // fakeConflictDetector lets the manager-side conflict-hook test pin
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
-// without standing up the real reindex provider.
+// with a scripted verdict.
 type fakeConflictDetector struct {
 	called     int
 	rejectWith error
-}
-
-func (f *fakeConflictDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {
-}
-func (f *fakeConflictDetector) GetLocalTasks() []TaskDescriptor    { return nil }
-func (f *fakeConflictDetector) CleanupTask(_ TaskDescriptor) error { return nil }
-func (f *fakeConflictDetector) StartTask(_ *Task) (TaskHandle, error) {
-	return nil, fmt.Errorf("not implemented")
 }
 
 func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
@@ -52,12 +44,13 @@ func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
 // submit lock cannot cover (parallel-migration bug #54).
 func TestManager_AddTask_ConflictDetector(t *testing.T) {
 	t.Run("hook NOT called when no detector registered for the namespace", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeConflictDetector{rejectWith: fmt.Errorf("would reject")}
 		// Register the detector under a DIFFERENT namespace.
-		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+		h.conflictDetectors = map[string]ConflictDetector{
 			"other-namespace": detector,
-		})
+		}
+		h.init(t)
 
 		c := toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace:             "test",
@@ -72,11 +65,12 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 	})
 
 	t.Run("hook called and accepts on no-conflict", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeConflictDetector{rejectWith: nil}
-		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+		h.conflictDetectors = map[string]ConflictDetector{
 			"test": detector,
-		})
+		}
+		h.init(t)
 
 		c := toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace:             "test",
@@ -91,13 +85,14 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 	})
 
 	t.Run("hook rejects → AddTask returns error and task is NOT added", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeConflictDetector{
 			rejectWith: fmt.Errorf("simulated conflict: parallel migration on same prop"),
 		}
-		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+		h.conflictDetectors = map[string]ConflictDetector{
 			"test": detector,
-		})
+		}
+		h.init(t)
 
 		c := toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace:             "test",
@@ -121,19 +116,6 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		require.NoError(t, err2)
 		require.Empty(t, tasks["test"],
 			"rejected task MUST NOT appear in the FSM-stored task list")
-	})
-
-	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		h.manager.SetConflictDetectors(nil)
-
-		c := toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "test",
-			Id:                    "1",
-			SubmittedAtUnixMillis: time.Now().UnixMilli(),
-			UnitIds:               []string{"su-1"},
-		})
-		require.NoError(t, h.manager.AddTask(c, 100))
 	})
 }
 
@@ -1470,8 +1452,8 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 }
 
 // fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
-// dispatch test pin every branch without standing up the real reindex
-// provider. Records arguments so we can assert the dispatch contract
+// dispatch test pin every branch with a scripted verdict. Records
+// arguments so we can assert the dispatch contract
 // (only the matching-namespace detector consulted, full FSM task list
 // passed in, etc.).
 type fakeSchemaMutationDetector struct {
@@ -1480,13 +1462,6 @@ type fakeSchemaMutationDetector struct {
 	lastPropName  string
 	lastTaskCount int
 	rejectWith    error
-}
-
-func (f *fakeSchemaMutationDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {}
-func (f *fakeSchemaMutationDetector) GetLocalTasks() []TaskDescriptor                { return nil }
-func (f *fakeSchemaMutationDetector) CleanupTask(_ TaskDescriptor) error             { return nil }
-func (f *fakeSchemaMutationDetector) StartTask(_ *Task) (TaskHandle, error) {
-	return nil, fmt.Errorf("not implemented")
 }
 
 func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error {
@@ -1526,11 +1501,12 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	})
 
 	t.Run("detector returns nil → CheckPropertyUpdate returns nil", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{rejectWith: nil}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": detector,
-		})
+		}
+		h.init(t)
 
 		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
 		require.Equal(t, 1, detector.called,
@@ -1540,13 +1516,14 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	})
 
 	t.Run("detector returns error → CheckPropertyUpdate propagates", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{
 			rejectWith: fmt.Errorf("simulated conflict: reindex in flight on prop"),
 		}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": detector,
-		})
+		}
+		h.init(t)
 
 		err := h.manager.CheckPropertyUpdate("C", "name")
 		require.Error(t, err)
@@ -1554,11 +1531,12 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	})
 
 	t.Run("detector receives full namespace-scoped task list at apply time", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{rejectWith: nil}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"test": detector,
-		})
+		}
+		h.init(t)
 
 		// Seed a task into the manager.
 		c := toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -1575,16 +1553,11 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	})
 
 	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h := newTestHarness(t)
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": nil,
-		})
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
-	})
-
-	t.Run("nil-safe: SetSchemaMutationDetectors(nil) is a no-op", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		h.manager.SetSchemaMutationDetectors(nil)
+		}
+		h.init(t)
 		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
 	})
 }
@@ -1600,24 +1573,26 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	})
 
 	t.Run("detector returns nil → CheckClassMutation returns nil", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{rejectWith: nil}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": detector,
-		})
+		}
+		h.init(t)
 		require.NoError(t, h.manager.CheckClassMutation("C"))
 		require.Equal(t, 1, detector.called)
 		require.Equal(t, "C", detector.lastClassName)
 	})
 
 	t.Run("detector returns error → CheckClassMutation propagates", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{
 			rejectWith: fmt.Errorf("simulated: reindex in flight on class"),
 		}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": detector,
-		})
+		}
+		h.init(t)
 		err := h.manager.CheckClassMutation("C")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated")
@@ -1656,17 +1631,19 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 	})
 
 	t.Run("empty removal list → gate not consulted", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("should not be reached")}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{"drop-vector-index": gate}
+		h.init(t)
 		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", nil, []string{"s1"}))
 		require.Equal(t, 0, gate.gateCalled)
 	})
 
 	t.Run("gate returns nil → removal allowed, full task list passed", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{"drop-vector-index": gate}
+		h.init(t)
 
 		c := toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace: "drop-vector-index", Id: "T1",
@@ -1682,20 +1659,22 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 	})
 
 	t.Run("gate returns error → CheckVectorConfigRemoval propagates", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("cleanup not FINISHED")}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{"drop-vector-index": gate}
+		h.init(t)
 		err := h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "cleanup not FINISHED")
 	})
 
 	t.Run("detector without the gate interface → skipped", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		// fakeSchemaMutationDetector does NOT implement VectorConfigRemovalGate.
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("should not be reached")},
-		})
+		}
+		h.init(t)
 		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}))
 	})
 }
@@ -1709,23 +1688,25 @@ func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
 	})
 
 	t.Run("detector returns nil → CheckTenantMutation returns nil", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{rejectWith: nil}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": detector,
-		})
+		}
+		h.init(t)
 		require.NoError(t, h.manager.CheckTenantMutation("C", []string{"t1", "t2"}))
 		require.Equal(t, 1, detector.called)
 	})
 
 	t.Run("detector returns error → CheckTenantMutation propagates", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		detector := &fakeSchemaMutationDetector{
 			rejectWith: fmt.Errorf("simulated: reindex in flight, tenants blocked"),
 		}
-		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
 			"reindex": detector,
-		})
+		}
+		h.init(t)
 		err := h.manager.CheckTenantMutation("C", []string{"t1"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated")

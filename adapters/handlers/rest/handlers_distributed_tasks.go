@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -27,7 +28,11 @@ import (
 
 func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) {
 	h := distributedTasksHandlers{
-		handler: distributedtaskUC.NewHandler(authorizer, taskLister),
+		handler: distributedtaskUC.NewHandler(authorizer, taskLister, distributedTaskCollectionExtractors(),
+			map[string][]string{
+				db.ReindexNamespace:         db.ReindexTaskVisiblePayloadFields,
+				db.DropVectorIndexNamespace: db.DropVectorIndexTaskVisiblePayloadFields,
+			}),
 	}
 
 	api.DistributedTasksDistributedTasksGetHandler = distributed_tasks.DistributedTasksGetHandlerFunc(h.getTasks)

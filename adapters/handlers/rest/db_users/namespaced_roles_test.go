@@ -114,7 +114,7 @@ func TestListUsersNamespacedRolesStrippedAndFiltered(t *testing.T) {
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	localUsers := NewMockDbUserAndRolesGetter(t)
-	localUsers.On("GetUsers").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob"}}, nil)
+	localUsers.On("GetUsers").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1"}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", "customer1:admin", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 	localRoles := authorization.NewMockController(t)
 	localRoles.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{
