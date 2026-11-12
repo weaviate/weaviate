@@ -68,15 +68,15 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 	}
 
 	startTime := time.Now()
-	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("START EXECUTING with %s strategy", strategyName(useInverted, sort)))
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
 	}()
 
 	if useInverted {
-		is := NewInvertedSorter(s.store, s.dataTypesHelper)
-		return is.SortDocIDs(ctx, limit, sort, nil)
+		return s.sortInverted(ctx, limit, sort, nil)
 	}
 	count, err := s.bucket.Count(ctx)
 	if err != nil {
@@ -97,15 +97,15 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 	}
 
 	startTime := time.Now()
-	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("START EXECUTING with %s strategy", strategyName(useInverted, sort)))
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
 	}()
 
 	if useInverted {
-		is := NewInvertedSorter(s.store, s.dataTypesHelper)
-		return is.SortDocIDs(ctx, limit, sort, ids)
+		return s.sortInverted(ctx, limit, sort, ids)
 	}
 
 	helper, err := s.createHelper(sort, validateLimit(limit, ids.Len()))
@@ -113,6 +113,38 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 		return nil, err
 	}
 	return helper.getSortedDocIDs(ctx, ids)
+}
+
+// For a multi-property sort, sortInverted orders through the objects bucket
+// only the candidates the inverted index yields for the first property.
+func (s *lsmSorter) sortInverted(ctx context.Context, limit int, sort []filters.Sort,
+	ids helpers.AllowList,
+) ([]uint64, error) {
+	is := NewInvertedSorter(s.store, s.dataTypesHelper)
+	if len(sort) == 1 {
+		return is.SortDocIDs(ctx, limit, sort, ids)
+	}
+
+	candidates, err := is.Candidates(ctx, limit, sort[0], ids)
+	if err != nil {
+		return nil, fmt.Errorf("collect sort candidates: %w", err)
+	}
+	helper, err := s.createHelper(sort, validateLimit(limit, len(candidates)))
+	if err != nil {
+		return nil, err
+	}
+	return helper.getSortedDocIDs(ctx, helpers.NewAllowList(candidates...))
+}
+
+func strategyName(useInverted bool, sort []filters.Sort) string {
+	switch {
+	case !useInverted:
+		return "objects bucket"
+	case len(sort) == 1:
+		return "inverted index"
+	default:
+		return "inverted index candidates"
+	}
 }
 
 func (s *lsmSorter) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,

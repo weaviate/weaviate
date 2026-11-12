@@ -83,7 +83,8 @@ func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper,
 //   - invertedCost  – open a cursor on the inverted-index bucket that is
 //     already sorted by the required key and stream until N
 //     matches have been found (with extra work if DESC order
-//     forces a reverse scan).
+//     forces a reverse scan). A multi-property sort adds reading
+//     the first limit candidates from the objects bucket.
 //
 // Costs are *dimensionless units* calibrated to roughly match the relative
 // latency of random I/O, sequential I/O and JSON unmarshalling on a modern
@@ -162,6 +163,15 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 
 	}
 
+	if len(sort) > 1 {
+		// the first property's candidates are read from the objects bucket to
+		// order them by the remaining properties
+		costInvertedBucket += costObjectsDiscounted
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("multiple (%d) sort criteria, inverted bucket cost includes "+
+				"reading candidates from objects bucket: %.2f", len(sort), costObjectsDiscounted))
+	}
+
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 		fmt.Sprintf("estimated costs for inverted bucket strategy: %.2f", costInvertedBucket))
 	return costObjectsBucket, costInvertedBucket
@@ -173,8 +183,8 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 //
 //   - The inverted-index strategy is cheaper according to EstimateCosts.
 //
-//   - The key’s logical type (date, int, number) preserves the same ordering
-//     at the byte level that the inverted index uses.
+//   - The first key’s logical type (date, int, number) preserves the same
+//     ordering at the byte level that the inverted index uses.
 //
 //   - The LSM bucket for that property is present; if not, the method
 //     opportunistically reminds the caller that marking the field as
@@ -199,14 +209,6 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		return useInverted, err
 	}
 
-	if len(sort) > 1 {
-		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			fmt.Sprintf("inverted strategy has lower cost, but query has multiple (%d) "+
-				"sort criteria which is currently not supported, "+
-				"fallback to objects bucket strategy", len(sort)))
-		return useInverted, err
-	}
-
 	propNames, _, err := extractPropNamesAndOrders(sort)
 	if err != nil {
 		return useInverted, err
@@ -224,6 +226,14 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		return useInverted, err
 
 	}
+
+	if limit == 0 && len(sort) > 1 {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			"limit 0 sorts every match, which the candidate walk would read anyway, "+
+				"using objects bucket strategy")
+		return useInverted, err
+	}
+
 	costSavings := float64(costObjectsBucket) / float64(costInvertedBucket)
 
 	if s.store.Bucket(helpers.BucketFromPropNameLSM(propNames[0])) == nil {
