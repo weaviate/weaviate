@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -194,6 +195,117 @@ func TestFindSelectProperty(t *testing.T) {
 
 	t.Run("no nested props", func(t *testing.T) {
 		assert.Nil(t, SelectProperty{}.FindSelectProperty("street"))
+	})
+}
+
+// Lookups only see the first entry for a name, so whatever a repeated
+// selection added on top (references, nested properties, additional flags)
+// was never resolved.
+func TestSelectPropertiesMerged(t *testing.T) {
+	ref := func(class string, additionalProps additional.Properties, props ...SelectProperty) SelectClass {
+		return SelectClass{ClassName: class, RefProperties: props, AdditionalProperties: additionalProps}
+	}
+	title := SelectProperty{Name: "title", IsPrimitive: true}
+	year := SelectProperty{Name: "year", IsPrimitive: true}
+
+	for _, tc := range []struct {
+		name     string
+		props    SelectProperties
+		expected SelectProperties
+	}{
+		{name: "nil", props: nil, expected: nil},
+		{
+			name:     "nothing repeated",
+			props:    SelectProperties{title, {Name: "author", Refs: []SelectClass{ref("Person", additional.Properties{}, title)}}},
+			expected: SelectProperties{title, {Name: "author", Refs: []SelectClass{ref("Person", additional.Properties{}, title)}}},
+		},
+		{
+			name:     "primitive repeated",
+			props:    SelectProperties{title, year, title},
+			expected: SelectProperties{title, year},
+		},
+		{
+			name: "reference repeated with different target classes",
+			props: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Publisher", additional.Properties{}, title)}},
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Journal", additional.Properties{}, year)}},
+			},
+			expected: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{
+					ref("Publisher", additional.Properties{}, title),
+					ref("Journal", additional.Properties{}, year),
+				}},
+			},
+		},
+		{
+			name: "reference repeated with the same target class",
+			props: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Publisher", additional.Properties{ID: true}, title)}},
+				{Name: "ofPublisher", IncludeTypeName: true, Refs: []SelectClass{ref("Publisher", additional.Properties{Distance: true}, year, title)}},
+			},
+			expected: SelectProperties{
+				{Name: "ofPublisher", IncludeTypeName: true, Refs: []SelectClass{
+					ref("Publisher", additional.Properties{ID: true, Distance: true}, title, year),
+				}},
+			},
+		},
+		{
+			name: "same target class twice within one reference",
+			props: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{
+					ref("Publisher", additional.Properties{}, title),
+					ref("Publisher", additional.Properties{}, year),
+				}},
+			},
+			expected: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Publisher", additional.Properties{}, title, year)}},
+			},
+		},
+		{
+			name: "nested reference repeated",
+			props: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Publisher", additional.Properties{},
+					SelectProperty{Name: "owner", Refs: []SelectClass{ref("Person", additional.Properties{}, title)}},
+				)}},
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Publisher", additional.Properties{},
+					SelectProperty{Name: "owner", Refs: []SelectClass{ref("Person", additional.Properties{}, year)}},
+				)}},
+			},
+			expected: SelectProperties{
+				{Name: "ofPublisher", Refs: []SelectClass{ref("Publisher", additional.Properties{},
+					SelectProperty{Name: "owner", Refs: []SelectClass{ref("Person", additional.Properties{}, title, year)}},
+				)}},
+			},
+		},
+		{
+			name: "nested object repeated",
+			props: SelectProperties{
+				{Name: "address", IsObject: true, Props: SelectProperties{{Name: "city", IsPrimitive: true}}},
+				{Name: "address", IsObject: true, Props: SelectProperties{{Name: "zip", IsPrimitive: true}, {Name: "city", IsPrimitive: true}}},
+			},
+			expected: SelectProperties{
+				{Name: "address", IsObject: true, Props: SelectProperties{{Name: "city", IsPrimitive: true}, {Name: "zip", IsPrimitive: true}}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.props.Merged())
+		})
+	}
+
+	t.Run("input is not mutated", func(t *testing.T) {
+		refs := make([]SelectClass, 1, 4)
+		refs[0] = ref("Publisher", additional.Properties{}, title)
+		props := SelectProperties{
+			{Name: "ofPublisher", Refs: refs},
+			{Name: "ofPublisher", Refs: []SelectClass{ref("Journal", additional.Properties{}, year)}},
+		}
+
+		props.Merged()
+
+		assert.Len(t, props[0].Refs, 1)
+		assert.Equal(t, ref("Publisher", additional.Properties{}, title), refs[:2][0])
+		assert.Equal(t, SelectClass{}, refs[:2][1], "spare capacity of the input must not be written")
 	})
 }
 

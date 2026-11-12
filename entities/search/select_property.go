@@ -14,6 +14,7 @@ package search
 import (
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -185,4 +186,57 @@ func (sp SelectProperties) GetPropertyNames() []string {
 		names[i] = sp[i].Name
 	}
 	return names
+}
+
+// Merged returns sp with every property selected more than once folded into a
+// single entry, recursively, and likewise every reference target class. Lookups
+// (Indexed, FindSelectClass, FindSelectProperty) only see the first entry for
+// a name, so whatever a repeated selection adds (overlapping GraphQL
+// fragments, repeated gRPC references) would otherwise never be resolved. The
+// input is not modified.
+func (sp SelectProperties) Merged() SelectProperties {
+	if len(sp) == 0 {
+		return sp
+	}
+	positions := make(map[string]int, len(sp))
+	merged := make(SelectProperties, 0, len(sp))
+	for _, prop := range sp {
+		i, ok := positions[prop.Name]
+		if !ok {
+			positions[prop.Name] = len(merged)
+			merged = append(merged, prop)
+			continue
+		}
+		// Clip so appends never write into the input's backing arrays
+		merged[i].IncludeTypeName = merged[i].IncludeTypeName || prop.IncludeTypeName
+		merged[i].Refs = append(slices.Clip(merged[i].Refs), prop.Refs...)
+		merged[i].Props = append(slices.Clip(merged[i].Props), prop.Props...)
+	}
+	for i := range merged {
+		merged[i].Refs = mergeSelectClasses(merged[i].Refs)
+		merged[i].Props = SelectProperties(merged[i].Props).Merged()
+	}
+	return merged
+}
+
+func mergeSelectClasses(refs []SelectClass) []SelectClass {
+	if len(refs) == 0 {
+		return refs
+	}
+	positions := make(map[string]int, len(refs))
+	merged := make([]SelectClass, 0, len(refs))
+	for _, ref := range refs {
+		i, ok := positions[ref.ClassName]
+		if !ok {
+			positions[ref.ClassName] = len(merged)
+			merged = append(merged, ref)
+			continue
+		}
+		merged[i].RefProperties = append(slices.Clip(merged[i].RefProperties), ref.RefProperties...)
+		merged[i].AdditionalProperties = merged[i].AdditionalProperties.Merge(ref.AdditionalProperties)
+	}
+	for i := range merged {
+		merged[i].RefProperties = merged[i].RefProperties.Merged()
+	}
+	return merged
 }

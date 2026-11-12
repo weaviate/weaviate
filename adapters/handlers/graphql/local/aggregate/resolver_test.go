@@ -1042,3 +1042,38 @@ func TestAggregate_AdmissionShedMapsToRateLimit(t *testing.T) {
 		"raw ErrOverloaded message must not leak to the client")
 	resolver.AssertExpectations(t)
 }
+
+// Selecting properties or aggregators through a fragment used to panic on an
+// unchecked *ast.Field type assertion (gh-4050).
+func TestAggregateFragmentSelection(t *testing.T) {
+	t.Parallel()
+
+	testCases{
+		testCase{
+			name:          "fragment around property",
+			query:         `{ Aggregate { Car { ... on AggregateCar { modelName { count } } } } }`,
+			expectedProps: []aggregation.ParamProperty{{Name: "modelName", Aggregators: []aggregation.Aggregator{aggregation.CountAggregator}}},
+		},
+		testCase{
+			name:          "fragment around aggregator",
+			query:         `{ Aggregate { Car { modelName { ... { count } } } } }`,
+			expectedProps: []aggregation.ParamProperty{{Name: "modelName", Aggregators: []aggregation.Aggregator{aggregation.CountAggregator}}},
+		},
+		testCase{
+			name:                     "fragment around meta",
+			query:                    `{ Aggregate { Car { ...F } } } fragment F on AggregateCar { meta { count } }`,
+			expectedProps:            []aggregation.ParamProperty{},
+			expectedIncludeMetaCount: true,
+		},
+		testCase{
+			name:          "skipped property",
+			query:         `{ Aggregate { Car { horsepower { sum } modelName @skip(if: true) { count } } } }`,
+			expectedProps: []aggregation.ParamProperty{{Name: "horsepower", Aggregators: []aggregation.Aggregator{aggregation.SumAggregator}}},
+		},
+		testCase{
+			name:          "excluded aggregator",
+			query:         `{ Aggregate { Car { horsepower { sum ... @include(if: false) { mean } } } } }`,
+			expectedProps: []aggregation.ParamProperty{{Name: "horsepower", Aggregators: []aggregation.Aggregator{aggregation.SumAggregator}}},
+		},
+	}.AssertExtraction(t, "Car")
+}
