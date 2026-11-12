@@ -346,11 +346,10 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, nil, err
 	}
 
-	// open file for read, falling back to the delete-marker path if the
-	// collection was renamed during backup
-	info, err := z.statWithDeleteMarkerFallback(relPath)
+	absPath := filepath.Join(z.sourcePath, relPath)
+	info, err := os.Stat(absPath)
 	if err != nil {
-		return written, nil, err
+		return written, nil, fmt.Errorf("stat: %w", err)
 	}
 	if !info.Mode().IsRegular() {
 		return 0, nil, nil // ignore directories
@@ -362,7 +361,6 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		// Compute even part size so all chunks are roughly equal.
 		numParts := ceilDiv(fileSize, z.splitFileSizeBytes)
 		partSize := ceilDiv(fileSize, numParts)
-		absPath := filepath.Join(z.sourcePath, relPath)
 		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
 		remainingSplitFile, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
 		if err != nil {
@@ -378,9 +376,9 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
 	}
 
-	f, err := z.openWithDeleteMarkerFallback(relPath)
+	f, err := os.Open(absPath)
 	if err != nil {
-		return written, nil, err
+		return written, nil, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
@@ -472,44 +470,6 @@ func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor,
 		return splitFile, nil
 	}
 	return nil, nil
-}
-
-// statWithDeleteMarkerFallback stats the file at relPath under the source
-// directory. If the file does not exist, it retries with the delete-marker
-// prefix in case the collection was renamed during an ongoing backup.
-func (z *zip) statWithDeleteMarkerFallback(relPath string) (os.FileInfo, error) {
-	absPath := filepath.Join(z.sourcePath, relPath)
-	info, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			info, err = os.Stat(filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath)))
-			if err != nil {
-				return nil, fmt.Errorf("stat: not found at original or delete-marker path: %w", err)
-			}
-			return info, nil
-		}
-		return nil, fmt.Errorf("stat: %w", err)
-	}
-	return info, nil
-}
-
-// openWithDeleteMarkerFallback opens the file at relPath under the source
-// directory. If the file does not exist, it retries with the delete-marker
-// prefix in case the collection was renamed during an ongoing backup.
-func (z *zip) openWithDeleteMarkerFallback(relPath string) (*os.File, error) {
-	absPath := filepath.Join(z.sourcePath, relPath)
-	f, err := os.Open(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			f, err = os.Open(filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath)))
-			if err != nil {
-				return nil, fmt.Errorf("open: not found at original or delete-marker path: %w", err)
-			}
-			return f, nil
-		}
-		return nil, fmt.Errorf("open: %w", err)
-	}
-	return f, nil
 }
 
 type zstdWrapper struct {

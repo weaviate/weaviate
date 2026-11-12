@@ -293,7 +293,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	return nil
 }
 
-func (h *HFresh) Drop(ctx context.Context, keepFiles bool) error {
+func (h *HFresh) Drop(ctx context.Context) error {
 	_ = h.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil

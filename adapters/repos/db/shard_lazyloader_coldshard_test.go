@@ -620,20 +620,6 @@ func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
 	}
 }
 
-// Resuming maintenance cycles after a backup must not force-load cold shards:
-// an unloaded shard has no running cycles to resume.
-func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
-	ctx := testCtx()
-	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
-	cold := f.coldShards(t)
-
-	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
-
-	for name, shard := range cold {
-		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
-	}
-}
-
 // noLoadReaders lists the LazyLoadShard readers that never load the shard, each
 // with the answer it must return while the shard is cold.
 var noLoadReaders = []struct {
@@ -747,35 +733,6 @@ func TestLazyLoadShard_NoLoadReadersAcrossLoadAndShutdown(t *testing.T) {
 
 	close(stop)
 	<-reading
-	require.NoError(t, repo.Shutdown(context.Background()))
-}
-
-// A shutdown stops the shard's halt watchdog, so MayResetTransferInactivityTimer
-// must not push forward the deadline of a shard that was shut down.
-func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
-	ctx := context.Background()
-	repo, index := newReplConfigDeadlockFixture(t, "TransferTimerAfterShutdown")
-	lazy := soleColdShard(t, index)
-
-	_, _, err := lazy.loadIfCold(ctx)
-	require.NoError(t, err)
-	shard := lazy.loadedShard()
-	require.NotNil(t, shard)
-
-	// Without a timeout no path sets the deadline, and the assertion below
-	// would pass regardless.
-	shard.haltForTransferMux.Lock()
-	shard.haltForTransferInactivityTimeout = time.Hour
-	shard.haltForTransferMux.Unlock()
-
-	require.NoError(t, lazy.Shutdown(ctx))
-	lazy.MayResetTransferInactivityTimer()
-
-	shard.haltForTransferMux.Lock()
-	defer shard.haltForTransferMux.Unlock()
-	require.True(t, shard.haltForTransferInactivityDeadline.IsZero(),
-		"a shut down shard's transfer deadline must not be pushed forward")
-
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
