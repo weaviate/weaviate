@@ -639,6 +639,9 @@ func TestAnalyzeFoldAndTokenize(t *testing.T) {
 }
 
 func TestHandleGenericTokenizeGSE(t *testing.T) {
+	// InitOptionalTokenizers below leaves the tokenizer enabled for every
+	// test that runs after this one in the same process.
+	t.Cleanup(tokenizer.SaveOptionalTokenizerState())
 	t.Setenv("USE_GSE", "true")
 	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
 	tokenizer.InitOptionalTokenizers()
@@ -679,6 +682,9 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 }
 
 func TestHandleGenericTokenizeKagome(t *testing.T) {
+	// InitOptionalTokenizers below leaves the tokenizer enabled for every
+	// test that runs after this one in the same process.
+	t.Cleanup(tokenizer.SaveOptionalTokenizerState())
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
 	tokenizer.InitOptionalTokenizers()
