@@ -25,12 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -92,29 +90,12 @@ func TestReconcile_EnqueuesMissingTasks(t *testing.T) {
 	}
 	enq := &fakeReconcileEnqueuer{active: map[string]bool{}}
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger, nil)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
 
 	require.ElementsMatch(t, []string{"A/v1", "B/v2"}, enq.enqueued,
 		"every dropped marker without a live task is enqueued; non-dropped vectors are skipped")
 	require.Equal(t, 1, enq.listed,
 		"the round fetches the task list once, not once per marker")
-}
-
-func TestReconcile_SkipsInactiveNamespaces(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	nsc := namespaces.NewController(logger)
-	require.NoError(t, nsc.Create(api.Namespace{Name: "active", HomeNodes: []string{"node-1"}}, 1))
-	require.NoError(t, nsc.Create(api.Namespace{Name: "paused", HomeNodes: []string{"node-1"}}, 2))
-	require.NoError(t, nsc.ChangeState("paused", api.NamespaceStateSuspended, namespaces.StateChange{AppliedIndex: 3}))
-	classes := []*models.Class{
-		{Class: "active:A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
-		{Class: "paused:B", VectorConfig: map[string]models.VectorConfig{"v2": dropped()}},
-	}
-	enq := &fakeReconcileEnqueuer{active: map[string]bool{}}
-
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger, nsc)
-
-	require.Equal(t, []string{"active:A/v1"}, enq.enqueued, "a suspended namespace's marker waits for the resume")
 }
 
 // listErrEnqueuer fails the round's task-list fetch; nothing may be enqueued
@@ -134,7 +115,7 @@ func TestReconcile_ListError_SkipsRound(t *testing.T) {
 	}
 	enq := &listErrEnqueuer{fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}}}
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger, nil)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
 
 	require.Empty(t, enq.enqueued, "an unreadable task list must skip the round, not enqueue blind")
 }
@@ -146,7 +127,7 @@ func TestReconcile_SkipsClassesWithLiveTasks(t *testing.T) {
 	}
 	enq := &fakeReconcileEnqueuer{active: map[string]bool{"A/v1": true}} // v1 already in flight
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger, nil)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
 
 	require.Equal(t, []string{"A/v2"}, enq.enqueued, "only the marker without a live task is enqueued")
 }
@@ -196,7 +177,7 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
-		func() bool { return true }, nil, nil)
+		func() bool { return true }, nil)
 
 	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
 	require.Equal(t, []string{"A/v1"}, enq.enqueued)
@@ -220,7 +201,7 @@ func TestReconciliation_FollowerSkipsRound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
-		func() bool { return false }, nil, nil)
+		func() bool { return false }, nil)
 
 	require.Empty(t, enq.enqueued, "a non-leader must not enqueue")
 }
@@ -1110,7 +1091,7 @@ func TestReconciliation_NudgeWakesBeforeInterval(t *testing.T) {
 	// Interval far beyond the ctx timeout: a second round can only come from
 	// the nudge.
 	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
-		func() bool { return true }, nudge, nil)
+		func() bool { return true }, nudge)
 
 	require.GreaterOrEqual(t, len(enq.enqueued), 2, "the nudge must trigger a follow-up round within the interval")
 }
