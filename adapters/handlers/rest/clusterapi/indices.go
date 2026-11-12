@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -40,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -53,6 +55,21 @@ func writeUsageLimitExceeded(w http.ResponseWriter, le *usagelimits.LimitExceede
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
 	w.Write([]byte(le.BodyJSON()))
+}
+
+// writeShardRefusal answers a namespace refusal with its status and reports
+// whether err was one.
+func writeShardRefusal(w http.ResponseWriter, err error) bool {
+	text, ok := namespaces.RefusalText(err)
+	if !ok {
+		return false
+	}
+	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+	if !ok {
+		return false
+	}
+	http.Error(w, text, status)
+	return true
 }
 
 type indices struct {
@@ -268,12 +285,14 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexObjectsDigestsInRange.MatchString(path):
 			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
 			}
 
 			i.getObjectsDigestsInRange().ServeHTTP(w, r)
 		case i.regexObjectsHashTreeLevel.MatchString(path):
 			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
 			}
 
 			i.getHashTreeLevel().ServeHTTP(w, r)
@@ -429,6 +448,9 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 	}
 
 	if err := i.shards.PutObject(r.Context(), index, shard, obj, schemaVersion); err != nil {
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			writeUsageLimitExceeded(w, le)
 			return
@@ -544,6 +566,9 @@ func (i *indices) getObject() http.Handler {
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -575,6 +600,9 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	}).Debug("checking if shard exists ...")
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
+		if writeShardRefusal(w, err) {
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -616,6 +644,9 @@ func (i *indices) deleteObject() http.Handler {
 
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -661,6 +692,9 @@ func (i *indices) mergeObject() http.Handler {
 		}
 
 		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -710,6 +744,9 @@ func (i *indices) getObjectsMulti() http.Handler {
 
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -764,6 +801,9 @@ func (i *indices) postSearchObjects() http.Handler {
 
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -886,6 +926,9 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -951,6 +994,9 @@ func (i *indices) postFindUUIDs() http.Handler {
 
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
 
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -1049,6 +1095,9 @@ func (i *indices) getObjectsDigest() http.Handler {
 		}).Debug("digest objects ...")
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -1221,6 +1270,9 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 		}).Debug("getting shard queue size ...")
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -1260,6 +1312,9 @@ func (i *indices) getGetShardStatus() http.Handler {
 		}).Debug("getting shard status ...")
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
+		if writeShardRefusal(w, err) {
+			return
+		}
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -1320,6 +1375,9 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1345,6 +1403,9 @@ func (i *indices) postShardFile() http.Handler {
 
 		fp, err := i.shards.FilePutter(r.Context(), index, shard, filename)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1379,6 +1440,9 @@ func (i *indices) postShard() http.Handler {
 
 		err := i.shards.CreateShard(r.Context(), index, shard)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1399,6 +1463,9 @@ func (i *indices) putShardReinit() http.Handler {
 
 		err := i.shards.ReInitShard(r.Context(), index, shard)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1430,6 +1497,9 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 
 		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1456,6 +1526,9 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		err := i.shards.RemoveAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			// There's no easy to have a re-usable error type via all our interfaces to reach the shard/index
 			if strings.Contains(err.Error(), "shard not found") {
 				http.Error(w, err.Error(), http.StatusNotFound)

@@ -29,6 +29,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -516,10 +517,14 @@ func repairDigestsToProto(results []types.RepairDigest) []*pb.RepairResponse {
 }
 
 // replicationErrorToGRPC maps typed replication errors to gRPC codes.
-// FailedPrecondition = retry-later only (not-ready sentinel, ErrUnprocessable/LOADING, maintenance interceptor); clients map it to the sentinel.
+// FailedPrecondition is retry-later (not-ready sentinel, ErrUnprocessable/LOADING, maintenance
+// interceptor) or a namespace refusal, whose message ends with the namespaces sentinel's text.
 func replicationErrorToGRPC(err error) error {
 	if err == nil {
 		return nil
+	}
+	if text, ok := namespaces.RefusalText(err); ok {
+		return status.Error(codes.FailedPrecondition, text)
 	}
 	if errors.As(err, &enterrors.ErrUnprocessable{}) {
 		return status.Errorf(codes.FailedPrecondition, "%v", err)

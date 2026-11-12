@@ -434,12 +434,14 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		}
 
 		results, err := i.replicator.DigestObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
-
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
+			if errors.As(err, &enterrors.ErrUnprocessable{}) {
+				http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
 			http.Error(w, "digest objects: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -848,6 +850,9 @@ func (i *replicatedIndices) countObjects() http.Handler {
 
 		count, err := i.replicator.CountObjects(r.Context(), index, shard)
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
 			http.Error(w, "count objects: "+err.Error(),
 				http.StatusInternalServerError)
 			return
@@ -1033,12 +1038,14 @@ func (i *replicatedIndices) getObject() http.Handler {
 		defer r.Body.Close()
 
 		resp, err := i.replicator.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
-
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
+			if errors.As(err, &enterrors.ErrUnprocessable{}) {
+				http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1089,11 +1096,14 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		}
 
 		resp, err := i.replicator.FetchObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
 		if err != nil {
+			if writeShardRefusal(w, err) {
+				return
+			}
+			if errors.As(err, &enterrors.ErrUnprocessable{}) {
+				http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
