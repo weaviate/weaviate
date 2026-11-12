@@ -758,6 +758,11 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
+// Collection returns the collection the namespace's extractor found in the payload, or "" if unknown.
+func (t *Task) Collection() string {
+	return t.collection
+}
+
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
 	all := t.groupCount == len(t.groups)

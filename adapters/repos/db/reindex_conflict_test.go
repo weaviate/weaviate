@@ -364,6 +364,40 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
+// A submit decodes only the active tasks on its own collection, or whose collection is unknown.
+func TestCheckConflict_SkipsOtherCollectionsBeforeDecoding(t *testing.T) {
+	newPayload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"text"}})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		existingCollection string
+		wantRefuse         bool
+	}{
+		{existingCollection: "Other"},
+		{existingCollection: "c", wantRefuse: true},
+	} {
+		t.Run(tc.existingCollection, func(t *testing.T) {
+			// No migration type, so decoding this payload refuses the submit.
+			existing, err := json.Marshal(ReindexTaskPayload{Collection: tc.existingCollection})
+			require.NoError(t, err)
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: existing},
+			}}})
+			require.NoError(t, err)
+			logger, _ := test.NewNullLogger()
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:            logger,
+				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
+			})
+			mgr.RegisterCollectionExtractor(ReindexNamespace, ExtractReindexTaskCollection)
+			require.NoError(t, mgr.Restore(snapshot))
+			sub, err := json.Marshal(&api.AddDistributedTaskRequest{Namespace: ReindexNamespace, Id: "T2", Payload: newPayload, UnitIds: []string{"u"}})
+			require.NoError(t, err)
+			err = mgr.AddTask(&api.ApplyRequest{SubCommand: sub}, 2)
+			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
+		})
+	}
+}
+
 // TestCheckConflict_CaseInsensitiveCollection pins that the collection
 // match is case-insensitive — Weaviate's internal lookups
 // case-fold class names, so a parallel submit on the same property of
