@@ -710,6 +710,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 	_, err := t.onAfterLsmInit(ctx, shard)
+	// The restart that must come first re-covers every write, so no mirror is owed until then.
+	if errors.Is(err, errMigrationDataGone) {
+		return nil
+	}
 	return err
 }
 
@@ -762,6 +766,14 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 		logger.Debug("merged, not swapped. starting ingest buckets")
 	} else {
 		if hasRecord {
+			// Opening a bucket creates its directory, which would pass an empty one off as the rebuild.
+			restarted, err := restartIfOwnedDirGone(shard.migrationRecordStore(), shardBucketDirs(shard.pathLSM()), logger, rec.Subject())
+			if err != nil {
+				return false, err
+			}
+			if restarted != nil {
+				rec = restarted
+			}
 			logger.Debug("resuming reindex buckets from disk")
 		} else {
 			logger.Debug("not reindexed. starting reindex buckets")

@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -133,6 +134,84 @@ func TestAWriteBetweenShardLoadAndTheResumedIterationReachesTheNewIndex(t *testi
 		indexed = indexed || slices.Contains(ids, stored.DocID)
 	}
 	require.True(t, indexed, "the write landed after the cutoff, so the iteration skipped it")
+}
+
+// Boot 1 cannot record the restart a lost directory calls for. Whatever it
+// does instead must not leave the record looking resumable to boot 2.
+func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		iterated   bool
+		frozenLoad bool // an unreadable sibling record refuses every write at boot 1
+	}{
+		{name: "iterating, frozen load", frozenLoad: true},
+		{name: "iterated, frozen load", iterated: true, frozenLoad: true},
+		{name: "iterating, restart write fails at load, unit resumes in the same boot"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const propName, docs = filterableToRangeablePropName, 25
+			ctx := testCtx()
+			className := "LostDir_" + uuid.NewString()[:8]
+			class := newFilterableToRangeableTestClass(className)
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			for _, obj := range makeFilterableToRangeableTestObjects(t, docs, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
+			require.NoError(t, startOnShard(ctx, task, shard))
+			rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
+			require.True(t, ok)
+			subject := rec.Subject()
+			// A checkpoint past every key: resuming from it rebuilds nothing.
+			planted := MigrationRecord(NewMigrationRecordIterating(subject,
+				MigrationCheckpoint{LastProcessedKey: bytes.Repeat([]byte{0xff}, 16), UpdatedAt: time.Now()}))
+			if tc.iterated {
+				planted = NewMigrationRecordIterated(subject)
+			}
+			require.NoError(t, shard.migrationRecords.Put(planted))
+			lsm, records := shard.pathLSM(), shard.migrationRecords.Dir()
+			require.NoError(t, shard.Shutdown(ctx))
+			for _, dir := range migrationOwnedDirs(subject) {
+				require.NoError(t, os.RemoveAll(filepath.Join(lsm, dir)))
+			}
+
+			load := func() *Shard {
+				logger, _ := test.NewNullLogger()
+				p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
+				idx.shardReindexer = NewMigrationRecoveryReindexer(logger, nil, p)
+				loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+				require.NoError(t, err)
+				idx.shards.Store(shard.Name(), loaded)
+				return loaded.(*Shard)
+			}
+
+			var live *Shard
+			if tc.frozenLoad {
+				unreadable := plantUnreadableRecord(t, records)
+				require.NoError(t, load().Shutdown(ctx))
+				require.NoError(t, os.Remove(unreadable))
+				live = load()
+			} else {
+				require.NoError(t, os.Chmod(records, 0o555))
+				live = load()
+				require.NoError(t, os.Chmod(records, 0o755))
+			}
+			defer live.Shutdown(context.Background())
+
+			resumed, _ := newFilterableToRangeableTask(t, idx, className, propName, live.migrationUnit())
+			require.NoError(t, resumed.RunOnShard(ctx, live))
+
+			indexed := map[uint64]bool{}
+			bucket := live.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+			for _, ids := range filterableToRangeableFingerprint(t, bucket) {
+				for _, id := range ids {
+					indexed[id] = true
+				}
+			}
+			require.Len(t, indexed, docs, "the swapped-in index must cover every document, not resume over an empty rebuild")
+		})
+	}
 }
 
 // Recovery stamps an unbuildable decided flip before the load reconciler runs, so the staged copy is not promoted.

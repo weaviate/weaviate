@@ -246,13 +246,23 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 	return nil
 }
 
-// A missing owned directory means the rebuild never reached disk, so
-// resuming would swap in an incomplete bucket.
 func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
+	restarted, err := restartIfOwnedDirGone(r.store, r.dirs, r.logger, subject)
+	return restarted != nil, err
+}
+
+var errMigrationDataGone = errors.New("rebuilt data is gone and the restart could not be recorded")
+
+// A missing owned directory means the rebuild never reached disk, so
+// resuming would swap in an incomplete bucket. On a failed write it returns
+// errMigrationDataGone, and the caller must not open the directories.
+func restartIfOwnedDirGone(store *MigrationRecordStore, dirs bucketDirs, logger logrus.FieldLogger,
+	subject MigrationSubject,
+) (MigrationRecord, error) {
 	for _, dir := range migrationOwnedDirs(subject) {
-		there, err := r.dirs.Exists(dir)
+		there, err := dirs.Exists(dir)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if there {
 			continue
@@ -261,11 +271,15 @@ func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject)
 		restarted := subject
 		restarted.IterationCutoff = migrationHorizonEverything
 
-		r.logger.WithField("record", subject.Key.String()).Warnf(
+		logger.WithField("record", subject.Key.String()).Warnf(
 			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
-		return true, r.store.Put(NewMigrationRecordIterating(restarted, MigrationCheckpoint{}))
+		rec := NewMigrationRecordIterating(restarted, MigrationCheckpoint{})
+		if err := store.Put(rec); err != nil {
+			return nil, fmt.Errorf("%w: %q: %w", errMigrationDataGone, dir, err)
+		}
+		return rec, nil
 	}
-	return false, nil
+	return nil, nil
 }
 
 func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec MigrationRecordMerged,
