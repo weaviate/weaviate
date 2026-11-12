@@ -45,21 +45,17 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 			continue
 		}
 
-		// Process all values for this result, but stop if we hit the groups limit
-		skipResult := false
 		for _, val := range values {
-			if skipResult {
-				break
-			}
-
 			current, groupExists := groups[val]
 			if len(current) >= groupBy.ObjectsPerGroup {
 				continue
 			}
 
 			if !groupExists && len(groups) >= groupBy.Groups {
-				skipResult = true
-				break
+				// The groups limit is reached: this value must not create
+				// another group, but the result can still join groups that
+				// already exist, so only skip this value.
+				continue
 			}
 
 			groups[val] = append(current, result)
