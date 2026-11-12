@@ -145,6 +145,9 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
+	if err := st.admitTaskAdd(req.Type, collection); err != nil {
+		return err
+	}
 	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
 		return err
 	}
@@ -250,6 +253,16 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	// The command names its class outright, and Handler.UpdateShardStatus
 	// qualifies it before the propose.
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+}
+
+// admitTaskAdd refuses a task outside the active state, since running it would
+// load and rewrite shards the namespace has released. collection is "" for a
+// task that names none, which leaves nothing to check.
+func (st *Store) admitTaskAdd(cmdType api.ApplyRequest_Type, collection string) error {
+	if cmdType != api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD {
+		return nil
+	}
+	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(collection))
 }
 
 // admitCreateLike refuses a create-like command outside the active state. The
