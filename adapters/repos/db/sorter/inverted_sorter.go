@@ -413,13 +413,7 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 ) [][]byte {
 	zeroByte := [][]byte{{0x00}}
 
-	// a torn-down store leaves no bucket to count; fall through to the full
-	// index scan below rather than dereferencing nil
-	totalCount := 0
-	if ob, release := is.store.AcquireBucketForRead(helpers.ObjectsBucketLSM); ob != nil {
-		totalCount = ob.CountAsync()
-		release()
-	}
+	totalCount := countObjects(is.store)
 	if totalCount == 0 {
 		// no objects, likely no disk segments yet, force a full index scan
 		return zeroByte
