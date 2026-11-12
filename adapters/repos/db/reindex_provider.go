@@ -1911,19 +1911,12 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	if len(shards) == 0 {
 		return false
 	}
-	// One walk for the whole payload: a per-name lookup walks the shard map
-	// again for every tenant the payload names.
+	if idx.closeCause() != nil {
+		return false
+	}
 	hosted := make(map[string]bool, len(shards))
 	for _, shardName := range shards {
-		hosted[shardName] = false
-	}
-	if err := idx.ForEachShard(func(name string, _ ShardLike) error {
-		if _, wanted := hosted[name]; wanted {
-			hosted[name] = true
-		}
-		return nil
-	}); err != nil {
-		return false
+		hosted[shardName] = idx.shards.Load(shardName) != nil
 	}
 	recordReads := 0
 	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.

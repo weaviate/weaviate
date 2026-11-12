@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -649,31 +650,28 @@ func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
 }
 
 func TestLookupShardByName(t *testing.T) {
-	open := &Index{}
-	want := &Shard{}
-	open.shards.Store("tenant-a", want)
-	open.shards.Store("tenant-b", &Shard{})
-	closing, closingTenant := closingIndexWithAnUnvisitedShard(t)
+	t.Run("index closing", func(t *testing.T) {
+		closing, tenant := closingIndexWithAnUnvisitedShard(t)
 
-	tests := []struct {
-		name      string
-		idx       *Index
-		shardName string
-		want      ShardLike
-	}{
-		{name: "present", idx: open, shardName: "tenant-a", want: want},
-		{name: "absent", idx: open, shardName: "tenant-c"},
-		{name: "index closing", idx: closing, shardName: closingTenant},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := lookupShardByName(tt.idx, tt.shardName)
-			if tt.want == nil {
-				require.EqualError(t, err, fmt.Sprintf("shard %q not found", tt.shardName))
-				return
-			}
+		_, err := lookupShardByName(closing, tenant)
+
+		require.EqualError(t, err, fmt.Sprintf("shard %q not found", tenant))
+	})
+
+	// 500 walks over 100k shards take seconds; 500 direct loads take microseconds.
+	t.Run("does not walk the shard map", func(t *testing.T) {
+		idx := &Index{}
+		want := &Shard{}
+		for i := 0; i < 100_000; i++ {
+			idx.shards.Store(fmt.Sprintf("tenant-%d", i), want)
+		}
+
+		start := time.Now()
+		for i := 0; i < 500; i++ {
+			got, err := lookupShardByName(idx, "tenant-99999")
 			require.NoError(t, err)
-			require.Same(t, tt.want, got)
-		})
-	}
+			require.Same(t, want, got)
+			require.Less(t, time.Since(start), 100*time.Millisecond)
+		}
+	})
 }
