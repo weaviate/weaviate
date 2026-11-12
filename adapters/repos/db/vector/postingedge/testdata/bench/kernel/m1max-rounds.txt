@@ -1,0 +1,301 @@
+== round 1 11:11:09
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10065319	        33.84 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10720081	        33.60 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13856190	        26.04 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28748920	        12.52 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	24943776	        14.31 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8065208	        44.73 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7898878	        45.75 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7432941	        48.35 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19168180	        18.78 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17072804	        21.03 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45789	      7882 ns/op	        33.40 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  113799	      3152 ns/op	        13.36 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  230635	      1563 ns/op	         6.621 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   35133	     10243 ns/op	        43.40 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   76720	      4699 ns/op	        19.91 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  142200	      2544 ns/op	        10.78 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7212807	        46.59 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	13459419	        27.75 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6331843	        55.27 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	10309196	        33.38 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   78423	      4597 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   21730	     15804 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   38956	      9349 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8229	     38552 ns/op
+PASS
+== round 2 11:11:22
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10550518	        36.00 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10653080	        33.65 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13817941	        26.17 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28703269	        12.55 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	25388691	        14.27 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8344785	        43.43 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 8108221	        44.23 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7382646	        48.52 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19170392	        18.76 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17098855	        21.02 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45787	      7891 ns/op	        33.44 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  114834	      3139 ns/op	        13.30 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  231406	      1559 ns/op	         6.606 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   35232	     10248 ns/op	        43.43 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   76870	      5519 ns/op	        23.39 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  142155	      2538 ns/op	        10.75 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7719751	        47.53 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	13295547	        28.65 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6179097	        55.26 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	10849530	        33.80 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   78204	      4559 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   21589	     15719 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   39116	      9217 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8870	     37782 ns/op
+PASS
+== round 3 11:11:35
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10792821	        33.49 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10670828	        33.63 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13834358	        26.03 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28540282	        12.56 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	24944424	        14.41 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8051266	        45.24 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7619409	        53.63 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7402323	        48.34 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19229185	        18.84 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17139660	        21.08 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   44527	      8279 ns/op	        35.08 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  114534	      3986 ns/op	        16.89 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  229306	      1564 ns/op	         6.626 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   34947	     10321 ns/op	        43.73 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   73618	      4763 ns/op	        20.18 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  142474	      2527 ns/op	        10.71 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7369261	        47.34 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	12141085	        29.70 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6317564	        54.79 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	11782674	        31.28 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   78727	      4557 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   22440	     15825 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   39231	      9171 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8282	     38292 ns/op
+PASS
+== round 4 11:11:48
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10766086	        33.49 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10738401	        33.76 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13857523	        26.03 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28142221	        12.50 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	24781724	        14.44 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 7780664	        45.55 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7820263	        46.08 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7360820	        48.38 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19275344	        18.75 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17166631	        21.01 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   46718	      7700 ns/op	        32.63 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  115633	      3117 ns/op	        13.21 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  231888	      1557 ns/op	         6.597 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   36162	      9992 ns/op	        42.34 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   77598	      4638 ns/op	        19.65 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  141838	      2543 ns/op	        10.77 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7338484	        47.47 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	13381388	        26.88 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6418083	        54.88 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	11309605	        32.10 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   78027	      4586 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   21556	     15890 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   38812	      9402 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8487	     36652 ns/op
+PASS
+== round 5 11:12:01
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10729760	        33.42 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10742460	        33.52 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13845598	        26.08 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28500177	        12.56 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	25331596	        14.23 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8324437	        43.24 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 8156336	        44.27 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7454959	        48.46 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19287738	        18.67 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17243787	        20.91 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   46483	      7740 ns/op	        32.80 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  115615	      3112 ns/op	        13.19 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  231746	      1562 ns/op	         6.618 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   36019	     10002 ns/op	        42.38 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   77515	      4641 ns/op	        19.66 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  141612	      2531 ns/op	        10.72 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7113717	        47.66 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	12894481	        27.23 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6228909	        54.63 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	11550944	        31.46 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   79012	      4891 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   20154	     15465 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   39230	      9186 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8250	     37840 ns/op
+PASS
+== round 6 11:12:13
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10767320	        33.64 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10731972	        33.67 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13844910	        25.99 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28850871	        12.49 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	25297182	        14.23 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8074924	        44.58 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7889538	        45.67 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7463995	        48.42 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19047828	        18.69 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17156473	        20.99 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45966	      7854 ns/op	        33.28 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  115360	      3131 ns/op	        13.27 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  231884	      1555 ns/op	         6.589 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   35229	     10226 ns/op	        43.33 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   77042	      4686 ns/op	        19.86 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  141639	      2543 ns/op	        10.78 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7121320	        46.99 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	13606423	        27.19 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6599046	        54.41 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	11754897	        31.28 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   78811	      4547 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   21862	     15228 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   39610	      9113 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8464	     37647 ns/op
+PASS
+== round 7 11:12:26
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10732825	        33.63 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10729186	        33.55 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13868266	        26.41 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28842301	        12.48 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	25347128	        14.22 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8063740	        44.69 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7803051	        45.54 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7456110	        48.44 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19058163	        18.75 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17157972	        21.03 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45889	      7846 ns/op	        33.25 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  113642	      3183 ns/op	        13.49 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  231235	      1557 ns/op	         6.597 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   36012	      9990 ns/op	        42.33 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   77522	      4635 ns/op	        19.64 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  142545	      2536 ns/op	        10.74 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 6507547	        50.41 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	13259727	        27.75 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 5858650	        67.27 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	 9782960	        32.81 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   77229	      4639 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   22389	     15442 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   39327	      9275 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8343	     45019 ns/op
+PASS
+== round 8 11:12:39
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	 9186279	        33.91 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10653763	        34.02 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13835754	        26.21 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28882603	        13.59 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	24971748	        14.56 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 7945104	        45.25 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7801318	        46.26 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7354768	        48.63 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19284594	        18.76 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17008040	        21.08 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45759	      7793 ns/op	        33.02 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  114901	      3143 ns/op	        13.32 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  230283	      1564 ns/op	         6.625 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   34754	     10333 ns/op	        43.78 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   76772	      4706 ns/op	        19.94 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  139407	      2561 ns/op	        10.85 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 6769876	        50.61 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	11799458	        29.37 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6281271	        56.75 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	10962697	        35.25 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   77678	      4642 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   20665	     15627 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   38509	      9379 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8468	     37904 ns/op
+PASS
+== round 9 11:12:52
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10717501	        33.56 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10722715	        33.72 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13863127	        26.03 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28443882	        12.61 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	24462961	        14.29 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8354275	        43.45 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 8072607	        44.33 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7460604	        48.39 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19289415	        19.11 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17229928	        21.07 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45349	      7888 ns/op	        33.42 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  115146	      3130 ns/op	        13.26 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  230588	      1560 ns/op	         6.609 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   35943	     10012 ns/op	        42.42 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   77475	      4660 ns/op	        19.75 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  141844	      2533 ns/op	        10.73 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 7469281	        48.70 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	12481581	        29.34 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6408268	        54.68 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	11629108	        34.90 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   76825	      4540 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   21175	     15836 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   39195	      9676 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    9074	     36892 ns/op
+PASS
+== round 10 11:13:05
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge/kernelproto
+cpu: Apple M1 Max
+BenchmarkKernel/dims=768/current_distance-10         	10707726	        33.56 ns/op
+BenchmarkKernel/dims=768/current_five_calls-10       	10544312	        33.98 ns/op
+BenchmarkKernel/dims=768/fused_go-10                 	13817190	        26.06 ns/op
+BenchmarkKernel/dims=768/fused_neon-10               	28757532	        12.51 ns/op
+BenchmarkKernel/dims=768/prototype_distance-10       	25228191	        14.25 ns/op
+BenchmarkKernel/dims=1536/current_distance-10        	 8041375	        44.75 ns/op
+BenchmarkKernel/dims=1536/current_five_calls-10      	 7869948	        45.86 ns/op
+BenchmarkKernel/dims=1536/fused_go-10                	 7424050	        48.50 ns/op
+BenchmarkKernel/dims=1536/fused_neon-10              	19211397	        18.76 ns/op
+BenchmarkKernel/dims=1536/prototype_distance-10      	17124780	        21.05 ns/op
+BenchmarkPostingScan/dims=768/current_distance-10    	   45454	      7896 ns/op	        33.46 ns/code
+BenchmarkPostingScan/dims=768/prototype_distance-10  	  114400	      3135 ns/op	        13.28 ns/code
+BenchmarkPostingScan/dims=768/fastscan-10            	  231804	      1573 ns/op	         6.663 ns/code
+BenchmarkPostingScan/dims=1536/current_distance-10   	   36057	     10004 ns/op	        42.39 ns/code
+BenchmarkPostingScan/dims=1536/prototype_distance-10 	   77156	      4655 ns/op	        19.73 ns/code
+BenchmarkPostingScan/dims=1536/fastscan-10           	  141582	      2562 ns/op	        10.86 ns/code
+BenchmarkScattered/dims=768/current_distance-10      	 6985866	        50.53 ns/op
+BenchmarkScattered/dims=768/prototype_distance-10    	11625624	        28.97 ns/op
+BenchmarkScattered/dims=1536/current_distance-10     	 6619450	        56.71 ns/op
+BenchmarkScattered/dims=1536/prototype_distance-10   	11643108	        33.07 ns/op
+BenchmarkQueryLayout/dims=768/current_NewDistancer-10         	   77500	      4556 ns/op
+BenchmarkQueryLayout/dims=768/prototype_layout-10             	   22843	     16032 ns/op
+BenchmarkQueryLayout/dims=1536/current_NewDistancer-10        	   38697	      9236 ns/op
+BenchmarkQueryLayout/dims=1536/prototype_layout-10            	    8576	     37812 ns/op
+PASS
+== end 11:13:18

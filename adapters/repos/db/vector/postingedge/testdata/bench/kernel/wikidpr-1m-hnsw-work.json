@@ -1,0 +1,109 @@
+{
+  "dataset": "wikidpr-1m-e5-gt.bin",
+  "vectors": 1000000,
+  "dims": 768,
+  "queries": 1000,
+  "k": 10,
+  "config": {
+    "distance": "cosine",
+    "efConstruction": 128,
+    "maxConnections": 32,
+    "quantization": "rq bits=1 centering=true",
+    "trainingLimit": 10000
+  },
+  "levels": [
+    {
+      "level": 0,
+      "nodes": 1000000,
+      "connections": 31927846
+    },
+    {
+      "level": 1,
+      "nodes": 31472,
+      "connections": 742920
+    },
+    {
+      "level": 2,
+      "nodes": 1005,
+      "connections": 19614
+    },
+    {
+      "level": 3,
+      "nodes": 31,
+      "connections": 930
+    }
+  ],
+  "packedConnectionBytes": 105268663,
+  "points": [
+    {
+      "ef": 32,
+      "rescoreLimit": 512,
+      "recall": 0.8717,
+      "codeDistances": 1179.973,
+      "vectorDistances": 32
+    },
+    {
+      "ef": 48,
+      "rescoreLimit": 512,
+      "recall": 0.9168,
+      "codeDistances": 1569.709,
+      "vectorDistances": 48
+    },
+    {
+      "ef": 64,
+      "rescoreLimit": 512,
+      "recall": 0.9372,
+      "codeDistances": 1941.284,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 96,
+      "rescoreLimit": 512,
+      "recall": 0.9549,
+      "codeDistances": 2660.199,
+      "vectorDistances": 96
+    },
+    {
+      "ef": 128,
+      "rescoreLimit": 512,
+      "recall": 0.9645,
+      "codeDistances": 3350.899,
+      "vectorDistances": 128
+    },
+    {
+      "ef": 192,
+      "rescoreLimit": 512,
+      "recall": 0.9743,
+      "codeDistances": 4670.745,
+      "vectorDistances": 192
+    },
+    {
+      "ef": 256,
+      "rescoreLimit": 512,
+      "recall": 0.9812,
+      "codeDistances": 5926.099,
+      "vectorDistances": 256
+    },
+    {
+      "ef": 384,
+      "rescoreLimit": 512,
+      "recall": 0.9888,
+      "codeDistances": 8303.135,
+      "vectorDistances": 384
+    },
+    {
+      "ef": 512,
+      "rescoreLimit": 512,
+      "recall": 0.9912,
+      "codeDistances": 10542.477,
+      "vectorDistances": 512
+    },
+    {
+      "ef": 768,
+      "rescoreLimit": 512,
+      "recall": 0.9942,
+      "codeDistances": 14749.878,
+      "vectorDistances": 512
+    }
+  ]
+}
