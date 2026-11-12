@@ -172,6 +172,7 @@ func TestCommitlogParserRoaringSetCorruptRecord(t *testing.T) {
 		{name: "deletions length beyond the record", record: withTotalLen(le64(0), le64(1<<40))},
 		{name: "record ends before the key length", record: withTotalLen(le64(0), le64(0))},
 		{name: "key length beyond the record", record: withTotalLen(le64(0), le64(0), le32(1<<20))},
+		{name: "record ends after the first chunk", record: append(le64(maxRecordPrealloc+8+64), make([]byte, maxRecordPrealloc)...)},
 	}
 	parsers := []struct {
 		name  string
@@ -222,5 +223,79 @@ func TestCommitlogParserRoaringSetLengthDoesNotSizeAllocation(t *testing.T) {
 
 		require.Error(t, err)
 		require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(claimed/16))
+	}
+}
+
+// TestCommitlogParserRoaringSetLargeRecord pins that a valid record longer than
+// maxRecordPrealloc is read in full over several chunks. A read loop that
+// rejected it would end the replay at a healthy record.
+func TestCommitlogParserRoaringSetLargeRecord(t *testing.T) {
+	key := []byte("large-record-key")
+	deletions := []uint64{5, 6, 7}
+
+	// 4100 values per 65536-range exceed sroar's array container, so each range
+	// serializes as an 8 KiB bitmap container.
+	bitmapAdditions := make([]uint64, 0, 2100*4100)
+	for hi := uint64(0); hi < 2100; hi++ {
+		for lo := uint64(0); lo < 4100; lo++ {
+			bitmapAdditions = append(bitmapAdditions, hi<<16|lo)
+		}
+	}
+	listAdditions := make([]uint64, maxRecordPrealloc/8+1024)
+	for i := range listAdditions {
+		listAdditions[i] = uint64(i)
+	}
+
+	tests := []struct {
+		name      string
+		additions []uint64
+		record    func(t *testing.T) []byte
+		parse     func(prs *commitlogParserRoaringSet, r io.Reader) error
+	}{
+		{
+			name:      "bitmap record",
+			additions: bitmapAdditions,
+			record: func(t *testing.T) []byte {
+				n, err := roaringset.NewSegmentNode(key,
+					roaringset.NewBitmap(bitmapAdditions...), roaringset.NewBitmap(deletions...))
+				require.NoError(t, err)
+				return n.ToBuffer()
+			},
+			parse: func(prs *commitlogParserRoaringSet, r io.Reader) error { return prs.parseNode(r) },
+		},
+		{
+			name:      "list record",
+			additions: listAdditions,
+			record: func(t *testing.T) []byte {
+				n, err := roaringset.NewSegmentNodeList(key, listAdditions, deletions)
+				require.NoError(t, err)
+				return n.ToBuffer()
+			},
+			parse: func(prs *commitlogParserRoaringSet, r io.Reader) error { return prs.parseNodeList(r) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			record := tt.record(t)
+			require.Greater(t, len(record), maxRecordPrealloc+8, "record must need a second read chunk")
+
+			var gotKey []byte
+			var gotAdditions, gotDeletions []uint64
+			prs := &commitlogParserRoaringSet{
+				parser: &commitloggerParser{},
+				consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error {
+					gotKey = key
+					gotAdditions = additions
+					gotDeletions = deletions
+					return nil
+				},
+			}
+
+			require.NoError(t, tt.parse(prs, bytes.NewReader(record)))
+			assert.Equal(t, key, gotKey)
+			assert.Equal(t, tt.additions, gotAdditions)
+			assert.Equal(t, deletions, gotDeletions)
+		})
 	}
 }
