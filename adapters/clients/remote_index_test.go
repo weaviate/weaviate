@@ -190,7 +190,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	})
 }
 
-// A status read gives up on a peer within the query timeout and does not redial a refused one, since the caller asks the next replica.
+// A status read gives up on a peer within shardStatusTimeout and does not redial a refused one, since the caller asks the next replica.
 func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 	t.Parallel()
 	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))

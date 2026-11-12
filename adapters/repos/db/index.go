@@ -4543,8 +4543,11 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 	return shardsQueueSize, nil
 }
 
-// firstQueueSize returns the first answering replica's queue size, or every replica's error.
+// firstQueueSize returns the first answering read replica's queue size, or every replica's error.
 func (i *Index) firstQueueSize(ctx context.Context, shardName, thisNode string, replicas []string) (int64, error) {
+	if r := i.getReplicationFSMReader(); r != nil {
+		replicas = r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, replicas)
+	}
 	var errs []error
 	for _, nodeName := range localFirst(replicas, thisNode) {
 		var size int64
@@ -4742,6 +4745,13 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 	}
 	if cold != nil {
 		return cold.GetStatus().String(), nil
+	}
+	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
+	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
+		node := i.getSchema.NodeName()
+		if !slices.Contains(r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, []string{node}), node) {
+			return "", nil
+		}
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	defer release()

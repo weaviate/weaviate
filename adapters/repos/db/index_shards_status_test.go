@@ -173,6 +173,8 @@ func newShardStatusIndex(t *testing.T, mt bool, physical map[string]sharding.Phy
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		logger:           logger,
 	}
+	var fsm replicationTypes.ReplicationFSMReader = fsmReader
+	index.replicationFSMReader.Store(&fsm)
 	for name, kind := range local {
 		switch kind {
 		case localRecovering:
@@ -212,6 +214,7 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 		physical      map[string]sharding.Physical
 		deleted       []string // listed by the schema, then gone
 		local         map[string]localShardKind
+		unreadable    []string // replicas the replication FSM excludes from reads
 		reachable     []string // nodes besides the coordinator that resolve to a host
 		replies       map[string]statusReply
 		wantPerNode   map[string]map[string]string
@@ -254,6 +257,40 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			},
 			wantStatus: map[string]string{"s1": unavailable, "s2": ready, "s3": unavailable},
 			wantSize:   map[string]int64{"s1": 0, "s2": 0, "s3": 0},
+		},
+		{
+			name:          "queue size skips a replica that does not serve reads",
+			physical:      map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node1", "node2"}}},
+			unreadable:    []string{"node1"},
+			reachable:     []string{"node1", "node2"},
+			replies:       map[string]statusReply{"node1": {status: ready, size: 3}, "node2": {status: indexing, size: 7}},
+			wantPerNode:   map[string]map[string]string{"s1": {"node1": ready, "node2": indexing}},
+			wantStatus:    map[string]string{"s1": ready},
+			wantSize:      map[string]int64{"s1": 7},
+			queueNotAsked: []string{"node1/s1"},
+		},
+		{
+			name:        "a tenant copy on this node that does not serve reads is unavailable",
+			mt:          true,
+			physical:    map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{shardStatusLocalNode, "node1"}, Status: models.TenantActivityStatusHOT}},
+			local:       map[string]localShardKind{"hot": localReady},
+			unreadable:  []string{shardStatusLocalNode},
+			reachable:   []string{"node1"},
+			replies:     map[string]statusReply{"node1": {status: ready, size: 7}},
+			wantPerNode: map[string]map[string]string{"hot": {shardStatusLocalNode: unavailable, "node1": ready}},
+			wantStatus:  map[string]string{"hot": unavailable},
+			wantSize:    map[string]int64{"hot": 7},
+		},
+		{
+			name:        "a single-tenant copy on this node that does not serve reads reports its storage status",
+			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node1"}}},
+			local:       map[string]localShardKind{"s1": localReady},
+			unreadable:  []string{shardStatusLocalNode},
+			reachable:   []string{"node1"},
+			replies:     map[string]statusReply{"node1": {status: ready, size: 7}},
+			wantPerNode: map[string]map[string]string{"s1": {shardStatusLocalNode: ready, "node1": ready}},
+			wantStatus:  map[string]string{"s1": ready},
+			wantSize:    map[string]int64{"s1": 7},
 		},
 		{
 			name:          "local replica answers the queue size without asking a peer",
@@ -387,6 +424,15 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 					// Arrange
 					client := &shardStatusRemoteClient{replies: tc.replies}
 					index, hook := newShardStatusIndex(t, tc.mt, tc.physical, tc.local, tc.reachable, client, tc.deleted...)
+					if tc.unreadable != nil {
+						fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+						fsmReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+							func(_, _ string, replicas []string) []string {
+								return slices.DeleteFunc(slices.Clone(replicas), func(n string) bool { return slices.Contains(tc.unreadable, n) })
+							}).Maybe()
+						var fsm replicationTypes.ReplicationFSMReader = fsmReader
+						index.replicationFSMReader.Store(&fsm)
+					}
 					ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 					defer cancel()
 
