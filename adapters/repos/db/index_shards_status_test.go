@@ -14,7 +14,10 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -201,6 +204,7 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 	const (
 		ready       = "READY"
 		indexing    = "INDEXING"
+		readonly    = "READONLY"
 		unavailable = "UNAVAILABLE"
 	)
 	require.Equal(t, unavailable, storagestate.StatusUnavailable.String())
@@ -341,7 +345,7 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			wantSize:    map[string]int64{"s1": 0},
 		},
 		{
-			name: "listing a multi-tenant collection reports COLD and FROZEN tenants unavailable without asking replicas",
+			name: "non-HOT tenants report what their replicas hold, a queue size of 0, and are never activated",
 			mt:   true,
 			physical: map[string]sharding.Physical{
 				"hot":    {Name: "hot", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusHOT},
@@ -350,19 +354,21 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			},
 			reachable: []string{"node1", "node2"},
 			replies: map[string]statusReply{
-				"node1/hot": {status: ready, size: 0},
-				"node2/hot": {status: ready, size: 0},
-				"node1":     shardNotFound,
-				"node2":     shardNotFound,
+				"node1/hot":  {status: ready, size: 0},
+				"node2/hot":  {status: ready, size: 0},
+				"node1/cold": {status: readonly, size: 5},
+				"node2/cold": {status: readonly, size: 5},
+				"node1":      shardNotFound,
+				"node2":      shardNotFound,
 			},
 			wantPerNode: map[string]map[string]string{
 				"hot":    {"node1": ready, "node2": ready},
-				"cold":   {"node1": unavailable, "node2": unavailable},
+				"cold":   {"node1": readonly, "node2": readonly},
 				"frozen": {"node1": unavailable, "node2": unavailable},
 			},
-			wantStatus: map[string]string{"hot": ready, "cold": unavailable, "frozen": unavailable},
-			wantSize:   map[string]int64{"hot": 0, "cold": 0, "frozen": 0},
-			notAsked:   []string{"node1/cold", "node2/cold", "node1/frozen", "node2/frozen"},
+			wantStatus:    map[string]string{"hot": ready, "cold": readonly, "frozen": unavailable},
+			wantSize:      map[string]int64{"hot": 0, "cold": 0, "frozen": 0},
+			queueNotAsked: []string{"node1/cold", "node2/cold", "node1/frozen", "node2/frozen"},
 		},
 		{
 			name:        "tenant deleted while listing is left out",
@@ -453,17 +459,19 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 	}
 }
 
+// shardLookups runs each lookup over the whole collection.
+var shardLookups = map[string]func(context.Context, *Index) error{
+	"status": func(ctx context.Context, index *Index) error {
+		_, _, err := index.getShardsStorageStatus(ctx, "")
+		return err
+	},
+	"queue size": func(ctx context.Context, index *Index) error {
+		_, err := index.getShardsQueueSize(ctx, "")
+		return err
+	},
+}
+
 func TestIndex_ShardsStatusAndQueueSize_NamespaceGate(t *testing.T) {
-	lookups := map[string]func(context.Context, *Index) error{
-		"status": func(ctx context.Context, index *Index) error {
-			_, _, err := index.getShardsStorageStatus(ctx, "")
-			return err
-		},
-		"queue size": func(ctx context.Context, index *Index) error {
-			_, err := index.getShardsQueueSize(ctx, "")
-			return err
-		},
-	}
 	for _, tc := range []struct {
 		state   api.NamespaceState
 		wantErr error
@@ -471,7 +479,7 @@ func TestIndex_ShardsStatusAndQueueSize_NamespaceGate(t *testing.T) {
 		{state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
 		{state: api.NamespaceStateActive},
 	} {
-		for name, lookup := range lookups {
+		for name, lookup := range shardLookups {
 			t.Run(string(tc.state)+"/"+name, func(t *testing.T) {
 				// Arrange
 				client := &shardStatusRemoteClient{replies: map[string]statusReply{"node2": {status: "READY", size: 7}}}
@@ -494,5 +502,61 @@ func TestIndex_ShardsStatusAndQueueSize_NamespaceGate(t *testing.T) {
 				require.Empty(t, client.askedFor(), "replica asked")
 			})
 		}
+	}
+}
+
+func TestIndex_ShardsStatusAndQueueSize_SkipPeerThatTimedOut(t *testing.T) {
+	limit := runtime.GOMAXPROCS(0) * 4
+	physical := make(map[string]sharding.Physical, 3*limit)
+	for n := range 3 * limit {
+		name := fmt.Sprintf("s%03d", n)
+		physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"stuck", "node2"}}
+	}
+	replies := map[string]statusReply{
+		"stuck": {err: fmt.Errorf("connect: %w", context.DeadlineExceeded)},
+		"node2": {status: "READY", size: 7},
+	}
+	for name, lookup := range shardLookups {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			client := &shardStatusRemoteClient{replies: replies}
+			index, _ := newShardStatusIndex(t, false, physical, nil, []string{"stuck", "node2"}, client)
+
+			// Act
+			err := lookup(t.Context(), index)
+
+			// Assert
+			require.NoError(t, err)
+			stuckCalls := 0
+			for _, call := range client.askedFor() {
+				if strings.HasPrefix(call, "stuck/") {
+					stuckCalls++
+				}
+			}
+			require.LessOrEqual(t, stuckCalls, limit, "calls to the peer that timed out")
+		})
+	}
+}
+
+func TestTimedOutPeers(t *testing.T) {
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	timedOut := fmt.Errorf("connect: %w", context.DeadlineExceeded)
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want bool
+	}{
+		{name: "its own call timed out", ctx: t.Context(), err: timedOut, want: true},
+		{name: "it answered an error", ctx: t.Context(), err: errors.New("status code: 500")},
+		{name: "it answered", ctx: t.Context()},
+		{name: "the listing ended", ctx: ended, err: timedOut},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var peers timedOutPeers
+			peers.record(tc.ctx, "node1", tc.err)
+			require.Equal(t, tc.want, peers.has("node1"))
+		})
 	}
 }

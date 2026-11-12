@@ -160,12 +160,8 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
 		switch n {
 		case 0:
-			w.WriteHeader(http.StatusInternalServerError)
-		case 1:
-			w.WriteHeader(http.StatusTooManyRequests)
-		case 2:
 			w.Header().Set("content-type", "any")
-		case 3:
+		case 1:
 			clusterapi.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
 		default:
 			clusterapi.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
@@ -190,7 +186,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	})
 }
 
-// A status read gives up on a peer within shardStatusTimeout and does not redial a refused one, since the caller asks the next replica.
+// A status read is one attempt within shardStatusTimeout, since the caller asks the next replica.
 func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 	t.Parallel()
 	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
@@ -225,6 +221,22 @@ func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 			// Assert
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			require.Less(t, time.Since(start), 5*time.Second)
+		})
+		t.Run(read.name+"/peer answers 500", func(t *testing.T) {
+			// Arrange
+			var requests atomic.Int32
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer failing.Close()
+
+			// Act
+			err := read.call(t.Context(), newRemoteIndex(failing.Client()), failing.URL[7:])
+
+			// Assert
+			require.ErrorContains(t, err, "status code: 500")
+			require.Equal(t, int32(1), requests.Load(), "requests")
 		})
 		t.Run(read.name+"/peer refuses the connection", func(t *testing.T) {
 			// Arrange

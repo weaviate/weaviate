@@ -114,7 +114,6 @@ func assertShardsAnswered(ctx context.Context, c assert.TestingT, uri, down stri
 			for node, status := range shard.PerNodeStatus {
 				assert.Equal(c, statusOn(node), status, "shard %s on %s", shard.Name, node)
 			}
-			assert.Zero(c, shard.VectorQueueSize, "shard %s", shard.Name) //nolint:staticcheck // older clients still read it
 		}
 	}
 

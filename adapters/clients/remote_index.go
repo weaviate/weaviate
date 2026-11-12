@@ -572,7 +572,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	return batchDeleteResults
 }
 
-// shardStatusTimeout bounds a status or queue-size read, after which the caller asks the next replica.
+// shardStatusTimeout bounds a status or queue-size read. The read is tried once, since the caller asks the next replica.
 const shardStatusTimeout = 2 * time.Second
 
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
@@ -615,7 +615,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, MAX_RETRIES, try)
+	return size, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
@@ -658,7 +658,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, MAX_RETRIES, try)
+	return status, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
