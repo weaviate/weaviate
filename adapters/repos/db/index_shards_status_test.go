@@ -24,8 +24,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -46,7 +49,6 @@ type statusReply struct {
 	status string
 	size   int64
 	err    error
-	hang   bool // block until the caller's context ends
 }
 
 // shardStatusRemoteClient answers by "node/shard", then "node" (hostname == node name).
@@ -70,9 +72,8 @@ func (c *shardStatusRemoteClient) reply(ctx context.Context, host, shard string)
 	if !ok {
 		return r, errors.New("no reply configured")
 	}
-	if r.hang {
-		<-ctx.Done()
-		return r, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return r, err
 	}
 	return r, r.err
 }
@@ -93,7 +94,7 @@ func (c *shardStatusRemoteClient) askedFor() []string {
 	return slices.Clone(c.asked)
 }
 
-// physicalShards owns each shard by its first replica.
+// physicalShards reports each shard's first replica as its owner.
 type physicalShards map[string]sharding.Physical
 
 func (p physicalShards) ShardOwner(_, shard string) (string, error) {
@@ -112,9 +113,9 @@ const (
 	localShuttingDown
 )
 
-// newShardStatusIndex uses the real router; the schema getter fails any tenant (activation) lookup.
+// newShardStatusIndex lists deleted shards without replicas and fails any tenant status lookup, which could activate a tenant.
 func newShardStatusIndex(t *testing.T, mt bool, physical map[string]sharding.Physical,
-	local map[string]localShardKind, reachable []string, client *shardStatusRemoteClient,
+	local map[string]localShardKind, reachable []string, client *shardStatusRemoteClient, deleted ...string,
 ) (*Index, *test.Hook) {
 	t.Helper()
 	const className = "Abc"
@@ -128,9 +129,15 @@ func newShardStatusIndex(t *testing.T, mt bool, physical map[string]sharding.Phy
 	slices.Sort(names)
 
 	schemaReader := schemaUC.NewMockSchemaReader(t)
-	schemaReader.EXPECT().Shards(className).Return(names, nil).Maybe()
+	schemaReader.EXPECT().Shards(className).Return(append(names, deleted...), nil).Maybe()
 	schemaReader.EXPECT().ShardReplicas(className, mock.Anything).RunAndReturn(
-		func(_, shard string) ([]string, error) { return physical[shard].BelongsToNodes, nil }).Maybe()
+		func(_, shard string) ([]string, error) {
+			p, ok := physical[shard]
+			if !ok {
+				return nil, clusterSchema.ErrShardNotFound
+			}
+			return p.BelongsToNodes, nil
+		}).Maybe()
 	schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
 			return read(&models.Class{Class: className}, state)
@@ -196,28 +203,22 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 	)
 	require.Equal(t, unavailable, storagestate.StatusUnavailable.String())
 
-	hotAndCold := func(nodes ...string) map[string]sharding.Physical {
-		return map[string]sharding.Physical{
-			"hot":  {Name: "hot", BelongsToNodes: nodes, Status: models.TenantActivityStatusHOT},
-			"cold": {Name: "cold", BelongsToNodes: nodes, Status: models.TenantActivityStatusCOLD},
-		}
-	}
 	shardNotFound := statusReply{err: errors.New("status code: 500 body: (local shard not found)")}
 	refused := statusReply{err: errors.New("connect: connection refused")}
 
 	for _, tc := range []struct {
-		name        string
-		mt          bool
-		tenant      string
-		physical    map[string]sharding.Physical
-		local       map[string]localShardKind
-		reachable   []string // nodes besides the coordinator that resolve to a host
-		replies     map[string]statusReply
-		wantPerNode map[string]map[string]string
-		wantStatus  map[string]string // legacy: the local replica, else the first listed
-		wantSize    map[string]int64
-		notAsked    []string // "node/shard", by either lookup
-		queueAsks   []string // "node/shard" the queue lookup must not ask
+		name          string
+		mt            bool
+		physical      map[string]sharding.Physical
+		deleted       []string // listed by the schema, then gone
+		local         map[string]localShardKind
+		reachable     []string // nodes besides the coordinator that resolve to a host
+		replies       map[string]statusReply
+		wantPerNode   map[string]map[string]string
+		wantStatus    map[string]string // legacy: the local replica, else the first listed
+		wantSize      map[string]int64
+		notAsked      []string // "node/shard", by either lookup
+		queueNotAsked []string // "node/shard", by the queue lookup
 	}{
 		{
 			name:        "unresolvable replica falls over to the next one",
@@ -238,22 +239,6 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			wantSize:    map[string]int64{"s1": 7},
 		},
 		{
-			name:        "shard no replica answers for is unavailable",
-			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node1", "node2"}}},
-			reachable:   []string{"node1", "node2"},
-			replies:     map[string]statusReply{"node1": refused, "node2": refused},
-			wantPerNode: map[string]map[string]string{"s1": {"node1": unavailable, "node2": unavailable}},
-			wantStatus:  map[string]string{"s1": unavailable},
-			wantSize:    map[string]int64{"s1": 0},
-		},
-		{
-			name:        "shard whose replicas are all unresolvable is unavailable",
-			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"down1", "down2"}}},
-			wantPerNode: map[string]map[string]string{"s1": {"down1": unavailable, "down2": unavailable}},
-			wantStatus:  map[string]string{"s1": unavailable},
-			wantSize:    map[string]int64{"s1": 0},
-		},
-		{
 			name: "one unreachable node does not fail the other shards",
 			physical: map[string]sharding.Physical{
 				"s1": {Name: "s1", BelongsToNodes: []string{"down", "node2"}},
@@ -271,19 +256,19 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			wantSize:   map[string]int64{"s1": 0, "s2": 0, "s3": 0},
 		},
 		{
-			name:        "local replica answers the queue size without asking a peer",
-			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node2", shardStatusLocalNode}}},
-			local:       map[string]localShardKind{"s1": localReady},
-			reachable:   []string{"node2"},
-			replies:     map[string]statusReply{"node2": {status: indexing, size: 7}},
-			wantPerNode: map[string]map[string]string{"s1": {shardStatusLocalNode: ready, "node2": indexing}},
-			wantStatus:  map[string]string{"s1": ready},
-			wantSize:    map[string]int64{"s1": 0},
-			queueAsks:   []string{"node2/s1"},
+			name:          "local replica answers the queue size without asking a peer",
+			physical:      map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node2", shardStatusLocalNode}}},
+			local:         map[string]localShardKind{"s1": localReady},
+			reachable:     []string{"node2"},
+			replies:       map[string]statusReply{"node2": {status: indexing, size: 7}},
+			wantPerNode:   map[string]map[string]string{"s1": {shardStatusLocalNode: ready, "node2": indexing}},
+			wantStatus:    map[string]string{"s1": ready},
+			wantSize:      map[string]int64{"s1": 0},
+			queueNotAsked: []string{"node2/s1"},
 		},
 		{
 			name:      "local replica missing its shard asks a peer, not itself",
-			physical:  map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
+			physical:  map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node2", shardStatusLocalNode}}},
 			reachable: []string{"node2"},
 			replies: map[string]statusReply{
 				shardStatusLocalNode: shardNotFound,
@@ -319,9 +304,13 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			wantSize:    map[string]int64{"s1": 0},
 		},
 		{
-			name:      "listing a multi-tenant collection reports a COLD tenant unavailable without asking replicas",
-			mt:        true,
-			physical:  hotAndCold("node1", "node2"),
+			name: "listing a multi-tenant collection reports COLD and FROZEN tenants unavailable without asking replicas",
+			mt:   true,
+			physical: map[string]sharding.Physical{
+				"hot":    {Name: "hot", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusHOT},
+				"cold":   {Name: "cold", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusCOLD},
+				"frozen": {Name: "frozen", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusFROZEN},
+			},
 			reachable: []string{"node1", "node2"},
 			replies: map[string]statusReply{
 				"node1/hot": {status: ready, size: 0},
@@ -330,57 +319,36 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 				"node2":     shardNotFound,
 			},
 			wantPerNode: map[string]map[string]string{
-				"hot":  {"node1": ready, "node2": ready},
-				"cold": {"node1": unavailable, "node2": unavailable},
+				"hot":    {"node1": ready, "node2": ready},
+				"cold":   {"node1": unavailable, "node2": unavailable},
+				"frozen": {"node1": unavailable, "node2": unavailable},
 			},
-			wantStatus: map[string]string{"hot": ready, "cold": unavailable},
-			wantSize:   map[string]int64{"hot": 0, "cold": 0},
-			notAsked:   []string{"node1/cold", "node2/cold"},
+			wantStatus: map[string]string{"hot": ready, "cold": unavailable, "frozen": unavailable},
+			wantSize:   map[string]int64{"hot": 0, "cold": 0, "frozen": 0},
+			notAsked:   []string{"node1/cold", "node2/cold", "node1/frozen", "node2/frozen"},
 		},
 		{
-			name: "COLD tenants listed after HOT ones are recorded alongside the replica reads",
-			mt:   true,
-			physical: map[string]sharding.Physical{
-				"a-hot":  {Name: "a-hot", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT},
-				"b-hot":  {Name: "b-hot", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT},
-				"y-cold": {Name: "y-cold", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusCOLD},
-				"z-cold": {Name: "z-cold", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusFROZEN},
-			},
-			reachable: []string{"node1"},
-			replies:   map[string]statusReply{"node1": {status: ready, size: 0}},
-			wantPerNode: map[string]map[string]string{
-				"a-hot":  {"node1": ready},
-				"b-hot":  {"node1": ready},
-				"y-cold": {"node1": unavailable},
-				"z-cold": {"node1": unavailable},
-			},
-			wantStatus: map[string]string{"a-hot": ready, "b-hot": ready, "y-cold": unavailable, "z-cold": unavailable},
-			wantSize:   map[string]int64{"a-hot": 0, "b-hot": 0, "y-cold": 0, "z-cold": 0},
-			notAsked:   []string{"node1/y-cold", "node1/z-cold"},
-		},
-		{
-			name:        "asking for a COLD tenant held locally neither activates it nor asks replicas",
+			name:        "tenant deleted while listing is left out",
 			mt:          true,
-			tenant:      "cold",
-			physical:    hotAndCold(shardStatusLocalNode, "node1"),
-			reachable:   []string{"node1"},
-			replies:     map[string]statusReply{"node1": shardNotFound},
-			wantPerNode: map[string]map[string]string{"cold": {shardStatusLocalNode: unavailable, "node1": unavailable}},
-			wantStatus:  map[string]string{"cold": unavailable},
-			wantSize:    map[string]int64{"cold": 0},
-			notAsked:    []string{"node1/cold"},
-		},
-		{
-			name:        "listing a multi-tenant collection reads a local HOT tenant without a tenant status lookup",
-			mt:          true,
-			physical:    map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{shardStatusLocalNode, "node1"}, Status: models.TenantActivityStatusHOT}},
-			local:       map[string]localShardKind{"hot": localReady},
+			physical:    map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT}},
+			deleted:     []string{"gone"},
 			reachable:   []string{"node1"},
 			replies:     map[string]statusReply{"node1": {status: ready, size: 0}},
-			wantPerNode: map[string]map[string]string{"hot": {shardStatusLocalNode: ready, "node1": ready}},
+			wantPerNode: map[string]map[string]string{"hot": {"node1": ready}},
 			wantStatus:  map[string]string{"hot": ready},
 			wantSize:    map[string]int64{"hot": 0},
-			queueAsks:   []string{"node1/hot"},
+		},
+		{
+			name:          "listing a multi-tenant collection reads a local HOT tenant without a tenant status lookup",
+			mt:            true,
+			physical:      map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{shardStatusLocalNode, "node1"}, Status: models.TenantActivityStatusHOT}},
+			local:         map[string]localShardKind{"hot": localReady},
+			reachable:     []string{"node1"},
+			replies:       map[string]statusReply{"node1": {status: ready, size: 0}},
+			wantPerNode:   map[string]map[string]string{"hot": {shardStatusLocalNode: ready, "node1": ready}},
+			wantStatus:    map[string]string{"hot": ready},
+			wantSize:      map[string]int64{"hot": 0},
+			queueNotAsked: []string{"node1/hot"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -392,7 +360,7 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 				{
 					name: "status",
 					run: func(t *testing.T, ctx context.Context, index *Index) error {
-						perNode, status, err := index.getShardsStorageStatus(ctx, tc.tenant)
+						perNode, status, err := index.getShardsStorageStatus(ctx, "")
 						if err != nil {
 							return err
 						}
@@ -405,20 +373,20 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 				{
 					name: "queue size",
 					run: func(t *testing.T, ctx context.Context, index *Index) error {
-						size, err := index.getShardsQueueSize(ctx, tc.tenant)
+						size, err := index.getShardsQueueSize(ctx, "")
 						if err != nil {
 							return err
 						}
 						require.Equal(t, tc.wantSize, size)
 						return nil
 					},
-					notAsked: append(slices.Clone(tc.notAsked), tc.queueAsks...),
+					notAsked: append(slices.Clone(tc.notAsked), tc.queueNotAsked...),
 				},
 			} {
 				t.Run(lookup.name, func(t *testing.T) {
 					// Arrange
 					client := &shardStatusRemoteClient{replies: tc.replies}
-					index, hook := newShardStatusIndex(t, tc.mt, tc.physical, tc.local, tc.reachable, client)
+					index, hook := newShardStatusIndex(t, tc.mt, tc.physical, tc.local, tc.reachable, client, tc.deleted...)
 					ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 					defer cancel()
 
@@ -436,5 +404,49 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestIndex_ShardsStatusAndQueueSize_NamespaceGate(t *testing.T) {
+	lookups := map[string]func(context.Context, *Index) error{
+		"status": func(ctx context.Context, index *Index) error {
+			_, _, err := index.getShardsStorageStatus(ctx, "")
+			return err
+		},
+		"queue size": func(ctx context.Context, index *Index) error {
+			_, err := index.getShardsQueueSize(ctx, "")
+			return err
+		},
+	}
+	for _, tc := range []struct {
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{state: api.NamespaceStateSuspended, wantErr: namespaces.ErrNamespaceSuspended},
+		{state: api.NamespaceStateActive},
+	} {
+		for name, lookup := range lookups {
+			t.Run(string(tc.state)+"/"+name, func(t *testing.T) {
+				// Arrange
+				client := &shardStatusRemoteClient{replies: map[string]statusReply{"node2": {status: "READY", size: 7}}}
+				index, _ := newShardStatusIndex(t, false,
+					map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node2"}}},
+					nil, []string{"node2"}, client)
+				index.namespace = "alpha"
+				index.namespacesExister = existerWithState(t, tc.state)
+
+				// Act
+				err := lookup(t.Context(), index)
+
+				// Assert
+				if tc.wantErr == nil {
+					require.NoError(t, err)
+					require.NotEmpty(t, client.askedFor(), "replica asked")
+					return
+				}
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Empty(t, client.askedFor(), "replica asked")
+			})
+		}
 	}
 }

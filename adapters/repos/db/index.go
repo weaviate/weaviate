@@ -49,6 +49,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -4489,9 +4490,12 @@ func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) e
 	return stderrors.Join(errs...)
 }
 
-// getShardsQueueSize takes each shard's first answering replica, local first; 0 if none or not HOT.
+// getShardsQueueSize reads each shard's queue size from its first answering replica, local first, and 0 when none answers or the tenant is not HOT.
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
 	if err := i.refuseIfClosed(); err != nil {
+		return nil, err
+	}
+	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
 		return nil, err
 	}
 
@@ -4511,27 +4515,17 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			continue
 		}
 		eg.Go(func() error {
-			if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
-				return err
-			}
 			var size int64
 			if !i.inactiveTenant(shardName) {
 				replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+				if errors.Is(err, clusterSchema.ErrShardNotFound) {
+					return nil // tenant deleted after listing
+				}
 				if err != nil {
 					return err
 				}
-				for _, nodeName := range localFirst(replicas, thisNode) {
-					var s int64
-					var err error
-					if nodeName == thisNode {
-						s, err = i.localShardQueueSize(ctx, shardName)
-					} else {
-						s, err = i.remote.GetShardQueueSize(ctx, shardName, nodeName)
-					}
-					if err == nil {
-						size = s
-						break
-					}
+				if size, err = i.firstQueueSize(ctx, shardName, thisNode, replicas); err != nil && ctx.Err() == nil {
+					i.logger.WithField("shard", shardName).Warnf("queue size: no replica answered: %v", err)
 				}
 			}
 			if err := ctx.Err(); err != nil {
@@ -4549,23 +4543,26 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 	return shardsQueueSize, nil
 }
 
-func (i *Index) localShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	cold, err := i.unloadedLazyShard(shardName)
-	if err != nil || cold != nil {
-		return 0, err
+// firstQueueSize returns the first answering replica's queue size, or every replica's error.
+func (i *Index) firstQueueSize(ctx context.Context, shardName, thisNode string, replicas []string) (int64, error) {
+	var errs []error
+	for _, nodeName := range localFirst(replicas, thisNode) {
+		var size int64
+		var err error
+		if nodeName == thisNode {
+			size, err = i.IncomingGetShardQueueSize(ctx, shardName)
+		} else {
+			size, err = i.remote.GetShardQueueSize(ctx, shardName, nodeName)
+		}
+		if err == nil {
+			return size, nil
+		}
+		errs = append(errs, fmt.Errorf("%s: %w", nodeName, err))
 	}
-	shard, release, err := i.GetShard(ctx, shardName)
-	defer release()
-	if err != nil {
-		return 0, err
-	}
-	if shard == nil {
-		return 0, fmt.Errorf("local %s shard not found", shardName)
-	}
-	return shardQueueSize(shard), nil
+	return 0, stderrors.Join(errs...)
 }
 
-// inactiveTenant reports a tenant that is not HOT in the local schema; no replica serves it.
+// inactiveTenant reports whether the local schema lists shardName as a tenant that is not HOT.
 func (i *Index) inactiveTenant(shardName string) bool {
 	if !i.partitioningEnabled {
 		return false
@@ -4576,7 +4573,7 @@ func (i *Index) inactiveTenant(shardName string) bool {
 			return nil
 		}
 		if physical, ok := state.Physical[shardName]; ok {
-			inactive = physical.ActivityStatus() != models.TenantActivityStatusHOT
+			inactive = !shardStatusOpen(physical.Status)
 		}
 		return nil
 	})
@@ -4658,6 +4655,9 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	if err := i.refuseIfClosed(); err != nil {
 		return nil, nil, err
 	}
+	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+		return nil, nil, err
+	}
 
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
@@ -4680,6 +4680,9 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 
 		eg.Go(func() error {
 			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+			if errors.Is(err, clusterSchema.ErrShardNotFound) {
+				return nil // tenant deleted after listing
+			}
 			if err != nil {
 				return err
 			}
@@ -5203,7 +5206,7 @@ func (i *Index) enterRead() error {
 
 func (i *Index) exitRead() { i.inflight.Done() }
 
-// refuseIfClosed checks without admitting: a close does not wait for the caller.
+// refuseIfClosed returns errAlreadyShutdown once closed, without enterRead, so a close never waits on peer calls.
 func (i *Index) refuseIfClosed() error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()

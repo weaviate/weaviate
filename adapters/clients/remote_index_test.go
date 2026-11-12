@@ -26,9 +26,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -186,6 +188,61 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "READONLY", st)
 	})
+}
+
+// A status read gives up on a peer within the query timeout and does not redial a refused one, since the caller asks the next replica.
+func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
+	t.Parallel()
+	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hung.Close()
+	down := httptest.NewServer(http.NotFoundHandler())
+	downHost := down.URL[7:]
+	down.Close()
+
+	for _, read := range []struct {
+		name string
+		call func(ctx context.Context, client *RemoteIndex, host string) error
+	}{
+		{name: "status", call: func(ctx context.Context, client *RemoteIndex, host string) error {
+			_, err := client.GetShardStatus(ctx, host, "C1", "S1")
+			return err
+		}},
+		{name: "queue size", call: func(ctx context.Context, client *RemoteIndex, host string) error {
+			_, err := client.GetShardQueueSize(ctx, host, "C1", "S1")
+			return err
+		}},
+	} {
+		t.Run(read.name+"/peer never answers", func(t *testing.T) {
+			// Arrange
+			client := newRemoteIndex(hung.Client())
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			start := time.Now()
+
+			// Act
+			err := read.call(ctx, client, hung.URL[7:])
+
+			// Assert
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.Less(t, time.Since(start), 5*time.Second)
+		})
+		t.Run(read.name+"/peer refuses the connection", func(t *testing.T) {
+			// Arrange
+			var dials atomic.Int32
+			transport := &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dials.Add(1)
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			}}
+			client := newRemoteIndex(&http.Client{Transport: transport})
+
+			// Act
+			err := read.call(t.Context(), client, downHost)
+
+			// Assert
+			require.ErrorContains(t, err, "connect")
+			require.Equal(t, int32(1), dials.Load(), "dials")
+		})
+	}
 }
 
 func TestRemoteIndexPutFile(t *testing.T) {
