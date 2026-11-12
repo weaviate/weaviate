@@ -18,10 +18,9 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-// fsmReachedIndex checks the last command at or below index: config and noop entries never advance
-// lastAppliedIndex, and raft's own applied index moves on enqueue, before the FSM runs the entry.
+// Config and noop entries never advance lastAppliedIndex, and raft's applied index moves on enqueue.
 func (st *Store) fsmReachedIndex(index uint64) (bool, error) {
-	applied := max(st.lastAppliedIndex.Load(), st.restoredIndex.Load())
+	applied := st.lastAppliedIndex.Load()
 	if applied >= index {
 		return true, nil
 	}
@@ -32,15 +31,15 @@ func (st *Store) fsmReachedIndex(index uint64) (bool, error) {
 	if found {
 		return applied >= last, nil
 	}
-	// A snapshot covers index, and raft counts it applied only once the restore returned.
+	// No command at or below index in the log, so raft's index decides.
 	rn := st.raft.Load()
 	return rn != nil && rn.AppliedIndex() >= index, nil
 }
 
-// lastCommandAtOrBelow reports found false when the log holds no command at or below index.
+// found is false when the walk hits the log's start or a missing entry before any command.
 func (st *Store) lastCommandAtOrBelow(index uint64) (last uint64, found bool, err error) {
 	if st.logCache == nil {
-		return 0, false, nil
+		return 0, false, errors.New("raft log is not open")
 	}
 	first, err := st.logCache.FirstIndex()
 	if err != nil {

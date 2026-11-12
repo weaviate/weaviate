@@ -206,7 +206,12 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
-		st.restoredIndex.Store(snapIndex)
+		// After the reload, so versioned reads find the reloaded indexes.
+		defer func() {
+			if snapIndex > st.lastAppliedIndex.Load() {
+				st.lastAppliedIndex.Store(snapIndex)
+			}
+		}()
 
 		if st.cfg.MetadataOnlyVoters {
 			return nil

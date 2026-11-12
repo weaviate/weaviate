@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"testing"
@@ -33,21 +34,24 @@ func TestFSMReachedIndexWaitsForTheLastCommand(t *testing.T) {
 	tests := []struct {
 		name      string
 		compacted uint64
+		hole      uint64
 		applied   uint64
-		restored  uint64
 		index     uint64
 		want      bool
 	}{
+		{name: "the FSM is at the index", applied: 5, index: 5, want: true},
 		{name: "the last command is applied", applied: 3, index: 5, want: true},
 		{name: "the last command is queued", applied: 2, index: 5},
 		{name: "the log does not reach the index", applied: 3, index: 6},
-		{name: "the snapshot holds every command and raft has not applied it", compacted: 3, applied: 0, index: 5},
-		{name: "a restored snapshot holds the last command", restored: 3, index: 5, want: true},
-		{name: "a restored snapshot below the last command", restored: 2, index: 5},
+		{name: "a snapshot holds every command", compacted: 3, applied: 3, index: 5, want: true},
+		{name: "a hole below the index", hole: 4, applied: 3, index: 5, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			st := NewMockStore(t, "node1", 0).store
+			for r := attachLeaderRaft(t, st); r.AppliedIndex() < 5; {
+				require.NoError(t, r.Barrier(5*time.Second).Error())
+			}
 			logs := raft.NewInmemStore()
 			for i, typ := range entries {
 				require.NoError(t, logs.StoreLog(&raft.Log{Index: uint64(i + 1), Type: typ}))
@@ -55,11 +59,13 @@ func TestFSMReachedIndexWaitsForTheLastCommand(t *testing.T) {
 			if tt.compacted > 0 {
 				require.NoError(t, logs.DeleteRange(1, tt.compacted))
 			}
+			if tt.hole > 0 {
+				require.NoError(t, logs.DeleteRange(tt.hole, tt.hole))
+			}
 			cache, err := raft.NewLogCache(16, logs)
 			require.NoError(t, err)
 			st.logCache = cache
 			st.lastAppliedIndex.Store(tt.applied)
-			st.restoredIndex.Store(tt.restored)
 
 			got, err := st.fsmReachedIndex(tt.index)
 			require.NoError(t, err)
@@ -72,7 +78,7 @@ type failingLogStore struct{ raft.LogStore }
 
 func (failingLogStore) GetLog(uint64, *raft.Log) error { return errors.New("disk read failed") }
 
-// A failed read must not pass for a compacted log: raft's applied index already covers the barrier.
+// A failed read must not pass for a compacted log, because raft's applied index already covers the barrier.
 func TestFSMReachedIndexFailsClosedOnALogReadError(t *testing.T) {
 	st := NewMockStore(t, "node1", 0).store
 	r := attachLeaderRaft(t, st)
@@ -89,9 +95,13 @@ func TestFSMReachedIndexFailsClosedOnALogReadError(t *testing.T) {
 	got, err := st.fsmReachedIndex(index)
 	require.ErrorContains(t, err, "disk read failed")
 	assert.False(t, got)
+
+	st.logCache = nil
+	_, err = st.fsmReachedIndex(index)
+	require.ErrorContains(t, err, "raft log is not open")
 }
 
-func TestRestoreRecordsTheSnapshotIndex(t *testing.T) {
+func TestRestoreAdvancesTheAppliedIndex(t *testing.T) {
 	source := NewMockStore(t, "source-node", utils.MustGetFreeTCPPort())
 	snapshot, err := source.store.Snapshot()
 	require.NoError(t, err)
@@ -114,7 +124,14 @@ func TestRestoreRecordsTheSnapshotIndex(t *testing.T) {
 	target.store.snapshotStore = snapshots
 
 	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
-	require.Equal(t, uint64(7), target.store.restoredIndex.Load())
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.NoError(t, target.store.WaitForAppliedIndex(canceled, time.Millisecond, 7))
+
+	target.store.cfg.MetadataOnlyVoters = true
+	target.store.lastAppliedIndex.Store(0)
+	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+	require.NoError(t, target.store.WaitForAppliedIndex(canceled, time.Millisecond, 7))
 }
 
 // attachLeaderRaft gives store a bootstrapped single-node raft that has won its election.

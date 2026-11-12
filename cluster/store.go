@@ -340,8 +340,6 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
-	// restoredIndex is the last restored snapshot's index: its commands never advance lastAppliedIndex.
-	restoredIndex atomic.Uint64
 
 	// tenantAddLocks serializes AddTenants per class on the leader so the
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
@@ -614,6 +612,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
+		rn = st.raft.Load() // recoverSingleNode may replace the raft node
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
@@ -1073,11 +1072,6 @@ func (st *Store) wipedJoinerRestoreReload(snapIndex uint64) bool {
 	return false
 }
 
-// raft.AppliedIndex counts enqueued-not-consumed entries; reloading mid-drain would let queued ADD_CLASS full-apply post-reload (empty shard, no recovery).
-func (st *Store) wipedJoinerFSMCaughtUp(barrier uint64) (bool, error) {
-	return st.fsmReachedIndex(barrier)
-}
-
 func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
 	if st.cfg.WipedJoinerBarrierTimeout > 0 {
 		return st.cfg.WipedJoinerBarrierTimeout
@@ -1096,7 +1090,7 @@ func (st *Store) watchWipedJoiner() {
 	var zeroBarrierSince time.Time
 	// Treat open=false as shutdown only after seeing it true, else an early tick disables the fallbacks.
 	opened := false
-	var catchUpErr string
+	var readErrSince time.Time
 	for range t.C {
 		if st.wipedJoinerReloaded.Load() {
 			return
@@ -1118,15 +1112,23 @@ func (st *Store) watchWipedJoiner() {
 
 		// Barrier reached but the entry there was a config/noop (no Apply-thread trigger); catch it here.
 		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), barrier, applied) {
-			caughtUp, err := st.wipedJoinerFSMCaughtUp(barrier)
+			// Reloading mid-drain would full-apply queued ADD_CLASS into empty shards.
+			caughtUp, err := st.fsmReachedIndex(barrier)
 			if err != nil {
-				if msg := err.Error(); msg != catchUpErr {
-					catchUpErr = msg
+				if readErrSince.IsZero() {
+					readErrSince = time.Now()
 					st.log.WithField("join_barrier", barrier).
 						Warnf("wiped joiner: waiting, cannot read the log up to the join barrier: %v", err)
 				}
-				continue
+				if time.Since(readErrSince) < timeout {
+					continue
+				}
+				st.log.WithField("join_barrier", barrier).
+					Warnf("wiped joiner: cannot read the log up to the join barrier before timeout; proceeding with eager load (some shards may start empty and rely on async replication / manual recovery): %v", err)
+				st.finishWipedJoinerReloadExclusive()
+				return
 			}
+			readErrSince = time.Time{}
 			if !caughtUp {
 				continue
 			}
