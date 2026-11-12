@@ -279,3 +279,25 @@ func TestComparableValueExtractorWrongShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestComparableValueExtractorEscapedTextOrder(t *testing.T) {
+	schema := getMyFavoriteClassSchemaForTests()
+	helper := newDataTypesHelper(schema.GetClass(testClassName))
+	extractor := newComparableValueExtractor(helper)
+	values := []string{"&", "A", "plain"}
+	fromBytes := make([]interface{}, 0, len(values))
+	fromObject := make([]interface{}, 0, len(values))
+	for _, value := range values {
+		obj := createMyFavoriteClassObject()
+		obj.Object.Properties.(map[string]interface{})["textProp"] = value
+		data, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		fromBytes = append(fromBytes, extractor.extractFromBytes(data, "textProp"))
+		fromObject = append(fromObject, extractor.extractFromObject(obj, "textProp"))
+	}
+	cmp := newStringComparator("asc")
+	for i := 0; i < len(values)-1; i++ {
+		require.Equal(t, -1, cmp.compare(fromBytes[i], fromBytes[i+1]))
+		require.Equal(t, cmp.compare(fromObject[i], fromObject[i+1]), cmp.compare(fromBytes[i], fromBytes[i+1]))
+	}
+}

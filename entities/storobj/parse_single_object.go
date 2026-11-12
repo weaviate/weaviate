@@ -35,13 +35,57 @@ func ParseAndExtractProperty(data []byte, propName string) ([]string, bool, erro
 
 func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, error) {
 	vals := []string{}
-	err := parseAndExtractValueProp(data, propName, func(value []byte) {
-		vals = append(vals, string(value))
+	err := parseAndExtractTextValueProp(data, propName, func(value []byte, dataType jsonparser.ValueType) error {
+		if dataType == jsonparser.String {
+			decoded, err := jsonparser.ParseString(value)
+			if err != nil {
+				return err
+			}
+			vals = append(vals, decoded)
+		} else {
+			vals = append(vals, string(value))
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, false, err
 	}
 	return vals, true, nil
+}
+
+// parseAndExtractTextValueProp retains the JSON type so strings can be decoded
+// exactly once while other tokens keep their existing representation.
+func parseAndExtractTextValueProp(data []byte, propName string, valueFn func([]byte, jsonparser.ValueType) error) error {
+	propsBytes, err := extractPropsBytes(data)
+	if err != nil {
+		return err
+	}
+	value, dataType, _, err := jsonparser.Get(propsBytes, propName)
+	if errors.Is(err, jsonparser.KeyPathNotFoundError) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if dataType != jsonparser.Array {
+		return valueFn(value, dataType)
+	}
+
+	var valueErr error
+	_, arrayErr := jsonparser.ArrayEach(value, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+		if valueErr != nil {
+			return
+		}
+		if err != nil {
+			valueErr = err
+			return
+		}
+		valueErr = valueFn(value, dataType)
+	})
+	if valueErr != nil {
+		return valueErr
+	}
+	return arrayErr
 }
 
 func ParseAndExtractNumberArrayProp(data []byte, propName string) ([]float64, bool, error) {
