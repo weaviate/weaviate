@@ -21,6 +21,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
@@ -2021,11 +2022,12 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
-		name   string
-		change *cmd.ApplyRequest
+		name    string
+		change  *cmd.ApplyRequest
+		wantErr error
 	}{
-		{name: "delete", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: "Books", SubCommand: deleteT2}},
-		{name: "deactivate", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: "Books", SubCommand: deactivateT2}},
+		{name: "delete", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: "Books", SubCommand: deleteT2}, wantErr: distributedtask.ErrTaskReplicasChanged},
+		{name: "deactivate", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: "Books", SubCommand: deactivateT2}, wantErr: distributedtask.ErrTaskTenantsNotHot},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, m := reindexTenantsStore(t)
@@ -2082,11 +2084,36 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 
 			require.NoError(t, holdErr)
 			require.NoError(t, changeErr)
-			require.ErrorIs(t, taskErr, distributedtask.ErrTaskReplicasChanged,
+			require.ErrorIs(t, taskErr, tc.wantErr,
 				"the task was admitted with a unit for a tenant changed during its submit")
 			require.False(t, s.distributedTasksManager.HasActiveTaskForCollection("Books"))
 		})
 	}
+}
+
+// A tenant change naming a class that does not exist must not leave a lock entry behind.
+func TestExecute_TenantChangeOnUnknownClassLeavesNoLock(t *testing.T) {
+	s, _ := reindexTenantsStore(t)
+	deleteT2, err := gproto.Marshal(&cmd.DeleteTenantsRequest{Tenants: []string{"t2"}})
+	require.NoError(t, err)
+	updateT2, err := gproto.Marshal(&cmd.UpdateTenantsRequest{
+		Tenants: []*cmd.Tenant{{Name: "t2", Status: models.TenantActivityStatusCOLD}},
+	})
+	require.NoError(t, err)
+
+	// KeyRWLocker exposes no size, so read its map through the field.
+	keys := reflect.ValueOf(s.taskMovementLocks).Elem().FieldByName("m")
+	m := (*sync.Map)(unsafe.Pointer(keys.UnsafeAddr()))
+	size := func() (n int) {
+		m.Range(func(any, any) bool { n++; return true })
+		return n
+	}
+	for i := range 50 {
+		class := fmt.Sprintf("Missing%d", i)
+		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: class, SubCommand: deleteT2})
+		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: class, SubCommand: updateT2})
+	}
+	require.Zero(t, size())
 }
 
 func reindexTenantsStore(t *testing.T) (*Store, *MockStore) {
