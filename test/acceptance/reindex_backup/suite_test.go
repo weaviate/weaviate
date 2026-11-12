@@ -178,8 +178,8 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	// The gate answers from a shard-keyed snapshot and never sees the task's
 	// status, so the cancel it names has to carry the condition under which
 	// the API accepts one. Without it the message sends an operator whose
-	// task is past STARTED at a cancel that answers 409.
-	require.Contains(t, errMsg, "accepted only while the task is STARTED",
+	// task is SWAPPING at a cancel that answers 409.
+	require.Contains(t, errMsg, "accepted while the task is STARTED or PREPARING",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
 	require.Contains(t, errMsg, "exclude",
 		"error body must say how to back up the other collections now; got: %s", errMsg)

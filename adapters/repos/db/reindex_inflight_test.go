@@ -263,7 +263,7 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	// showed up.
 	require.Contains(t, err.Error(), `status="pending"`)
 	require.Contains(t, err.Error(), `status="indexing"`)
-	require.Contains(t, err.Error(), "accepted only while the task is STARTED")
+	require.Contains(t, err.Error(), "accepted while the task is STARTED or PREPARING")
 	require.Contains(t, err.Error(), "409")
 }
 

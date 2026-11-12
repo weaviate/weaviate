@@ -95,7 +95,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	require.GreaterOrEqual(t, len(allShards), 3,
 		"sanity: expected ≥3 shards on a 3-shard class; got %v", allShards)
 
-	// A cancel is accepted only while the task reads STARTED, and that is
+	// A cancel is accepted only while the task reads STARTED or PREPARING, and that is
 	// decided on the leader inside a RAFT apply, one round trip after the
 	// request leaves. No check the test performs first can hold that
 	// state, so losing the race is a legal outcome of a correct server.

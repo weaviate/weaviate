@@ -35,7 +35,7 @@ type IndexStatus struct {
 	// Enum: [wand blockmax]
 	Algorithm string `json:"algorithm,omitempty"`
 
-	// Number of tenants whose index the reindex task already migrated. Present only on a `partial` entry, and only to a caller who may read the collection's tenants.
+	// Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; `taskId` names the latest run. Present only on a `partial` entry, and only to a caller who may read the collection's tenants.
 	MigratedTenants int64 `json:"migratedTenants,omitempty"`
 
 	// progress
@@ -58,7 +58,7 @@ type IndexStatus struct {
 	// tokenization
 	Tokenization string `json:"tokenization,omitempty"`
 
-	// Number of tenants the reindex task covers. Present only on a `partial` entry, and only to a caller who may read the collection's tenants.
+	// Number of tenants those runs cover, counted the same way as `migratedTenants`. Present only on a `partial` entry, and only to a caller who may read the collection's tenants.
 	TotalTenants int64 `json:"totalTenants,omitempty"`
 
 	// Canonical inverted-index type. Always one of `filterable`, `searchable`, `rangeFilters` — never the `rangeable` write-path alias.
