@@ -256,10 +256,6 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
-// admitTaskAdd refuses a reindex task outside the active state, since running it
-// would load and rewrite shards the namespace has released. Other task kinds are
-// not gated. collection is "" for a task that names none, which leaves nothing
-// to check.
 func (st *Store) admitTaskAdd(task *api.AddDistributedTaskRequest, collection string) error {
 	if task == nil || task.Namespace != db.ReindexNamespace {
 		return nil

@@ -577,7 +577,7 @@ func NewSchemaObjectsIndexUpsertUnprocessableEntity() *SchemaObjectsIndexUpsertU
 /*
 SchemaObjectsIndexUpsertUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid `indexName` path value.
+Invalid `indexName` path value, or the collection's namespace is not active.
 */
 type SchemaObjectsIndexUpsertUnprocessableEntity struct {
 	Payload *models.ErrorResponse

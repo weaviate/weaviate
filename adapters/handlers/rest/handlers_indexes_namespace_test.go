@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -108,7 +109,35 @@ func TestSubmitReindexTask_RefusesSuspendedNamespace(t *testing.T) {
 	rec := httptest.NewRecorder()
 	resp.WriteResponse(rec, runtime.JSONProducer())
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
-	require.Contains(t, rec.Body.String(), namespaces.ErrNamespaceSuspended.Error())
+	require.Contains(t, rec.Body.String(), "instance suspended")
+}
+
+// A leader's refusal reaches a follower wrapped in gRPC text, and the client
+// sees only the public message and the status of its sentinel.
+func TestMapSubmitTaskError_RendersNamespaceErrorsPublicly(t *testing.T) {
+	forwarded := func(err error) error {
+		return fmt.Errorf("executing command: rpc error: code = FailedPrecondition desc = %w\npermanent FSM rejection", err)
+	}
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantBody   string
+	}{
+		{"suspended", forwarded(namespaces.ErrNamespaceSuspended), http.StatusUnprocessableEntity, "instance suspended"},
+		{"deleting", forwarded(namespaces.ErrNamespaceDeleting), http.StatusUnprocessableEntity, "instance unavailable"},
+		{"resuming", forwarded(namespaces.ErrNamespaceResuming), http.StatusServiceUnavailable, "instance resuming, retry shortly"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &indexesHandlers{appState: &state.State{Logger: logrus.New()}}
+			resp := h.mapSubmitTaskError(nil, "customer1:Movies", "", tc.err)
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, tc.wantStatus, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.wantBody)
+			require.NotContains(t, rec.Body.String(), "permanent FSM rejection")
+		})
+	}
 }
 
 // An invalid class name is a malformed request, not a refusal, and it is

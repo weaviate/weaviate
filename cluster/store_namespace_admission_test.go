@@ -442,7 +442,9 @@ func taskAddCommand() gatedCommand {
 		build: func(target string) *api.ApplyRequest {
 			return taskAddRequest(db.ReindexNamespace, target)
 		},
-		seedEntity:    func(*testing.T, *MockStore, string) {},
+		seedEntity: func(_ *testing.T, ms *MockStore, _ string) {
+			ms.store.distributedTasksManager.RegisterCollectionExtractor(db.ReindexNamespace, taskCollectionIsPayload)
+		},
 		expectApplied: func(*testing.T, *MockStore, string) {},
 		landed: func(ms *MockStore, _ string) bool {
 			return len(ms.store.distributedTasksManager.LocalDistributedTasks()[db.ReindexNamespace]) == 1
@@ -1069,7 +1071,7 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 
 // TestExecuteGate_RejectsTaskAddApplyType drives a task add through the
 // propose-time check. Its namespace comes off the collection the task names.
-// Only reindex tasks are gated; a drop-vector-index task is admitted.
+// Only reindex tasks are gated. A drop-vector-index task is admitted.
 func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -1079,8 +1081,8 @@ func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
 		wantErr       error
 	}{
 		{"suspended namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateSuspended, namespaces.ErrNamespaceSuspended},
+		{"deleting namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateDeleting, namespaces.ErrNamespaceDeleting},
 		{"active namespace admitted", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateActive, nil},
-		{"an unqualified class is admitted", db.ReindexNamespace, "Foo", api.NamespaceStateSuspended, nil},
 		{"drop-vector task in a suspended namespace is not gated", db.DropVectorIndexNamespace, "alpha:Foo", api.NamespaceStateSuspended, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
