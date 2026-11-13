@@ -137,6 +137,41 @@ Lo que estos números no dicen, y la hipótesis necesita saber:
 - **Si la arista redundante da rango.** El rango de un posting es la distancia a la query más pequeña entre sus endpoints puntuados. Una segunda arista hacia el mismo posting no abre otro posting, pero le baja el rango si su endpoint está más cerca de la query que el de la arista más cercana al vector. Quitarla puede cambiar el orden de carga, y el trabajo puede volver como cargas, como pasó con el cap. Esto también se mide por query: con qué frecuencia el endpoint de una arista redundante es el que fija el rango de su posting.
 - **El techo, si toda la redundancia llegara a la búsqueda:** un 36 % menos de endpoints a 0.95 serían unos 136 µs de los 1 005 de la query con el kernel del PR, un 14 %. La cuenta sale del ancla de v1.5 (6 871 endpoints en 496 µs, 1 168 µs por query) menos el ahorro del kernel del PR. Es un techo: supone que la redundancia por query es la del build, que todos los endpoints cuestan lo mismo y que no vuelve trabajo en forma de cargas. En memoria, 155 MB menos de aristas, un 9 % del heap del índice (1 712 MB).
 
+### Redundancia por query: lo que llega a la búsqueda (pre-registro, 2026-11-13, de día)
+
+*Escrito antes de ningún dato de esta medida.*
+
+**Qué se mide.** Se usa el mismo build de 10M, en ef=20 y ef=160 (los puntos de 0.95 y 0.99), sin cronometrar, con 1 000 queries. Una arista es **redundante** si su source tiene, antes en su fila, una arista más cercana hacia el mismo posting. Por query se cuentan:
+
+1. **Endpoints puntuados redundantes:** de los endpoints que la búsqueda puntúa de verdad, después de quitar los de postings cargados y los ya puntuados, cuántos llegaron por una arista redundante. Esto da el ahorro real, frente al techo del 36 %.
+   - Además se cuenta cuántos de ellos alcanza más tarde, en la misma búsqueda, una arista no redundante de otro source. Con una arista por posting, esos se seguirían puntuando por esa otra arista.
+2. **Redundantes que fijan el rango:** cuántos de esos endpoints son el que da la distancia mínima de su posting, de modo que quitarlo cambiaría la prioridad del posting. Se mira en el momento que cuenta: cuando el posting se elige para cargar o, si no se carga, al acabar la búsqueda. Si para entonces otra arista no redundante ya ha alcanzado ese endpoint, no cuenta. De esos casos, cuántos postings llegan a cargarse.
+
+Una arista redundante nunca deja sin rango a su posting: la arista más cercana del mismo source lleva allí, y su endpoint ya ha puntuado. Quitar la redundante solo cambia la prioridad.
+
+**La lectura, pre-registrada:**
+- **(1) es pequeño:** la idea muere por la vía barata.
+- **(1) es grande y (2) también es pequeño:** una arista por posting es candidata a prototipo, con su propio pre-registro.
+- **(2) es grande:** es el mismo mecanismo que mató al cap, y se documenta así.
+
+**Umbrales.** No venían en el encargo. Los fijo yo antes de los datos:
+
+- **(1), sobre todos los endpoints puntuados:**
+  - Es pequeño si queda por debajo del 10 % en los dos puntos. Con el kernel del PR, los endpoints son el 38 % de la query a 0.95 (383 de 1 005 µs) y algo más de la mitad a 0.99. Un 10 % de endpoints es, por tanto, un 4 % de la query a 0.95: el doble de la deriva entre rondas (2 %).
+  - Se lee con la definición del encargo. Si el número sin los endpoints que alcanza luego una arista no redundante cae en la otra categoría, se dice.
+- **(2), sobre los postings que se cargan por rango** (todos menos la entrada): la fracción cuya prioridad vino de un endpoint redundante.
+  - Solo cuentan los que se cargan. Subir el rango de un posting que no se cargó no hace que se cargue, y no cambia lo que carga la búsqueda.
+  - Es grande si llega al 10 % en alguno de los dos puntos: a 0.95 sería algo más de una de las ~12 cargas por rango de cada query.
+  - Es pequeño si queda por debajo del 5 % en los dos.
+  - Entre medias, se dice. Antes de cualquier prototipo se mediría cuánto subiría el rango de esos postings.
+- **Las dos fracciones que pide el encargo** (de los redundantes, cuántos fijan el rango; de esos, cuántos se cargan) se dan también, por punto.
+
+**Cómo se mide:**
+- **El conteo va solo en las búsquedas que piden estadísticas** (`SearchStats`), y solo cuando el bench lo pide (`-bench.edgetrace`).
+- **No cambia lo que hace la búsqueda.** Las mismas queries con y sin conteo dan los mismos resultados. Hay un test que lo comprueba.
+- **No toca las secciones cronometradas.** La parte que necesita las distancias va después de la que mide la expansión.
+- **El conteo predice, antes de puntuar, qué endpoints puntuará la búsqueda,** y lo compara con los que puntúa de verdad. Si alguna vez no coinciden, la corrida falla.
+
 ### Datos de día
 
 En `testdata/bench/`:
