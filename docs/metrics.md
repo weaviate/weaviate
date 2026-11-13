@@ -215,6 +215,17 @@ Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed We
 | `weaviate_self_recovery_giveup_total` | Self-recovery attempts that exhausted retries without reaching READY; alert on this | `Counter` | `-` | - Low 
 | `weaviate_self_recovery_accept_empty_total` | Operator invocations of the accept-empty escape hatch | `Counter` | `-` | - Low 
 
+#### Idle Shard Collector Metrics
+Registered only on a licensed node with lazy loading enabled; any other node exposes none of them. No metric carries a per-shard label. `namespace` labels only `weaviate_idle_shard_collector_loaded_shards`, and only when namespaces are enabled; its values are unbounded in principle but few in practice, so it is rated Medium. An unload attempt's `result` is `ok` when the shard was unloaded and `failed` when it stayed loaded; no reason is recorded. Watch low values of `weaviate_idle_shard_collector_reload_after_unload_seconds` for thrashing.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_idle_shard_collector_loaded_shards` | Loaded lazy shards on this node | `Gauge` | `namespace` (only with namespaces enabled) | - Medium (unbounded in principle, few in practice) 
+| `weaviate_idle_shard_collector_unloading_shards` | Lazy shard unloads in flight on this node | `Gauge` | `-` | - Low 
+| `weaviate_idle_shard_collector_unloads_total` | Idle shard unload attempts by `result` (`ok` or `failed`) | `Counter` | `result` | - Low 
+| `weaviate_idle_shard_collector_unload_duration_seconds` | Duration of successful lazy shard unloads (flush and close); buckets 1ms to ~33s | `Histogram` | `-` | - Low 
+| `weaviate_idle_shard_collector_reload_after_unload_seconds` | Time between unloading a lazy shard and its next load; buckets 1s to ~9h | `Histogram` | `-` | - Low 
+
 #### Async Checkpoint Metrics
 Checkpoints of unloaded shards, answered from their persisted hashtree, are counted like those of loaded shards. Every checkpoint leaves exactly once: as expired if it outlived its max lifetime, otherwise as a delete, replacement or clear.
 
