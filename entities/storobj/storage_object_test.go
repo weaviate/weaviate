@@ -15,6 +15,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -103,9 +104,9 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
-// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts the jsonparser
-// path with every property listed yields the same object as json.Unmarshal —
-// the equivalence the MultiObjectByID fast path relies on.
+// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts both jsonparser
+// paths, every property listed and every property stored, yield the same object
+// as json.Unmarshal. MultiObjectByID relies on the first, listing on the second.
 func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 	const className = "MyFavoriteClass"
 
@@ -138,6 +139,24 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			},
 		},
 		{
+			name: "cross_ref_with_classification",
+			props: map[string]interface{}{
+				"hasRef": models.MultipleRef{
+					{
+						Beacon: "weaviate://localhost/SomeClass/73f2eb5f-5abf-447a-81ca-74b1dd168247",
+						Classification: &models.ReferenceMetaClassification{
+							ClosestOverallDistance: 0.1,
+							MeanWinningDistance:    0.2,
+							OverallCount:           5,
+							WinningCount:           3,
+							LosingCount:            2,
+						},
+					},
+					{Beacon: "weaviate://localhost/SomeClass/a1b2c3d4-5abf-447a-81ca-74b1dd168247"},
+				},
+			},
+		},
+		{
 			name: "nested_object",
 			props: map[string]interface{}{
 				"address": map[string]interface{}{
@@ -147,8 +166,45 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			},
 		},
 		{
+			name: "object_array_with_beacon_key_in_first_element_only",
+			props: map[string]interface{}{
+				"devices": []interface{}{
+					map[string]interface{}{"beacon": "abc", "rssi": float64(-41)},
+					map[string]interface{}{"rssi": float64(-40)},
+				},
+			},
+		},
+		{
+			name: "object_array_with_beacon_and_text_classification",
+			props: map[string]interface{}{
+				"devices": []interface{}{
+					map[string]interface{}{"beacon": "abc", "classification": "spam", "rssi": float64(-41)},
+				},
+			},
+		},
+		{
+			name: "object_array_with_beacon_and_mistyped_classification_object",
+			props: map[string]interface{}{
+				"devices": []interface{}{
+					map[string]interface{}{"beacon": "abc", "classification": map[string]interface{}{"overallCount": "many"}, "rssi": float64(-41)},
+				},
+			},
+		},
+		{
 			name:  "empty",
 			props: map[string]interface{}{},
+		},
+		{
+			name:  "no_properties",
+			props: nil,
+		},
+		{
+			name:  "null_value",
+			props: map[string]interface{}{"hasRef": models.MultipleRef(nil), "title": "x"},
+		},
+		{
+			name:  "empty_array",
+			props: map[string]interface{}{"tags": []interface{}{}},
 		},
 	}
 
@@ -174,6 +230,13 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			viaJSON, err := FromBinaryDisk(asBinary, className)
 			require.NoError(t, err)
 
+			viaStored, err := FromBinaryDiskWithProps(asBinary, className, StoredPropertiesExtraction())
+			require.NoError(t, err)
+			assert.Equal(t, viaJSON, viaStored)
+
+			if tc.props == nil {
+				return // the listed path decodes a stored null as an empty map
+			}
 			pe := NewPropExtraction()
 			for name := range tc.props {
 				pe.Add(name)
@@ -795,9 +858,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"time":         "2011-11-23T01:52:23.000004234Z",
 		"boolArray":    []interface{}{true, false, true},
 		"beacon":       []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		// as json.Unmarshal decodes them: class and href are kept
 		"ref": []interface{}{
-			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
-			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", "class": "OtherClass", "href": "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", "class": "OtherClass", "href": "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
 		},
 		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": float64(3), "innerStr": "avc"}},
 		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
@@ -896,6 +960,19 @@ func TestUnmarshalProperties(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+func TestFromBinaryDiskWithPropsReturnsStoredDecodeError(t *testing.T) {
+	obj := FromObject(&models.Object{
+		Class:      "MyFavoriteClass",
+		ID:         strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		Properties: map[string]interface{}{"count": json.Number("1e400")}, // past float64, so json.Unmarshal rejects it too
+	}, nil, nil, nil)
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = FromBinaryDiskWithProps(asBinary, "MyFavoriteClass", StoredPropertiesExtraction())
+	require.Error(t, err)
 }
 
 func TestStorageObjectMarshallingWithGroup(t *testing.T) {
@@ -1628,6 +1705,33 @@ func TestMemoryReuse(t *testing.T) {
 
 	for i, afterProp := range afterProps {
 		assert.Equal(t, props[i], afterProp)
+	}
+}
+
+// TestUnmarshalArrayObject_EquivalentToJSONUnmarshal: the plain-reference
+// shortcut must return what json.Unmarshal returns for any element.
+func TestUnmarshalArrayObject_EquivalentToJSONUnmarshal(t *testing.T) {
+	tests := []struct {
+		name string
+		elem string
+	}{
+		{name: "plain_ref", elem: `{"beacon":"weaviate://localhost/A/73f2eb5f-5abf-447a-81ca-74b1dd168247"}`},
+		{name: "escaped_beacon", elem: `{"beacon":"weaviate:\/\/localhost\/A\/\u00e4"}`},
+		{name: "beacon_not_string", elem: `{"beacon":17}`},
+		{name: "ref_with_href", elem: `{"beacon":"weaviate://localhost/A/x","href":"/v1/x"}`},
+		{name: "ref_with_classification", elem: `{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5}}`},
+		{name: "other_key_first", elem: `{"a":1,"beacon":"x"}`},
+		{name: "single_other_key", elem: `{"rssi":-41}`},
+		{name: "empty", elem: `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := map[string]interface{}{}
+			require.NoError(t, json.Unmarshal([]byte(tt.elem), &want))
+			got, err := unmarshalArrayObject([]byte(tt.elem))
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
 	}
 }
 

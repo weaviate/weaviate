@@ -404,6 +404,8 @@ func fromBinaryOptionalInternal(data []byte, className string,
 // decodes; Add mutates it, so never call Add while a decode is in flight.
 type PropertyExtraction struct {
 	PropertyPaths [][]string
+	// allStored makes a decode read every stored property and ignore PropertyPaths.
+	allStored bool
 }
 
 func NewPropExtraction() *PropertyExtraction {
@@ -431,6 +433,12 @@ func AllPropertiesExtraction(class *models.Class) *PropertyExtraction {
 		pe.Add(prop.Name)
 	}
 	return pe
+}
+
+// StoredPropertiesExtraction makes a decode read every property stored on the
+// object, listed in the class or not, as json.Unmarshal does but without reflection.
+func StoredPropertiesExtraction() *PropertyExtraction {
+	return &PropertyExtraction{allStored: true}
 }
 
 // secondaryLookup fetches a value by secondary key into the given buffer,
@@ -1428,92 +1436,126 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 			return
 		}
 
-		propertyName := propertyPaths[idx][len(propertyPaths[idx])-1]
-
-		switch dataType {
-		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-			val, err := parseValues(dataType, value)
-			if err != nil {
-				returnError = err
-			}
-			properties[propertyName] = val
-		case jsonparser.Array: // can be a beacon or an actual array
-			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			// this checks if refs are present - the return points to the underlying memory, dont use without copying
-			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
-			if errBeacon == nil {
-				// there can be more than one
-				var beacons []interface{}
-				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
-					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon")
-					returnError = err2
-					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
-				}
-				_, returnError = jsonparser.ArrayEach(value, handler)
-				properties[propertyName] = beacons
-			} else {
-				// check how many entries there are in the array by counting the ",". This allows us to allocate an
-				// array with the right size without extending it with every append.
-				// The size can be too large for string arrays, when they contain "," as part of their content.
-				entryCount := 0
-				for _, b := range arrayEntries {
-					if b == uint8(44) { // ',' as byte
-						entryCount++
-					}
-				}
-
-				array := make([]interface{}, 0, entryCount)
-				_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
-					var val interface{}
-
-					switch innerDataType {
-					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-						val, err = parseValues(innerDataType, innerValue)
-						if err != nil {
-							returnError = err
-							return
-						}
-					case jsonparser.Object:
-						nestedProps := map[string]interface{}{}
-						err := json.Unmarshal(innerValue, &nestedProps)
-						if err != nil {
-							returnError = err
-							return
-						}
-						val = nestedProps
-					default:
-						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
-						return
-					}
-					array = append(array, val)
-				})
-				if err != nil {
-					returnError = err
-				}
-				properties[propertyName] = array
-
-			}
-		case jsonparser.Object:
-			// nested objects and geo-props and phonenumbers.
-			//
-			// we do not have the schema for nested object and cannot use the efficient jsonparser for them
-			//  (we could for phonenumbers and geo-props but they are not worth the effort)
-			// however this part is only called if
-			// - one of the datatypes is present
-			// - AND the user requests them
-			// => the performance impact is minimal
-			nestedProps := map[string]interface{}{}
-			err := json.Unmarshal(value, &nestedProps)
-			if err != nil {
-				returnError = err
-			}
-			properties[propertyName] = nestedProps
-		default:
-			returnError = fmt.Errorf("unknown data type %v", dataType)
+		val, err := unmarshalPropertyValue(value, dataType)
+		if err != nil {
+			returnError = err
+			return
 		}
+		properties[propertyPaths[idx][len(propertyPaths[idx])-1]] = val
 	}, propertyPaths...)
 
 	return returnError
+}
+
+// unmarshalStoredProperties decodes every key of data as json.Unmarshal does,
+// without reflection. An object stored without properties holds null.
+func unmarshalStoredProperties(data []byte) (map[string]interface{}, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	properties := map[string]interface{}{}
+	err := jsonparser.ObjectEach(data, func(key, value []byte, dataType jsonparser.ValueType, _ int) error {
+		val, err := unmarshalPropertyValue(value, dataType)
+		if err != nil {
+			return err
+		}
+		properties[string(key)] = val
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return properties, nil
+}
+
+// unmarshalPropertyValue decodes one top-level property value, copying it out of value.
+func unmarshalPropertyValue(value []byte, dataType jsonparser.ValueType) (interface{}, error) {
+	switch dataType {
+	case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+		return parseValues(dataType, value)
+	case jsonparser.Null:
+		return nil, nil
+	case jsonparser.Array:
+		return unmarshalPropertyArray(value)
+	case jsonparser.Object:
+		// json.Unmarshal decodes nested objects, geo coordinates and phone numbers,
+		// which jsonparser could walk only with their schema.
+		nestedProps := map[string]interface{}{}
+		if err := json.Unmarshal(value, &nestedProps); err != nil {
+			return nil, err
+		}
+		return nestedProps, nil
+	default:
+		return nil, fmt.Errorf("unknown data type %v", dataType)
+	}
+}
+
+func unmarshalPropertyArray(value []byte) ([]interface{}, error) {
+	arrayEntries := value[1 : len(value)-1] // without leading and trailing []
+	// check how many entries there are in the array by counting the ",". This allows us to allocate an
+	// array with the right size without extending it with every append.
+	// The size can be too large for string arrays, when they contain "," as part of their content.
+	entryCount := 0
+	if len(arrayEntries) > 0 {
+		entryCount = 1 // one more entry than separators
+	}
+	for _, b := range arrayEntries {
+		if b == uint8(44) { // ',' as byte
+			entryCount++
+		}
+	}
+
+	array := make([]interface{}, 0, entryCount)
+	var elemErr error
+	_, err := jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, _ int, _ error) {
+		if elemErr != nil {
+			return
+		}
+
+		var val interface{}
+		switch innerDataType {
+		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+			val, elemErr = parseValues(innerDataType, innerValue)
+		case jsonparser.Object:
+			val, elemErr = unmarshalArrayObject(innerValue)
+		default:
+			elemErr = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
+		}
+		array = append(array, val)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if elemErr != nil {
+		return nil, elemErr
+	}
+	return array, nil
+}
+
+var errNotPlainRef = errors.New("not a plain reference")
+
+// unmarshalArrayObject decodes an array element as json.Unmarshal does, skipping
+// reflection for a plain reference. parseCrossRef decides whether the array holds refs.
+func unmarshalArrayObject(elem []byte) (map[string]interface{}, error) {
+	var beacon []byte
+	keys := 0
+	if jsonparser.ObjectEach(elem, func(key, value []byte, dt jsonparser.ValueType, _ int) error {
+		keys++
+		if keys > 1 || dt != jsonparser.String || string(key) != "beacon" {
+			return errNotPlainRef
+		}
+		beacon = value
+		return nil
+	}) == nil && keys == 1 {
+		if s, err := jsonparser.ParseString(beacon); err == nil {
+			return map[string]interface{}{"beacon": s}, nil
+		}
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(elem, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
@@ -1545,10 +1587,9 @@ func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
 	return ko.UnmarshalBinaryDiskWithProps(data, className, nil)
 }
 
-// UnmarshalBinaryDiskWithProps is UnmarshalBinaryDisk with a known property
-// set: a non-nil properties decodes the property blob via UnmarshalProperties
-// (no reflection) instead of json.Unmarshal. Names not listed are dropped, so
-// callers must pass every property that can be present on disk.
+// UnmarshalBinaryDiskWithProps is UnmarshalBinaryDisk that decodes properties with
+// jsonparser when properties is non-nil. Any extraction but StoredPropertiesExtraction
+// drops the names it does not list, so its callers must list every stored property.
 func (ko *Object) UnmarshalBinaryDiskWithProps(data []byte, className string, properties *PropertyExtraction) error {
 	if className == "" {
 		return errors.New("className is required for UnmarshalBinaryDisk; use UnmarshalBinaryNetwork to fall back to the on-disk value")
@@ -2029,6 +2070,11 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	if len(propsB) > 0 {
 		if properties == nil || propLength == 0 {
 			if err := json.Unmarshal(propsB, &returnProps); err != nil {
+				return errors.Wrapf(err, "unmarshal property bytes: size %d", len(propsB))
+			}
+		} else if properties.allStored {
+			var err error
+			if returnProps, err = unmarshalStoredProperties(propsB); err != nil {
 				return errors.Wrapf(err, "unmarshal property bytes: size %d", len(propsB))
 			}
 		} else if len(propsB) >= int(propLength) {
