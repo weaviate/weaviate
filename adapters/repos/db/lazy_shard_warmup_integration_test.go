@@ -56,6 +56,17 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
 ) (*Index, *test.Hook) {
 	t.Helper()
+	return newHotTenantsIndex(t, dirName, IndexConfig{
+		EnableLazyLoadShards:          true,
+		LazyLoadShardWarmupMinObjects: minObjects,
+	}, &replication.GlobalConfig{}, allocChecker, tenants...)
+}
+
+// newHotTenantsIndex opens a multi-tenant index over dirName with every tenant HOT on this node.
+func newHotTenantsIndex(t *testing.T, dirName string, cfg IndexConfig, globalCfg *replication.GlobalConfig,
+	allocChecker memwatch.AllocChecker, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
 	ctx := context.Background()
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
@@ -113,16 +124,14 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	schemaGetter := &fakeSchemaGetter{schema: fakeSchema, shardState: shardState}
 	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter)
 
-	index, err := NewIndex(ctx, nil, IndexConfig{
-		RootPath:                      dirName,
-		ClassName:                     schema.ClassName(warmupClassName),
-		ReplicationFactor:             1,
-		ShardLoadLimiter:              loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		EnableLazyLoadShards:          true,
-		LazyLoadShardWarmupMinObjects: minObjects,
-	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+	cfg.RootPath = dirName
+	cfg.ClassName = schema.ClassName(warmupClassName)
+	cfg.ReplicationFactor = 1
+	cfg.ShardLoadLimiter = loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1)
+
+	index, err := NewIndex(ctx, nil, cfg, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
-		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
+		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, globalCfg,
 		monitoring.GetMetrics(),
 		class, nil, scheduler, nil, allocChecker,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)

@@ -530,6 +530,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		Replication: replication.GlobalConfig{
 			MinimumFactor:                             1,
 			AsyncReplicationDisabled:                  appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationInMaintenanceEnabled:      appState.ServerConfig.Config.Replication.AsyncReplicationInMaintenanceEnabled,
 			AsyncReplicationSchedulerWorkers:          appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers,
 			AsyncReplicationHashtreeInitConcurrency:   appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency,
 			AsyncReplicationHashtreeHeight:            appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight,
