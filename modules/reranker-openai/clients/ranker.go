@@ -263,7 +263,7 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 		return decisionResponse{}, transportError(ctx, "send OpenAI request", "no HTTP response from", err, r.hostFromHeader)
 	}
 	defer res.Body.Close()
-	return readResponse(res, r.hostFromHeader)
+	return readResponse(ctx, res, r.hostFromHeader)
 }
 
 // transportError keeps the transport's error for the class or default host.
@@ -286,14 +286,14 @@ func transportError(ctx context.Context, action, failure string, err error, host
 
 // readResponse quotes no status error body and no error object of a host the
 // request header named. A decode error is cut to 512 bytes for every host.
-func readResponse(res *http.Response, hostFromHeader bool) (decisionResponse, error) {
+func readResponse(ctx context.Context, res *http.Response, hostFromHeader bool) (decisionResponse, error) {
 	if res.StatusCode != http.StatusOK {
 		return decisionResponse{}, statusError(res, hostFromHeader)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
 	if err != nil {
-		return decisionResponse{}, fmt.Errorf("read OpenAI response: %w", err)
+		return decisionResponse{}, transportError(ctx, "read OpenAI response", "no complete body from", err, hostFromHeader)
 	}
 	if len(body) > maxResponseBodyBytes {
 		return decisionResponse{}, fmt.Errorf("OpenAI response exceeds %d bytes", maxResponseBodyBytes)

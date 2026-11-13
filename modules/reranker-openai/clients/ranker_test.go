@@ -1027,7 +1027,11 @@ func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 // net/http quotes bytes of the host in its errors, and a dial error names the
 // address that refused.
 func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
-	const banner = "SSH-2.0-OpenSSH_9.6"
+	const (
+		banner = "SSH-2.0-OpenSSH_9.6"
+		// net/http reads the trailer of a chunked body with the body.
+		trailer = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n{\r\n0\r\n" + banner + "\r\n\r\n"
+	)
 	tests := []struct {
 		name       string
 		host       func(t *testing.T) string
@@ -1047,6 +1051,17 @@ func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
 			host:       closedPort,
 			fromHeader: true,
 			wantErr:    "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
+		},
+		{
+			name:       "a 200 with a trailer that is not a header from the header base URL",
+			host:       func(t *testing.T) string { return newRawHost(t, trailer) },
+			fromHeader: true,
+			wantErr:    "read OpenAI response: no complete body from the host named by X-Openai-Baseurl",
+		},
+		{
+			name:      "a 200 with a trailer that is not a header from the class base URL",
+			host:      func(t *testing.T) string { return newRawHost(t, trailer) },
+			wantInErr: []string{"read OpenAI response: ", banner},
 		},
 		{
 			name:      "a banner that is not HTTP from the class base URL",
@@ -1091,15 +1106,32 @@ func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
 	tests := []struct {
 		name    string
 		timeout time.Duration
-		cancel  bool
-		wantIs  error
-		wantErr string
+		// stalledBody sends the 200 and its headers, and never the body.
+		stalledBody bool
+		cancel      bool
+		wantIs      error
+		wantErr     string
 	}{
 		{
 			name:    "the client timeout",
 			timeout: 50 * time.Millisecond,
 			wantIs:  context.DeadlineExceeded,
 			wantErr: "send OpenAI request: context deadline exceeded",
+		},
+		{
+			name:        "the client timeout while the body is read",
+			timeout:     500 * time.Millisecond,
+			stalledBody: true,
+			wantIs:      context.DeadlineExceeded,
+			wantErr:     "read OpenAI response: context deadline exceeded",
+		},
+		{
+			name:        "a query cancelled while the body is read",
+			timeout:     testTimeout,
+			stalledBody: true,
+			cancel:      true,
+			wantIs:      context.Canceled,
+			wantErr:     "read OpenAI response: context canceled",
 		},
 		{
 			name:    "a cancelled query",
@@ -1113,14 +1145,27 @@ func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			headerHost, release := newBlockingFake(t)
 			defer release()
+			if tt.stalledBody {
+				headerHost.replies = map[int]fakeReply{0: {status: http.StatusOK, stalled: true}}
+				release()
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
 			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerHost.url()})
 			c := New(defaultFakeKey, "", tt.timeout, 2, nullLogger())
+			headers := &headersSeen{base: c.httpClient.Transport, seen: make(chan struct{})}
+			c.httpClient.Transport = headers
 
 			result := rankInBackground(t, ctx, c, newFake(t), []string{noRefund})
 			require.Eventually(t, func() bool { return len(headerHost.received()) == 1 }, 5*time.Second, time.Millisecond)
+			if tt.stalledBody {
+				select {
+				case <-headers.seen:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the client did not get the headers of the reply within 5 seconds")
+				}
+			}
 			if tt.cancel {
 				cancel()
 			}
@@ -1134,6 +1179,21 @@ func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
 			}
 		})
 	}
+}
+
+// headersSeen closes seen once the client has the status and the headers of a
+// reply, so a test can end the context while the body is read.
+type headersSeen struct {
+	base http.RoundTripper
+	seen chan struct{}
+}
+
+func (h *headersSeen) RoundTrip(req *http.Request) (*http.Response, error) {
+	res, err := h.base.RoundTrip(req)
+	if err == nil {
+		close(h.seen)
+	}
+	return res, err
 }
 
 // newRawHost answers every request with reply and closes the connection. It
