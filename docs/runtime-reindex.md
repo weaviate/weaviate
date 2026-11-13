@@ -143,7 +143,7 @@ body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
 `STARTED` or `PREPARING` task is cancelled; tenants whose swap is already
 decided (§6.3) keep it, every other tenant stops. `202` + `Status: NO_OP`
 (no `taskId`) when nothing matches (already finished, never submitted, or
-already cancelled). `409` for a `SWAPPING` task (it ends once every replica that owes a swap has swapped; a node lost for good holds it)
+already cancelled). `409` for a `SWAPPING` task (it ends once every replica that owes a swap has swapped; a node lost for good, or a swap that never succeeds, holds it, §6.3)
 and for a status this build does not recognize. See §12. Never `404` for
 "nothing to cancel".
 
@@ -331,7 +331,7 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     completes the full lifecycle locally and there is no
     cluster-wide schema flip.
   - Either path may terminate at `FAILED` (a failed PREP ack, or a
-    failed swap ack while `SWAPPING`) or `CANCELLED` (operator-initiated).
+    failed format-only unit) or `CANCELLED` (operator-initiated).
     `FINISHED` is the correct signal for "fully done".
 
 These are different Go types in the source —
@@ -524,8 +524,8 @@ mechanisms:
    disabled index's bucket retires an entry's fields, and otherwise the
    entry lives until the shard unloads. See §10.
 2. **Two-phase ack barrier (the cross-node handshake).** See §6.3. A
-   failed PREP ack, or a failed swap ack while `SWAPPING`, fails the task,
-   so `OnTaskCompleted` skips the cluster-wide schema flip.
+   failed PREP ack fails the task, so `OnTaskCompleted` skips the
+   cluster-wide schema flip.
 
 ## 4. Architecture by layer
 
@@ -608,16 +608,15 @@ Key types & contracts:
   post-completion callback had committed its bucket-pointer flip. For what
   a tenant's replicas serve meanwhile, see "Cross-replica window" in §6.3.
 - **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
-  + `RecordPostCompletionAck` (all paths). Every node's scheduler
-  records its phase outcome (success or error) on the task before the
-  cluster is allowed to advance: PREPARING → SWAPPING is gated on
-  every PreparationCompleteAck landing with Success=true; SWAPPING →
-  FINISHED is gated on every PostCompletionAck landing with
-  Success=true. A `Success=false` on EITHER ack flips the task to
-  `FAILED`, which makes `OnTaskCompleted` skip the cluster-wide
-  schema flip — the load-bearing invariant that prevents a per-node
-  swap failure from leaving the schema pointing at not-yet-swapped
-  buckets. Acks idempotent and rehydrate over restart.
+  + `RecordPostCompletionAck` (all paths). Each node acks its phase on
+  the task before the cluster is allowed to advance: PREPARING → SWAPPING
+  is gated on every PreparationCompleteAck landing with Success=true;
+  SWAPPING → FINISHED is gated on every PostCompletionAck landing with
+  Success=true. A failed PreparationCompleteAck flips the task to
+  `FAILED`. A failed semantic swap sends no ack and stays owed, so the
+  schema flip and SWAPPING → FINISHED wait until no replica owes a swap.
+  A format-only swap failure fails its unit. Acks idempotent and
+  rehydrate over restart.
 - **Permanent-rejection sentinels** —
   `ErrTaskNotRunning`/`ErrTaskDoesNotExist`/`ErrUnitAlreadyTerminal`/
   `ErrUnitWrongNode`/`ErrTaskNotInFinalizingState`, all matched by
@@ -1052,12 +1051,9 @@ Then, per shard load:
        prepare on a task that is still active, or when the node cannot
        read its task list yet (eager loads at boot; setting the shard
        READY later retries the arm with the list readable).
-     - The held migration's own prepare, and another migration's unit or
-       prepare on the shard, wait and run again on a later tick. A swap
-       that a `SWAPPING` task owes on a held shard fails the task instead,
-       because such a task cannot be cancelled: the swap stays owed, the
-       node makes it once the shard is set READY, and a resubmit then
-       lands the schema change (§8). If the shard also holds an
+     - The held migration's own prepare and swap, and another migration's
+       unit, prepare or swap on the shard, wait and run again on a later tick
+       (a waiting swap holds its task in `SWAPPING`, §6.3). If the shard also holds an
        unreadable record, a unit fails its migration, as on any shard; a
        prepare fails only when its migration has no task cached on the
        shard, and otherwise waits too.
@@ -1106,8 +1102,8 @@ Then, per shard load:
        |---|---|
        | The disk fails reads or writes | Once it works, set the shard READY |
        | A staged bucket cannot open because a segment file is damaged | Repair that file in place, then set the shard READY or restart the node. Never put back an older copy: compaction reuses segment file names, so an older copy silently lacks entries a later compaction merged in. If the migration's swap is not committed, and no migration with a committed swap or already swapped in is held on the same shard, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted. The refused lift says when a swap is committed ("has a committed swap"); then see the next row |
-       | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. This node's swap step fails the task, so it ends FAILED and partial. So does every other `SWAPPING` migration that owes a swap on this shard; cancel any other migration on the collection that is still `STARTED` or `PREPARING`. The swap stays owed: once the segment is repaired and the shard set READY, the node makes it on its own, and a resubmit then lands the schema change. Once the task has ended, in the order we recommend: **1. Restore from a backup.** This replaces the whole collection: every write since the backup is lost, on every tenant. **2. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when a backup cannot recover the data, and make the records dir writable first, or the delete leaves the record behind. |
-       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit or prepare waits on this shard; a SWAPPING task that owes a swap on this shard fails, and a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED or PREPARING), and this shard stays READONLY. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
+       | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. This node's swap waits, so the task stays `SWAPPING` (§6.3), as does every other migration that owes a swap on this shard; cancel any other migration on the collection that is still `STARTED` or `PREPARING`. Once the segment is repaired and the shard set READY, the node makes the swap on its own and the run finishes. Once the task has ended, in the order we recommend: **1. Restore from a backup.** This replaces the whole collection: every write since the backup is lost, on every tenant. **2. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when a backup cannot recover the data, and make the records dir writable first, or the delete leaves the record behind. |
+       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit or prepare waits on this shard; a SWAPPING task that owes a swap on this shard waits (§6.3), and a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED or PREPARING), and this shard stays READONLY. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
      - Reads are served while the retry runs, and a lift meanwhile is
        refused. The owning node runs a lift inside its schema apply, which
        therefore never waits on the disk. The shard's shutdown waits for a
@@ -1145,9 +1141,10 @@ The post-completion barrier is split into two phases.
    group is decided.
 3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
    group this node owes, in any task status, and retries a failed swap
-   every tick. The scheduler emits `RecordPostCompletionAck(group,
-   Success=bool)`; a success pays that debt, and a failure in SWAPPING
-   fails the task.
+   every tick. A success emits `RecordPostCompletionAck(group)`, which
+   pays that debt. A swap that never succeeds holds the run in `SWAPPING`,
+   which cannot be cancelled, until the operator exit ships with
+   weaviate/etienne-claude-issues#592.
 4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
    scheduler runs this phase (`runCompletedCallbackPhase`) before it
    proposes finalization.
@@ -1164,12 +1161,13 @@ PostCompletionAck barrier only.
 
 **Failure handling (both paths):**
 
-- A failed PREP ack, or a failed swap ack while `SWAPPING` → task flips to `FAILED`
-  immediately → `OnTaskCompleted` early-returns, schema flip is
-  SKIPPED. Groups already decided still swap, which leaves the collection
-  `partial` until the same migration is submitted again (§8).
-- Per-node swap failure can no longer let the cluster-wide schema flip
-  propagate while one replica's bucket pointer never moved.
+- A failed PREP ack → task flips to `FAILED` immediately →
+  `OnTaskCompleted` early-returns, schema flip is SKIPPED. Groups already
+  decided still swap, which leaves the collection `partial` until the
+  same migration is submitted again (§8). A format-only swap failure
+  fails its unit, and so the task.
+- A failed semantic swap stays owed and is retried; the schema flip
+  waits until no replica owes a swap.
 - On node restart, the recovery path re-fires the appropriate phase
   callback (PHASE A for a group not yet decided, PHASE B for every group
   this node owes, in any status) via the
@@ -1199,8 +1197,7 @@ collapsing it back to one — the bug it closes is not visually
 obvious from the code alone.
 
 PREP acks are idempotent (first ack per `(task, group, node)` wins); a swap
-ack pays its replica's debt in any status, and a failed one fails the task while
-`SWAPPING` and is ignored after; rehydrate over
+ack pays its replica's debt in any status; rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-
 terminal tasks (a late-arriving ack from a slow follower must not
 produce a noisy apply failure).
@@ -1638,8 +1635,8 @@ source, the other is a copy that outlives it.
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
 2. If that task is `SWAPPING`, or in a status this build does not
-   recognize (§4.2), return 409 and stop. A `SWAPPING` task finishes on
-   its own; for an unrecognized status this build cannot tell whether the
+   recognize (§4.2), return 409 and stop. A `SWAPPING` task ends once
+   every replica that owes a swap has swapped; for an unrecognized status this build cannot tell whether the
    task has swapped anywhere, and the mutation-refusal guards agree
    (`MutationRemedy`). Every other in-flight status cancels
    (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
