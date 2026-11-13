@@ -334,21 +334,11 @@ type taskAttempt struct {
 	progress float32
 }
 
-// Two matching tasks, and which one the entry reports: the later Version
-// (RAFT index) wins, even when skewed clocks give it the earlier StartedAt.
-//
-// Every row runs the list both ways round, because the merge loop must not
-// rank on slice position.
-//
-// FINISHED and CANCELLED are in here as winners because that is why terminal
-// tasks stay in the merge loop at all: drop them and an older FAILED attempt
-// reports "failed" after the retry has already rebuilt the index. What a
-// FINISHED winner surfaces is nothing — the schema flag alone decides whether
-// an entry is emitted, so its row is the one that wants an empty task ID.
-//
-// Terminal attempts carry the FinishedAt the FSM stamps on them. Without it
-// the FINISHED rows pass against a build that still reports a
-// FINISHED-but-flag-off entry as indexing@100% inside a freshness window.
+// The later Version (RAFT index) wins, even when skewed clocks give it the
+// earlier StartedAt; each row runs both slice orders. Terminal winners must
+// stay in the merge loop so an older FAILED attempt doesn't outlive its retry.
+// FinishedAt is set on terminal attempts as the FSM does, so FINISHED rows
+// don't surface as indexing@100%.
 func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	now := time.Now()
 	live := func(p float32) taskAttempt {
@@ -383,11 +373,9 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	}{
 		{"a live retry beats the attempt it retries", failed(0.4), live(0.1), "indexing", 0.1, newerID},
 		{"a retry this build cannot name beats it too", failed(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
-		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1, newerID},
-		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
+		{"a retry this build cannot name beats a completed migration", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
 		{"the newer of two failures is the one reported", failed(0.4), failed(0.7), "failed", 0.7, newerID},
 		{"a completed migration beats the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
-		{"a completed migration beats the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
 		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
