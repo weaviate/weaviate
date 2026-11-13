@@ -1198,8 +1198,9 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 	}
 }
 
-// The shared default transport keeps two idle connections per host, so a
-// query sending more requests at once opened most of its connections anew.
+// The client keeps one idle connection per slot, so the second query opens
+// none. A transport with the default of two idle connections per host would
+// open most of them again.
 func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 	f := newFake(t)
 	f.delay = 50 * time.Millisecond
