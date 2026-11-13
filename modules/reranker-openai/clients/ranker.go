@@ -325,10 +325,15 @@ func readAPIError(body io.Reader) apiError {
 	return parsed.Error
 }
 
+// statusError quotes no body for a 401 or a 403. OpenAI's message for a
+// rejected key holds a masked form of the key, and its message for a 403 can
+// name the project of the key.
 func statusError(status int, apiErr apiError) error {
-	// OpenAI's message for a rejected key holds a masked form of the key.
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return fmt.Errorf("OpenAI rejected the API key (status %d)", status)
+	switch status {
+	case http.StatusUnauthorized:
+		return errors.New("OpenAI rejected the API key (status 401)")
+	case http.StatusForbidden:
+		return errors.New("OpenAI denied the request (status 403)")
 	}
 	return rejectedError{status: status, message: apiErr.message()}
 }

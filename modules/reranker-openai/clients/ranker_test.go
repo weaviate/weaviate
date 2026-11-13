@@ -507,23 +507,36 @@ func TestRankRejectsAClassBaseURLBeforeSending(t *testing.T) {
 	}
 }
 
-func TestRankReportsARejectedKeyWithoutTheBody(t *testing.T) {
-	const secret = "sk-secret"
+func TestRankReportsA401AndA403WithoutTheBody(t *testing.T) {
+	const (
+		secret      = "sk-secret"
+		rejectedKey = `{"error":{"message":"Incorrect API key provided: sk-secret","code":"invalid_api_key"}}`
+	)
 	tests := []struct {
 		name    string
 		status  int
+		body    string
 		wantErr string
 	}{
-		{name: "401", status: http.StatusUnauthorized, wantErr: "OpenAI rejected the API key (status 401)"},
-		{name: "403", status: http.StatusForbidden, wantErr: "OpenAI rejected the API key (status 403)"},
+		{name: "401", status: http.StatusUnauthorized, body: rejectedKey, wantErr: "OpenAI rejected the API key (status 401)"},
+		{name: "403 about the key", status: http.StatusForbidden, body: rejectedKey, wantErr: "OpenAI denied the request (status 403)"},
+		{
+			name:    "403 about the model",
+			status:  http.StatusForbidden,
+			body:    `{"error":{"message":"Project proj_1 of sk-secret does not have access to model gpt-6-luna","code":"model_not_found"}}`,
+			wantErr: "OpenAI denied the request (status 403)",
+		},
+		{
+			name:    "403 from a gateway",
+			status:  http.StatusForbidden,
+			body:    "<html>Forbidden for sk-secret</html>",
+			wantErr: "OpenAI denied the request (status 403)",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
-			f.replies = map[int]fakeReply{0: {
-				status: tt.status,
-				body:   `{"error":{"message":"Incorrect API key provided: sk-secret","code":"invalid_api_key"}}`,
-			}}
+			f.replies = map[int]fakeReply{0: {status: tt.status, body: tt.body}}
 			logger, hook := debugLogger()
 			c := New(secret, "", testTimeout, DefaultMaxConcurrentRequests, logger)
 
