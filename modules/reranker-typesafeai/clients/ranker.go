@@ -315,8 +315,10 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Docum
 	return c.send(ctx, r.url, r.apiKey, body, r.image, r.hostFromHeader)
 }
 
-// send makes one attempt. tooLarge says the API rejected the request for its
-// size.
+// send does not retry a status: a 429 or a 5xx fails the call. The transport
+// sends the request again when a reused connection breaks before a response
+// arrives, so the API can receive a request twice. tooLarge says the API
+// rejected the request for its size.
 func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []byte, images, hostFromHeader bool,
 ) (response typesafeaiResponse, tooLarge bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))

@@ -419,6 +419,28 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	}
 }
 
+// The 429 and 500 rows of TestRankFailsAtOnceOnProviderErrors pin that a
+// status is sent once.
+func TestRankSendsARequestAgainWhenItsReusedConnectionBreaks(t *testing.T) {
+	f := newFake(t)
+	f.probabilities = map[string]float64{noRefund: 0.93}
+	f.replies = map[int]fakeReply{1: {hangUp: true}}
+	c := newTestClient(defaultFakeKey)
+	want := &ent.RankResult{Query: churn, DocumentScores: []ent.DocumentScore{{Document: noRefund, Score: 0.93}}}
+
+	// One document is one request, so the second call finds the connection of
+	// the first in the pool.
+	for call := range 2 {
+		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+
+		require.NoError(t, err, "call %d", call)
+		assert.Equal(t, want, res, "call %d", call)
+	}
+
+	assert.Len(t, f.received(), 3, "the request of the second call is sent twice")
+	assert.Equal(t, int64(2), f.opened.Load(), "the second call reused the connection of the first")
+}
+
 func TestRankHeaders(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1212,6 +1234,8 @@ func (r fakeRequest) documents() int {
 type fakeReply struct {
 	status int
 	body   string
+	// hangUp closes the connection without a response.
+	hangUp bool
 }
 
 // fakeTypeSafeAI stands for POST /v1/systemone. It answers every question
@@ -1310,6 +1334,11 @@ func (f *fakeTypeSafeAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case replied && reply.hangUp:
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if assert.NoError(f.t, err) {
+			conn.Close()
+		}
 	case replied:
 		w.WriteHeader(reply.status)
 		io.WriteString(w, reply.body)
