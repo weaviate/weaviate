@@ -38,6 +38,9 @@ const (
 	// holds a slot (80 MiB for a 20 MiB image), in each of the two pools.
 	DefaultMaxConcurrentRequests = 32
 	MaxConcurrentRequestsLimit   = 256
+	// A query sends one billed request per object.
+	DefaultMaxDocumentsPerQuery = 1000
+	MaxDocumentsPerQueryEnv     = "RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY"
 
 	apiPath              = "/v1/decisions"
 	predicateType        = "predicate"
@@ -63,19 +66,25 @@ type client struct {
 	// caller can name a host that never answers, and that must not hold the
 	// slots of requests to the class or default host.
 	inFlightHeaderHost chan struct{}
-	logger             logrus.FieldLogger
+	// maxDocumentsPerQuery counts the documents that are sent: blank and
+	// duplicate documents are not.
+	maxDocumentsPerQuery int
+	logger               logrus.FieldLogger
 }
 
-func New(apiKey, organization string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
+func New(apiKey, organization string, timeout time.Duration, maxConcurrentRequests, maxDocumentsPerQuery int,
+	logger logrus.FieldLogger,
+) *client {
 	slots := max(maxConcurrentRequests, 1)
 	return &client{
 		apiKey:       apiKey,
 		organization: organization,
 		// Each slot keeps its connection between queries.
-		httpClient:         modulecomponents.NewBaseHttpClientWithIdleConns(timeout, slots),
-		inFlight:           make(chan struct{}, slots),
-		inFlightHeaderHost: make(chan struct{}, slots),
-		logger:             logger,
+		httpClient:           modulecomponents.NewBaseHttpClientWithIdleConns(timeout, slots),
+		inFlight:             make(chan struct{}, slots),
+		inFlightHeaderHost:   make(chan struct{}, slots),
+		maxDocumentsPerQuery: max(maxDocumentsPerQuery, 1),
+		logger:               logger,
 	}
 }
 
@@ -114,6 +123,10 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		}
 		owner[document.Value] = i
 		pending = append(pending, i)
+	}
+	if len(pending) > c.maxDocumentsPerQuery {
+		return nil, fmt.Errorf("rerank of %d objects: reranker-openai sends one request per object and takes at most %d per query (%s)",
+			len(pending), c.maxDocumentsPerQuery, MaxDocumentsPerQueryEnv)
 	}
 
 	if image {

@@ -159,7 +159,7 @@ func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
 	logger, hook := debugLogger()
-	c := New(defaultFakeKey, "", testTimeout, DefaultMaxConcurrentRequests, logger)
+	c := New(defaultFakeKey, "", testTimeout, DefaultMaxConcurrentRequests, DefaultMaxDocumentsPerQuery, logger)
 
 	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf("", "a", "a", "b"), classConfig(f.url(), nil))
 
@@ -239,6 +239,81 @@ func TestRankLimitsTheQuerySize(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Len(t, f.received(), tt.wantRequests)
+		})
+	}
+}
+
+func TestRankCapsTheDocumentsOfAQuery(t *testing.T) {
+	tests := []struct {
+		name      string
+		cap       int
+		property  string
+		documents []string
+		wantSent  int
+		wantErr   string
+	}{
+		{
+			name:      "at the cap",
+			cap:       3,
+			property:  "text",
+			documents: []string{"a", "b", "c"},
+			wantSent:  3,
+		},
+		{
+			name:      "one above the cap",
+			cap:       3,
+			property:  "text",
+			documents: []string{"a", "b", "c", "d"},
+			wantErr: "rerank of 4 objects: reranker-openai sends one request per object and takes at most 3 per query " +
+				"(RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY)",
+		},
+		{
+			name:      "blank and duplicate documents do not count",
+			cap:       3,
+			property:  "text",
+			documents: []string{"a", "a", "", "  \n", "b", "c", "b", "c"},
+			wantSent:  3,
+		},
+		{
+			name:      "the cap is checked before the images",
+			cap:       1,
+			property:  "photo",
+			documents: []string{pngBase64, "%%%%"},
+			wantErr: "rerank of 2 objects: reranker-openai sends one request per object and takes at most 1 per query " +
+				"(RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY)",
+		},
+		{
+			name:      "a cap below one is one",
+			cap:       0,
+			property:  "text",
+			documents: []string{"a"},
+			wantSent:  1,
+		},
+		{
+			name:      "one above a cap below one",
+			cap:       -2,
+			property:  "text",
+			documents: []string{"a", "b"},
+			wantErr: "rerank of 2 objects: reranker-openai sends one request per object and takes at most 1 per query " +
+				"(RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			c := New(defaultFakeKey, "", testTimeout, DefaultMaxConcurrentRequests, tt.cap, nullLogger())
+
+			res, err := c.RankProperty(context.Background(), churn, tt.property, documentsOf(tt.documents...),
+				classConfig(f.url(), nil))
+
+			assert.Len(t, f.received(), tt.wantSent)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, res.DocumentScores, len(tt.documents))
 		})
 	}
 }
@@ -523,7 +598,7 @@ func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 	f := newFake(t)
 	f.replies = map[int]fakeReply{0: {status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`}}
 
-	res, err := New(defaultFakeKey, "", testTimeout, 1, nullLogger()).RankProperty(context.Background(), churn, "text",
+	res, err := New(defaultFakeKey, "", testTimeout, 1, DefaultMaxDocumentsPerQuery, nullLogger()).RankProperty(context.Background(), churn, "text",
 		documentsOf("first", "second", "third"), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, "connection to OpenAI API failed with status 429: slow down")
@@ -597,7 +672,7 @@ func TestRankReportsA401AndA403WithoutTheBody(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: tt.status, body: tt.body}}
 			logger, hook := debugLogger()
-			c := New(secret, "", testTimeout, DefaultMaxConcurrentRequests, logger)
+			c := New(secret, "", testTimeout, DefaultMaxConcurrentRequests, DefaultMaxDocumentsPerQuery, logger)
 
 			_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
 
@@ -765,7 +840,7 @@ func TestRankHeaders(t *testing.T) {
 			if tt.headerBaseURL {
 				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
 			}
-			c := New(tt.serverKey, tt.serverOrganization, testTimeout, DefaultMaxConcurrentRequests, nullLogger())
+			c := New(tt.serverKey, tt.serverOrganization, testTimeout, DefaultMaxConcurrentRequests, DefaultMaxDocumentsPerQuery, nullLogger())
 
 			_, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(classServer.url(), nil))
 
@@ -806,7 +881,7 @@ func TestRankTakesAHeaderBaseURLEqualToTheClassBaseURLAsAbsent(t *testing.T) {
 			defer release()
 			f.replies = map[int]fakeReply{1: {status: http.StatusInternalServerError, body: `{"error":{"message":"The server had an error"}}`}}
 			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{f.url() + tt.suffix})
-			c := New("env", "org-env", testTimeout, 3, nullLogger())
+			c := New("env", "org-env", testTimeout, 3, DefaultMaxDocumentsPerQuery, nullLogger())
 
 			result := rankInBackground(t, ctx, c, f, []string{noRefund})
 			require.Eventually(t, func() bool { return len(f.received()) == 1 }, 5*time.Second, time.Millisecond)
@@ -844,7 +919,7 @@ func TestRankTakesAnotherHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
 			headerBaseURL := strings.NewReplacer("<class>", f.url(), "<port>", port).Replace(tt.headerBaseURL)
 			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{headerBaseURL})
 
-			_, err = New("env", "org-env", testTimeout, 3, nullLogger()).RankProperty(ctx, churn, "text",
+			_, err = New("env", "org-env", testTimeout, 3, DefaultMaxDocumentsPerQuery, nullLogger()).RankProperty(ctx, churn, "text",
 				documentsOf(noRefund), classConfig(f.url(), nil))
 
 			require.EqualError(t, err, "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request")
@@ -1219,7 +1294,7 @@ func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
 			defer cancel()
 			ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
 			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerHost.url()})
-			c := New(defaultFakeKey, "", tt.timeout, 2, nullLogger())
+			c := New(defaultFakeKey, "", tt.timeout, 2, DefaultMaxDocumentsPerQuery, nullLogger())
 			headers := &headersSeen{base: c.httpClient.Transport, seen: make(chan struct{})}
 			c.httpClient.Transport = headers
 
@@ -1331,7 +1406,7 @@ func TestRankCutsLongErrorText(t *testing.T) {
 func TestRankReturnsADeadlineErrorAndFreesTheSlots(t *testing.T) {
 	f, release := newBlockingFake(t)
 	defer release()
-	c := New(defaultFakeKey, "", 50*time.Millisecond, 2, nullLogger())
+	c := New(defaultFakeKey, "", 50*time.Millisecond, 2, DefaultMaxDocumentsPerQuery, nullLogger())
 
 	result := rankInBackground(t, context.Background(), c, f, []string{noRefund, chargedTwice, changeEmail})
 
@@ -1419,7 +1494,7 @@ func TestRankKeepsTheNumberLiteralOutOfTheDecodeError(t *testing.T) {
 func TestRankCapsRequestsInFlight(t *testing.T) {
 	f := newFake(t)
 	f.delay = 20 * time.Millisecond
-	c := New(defaultFakeKey, "", testTimeout, 3, nullLogger())
+	c := New(defaultFakeKey, "", testTimeout, 3, DefaultMaxDocumentsPerQuery, nullLogger())
 	queries := [][]string{numbered("first %d", 30), numbered("second %d", 30)}
 
 	var wg sync.WaitGroup
@@ -1448,7 +1523,7 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 	t.Run("with requests in flight", func(t *testing.T) {
 		f, release := newBlockingFake(t)
 		defer release()
-		c := New(defaultFakeKey, "", testTimeout, inFlight, nullLogger())
+		c := New(defaultFakeKey, "", testTimeout, inFlight, DefaultMaxDocumentsPerQuery, nullLogger())
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1470,7 +1545,7 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 	t.Run("when cancelled before it asks for a slot another query holds", func(t *testing.T) {
 		f, release := newBlockingFake(t)
 		defer release()
-		c := New(defaultFakeKey, "", testTimeout, inFlight, nullLogger())
+		c := New(defaultFakeKey, "", testTimeout, inFlight, DefaultMaxDocumentsPerQuery, nullLogger())
 		other := rankInBackground(t, context.Background(), c, f, documents)
 		require.Eventually(t, func() bool { return len(f.received()) == inFlight }, 5*time.Second, time.Millisecond)
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1499,7 +1574,7 @@ func TestRankWaitsForASlotUntilTheContextEnds(t *testing.T) {
 			// synctest.Wait returns only once send is parked on the slot, so
 			// the cancel has to wake it.
 			synctest.Test(t, func(t *testing.T) {
-				c := New(defaultFakeKey, "", testTimeout, 2, nullLogger())
+				c := New(defaultFakeKey, "", testTimeout, 2, DefaultMaxDocumentsPerQuery, nullLogger())
 				pool := c.slotsFor(tt.hostFromHeader)
 				for range cap(pool) {
 					pool <- struct{}{}
@@ -1545,7 +1620,7 @@ func TestRankHeaderHostRequestsDoNotHoldTheClassHostSlots(t *testing.T) {
 	headerHost, release := newBlockingFake(t)
 	defer release()
 	classHost := newFake(t)
-	c := New(defaultFakeKey, "", testTimeout, slots, nullLogger())
+	c := New(defaultFakeKey, "", testTimeout, slots, DefaultMaxDocumentsPerQuery, nullLogger())
 	headerCtx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
 	headerCtx = context.WithValue(headerCtx, "X-Openai-Baseurl", []string{headerHost.url()})
 
@@ -1611,7 +1686,7 @@ func TestNewRaisesACapBelowOneToOne(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 
-			c := New(defaultFakeKey, "", testTimeout, tt.maxConcurrentRequests, nullLogger())
+			c := New(defaultFakeKey, "", testTimeout, tt.maxConcurrentRequests, DefaultMaxDocumentsPerQuery, nullLogger())
 
 			require.Equal(t, tt.wantCap, cap(c.inFlight))
 			require.Equal(t, tt.wantCap, cap(c.inFlightHeaderHost))
@@ -1762,7 +1837,7 @@ func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 			logger, hook := debugLogger()
-			c := New(defaultFakeKey, "", testTimeout, DefaultMaxConcurrentRequests, logger)
+			c := New(defaultFakeKey, "", testTimeout, DefaultMaxConcurrentRequests, DefaultMaxDocumentsPerQuery, logger)
 
 			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
 
@@ -1785,7 +1860,7 @@ func debugLogger() (logrus.FieldLogger, *test.Hook) {
 }
 
 func newTestClient(apiKey string) *client {
-	return New(apiKey, "", testTimeout, DefaultMaxConcurrentRequests, nullLogger())
+	return New(apiKey, "", testTimeout, DefaultMaxConcurrentRequests, DefaultMaxDocumentsPerQuery, nullLogger())
 }
 
 // IDs are 00000000-0000-0000-0000-<i in 12 digits>.

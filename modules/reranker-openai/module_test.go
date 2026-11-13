@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +51,40 @@ func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(maxConcurrentRequestsEnv, tt.value)
 			got, err := maxConcurrentRequestsFromEnv()
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestMaxDocumentsPerQueryFromEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    int
+		wantErr string
+	}{
+		{name: "unset or empty", value: "", want: 1000},
+		{name: "lower bound", value: "1", want: 1},
+		{name: "above the default", value: "5000", want: 5000},
+		{name: "zero", value: "0", wantErr: `RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "0"`},
+		{name: "negative", value: "-4", wantErr: `RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "-4"`},
+		{name: "not a number", value: "many", wantErr: `RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "many"`},
+		{name: "a fraction", value: "1.5", wantErr: `RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "1.5"`},
+		{
+			name:    "above the int range",
+			value:   "99999999999999999999",
+			wantErr: `RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "99999999999999999999"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(maxDocumentsPerQueryEnv, tt.value)
+			got, err := maxDocumentsPerQueryFromEnv()
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return
@@ -113,6 +148,68 @@ func TestInitReadsTheConcurrencyEnv(t *testing.T) {
 			assert.NotNil(t, m.reranker)
 		})
 	}
+}
+
+func TestInitReadsTheDocumentsPerQueryEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{name: "unset"},
+		{name: "a valid value", value: "8"},
+		{name: "zero", value: "0", wantErr: `init reranker: RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "0"`},
+		{name: "negative", value: "-1", wantErr: `init reranker: RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "-1"`},
+		{name: "not a number", value: "abc", wantErr: `init reranker: RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY must be a whole number of at least 1, got "abc"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(maxConcurrentRequestsEnv, "")
+			t.Setenv(maxDocumentsPerQueryEnv, tt.value)
+			logger, _ := test.NewNullLogger()
+			m := New()
+
+			err := m.Init(context.Background(), moduletools.NewInitParams("", nil,
+				&config.Config{ModuleHttpClientTimeout: time.Second}, logger, nil))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Nil(t, m.reranker)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotNil(t, m.reranker)
+		})
+	}
+}
+
+func TestInitPassesTheDocumentsPerQueryCap(t *testing.T) {
+	t.Setenv(maxConcurrentRequestsEnv, "")
+	t.Setenv(maxDocumentsPerQueryEnv, "2")
+	t.Setenv("OPENAI_APIKEY", "testKey")
+	var received atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	logger, _ := test.NewNullLogger()
+	m := New()
+	require.NoError(t, m.Init(context.Background(), moduletools.NewInitParams("", nil,
+		&config.Config{ModuleHttpClientTimeout: time.Second}, logger, nil)))
+	class := &models.Class{
+		Class:        "Doc",
+		Properties:   []*models.Property{{Name: "text", DataType: schema.DataTypeText.PropString()}},
+		ModuleConfig: map[string]any{Name: map[string]any{"baseURL": server.URL}},
+	}
+	cfg := modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{})
+
+	_, err := m.reranker.RankProperty(context.Background(), "q", "text",
+		[]ent.Document{{ID: "1", Value: "first"}, {ID: "2", Value: "second"}, {ID: "3", Value: "third"}}, cfg)
+
+	require.EqualError(t, err, "rerank of 3 objects: reranker-openai sends one request per object and takes at most 2 per query "+
+		"(RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY)")
+	assert.Zero(t, received.Load())
 }
 
 func TestInitPassesTheClientTimeout(t *testing.T) {
