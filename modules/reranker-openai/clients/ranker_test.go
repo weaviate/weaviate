@@ -444,6 +444,64 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			reply:   fakeReply{status: http.StatusBadRequest, body: `{"error":{"message":"Invalid input","type":"invalid_request_error"}}`},
 			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
 		},
+		{
+			name: "400 with a param in the input names the object",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":"Invalid value: 'input_image'.","type":"invalid_request_error","param":"input[0].type","code":"invalid_value"}}`,
+			},
+			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid value: 'input_image'.",
+		},
+		{
+			name: "400 with a null param names the object",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":"Invalid input","type":"invalid_request_error","param":null,"code":null}}`,
+			},
+			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+		},
+		{
+			name: "400 with a number as the code names the object and keeps the message",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":"Invalid input","param":7,"code":400}}`,
+			},
+			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+		},
+		{
+			name: "400 with a param in the questions names no object",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":"Invalid instructions","type":"invalid_request_error","param":"questions[0].instructions","code":"invalid_value"}}`,
+			},
+			wantErr: "connection to OpenAI API failed with status 400: Invalid instructions",
+		},
+		{
+			name: "400 with the param model names no object",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":"Unsupported model","type":"invalid_request_error","param":"model","code":"invalid_value"}}`,
+			},
+			wantErr: "connection to OpenAI API failed with status 400: Unsupported model",
+		},
+		{
+			name: "400 with the code model_not_found names no object",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":"Unknown model","type":"invalid_request_error","param":null,"code":"model_not_found"}}`,
+			},
+			wantErr: "connection to OpenAI API failed with status 400: Unknown model",
+		},
+		{
+			// The API's reply to an unknown model and to a model of another kind.
+			name: "404 for an unknown model names no object",
+			reply: fakeReply{
+				status: http.StatusNotFound,
+				body: "{\"error\":{\"message\":\"The model `x` does not exist or you do not have access to it.\"," +
+					"\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_not_found\"}}",
+			},
+			wantErr: "connection to OpenAI API failed with status 404: The model `x` does not exist or you do not have access to it.",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

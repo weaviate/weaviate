@@ -195,12 +195,13 @@ type judgeRequest struct {
 	image          bool
 }
 
-// judge names the document's object in a 400 and in a rejected answer.
+// judge names the document's object in a 400 about the document and in a
+// rejected answer.
 func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, int64, error) {
 	response, err := c.send(ctx, r, document.Value)
 	if err != nil {
 		var rejected rejectedError
-		if errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
+		if errors.As(err, &rejected) && rejected.aboutDocument {
 			return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
 		}
 		return 0, 0, err
@@ -302,8 +303,13 @@ func readResponse(res *http.Response, hostFromHeader bool) (decisionResponse, er
 	return response, nil
 }
 
+// Param and Code are any: OpenAI sends a string or null, and other servers
+// send a number as the code. A value of another type must not fail the decode
+// of the message.
 type apiError struct {
 	Message string `json:"message"`
+	Param   any    `json:"param"`
+	Code    any    `json:"code"`
 }
 
 func (e apiError) message() string {
@@ -334,15 +340,35 @@ func statusError(res *http.Response, hostFromHeader bool) error {
 	case http.StatusForbidden:
 		return errors.New("OpenAI denied the request (status 403)")
 	}
-	if hostFromHeader {
-		return rejectedError{status: res.StatusCode}
+	apiErr := apiError{}
+	if !hostFromHeader {
+		apiErr = readAPIError(res.Body)
 	}
-	return rejectedError{status: res.StatusCode, message: readAPIError(res.Body).message()}
+	return rejectedError{
+		status:        res.StatusCode,
+		message:       apiErr.message(),
+		aboutDocument: aboutDocument(res.StatusCode, apiErr),
+	}
+}
+
+// aboutDocument reports whether a status error is about the document of the
+// request. A 400 is, unless the error object points at the model or the
+// questions, which are the same for every object of the query. param is a
+// path into the request body, such as "input[0].type".
+func aboutDocument(status int, apiErr apiError) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	param, _ := apiErr.Param.(string)
+	code, _ := apiErr.Code.(string)
+	return !strings.HasPrefix(param, "model") && !strings.HasPrefix(param, "questions") && code != "model_not_found"
 }
 
 type rejectedError struct {
 	status  int
 	message string
+	// aboutDocument says the error names the object of the request.
+	aboutDocument bool
 }
 
 func (e rejectedError) Error() string {
