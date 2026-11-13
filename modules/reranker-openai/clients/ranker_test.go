@@ -12,6 +12,7 @@
 package clients
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1021,6 +1022,153 @@ func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 			assert.Len(t, used.received(), 1)
 		})
 	}
+}
+
+// net/http quotes bytes of the host in its errors, and a dial error names the
+// address that refused.
+func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
+	const banner = "SSH-2.0-OpenSSH_9.6"
+	tests := []struct {
+		name       string
+		host       func(t *testing.T) string
+		fromHeader bool
+		wantErr    string
+		// <host> stands for the host and port.
+		wantInErr []string
+	}{
+		{
+			name:       "a banner that is not HTTP from the header base URL",
+			host:       func(t *testing.T) string { return newRawHost(t, banner+"\r\n") },
+			fromHeader: true,
+			wantErr:    "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
+		},
+		{
+			name:       "a closed port at the header base URL",
+			host:       closedPort,
+			fromHeader: true,
+			wantErr:    "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
+		},
+		{
+			name:      "a banner that is not HTTP from the class base URL",
+			host:      func(t *testing.T) string { return newRawHost(t, banner+"\r\n") },
+			wantInErr: []string{`send OpenAI request: Post "http://<host>/v1/decisions": `, `malformed HTTP response "` + banner + `"`},
+		},
+		{
+			name:      "a closed port at the class base URL",
+			host:      closedPort,
+			wantInErr: []string{`send OpenAI request: Post "http://<host>/v1/decisions": dial tcp <host>: `, "connection refused"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host := tt.host(t)
+			classBaseURL := "http://" + host
+			ctx := context.Background()
+			if tt.fromHeader {
+				classBaseURL = newFake(t).url()
+				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{"http://" + host})
+			}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+				classConfig(classBaseURL, nil))
+
+			require.Error(t, err)
+			for _, part := range tt.wantInErr {
+				assert.ErrorContains(t, err, strings.ReplaceAll(part, "<host>", host))
+			}
+			if tt.fromHeader {
+				assert.EqualError(t, err, tt.wantErr)
+				for _, hidden := range []string{banner, "connection refused", host} {
+					assert.NotContains(t, err.Error(), hidden)
+				}
+			}
+		})
+	}
+}
+
+func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		cancel  bool
+		wantIs  error
+		wantErr string
+	}{
+		{
+			name:    "the client timeout",
+			timeout: 50 * time.Millisecond,
+			wantIs:  context.DeadlineExceeded,
+			wantErr: "send OpenAI request: context deadline exceeded",
+		},
+		{
+			name:    "a cancelled query",
+			timeout: testTimeout,
+			cancel:  true,
+			wantIs:  context.Canceled,
+			wantErr: "send OpenAI request: context canceled",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headerHost, release := newBlockingFake(t)
+			defer release()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
+			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerHost.url()})
+			c := New(defaultFakeKey, "", tt.timeout, 2, nullLogger())
+
+			result := rankInBackground(t, ctx, c, newFake(t), []string{noRefund})
+			require.Eventually(t, func() bool { return len(headerHost.received()) == 1 }, 5*time.Second, time.Millisecond)
+			if tt.cancel {
+				cancel()
+			}
+
+			select {
+			case err := <-result:
+				require.ErrorIs(t, err, tt.wantIs)
+				assert.EqualError(t, err, tt.wantErr)
+			case <-time.After(5 * time.Second):
+				t.Fatal("RankProperty did not return within 5 seconds")
+			}
+		})
+	}
+}
+
+// newRawHost answers every request with reply and closes the connection. It
+// returns the host and port.
+func newRawHost(t *testing.T, reply string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	var serving sync.WaitGroup
+	serving.Go(func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// A close with unread bytes resets the connection, and the client
+			// could see the reset before the reply.
+			if request, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
+				io.Copy(io.Discard, request.Body)
+				io.WriteString(conn, reply)
+			}
+			conn.Close()
+		}
+	})
+	t.Cleanup(serving.Wait)
+	t.Cleanup(func() { listener.Close() })
+	return listener.Addr().String()
+}
+
+func closedPort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	require.NoError(t, listener.Close())
+	return listener.Addr().String()
 }
 
 func TestRankCutsLongErrorText(t *testing.T) {
