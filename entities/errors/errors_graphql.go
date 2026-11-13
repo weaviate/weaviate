@@ -14,6 +14,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 type ErrGraphQLUser struct {
@@ -53,6 +54,13 @@ type ErrRateLimit struct {
 
 func (e ErrRateLimit) Error() string {
 	return e.err.Error()
+}
+
+// PublicErrorCode is the stable numeric status for a rate-limited request.
+// The message still says "429 Too many requests" so clients that match
+// the text keep working; new clients should branch on this code.
+func (e ErrRateLimit) PublicErrorCode() int {
+	return http.StatusTooManyRequests
 }
 
 func NewErrRateLimit() ErrRateLimit {

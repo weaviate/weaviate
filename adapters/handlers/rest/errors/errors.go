@@ -66,9 +66,15 @@ func NamespaceErrRendersUnprocessable(err error) bool {
 // appended: a namespace named "https" must not cut the link's scheme.
 func ErrPayloadFromSingleErr(principal *models.Principal, err error) *models.ErrorResponse {
 	msg := namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err))
-	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+	item := &models.ErrorResponseErrorItems0{
 		Message: enterrors.AppendDocsLink(msg, err),
-	}}}
+	}
+	// Only errors with one status everywhere they surface contribute a code
+	// here. Callers that picked a different HTTP status overwrite it.
+	if code, ok := enterrors.StatusCode(err); ok {
+		item.Code = int64(code)
+	}
+	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{item}}
 }
 
 // ErrRestrictionViolation wraps a non-restriction error into the
@@ -81,6 +87,8 @@ func ErrRestrictionViolation(principal *models.Principal, err error) *models.Res
 	return &models.RestrictionViolationResponse{
 		Error: []*models.RestrictionViolationResponseErrorItems0{{
 			Message: enterrors.AppendDocsLink(msg, err),
+			// This payload is only returned as HTTP 422.
+			Code: http.StatusUnprocessableEntity,
 		}},
 	}
 }

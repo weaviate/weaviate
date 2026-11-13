@@ -151,7 +151,7 @@ func TestCatchPanicsMiddlewareResponse(t *testing.T) {
 			name:       "panic before any write answers 500",
 			handler:    func(w http.ResponseWriter, r *http.Request) { panic(errors.New("boom")) },
 			wantStatus: http.StatusInternalServerError,
-			wantBody:   `{"error":[{"message":"internal server error; details are in the server log"}]}`,
+			wantBody:   `{"error":[{"message":"internal server error; details are in the server log","code":500}]}`,
 		},
 		{
 			name: "panic after the handler wrote keeps the handler's response",

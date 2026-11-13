@@ -41,12 +41,28 @@ func errPayloadFromSingleErr(principal *models.Principal, err error) *models.Err
 	return cerrors.ErrPayloadFromSingleErr(principal, err)
 }
 
+// withHTTPStatus sets code on every error item to the HTTP status the
+// handler is about to write. That status wins over a code inferred from
+// the error type, so the body and the status line agree.
+func withHTTPStatus(resp *models.ErrorResponse, status int) *models.ErrorResponse {
+	if resp == nil || status == 0 {
+		return resp
+	}
+	for _, item := range resp.Error {
+		if item != nil {
+			item.Code = int64(status)
+		}
+	}
+	return resp
+}
+
 // tooManyRequestsResponder writes an HTTP 429 with the standard error
 // payload; the generated go-swagger operations declare no 429 response.
 func tooManyRequestsResponder(principal *models.Principal, err error) middleware.Responder {
 	return middleware.ResponderFunc(func(rw http.ResponseWriter, producer runtime.Producer) {
 		rw.WriteHeader(http.StatusTooManyRequests)
-		if perr := producer.Produce(rw, errPayloadFromSingleErr(principal, err)); perr != nil {
+		payload := withHTTPStatus(errPayloadFromSingleErr(principal, err), http.StatusTooManyRequests)
+		if perr := producer.Produce(rw, payload); perr != nil {
 			panic(perr) // let the recovery middleware deal with this
 		}
 	})

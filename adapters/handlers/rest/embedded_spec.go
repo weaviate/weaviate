@@ -9669,6 +9669,11 @@ func init() {
             "properties": {
               "message": {
                 "type": "string"
+              },
+              "code": {
+                "description": "Stable numeric status for this error, matching the HTTP status of the response when one is known. Omitted when the server has no stable code for the error. Clients should branch on this value rather than the message text.",
+                "format": "int64",
+                "type": "integer"
               }
             }
           }
@@ -9849,6 +9854,11 @@ func init() {
         },
         "message": {
           "type": "string"
+        },
+        "code": {
+          "description": "Stable numeric status for this error. GraphQL responses are HTTP 200, so this carries the semantic status, for example 429 when the query was rate limited. Omitted when no stable code is known. Clients should branch on this value rather than the message text.",
+          "format": "int64",
+          "type": "integer"
         },
         "path": {
           "type": "array",
@@ -11817,6 +11827,11 @@ func init() {
             "properties": {
               "message": {
                 "type": "string"
+              },
+              "code": {
+                "description": "Stable numeric status for this error. 422 for this legacy error list. Omitted when no stable code is known. Clients should branch on this value rather than the message text.",
+                "format": "int64",
+                "type": "integer"
               }
             }
           }
@@ -23124,6 +23139,11 @@ func init() {
       "properties": {
         "message": {
           "type": "string"
+        },
+        "code": {
+          "description": "Stable numeric status for this error, matching the HTTP status of the response when one is known. Omitted when the server has no stable code for the error. Clients should branch on this value rather than the message text.",
+          "format": "int64",
+          "type": "integer"
         }
       }
     },
@@ -23321,6 +23341,11 @@ func init() {
         },
         "message": {
           "type": "string"
+        },
+        "code": {
+          "description": "Stable numeric status for this error. GraphQL responses are HTTP 200, so this carries the semantic status, for example 429 when the query was rate limited. Omitted when no stable code is known. Clients should branch on this value rather than the message text.",
+          "format": "int64",
+          "type": "integer"
         },
         "path": {
           "type": "array",
@@ -25525,6 +25550,11 @@ func init() {
       "properties": {
         "message": {
           "type": "string"
+        },
+        "code": {
+          "description": "Stable numeric status for this error. 422 for this legacy error list. Omitted when no stable code is known. Clients should branch on this value rather than the message text.",
+          "format": "int64",
+          "type": "integer"
         }
       }
     },

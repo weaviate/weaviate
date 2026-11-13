@@ -70,7 +70,7 @@ func (p *panicResponseWriter) writeInternalError() {
 	}
 	p.Header().Set("Content-Type", "application/json")
 	p.WriteHeader(http.StatusInternalServerError)
-	p.Write([]byte(`{"error":[{"message":"internal server error; details are in the server log"}]}`))
+	p.Write([]byte(`{"error":[{"message":"internal server error; details are in the server log","code":500}]}`))
 }
 
 func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequestsTotal, r *http.Request, pw *panicResponseWriter) {

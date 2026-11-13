@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -40,6 +39,22 @@ import (
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
+
+// gqlTransportError builds the REST error body for a GraphQL request that
+// fails before a query result exists. code is the HTTP status of the responder.
+func gqlTransportError(principal *models.Principal, err error, status int) *models.ErrorResponse {
+	return withHTTPStatus(errPayloadFromSingleErr(principal, err), status)
+}
+
+// graphqlBatchFailure is a per-item error inside an HTTP 200 batch response.
+// The numeric status cannot live in the batch status line, so it is copied
+// onto the error object. The message keeps the historical "422: ..." prefix.
+func graphqlBatchFailure(detail string) []*models.GraphQLError {
+	return []*models.GraphQLError{{
+		Message: fmt.Sprintf("%d: %s", graphql.GraphqlBatchUnprocessableEntityCode, detail),
+		Code:    int64(graphql.GraphqlBatchUnprocessableEntityCode),
+	}}
+}
 
 type gqlUnbatchedRequestResponse struct {
 	RequestIndex int
@@ -65,7 +80,7 @@ func setupGraphQLHandlers(
 			metricRequestsTotal.logNamespacesBlocked()
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlPostGone().
-				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration")))
+				WithPayload(gqlTransportError(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration"), graphql.GraphqlPostGoneCode))
 		}
 
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
@@ -76,12 +91,13 @@ func setupGraphQLHandlers(
 			switch {
 			case errors.As(err, &authzerrors.Forbidden{}):
 				return graphql.NewGraphqlPostForbidden().
-					WithPayload(errPayloadFromSingleErr(principal,
+					WithPayload(gqlTransportError(principal,
 						fmt.Errorf("due to GraphQL introspection, this role must have the permission to `read_collections` on `*` (all) collections: %w", err),
+						graphql.GraphqlPostForbiddenCode,
 					))
 			default:
 				return graphql.NewGraphqlPostUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(principal, err))
+					WithPayload(gqlTransportError(principal, err, graphql.GraphqlPostUnprocessableEntityCode))
 			}
 		}
 
@@ -89,7 +105,7 @@ func setupGraphQLHandlers(
 			metricRequestsTotal.logUserError()
 			err := fmt.Errorf("graphql api is disabled")
 			return graphql.NewGraphqlPostUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(gqlTransportError(principal, err, graphql.GraphqlPostUnprocessableEntityCode))
 		}
 
 		errorResponse := &models.ErrorResponse{}
@@ -104,6 +120,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: "query cannot be empty",
+					Code:    int64(graphql.GraphqlPostUnprocessableEntityCode),
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -118,6 +135,7 @@ func setupGraphQLHandlers(
 				errorResponse.Error = []*models.ErrorResponseErrorItems0{
 					{
 						Message: fmt.Sprintf("variables must be a JSON object, got %T", params.Body.Variables),
+						Code:    int64(graphql.GraphqlPostUnprocessableEntityCode),
 					},
 				}
 				return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -131,6 +149,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: "no graphql provider present, this is most likely because no schema is present. Import a schema first!",
+					Code:    int64(graphql.GraphqlPostUnprocessableEntityCode),
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -148,6 +167,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: fmt.Sprintf("couldn't marshal json: %s", jsonErr),
+					Code:    int64(graphql.GraphqlPostUnprocessableEntityCode),
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -163,6 +183,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: fmt.Sprintf("couldn't unmarshal json: %s\noriginal result was %#v", marshallErr, result),
+					Code:    int64(graphql.GraphqlPostUnprocessableEntityCode),
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -170,6 +191,7 @@ func setupGraphQLHandlers(
 
 		metricRequestsTotal.log(result)
 		addDocsLinks(result, graphQLResponse)
+		attachErrorCodes(result, graphQLResponse)
 		// Return the response
 		return graphql.NewGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -179,19 +201,19 @@ func setupGraphQLHandlers(
 			metricRequestsTotal.logNamespacesBlocked()
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlBatchGone().
-				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration")))
+				WithPayload(gqlTransportError(principal, fmt.Errorf("graphql api is not supported in the current cluster configuration"), graphql.GraphqlBatchGoneCode))
 		}
 
 		// this is barely used (if at all) - so require read access to all collections for data and metadata
 		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.Collections()...)
 		if err != nil {
-			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+			return graphql.NewGraphqlBatchForbidden().WithPayload(gqlTransportError(principal, err, graphql.GraphqlBatchForbiddenCode))
 		}
 
 		if disabled.Get() {
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlBatchUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is disabled")))
+				WithPayload(gqlTransportError(principal, fmt.Errorf("graphql api is disabled"), graphql.GraphqlBatchUnprocessableEntityCode))
 		}
 
 		errorResponse := &models.ErrorResponse{}
@@ -210,8 +232,8 @@ func setupGraphQLHandlers(
 		graphQL := gqlProvider.GetGraphQL()
 		if graphQL == nil {
 			metricRequestsTotal.logUserError()
-			errRes := errPayloadFromSingleErr(principal, fmt.Errorf("no graphql provider present, "+
-				"this is most likely because no schema is present. Import a schema first"))
+			errRes := gqlTransportError(principal, fmt.Errorf("no graphql provider present, "+
+				"this is most likely because no schema is present. Import a schema first"), graphql.GraphqlBatchUnprocessableEntityCode)
 			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errRes)
 		}
 
@@ -252,9 +274,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 	if query == "" {
 		metricRequestsTotal.logUserError()
 		// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
-		errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
-		errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
-		errors := []*models.GraphQLError{{Message: errorMessage}}
+		errors := graphqlBatchFailure(error422)
 		graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
 		*requestResults <- gqlUnbatchedRequestResponse{
 			requestIndex,
@@ -267,10 +287,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			var ok bool
 			variables, ok = unbatchedRequest.Variables.(map[string]interface{})
 			if !ok {
-				errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
-				errorMessage := fmt.Sprintf("%s: %s", errorCode, fmt.Sprintf("expected map[string]interface{}, received %v", unbatchedRequest.Variables))
-
-				error := []*models.GraphQLError{{Message: errorMessage}}
+				error := graphqlBatchFailure(fmt.Sprintf("expected map[string]interface{}, received %v", unbatchedRequest.Variables))
 				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: error}
 				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
@@ -289,9 +306,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		if jsonErr != nil {
 			metricRequestsTotal.logUserError()
 			// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
-			errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
-			errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
-			errors := []*models.GraphQLError{{Message: errorMessage}}
+			errors := graphqlBatchFailure(error422)
 			graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
 			*requestResults <- gqlUnbatchedRequestResponse{
 				requestIndex,
@@ -305,9 +320,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			if marshallErr != nil {
 				metricRequestsTotal.logUserError()
 				// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
-				errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
-				errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
-				errors := []*models.GraphQLError{{Message: errorMessage}}
+				errors := graphqlBatchFailure(error422)
 				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
 				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
@@ -316,6 +329,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			} else {
 				metricRequestsTotal.log(result)
 				addDocsLinks(result, graphQLResponse)
+				attachErrorCodes(result, graphQLResponse)
 				// Return the GraphQL response
 				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
@@ -411,13 +425,13 @@ func (e *graphqlRequestsTotal) isSyntaxRelatedError(gqlError gqlerrors.Formatted
 }
 
 func (e *graphqlRequestsTotal) getError(err error) (bool, *enterrors.ErrGraphQLUser) {
-	var errGraphQLUser *enterrors.ErrGraphQLUser
-	switch {
-	case errors.As(err, &errGraphQLUser):
-		return true, errGraphQLUser
-	default:
-		return false, nil
+	// NewErrGraphQLUser returns a value. Matching *ErrGraphQLUser never
+	// succeeds, so every resolver error was counted as a server error.
+	var errGraphQLUser enterrors.ErrGraphQLUser
+	if errors.As(err, &errGraphQLUser) {
+		return true, &errGraphQLUser
 	}
+	return false, nil
 }
 
 func (e *graphqlRequestsTotal) log(result *tailorincgraphql.Result) {
@@ -486,6 +500,24 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 		}
 	}
 	return className, queryType
+}
+
+// attachErrorCodes copies a stable numeric status onto each GraphQL error
+// when the resolver error carries one. GraphQL responses are HTTP 200, so
+// the status cannot live on the status line. The resolved result stays
+// pristine, matching addDocsLinks.
+func attachErrorCodes(result *tailorincgraphql.Result, response *models.GraphQLResponse) {
+	if result == nil || response == nil {
+		return
+	}
+	for i := range response.Errors {
+		if i >= len(result.Errors) || response.Errors[i] == nil || response.Errors[i].Code != 0 {
+			continue
+		}
+		if code, ok := enterrors.StatusCode(resolverError(result.Errors[i])); ok {
+			response.Errors[i].Code = int64(code)
+		}
+	}
 }
 
 // addDocsLinks appends the documenting page to a documented resolver error in

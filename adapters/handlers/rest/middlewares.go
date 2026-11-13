@@ -327,6 +327,7 @@ func addSearchBodyLimit(next http.Handler) http.Handler {
 			if r.ContentLength > restsearch.MaxBodyBytes {
 				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 					Message: fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
+					Code:    http.StatusRequestEntityTooLarge,
 				}}}
 				data, _ := json.Marshal(resp)
 				w.Header().Set("Content-Type", "application/json")
@@ -369,7 +370,10 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 }
 
 func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
-	resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}}}
+	resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+		Message: err.Error(),
+		Code:    http.StatusServiceUnavailable,
+	}}}
 	data, marshalErr := json.Marshal(resp)
 	if marshalErr != nil {
 		http.Error(w, "error when marshalling errorResponse in operational mode middleware", http.StatusInternalServerError)

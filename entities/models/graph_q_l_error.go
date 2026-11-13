@@ -36,6 +36,9 @@ type GraphQLError struct {
 	// message
 	Message string `json:"message,omitempty"`
 
+	// Stable numeric status for this error. GraphQL responses are HTTP 200, so this carries the semantic status, for example 429 when the query was rate limited. Omitted when no stable code is known. Clients should branch on this value rather than the message text.
+	Code int64 `json:"code,omitempty"`
+
 	// path
 	Path []string `json:"path"`
 }

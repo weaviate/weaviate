@@ -241,6 +241,9 @@ type RestrictionViolationResponseErrorItems0 struct {
 
 	// message
 	Message string `json:"message,omitempty"`
+
+	// Stable numeric status for this error. 422 for this legacy error list. Omitted when no stable code is known. Clients should branch on this value rather than the message text.
+	Code int64 `json:"code,omitempty"`
 }
 
 // Validate validates this restriction violation response error items0
