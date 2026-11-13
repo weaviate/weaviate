@@ -227,12 +227,16 @@ func pq(trainingLimit int) map[string]interface{} {
 
 func sq(trainingLimit int) map[string]interface{} {
 	return map[string]interface{}{
-		"pq": map[string]interface{}{
+		"sq": map[string]interface{}{
 			"enabled":       true,
 			"trainingLimit": trainingLimit,
-			"cache":         true,
 		},
 	}
+}
+
+// uncompressed opts an index out of the server's default quantization.
+func uncompressed() map[string]interface{} {
+	return map[string]interface{}{"skipDefaultQuantization": true}
 }
 
 func rq(bits int) map[string]interface{} {

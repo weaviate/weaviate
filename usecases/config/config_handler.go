@@ -299,6 +299,9 @@ type Config struct {
 
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
+	// True when DEFAULT_QUANTIZATION was unset and BuiltInDefaultQuantization
+	// was applied; runtime restriction checks then treat the default as unset.
+	DefaultQuantizationIsBuiltIn bool `json:"-" yaml:"-"`
 
 	// New classes will be created with this vector index type instead of HNSW.
 	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
@@ -628,8 +631,15 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 		allowVector, c.DefaultVectorIndexType,
 		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
 	)...)
+	// The operator never chose the built-in default, so one outside the
+	// allow-list counts as unset; the schema layer does not apply it.
+	defaultQuantization := c.DefaultQuantization
+	if c.DefaultQuantizationIsBuiltIn && defaultQuantization.Get() == BuiltInDefaultQuantization &&
+		!slices.Contains(allowCompression, BuiltInDefaultQuantization) {
+		defaultQuantization = nil
+	}
 	problems = append(problems, runtimeMismatchProblems(
-		allowCompression, c.DefaultQuantization,
+		allowCompression, defaultQuantization,
 		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
 	)...)
 
@@ -1157,6 +1167,10 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 // DefaultPersistenceLSMCycleManagerRoutinesFactor - determines how many goroutines
 // are started for cyclemanager (factor * NUMCPU)
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
+
+// BuiltInDefaultQuantization compresses new collections when
+// DEFAULT_QUANTIZATION is unset.
+const BuiltInDefaultQuantization = "rq-4"
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 

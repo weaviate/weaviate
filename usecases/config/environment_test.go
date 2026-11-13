@@ -3153,3 +3153,45 @@ func TestEnvironmentBackupDedupeConvergenceTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentDefaultQuantization(t *testing.T) {
+	unset := "<unset>"
+	tests := []struct {
+		name             string
+		value            string
+		allowCompression string
+		expected         string
+		expectedBuiltIn  bool
+	}{
+		{name: "unset falls back to the built-in default", value: unset, expected: BuiltInDefaultQuantization, expectedBuiltIn: true},
+		{name: "empty opts out", value: "", expected: ""},
+		{name: "none opts out", value: "none", expected: "none"},
+		{name: "explicit value wins", value: " RQ-8 ", expected: "rq-8"},
+		{name: "explicit built-in value is not flagged", value: "rq-4", expected: "rq-4"},
+		{name: "unset with single-entry allow-list is seeded from it", value: unset, allowCompression: "rq-8", expected: "rq-8"},
+		{name: "unset with allow-list holding the built-in is seeded from it", value: unset, allowCompression: "rq-4", expected: "rq-4"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED", "true")
+			if tt.value != unset {
+				t.Setenv("DEFAULT_QUANTIZATION", tt.value)
+			}
+			if tt.allowCompression != "" {
+				t.Setenv("ALLOWED_COMPRESSION_TYPES", tt.allowCompression)
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.NoError(t, conf.validateRestrictions())
+			require.Equal(t, tt.expected, conf.DefaultQuantization.Get())
+			require.Equal(t, tt.expectedBuiltIn, conf.DefaultQuantizationIsBuiltIn)
+		})
+	}
+
+	t.Run("unset with multi-entry allow-list still demands a default", func(t *testing.T) {
+		t.Setenv("ALLOWED_COMPRESSION_TYPES", "rq-4,rq-8")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.ErrorContains(t, conf.validateRestrictions(), "DEFAULT_QUANTIZATION must also be set")
+	})
+}

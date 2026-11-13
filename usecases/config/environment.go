@@ -626,9 +626,14 @@ func FromEnv(config *Config) error {
 	// ---- HNSW snapshots ----
 
 	defaultQuantization := ""
-	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+	if v, ok := os.LookupEnv("DEFAULT_QUANTIZATION"); ok {
 		// Trim/lowercase for symmetry with ALLOWED_COMPRESSION_TYPES.
 		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
+	} else if strings.TrimSpace(os.Getenv("ALLOWED_COMPRESSION_TYPES")) == "" {
+		// Unset means the built-in default; "" or "none" opts out. A
+		// compression allow-list seeds or demands its own default instead.
+		defaultQuantization = BuiltInDefaultQuantization
+		config.DefaultQuantizationIsBuiltIn = true
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 

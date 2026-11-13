@@ -13,6 +13,7 @@ package hnsw_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -287,6 +288,74 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 			results, _, err := idx.SearchByVector(ctx, queries[0], k, nil)
 			require.Nil(t, err)
 			require.Greater(t, len(results), 0, "search should return results")
+		})
+	}
+}
+
+// A schema update could switch an index's compression after it was already
+// compressed, leaving a schema that names BQ over RQ data on disk. Such an
+// index must keep loading with the quantizer its data was written with.
+func TestRestoreQuantizationWhenConfigNamesBQOverRQData_Integration(t *testing.T) {
+	ctx := context.Background()
+	dimensions := 64
+	vectorsSize := 290
+	indexID := "restore-bq-config-over-rq-data"
+
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, 1, dimensions)
+	logger, _ := test.NewNullLogger()
+
+	for _, bits := range []int16{1, 4, 8} {
+		t.Run(fmt.Sprintf("rq-%d", bits), func(t *testing.T) {
+			dirName := t.TempDir()
+			noopCallback := cyclemanager.NewCallbackGroupNoop()
+			store := testinghelpers.NewDummyStore(t)
+			defer store.Shutdown(context.Background())
+
+			config := hnsw.Config{
+				RootPath:         dirName,
+				ID:               indexID,
+				Logger:           logger,
+				DistanceProvider: distancer.NewL2SquaredProvider(),
+				MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+					return hnsw.NewCommitLogger(dirName, indexID, logger, noopCallback, opts...)
+				},
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					if int(id) >= len(vectors) {
+						return nil, storobj.NewErrNotFoundf(id, "vector id out of range")
+					}
+					return vectors[int(id)], nil
+				},
+				GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				AllocChecker:                 memwatch.NewDummyMonitor(),
+				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			}
+
+			uc := hnswent.UserConfig{}
+			uc.SetDefaults()
+			uc.RQ = hnswent.RQConfig{Enabled: true, Bits: bits}
+			idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			idx.PostStartup(ctx)
+			compressionhelpers.Concurrently(logger, uint64(vectorsSize), func(i uint64) {
+				idx.Add(ctx, i, vectors[i])
+			})
+			require.True(t, idx.Compressed())
+			require.NoError(t, idx.Flush())
+			require.NoError(t, idx.Shutdown(ctx))
+
+			uc.RQ.Enabled = false
+			uc.BQ.Enabled = true
+			idx, err = hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			idx.PostStartup(ctx)
+			defer idx.Shutdown(ctx)
+
+			require.True(t, idx.Compressed())
+			require.Equal(t, "rq", idx.CompressionStats().CompressionType())
+			results, _, err := idx.SearchByVector(ctx, queries[0], 10, nil)
+			require.NoError(t, err)
+			require.NotEmpty(t, results)
 		})
 	}
 }

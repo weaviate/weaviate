@@ -358,13 +358,14 @@ func TestNamespaceMetrics(t *testing.T) {
 				if !assert.True(c, ok, "no vector_dimensions_sum series for %q", ns) {
 					return
 				}
-				assert.Equal(c, float64(objectCount*vectorDim), dims)
+				assert.Zero(c, dims, "the default quantization compresses every vector")
 
 				segs, ok := sampleValue(c, lines, "vector_segments_sum{", nsLabel(ns))
 				if !assert.True(c, ok, "no vector_segments_sum series for %q", ns) {
 					return
 				}
-				assert.Zero(c, segs, "no quantization is configured")
+				// the default 4-bit RQ packs two dimensions into a byte
+				assert.Equal(c, float64(objectCount*vectorDim/2), segs)
 			}, 15*time.Second, 500*time.Millisecond)
 		}
 	})
@@ -602,14 +603,15 @@ func TestNamespaceMetricsGrouped(t *testing.T) {
 				if !assert.True(c, ok, "no grouped vector_dimensions_sum series for %q", ns) {
 					return
 				}
-				assert.Equal(c, float64(objectCount*vectorDim), dims)
+				assert.Zero(c, dims, "the default quantization compresses every vector")
 
 				segs, ok := sampleValue(c, lines, "vector_segments_sum{",
 					`class_name="n/a"`, `shard_name="n/a"`, nsLabel(ns))
 				if !assert.True(c, ok, "no grouped vector_segments_sum series for %q", ns) {
 					return
 				}
-				assert.Zero(c, segs, "no quantization is configured")
+				// the default 4-bit RQ packs two dimensions into a byte
+				assert.Equal(c, float64(objectCount*vectorDim/2), segs)
 			}, 15*time.Second, 500*time.Millisecond)
 		}
 	})

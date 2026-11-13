@@ -312,6 +312,11 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	if compression == "" {
 		return
 	}
+	// Only a runtime-pushed allow-list can exclude the default (startup
+	// validates the two against each other); leave the class as given.
+	if allow := h.allowedCompressionTypes(); allow != nil && !slices.Contains(allow, compression) {
+		return
+	}
 
 	var err error
 	// A vector-less class carries no parsed config to quantize, and a class
@@ -638,6 +643,10 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	}
 
 	if initial != nil {
+		if err := keepEnabledHnswCompression(initial, updated); err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
 		_, err := validateUpdatingMT(initial, updated)
 		if err != nil {
 			return err
@@ -1957,6 +1966,78 @@ func compressionsFromIndexConfig(cfg schemaConfig.VectorIndexConfig) []string {
 	default:
 		return nil
 	}
+}
+
+// keepEnabledHnswCompression makes an update leave the compression of every
+// HNSW index as stored. An index cannot be recompressed, so the index would
+// otherwise keep its compression while the schema reports another: an update
+// that names no compression keeps the stored one (a server-applied default is
+// not part of the body a client builds), one that names a different
+// compression is rejected.
+func keepEnabledHnswCompression(initial, updated *models.Class) error {
+	kept, err := keepHnswCompression(initial.VectorIndexConfig, updated.VectorIndexConfig)
+	if err != nil {
+		return err
+	}
+	updated.VectorIndexConfig = kept
+	for name, vc := range updated.VectorConfig {
+		initialVC, ok := initial.VectorConfig[name]
+		if !ok {
+			continue
+		}
+		kept, err := keepHnswCompression(initialVC.VectorIndexConfig, vc.VectorIndexConfig)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", name, err)
+		}
+		vc.VectorIndexConfig = kept
+		updated.VectorConfig[name] = vc
+	}
+	return nil
+}
+
+func keepHnswCompression(initial, updated interface{}) (interface{}, error) {
+	switch u := updated.(type) {
+	case hnsw.UserConfig:
+		i, ok := initial.(hnsw.UserConfig)
+		if !ok {
+			return updated, nil
+		}
+		return keepHnswUserConfigCompression(i, u)
+	case dynamic.UserConfig:
+		i, ok := initial.(dynamic.UserConfig)
+		if !ok {
+			return updated, nil
+		}
+		kept, err := keepHnswUserConfigCompression(i.HnswUC, u.HnswUC)
+		if err != nil {
+			return nil, err
+		}
+		u.HnswUC = kept
+		return u, nil
+	default:
+		return updated, nil
+	}
+}
+
+func keepHnswUserConfigCompression(initial, updated hnsw.UserConfig) (hnsw.UserConfig, error) {
+	// Neither flag is the client's to change; named vectors get the same
+	// treatment in validateImmutableFields.
+	updated.SkipDefaultQuantization = initial.SkipDefaultQuantization
+	updated.TrackDefaultQuantization = initial.TrackDefaultQuantization
+
+	stored, requested := compressionFromHnsw(initial), compressionFromHnsw(updated)
+	if stored == "" || stored == "none" {
+		return updated, nil
+	}
+	if requested == "" || requested == "none" {
+		updated.PQ, updated.SQ, updated.BQ, updated.RQ = initial.PQ, initial.SQ, initial.BQ, initial.RQ
+		return updated, nil
+	}
+	if requested != stored {
+		return updated, fmt.Errorf("compression is immutable once enabled: the index is compressed with %s "+
+			"and cannot be switched to %s; to use %s, create the collection with it", stored, requested, requested)
+	}
+	return updated, nil
 }
 
 func compressionFromHnsw(c hnsw.UserConfig) string {

@@ -293,8 +293,7 @@ func TestRESTSearchNearVector(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "does not fit a 32-bit float")
 	})
 
-	// a BQ/RQ-compressed HNSW index does not detect the mismatch and returns
-	// no hits; uncompressed HNSW and flat report it, and not as a 500
+	// reported whether or not the index is compressed, and not as a 500
 	t.Run("a vector of the wrong dimensionality is a 422", func(t *testing.T) {
 		status, out := postNearVector(t, "Verse", map[string]any{
 			"vector": []float32{1, 0, 0},

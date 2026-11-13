@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"path"
 	"strings"
@@ -366,6 +367,15 @@ func (s *BackupTestSuite) TeardownCompose(ctx context.Context) error {
 func (s *BackupTestSuite) CreateTestClass(t *testing.T) {
 	t.Helper()
 	class := s.dataGen.GenerateClass()
+	if s.config.WithCompression != CompressionNone {
+		// compression is enabled once objects exist, and an index keeps the
+		// compression it was created with, the server default included
+		cfg := map[string]any{"skipDefaultQuantization": true}
+		if given, ok := class.VectorIndexConfig.(map[string]any); ok {
+			maps.Copy(cfg, given)
+		}
+		class.VectorIndexConfig = cfg
+	}
 	helper.CreateClass(t, class)
 }
 

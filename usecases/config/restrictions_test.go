@@ -296,6 +296,40 @@ func TestValidateRestrictionsRuntime(t *testing.T) {
 		assert.Equal(t, []string{"rq-8"}, c.Restrictions.AllowedCompressionTypes.Get())
 	})
 
+	// An allow-list pushed at runtime must behave as it did when an unset
+	// DEFAULT_QUANTIZATION meant no default.
+	for _, tt := range []struct {
+		name      string
+		builtIn   bool
+		allow     []string
+		wantReset bool
+	}{
+		{name: "built-in default outside single-entry allow-list is tolerated", builtIn: true, allow: []string{"rq-8"}},
+		{name: "built-in default inside multi-entry allow-list passes", builtIn: true, allow: []string{"rq-4", "rq-8"}},
+		{name: "built-in default outside multi-entry allow-list resets", builtIn: true, allow: []string{"pq", "rq-8"}, wantReset: true},
+		{name: "operator default outside single-entry allow-list resets", builtIn: false, allow: []string{"rq-8"}, wantReset: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			log, _ := logrustest.NewNullLogger()
+			c := &Config{
+				DefaultVectorIndexType:       runtime.NewDynamicValue(""),
+				DefaultQuantization:          runtime.NewDynamicValue(BuiltInDefaultQuantization),
+				DefaultQuantizationIsBuiltIn: tt.builtIn,
+				Restrictions: RestrictionsConfig{
+					AllowedVectorIndexTypes: runtime.NewDynamicValue([]string(nil)),
+					AllowedCompressionTypes: runtime.NewDynamicValue(tt.allow),
+				},
+			}
+			require.NoError(t, c.ValidateRestrictionsRuntime(log))
+			if tt.wantReset {
+				assert.Empty(t, c.Restrictions.AllowedCompressionTypes.Get())
+			} else {
+				assert.Equal(t, tt.allow, c.Restrictions.AllowedCompressionTypes.Get())
+			}
+			assert.Equal(t, BuiltInDefaultQuantization, c.DefaultQuantization.Get())
+		})
+	}
+
 	t.Run("hfresh-only + compression set resets to empty", func(t *testing.T) {
 		log, hook := logrustest.NewNullLogger()
 		c := &Config{

@@ -85,6 +85,12 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
+	// Not every quantizer notices a query of the wrong length; some drop
+	// each candidate while rescoring and return no hits.
+	if dims := int(h.dims.Load()); dims > 0 && len(vector) != dims && !h.multivector.Load() && !h.skipDimsCheck {
+		return nil, nil, errors.Wrapf(distancer.ErrVectorLength, "%d vs %d", len(vector), dims)
+	}
+
 	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
@@ -1449,6 +1455,13 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, len(h.nodes))
 			}
 
+			// a search rescores what it returns, so the distance of a result
+			// has to be the exact one here as well
+			if h.shouldRescore() {
+				view := h.GetViewThunk()
+				defer view.ReleaseView()
+				return h.distanceFromBytesToFloatNodeWithView(context.Background(), dist, nodeID, view)
+			}
 			return dist.DistanceToNode(nodeID)
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: returnFn}
