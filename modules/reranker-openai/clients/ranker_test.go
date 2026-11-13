@@ -132,9 +132,10 @@ func TestRankScoresARefusedDocumentZero(t *testing.T) {
 	}
 }
 
-// The shared default transport keeps two idle connections per host, and the
-// module sends one request per document at once, so a query opened most of
-// its connections anew.
+// The second query must open no connection. The 20 requests of a query are in
+// flight together, each on its own connection, and the client keeps one idle
+// connection per slot. The default transport keeps two idle connections per
+// host, so with it the second query opens the other connections again.
 func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 	f := newFake(t)
 	f.delay = 50 * time.Millisecond
