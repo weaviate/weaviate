@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -596,8 +597,8 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			body, err := io.ReadAll(res.Body)
+			return shouldRetry(code), stderrors.Join(fmt.Errorf("status code: %v body: (%s)", code, body), err)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -639,8 +640,8 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			body, err := io.ReadAll(res.Body)
+			return shouldRetry(code), stderrors.Join(fmt.Errorf("status code: %v body: (%s)", code, body), err)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {

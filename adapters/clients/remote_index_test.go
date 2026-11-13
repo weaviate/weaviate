@@ -191,6 +191,12 @@ func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 	t.Parallel()
 	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer hung.Close()
+	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer stalled.Close()
 	down := httptest.NewServer(http.NotFoundHandler())
 	downHost := down.URL[7:]
 	down.Close()
@@ -208,20 +214,28 @@ func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 			return err
 		}},
 	} {
-		t.Run(read.name+"/peer never answers", func(t *testing.T) {
-			// Arrange
-			client := newRemoteIndex(hung.Client())
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			start := time.Now()
+		for _, peer := range []struct {
+			name   string
+			server *httptest.Server
+		}{
+			{name: "peer never answers", server: hung},
+			{name: "peer stalls an error body", server: stalled},
+		} {
+			t.Run(read.name+"/"+peer.name, func(t *testing.T) {
+				// Arrange
+				client := newRemoteIndex(peer.server.Client())
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				start := time.Now()
 
-			// Act
-			err := read.call(ctx, client, hung.URL[7:])
+				// Act
+				err := read.call(ctx, client, peer.server.URL[7:])
 
-			// Assert
-			require.ErrorIs(t, err, context.DeadlineExceeded)
-			require.Less(t, time.Since(start), 5*time.Second)
-		})
+				// Assert
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.Less(t, time.Since(start), 5*time.Second)
+			})
+		}
 		t.Run(read.name+"/peer answers 500", func(t *testing.T) {
 			// Arrange
 			var requests atomic.Int32

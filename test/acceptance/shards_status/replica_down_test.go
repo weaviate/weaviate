@@ -29,9 +29,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
+// Three nodes with two replicas each, so every node holds a shard whose other replica is the stopped node.
 const (
-	clusterSize = 5
-	stoppedNode = 4 // weaviate-4, not a RAFT voter
+	clusterSize = 3
+	replicas    = 2
+	stoppedNode = 2 // weaviate-2
 	className   = "ShardsStatusReplicaDown"
 	mtClassName = "ShardsStatusTenants"
 )
@@ -52,13 +54,13 @@ func TestShardsStatus_ReplicaDown(t *testing.T) {
 	helper.CreateClass(t, &models.Class{
 		Class:             className,
 		Vectorizer:        "none",
-		ReplicationConfig: &models.ReplicationConfig{Factor: 3},
+		ReplicationConfig: &models.ReplicationConfig{Factor: replicas},
 		ShardingConfig:    map[string]any{"desiredCount": clusterSize},
 	})
 	helper.CreateClass(t, &models.Class{
 		Class:              mtClassName,
 		Vectorizer:         "none",
-		ReplicationConfig:  &models.ReplicationConfig{Factor: 3},
+		ReplicationConfig:  &models.ReplicationConfig{Factor: replicas},
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true, AutoTenantActivation: true},
 	})
 	helper.CreateTenants(t, mtClassName, []*models.Tenant{
@@ -110,7 +112,7 @@ func assertShardsAnswered(ctx context.Context, c assert.TestingT, uri, down stri
 	shards, ok := getShards(ctx, c, uri, className, "")
 	if ok && assert.Len(c, shards, clusterSize) {
 		for _, shard := range shards {
-			assert.Len(c, shard.PerNodeStatus, 3, "shard %s", shard.Name)
+			assert.Len(c, shard.PerNodeStatus, replicas, "shard %s", shard.Name)
 			for node, status := range shard.PerNodeStatus {
 				assert.Equal(c, statusOn(node), status, "shard %s on %s", shard.Name, node)
 			}
@@ -120,7 +122,7 @@ func assertShardsAnswered(ctx context.Context, c assert.TestingT, uri, down stri
 	shards, ok = getShards(ctx, c, uri, mtClassName, "")
 	if ok && assert.Len(c, shards, 2) {
 		for _, shard := range shards {
-			assert.Len(c, shard.PerNodeStatus, 3, "tenant %s", shard.Name)
+			assert.Len(c, shard.PerNodeStatus, replicas, "tenant %s", shard.Name)
 			for node, status := range shard.PerNodeStatus {
 				want := "UNAVAILABLE"
 				if shard.Name == "hot" {
@@ -161,16 +163,20 @@ func getShards(ctx context.Context, c assert.TestingT, uri, class, tenant string
 	return shards, assert.NoError(c, json.Unmarshal(body, &shards), u)
 }
 
-// requireTenantCold fails if a status read activated the COLD tenant.
+// requireTenantCold fails if a status read activated the COLD tenant. It retries while a new leader is elected.
 func requireTenantCold(t *testing.T) {
 	t.Helper()
-	resp, err := helper.GetTenants(t, mtClassName)
-	require.NoError(t, err)
-	for _, tenant := range resp.Payload {
-		if tenant.Name == "cold" {
-			require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus)
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := helper.GetTenants(t, mtClassName)
+		if !assert.NoError(c, err) {
 			return
 		}
-	}
-	t.Fatal("tenant cold not found")
+		for _, tenant := range resp.Payload {
+			if tenant.Name == "cold" {
+				assert.Equal(c, models.TenantActivityStatusCOLD, tenant.ActivityStatus)
+				return
+			}
+		}
+		assert.Fail(c, "tenant cold not found")
+	}, 30*time.Second, 500*time.Millisecond)
 }
