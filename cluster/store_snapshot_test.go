@@ -23,6 +23,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1338,14 +1339,17 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 	require.NoError(t, snapshot.Persist(sink))
 
 	tests := []struct {
-		name         string
-		metadataOnly bool
-		startup      bool
-		wantApplied  uint64
+		name             string
+		metadataOnly     bool
+		startup          bool
+		noSnapshotListed bool
+		wantApplied      uint64
 	}{
 		{name: "voter", wantApplied: snapIndex},
 		{name: "metadata-only voter", metadataOnly: true, wantApplied: snapIndex},
 		{name: "startup restore leaves the index to Open", startup: true, wantApplied: 0},
+		// A failed snapshot listing reads as index 0, which must not lower the index.
+		{name: "unlisted snapshot keeps the index", noSnapshotListed: true, wantApplied: 5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1361,11 +1365,13 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 
 			snapshotStore, err := raft.NewFileSnapshotStore(t.TempDir(), 3, nil)
 			require.NoError(t, err)
-			snap, err := snapshotStore.Create(raft.SnapshotVersionMax, snapIndex, 1, raft.Configuration{}, 1, nil)
-			require.NoError(t, err)
-			_, err = snap.Write(sink.Buffer.Bytes())
-			require.NoError(t, err)
-			require.NoError(t, snap.Close())
+			if !tt.noSnapshotListed {
+				snap, err := snapshotStore.Create(raft.SnapshotVersionMax, snapIndex, 1, raft.Configuration{}, 1, nil)
+				require.NoError(t, err)
+				_, err = snap.Write(sink.Buffer.Bytes())
+				require.NoError(t, err)
+				require.NoError(t, snap.Close())
+			}
 			target.store.snapshotStore = snapshotStore
 
 			appliedAtRestore := uint64(0)
@@ -1375,13 +1381,15 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 			}
 			target.store.lastAppliedIndexToDB.Store(10)
 			target.store.lastAppliedIndex.Store(appliedAtRestore)
+			target.store.metrics.fsmLastAppliedIndex.Set(float64(appliedAtRestore))
+			target.store.metrics.raftLastAppliedIndex.Set(float64(appliedAtRestore))
 
 			restored := make(chan error, 1)
 			enterrors.GoWrapper(func() {
 				restored <- target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes())))
 			}, target.store.log)
 
-			if !tt.metadataOnly {
+			if !tt.metadataOnly && !tt.noSnapshotListed {
 				select {
 				case <-reloadStarted:
 				case err := <-restored:
@@ -1394,7 +1402,9 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 			require.NoError(t, <-restored)
 
 			require.Equal(t, tt.wantApplied, target.store.lastAppliedIndex.Load())
-			if !tt.startup {
+			require.Equal(t, float64(tt.wantApplied), testutil.ToFloat64(target.store.metrics.fsmLastAppliedIndex))
+			require.Equal(t, float64(tt.wantApplied), testutil.ToFloat64(target.store.metrics.raftLastAppliedIndex))
+			if tt.wantApplied == snapIndex {
 				require.True(t, target.store.FSMHasCaughtUp())
 				require.NoError(t, target.store.WaitForAppliedIndex(context.Background(), time.Millisecond, snapIndex))
 			}

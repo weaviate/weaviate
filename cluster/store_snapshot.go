@@ -205,9 +205,8 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			st.reloadDBFromSchema()
 		}
 
-		// Unblocks readers gated on the applied index; must follow the reload so they see
-		// restored indexes. Skipped at startup: raft may restore an older snapshot than
-		// the newest on disk, and Open sets the index from raft.
+		// Raising the index releases WaitForAppliedIndex callers, so it must follow reloadDBFromSchema.
+		// The raft check skips the restore inside Open's first raft.NewRaft, where Open sets the index itself.
 		if st.raft.Load() != nil && snapIndex > st.lastAppliedIndex.Load() {
 			st.lastAppliedIndex.Store(snapIndex)
 			st.metrics.fsmLastAppliedIndex.Set(float64(snapIndex))
