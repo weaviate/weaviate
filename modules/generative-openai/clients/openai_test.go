@@ -77,7 +77,7 @@ func TestGetAnswer(t *testing.T) {
 				Choices: []choice{{
 					FinishReason: "test",
 					Index:        0,
-					Text:         "John",
+					Text:         ptString("John"),
 				}},
 				Error: nil,
 			},
@@ -181,6 +181,85 @@ func TestGetAnswer(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/chat/completions?api-version=2024-02-01", buildURL)
 	})
+}
+
+func TestGenerateResponseShapes(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		want    string
+		wantErr string
+	}{
+		{name: "empty choices", body: `{"choices":[]}`, wantErr: "empty choices in response"},
+		{name: "no choices", body: `{}`, wantErr: "empty choices in response"},
+		{name: "choice without text or message", body: `{"choices":[{}]}`, wantErr: "empty message in response"},
+		{
+			name:    "choice without text or message, with finish_reason",
+			body:    `{"choices":[{"finish_reason":"content_filter"}]}`,
+			wantErr: "empty message in response (finish_reason: content_filter)",
+		},
+		{
+			name:    "message without content, with finish_reason",
+			body:    `{"choices":[{"finish_reason":"content_filter","message":{"role":"assistant"}}]}`,
+			wantErr: "empty content in response (finish_reason: content_filter)",
+		},
+		{
+			name:    "message with null content",
+			body:    `{"choices":[{"message":{"role":"assistant","content":null}}]}`,
+			wantErr: "empty content in response",
+		},
+		{name: "message with empty content", body: `{"choices":[{"message":{"role":"assistant","content":""}}]}`, want: ""},
+		{name: "message with content", body: `{"choices":[{"message":{"role":"assistant","content":"John"}}]}`, want: "John"},
+		{name: "legacy completion with empty text", body: `{"choices":[{"text":"","finish_reason":"stop"}]}`, want: ""},
+		{name: "legacy completion with text", body: `{"choices":[{"text":"John"}]}`, want: "John"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			c := New("openAIApiKey", "", "", 0, nullLogger())
+			c.buildUrl = func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+				return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
+			}
+			props := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "My name is john"}}
+
+			generators := []struct {
+				name     string
+				generate func() (*modulecapabilities.GenerateResponse, error)
+			}{
+				{
+					name: "GenerateSingleResult",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return c.GenerateSingleResult(context.Background(), props, "What is my name?", nil, false, nil)
+					},
+				},
+				{
+					name: "GenerateAllResults",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return c.GenerateAllResults(context.Background(), []*modulecapabilities.GenerateProperties{props}, "What is my name?", nil, false, nil)
+					},
+				},
+			}
+			for _, gen := range generators {
+				t.Run(gen.name, func(t *testing.T) {
+					var res *modulecapabilities.GenerateResponse
+					var err error
+					require.NotPanics(t, func() { res, err = gen.generate() })
+					if tt.wantErr != "" {
+						require.EqualError(t, err, tt.wantErr)
+						assert.Nil(t, res)
+						return
+					}
+					require.NoError(t, err)
+					require.NotNil(t, res.Result)
+					assert.Equal(t, tt.want, *res.Result)
+				})
+			}
+		})
+	}
 }
 
 type testAnswerHandler struct {

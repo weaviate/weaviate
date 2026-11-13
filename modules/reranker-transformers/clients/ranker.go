@@ -141,6 +141,11 @@ func (c *client) performRank(ctx context.Context,
 		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
+	// Callers read the scores by position, so every document needs exactly one score.
+	if len(resBody.Scores) != len(documents) {
+		return nil, fmt.Errorf("invalid reranker response: %d scores for %d documents, expected one per document",
+			len(resBody.Scores), len(documents))
+	}
 	return resBody.Scores, nil
 }
 

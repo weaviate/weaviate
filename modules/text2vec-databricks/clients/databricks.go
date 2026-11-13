@@ -124,15 +124,23 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 	if res.StatusCode != 200 || resBody.ErrorCode != "" {
 		return nil, nil, v.getError(res.StatusCode, resBody)
 	}
+	if len(resBody.Data) == 0 {
+		return nil, nil, errors.New("empty embeddings in response from Databricks Foundation Model API")
+	}
+	if len(resBody.Data) != len(input) {
+		return nil, nil, fmt.Errorf("invalid response from Databricks Foundation Model API: got %d embeddings for %d inputs", len(resBody.Data), len(input))
+	}
 	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
 	databrickserror := make([]error, len(resBody.Data))
 	for i := range resBody.Data {
+		if len(resBody.Data[i].Embedding) == 0 {
+			return nil, nil, fmt.Errorf("invalid response from Databricks Foundation Model API: empty embedding for input %d", i)
+		}
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
-
 	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{

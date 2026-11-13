@@ -124,6 +124,10 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 		return nil, errors.Errorf("connection to Mistral API failed with status: %d", res.StatusCode)
 	}
 
+	if len(resBody.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
+	}
+
 	textResponse := resBody.Choices[0].Message.Content
 
 	return &modulecapabilities.GenerateResponse{

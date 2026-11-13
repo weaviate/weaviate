@@ -159,6 +159,126 @@ func TestGetAnswer(t *testing.T) {
 	})
 }
 
+func TestGenerateResponseShapes(t *testing.T) {
+	type shape struct {
+		name    string
+		body    string
+		want    string
+		wantErr string
+	}
+	geminiShapes := []shape{
+		{name: "no candidates", body: `{}`, wantErr: "empty candidates in response"},
+		{name: "empty candidates", body: `{"candidates":[]}`, wantErr: "empty candidates in response"},
+		{
+			name:    "no candidates, prompt blocked",
+			body:    `{"promptFeedback":{"blockReason":"SAFETY"}}`,
+			wantErr: "empty candidates in response (blockReason: SAFETY)",
+		},
+		{name: "candidate without content", body: `{"candidates":[{}]}`, wantErr: "empty content in response"},
+		{
+			name:    "candidate without content, with finishReason",
+			body:    `{"candidates":[{"finishReason":"SAFETY"}]}`,
+			wantErr: "empty content in response (finishReason: SAFETY): " + FINISH_REASON_SAFETY_EXPLANATION,
+		},
+		{
+			name:    "candidate with empty parts, with finishReason",
+			body:    `{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"MAX_TOKENS"}]}`,
+			wantErr: "empty content in response (finishReason: MAX_TOKENS): " + FINISH_REASON_MAX_TOKENS_EXPLANATION,
+		},
+		{
+			name:    "candidate with empty parts, with unknown finishReason",
+			body:    `{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"IMAGE_SAFETY"}]}`,
+			wantErr: "empty content in response (finishReason: IMAGE_SAFETY)",
+		},
+		{
+			name:    "part without text",
+			body:    `{"candidates":[{"content":{"role":"model","parts":[{"inline_data":{"mime_type":"image/png","data":"AA=="}}]}}]}`,
+			wantErr: "empty content in response",
+		},
+		{name: "part with empty text", body: `{"candidates":[{"content":{"role":"model","parts":[{"text":""}]}}]}`, want: ""},
+		{name: "part with text", body: `{"candidates":[{"content":{"role":"model","parts":[{"text":"John"}]}}]}`, want: "John"},
+	}
+	tests := []struct {
+		name   string
+		params googleparams.Params
+		shapes []shape
+	}{
+		{
+			name:   "AI Studio gemini",
+			params: googleparams.Params{ApiEndpoint: "generativelanguage.googleapis.com", Model: "gemini-2.0-flash"},
+			shapes: geminiShapes,
+		},
+		{
+			name:   "Vertex AI gemini",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Model: "gemini-2.0-flash"},
+			shapes: geminiShapes,
+		},
+		{
+			name:   "AI Studio generateMessage",
+			params: googleparams.Params{ApiEndpoint: "generativelanguage.googleapis.com", Model: "chat-bison-001"},
+			shapes: []shape{
+				{name: "no candidates", body: `{}`, wantErr: "empty candidates in response"},
+				{
+					name:    "no candidates, filtered",
+					body:    `{"filters":[{"reason":"OTHER"},{"reason":"SAFETY"}]}`,
+					wantErr: "empty candidates in response (filter reason: OTHER, SAFETY)",
+				},
+				{name: "candidate without content", body: `{"candidates":[{"author":"1"}]}`, wantErr: "empty content in response"},
+				{name: "candidate with empty content", body: `{"candidates":[{"author":"1","content":""}]}`, want: ""},
+				{name: "candidate with content", body: `{"candidates":[{"author":"1","content":"John"}]}`, want: "John"},
+			},
+		},
+		{
+			name:   "Vertex AI predict",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Model: "chat-bison"},
+			shapes: []shape{
+				{name: "no predictions", body: `{}`, wantErr: "empty predictions in response"},
+				{name: "prediction without candidates", body: `{"predictions":[{}]}`, wantErr: "empty candidates in response"},
+				{name: "candidate without content", body: `{"predictions":[{"candidates":[{"author":"1"}]}]}`, wantErr: "empty content in response"},
+				{name: "candidate with empty content", body: `{"predictions":[{"candidates":[{"content":""}]}]}`, want: ""},
+				{name: "candidate with content", body: `{"predictions":[{"candidates":[{"content":"John"}]}]}`, want: "John"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, sh := range tt.shapes {
+				t.Run(sh.name, func(t *testing.T) {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Write([]byte(sh.body))
+					}))
+					defer server.Close()
+
+					c := &google{
+						apiKey:       "apiKey",
+						httpClient:   &http.Client{},
+						googleApiKey: apikey.NewGoogleApiKey(),
+						buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
+							return server.URL
+						},
+						logger: nullLogger(),
+					}
+					props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+
+					var res *modulecapabilities.GenerateResponse
+					var err error
+					require.NotPanics(t, func() {
+						res, err = c.GenerateAllResults(context.Background(), props, "What is my name?", tt.params, false, nil)
+					})
+					if sh.wantErr != "" {
+						require.EqualError(t, err, sh.wantErr)
+						assert.Nil(t, res)
+						return
+					}
+					require.NoError(t, err)
+					require.NotNil(t, res.Result)
+					assert.Equal(t, sh.want, *res.Result)
+				})
+			}
+		})
+	}
+}
+
 func TestGetParameters(t *testing.T) {
 	c := &google{logger: nullLogger()}
 

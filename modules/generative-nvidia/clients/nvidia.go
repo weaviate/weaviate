@@ -112,6 +112,10 @@ func (v *nvidia) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
+	if len(resBody.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
+	}
+
 	textResponse := resBody.Choices[0].Message.Content
 
 	return &modulecapabilities.GenerateResponse{

@@ -141,6 +141,10 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 		return nil, errors.Errorf("connection to Anyscale API failed with status: %d", res.StatusCode)
 	}
 
+	if len(resBody.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
+	}
+
 	textResponse := resBody.Choices[0].Message.Content
 
 	return &modulecapabilities.GenerateResponse{

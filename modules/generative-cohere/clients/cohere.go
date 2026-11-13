@@ -141,14 +141,17 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
-	if res.StatusCode != 200 || resBody.FinishReason == "ERROR" {
+	if res.StatusCode != 200 || resBody.FinishReason == "ERROR" || resBody.Message.ErrorMessage != "" {
 		if resBody.Message.ErrorMessage != "" {
 			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Message.ErrorMessage)
 		}
 		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
 	}
 
-	textResponse := resBody.Message.GetMessage()
+	textResponse, ok := resBody.Message.text()
+	if !ok {
+		return nil, emptyResponseError("empty content in response", resBody.FinishReason)
+	}
 
 	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
@@ -284,10 +287,28 @@ func (rm *responseMessage) GetMessage() string {
 	if rm.ErrorMessage != "" {
 		return rm.ErrorMessage
 	}
-	if len(rm.Content) > 0 {
-		return rm.Content[0].Text
+	text, _ := rm.text()
+	return text
+}
+
+// text returns the first text item: reasoning models put a thinking item
+// before it.
+func (rm *responseMessage) text() (string, bool) {
+	for _, c := range rm.Content {
+		if c.Type == "text" || c.Type == "" {
+			return c.Text, true
+		}
 	}
-	return ""
+	return "", false
+}
+
+// emptyResponseError carries the finish reason because a safety block or
+// the token limit is the usual cause of a 200 response without output.
+func emptyResponseError(msg, finishReason string) error {
+	if finishReason == "" {
+		return errors.New(msg)
+	}
+	return errors.Errorf("%s (finish_reason: %s)", msg, finishReason)
 }
 
 // UnmarshalJSON implements custom unmarshaling for responseMessage

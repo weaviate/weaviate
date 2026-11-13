@@ -128,8 +128,8 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]any{
 		"data": []map[string]any{
-			{"embedding": []float32{0.1, 0.2, 0.3}},
-			{"embedding": []float32{0.4, 0.5, 0.6}},
+			{"index": 0, "embedding": []float32{0.1, 0.2, 0.3}},
+			{"index": 1, "embedding": []float32{0.4, 0.5, 0.6}},
 		},
 	}
 

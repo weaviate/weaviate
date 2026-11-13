@@ -168,13 +168,9 @@ func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 			return nil, errors.Wrap(err, "read response body")
 		}
 
-		return v.parseSagemakerResponse(bodyBytes, res)
-	} else {
-		return &modulecapabilities.GenerateResponse{
-			Result: nil,
-			Debug:  debugInformation,
-		}, nil
+		return v.parseSagemakerResponse(bodyBytes, res, debugInformation)
 	}
+	return nil, fmt.Errorf("unsupported service: %s", service)
 }
 
 func (v *awsClient) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
@@ -409,21 +405,13 @@ func (v *awsClient) parseBedrockResponse(bodyBytes []byte,
 		return nil, err
 	}
 
-	if content != "" {
-		return &modulecapabilities.GenerateResponse{
-			Result: &content,
-			Debug:  debug,
-		}, nil
-	}
-
 	return &modulecapabilities.GenerateResponse{
-		Result: nil,
+		Result: &content,
 		Debug:  debug,
 	}, nil
 }
 
 func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte, statusCode int) (string, error) {
-	var content string
 	var resBodyMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
 		return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
@@ -434,55 +422,78 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte, st
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		return resBody.Text, nil
+		if resBody.Text == nil {
+			return "", emptyResponseError("empty content in response", "finish_reason", resBody.FinishReason)
+		}
+		return *resBody.Text, nil
 	} else if v.isAnthropicModel(model) && !v.isAnthropicLegacyModel(model) {
 		var resBody bedrockAnthropicClaude3Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		if len(resBody.Content) > 0 && resBody.Content[0].Text != nil {
-			return *resBody.Content[0].Text, nil
+		for _, c := range resBody.Content {
+			if c.Text != nil {
+				return *c.Text, nil
+			}
 		}
-		return "", fmt.Errorf("no message from model: %s", model)
+		return "", emptyResponseError("empty content in response", "stop_reason", resBody.StopReason)
 	} else if v.isAnthropicLegacyModel(model) {
 		var resBody bedrockAnthropicClaudeResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		return resBody.Completion, nil
+		if resBody.Completion == nil {
+			return "", emptyResponseError("empty content in response", "stop_reason", resBody.StopReason)
+		}
+		return *resBody.Completion, nil
 	} else if v.isAI21Model(model) {
 		var resBody bedrockAI21Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		if len(resBody.Completions) > 0 {
-			return resBody.Completions[0].Data.Text, nil
+		if len(resBody.Completions) == 0 {
+			return "", errors.New("empty completions in response")
 		}
-		return "", fmt.Errorf("no message from model: %s", model)
+		completion := resBody.Completions[0]
+		if completion.Data == nil || completion.Data.Text == nil {
+			return "", emptyResponseError("empty content in response", "finishReason", completion.FinishReason.Reason)
+		}
+		return *completion.Data.Text, nil
 	} else if v.isMistralAIModel(model) {
 		var resBody bedrockMistralAIResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		if len(resBody.Outputs) > 0 {
-			return resBody.Outputs[0].Text, nil
+		if len(resBody.Outputs) == 0 {
+			return "", errors.New("empty outputs in response")
 		}
-		return "", fmt.Errorf("no message from model: %s", model)
+		if resBody.Outputs[0].Text == nil {
+			return "", emptyResponseError("empty content in response", "stop_reason", resBody.Outputs[0].StopReason)
+		}
+		return *resBody.Outputs[0].Text, nil
 	} else if v.isMetaModel(model) {
 		var resBody bedrockMetaResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		return resBody.Generation, nil
+		if resBody.Generation == nil {
+			return "", emptyResponseError("empty content in response", "stop_reason", resBody.StopReason)
+		}
+		return *resBody.Generation, nil
 	} else if v.isAmazonNovaModel(model) {
 		var resBody bedrockNovaResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
-		if len(resBody.Output.Message.Content) > 0 {
-			return resBody.Output.Message.Content[0].Text, nil
+		if resBody.Output.Message == nil {
+			return "", emptyResponseError("empty message in response", "stopReason", resBody.StopReason)
 		}
-		return "", nil
+		for _, c := range resBody.Output.Message.Content {
+			if c.Text != nil {
+				return *c.Text, nil
+			}
+		}
+		return "", emptyResponseError("empty content in response", "stopReason", resBody.StopReason)
 	}
 
 	var resBody bedrockGenerateResponse
@@ -490,20 +501,31 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte, st
 		return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 	}
 
-	if len(resBody.Results) == 0 && len(resBody.Generations) == 0 {
-		return "", fmt.Errorf("received empty response from AWS Bedrock")
+	if len(resBody.Results) > 0 {
+		if resBody.Results[0].OutputText == nil {
+			return "", emptyResponseError("empty content in response", "completionReason", resBody.Results[0].CompletionReason)
+		}
+		return *resBody.Results[0].OutputText, nil
 	}
-
-	if len(resBody.Results) > 0 && len(resBody.Results[0].CompletionReason) > 0 {
-		content = resBody.Results[0].OutputText
-	} else if len(resBody.Generations) > 0 {
-		content = resBody.Generations[0].Text
+	if len(resBody.Generations) > 0 {
+		if resBody.Generations[0].Text == nil {
+			return "", emptyResponseError("empty content in response", "finish_reason", resBody.Generations[0].FinishReason)
+		}
+		return *resBody.Generations[0].Text, nil
 	}
-
-	return content, nil
+	return "", fmt.Errorf("received empty response from AWS Bedrock")
 }
 
-func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*modulecapabilities.GenerateResponse, error) {
+// emptyResponseError carries the provider's stop reason because a safety
+// block is the usual cause of a 200 response without output.
+func emptyResponseError(msg, reasonField, reason string) error {
+	if reason == "" {
+		return errors.New(msg)
+	}
+	return fmt.Errorf("%s (%s: %s)", msg, reasonField, reason)
+}
+
+func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody sagemakerGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
@@ -520,17 +542,12 @@ func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response)
 	if len(resBody.Generations) == 0 {
 		return nil, fmt.Errorf("received empty response from AWS Sagemaker")
 	}
-
-	if len(resBody.Generations) > 0 && len(resBody.Generations[0].Id) > 0 {
-		content := resBody.Generations[0].Text
-		if content != "" {
-			return &modulecapabilities.GenerateResponse{
-				Result: &content,
-			}, nil
-		}
+	if resBody.Generations[0].Text == nil {
+		return nil, errors.New("empty content in response")
 	}
 	return &modulecapabilities.GenerateResponse{
-		Result: nil,
+		Result: resBody.Generations[0].Text,
+		Debug:  debug,
 	}, nil
 }
 
@@ -665,7 +682,8 @@ type bedrockAnthropicGenerateRequest struct {
 }
 
 type bedrockAnthropicClaudeResponse struct {
-	Completion string `json:"completion"`
+	Completion *string `json:"completion"`
+	StopReason string  `json:"stop_reason,omitempty"`
 }
 
 type bedrockAnthropicClaude3Request struct {
@@ -727,11 +745,16 @@ type bedrockAI21Response struct {
 }
 
 type bedrockAI21Completion struct {
-	Data bedrockAI21Data `json:"data,omitempty"`
+	Data         *bedrockAI21Data        `json:"data,omitempty"`
+	FinishReason bedrockAI21FinishReason `json:"finishReason,omitempty"`
 }
 
 type bedrockAI21Data struct {
-	Text string `json:"text,omitempty"`
+	Text *string `json:"text,omitempty"`
+}
+
+type bedrockAI21FinishReason struct {
+	Reason string `json:"reason,omitempty"`
 }
 
 type bedrockCohereRequest struct {
@@ -768,11 +791,12 @@ type bedrockGenerateResponse struct {
 }
 
 type bedrockNovaResponse struct {
-	Output bedrockNovaResponseOutput `json:"output,omitempty"`
+	Output     bedrockNovaResponseOutput `json:"output,omitempty"`
+	StopReason string                    `json:"stopReason,omitempty"`
 }
 
 type bedrockNovaResponseOutput struct {
-	Message bedrockNovaResponseMessage `json:"message,omitempty"`
+	Message *bedrockNovaResponseMessage `json:"message,omitempty"`
 }
 
 type bedrockNovaResponseMessage struct {
@@ -780,7 +804,7 @@ type bedrockNovaResponseMessage struct {
 }
 
 type bedrockNovaResponseContent struct {
-	Text string `json:"text,omitempty"`
+	Text *string `json:"text,omitempty"`
 }
 
 type bedrockCohereCommandRResponse struct {
@@ -788,7 +812,7 @@ type bedrockCohereCommandRResponse struct {
 	ResponseID   string                     `json:"response_id,omitempty"`
 	GenerationID string                     `json:"generation_id,omitempty"`
 	FinishReason string                     `json:"finish_reason,omitempty"`
-	Text         string                     `json:"text,omitempty"`
+	Text         *string                    `json:"text,omitempty"`
 }
 
 type bedrockCohereChatHistory struct {
@@ -802,20 +826,20 @@ type sagemakerGenerateResponse struct {
 }
 
 type Generation struct {
-	Id   string `json:"id,omitempty"`
-	Text string `json:"text,omitempty"`
+	Id   string  `json:"id,omitempty"`
+	Text *string `json:"text,omitempty"`
 }
 
 type BedrockGeneration struct {
-	Id           string `json:"id,omitempty"`
-	Text         string `json:"text,omitempty"`
-	FinishReason string `json:"finish_reason,omitempty"`
+	Id           string  `json:"id,omitempty"`
+	Text         *string `json:"text,omitempty"`
+	FinishReason string  `json:"finish_reason,omitempty"`
 }
 
 type Result struct {
-	TokenCount       int    `json:"tokenCount,omitempty"`
-	OutputText       string `json:"outputText,omitempty"`
-	CompletionReason string `json:"completionReason,omitempty"`
+	TokenCount       int     `json:"tokenCount,omitempty"`
+	OutputText       *string `json:"outputText,omitempty"`
+	CompletionReason string  `json:"completionReason,omitempty"`
 }
 
 type bedrockMistralAIRequest struct {
@@ -831,7 +855,8 @@ type bedrockMistralAIResponse struct {
 }
 
 type bedrockMistralAIOutput struct {
-	Text string `json:"text,omitempty"`
+	Text       *string `json:"text,omitempty"`
+	StopReason string  `json:"stop_reason,omitempty"`
 }
 
 type bedrockMetaRequest struct {
@@ -841,8 +866,8 @@ type bedrockMetaRequest struct {
 }
 
 type bedrockMetaResponse struct {
-	Generation           string `json:"generation,omitempty"`
-	PromptTokenCount     *int   `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount *int   `json:"generation_token_count,omitempty"`
-	StopReason           string `json:"stop_reason,omitempty"`
+	Generation           *string `json:"generation,omitempty"`
+	PromptTokenCount     *int    `json:"prompt_token_count,omitempty"`
+	GenerationTokenCount *int    `json:"generation_token_count,omitempty"`
+	StopReason           string  `json:"stop_reason,omitempty"`
 }

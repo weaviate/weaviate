@@ -127,16 +127,16 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 		return nil, c.apiError(res.StatusCode, response.Error)
 	}
 
-	if len(response.Choices) > 0 {
-		answer := strings.TrimSpace(response.Choices[0].Message.Content)
-		return &modulecapabilities.GenerateResponse{
-			Result: &answer,
-			Debug:  debugData,
-			Params: c.usageParams(response.Usage),
-		}, nil
+	if len(response.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
 	}
 
-	return &modulecapabilities.GenerateResponse{Result: nil, Debug: debugData}, nil
+	answer := strings.TrimSpace(response.Choices[0].Message.Content)
+	return &modulecapabilities.GenerateResponse{
+		Result: &answer,
+		Debug:  debugData,
+		Params: c.usageParams(response.Usage),
+	}, nil
 }
 
 func (c *client) parseOptions(cfg moduletools.ClassConfig, options any) deepseekparams.Params {

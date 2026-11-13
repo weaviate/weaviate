@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -93,14 +92,11 @@ func (p *GenerateProvider) generatePerSearchResult(ctx context.Context,
 	cfg moduletools.ClassConfig,
 	propertyDataTypes map[string]schema.DataType,
 ) ([]search.Result, error) {
-	var wg sync.WaitGroup
 	sem := make(chan struct{}, p.maximumNumberOfGoroutines)
+	panicErrs := make([]chan error, len(in))
 	for i := range in {
-		wg.Add(1)
-		i := i
-		enterrors.GoWrapper(func() {
+		panicErrs[i] = enterrors.GoWrapperWithErrorCh(func() {
 			sem <- struct{}{}
-			defer wg.Done()
 			defer func() { <-sem }()
 			var props *modulecapabilities.GenerateProperties
 			if propertyDataTypes != nil {
@@ -110,7 +106,11 @@ func (p *GenerateProvider) generatePerSearchResult(ctx context.Context,
 			p.setIndividualResult(in, i, generateResult, err)
 		}, p.logger)
 	}
-	wg.Wait()
+	for i, errCh := range panicErrs {
+		if err := <-errCh; err != nil {
+			p.setIndividualResult(in, i, nil, err)
+		}
+	}
 	return in, nil
 }
 

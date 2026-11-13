@@ -131,6 +131,93 @@ func TestGetAnswer(t *testing.T) {
 	})
 }
 
+func TestGenerateResponseShapes(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		want    string
+		wantErr string
+	}{
+		{name: "no message", body: `{"id":"1"}`, wantErr: "empty content in response"},
+		{name: "message without content", body: `{"id":"1","message":{"role":"assistant"}}`, wantErr: "empty content in response"},
+		{
+			name:    "message with empty content, with finish_reason",
+			body:    `{"id":"1","finish_reason":"MAX_TOKENS","message":{"role":"assistant","content":[]}}`,
+			wantErr: "empty content in response (finish_reason: MAX_TOKENS)",
+		},
+		{
+			name:    "thinking without text, with finish_reason",
+			body:    `{"id":"1","finish_reason":"MAX_TOKENS","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think"}]}}`,
+			wantErr: "empty content in response (finish_reason: MAX_TOKENS)",
+		},
+		{
+			name: "thinking before text",
+			body: `{"id":"1","finish_reason":"COMPLETE","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think"},{"type":"text","text":"John"}]}}`,
+			want: "John",
+		},
+		{
+			name:    "error message with status 200",
+			body:    `{"id":"1","message":"invalid request"}`,
+			wantErr: "connection to Cohere API failed with status: 200 error: invalid request",
+		},
+		{
+			name: "text with empty value",
+			body: `{"id":"1","finish_reason":"COMPLETE","message":{"role":"assistant","content":[{"type":"text","text":""}]}}`,
+			want: "",
+		},
+		{
+			name: "text",
+			body: `{"id":"1","finish_reason":"COMPLETE","message":{"role":"assistant","content":[{"type":"text","text":"John"}]}}`,
+			want: "John",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			c := New("apiKey", 0, nullLogger())
+			cfg := &fakeClassConfig{baseURL: server.URL}
+			props := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "My name is john"}}
+
+			generators := []struct {
+				name     string
+				generate func() (*modulecapabilities.GenerateResponse, error)
+			}{
+				{
+					name: "GenerateSingleResult",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return c.GenerateSingleResult(context.Background(), props, "What is my name?", nil, false, cfg)
+					},
+				},
+				{
+					name: "GenerateAllResults",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return c.GenerateAllResults(context.Background(), []*modulecapabilities.GenerateProperties{props}, "What is my name?", nil, false, cfg)
+					},
+				},
+			}
+			for _, gen := range generators {
+				t.Run(gen.name, func(t *testing.T) {
+					var res *modulecapabilities.GenerateResponse
+					var err error
+					require.NotPanics(t, func() { res, err = gen.generate() })
+					if tt.wantErr != "" {
+						require.EqualError(t, err, tt.wantErr)
+						assert.Nil(t, res)
+						return
+					}
+					require.NoError(t, err)
+					require.NotNil(t, res.Result)
+					assert.Equal(t, tt.want, *res.Result)
+				})
+			}
+		})
+	}
+}
+
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed

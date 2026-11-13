@@ -14,6 +14,8 @@ package clients
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func Test_bertEmbeddingsDecoder_calculateVector(t *testing.T) {
@@ -21,17 +23,42 @@ func Test_bertEmbeddingsDecoder_calculateVector(t *testing.T) {
 		name       string
 		embeddings [][]float32
 		want       []float32
-		wantErr    bool
+		wantErr    string
 	}{
 		{
 			name:       "nil",
 			embeddings: nil,
-			wantErr:    true,
+			wantErr:    "missing embeddings",
 		},
 		{
 			name:       "empty",
 			embeddings: [][]float32{},
-			wantErr:    true,
+			wantErr:    "missing embeddings",
+		},
+		{
+			name:       "second token vector shorter",
+			embeddings: [][]float32{{1, 2}, {1}},
+			wantErr:    "token vector 1 has 1 dimensions, expected 2",
+		},
+		{
+			name:       "second token vector longer",
+			embeddings: [][]float32{{1}, {1, 2}},
+			wantErr:    "token vector 1 has 2 dimensions, expected 1",
+		},
+		{
+			name:       "empty token vector after a valid one",
+			embeddings: [][]float32{{1, 2}, {}},
+			wantErr:    "token vector 1 has 0 dimensions, expected 2",
+		},
+		{
+			name:       "zero-length token vectors",
+			embeddings: [][]float32{{}, {}},
+			wantErr:    "token vector 0 has no dimensions",
+		},
+		{
+			name:       "nil token vector",
+			embeddings: [][]float32{nil},
+			wantErr:    "token vector 0 has no dimensions",
 		},
 		{
 			name:       "just one vector",
@@ -52,10 +79,12 @@ func Test_bertEmbeddingsDecoder_calculateVector(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := bertEmbeddingsDecoder{}
 			got, err := d.calculateVector(tt.embeddings)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("bertEmbeddingsDecoder.calculateVector() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				require.Nil(t, got)
 				return
 			}
+			require.NoError(t, err)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("bertEmbeddingsDecoder.calculateVector() = %v, want %v", got, tt.want)
 			}

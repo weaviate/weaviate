@@ -105,6 +105,98 @@ func TestGenerate(t *testing.T) {
 	})
 }
 
+func TestGenerateInvalidResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "empty content",
+			status:  http.StatusOK,
+			body:    `{"type":"message","content":[]}`,
+			wantErr: "empty content in response",
+		},
+		{
+			name:    "no content",
+			status:  http.StatusOK,
+			body:    `{}`,
+			wantErr: "empty content in response",
+		},
+		{
+			name:    "error type with status 200",
+			status:  http.StatusOK,
+			body:    `{"type":"error","error":{"type":"api_error","message":"Internal server error"}}`,
+			wantErr: "Anthropic API error: api_error - Internal server error",
+		},
+		{
+			name:    "error type with status 529",
+			status:  529,
+			body:    `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
+			wantErr: "Anthropic API error: overloaded_error - Overloaded",
+		},
+		{
+			name:    "status 500 without error type",
+			status:  http.StatusInternalServerError,
+			body:    `{}`,
+			wantErr: "status: 500",
+		},
+		{
+			name:    "status 500 with message content",
+			status:  http.StatusInternalServerError,
+			body:    `{"type":"message","content":[{"type":"text","text":"John"}]}`,
+			wantErr: "status: 500",
+		},
+		{
+			name:    "status 400 with error message but no error type",
+			status:  http.StatusBadRequest,
+			body:    `{"error":{"type":"invalid_request_error","message":"max_tokens is too large"}}`,
+			wantErr: "status: 400 error: max_tokens is too large",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			a := New("apiKey", 0, nullLogger())
+			cfg := &fakeClassConfig{baseURL: server.URL}
+			props := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "My name is John"}}
+
+			generators := []struct {
+				name     string
+				generate func() (*modulecapabilities.GenerateResponse, error)
+			}{
+				{
+					name: "GenerateSingleResult",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return a.GenerateSingleResult(context.Background(), props, "What is my name?", nil, false, cfg)
+					},
+				},
+				{
+					name: "GenerateAllResults",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return a.GenerateAllResults(context.Background(), []*modulecapabilities.GenerateProperties{props}, "What is my name?", nil, false, cfg)
+					},
+				},
+			}
+			for _, gen := range generators {
+				t.Run(gen.name, func(t *testing.T) {
+					var res *modulecapabilities.GenerateResponse
+					var err error
+					require.NotPanics(t, func() { res, err = gen.generate() })
+					require.ErrorContains(t, err, tt.wantErr)
+					assert.Nil(t, res)
+				})
+			}
+		})
+	}
+}
+
 type testAnthropicHandler struct {
 	t       *testing.T
 	answer  generateResponse
