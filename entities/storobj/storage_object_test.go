@@ -104,9 +104,9 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
-// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts the jsonparser
-// path with every property listed yields the same object as json.Unmarshal —
-// the equivalence the MultiObjectByID fast path relies on.
+// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts both jsonparser
+// paths, every property listed and every property stored, yield the same object
+// as json.Unmarshal. MultiObjectByID relies on the first, listing on the second.
 func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 	const className = "MyFavoriteClass"
 
@@ -194,6 +194,18 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			name:  "empty",
 			props: map[string]interface{}{},
 		},
+		{
+			name:  "no_properties",
+			props: nil,
+		},
+		{
+			name:  "null_value",
+			props: map[string]interface{}{"hasRef": models.MultipleRef(nil), "title": "x"},
+		},
+		{
+			name:  "empty_array",
+			props: map[string]interface{}{"tags": []interface{}{}},
+		},
 	}
 
 	for _, tc := range cases {
@@ -218,6 +230,13 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			viaJSON, err := FromBinaryDisk(asBinary, className)
 			require.NoError(t, err)
 
+			viaStored, err := FromBinaryDiskWithProps(asBinary, className, StoredPropertiesExtraction())
+			require.NoError(t, err)
+			assert.Equal(t, viaJSON, viaStored)
+
+			if tc.props == nil {
+				return // the listed path decodes a stored null as an empty map
+			}
 			pe := NewPropExtraction()
 			for name := range tc.props {
 				pe.Add(name)
@@ -941,6 +960,19 @@ func TestUnmarshalProperties(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+func TestFromBinaryDiskWithPropsReturnsStoredDecodeError(t *testing.T) {
+	obj := FromObject(&models.Object{
+		Class:      "MyFavoriteClass",
+		ID:         strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		Properties: map[string]interface{}{"count": json.Number("1e400")}, // past float64, so json.Unmarshal rejects it too
+	}, nil, nil, nil)
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = FromBinaryDiskWithProps(asBinary, "MyFavoriteClass", StoredPropertiesExtraction())
+	require.Error(t, err)
 }
 
 func TestStorageObjectMarshallingWithGroup(t *testing.T) {
@@ -1699,6 +1731,68 @@ func TestUnmarshalArrayObject_EquivalentToJSONUnmarshal(t *testing.T) {
 			got, err := unmarshalArrayObject([]byte(tt.elem))
 			require.NoError(t, err)
 			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// TestUnmarshalPropertyArray_ExactCapacity: commas inside strings, objects and
+// nested arrays must not reserve slots the array never fills.
+func TestUnmarshalPropertyArray_ExactCapacity(t *testing.T) {
+	tests := []struct {
+		name  string
+		array string
+	}{
+		{name: "empty", array: `[]`},
+		{name: "numbers", array: `[1,2.5,-3]`},
+		{name: "text_with_commas", array: `["a,b","c,,d",",",""]`},
+		{name: "text_with_escaped_quotes", array: `["a\",b","c\\",",d","\\\",\\"]`},
+		{name: "text_with_brackets", array: `["[{,","}],","]"]`},
+		{name: "text_with_unicode_escape", array: `["\u002c,\""]`},
+		{name: "text_with_backslash_runs", array: `["\\\\\",\\\\",","]`},
+		{name: "text_starting_with_escaped_quote", array: `["\",,","x"]`},
+		{name: "long_text_with_escaped_quote", array: `["` + strings.Repeat("a,", 100) + `\",,","x"]`},
+		{name: "object_with_nested_arrays", array: `[{"a":[1,2,3],"b":"x,y"},{"a":[],"c":{"d":[4,5],"e":"]"}}]`},
+		{name: "refs", array: `[{"beacon":"weaviate://localhost/A/73f2eb5f-5abf-447a-81ca-74b1dd168247"},{"beacon":"weaviate://localhost/A/x"}]`},
+		{name: "ref_with_classification", array: `[{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5,"winningCount":3}}]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var want []interface{}
+			require.NoError(t, json.Unmarshal([]byte(tt.array), &want))
+			got, err := unmarshalPropertyArray([]byte(tt.array))
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+			assert.Equal(t, len(got), cap(got))
+		})
+	}
+}
+
+// BenchmarkUnmarshalPropertyArray: refs and long text are almost all string
+// body, which countArrayEntries must not walk byte by byte.
+func BenchmarkUnmarshalPropertyArray(b *testing.B) {
+	refs := make([]string, 3)
+	for i := range refs {
+		refs[i] = fmt.Sprintf(`{"beacon":"weaviate://localhost/Target/73f2eb5f-5abf-447a-81ca-74b1dd16%04d"}`, i)
+	}
+	texts := make([]string, 10)
+	for i := range texts {
+		texts[i] = `"` + strings.Repeat("lorem ipsum, dolor sit amet ", 40) + `"`
+	}
+	tests := []struct {
+		name  string
+		array []byte
+	}{
+		{name: "refs3", array: []byte("[" + strings.Join(refs, ",") + "]")},
+		{name: "long_text10", array: []byte("[" + strings.Join(texts, ",") + "]")},
+	}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := unmarshalPropertyArray(tt.array); err != nil {
+					b.Fatal(err)
+				}
+			}
 		})
 	}
 }
