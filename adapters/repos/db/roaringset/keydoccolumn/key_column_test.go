@@ -155,6 +155,38 @@ func TestComparePrefix(t *testing.T) {
 	}
 }
 
+// TestQueryHeadMatchesLoadHead pins queryHead reading the same head as loadHead of the copied suffix.
+func TestQueryHeadMatchesLoadHead(t *testing.T) {
+	tests := []struct {
+		name string
+		byte func(i int) byte
+	}{
+		{name: "ascending from 0x00", byte: func(i int) byte { return byte(i) }},
+		{name: "descending from 0xff", byte: func(i int) byte { return 0xff - byte(i) }},
+		{name: "alternating 0x00 and 0xff", byte: func(i int) byte { return byte(-(i % 2)) }},
+		{name: "all 0xff", byte: func(int) byte { return 0xff }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for n := 0; n <= 12; n++ {
+				full := make([]byte, n)
+				for i := range full {
+					full[i] = tt.byte(i)
+				}
+				for skip := 0; skip <= n; skip++ {
+					r := n - skip
+					require.Equal(t, loadHead(full[skip:], 0, r, headMask(r)), queryHead(full, skip),
+						"len %d skip %d", n, skip)
+				}
+				if n >= 8 {
+					require.Zero(t, queryHead(full, n), "len %d: an empty suffix shifts by 64, which must give 0", n)
+				}
+			}
+		})
+	}
+}
+
 // TestFixedColumnWideKeys pins rank access on fixedKeyColumn above one byte wide.
 func TestFixedColumnWideKeys(t *testing.T) {
 	var keys [][]byte
