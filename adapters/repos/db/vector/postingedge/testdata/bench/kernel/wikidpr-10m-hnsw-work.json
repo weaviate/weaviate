@@ -1,0 +1,142 @@
+{
+  "dataset": "wikidpr-10m-e5.bin",
+  "vectors": 10000000,
+  "dims": 768,
+  "queries": 1000,
+  "k": 10,
+  "config": {
+    "distance": "cosine",
+    "efConstruction": 128,
+    "maxConnections": 32,
+    "quantization": "rq bits=1 centering=true",
+    "trainingLimit": 10000
+  },
+  "levels": [
+    {
+      "level": 0,
+      "nodes": 10000000,
+      "connections": 352377007
+    },
+    {
+      "level": 1,
+      "nodes": 313170,
+      "connections": 8130577
+    },
+    {
+      "level": 2,
+      "nodes": 9673,
+      "connections": 233640
+    },
+    {
+      "level": 3,
+      "nodes": 310,
+      "connections": 4945
+    },
+    {
+      "level": 4,
+      "nodes": 6,
+      "connections": 30
+    }
+  ],
+  "packedConnectionBytes": 1154177489,
+  "points": [
+    {
+      "ef": 10,
+      "rescoreLimit": 512,
+      "recall": 0.658,
+      "codeDistances": 696.298,
+      "vectorDistances": 10
+    },
+    {
+      "ef": 16,
+      "rescoreLimit": 512,
+      "recall": 0.8066,
+      "codeDistances": 875.803,
+      "vectorDistances": 16
+    },
+    {
+      "ef": 24,
+      "rescoreLimit": 512,
+      "recall": 0.886,
+      "codeDistances": 1109.059,
+      "vectorDistances": 24
+    },
+    {
+      "ef": 32,
+      "rescoreLimit": 512,
+      "recall": 0.9263,
+      "codeDistances": 1338.051,
+      "vectorDistances": 32
+    },
+    {
+      "ef": 48,
+      "rescoreLimit": 512,
+      "recall": 0.9558,
+      "codeDistances": 1779.712,
+      "vectorDistances": 48
+    },
+    {
+      "ef": 64,
+      "rescoreLimit": 512,
+      "recall": 0.9656,
+      "codeDistances": 2208.512,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 96,
+      "rescoreLimit": 512,
+      "recall": 0.9777,
+      "codeDistances": 3051.918,
+      "vectorDistances": 96
+    },
+    {
+      "ef": 128,
+      "rescoreLimit": 512,
+      "recall": 0.9818,
+      "codeDistances": 3874.25,
+      "vectorDistances": 128
+    },
+    {
+      "ef": 192,
+      "rescoreLimit": 512,
+      "recall": 0.9862,
+      "codeDistances": 5462.428,
+      "vectorDistances": 192
+    },
+    {
+      "ef": 256,
+      "rescoreLimit": 512,
+      "recall": 0.9891,
+      "codeDistances": 7000.442,
+      "vectorDistances": 256
+    },
+    {
+      "ef": 384,
+      "rescoreLimit": 512,
+      "recall": 0.9913,
+      "codeDistances": 9968.948,
+      "vectorDistances": 384
+    },
+    {
+      "ef": 512,
+      "rescoreLimit": 512,
+      "recall": 0.9929,
+      "codeDistances": 12827.118,
+      "vectorDistances": 512
+    },
+    {
+      "ef": 768,
+      "rescoreLimit": 512,
+      "recall": 0.994,
+      "codeDistances": 18275.467,
+      "vectorDistances": 512
+    },
+    {
+      "ef": 1024,
+      "rescoreLimit": 512,
+      "recall": 0.9949,
+      "codeDistances": 23476.614,
+      "vectorDistances": 512
+    }
+  ]
+}

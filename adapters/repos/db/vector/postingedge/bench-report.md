@@ -6,7 +6,7 @@
 
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
-**Estado: pre-registrado; se mide la noche del 13 al 14.** Esta sección se escribió antes de ningún dato de esa noche.
+**Estado: pre-registrado; se mide la noche del 13 al 14.** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
 
 ### Qué se mide
 
@@ -37,6 +37,43 @@ Dicho antes de los datos, porque cambia cómo se lee un resultado fuera de la ba
 1. **La banda mezcla dos columnas de la estimación:** el kernel fusionado (1.90x–1.91x con 1 thread) y el fusionado más FastScan (1.86x–1.87x). El PR no lleva FastScan, así que la columna que le toca es la del fusionado: 1.90x–1.91x con 1 thread y 1.89x–1.96x con 8. Las dos caen dentro del gate.
 2. **El kernel del PR no es el prototipo.** Lee los cinco planos de la query de sus slices, sin intercalarlos: 14.2 ns frente a 12.5 a 768 bits, el kernel solo y en caché. A cambio, no prepara la query: la estimación le cargaba 15.8 µs por query al prototipo. Hoy, de día, mido el kernel del PR antes y después en los dos casos que usa la estimación (endpoints sueltos en 1 GiB y scan de un posting en caché), y mido las distancias de HNSW a 10M, que la estimación sacó de 1M. Con eso la estimación se rehace para el kernel que corre, y queda escrita aquí antes de la noche. El gate no cambia.
 3. **Una cuarta fuente que la banda no cubre: el build de HNSW.** Los builds de HNSW no son deterministas, y el de esta noche es un tercero. El rango de la banda sale de dos builds, cuyo ratio sin kernel era 2.10x y 2.14x con 1 thread.
+
+### La estimación, rehecha para el kernel del PR (2026-11-13, de día)
+
+*Añadido el 13 por la mañana, antes de la noche. El gate no cambia: de 1.78x a 2.01x.*
+
+Cambian tres entradas de la estimación del 12 y nada más:
+
+- **El ahorro por código es el del kernel del PR,** de diez rondas intercaladas antes y después, a 768 bits: 16.4 ns por endpoint suelto (de 49.2 a 32.7 ns) y 15.2 ns por vector escaneado (de 33.2 a 18.0). El prototipo ahorraba 20.1 y 19.9 ns.
+- **No hay coste de preparar la query:** el prototipo pagaba 15.8 µs por query.
+- **Las distancias de HNSW son las de 10M,** de `TestSearchWork` a los ef de cada build de v1.4. Son un 13 a 14 % más que las de 1M que tomó la estimación a 0.95, y un 18 a 20 % más a 0.99.
+
+| ef | distancias a 1M (estimación del 12) | a 10M (hoy) | diferencia |
+|---|---|---|---|
+| 48 | 1 570 | 1 780 | +13.4 % |
+| 64 | 1 941 | 2 209 | +13.8 % |
+| 256 | 5 926 | 7 000 | +18.1 % |
+| 384 | 8 303 | 9 969 | +20.1 % |
+
+HNSW / posting-edge con el kernel del PR. El rango son los dos builds de HNSW de v1.4:
+
+| recall | threads | hoy (v1.4) | estimación del 12, prototipo fusionado | rehecha, kernel del PR |
+|---|---|---|---|---|
+| 0.95 | 1 | 2.10x a 2.14x | 1.90x a 1.91x | **1.94x a 1.95x** |
+| 0.95 | 8 | 2.09x a 2.20x | 1.89x a 1.96x | **1.93x a 2.00x** |
+| 0.99 | 1 | 1.36x a 1.72x | 1.12x a 1.41x | 1.18x a 1.48x |
+| 0.99 | 8 | 1.34x a 1.82x | 1.10x a 1.49x | 1.16x a 1.57x |
+
+Lo que cambia:
+
+- **Posting-edge gana menos que con el prototipo:** un 16 % a 0.95, en vez de un 19 %, y un 22 % a 0.99, en vez de un 29 %. La distancia del PR cuesta entre 4.5 y 5.0 ns más por código que la del prototipo, en los tres casos medidos: 18.9 frente a 14.4 ns con todo en caché, 18.0 frente a 13.3 en el scan de un posting, y 32.7 frente a 27.7 en endpoints sueltos. No preparar la query no lo compensa: la query de 0.95 ahorraría 163 µs con el kernel del PR, frente a 188 µs con el prototipo.
+- **HNSW gana casi lo mismo,** un 5 a 7 %. Hace más distancias de las que se suponían, pero ahorra menos en cada una.
+- **El ratio esperado a 0.95 sube unas 0.04,** a 1.94x–1.95x con 1 thread. Sigue dentro del gate, a un 2 % por encima del borde de la banda (1.91x). Con 8 threads, el build de HNSW de la tarde da 2.00x, en el borde del gate.
+- **El tercer build de HNSW, el de `TestSearchWork`,** llega a 0.95 a ef 45 con 1 693 distancias, y a 0.99 a ef 308 con 8 215. Queda entre los dos de v1.4.
+
+Para la lectura de esta noche: con 1 thread, el kernel que corre predice un ratio en torno a 1.95x. La diferencia con la estimación del prototipo, 0.04, es menor que la que hay entre los dos builds de HNSW de v1.4 (2.10x y 2.14x). Esta noche no podrá separar una estimación de la otra.
+
+Las salidas están en `testdata/bench/v1.6/kernel-pr-estimate.md` (la tabla completa, con los QPS) y `v1.6/kernel-pr-rounds.txt` (las rondas).
 
 ### Si sale fuera: cómo se lee cada supuesto
 
