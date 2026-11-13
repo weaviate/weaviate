@@ -74,8 +74,7 @@ type Manager struct {
 }
 
 // CheckPropertyUpdate consults every registered
-// [SchemaMutationDetector] against the current FSM-stored task list
-// and returns the first conflict reported. Called by the schema FSM's
+// [SchemaMutationDetector] and returns the first conflict reported. Called by the schema FSM's
 // UpdateProperty apply path BEFORE the merge is applied; returning a
 // non-nil error causes the apply to reject with that error.
 //
@@ -89,7 +88,7 @@ type Manager struct {
 // namespace flags the update. Empty fast-path keeps the schema apply
 // path free of allocations in the common case.
 func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckPropertyUpdate(className, propertyName, existing)
 	})
 }
@@ -115,7 +114,7 @@ func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, r
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckClassMutation(className string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckClassMutation(className, existing)
 	})
 }
@@ -127,7 +126,7 @@ func (m *Manager) CheckClassMutation(className string) error {
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckTenantMutation(className string, tenants []string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckTenantMutation(className, tenants, existing)
 	})
 }
@@ -158,11 +157,10 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 	return nil
 }
 
-// dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
-// CheckClassMutation / CheckTenantMutation. Walks every registered
-// [SchemaMutationDetector], hands it the namespace-scoped task list,
-// returns the first conflict the call closure reports.
-func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetector, []*Task) error) error {
+// dispatchSchemaMutation hands each registered [SchemaMutationDetector] the
+// namespace's tasks on className and those whose collection is unknown, and
+// returns the first conflict callDetector reports.
+func (m *Manager) dispatchSchemaMutation(className string, callDetector func(SchemaMutationDetector, []*Task) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.schemaMutationDetectors) == 0 {
@@ -174,6 +172,12 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
+			// Another collection's payload takes seconds to decode at 1M tenants.
+			// A task whose collection is unknown still reaches the detector, which
+			// refuses a payload it cannot parse.
+			if t.collection != "" && !strings.EqualFold(t.collection, className) {
+				continue
+			}
 			existing = append(existing, t)
 		}
 		if err := callDetector(detector, existing); err != nil {
@@ -234,9 +238,10 @@ func NewManager(params ManagerParameters) *Manager {
 }
 
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
-// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
-// write wins per namespace; nil / empty arguments are silently dropped.
+// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Register
+// before the first task, which caches its answer; nil / empty arguments are silently dropped.
 // It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
+// The schema mutation and conflict checks skip tasks on other collections by its answer, so a wrong collection lets a mutation through.
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
 		return
@@ -367,7 +372,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 			continue
 		}
 		for taskID, task := range tasksByID {
-			c, ok := extractor(task.Payload)
+			c, ok := task.collection, task.collection != ""
 			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
 			// identifiers, and a byte-exact cascade would leak a case-twin
