@@ -133,6 +133,14 @@ var (
 	benchCapMaxDrop = flag.Float64("bench.capmaxdrop", 0.01, "postingedge, with -bench.degreecaps: a cap whose edge recall falls more than this "+
 		"below that of the full edges is reported and not measured. The recall of a cap is against the k nearest of the true edges")
 
+	benchEdgeCells = flag.String("bench.edgecells", "", "postingedge, full mode: measure the plan once per edge set of this list, in order, on the one build: "+
+		"full, the edges as built, or onepertarget, of the edges of a vector into one posting the nearest only. Each cell writes next to -bench.out "+
+		"as <name>-<cell>.json, and as <name>-<cell>-<n>.json the n-th time the list names it. Before any cell is timed, the onepertarget edges "+
+		"are checked to keep every target posting of every vector, and measured untimed at the efs of the plan, as <name>-onepertarget-untimed.json: "+
+		"if they reach -bench.edgecellfloor at none of them, nothing is timed")
+	benchEdgeCellFloor = flag.Float64("bench.edgecellfloor", 0.99, "postingedge, with -bench.edgecells: the recall the onepertarget edges must "+
+		"reach, untimed, at some ef of the plan before any cell is timed")
+
 	benchCentroidEFs = flag.String("bench.centroidefs", "", "postingedge, full mode: after the plan, efs of the centroid graph search below the default, "+
 		"largest first. Each is measured untimed at -bench.centroidpoints, next to -bench.out as <name>-centroidef<ef>.json, after the default; "+
 		"the walk stops at the first that loses more than -bench.centroidmaxdrop of recall at any point, and the last one that did not "+
@@ -345,6 +353,14 @@ func TestBenchmark(t *testing.T) {
 	if *benchDatasetDir == "" {
 		t.Skip("no -bench.dataset given")
 	}
+	// Checked before the build, which takes an hour at 10M.
+	experiments := 0
+	for _, flagged := range []string{*benchDegreeCaps, *benchEdgeCells, *benchCentroidEFs} {
+		if flagged != "" {
+			experiments++
+		}
+	}
+	require.LessOrEqual(t, experiments, 1, "-bench.degreecaps, -bench.edgecells and -bench.centroidefs are experiments of their own, one per run")
 	ctx := context.Background()
 	stream := *benchStreamTrain && *benchArm == "postingedge" && *benchMode == "full"
 	if stream {
@@ -605,14 +621,17 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		t.Fatalf("edge recall %.4f is below the required %.4f, not running the sweeps", recall, *benchMinEdgeRecall)
 	}
 
-	if *benchDegreeCaps == "" {
+	switch {
+	case *benchDegreeCaps != "":
+		benchCappedDegrees(t, index, data, uc, plan, result, truth)
+	case *benchEdgeCells != "":
+		measureEdgeCells(t, index, data, uc, plan, result, truth)
+	default:
 		runPostingEdgePlan(t, index, data, uc, plan, result, *benchOut)
 		if *benchCentroidEFs != "" {
 			benchCentroidEFSweep(t, index, data, uc, plan, result)
 		}
-		return
 	}
-	benchCappedDegrees(t, index, data, uc, plan, result, truth)
 }
 
 // benchCentroidEFSweep measures the centroid graph search at the efs of
@@ -700,7 +719,6 @@ func benchCappedDegrees(t *testing.T, index *Index, data *benchData, uc UserConf
 	full := index.state.Load().postings
 	fullStart, fullEdges := full.edgeStart, full.edges
 	fullRecall := result.Diagnostics["edgeRecall"]
-	fullEdgeMB := result.Components["edges"]
 	n := full.vectors()
 
 	named := map[int]int{}
@@ -714,39 +732,16 @@ func benchCappedDegrees(t *testing.T, index *Index, data *benchData, uc UserConf
 
 		start, edges := capDegree(fullStart, fullEdges, k)
 		require.NoError(t, index.replaceEdges(start, edges))
-		edgesOf := index.state.Load().postings.edgesOf
-
-		cell := *result
-		cell.Points, cell.Calibration, cell.AutoMargins, cell.AutoMargin = nil, nil, nil, nil
-		cell.Config = maps.Clone(result.Config)
-		cell.Config["degreeCap"] = k
-		cell.Components = maps.Clone(result.Components)
-		cell.Diagnostics = maps.Clone(result.Diagnostics)
-		redundancy := edgeRedundancyOf(start, edges, index.state.Load().side.postingOf)
-		cell.EdgeRedundancy = &redundancy
-		maps.Copy(cell.Diagnostics, redundancy.diagnostics())
-		memory, _ := index.MemoryStats()
-		cell.Components["edges"] = float64(memory.EdgeBytes) / (1 << 20)
-		// The heap is read once, after the build: a cap frees what it drops.
-		cell.IndexHeapMB = result.IndexHeapMB - fullEdgeMB + cell.Components["edges"]
+		cell := edgeCellResult(t, index, data, uc, result, truth, len(fullEdges), "degreeCap", k)
 		cut := 0
 		for slot := 0; slot < n; slot++ {
 			if k > 0 && fullStart[slot+1]-fullStart[slot] > uint32(k) {
 				cut++
 			}
 		}
-		recall := truth.recallOfNearest(edgesOf, k)
-		cell.Diagnostics["edgesPerVector"] = float64(len(edges)) / float64(n)
+		recall := truth.recallOfNearest(index.state.Load().postings.edgesOf, k)
 		cell.Diagnostics["edgeRecall"] = recall
-		cell.Diagnostics["edgeRecallOfAllEdges"] = truth.recallOfNearest(edgesOf, 0)
 		cell.Diagnostics["vectorsCapped"] = float64(cut) / float64(n)
-		cell.Diagnostics["edgesDropped"] = 1 - float64(len(edges))/float64(len(fullEdges))
-		// The search settings of the diagnostics of the build, not those of
-		// the last point the cap before measured.
-		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
-		if sample, found := selfRetrieval(t, index, data); sample > 0 {
-			cell.Diagnostics["selfSample"], cell.Diagnostics["selfFound"] = float64(sample), found
-		}
 		kept := "all the true edges"
 		if k > 0 {
 			kept = fmt.Sprintf("the %d nearest true edges", k)
@@ -765,6 +760,127 @@ func benchCappedDegrees(t *testing.T, index *Index, data *benchData, uc UserConf
 		runPostingEdgePlan(t, index, data, uc, plan, &cell, out)
 	}
 	require.NoError(t, index.replaceEdges(fullStart, fullEdges))
+}
+
+// edgeCellResult is the result of one cell of edges over the build: the build
+// of result and its diagnostics, with the edge diagnostics, memory and self
+// retrieval of the edges the index holds now, under config[key] = value, and
+// no points yet. fullEdges is the number of edges of the build.
+func edgeCellResult(t *testing.T, index *Index, data *benchData, uc UserConfig, result *benchResult, truth *edgeTruth,
+	fullEdges int, key string, value any,
+) benchResult {
+	st := index.state.Load()
+	cell := *result
+	cell.Points, cell.Calibration, cell.AutoMargins, cell.AutoMargin = nil, nil, nil, nil
+	cell.Config = maps.Clone(result.Config)
+	cell.Config[key] = value
+	cell.Components = maps.Clone(result.Components)
+	cell.Diagnostics = maps.Clone(result.Diagnostics)
+	redundancy := edgeRedundancyOf(st.postings.edgeStart, st.postings.edges, st.side.postingOf)
+	cell.EdgeRedundancy = &redundancy
+	maps.Copy(cell.Diagnostics, redundancy.diagnostics())
+	memory, _ := index.MemoryStats()
+	cell.Components["edges"] = float64(memory.EdgeBytes) / (1 << 20)
+	// The heap is read once, after the build: other edges free or take what
+	// they differ by.
+	cell.IndexHeapMB = result.IndexHeapMB - result.Components["edges"] + cell.Components["edges"]
+	n := st.postings.vectors()
+	cell.Diagnostics["edgesPerVector"] = float64(len(st.postings.edges)) / float64(n)
+	cell.Diagnostics["edgesDropped"] = 1 - float64(len(st.postings.edges))/float64(fullEdges)
+	cell.Diagnostics["edgeRecallOfAllEdges"] = truth.recallOfNearest(st.postings.edgesOf, 0)
+	// The search settings of the diagnostics of the build, not those of the
+	// last point the cell before measured.
+	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+	if sample, found := selfRetrieval(t, index, data); sample > 0 {
+		cell.Diagnostics["selfSample"], cell.Diagnostics["selfFound"] = float64(sample), found
+	}
+	return cell
+}
+
+// edgeSet is the edges of a build in the form buildEdges returns.
+type edgeSet struct{ start, edges []uint32 }
+
+// measureEdgeCells measures the plan once per cell of -bench.edgecells on the
+// one build, in the order of the list: full, the edges as built, or
+// onepertarget, of the edges of a vector into one posting the nearest only
+// (onePerTarget). Every cell gets a result of its own, with the build of the
+// given one and the edge diagnostics, memory and points of the cell.
+//
+// Before any cell is timed, the onepertarget edges must keep every target
+// posting of every vector, or the run fails, and are measured untimed at the
+// efs of the plan: if they reach -bench.edgecellfloor at none, that result is
+// written and nothing is timed.
+func measureEdgeCells(t *testing.T, index *Index, data *benchData, uc UserConfig, plan []sweep,
+	result *benchResult, truth *edgeTruth,
+) {
+	require.NotEmpty(t, *benchOut, "-bench.edgecells writes a result per cell next to -bench.out")
+	st := index.state.Load()
+	full := edgeSet{start: st.postings.edgeStart, edges: st.postings.edges}
+	defer func() { require.NoError(t, index.replaceEdges(full.start, full.edges)) }()
+	outOf := func(name string) string { return strings.TrimSuffix(*benchOut, ".json") + "-" + name + ".json" }
+
+	cells := strings.Split(*benchEdgeCells, ",")
+	sets := map[string]edgeSet{"full": full}
+	for _, name := range cells {
+		switch name {
+		case "full":
+		case "onepertarget":
+			if _, done := sets[name]; !done {
+				start, edges := onePerTarget(full.start, full.edges, st.side.postingOf)
+				sets[name] = edgeSet{start: start, edges: edges}
+			}
+		default:
+			t.Fatalf("-bench.edgecells: unknown cell %q, the cells are full and onepertarget", name)
+		}
+	}
+
+	if one, ok := sets["onepertarget"]; ok {
+		require.NotNil(t, result.EdgeRedundancy, "the build carries the redundancy of its edges")
+		got := edgeRedundancyOf(one.start, one.edges, st.side.postingOf)
+		if got.Targets != result.EdgeRedundancy.Targets || got.Shared != 0 {
+			t.Fatalf("one edge per target: %d edges into %d target postings, %d of them shared, against %d target postings "+
+				"of the full edges: the filter is wrong, nothing timed", got.Edges, got.Targets, got.Shared, result.EdgeRedundancy.Targets)
+		}
+		require.NoError(t, index.replaceEdges(one.start, one.edges))
+		check := edgeCellResult(t, index, data, uc, result, truth, len(full.edges), "edgeCell", "onepertarget")
+		untimed := make([]sweep, len(plan))
+		for i, sw := range plan {
+			sw.untimed = true
+			untimed[i] = sw
+		}
+		runPostingEdgePlan(t, index, data, uc, untimed, &check, outOf("onepertarget-untimed"))
+		best, bestEF, maxEF := 0.0, 0, 0
+		for _, p := range check.Points {
+			maxEF = max(maxEF, p.EF)
+			if p.Recall > best {
+				best, bestEF = p.Recall, p.EF
+			}
+		}
+		if best < *benchEdgeCellFloor {
+			t.Logf("one edge per target: recall %.4f at best (ef=%d) over the efs of the plan up to %d, below %.4f: nothing timed",
+				best, bestEF, maxEF, *benchEdgeCellFloor)
+			return
+		}
+		t.Logf("one edge per target reaches recall %.4f untimed (ef=%d, %.4f required): timing the cells", best, bestEF, *benchEdgeCellFloor)
+	}
+
+	named := map[string]int{}
+	for _, name := range cells {
+		named[name]++
+		out := name
+		if named[name] > 1 {
+			out += fmt.Sprintf("-%d", named[name])
+		}
+		set := sets[name]
+		require.NoError(t, index.replaceEdges(set.start, set.edges))
+		cell := edgeCellResult(t, index, data, uc, result, truth, len(full.edges), "edgeCell", name)
+		t.Logf("edge cell %s: %.2f edges per vector into %.2f target postings (%.1f%% of the edges dropped), "+
+			"edge recall %.4f against all the true edges (the build: %.4f), edges %.1f MB, self found %.4f",
+			out, cell.Diagnostics["edgesPerVector"], cell.Diagnostics["edgeTargetsPerVector"], 100*cell.Diagnostics["edgesDropped"],
+			cell.Diagnostics["edgeRecallOfAllEdges"], result.Diagnostics["edgeRecall"], cell.Components["edges"], cell.Diagnostics["selfFound"])
+		writeBenchResultTo(t, &cell, outOf(out))
+		runPostingEdgePlan(t, index, data, uc, plan, &cell, outOf(out))
+	}
 }
 
 // runPostingEdgePlan measures the plan on the index as it stands and writes
