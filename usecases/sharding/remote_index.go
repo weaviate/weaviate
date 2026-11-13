@@ -325,23 +325,17 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	return r.objects, r.scores, r.queryProfiles, node, err
 }
 
+// Aggregate aggregates the shard on the given node, without trying any other.
 func (ri *RemoteIndex) Aggregate(
 	ctx context.Context,
-	shard string,
+	node, shard string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	f := func(_, host string) (interface{}, error) {
-		r, err := ri.client.Aggregate(ctx, host, ri.class, shard, params)
-		if err != nil {
-			return nil, err
-		}
-		return r, nil
+	host, ok := ri.nodeResolver.NodeHostname(node)
+	if !ok || host == "" {
+		return nil, fmt.Errorf("resolve node name %q to host", node)
 	}
-	rr, _, err := ri.queryReplicas(ctx, shard, f)
-	if err != nil {
-		return nil, err
-	}
-	return rr.(*aggregation.Result), err
+	return ri.client.Aggregate(ctx, host, ri.class, shard, params)
 }
 
 func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
