@@ -31,6 +31,10 @@ import (
 const (
 	Name = config.ModuleName
 
+	// maxConcurrentRequestsEnv sizes each of the two pools of the client: one
+	// for the requests to class and default hosts, one for the requests to
+	// hosts a request header names. A process has up to twice the value in
+	// flight.
 	maxConcurrentRequestsEnv = "RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS"
 )
 
