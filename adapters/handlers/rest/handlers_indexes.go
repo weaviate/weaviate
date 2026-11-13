@@ -799,10 +799,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
-	// Pick the most useful one to surface rather than the first in the list:
-	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
+	// Surface the highest Version (RAFT index); an in-flight task is always the newest on its property.
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -840,8 +837,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		if best == nil || taskStatusPriority(task) > taskStatusPriority(best) ||
-			(taskStatusPriority(task) == taskStatusPriority(best) && task.StartedAt.After(best.StartedAt)) {
+		if best == nil || task.Version > best.Version {
 			best = task
 			bestPayload = payload
 		}
@@ -878,7 +874,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
-			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+			if migratedTenants, totalTenants, ok := db.ReindexTenantCounts(migrated, covered); ok {
+				idx.MigratedTenants, idx.TotalTenants = int64(migratedTenants), int64(totalTenants)
+			}
 		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
@@ -948,16 +946,6 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// No tokenization or algorithm side effects for these types.
 	}
 	return true
-}
-
-// taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
-// above them: an in-flight retry has to outrank a completed earlier attempt,
-// so a FINISHED task can only win on recency, e.g. over an older FAILED attempt.
-func taskStatusPriority(task *distributedtask.Task) int {
-	if task.Status.IsActive() {
-		return 2
-	}
-	return 1
 }
 
 // aggregateProgress averages Unit.Progress across all units in the task.

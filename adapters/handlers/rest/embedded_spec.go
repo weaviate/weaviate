@@ -9591,7 +9591,7 @@ func init() {
           ]
         },
         "migratedTenants": {
-          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants. Absent for a collection without multi-tenancy.",
           "type": "integer",
           "format": "int64"
         },
@@ -9630,7 +9630,7 @@ func init() {
           "type": "string"
         },
         "totalTenants": {
-          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants. Absent for a collection without multi-tenancy.",
           "type": "integer",
           "format": "int64"
         },
@@ -22562,7 +22562,7 @@ func init() {
           ]
         },
         "migratedTenants": {
-          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants. Absent for a collection without multi-tenancy.",
           "type": "integer",
           "format": "int64"
         },
@@ -22601,7 +22601,7 @@ func init() {
           "type": "string"
         },
         "totalTenants": {
-          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants. Absent for a collection without multi-tenancy.",
           "type": "integer",
           "format": "int64"
         },
