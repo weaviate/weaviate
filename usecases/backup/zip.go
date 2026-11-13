@@ -345,7 +345,13 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, nil, err
 	}
 
-	info, err := z.src.Stat(relPath)
+	f, err := z.src.Open(relPath)
+	if err != nil {
+		return written, nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
 	if err != nil {
 		return written, nil, fmt.Errorf("stat: %w", err)
 	}
@@ -373,12 +379,6 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	if fileSize >= z.bigFilesThreshold && entBackup.IsImmutableFile(relPath) {
 		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
 	}
-
-	f, err := z.src.Open(relPath)
-	if err != nil {
-		return written, nil, fmt.Errorf("open: %w", err)
-	}
-	defer f.Close()
 
 	preCompressionSize.Add(fileSize)
 

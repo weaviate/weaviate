@@ -395,6 +395,8 @@ func TestWriteRegulars(t *testing.T) {
 		expectSplitFile      string   // if non-empty, expect a SplitFile with this RelPath
 		expectAlreadyWritten int64    // expected AlreadyWritten on the returned SplitFile
 		expectBigFileChunk   string   // if non-empty, expect this file tracked in BigFilesChunk
+		removeAfterListing   string   // if non-empty, delete this listed file before the write
+		expectErr            error
 	}{
 		{
 			name: "fills chunk with small files when big file does not fit",
@@ -475,6 +477,16 @@ func TestWriteRegulars(t *testing.T) {
 			expectTarFiles:       []string{"shard/a.db", "shard/c.db"},
 			expectRemainingFiles: []string{"shard/b.db"},
 		},
+		{
+			name: "listed file removed before the write fails the chunk",
+			files: []testFile{
+				{"shard/gone.db", 100},
+			},
+			chunkTargetSize:      1000,
+			removeAfterListing:   "shard/gone.db",
+			expectErr:            os.ErrNotExist,
+			expectRemainingFiles: []string{"shard/gone.db"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -490,6 +502,9 @@ func TestWriteRegulars(t *testing.T) {
 					bytes.Repeat([]byte("X"), f.size), 0o644))
 				fileNames = append(fileNames, f.relPath)
 				fileSizes[f.relPath] = int64(f.size)
+			}
+			if tt.removeAfterListing != "" {
+				require.NoError(t, os.Remove(filepath.Join(dir, tt.removeAfterListing)))
 			}
 
 			sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
@@ -514,7 +529,11 @@ func TestWriteRegulars(t *testing.T) {
 			_, err = io.Copy(buf, rc)
 			require.NoError(t, err)
 			require.NoError(t, rc.Close())
-			require.NoError(t, writeErr)
+			if tt.expectErr != nil {
+				require.ErrorIs(t, writeErr, tt.expectErr)
+			} else {
+				require.NoError(t, writeErr)
+			}
 
 			// Check remaining files.
 			require.Equal(t, len(tt.expectRemainingFiles), fileList.Len(), "remaining file count")
