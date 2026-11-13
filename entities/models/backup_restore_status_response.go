@@ -34,6 +34,10 @@ type BackupRestoreStatusResponse struct {
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
+	// Timestamp when the restoration process completed (successfully or with failure)
+	// Format: date-time
+	CompletedAt strfmt.DateTime `json:"completedAt,omitempty"`
+
 	// Error message if backup restoration failed.
 	Error string `json:"error,omitempty"`
 
@@ -42,6 +46,13 @@ type BackupRestoreStatusResponse struct {
 
 	// Destination path of backup files valid for the selected backup backend, contains bucket and path.
 	Path string `json:"path,omitempty"`
+
+	// Size of the backup in Gibs
+	Size float64 `json:"size,omitempty"`
+
+	// Timestamp when the restoration process started
+	// Format: date-time
+	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// Phase of backup restoration process.
 	// Enum: [STARTED TRANSFERRING TRANSFERRED FINALIZING SUCCESS FAILED CANCELLING CANCELED]
@@ -52,6 +63,14 @@ type BackupRestoreStatusResponse struct {
 func (m *BackupRestoreStatusResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCompletedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateStatus(formats); err != nil {
 		res = append(res, err)
 	}
@@ -59,6 +78,30 @@ func (m *BackupRestoreStatusResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *BackupRestoreStatusResponse) validateCompletedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.CompletedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("completedAt", "body", "date-time", m.CompletedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BackupRestoreStatusResponse) validateStartedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.StartedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("startedAt", "body", "date-time", m.StartedAt.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 
