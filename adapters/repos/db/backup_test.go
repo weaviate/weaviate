@@ -1453,9 +1453,9 @@ type snapshotHookIndex struct {
 	onSnapshot func()
 }
 
-func (i *snapshotHookIndex) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (i *snapshotHookIndex) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	i.onSnapshot()
-	return i.VectorIndex.SnapshotMutableFiles(ctx, basePath, stagingDir)
+	return i.VectorIndex.SnapshotMutableFiles(ctx, basePath, dstFor)
 }
 
 // newResumeFailingBackupShard returns a shard whose backup snapshot fails to

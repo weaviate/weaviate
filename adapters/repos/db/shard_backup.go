@@ -214,9 +214,10 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 	}
 
 	staged := make(map[string]struct{})
+	dstFor := func(relPath string) string { return filepath.Join(stagingRoot, relPath) }
 
 	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
-		relPaths, err := idx.SnapshotMutableFiles(ctx, s.index.Config.RootPath, stagingRoot)
+		relPaths, err := idx.SnapshotMutableFiles(ctx, s.index.Config.RootPath, dstFor)
 		if err != nil {
 			return fmt.Errorf("snapshot mutable files of vector %q: %w", targetVector, err)
 		}
@@ -230,7 +231,7 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 	}
 
 	if s.metadataDB != nil {
-		relPath, err := s.metadataDB.Snapshot(s.index.Config.RootPath, stagingRoot)
+		relPath, err := s.metadataDB.Snapshot(s.index.Config.RootPath, dstFor)
 		if err != nil {
 			return nil, err
 		}

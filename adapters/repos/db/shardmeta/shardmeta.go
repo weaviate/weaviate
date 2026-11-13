@@ -65,11 +65,10 @@ func IsClosed(err error) bool {
 	return errors.Is(err, bolterrors.ErrDatabaseNotOpen)
 }
 
-// Snapshot writes a consistent point-in-time copy of the DB into stagingDir,
-// preserving the DB's path relative to basePath, and returns that relative
-// path. The copy is taken inside a bolt read transaction (tx.CopyFile) so an
-// in-place write during a long upload window cannot tear the staged copy.
-func (d *DB) Snapshot(basePath, stagingDir string) (string, error) {
+// Snapshot copies the DB to dstFor(relPath) and returns relPath, its path
+// relative to basePath. The copy runs in a bolt read transaction, so it holds
+// one consistent state while writers commit to the live DB.
+func (d *DB) Snapshot(basePath string, dstFor func(relPath string) string) (string, error) {
 	relPath, err := filepath.Rel(basePath, d.path)
 	if err != nil {
 		return "", fmt.Errorf("compute relative path for %s: %w", FileName, err)
@@ -77,7 +76,7 @@ func (d *DB) Snapshot(basePath, stagingDir string) (string, error) {
 	if !filepath.IsLocal(relPath) {
 		return "", fmt.Errorf("shard metadata db %q is outside backup base %q", d.path, basePath)
 	}
-	dst := filepath.Join(stagingDir, relPath)
+	dst := dstFor(relPath)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", fmt.Errorf("create staging subdir for %s: %w", relPath, err)
 	}

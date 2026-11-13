@@ -138,7 +138,9 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	// as flat and deletes the hnsw it was sent. Copied, like the bookkeeping
 	// files: the live file is open and mutating.
 	if s.metadataDB != nil {
-		rel, err := s.metadataDB.Snapshot(s.path(), stagingRoot)
+		rel, err := s.metadataDB.Snapshot(s.path(), func(relPath string) string {
+			return filepath.Join(stagingRoot, relPath)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("snapshot shard metadata for replica: %w", err)
 		}
