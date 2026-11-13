@@ -160,6 +160,13 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			},
 		},
 		{
+			name: "close lock held for writing",
+			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+				f.index.closeLock.Lock()
+				return f.index.closeLock.Unlock
+			},
+		},
+		{
 			name: "create lock held",
 			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
 				f.index.shardCreateLocks.RLock(f.name)

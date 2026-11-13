@@ -107,8 +107,8 @@ func (l *LazyLoadShard) deregisterShard(shard *Shard) {
 // it takes is a try-lock, so it never waits on a request, a RAFT apply or a
 // load; a refusal leaves the shard exactly as it was.
 //
-// Lock order is the documented one: enterRead, shardCreateLocks, l.mutex,
-// shutdownLock. shardCreateLocks and enterRead are released once the shard is
+// Lock order is the documented one: tryEnterRead, shardCreateLocks, l.mutex,
+// shutdownLock. shardCreateLocks and tryEnterRead are released once the shard is
 // marked shut, so a COLD apply, a drop or an index close waits only on l.mutex
 // for this one teardown (LazyLoadShard.Shutdown and drop take it), and a
 // request for this shard reloads it once the teardown finished. l.mutex and
@@ -118,7 +118,7 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	name := l.shardOpts.name
 	defer l.ClearUnloadPending()
 
-	if err := idx.enterRead(); err != nil {
+	if !idx.tryEnterRead() {
 		return false
 	}
 	readEntered := true
