@@ -50,6 +50,8 @@ const (
 
 	plannerPlanID        = "plan-1"
 	plannerTerm   uint64 = 9
+	// draftVersion is the version of every draft task the tests serve.
+	draftVersion uint64 = 7
 )
 
 // plannerStart is the fake clock's time when a run starts.
@@ -57,29 +59,39 @@ var plannerStart = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 type measureFunc func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error)
 
+type measureCall struct {
+	node    string
+	taskID  string
+	version uint64
+}
+
 type plannerHarness struct {
 	t        *testing.T
 	planner  *replication.RebalancePlanner
 	fsm      *replication.ShardReplicationFSM
 	proposer *replication.MockrebalanceProposer
+	drafting *replication.MockrebalanceDrafting
 	clock    *clockwork.FakeClock
 	registry *prometheus.Registry
+	logs     *logrustest.Hook
 
 	// logTerm is the term at which a proposal is applied to the FSM.
 	logTerm uint64
 	// proposeErr, when set, is returned by the proposer, which then skips the FSM.
 	proposeErr error
 
-	mu   sync.Mutex
-	reqs []replication.CompletePlanningRequest
-	errs []error
+	mu       sync.Mutex
+	reqs     []replication.CompletePlanningRequest
+	errs     []error
+	tasks    []replication.DraftTask
+	measured []measureCall
 
 	measureCalls atomic.Int32
 	term         atomic.Uint64
 	leader       atomic.Bool
 	rebalanceOn  atomic.Bool
 	movementOn   atomic.Bool
-	// gate, when set before Run starts, receives once per Enabled evaluation.
+	// gate, when set before Run starts, receives once per ReadyToPlan evaluation.
 	gate chan struct{}
 	// afterReady, when set before a run, runs after each ReadyToPlan evaluation.
 	afterReady func()
@@ -88,18 +100,24 @@ type plannerHarness struct {
 // newPlannerHarness returns a leader with both flags on and a PLANNING plan
 // listing node-1 as source and node-2 as target. A nil measure leaves the
 // planner's Measure nil. The proposer mock has no expectations until
-// expectProposals is called.
+// expectProposals is called. The drafting mock serves the tasks set by
+// setDraftTasks, starting with reportedDraftTask(plannerPlanID). It expects no
+// add and no terminate.
 func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replication.MockrebalanceSchemaReader) *plannerHarness {
 	t.Helper()
-	logger, _ := logrustest.NewNullLogger()
+	logger, logs := logrustest.NewNullLogger()
 
 	h := &plannerHarness{
 		t:        t,
+		logs:     logs,
 		registry: prometheus.NewPedanticRegistry(),
 		clock:    clockwork.NewFakeClockAt(plannerStart),
 		proposer: replication.NewMockrebalanceProposer(t),
+		drafting: replication.NewMockrebalanceDrafting(t),
 		logTerm:  plannerTerm,
+		tasks:    []replication.DraftTask{reportedDraftTask(plannerPlanID)},
 	}
+	h.drafting.EXPECT().RebalanceDraftTasks().RunAndReturn(h.draftTasks).Maybe()
 	h.fsm = replication.NewShardReplicationFSM(h.registry)
 	h.term.Store(plannerTerm)
 	h.leader.Store(true)
@@ -117,11 +135,15 @@ func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replicat
 		Logger:      logger,
 		FSM:         h.fsm,
 		Proposer:    h.proposer,
+		Drafting:    h.drafting,
 		Clock:       h.clock,
 		Registerer:  h.registry,
 		Schema:      schemaReader,
 		CurrentTerm: h.term.Load,
 		ReadyToPlan: func() bool {
+			if h.gate != nil {
+				h.gate <- struct{}{}
+			}
 			ready := h.leader.Load()
 			if h.afterReady != nil {
 				h.afterReady()
@@ -129,15 +151,15 @@ func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replicat
 			return ready
 		},
 		Enabled: func() bool {
-			if h.gate != nil {
-				h.gate <- struct{}{}
-			}
 			return h.rebalanceOn.Load() && h.movementOn.Load()
 		},
 	}
 	if measure != nil {
-		params.Measure = func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+		params.Measure = func(ctx context.Context, node, taskID string, version uint64) (types.RebalanceNodeMeasurement, error) {
 			h.measureCalls.Add(1)
+			h.mu.Lock()
+			h.measured = append(h.measured, measureCall{node: node, taskID: taskID, version: version})
+			h.mu.Unlock()
 			return measure(ctx, node)
 		}
 	}
@@ -145,6 +167,80 @@ func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replicat
 	require.NoError(t, err)
 	h.planner = planner
 	return h
+}
+
+// reportedDraftTask is planID's FINISHED draft task, with every unit COMPLETED.
+func reportedDraftTask(planID string) replication.DraftTask {
+	return draftTask(planID, true, "", replication.DraftUnitCompleted, replication.DraftUnitCompleted)
+}
+
+// draftTask is planID's draft task at draftVersion with node-1's and node-2's unit statuses.
+func draftTask(planID string, terminal bool, taskErr string, node1, node2 replication.DraftUnitStatus) replication.DraftTask {
+	return replication.DraftTask{
+		PlanID:   planID,
+		Version:  draftVersion,
+		Terminal: terminal,
+		Error:    taskErr,
+		Units:    map[string]replication.DraftUnitStatus{"node-1": node1, "node-2": node2},
+	}
+}
+
+func (h *plannerHarness) setDraftTasks(tasks ...replication.DraftTask) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.tasks = tasks
+}
+
+func (h *plannerHarness) draftTasks() []replication.DraftTask {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.tasks)
+}
+
+func (h *plannerHarness) measuredCalls() []measureCall {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.measured)
+}
+
+// driveClock advances the fake clock by 30s each time the planner waits on it,
+// until the test ends. Each wait is a 30s collection attempt or a backoff of
+// at most 30s, so one advance ends each wait. A failing Measure must block
+// until its ctx ends. One that returns early leaves its attempt's timer
+// pending, and an advance then lands mid-round.
+func (h *plannerHarness) driveClock() {
+	ctx, cancel := context.WithCancel(context.Background())
+	h.t.Cleanup(cancel)
+	logger, _ := logrustest.NewNullLogger()
+	enterrors.GoWrapper(func() {
+		for h.clock.BlockUntilContext(ctx, 1) == nil {
+			h.clock.Advance(30 * time.Second)
+		}
+	}, logger)
+}
+
+// nodeCalls counts Measure calls per node.
+type nodeCalls struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+// next counts a call for node and returns that node's call count.
+func (c *nodeCalls) next(node string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	c.n[node]++
+	return c.n[node]
+}
+
+// unreachable blocks until ctx ends, as a request to a node that never
+// answers does, and returns an error naming node.
+func unreachable(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+	<-ctx.Done()
+	return types.RebalanceNodeMeasurement{}, fmt.Errorf("%s did not answer before the deadline", node)
 }
 
 // expectProposals makes the proposer apply each completion to the FSM at
@@ -308,14 +404,20 @@ func missingClassErr(t *testing.T) error {
 }
 
 // requireRun asserts the run proposed exactly once with the run's identity and
-// measurement time, and counted one run under result.
+// plannerStart as measurement time, and counted one run under result.
 func requireRun(t *testing.T, h *plannerHarness, result string) replication.CompletePlanningRequest {
+	t.Helper()
+	return requireRunAt(t, h, result, plannerStart)
+}
+
+// requireRunAt is requireRun with measuredAt as measurement time.
+func requireRunAt(t *testing.T, h *plannerHarness, result string, measuredAt time.Time) replication.CompletePlanningRequest {
 	t.Helper()
 	reqs, _ := h.recorded()
 	require.Len(t, reqs, 1)
 	req := reqs[0]
 	require.Equal(t, plannerPlanID, req.PlanID)
-	require.Equal(t, plannerStart.UnixMilli(), req.MeasuredAtUnixMs)
+	require.Equal(t, measuredAt.UnixMilli(), req.MeasuredAtUnixMs)
 	require.Equal(t, plannerTerm, req.RunTerm)
 	require.NotEmpty(t, req.RunID)
 	requireCounted(t, h, result)
@@ -332,6 +434,16 @@ func requireCounted(t *testing.T, h *plannerHarness, result string) {
 %[1]s{result=%[2]q} 1
 `, planningRunsMetric, result)), planningRunsMetric))
 	require.Equal(t, uint64(1), histogramCount(t, h.registry, planningDurationMetric))
+}
+
+func warnings(h *plannerHarness) []*logrus.Entry {
+	var entries []*logrus.Entry
+	for _, e := range h.logs.AllEntries() {
+		if e.Level == logrus.WarnLevel {
+			entries = append(entries, e)
+		}
+	}
+	return entries
 }
 
 func histogramCount(t *testing.T, g prometheus.Gatherer, name string) uint64 {
@@ -391,7 +503,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		wantReason   string
 		wantNodes    []types.RebalanceNodeMeasurement
 		wantBaseline []replication.PlanNodeBalance
-		check        func(t *testing.T, h *plannerHarness)
+		// wantMeasuredAt, when set, is the expected measurement time instead
+		// of plannerStart.
+		wantMeasuredAt time.Time
+		check          func(t *testing.T, h *plannerHarness)
 	}{
 		{
 			name:        "balanced",
@@ -400,6 +515,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 			},
+			check: func(t *testing.T, h *plannerHarness) { require.Empty(t, warnings(h)) },
 		},
 		{
 			name: "imbalanced count ratios",
@@ -471,21 +587,16 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 					if node != "node-2" {
 						return equalNodes()[node], nil
 					}
-					deadline, ok := ctx.Deadline()
-					if !ok || !deadline.Equal(plannerStart.Add(30*time.Second)) {
-						return types.RebalanceNodeMeasurement{}, fmt.Errorf("deadline %v, %v: want start + 30s", deadline, ok)
-					}
-					h.clock.Advance(deadline.Sub(h.clock.Now()))
-					<-ctx.Done()
-					if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-						return types.RebalanceNodeMeasurement{}, ctx.Err()
-					}
-					return types.RebalanceNodeMeasurement{}, errors.New("node-2 did not answer before the deadline")
+					return unreachable(ctx, node)
 				}
 			},
-			noSchemaRead: true,
-			wantOutcome:  replication.PlanStatePlanningFailed,
-			wantReason:   "could not measure nodes due to error: node-2: node-2 did not answer before the deadline",
+			setup: func(t *testing.T, h *plannerHarness) { h.driveClock() },
+			// Under driveClock, round k starts at 60s × (k−1). Round 11 is the
+			// first to end at least 10 minutes after node-2's first failure.
+			wantMeasuredAt: plannerStart.Add(10 * time.Minute),
+			noSchemaRead:   true,
+			wantOutcome:    replication.PlanStatePlanningFailed,
+			wantReason:     "could not collect drafts from nodes: node-2",
 			wantNodes: []types.RebalanceNodeMeasurement{
 				measuredRows(equalNodes())[0],
 				{Node: "node-2", Error: "node-2 did not answer before the deadline"},
@@ -622,6 +733,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			if tc.wantOutcome == replication.PlanStateProposed {
 				wantApproveBefore = math.MaxInt64
 			}
+			wantMeasuredAt := tc.wantMeasuredAt
+			if wantMeasuredAt.IsZero() {
+				wantMeasuredAt = plannerStart
+			}
 
 			var h *plannerHarness
 			switch {
@@ -644,7 +759,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 
 			h.planner.RunOnce(context.Background())
 
-			req := requireRun(t, h, wantResult)
+			req := requireRunAt(t, h, wantResult, wantMeasuredAt)
 			require.Equal(t, tc.wantOutcome, req.Outcome)
 			require.Equal(t, tc.wantReason, req.Reason)
 			require.Equal(t, wantNodes, req.Nodes)
@@ -658,7 +773,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				require.Equal(t, tc.wantOutcome, got.State)
 				require.Equal(t, req.RunID, got.RunID)
 				require.Equal(t, plannerTerm, got.RunTerm)
-				require.Equal(t, plannerStart.UnixMilli(), got.MeasuredAtUnixMs)
+				require.Equal(t, wantMeasuredAt.UnixMilli(), got.MeasuredAtUnixMs)
 				require.Equal(t, wantNodes, got.Nodes)
 				require.Equal(t, tc.wantReason, got.Reason)
 				requireBaseline(t, tc.wantBaseline, got.Baseline)
@@ -695,18 +810,24 @@ func TestRebalancePlanner_ConcurrentTenantWrites(t *testing.T) {
 				}
 				return fsm.CompletePlanning(plannerTerm, req)
 			})
+		drafting := replication.NewMockrebalanceDrafting(t)
+		drafting.EXPECT().RebalanceDraftTasks().Return([]replication.DraftTask{reportedDraftTask(plannerPlanID)})
+		measure := fixedMeasure(equalNodes())
 		logger, _ := logrustest.NewNullLogger()
 		planner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
 			Logger:      logger,
 			FSM:         fsm,
 			Proposer:    proposer,
+			Drafting:    drafting,
 			Clock:       clockwork.NewFakeClockAt(plannerStart),
 			Registerer:  registry,
 			Schema:      sm.NewSchemaReader(),
 			CurrentTerm: func() uint64 { return plannerTerm },
 			ReadyToPlan: func() bool { return true },
 			Enabled:     func() bool { return true },
-			Measure:     fixedMeasure(equalNodes()),
+			Measure: func(ctx context.Context, node, _ string, _ uint64) (types.RebalanceNodeMeasurement, error) {
+				return measure(ctx, node)
+			},
 		})
 		require.NoError(t, err)
 
@@ -999,8 +1120,9 @@ func TestRebalancePlanner_NoRun(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			enterrors.GoWrapper(func() { runDone <- h.planner.Run(ctx) }, logger)
 
-			// Enabled is the loop's first gate. Run handles one wake at a time,
-			// so the second wake reaching the gate proves the first pass ended.
+			// ReadyToPlan is the loop's first gate. Run handles one wake at a
+			// time, so the second wake reaching the gate proves the first pass
+			// ended.
 			awaitGate := func() {
 				select {
 				case <-h.gate:
@@ -1026,4 +1148,508 @@ func TestRebalancePlanner_NoRun(t *testing.T) {
 			require.Zero(t, runSeries)
 		})
 	}
+}
+
+func TestRebalancePlanner_Drafting(t *testing.T) {
+	const (
+		completed  = replication.DraftUnitCompleted
+		inProgress = replication.DraftUnitInProgress
+		pending    = replication.DraftUnitPending
+	)
+	createPlan2 := func(t *testing.T, h *plannerHarness) {
+		require.NoError(t, h.fsm.CreatePlan(&replication.CreatePlanRequest{
+			PlanID:          "plan-2",
+			SourceNodes:     []string{"node-1"},
+			TargetNodes:     []string{"node-2"},
+			CreatedAtUnixMs: plannerStart.UnixMilli(),
+		}))
+	}
+	stop := func(t *testing.T, h *plannerHarness) {
+		require.NoError(t, h.fsm.StopPlan(&replication.StopPlanRequest{PlanID: plannerPlanID}))
+	}
+	deletePlan := func(t *testing.T, h *plannerHarness) {
+		require.NoError(t, h.fsm.DeletePlan(&replication.DeletePlanRequest{PlanID: plannerPlanID}))
+	}
+	// requireWaiting asserts the run measured nothing, proposed nothing and
+	// counted no run, and the plan is still PLANNING.
+	requireWaiting := func(t *testing.T, h *plannerHarness) {
+		t.Helper()
+		require.Zero(t, h.measureCalls.Load())
+		reqs, _ := h.recorded()
+		require.Empty(t, reqs)
+		runSeries, err := testutil.GatherAndCount(h.registry, planningRunsMetric)
+		require.NoError(t, err)
+		require.Zero(t, runSeries)
+		got, ok := h.fsm.GetPlan()
+		require.True(t, ok)
+		require.Equal(t, replication.PlanStatePlanning, got.State)
+	}
+	balancedBaseline := []replication.PlanNodeBalance{
+		{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
+		{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
+	}
+
+	t.Run("creates the task once", func(t *testing.T) {
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		h.setDraftTasks()
+		h.drafting.EXPECT().AddRebalanceDraftTask(mock.Anything, plannerPlanID, []string{"node-1", "node-2"}).
+			RunAndReturn(func(context.Context, string, []string) error {
+				h.setDraftTasks(draftTask(plannerPlanID, false, "", pending, pending))
+				return nil
+			}).Once()
+
+		h.planner.RunOnce(context.Background())
+		h.planner.RunOnce(context.Background())
+
+		requireWaiting(t, h)
+	})
+
+	for _, tc := range []struct {
+		name    string
+		setup   func(t *testing.T, h *plannerHarness)
+		wantAdd string
+	}{
+		{
+			name:  "stop ends drafting",
+			setup: stop,
+		},
+		{
+			name:  "delete after stop ends a still-running task",
+			setup: func(t *testing.T, h *plannerHarness) { stop(t, h); deletePlan(t, h) },
+		},
+		{
+			name: "replace after stop ends a still-running task",
+			setup: func(t *testing.T, h *plannerHarness) {
+				stop(t, h)
+				createPlan2(t, h)
+			},
+			wantAdd: "plan-2",
+		},
+		{
+			name: "sweep runs with the flag off",
+			setup: func(t *testing.T, h *plannerHarness) {
+				stop(t, h)
+				h.rebalanceOn.Store(false)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+			h.setDraftTasks(draftTask(plannerPlanID, false, "", completed, inProgress))
+			tc.setup(t, h)
+			var calls []string
+			h.drafting.EXPECT().TerminateRebalanceDraftTask(mock.Anything, plannerPlanID, draftVersion).
+				RunAndReturn(func(context.Context, string, uint64) error {
+					calls = append(calls, "terminate "+plannerPlanID)
+					h.setDraftTasks(draftTask(plannerPlanID, true, "", completed, inProgress))
+					return nil
+				}).Once()
+			wantCalls := []string{"terminate " + plannerPlanID}
+			if tc.wantAdd != "" {
+				h.drafting.EXPECT().AddRebalanceDraftTask(mock.Anything, tc.wantAdd, []string{"node-1", "node-2"}).
+					RunAndReturn(func(_ context.Context, planID string, _ []string) error {
+						calls = append(calls, "add "+planID)
+						h.setDraftTasks(append(h.draftTasks(), draftTask(planID, false, "", pending, pending))...)
+						return nil
+					}).Once()
+				wantCalls = append(wantCalls, "add "+tc.wantAdd)
+			}
+
+			h.planner.RunOnce(context.Background())
+			// The terminate marked the task ended, so the second run sweeps nothing.
+			h.planner.RunOnce(context.Background())
+
+			require.Equal(t, wantCalls, calls)
+			require.Zero(t, h.measureCalls.Load())
+			reqs, _ := h.recorded()
+			require.Empty(t, reqs)
+		})
+	}
+
+	t.Run("failed terminate adds no task", func(t *testing.T) {
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		stop(t, h)
+		deletePlan(t, h)
+		createPlan2(t, h)
+		h.setDraftTasks(draftTask(plannerPlanID, false, "", completed, inProgress))
+		h.drafting.EXPECT().TerminateRebalanceDraftTask(mock.Anything, plannerPlanID, draftVersion).
+			Return(errors.New("no leader found")).Once()
+
+		h.planner.RunOnce(context.Background())
+
+		h.drafting.AssertNotCalled(t, "AddRebalanceDraftTask", mock.Anything, mock.Anything, mock.Anything)
+		h.drafting.EXPECT().TerminateRebalanceDraftTask(mock.Anything, plannerPlanID, draftVersion).
+			RunAndReturn(func(context.Context, string, uint64) error {
+				h.setDraftTasks(draftTask(plannerPlanID, true, "", completed, inProgress))
+				return nil
+			}).Once()
+		h.drafting.EXPECT().AddRebalanceDraftTask(mock.Anything, "plan-2", []string{"node-1", "node-2"}).Return(nil).Once()
+
+		h.planner.RunOnce(context.Background())
+	})
+
+	t.Run("collects only after every report", func(t *testing.T) {
+		rows := equalNodes()
+		h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+			m := rows[node]
+			m.Shards = []types.RebalanceShardSize{{Collection: "Articles", Shard: node + "-shard", Bytes: 100}}
+			return m, nil
+		}, balancedLayout().mock(t))
+		h.expectProposals()
+		h.setDraftTasks(draftTask(plannerPlanID, false, "", completed, inProgress))
+
+		h.planner.RunOnce(context.Background())
+		requireWaiting(t, h)
+
+		// A provider-only task stays SWAPPING after its last unit completes.
+		h.clock.Advance(5 * time.Minute)
+		h.setDraftTasks(draftTask(plannerPlanID, false, "", completed, completed))
+		h.planner.RunOnce(context.Background())
+
+		require.ElementsMatch(t, []measureCall{
+			{node: "node-1", taskID: plannerPlanID, version: draftVersion},
+			{node: "node-2", taskID: plannerPlanID, version: draftVersion},
+		}, h.measuredCalls())
+		req := requireRunAt(t, h, string(replication.PlanStateNotNeeded), plannerStart.Add(5*time.Minute))
+		require.Equal(t, measuredRows(rows), req.Nodes, "draft sizes are stripped before proposing")
+		requireBaseline(t, balancedBaseline, req.Baseline)
+	})
+
+	t.Run("reported despite task failure", func(t *testing.T) {
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), balancedLayout().mock(t))
+		h.expectProposals()
+		h.setDraftTasks(draftTask(plannerPlanID, true, "post-completion callback failed", completed, completed))
+
+		h.planner.RunOnce(context.Background())
+
+		require.Equal(t, int32(2), h.measureCalls.Load())
+		req := requireRun(t, h, string(replication.PlanStateNotNeeded))
+		requireBaseline(t, balancedBaseline, req.Baseline)
+	})
+
+	t.Run("node restart while drafting", func(t *testing.T) {
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), balancedLayout().mock(t))
+		h.expectProposals()
+		// A restart leaves node-2's unit IN_PROGRESS, and the node reports
+		// nothing until it is back. Each wake meanwhile finds the task running.
+		h.setDraftTasks(draftTask(plannerPlanID, false, "", completed, inProgress))
+		for range 3 {
+			h.planner.RunOnce(context.Background())
+			requireWaiting(t, h)
+			h.clock.Advance(3 * time.Minute)
+		}
+
+		h.setDraftTasks(reportedDraftTask(plannerPlanID))
+		h.planner.RunOnce(context.Background())
+
+		requireRunAt(t, h, string(replication.PlanStateNotNeeded), plannerStart.Add(9*time.Minute))
+		got, ok := h.fsm.GetPlan()
+		require.True(t, ok)
+		require.Equal(t, replication.PlanStateNotNeeded, got.State)
+	})
+
+	t.Run("the highest task version decides", func(t *testing.T) {
+		older := draftTask(plannerPlanID, true, "unit node-2 made no progress for 10m0s", completed, inProgress)
+		older.Version = draftVersion - 1
+		for _, tc := range []struct {
+			name  string
+			tasks []replication.DraftTask
+		}{
+			{name: "higher version listed last", tasks: []replication.DraftTask{older, reportedDraftTask(plannerPlanID)}},
+			{name: "higher version listed first", tasks: []replication.DraftTask{reportedDraftTask(plannerPlanID), older}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newPlannerHarness(t, fixedMeasure(equalNodes()), balancedLayout().mock(t))
+				h.expectProposals()
+				h.setDraftTasks(tc.tasks...)
+
+				h.planner.RunOnce(context.Background())
+
+				require.ElementsMatch(t, []measureCall{
+					{node: "node-1", taskID: plannerPlanID, version: draftVersion},
+					{node: "node-2", taskID: plannerPlanID, version: draftVersion},
+				}, h.measuredCalls())
+				requireRun(t, h, string(replication.PlanStateNotNeeded))
+				got, ok := h.fsm.GetPlan()
+				require.True(t, ok)
+				require.Equal(t, replication.PlanStateNotNeeded, got.State)
+			})
+		}
+	})
+
+	t.Run("ended task fails the plan naming nodes", func(t *testing.T) {
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		h.expectProposals()
+		// Units is a map, which has no iteration order. The Reason lists the
+		// unfinished nodes sorted.
+		units := map[string]replication.DraftUnitStatus{"node-01": completed}
+		var unfinished []string
+		for i := 2; i <= 25; i++ {
+			node := fmt.Sprintf("node-%02d", i)
+			units[node] = []replication.DraftUnitStatus{inProgress, pending}[i%2]
+			unfinished = append(unfinished, node)
+		}
+		h.setDraftTasks(replication.DraftTask{
+			PlanID:   plannerPlanID,
+			Version:  draftVersion,
+			Terminal: true,
+			Error:    "unit node-02 made no progress for 10m0s",
+			Units:    units,
+		})
+
+		h.planner.RunOnce(context.Background())
+
+		require.Zero(t, h.measureCalls.Load())
+		req := requireRun(t, h, string(replication.PlanStatePlanningFailed))
+		require.Equal(t, replication.PlanStatePlanningFailed, req.Outcome)
+		require.Equal(t, "drafting did not finish on nodes: "+strings.Join(unfinished, ", ")+
+			": unit node-02 made no progress for 10m0s", req.Reason)
+		got, ok := h.fsm.GetPlan()
+		require.True(t, ok)
+		require.Equal(t, replication.PlanStatePlanningFailed, got.State)
+		require.Equal(t, req.Reason, got.Reason)
+	})
+
+	t.Run("collection retries", func(t *testing.T) {
+		// In round 1 node-1 reports a fuller disk, which would unbalance the
+		// baseline, and node-2 does not answer. Both answer from round 2 on.
+		var calls nodeCalls
+		h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+			first := calls.next(node) == 1
+			switch {
+			case first && node == "node-2":
+				return unreachable(ctx, node)
+			case first:
+				m := equalNodes()[node]
+				m.DiskAvailableBytes = 100_000_000
+				return m, nil
+			}
+			return equalNodes()[node], nil
+		}, balancedLayout().mock(t))
+		h.expectProposals()
+		h.driveClock()
+
+		h.planner.RunOnce(context.Background())
+
+		require.Equal(t, int32(4), h.measureCalls.Load())
+		// Round 1 ends on its 30s limit, and the backoff after it ends 30s later.
+		req := requireRunAt(t, h, string(replication.PlanStateNotNeeded), plannerStart.Add(time.Minute))
+		require.Equal(t, measuredRows(equalNodes()), req.Nodes)
+		requireBaseline(t, balancedBaseline, req.Baseline)
+	})
+
+	t.Run("collection limit fails the plan naming nodes", func(t *testing.T) {
+		// node-1 fails round 1 only, and node-2 fails every round.
+		var calls nodeCalls
+		h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+			if calls.next(node) == 1 || node == "node-2" {
+				return unreachable(ctx, node)
+			}
+			return equalNodes()[node], nil
+		}, replication.NewMockrebalanceSchemaReader(t))
+		h.expectProposals()
+		h.driveClock()
+
+		h.planner.RunOnce(context.Background())
+
+		// Round k starts at 60s × (k−1). Round 11 is the first to end at
+		// least 10 minutes after node-2's first failure.
+		req := requireRunAt(t, h, string(replication.PlanStatePlanningFailed), plannerStart.Add(10*time.Minute))
+		require.Equal(t, int32(22), h.measureCalls.Load())
+		require.Equal(t, "could not collect drafts from nodes: node-2", req.Reason)
+		require.Equal(t, []types.RebalanceNodeMeasurement{
+			measuredRows(equalNodes())[0],
+			{Node: "node-2", Error: "node-2 did not answer before the deadline"},
+		}, req.Nodes)
+	})
+
+	t.Run("stop between collection rounds proposes nothing", func(t *testing.T) {
+		stopPlan := func(h *plannerHarness) error {
+			return h.fsm.StopPlan(&replication.StopPlanRequest{PlanID: plannerPlanID})
+		}
+		stopDelete := func(h *plannerHarness) error {
+			return errors.Join(stopPlan(h), h.fsm.DeletePlan(&replication.DeletePlanRequest{PlanID: plannerPlanID}))
+		}
+		for _, tc := range []struct {
+			name string
+			// change runs inside a Measure call, off the test goroutine.
+			change func(h *plannerHarness) error
+			// wantPlan is the plan's ID afterwards, or "" for no plan.
+			wantPlan  string
+			wantState replication.PlanState
+		}{
+			{
+				name:      "stop",
+				change:    stopPlan,
+				wantPlan:  plannerPlanID,
+				wantState: replication.PlanStateStopped,
+			},
+			{
+				name:   "stop then delete",
+				change: stopDelete,
+			},
+			{
+				name: "stop, delete, then create of a second plan",
+				change: func(h *plannerHarness) error {
+					return errors.Join(stopDelete(h), h.fsm.CreatePlan(&replication.CreatePlanRequest{
+						PlanID:          "plan-2",
+						SourceNodes:     []string{"node-1"},
+						TargetNodes:     []string{"node-2"},
+						CreatedAtUnixMs: plannerStart.UnixMilli(),
+					}))
+				},
+				wantPlan:  "plan-2",
+				wantState: replication.PlanStatePlanning,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// node-2 makes the change in round 1 and then fails that round.
+				// Every later call answers, so a run that misses the change
+				// goes on to plan.
+				var calls nodeCalls
+				var h *plannerHarness
+				h = newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+					if calls.next(node) > 1 || node == "node-1" {
+						return equalNodes()[node], nil
+					}
+					if err := tc.change(h); err != nil {
+						return types.RebalanceNodeMeasurement{}, err
+					}
+					return unreachable(ctx, node)
+				}, replication.NewMockrebalanceSchemaReader(t))
+				h.driveClock()
+
+				h.planner.RunOnce(context.Background())
+
+				require.Equal(t, int32(2), h.measureCalls.Load())
+				reqs, _ := h.recorded()
+				require.Empty(t, reqs)
+				requireCounted(t, h, "STOPPED")
+				got, ok := h.fsm.GetPlan()
+				require.Equal(t, tc.wantPlan != "", ok)
+				require.Equal(t, tc.wantPlan, got.ID)
+				require.Equal(t, tc.wantState, got.State)
+			})
+		}
+	})
+
+	t.Run("leadership lost between collection rounds proposes nothing", func(t *testing.T) {
+		// node-2 fails round 1 and every later call answers. A run that misses
+		// the lost leadership goes on to plan, and the schema mock, which
+		// expects no calls, fails the test.
+		var calls nodeCalls
+		h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+			if node == "node-2" && calls.next(node) == 1 {
+				return unreachable(ctx, node)
+			}
+			return equalNodes()[node], nil
+		}, replication.NewMockrebalanceSchemaReader(t))
+		// The planner first waits on round 1's attempt limit, then on the
+		// backoff. Leadership is lost while the backoff wait is pending.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		logger, _ := logrustest.NewNullLogger()
+		enterrors.GoWrapper(func() {
+			for wait := 1; h.clock.BlockUntilContext(ctx, 1) == nil; wait++ {
+				if wait == 2 {
+					h.leader.Store(false)
+				}
+				h.clock.Advance(30 * time.Second)
+			}
+		}, logger)
+
+		h.planner.RunOnce(context.Background())
+
+		require.Equal(t, int32(2), h.measureCalls.Load())
+		reqs, _ := h.recorded()
+		require.Empty(t, reqs)
+		requireCounted(t, h, "STALE")
+		got, ok := h.fsm.GetPlan()
+		require.True(t, ok)
+		require.Equal(t, replication.PlanStatePlanning, got.State)
+	})
+
+	t.Run("failed collection round is logged", func(t *testing.T) {
+		rows := equalNodes()
+		rows["node-3"] = rows["node-1"]
+		// node-1 and node-3 fail round 1, and node-2 answers. All answer in round 2.
+		errs := map[string]string{"node-1": "disk read failed", "node-3": "connection refused"}
+		var calls nodeCalls
+		h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+			if calls.next(node) > 1 || node == "node-2" {
+				return rows[node], nil
+			}
+			<-ctx.Done()
+			return types.RebalanceNodeMeasurement{}, errors.New(errs[node])
+		}, balancedLayout().mock(t))
+		stop(t, h)
+		deletePlan(t, h)
+		require.NoError(t, h.fsm.CreatePlan(&replication.CreatePlanRequest{
+			PlanID:          plannerPlanID,
+			SourceNodes:     []string{"node-1"},
+			TargetNodes:     []string{"node-2", "node-3"},
+			CreatedAtUnixMs: plannerStart.UnixMilli(),
+		}))
+		task := reportedDraftTask(plannerPlanID)
+		task.Units["node-3"] = completed
+		h.setDraftTasks(task)
+		h.expectProposals()
+		h.driveClock()
+
+		h.planner.RunOnce(context.Background())
+
+		reqs, _ := h.recorded()
+		require.Len(t, reqs, 1)
+		warned := warnings(h)
+		require.Len(t, warned, 1)
+		for node, err := range errs {
+			require.Contains(t, warned[0].Message, node)
+			require.Contains(t, warned[0].Message, err)
+		}
+		require.NotContains(t, warned[0].Message, "node-2")
+	})
+
+	t.Run("collection backoff doubles from 1s to a 30s cap", func(t *testing.T) {
+		const rounds = 8
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// starts[k] is when round k+1 began: its attempt deadline minus the 30s
+		// measurementTimeout.
+		var starts []time.Time
+		var calls nodeCalls
+		h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
+			if node == "node-1" {
+				deadline, _ := ctx.Deadline()
+				starts = append(starts, deadline.Add(-30*time.Second))
+				if calls.next(node) == rounds {
+					cancel()
+				}
+				return equalNodes()[node], nil
+			}
+			return unreachable(ctx, node)
+		}, replication.NewMockrebalanceSchemaReader(t))
+		// The planner holds one timer at a time: a round's 30s attempt limit,
+		// then its backoff. Each step advances 1s, so every wait ends on its
+		// exact second.
+		logger, _ := logrustest.NewNullLogger()
+		enterrors.GoWrapper(func() {
+			for h.clock.BlockUntilContext(ctx, 1) == nil {
+				h.clock.Advance(time.Second)
+			}
+		}, logger)
+
+		h.planner.RunOnce(ctx)
+
+		require.Len(t, starts, rounds)
+		require.Equal(t, plannerStart, starts[0])
+		var backoffs []time.Duration
+		for k := 1; k < rounds; k++ {
+			backoffs = append(backoffs, starts[k].Sub(starts[k-1])-30*time.Second)
+		}
+		require.Equal(t, []time.Duration{
+			time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
+			16 * time.Second, 30 * time.Second, 30 * time.Second,
+		}, backoffs)
+		requireCounted(t, h, "CANCELLED")
+	})
 }

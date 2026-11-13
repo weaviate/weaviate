@@ -11258,7 +11258,7 @@ func init() {
       }
     },
     "ReplicationRebalancePlan": {
-      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.",
       "type": "object",
       "properties": {
         "baseline": {
@@ -11297,6 +11297,31 @@ func init() {
           "description": "The UNIX timestamp in ms when the plan was created.",
           "type": "integer",
           "format": "int64"
+        },
+        "drafting": {
+          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. The list is empty in every other state. It is also empty while the plan is ` + "`" + `PLANNING` + "`" + ` until the node serving the request holds the plan's drafting task.",
+          "type": "array",
+          "items": {
+            "description": "One node's drafting status.",
+            "type": "object",
+            "properties": {
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "status": {
+                "description": "` + "`" + `REPORTED` + "`" + ` once the node has saved and reported its draft, ` + "`" + `FAILED` + "`" + ` if its drafting failed, and ` + "`" + `DRAFTING` + "`" + ` otherwise.",
+                "type": "string",
+                "enum": [
+                  "REPORTED",
+                  "DRAFTING",
+                  "FAILED"
+                ],
+                "x-omitempty": false
+              }
+            }
+          }
         },
         "id": {
           "description": "The unique identifier (ID) of the rebalance plan.",
@@ -24928,7 +24953,7 @@ func init() {
       }
     },
     "ReplicationRebalancePlan": {
-      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.",
       "type": "object",
       "properties": {
         "baseline": {
@@ -24949,6 +24974,13 @@ func init() {
           "description": "The UNIX timestamp in ms when the plan was created.",
           "type": "integer",
           "format": "int64"
+        },
+        "drafting": {
+          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. The list is empty in every other state. It is also empty while the plan is ` + "`" + `PLANNING` + "`" + ` until the node serving the request holds the plan's drafting task.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanDraftingItems0"
+          }
         },
         "id": {
           "description": "The unique identifier (ID) of the rebalance plan.",
@@ -25019,6 +25051,27 @@ func init() {
         "replicaCount": {
           "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
           "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanDraftingItems0": {
+      "description": "One node's drafting status.",
+      "type": "object",
+      "properties": {
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "status": {
+          "description": "` + "`" + `REPORTED` + "`" + ` once the node has saved and reported its draft, ` + "`" + `FAILED` + "`" + ` if its drafting failed, and ` + "`" + `DRAFTING` + "`" + ` otherwise.",
+          "type": "string",
+          "enum": [
+            "REPORTED",
+            "DRAFTING",
+            "FAILED"
+          ],
           "x-omitempty": false
         }
       }

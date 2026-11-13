@@ -45,6 +45,8 @@ type rebalanceManager interface {
 	ReadRebalancePlan() (rebalance.Plan, bool)
 	// QueryRebalancePlan retrieves the leader's state. It returns nil and no error when the leader holds no plan.
 	QueryRebalancePlan(ctx context.Context) (*rebalance.Plan, error)
+	// RebalanceDraftTasks reads this node's FSM, which can lag the leader.
+	RebalanceDraftTasks() []rebalance.DraftTask
 }
 
 // rebalanceNodes reports cluster membership
@@ -175,16 +177,58 @@ func (h *replicationHandler) getRebalancePlan(params replication.GetRebalancePla
 		if plan == nil {
 			return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 		}
-		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan))
+		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan, h.latestDraftTask(*plan)))
 	}
 	plan, ok := h.rebalanceManager.ReadRebalancePlan()
 	if !ok {
 		return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 	}
-	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan))
+	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan, h.latestDraftTask(plan)))
 }
 
-func rebalancePlanResponse(plan rebalance.Plan) *models.ReplicationRebalancePlan {
+// latestDraftTask returns the highest-version draft task of plan in this
+// node's FSM, or nil when it holds none. Outside PLANNING it returns nil
+// without reading the FSM. The read is costly: RebalanceDraftTasks clones
+// every distributed task on the node.
+func (h *replicationHandler) latestDraftTask(plan rebalance.Plan) *rebalance.DraftTask {
+	if plan.State != rebalance.PlanStatePlanning {
+		return nil
+	}
+	var latest *rebalance.DraftTask
+	for _, task := range h.rebalanceManager.RebalanceDraftTasks() {
+		if task.PlanID == plan.ID && (latest == nil || task.Version > latest.Version) {
+			latest = &task
+		}
+	}
+	return latest
+}
+
+// draftingStatus maps a node's draft unit status to the status GET reports.
+// A node with no unit in the task shows DRAFTING.
+func draftingStatus(unit rebalance.DraftUnitStatus) string {
+	switch unit {
+	case rebalance.DraftUnitCompleted:
+		return models.ReplicationRebalancePlanDraftingItems0StatusREPORTED
+	case rebalance.DraftUnitFailed:
+		return models.ReplicationRebalancePlanDraftingItems0StatusFAILED
+	default:
+		return models.ReplicationRebalancePlanDraftingItems0StatusDRAFTING
+	}
+}
+
+// rebalancePlanResponse builds the GET payload for plan. Drafting lists the
+// source and target nodes only when task is non-nil. Callers pass the result
+// of latestDraftTask. Drafting is never nil, so its JSON is [] and not null.
+func rebalancePlanResponse(plan rebalance.Plan, task *rebalance.DraftTask) *models.ReplicationRebalancePlan {
+	drafting := make([]*models.ReplicationRebalancePlanDraftingItems0, 0)
+	if task != nil {
+		for _, node := range slices.Concat(plan.SourceNodes, plan.TargetNodes) {
+			drafting = append(drafting, &models.ReplicationRebalancePlanDraftingItems0{
+				Node:   node,
+				Status: draftingStatus(task.Units[node]),
+			})
+		}
+	}
 	nodes := make([]*models.ReplicationRebalancePlanNodesItems0, len(plan.Nodes))
 	for i, n := range plan.Nodes {
 		nodes[i] = &models.ReplicationRebalancePlanNodesItems0{
@@ -216,6 +260,7 @@ func rebalancePlanResponse(plan rebalance.Plan) *models.ReplicationRebalancePlan
 		Reason:           plan.Reason,
 		Nodes:            nodes,
 		Baseline:         baseline,
+		Drafting:         drafting,
 	}
 }
 
