@@ -1771,6 +1771,7 @@ type IndexConfig struct {
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 
 	HNSWMaxLogSize               int64
+	HFreshSinglePostingMaxSize   int64
 	HNSWWaitForCachePrefill      bool
 	HNSWFlatSearchConcurrency    int
 	HNSWAcornFilterRatio         float64

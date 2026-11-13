@@ -128,6 +128,20 @@ func withDistanceProvider(provider distancer.Provider) testIndexOption {
 	}
 }
 
+// withBootstrapThreshold keeps the index in single-posting mode until the
+// first posting exceeds n vectors.
+func withBootstrapThreshold(n uint32) testIndexOption {
+	return func(cfg *Config) {
+		cfg.SinglePostingMaxSize = singlePostingSize(n)
+	}
+}
+
+// singlePostingSize is the byte budget that holds n vectors of
+// singlePostingDims dimensions.
+func singlePostingSize(n uint32) uint64 {
+	return uint64(float64(n) * postingEntryBytes(singlePostingDims))
+}
+
 // newTestIndex is the single index constructor behind every test fixture in
 // this package: it wires an HFresh index on top of a dummy LSM store and a
 // noop-bucket centroid HNSW. Pass a non-nil mvStore to wire the

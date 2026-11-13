@@ -599,6 +599,17 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	if v := os.Getenv("HFRESH_SINGLE_POSTING_MAX_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse HFRESH_SINGLE_POSTING_MAX_SIZE: %w", err)
+		}
+
+		config.Persistence.HFreshSinglePostingMaxSize = parsed
+	} else {
+		config.Persistence.HFreshSinglePostingMaxSize = DefaultHFreshSinglePostingMaxSize
+	}
+
 	// ---- HNSW snapshots ----
 	//
 	// These variables were meaningful back when HNSW snapshots were an

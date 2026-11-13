@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema/config"
@@ -132,4 +133,32 @@ func TestOutOfBoundsMuveraConfigStillLoads(t *testing.T) {
 	// newTestIndex fails the test if New returns an error
 	tf := newTestIndex(t, uc, newMuveraTestStore())
 	require.NotNil(t, tf.Index)
+}
+
+func TestSinglePostingThresholdFromSize(t *testing.T) {
+	const tenMiB = 10 * 1024 * 1024
+	tests := []struct {
+		name     string
+		size     uint64
+		dims     uint32
+		expected uint32
+	}{
+		// each entry takes dims/8 + 25 bytes
+		{"8 dims", tenMiB, 8, 403_298},
+		{"256 dims", tenMiB, 256, 183_960},
+		{"1536 dims", tenMiB, 1536, 48_321},
+		{"3072 dims", tenMiB, 3072, 25_637},
+		{"disabled", 0, 1536, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := HFresh{
+				logger:           logrus.New(),
+				config:           &Config{SinglePostingMaxSize: tt.size},
+				maxPostingSizeKB: ent.DefaultMaxPostingSizeKB,
+			}
+			require.NoError(t, h.setMaxPostingSize(tt.dims))
+			require.Equal(t, tt.expected, h.bootstrapThreshold)
+		})
+	}
 }

@@ -181,6 +181,7 @@ func (db *DB) init(ctx context.Context) error {
 			NamespacesExister:                   db.namespacesExister,
 			QueryAdmission:                      db.queryAdmission,
 			HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
+			HFreshSinglePostingMaxSize:          db.config.HFreshSinglePostingMaxSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
 				if lazyLoadShardEnabled {

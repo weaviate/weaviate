@@ -231,7 +231,7 @@ func TestAdd(t *testing.T) {
 	})
 }
 
-func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
+func TestAppendEnqueuesSplitWhenPostingFarAboveThreshold(t *testing.T) {
 	tf := createHFreshIndex(t)
 	defer tf.Index.Shutdown(t.Context())
 
@@ -278,12 +278,13 @@ func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	require.False(t, tf.Index.Centroids.Exists(postingID))
-	require.Equal(t, int64(0), tf.Index.taskQueue.splitQueue.Size())
+	// the insert path never splits inline, however oversized the posting
+	require.True(t, tf.Index.Centroids.Exists(postingID))
+	require.Equal(t, int64(1), tf.Index.taskQueue.splitQueue.Size())
 
 	size, err := tf.Index.PostingSizes.Get(t.Context(), postingID)
 	require.NoError(t, err)
-	require.Equal(t, uint32(0), size)
+	require.Equal(t, uint32(16), size)
 }
 
 func TestAppendMissingPostingDoesNotEnqueueReassign(t *testing.T) {

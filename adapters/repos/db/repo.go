@@ -507,6 +507,7 @@ type Config struct {
 	RuntimeReindexDisabled bool
 
 	HNSWMaxLogSize               int64
+	HFreshSinglePostingMaxSize   int64
 	HNSWWaitForCachePrefill      bool
 	HNSWFlatSearchConcurrency    int
 	HNSWAcornFilterRatio         float64

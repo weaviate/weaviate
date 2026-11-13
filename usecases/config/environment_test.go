@@ -1684,6 +1684,38 @@ func TestEnvironmentHNSWMaxLogSize(t *testing.T) {
 	}
 }
 
+func TestEnvironmentHFreshSinglePostingMaxSize(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int64
+		expectedErr bool
+	}{
+		{"Valid no unit", []string{"3"}, 3, false},
+		{"Valid SI unit", []string{"10MB"}, 10 * 1000 * 1000, false},
+		{"Valid IEC unit", []string{"10MiB"}, 10 * 1024 * 1024, false},
+		{"disabled", []string{"0"}, 0, false},
+		{"not given", []string{}, DefaultHFreshSinglePostingMaxSize, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HFRESH_SINGLE_POSTING_MAX_SIZE", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.HFreshSinglePostingMaxSize)
+			}
+		})
+	}
+}
+
 func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
 	factors := []struct {
 		name        string
