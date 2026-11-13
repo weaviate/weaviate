@@ -181,10 +181,10 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 // plan choice.  It returns *useInverted == true* when **all** of the following
 // hold:
 //
-//   - The inverted-index strategy is cheaper according to EstimateCosts.
-//
 //   - The first key’s logical type (date, int, number) preserves the same
 //     ordering at the byte level that the inverted index uses.
+//
+//   - The inverted-index strategy is cheaper according to EstimateCosts.
 //
 //   - The LSM bucket for that property is present; if not, the method
 //     opportunistically reminds the caller that marking the field as
@@ -200,15 +200,7 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 			fmt.Sprintf("COMPLETED PLANNING in %s", time.Since(startTime)))
 	}()
 
-	costObjectsBucket, costInvertedBucket := s.EstimateCosts(ctx, ids, limit, sort)
-
 	useInverted = false
-	if costInvertedBucket > costObjectsBucket {
-		// inverted strategy is more expensive, no need to plan further, just use
-		// objects strategy
-		return useInverted, err
-	}
-
 	propNames, _, err := extractPropNamesAndOrders(sort)
 	if err != nil {
 		return useInverted, err
@@ -221,8 +213,8 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 
 	default:
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			fmt.Sprintf("inverted strategy has lower cost, but data type '%s' of property '%s' "+
-				"is currently not supported, falling back to objects bucket strategy", dt, propNames[0]))
+			fmt.Sprintf("data type '%s' of property '%s' is currently not supported by "+
+				"inverted strategy, using objects bucket strategy", dt, propNames[0]))
 		return useInverted, err
 
 	}
@@ -231,6 +223,13 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			"limit 0 sorts every match, which the candidate walk would read anyway, "+
 				"using objects bucket strategy")
+		return useInverted, err
+	}
+
+	costObjectsBucket, costInvertedBucket := s.EstimateCosts(ctx, ids, limit, sort)
+	if costInvertedBucket > costObjectsBucket {
+		// inverted strategy is more expensive, no need to plan further, just use
+		// objects strategy
 		return useInverted, err
 	}
 

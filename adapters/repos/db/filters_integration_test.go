@@ -1825,7 +1825,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 				},
 				expectedIDs: nil,
 				wantErr:     true,
-				errMessage:  "sort object list: sorting by reference not supported, path must have exactly one argument",
+				errMessage:  "sorting by reference not supported, path must have exactly one argument",
 			},
 		}
 		for _, test := range tests {
