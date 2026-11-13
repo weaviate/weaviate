@@ -28,7 +28,10 @@ type fakeShardUnloader struct {
 	beforeLoads  atomic.Int64
 	onBeforeLoad atomic.Pointer[func(*LazyLoadShard)]
 	closes       atomic.Int64
+	idle         atomic.Bool
 }
+
+func (f *fakeShardUnloader) Collecting() bool { return !f.idle.Load() }
 
 func newFakeShardUnloader() *fakeShardUnloader {
 	return &fakeShardUnloader{registry: NewLoadedShardRegistry()}
