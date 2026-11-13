@@ -1437,62 +1437,46 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 				returnError = err
 			}
 			properties[propertyName] = val
-		case jsonparser.Array: // can be a beacon or an actual array
+		case jsonparser.Array:
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			// this checks if refs are present - the return points to the underlying memory, dont use without copying
-			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
-			if errBeacon == nil {
-				// there can be more than one
-				var beacons []interface{}
-				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
-					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon")
-					returnError = err2
-					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
+			// check how many entries there are in the array by counting the ",". This allows us to allocate an
+			// array with the right size without extending it with every append.
+			// The size can be too large for string arrays, when they contain "," as part of their content.
+			entryCount := 0
+			for _, b := range arrayEntries {
+				if b == uint8(44) { // ',' as byte
+					entryCount++
 				}
-				_, returnError = jsonparser.ArrayEach(value, handler)
-				properties[propertyName] = beacons
-			} else {
-				// check how many entries there are in the array by counting the ",". This allows us to allocate an
-				// array with the right size without extending it with every append.
-				// The size can be too large for string arrays, when they contain "," as part of their content.
-				entryCount := 0
-				for _, b := range arrayEntries {
-					if b == uint8(44) { // ',' as byte
-						entryCount++
-					}
-				}
+			}
 
-				array := make([]interface{}, 0, entryCount)
-				_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
-					var val interface{}
+			array := make([]interface{}, 0, entryCount)
+			_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+				var val interface{}
 
-					switch innerDataType {
-					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-						val, err = parseValues(innerDataType, innerValue)
-						if err != nil {
-							returnError = err
-							return
-						}
-					case jsonparser.Object:
-						nestedProps := map[string]interface{}{}
-						err := json.Unmarshal(innerValue, &nestedProps)
-						if err != nil {
-							returnError = err
-							return
-						}
-						val = nestedProps
-					default:
-						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
+				switch innerDataType {
+				case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+					val, err = parseValues(innerDataType, innerValue)
+					if err != nil {
+						returnError = err
 						return
 					}
-					array = append(array, val)
-				})
-				if err != nil {
-					returnError = err
+				case jsonparser.Object:
+					nestedProps, err := unmarshalArrayObject(innerValue)
+					if err != nil {
+						returnError = err
+						return
+					}
+					val = nestedProps
+				default:
+					returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
+					return
 				}
-				properties[propertyName] = array
-
+				array = append(array, val)
+			})
+			if err != nil {
+				returnError = err
 			}
+			properties[propertyName] = array
 		case jsonparser.Object:
 			// nested objects and geo-props and phonenumbers.
 			//
@@ -1514,6 +1498,32 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 	}, propertyPaths...)
 
 	return returnError
+}
+
+var errNotPlainRef = errors.New("not a plain reference")
+
+// unmarshalArrayObject decodes an array element as json.Unmarshal does, skipping
+// reflection for a plain reference. parseCrossRef decides whether the array holds refs.
+func unmarshalArrayObject(elem []byte) (map[string]interface{}, error) {
+	var beacon []byte
+	keys := 0
+	if jsonparser.ObjectEach(elem, func(key, value []byte, dt jsonparser.ValueType, _ int) error {
+		keys++
+		if keys > 1 || dt != jsonparser.String || string(key) != "beacon" {
+			return errNotPlainRef
+		}
+		beacon = value
+		return nil
+	}) == nil && keys == 1 {
+		if s, err := jsonparser.ParseString(beacon); err == nil {
+			return map[string]interface{}{"beacon": s}, nil
+		}
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(elem, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
