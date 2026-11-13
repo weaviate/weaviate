@@ -501,7 +501,7 @@ func shardStatusErrResponder(principal *models.Principal, err error) middleware.
 }
 
 // shardsStorageStatusErrResponder maps a failed shard status read to its
-// response. An invalid class name answers 422.
+// response. An invalid class name or a namespace refusal answers 422.
 func shardsStorageStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
 	switch {
 	case errors.As(err, &authzerrors.Forbidden{}):
@@ -510,7 +510,7 @@ func shardsStorageStatusErrResponder(principal *models.Principal, err error) mid
 	case errors.Is(err, schemaUC.ErrNotFound):
 		return schema.NewSchemaObjectsShardsGetNotFound().
 			WithPayload(errPayloadFromSingleErr(principal, err))
-	case errors.Is(err, schemaUC.ErrValidation):
+	case errors.Is(err, schemaUC.ErrValidation), cerrors.NamespaceErrRendersUnprocessable(err):
 		return schema.NewSchemaObjectsShardsGetUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	default:

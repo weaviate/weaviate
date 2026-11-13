@@ -139,6 +139,26 @@ func TestShardsStorageStatusErrResponder(t *testing.T) {
 			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
 		},
 		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "deleting namespace is unprocessable",
+			err:  namespaces.ErrNamespaceDeleting,
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "missing namespace is unprocessable",
+			err:  namespaces.ErrNamespaceGone,
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "resuming namespace falls through",
+			err:  namespaces.ErrNamespaceResuming,
+			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
+		},
+		{
 			name: "anything else stays a server error",
 			err:  errors.New("boom"),
 			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
