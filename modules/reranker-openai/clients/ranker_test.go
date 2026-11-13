@@ -901,6 +901,70 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 	}
 }
 
+// The client timeout is 30 seconds, so a call that waited for the body fails
+// the one-second bound.
+func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		fromHeader bool
+		wantErr    string
+	}{
+		{
+			name:       "a 500 from the header base URL",
+			status:     http.StatusInternalServerError,
+			fromHeader: true,
+			wantErr:    "connection to OpenAI API failed with status 500",
+		},
+		{
+			name:       "a 400 from the header base URL",
+			status:     http.StatusBadRequest,
+			fromHeader: true,
+			wantErr:    "object " + firstID + ": connection to OpenAI API failed with status 400",
+		},
+		{
+			name:       "a 401 from the header base URL",
+			status:     http.StatusUnauthorized,
+			fromHeader: true,
+			wantErr:    "OpenAI rejected the API key (status 401)",
+		},
+		{
+			name:    "a 401 from the class base URL",
+			status:  http.StatusUnauthorized,
+			wantErr: "OpenAI rejected the API key (status 401)",
+		},
+		{
+			name:    "a 403 from the class base URL",
+			status:  http.StatusForbidden,
+			wantErr: "OpenAI denied the request (status 403)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			used := classServer
+			ctx := context.Background()
+			if tt.fromHeader {
+				used = headerServer
+				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
+			}
+			used.replies = map[int]fakeReply{0: {status: tt.status, stalled: true}}
+
+			result := rankInBackground(t, ctx, newTestClient(defaultFakeKey), classServer, []string{noRefund})
+
+			select {
+			case err := <-result:
+				require.EqualError(t, err, tt.wantErr)
+			case <-time.After(time.Second):
+				used.server.CloseClientConnections()
+				t.Fatal("RankProperty waited for the body of the error reply")
+			}
+			assert.Len(t, used.received(), 1)
+		})
+	}
+}
+
 func TestRankCutsLongErrorText(t *testing.T) {
 	hugeNumber := `{"answers":[{"type":"predicate","name":"condition","probability":` + strings.Repeat("9", 100_000) + `}]}`
 	tests := []struct {
@@ -1522,6 +1586,8 @@ func (r fakeRequest) rawInput() string {
 type fakeReply struct {
 	status int
 	body   string
+	// stalled sends the status and the headers, and never the body.
+	stalled bool
 }
 
 // fakeOpenAI answers with the probability of the input, 0.5 when unknown, or
@@ -1536,6 +1602,8 @@ type fakeOpenAI struct {
 	delay    time.Duration
 	release  chan struct{}
 	handlers sync.WaitGroup
+	// closed ends the handlers of stalled replies.
+	closed chan struct{}
 
 	// opened counts the connections the server accepted.
 	opened atomic.Int64
@@ -1547,7 +1615,7 @@ type fakeOpenAI struct {
 }
 
 func newFake(t *testing.T) *fakeOpenAI {
-	f := &fakeOpenAI{t: t}
+	f := &fakeOpenAI{t: t, closed: make(chan struct{})}
 	f.server = httptest.NewUnstartedServer(f)
 	f.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 		if state == http.StateNew {
@@ -1556,6 +1624,7 @@ func newFake(t *testing.T) *fakeOpenAI {
 	}
 	f.server.Start()
 	t.Cleanup(f.server.Close)
+	t.Cleanup(func() { close(f.closed) })
 	return f
 }
 
@@ -1616,6 +1685,16 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		<-f.release
 	}
 
+	if replied && reply.stalled {
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(reply.status)
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-f.closed:
+		}
+		return
+	}
 	if replied {
 		w.WriteHeader(reply.status)
 		io.WriteString(w, reply.body)

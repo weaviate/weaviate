@@ -269,11 +269,7 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 // request header named. A decode error is cut to 512 bytes for every host.
 func readResponse(res *http.Response, hostFromHeader bool) (decisionResponse, error) {
 	if res.StatusCode != http.StatusOK {
-		apiErr := readAPIError(res.Body)
-		if hostFromHeader {
-			apiErr = apiError{}
-		}
-		return decisionResponse{}, statusError(res.StatusCode, apiErr)
+		return decisionResponse{}, statusError(res, hostFromHeader)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
@@ -328,14 +324,20 @@ func readAPIError(body io.Reader) apiError {
 // statusError quotes no body for a 401 or a 403. OpenAI's message for a
 // rejected key holds a masked form of the key, and its message for a 403 can
 // name the project of the key.
-func statusError(status int, apiErr apiError) error {
-	switch status {
+//
+// A body that is not quoted is not read, so a host that stalls it does not
+// hold the call until the client timeout.
+func statusError(res *http.Response, hostFromHeader bool) error {
+	switch res.StatusCode {
 	case http.StatusUnauthorized:
 		return errors.New("OpenAI rejected the API key (status 401)")
 	case http.StatusForbidden:
 		return errors.New("OpenAI denied the request (status 403)")
 	}
-	return rejectedError{status: status, message: apiErr.message()}
+	if hostFromHeader {
+		return rejectedError{status: res.StatusCode}
+	}
+	return rejectedError{status: res.StatusCode, message: readAPIError(res.Body).message()}
 }
 
 type rejectedError struct {
