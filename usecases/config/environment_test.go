@@ -2592,6 +2592,34 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 	}
 }
 
+func TestEnvironmentAsyncReplicationInMaintenanceEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		set      bool
+		expected bool
+	}{
+		{name: "unset defaults to off", expected: false},
+		{name: "true", value: "true", set: true, expected: true},
+		{name: "1", value: "1", set: true, expected: true},
+		{name: "on", value: "on", set: true, expected: true},
+		{name: "false", value: "false", set: true, expected: false},
+		{name: "0", value: "0", set: true, expected: false},
+		{name: "garbage", value: "maybe", set: true, expected: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.set {
+				t.Setenv("ASYNC_REPLICATION_IN_MAINTENANCE_ENABLED", tt.value)
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.Replication.AsyncReplicationInMaintenanceEnabled)
+			require.Equal(t, tt.expected, conf.Replication.AsyncReplicationInMaintenanceEnabled.Get())
+		})
+	}
+}
+
 func TestNamespaceCleanupIntervalValidation(t *testing.T) {
 	tests := []struct {
 		name    string
