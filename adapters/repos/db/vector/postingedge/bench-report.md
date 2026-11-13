@@ -140,7 +140,7 @@ Lo que estos números no dicen, y la hipótesis necesita saber:
 
 ### Redundancia por query: lo que llega a la búsqueda (pre-registro, 2026-11-13, de día)
 
-*Escrito antes de ningún dato de esta medida.*
+*Escrito antes de ningún dato de esta medida, salvo la lectura revisada del final de esta subsección, que llegó después.*
 
 **Qué se mide.** Se usa el mismo build de 10M, en ef=20 y ef=160 (los puntos de 0.95 y 0.99), sin cronometrar, con 1 000 queries. Una arista es **redundante** si su source tiene, antes en su fila, una arista más cercana hacia el mismo posting. Por query se cuentan:
 
@@ -172,6 +172,22 @@ Una arista redundante nunca deja sin rango a su posting: la arista más cercana 
 - **No cambia lo que hace la búsqueda.** Las mismas queries con y sin conteo dan los mismos resultados. Hay un test que lo comprueba.
 - **No toca las secciones cronometradas.** La parte que necesita las distancias va después de la que mide la expansión.
 - **El conteo predice, antes de puntuar, qué endpoints puntuará la búsqueda,** y lo compara con los que puntúa de verdad. Si alguna vez no coinciden, la corrida falla.
+
+**Lectura revisada (2026-11-13, 10:15).** *Es una corrección del encargo y llegó después de la corrida. Los resultados de la subsección siguiente ya estaban leídos y escritos con la lectura original (`db459dbd6f`), que queda arriba tal cual.*
+
+(2) grande no equivale al mecanismo del cap:
+
+- **El cap quitaba destinos:** un 31 % de ellos.
+- **Una arista por posting los conserva todos.** A igual estado de la búsqueda, solo puede subir el rango de algunos postings, nunca dejarlos sin rango (lo dice ya el párrafo de arriba).
+- **(2) es, por tanto, una cota de reordenamiento, no de pérdida.** Solo la frontera dice si ese reordenamiento cuesta.
+
+La lectura queda así:
+
+- **(1) pequeño:** la idea muere aquí.
+- **(1) grande y (2) pequeño:** prototipo con su propio pre-registro, con alta expectativa.
+- **(1) grande y (2) intermedio o grande:** prototipo igualmente, con su propio pre-registro. El informe lo dice así, sin anticipar veredicto.
+
+**Los umbrales no cambian.** En la zona intermedia, medir cuánto subiría el rango deja de ser condición previa al prototipo: su frontera lo sustituye.
 
 ### Redundancia por query: resultados (2026-11-13, de día)
 
