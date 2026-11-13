@@ -100,6 +100,8 @@ type ReindexProvider struct {
 	// liveUnits counts this node's workers per (task, unit), guarded by [mu]. A count, not a flag: two can hold one unit.
 	liveUnits unitClaims
 
+	retainerTargets reindexTargetCache
+
 	teardownHeldOnce sync.Once
 	teardownHeld     *logrusext.Sampler
 	swapFailedOnce   sync.Once

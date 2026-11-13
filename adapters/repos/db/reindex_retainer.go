@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -193,7 +194,8 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if len(task.SwapsOwed) > 0 {
 		return true
 	}
-	targets := reindexTargets{}
+	targets := p.retainerTargets.acquire(namespaceTasks)
+	defer p.retainerTargets.release()
 	target := targets.of(task)
 	if target == nil {
 		return false // the status endpoint cannot read it either
@@ -227,17 +229,40 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 }
 
 // reindexTarget is the subset of ReindexTaskPayload the retainer reads.
-// Skipping the per-unit maps keeps decoding cheap, since every node decodes
-// this on every scheduler tick.
+// Skipping the per-unit maps keeps each run's first decode cheap and its
+// cache entry small.
 type reindexTarget struct {
 	MigrationType ReindexMigrationType `json:"migrationType"`
 	Collection    string               `json:"collection"`
 	Properties    []string             `json:"properties"`
 }
 
-// reindexTargets decodes each task at most once per retention decision; nil
-// marks an unreadable payload.
+// reindexTargets decodes each task at most once; nil marks an unreadable payload.
 type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
+
+// reindexTargetCache keeps decoded targets across ticks: a payload never changes for an (ID, Version).
+type reindexTargetCache struct {
+	mu      sync.Mutex
+	targets reindexTargets
+}
+
+// acquire drops entries whose task left namespaceTasks and returns the cache
+// with its lock held until release. Pruning in place avoids copying the whole
+// cache on every call, which was measured at 80 MiB per tick for 1000 runs.
+func (c *reindexTargetCache) acquire(namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task) reindexTargets {
+	c.mu.Lock()
+	if c.targets == nil {
+		c.targets = reindexTargets{}
+	}
+	for desc := range c.targets {
+		if _, ok := namespaceTasks[desc]; !ok {
+			delete(c.targets, desc)
+		}
+	}
+	return c.targets
+}
+
+func (c *reindexTargetCache) release() { c.mu.Unlock() }
 
 func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 	if target, ok := ts[task.TaskDescriptor]; ok {
