@@ -5312,6 +5312,20 @@ func (i *Index) enterRead() error {
 	return nil
 }
 
+// tryEnterRead is enterRead that refuses instead of waiting when closeLock is held for writing.
+func (i *Index) tryEnterRead() bool {
+	if !i.closeLock.TryRLock() {
+		return false
+	}
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return false
+	}
+	i.inflight.Add(1)
+	return true
+}
+
 func (i *Index) exitRead() { i.inflight.Done() }
 
 // beginClose closes the index and drains in-flight readers. It returns holding
