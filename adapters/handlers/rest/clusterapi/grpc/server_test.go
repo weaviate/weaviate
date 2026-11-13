@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -161,12 +162,28 @@ func Test_ServerReplicationService(t *testing.T) {
 				c := "C"
 				s := "S"
 				limit := 10
-				mockReplicator.EXPECT().FindUUIDs(mock.Anything, c, s, (*filters.LocalFilter)(nil), limit).Return([]strfmt.UUID{"uuid1", "uuid2"}, nil)
+				mockReplicator.EXPECT().FindUUIDs(mock.Anything, c, s, (*filters.LocalFilter)(nil), limit).Return([]strfmt.UUID{"uuid1", "uuid2"}, nil).Once()
 				resp, err := client.FindUUIDs(context.Background(), host, c, s, nil, limit)
 				require.NoError(t, err)
 				require.Len(t, resp, 2)
 				require.Equal(t, strfmt.UUID("uuid1"), resp[0])
 				require.Equal(t, strfmt.UUID("uuid2"), resp[1])
+			})
+
+			t.Run("FindUUIDs carries the background mark", func(t *testing.T) {
+				for _, background := range []bool{false, true} {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if background {
+						ctx = backgroundaccess.With(ctx)
+					}
+					mockReplicator.EXPECT().FindUUIDs(mock.MatchedBy(func(ctx context.Context) bool {
+						return backgroundaccess.Is(ctx) == background
+					}), "C", "S", (*filters.LocalFilter)(nil), 10).Return([]strfmt.UUID{"uuid1"}, nil).Once()
+					resp, err := client.FindUUIDs(ctx, host, "C", "S", nil, 10)
+					cancel()
+					require.NoError(t, err)
+					require.Equal(t, []strfmt.UUID{"uuid1"}, resp)
+				}
 			})
 
 			t.Run("DeleteObject", func(t *testing.T) {

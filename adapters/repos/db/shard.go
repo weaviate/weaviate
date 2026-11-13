@@ -446,6 +446,9 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 	// dropRequested marks shard as requested for drop.
 	dropRequested atomic.Bool
+	// deferredShutdownDone, set by an unloading wrapper before it publishes the
+	// shard, runs once a shutdown deferred to the last release has shut it.
+	deferredShutdownDone func()
 
 	lazySegmentLoadingEnabled bool
 

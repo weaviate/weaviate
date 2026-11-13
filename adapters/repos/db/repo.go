@@ -437,6 +437,10 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	if config.ShardUnloader != nil {
+		startAccessClock(db.shutdown, db.logger)
+	}
+
 	schedulerOK = true
 	return db, nil
 }
@@ -527,7 +531,14 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+
+	// ShardUnloader is the licensed unloading policy; nil (the default) keeps
+	// every shard path exactly as without unloading.
+	ShardUnloader ShardUnloader
 }
+
+// ShardUnloader returns the configured unloading policy, nil when unloading is off.
+func (db *DB) ShardUnloader() ShardUnloader { return db.config.ShardUnloader }
 
 // GetIndex returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
@@ -855,6 +866,12 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	if db.selfRecoveryOrchestrator != nil {
 		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
 			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)
+		}
+	}
+	// Stop the unloader before any index shuts down so no unload races an index teardown.
+	if u := db.config.ShardUnloader; u != nil {
+		if err := u.Close(ctx); err != nil {
+			db.logger.Warnf("idle shard collector: Close did not drain in time; workers may still be running: %v", err)
 		}
 	}
 	db.bitmapBufPoolClose()

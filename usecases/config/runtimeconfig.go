@@ -124,6 +124,13 @@ type WeaviateRuntimeConfig struct {
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
 	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
 
+	// Idle shard collector (licensed); see IdleShardCollector.
+	IdleShardCollectorIdleTTL       *runtime.DynamicValue[time.Duration] `json:"idle_shard_collector_idle_ttl" yaml:"idle_shard_collector_idle_ttl"`
+	IdleShardCollectorCheckInterval *runtime.DynamicValue[time.Duration] `json:"idle_shard_collector_check_interval" yaml:"idle_shard_collector_check_interval"`
+	IdleShardCollectorUnloadRate    *runtime.DynamicValue[int]           `json:"idle_shard_collector_unload_rate" yaml:"idle_shard_collector_unload_rate"`
+	IdleShardCollectorUnloadWorkers *runtime.DynamicValue[int]           `json:"idle_shard_collector_unload_workers" yaml:"idle_shard_collector_unload_workers"`
+	IdleShardCollectorPaused        *runtime.DynamicValue[bool]          `json:"idle_shard_collector_paused" yaml:"idle_shard_collector_paused"`
+
 	// MCP Server settings
 	MCPEnabled            *runtime.DynamicValue[bool] `json:"mcp_server_enabled" yaml:"mcp_server_enabled"`
 	MCPWriteAccessEnabled *runtime.DynamicValue[bool] `json:"mcp_server_write_access_enabled" yaml:"mcp_server_write_access_enabled"`
@@ -489,6 +496,11 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
+	registered.IdleShardCollectorIdleTTL = cfg.IdleShardCollector.IdleTTL
+	registered.IdleShardCollectorCheckInterval = cfg.IdleShardCollector.CheckInterval
+	registered.IdleShardCollectorUnloadRate = cfg.IdleShardCollector.UnloadRate
+	registered.IdleShardCollectorUnloadWorkers = cfg.IdleShardCollector.UnloadWorkers
+	registered.IdleShardCollectorPaused = cfg.IdleShardCollector.Paused
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer
