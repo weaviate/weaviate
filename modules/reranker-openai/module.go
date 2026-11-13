@@ -32,6 +32,7 @@ const (
 	Name = config.ModuleName
 
 	maxConcurrentRequestsEnv = "RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS"
+	maxDocumentsPerQueryEnv  = clients.MaxDocumentsPerQueryEnv
 )
 
 func New() *ReRankerOpenAIModule {
@@ -67,10 +68,15 @@ func (m *ReRankerOpenAIModule) Init(ctx context.Context,
 	if err != nil {
 		return errors.Wrap(err, "init reranker")
 	}
+	maxDocumentsPerQuery, err := maxDocumentsPerQueryFromEnv()
+	if err != nil {
+		return errors.Wrap(err, "init reranker")
+	}
 
 	apiKey := os.Getenv("OPENAI_APIKEY")
 	organization := os.Getenv("OPENAI_ORGANIZATION")
-	client := clients.New(apiKey, organization, params.GetConfig().ModuleHttpClientTimeout, maxConcurrentRequests, params.GetLogger())
+	client := clients.New(apiKey, organization, params.GetConfig().ModuleHttpClientTimeout, maxConcurrentRequests,
+		maxDocumentsPerQuery, params.GetLogger())
 	m.reranker = client
 	m.additionalPropertiesProvider = rerankeradditional.NewPropertyRankerProvider(client)
 	return nil
@@ -85,6 +91,18 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 	if err != nil || n < 1 || n > clients.MaxConcurrentRequestsLimit {
 		return 0, fmt.Errorf("%s must be a whole number between 1 and %d, got %q",
 			maxConcurrentRequestsEnv, clients.MaxConcurrentRequestsLimit, v)
+	}
+	return n, nil
+}
+
+func maxDocumentsPerQueryFromEnv() (int, error) {
+	v := os.Getenv(maxDocumentsPerQueryEnv)
+	if v == "" {
+		return clients.DefaultMaxDocumentsPerQuery, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", maxDocumentsPerQueryEnv, v)
 	}
 	return n, nil
 }
