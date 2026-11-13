@@ -132,19 +132,26 @@ Lo que dice:
 
 Del perfil de 10M, 1 thread, rescoreLimit 200, con el ratio contra el build de HNSW de la tarde: 2.14x a 0.95 y 1.72x a 0.99. El tiempo de una query es 1 184 µs a 0.95 y 4 043 µs a 0.99. Por endpoint, 48 ns son kernel y memoria (el caso de endpoints sueltos) y unos 25 ns de contabilidad.
 
-**La sensibilidad de cada palanca es la fracción del tiempo de posting-edge que toca:** recortar un 10 % de una fase recorta el tiempo de la query en un 10 % de esa fracción. Solo el kernel tiene un recorte medido. En las otras filas el recorte es un supuesto, y su ratio es ilustrativo.
+**La sensibilidad de cada palanca es la fracción del tiempo de posting-edge que toca:** recortar un 10 % de una fase recorta el tiempo de la query en un 10 % de esa fracción. Hay dos palancas con un recorte medido: el kernel y el cap de grado de v1.5, que era la forma de recortar el número de distancias. En las otras filas el recorte es un supuesto, y su ratio es ilustrativo.
+
+**El orden definitivo, por lo medido (2026-11-13):**
+
+1. **El kernel** es la única palanca medida que mueve el ratio: de 2.14x a 1.87x–1.91x a 0.95.
+2. **El número de distancias, por el cap de grado,** no lo mueve a 0.95 y lo empeora a 0.99.
+3. **Centroides y contabilidad** van detrás, ilustrativos, en el orden de los datos: centroides a 0.95, contabilidad a 0.99.
 
 | palanca | qué es | fracción del tiempo de posting-edge, 0.95 / 0.99 | ¿gana también HNSW? | recorte | ratio a 0.95 | ratio a 0.99 |
 |---|---|---|---|---|---|---|
-| número de distancias | menos endpoints y menos scan: el margen de fuente y el cap de grado (v1.5) | 57 % / 74 % | no | **ilustrativo:** 30 % menos distancias | 1.78x | 1.34x |
 | kernel | los cinco planos en una pasada | 37 % / 50 % | sí, un 6 a 9 % | **medido:** el prototipo fusionado con FastScan (estimación de arriba). El kernel del PR está medido en arm64 | 1.87x a 1.91x | 1.37x a 1.41x |
+| número de distancias, por el cap de grado | cada vector se queda con sus 10 u 8 aristas más cercanas (v1.5) | 57 % / 74 % | no | **medido:** a igual recall no recorta distancias, las sube: un 3 a 4 % a 0.95 y un 46 a 54 % a 0.99 | 2.15x a 2.17x | 2.39x a 2.49x, peor |
 | centroides | la búsqueda en el grafo de 42 373 centroides, con ef fijo de 64 | 19 % / 6 % | no | **ilustrativo:** la mitad | 1.93x | 1.67x |
 | contabilidad por endpoint | visited set, aristas, posting de destino: unos 25 ns por endpoint | 15 % / 21 % | no | **ilustrativo:** la mitad | 1.98x | 1.54x |
 
+- **El ratio del cap** es el de arriba (2.14x y 1.72x) por el cambio que midió v1.5 contra su ancla en la misma sesión, con 1 thread: −0.7 y −1.6 % a 0.95, −28 y −31 % a 0.99.
 - **Las fracciones no se suman.** Las distancias son endpoints y scan, 670 µs y 3 010 µs. El kernel es la parte de distancia de esos dos, según los microbenchmarks, unos 440 µs y 2 020 µs. La contabilidad es la parte de los endpoints que no es distancia, 172 µs y 846 µs. Los centroides, 229 µs y 247 µs, van aparte.
 - **Por cada 10 % que se recorte de cada fase,** el ratio a 0.95 baja a 2.02x con las distancias, a 2.10x con los centroides y a 2.11x con la contabilidad. A 0.99 baja a 1.59x, 1.71x y 1.68x.
-- **El orden de la tabla es el de los datos a 0.95.** A 0.99 la contabilidad pasa por delante de los centroides, que allí son solo un 6 % del tiempo.
-- **El orden definitivo se fija con lo medido.** El kernel ya lo está. El número de distancias se mide con el cap de grado de esta noche (v1.5). Centroides y contabilidad siguen siendo ilustrativos hasta que haya un prototipo de cada uno.
+- **El número de distancias sigue siendo la fase con más sensibilidad.** Lo que dice v1.5 es que quitar aristas por cercanía no la recorta: las aristas que quita llevan recall, y a igual recall el trabajo vuelve como cargas y scan. Elegir las aristas de otra forma, por ejemplo por diversidad, no está medido.
+- **Centroides y contabilidad siguen siendo ilustrativos** hasta que haya un prototipo de cada uno.
 - **Las palancas se suman, y no del todo:** con un kernel más rápido, cada distancia que se ahorra vale menos.
 
 ### x86
@@ -183,9 +190,71 @@ go test -tags postingedgebench -run 'TestSearchWork$' -timeout 0 -v ./adapters/r
   -work.out $K/wikidpr-1m-hnsw-work.json
 ```
 
-## v1.5: cap de grado de aristas a 10M (pre-registro, 2026-11-12)
+## v1.5: cap de grado de aristas a 10M (2026-11-12 y 13)
 
-**Estado: pre-registrado; se mide la noche del 12 al 13.** Esta sección se escribió antes de ningún dato.
+**Veredicto: el cap no gana.**
+
+- **A recall 0.95 empata con el ancla:** de −0.7 a −1.6 % con 1 y con 8 threads, con cap 10 y con cap 8. El pre-registro pedía +10 %.
+- **A 0.99 pierde entre un 28 y un 32 %.** Sigue llegando subiendo solo ef con rescoreLimit 200, pero a ef 320 (cap 10) y 640 (cap 8), donde sin cap basta 160.
+- **No salta el stop:** el recall de arista de los dos caps contra sus k aristas verdaderas más cercanas, 0.9552 y 0.9572, queda por encima del de las aristas completas (0.9470).
+- **No hay deriva:** las dos anclas difieren un −0.6 % de mediana (−0.1 % con 1 thread, −1.7 % con 8).
+- **Consecuencias:** el cap no pasa a ser parámetro del constructor, y su medida a 1M no entra en la siguiente cola. `capDegree` y `replaceEdges` salen del código del índice y quedan junto a los tests (`degree_cap_test.go`), que es lo único que las usa.
+
+### Por qué no gana: las aristas que quita llevan recall
+
+A igual ef el cap hace menos trabajo y da menos recall. A igual recall, el trabajo vuelve por otro lado.
+
+- **A igual ef,** el cap 8 puntúa un 28 a 32 % menos endpoints y va un 13 a 35 % más rápido, pero pierde de 0.002 a 0.015 de recall, más cuanto menor es el ef.
+- **A 0.95 lo recupera subiendo ef,** de 19 a 24 (cap 10) y a 28 (cap 8). Eso son más cargas (12.6 a 14.6 y 16.0) y más scan (3 303 a 3 813 y 4 151 vectores). Los endpoints casi no bajan (6 871 a 6 671 y 6 412), y las distancias totales suben un 3 y un 4 %. El tiempo por query queda igual: 1 168, 1 171 y 1 163 µs.
+- **A 0.99 no hay forma barata.** El ef pasa de 146 a 290 y 359, las cargas casi se duplican y las distancias suben un 46 y un 54 %.
+- **Contra todas las aristas verdaderas, el recall de arista cae a 0.76 y 0.64.** Las aristas que quita son las más lejanas de cada fila, pero siguen siendo vecinos reales, de entre los 16 más cercanos, en otros postings. A 0.99 hacen falta.
+
+**Lo que sí da el cap es memoria:** 99 MB menos de aristas con cap 10 y 157 MB con cap 8, un 6 y un 9 % del heap del índice (1 712 MB). No era criterio del pre-registro, y a 0.99 cuesta un 30 % de QPS. Usarlo como opt-in de memoria pediría su propio pre-registro.
+
+### Resultados
+
+La cadena arrancó a las 23:00 bajo `caffeinate -s -i`, con la máquina despierta del todo y 55 minutos sin teclado ni trackpad. `pmset -g log` no da reposo, DarkWake ni actividad de usuario desde las 22:20 hasta el final del paso, a las 00:32. El build repite el de v1.4, porque el constructor es determinista, y el ancla repite su perfil de entonces a 0.95, con 6 871 endpoints, 3 303 escaneados y 1 168 µs, frente a 6 878, 3 306 y 1 184.
+
+Aristas de cada celda:
+
+| celda | aristas por vector | vectores recortados | aristas quitadas | recall de arista contra las k más cercanas | contra todas | aristas, MB | heap del índice, MB |
+|---|---|---|---|---|---|---|---|
+| sin cap (ancla) | 11.41 | 0 % | 0 % | 0.9470 | 0.9470 | 473.4 | 1 712.4 |
+| cap 10 | 8.80 | 66.6 % | 22.8 % | 0.9552 | 0.7646 | 374.0 | 1 613.0 |
+| cap 8 | 7.30 | 77.6 % | 36.0 % | 0.9572 | 0.6371 | 316.7 | 1 555.7 |
+| sin cap (ancla del final) | 11.41 | 0 % | 0 % | 0.9470 | 0.9470 | 473.4 | 1 712.4 |
+
+QPS a igual recall, rescoreLimit 200, margen 0.06, lotes de 4. Primera ronda y, entre paréntesis, la segunda (`-bench.repeat`). "Contra el ancla" es contra la del principio, como pide el pre-registro.
+
+| threads | celda | QPS@0.90 | QPS@0.95 | contra el ancla | QPS@0.99 | contra el ancla | primer ef con 0.99 |
+|---|---|---|---|---|---|---|---|
+| 1 | sin cap (ancla) | 1126 (1142) | 895 (906) | — | 265 (269) | — | 160 |
+| 1 | cap 10 | 1227 (1226) | 889 (888) | −0.7 % (−0.8 %) | 191 (192) | −27.7 % (−27.6 %) | 320 |
+| 1 | cap 8 | 1268 (1273) | 881 (882) | −1.6 % (−1.5 %) | 183 (183) | −30.8 % (−30.7 %) | 640 |
+| 1 | sin cap (ancla del final) | 1116 (1121) | 901 (891) | +0.7 % (−0.4 %) | 266 (260) | +0.5 % (−1.7 %) | 160 |
+| 8 | sin cap (ancla) | 7763 (7728) | 6239 (6222) | — | 1905 (1893) | — | 160 |
+| 8 | cap 10 | 8292 (8324) | 6142 (6166) | −1.6 % (−1.2 %) | 1360 (1358) | −28.6 % (−28.7 %) | 320 |
+| 8 | cap 8 | 8663 (8684) | 6167 (6106) | −1.2 % (−2.1 %) | 1292 (1286) | −32.2 % (−32.5 %) | 640 |
+| 8 | sin cap (ancla del final) | 7572 (7617) | 6201 (6117) | −0.6 % (−2.0 %) | 1870 (1885) | −1.8 % (−1.0 %) | 160 |
+
+A 0.90 el cap sí va por delante, un 7 a 13 %: allí manda el punto más barato de la curva (ef=10), que con cap hace menos trabajo y aún pasa de 0.90. No es un nivel del pre-registro ni un punto de operación.
+
+Trabajo por query a igual recall, 1 thread, del pase instrumentado:
+
+| recall | celda | ef | cargas | rondas | endpoints | escaneados | distancias | endpoints, µs | scan, µs | centroides, µs | total, µs |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.95 | sin cap | 19 | 12.6 | 2.9 | 6 871 | 3 303 | 10 176 | 496 | 167 | 225 | 1 168 |
+| 0.95 | cap 10 | 24 | 14.6 | 3.4 | 6 671 | 3 813 | 10 486 | 480 | 187 | 218 | 1 171 |
+| 0.95 | cap 8 | 28 | 16.0 | 3.7 | 6 412 | 4 151 | 10 568 | 459 | 201 | 214 | 1 163 |
+| 0.99 | sin cap | 146 | 51.3 | 12.6 | 33 017 | 13 077 | 46 095 | 2 389 | 571 | 241 | 3 972 |
+| 0.99 | cap 10 | 290 | 86.9 | 21.5 | 45 153 | 22 023 | 67 176 | 3 279 | 941 | 238 | 5 569 |
+| 0.99 | cap 8 | 359 | 100.9 | 25.0 | 45 629 | 25 518 | 71 148 | 3 339 | 1 092 | 241 | 5 883 |
+
+Las dos rondas de cada celda coinciden con medianas de −0.1 a +0.6 %, y punto a punto dentro de un ±3.3 %. Las tablas completas, con la comparación a igual ef, están en `testdata/bench/v1.5/cap-verdict.md`.
+
+### Pre-registro
+
+Escrito el 12, antes de ningún dato. Sin cambios.
 
 **Hipótesis.** El P=320 con R=256 que hizo falta a 10M para encontrar los vecinos también subió el grado: 11.4 aristas por vector frente a 9.7 a 1M. Eso explicaría la mitad del crecimiento del gap contra HNSW de 1M a 10M. El P alto hacía falta para encontrar los vecinos, no para guardarlos todos.
 
@@ -219,6 +288,29 @@ La pregunta sigue siendo la misma: si guardar menos aristas por vector, las más
 **Si gana:** el cap pasa a ser parámetro del constructor, como grado máximo independiente de P. Sobre 1M: allí el grado medio es 9.7, así que el cap de 10 recorta los vectores de más de 10 aristas y el de 8, la mayoría. Que sea neutro a 1M no está garantizado por construcción, así que su medida a 1M entra en la siguiente cola.
 
 **Protocolo.** La cadena (`run_v15_night.sh`) corre bajo `caffeinate -s -i`, lanzada de día con la máquina despierta del todo. No arranca antes de las 23:00, ni hasta 15 minutos sin teclado ni trackpad, ni después de las 03:00. Al arrancar comprueba en `pmset -g systemstate` que la máquina está despierta del todo, y al acabar cada paso deja en su salida los reposos, despertares y actividad de teclado de la ventana. Detrás va el último intento de la curva de 8 threads del control de dbpedia (ver Fase C, "Ruido").
+
+### Datos y reproducción
+
+En `testdata/bench/v1.5/`:
+
+- `wikidpr-10m-degree.json`: el build, con su memoria y sus diagnósticos.
+- `wikidpr-10m-degree-cap{0,10,8,0-2}.json`: las cuatro celdas, en el orden en que corrieron, y su segunda ronda en `-repeat.json`.
+- `cap-verdict.md`: las tablas de arriba y la comparación a igual ef, de `scripts/cap_verdict.py`.
+- `scripts/run_v15_night.sh`: la cadena de la noche, con sus comprobaciones de energía.
+- `scripts/cmp_sessions.py`: la comparación punto a punto de dos corridas, la del control de dbpedia.
+
+```bash
+go test -c -o postingedge.test ./adapters/repos/db/vector/postingedge/
+./postingedge.test -test.run 'TestBenchmark$' -test.timeout 0 -test.v \
+  -bench.dataset $D10M -bench.arm postingedge -bench.queries 1000 -bench.runs 3 -bench.repeat \
+  -bench.posting 236 -bench.probe 320 -bench.cacheprobe 384 -bench.codebits 0 -bench.rescue 256 \
+  -bench.minedgerecall 0.94 -bench.workthreads 8 -bench.ceiling 0.99 \
+  -bench.streamtrain -bench.buildcache $CACHE \
+  -bench.degreecaps 0,10,8,0 -bench.capmaxdrop 0.01 \
+  -bench.sweep "ef=10,20,40,80,160,320,640,1024 threads=1,8 rescore=200 batch=4 margin=0.06" \
+  -bench.out $B/v1.5/wikidpr-10m-degree.json
+python3 $B/v1.5/scripts/cap_verdict.py $B/v1.5 > $B/v1.5/cap-verdict.md
+```
 
 ## v1.4: 10M en wiki-dpr e5 (768d) (2026-11-11 y 12)
 
@@ -318,7 +410,7 @@ Dónde se va el tiempo de posting-edge, pase instrumentado con 1 thread y rescor
 - **El techo es el de los 16 vecinos que considera el constructor:** de 10M en adelante el grado puede subir todavía de 11.4 a 16, un 40 % más.
 - **Para 100M, un cap de grado o un S mayor dejan de ser opcionales.** Un S mayor sube la fracción de vecinos en el propio posting, a cambio del scan que midió la Fase C.
 
-El cap de grado se mide a 10M en v1.5. Si gana, su medida a 1M entra en la siguiente cola.
+**El cap de grado, medido a 10M en v1.5, no gana.** Quedarse con las aristas más cercanas empata a 0.95 y pierde un 28 a 32 % a 0.99, porque las que quita llevan recall. De las dos salidas queda un S mayor. Una tercera sería otra forma de elegir las aristas que no sea por cercanía. Ninguna de las dos está medida a esta escala. La medida del cap a 1M no entra en la siguiente cola.
 
 #### Memoria
 
