@@ -468,7 +468,8 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 		timeout = 0
 	}
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(timeout, req, body, resp.decode, successCode, MAX_RETRIES)
+	// Retried once only: the caller moves on to the shard's other replicas.
+	err = c.doWithCustomMarshaller(timeout, req, body, resp.decode, successCode, 1)
 	if err != nil {
 		// Rehydrate the shed's identity (429) past retry exhaustion, as in
 		// SearchShard, so it reaches the ingress mapping.

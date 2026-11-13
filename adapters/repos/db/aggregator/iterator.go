@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -100,7 +101,7 @@ func (c RoaringCursor) Close() {
 	c.cursor.Close()
 }
 
-func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func() Cursor, aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
+func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func(ctx context.Context) Cursor, aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
 	// we're looking at the whole object, so this is neither a Set, nor a Map, but
 	// a Replace strategy
 
@@ -108,7 +109,7 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 	seeds := b.QuantileKeys(seedCount)
 	// in case all keys are in memory
 	if len(seeds) == 0 {
-		c := newCursor()
+		c := newCursor(ctx)
 		defer c.Close()
 		count := 0
 		for k, v, vv, bi := c.First(); k != nil; k, v, vv, bi = c.Next() {
@@ -124,6 +125,15 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		return nil
 	}
 	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	// the ranges can outnumber the workers an admitted query may run
+	ranges := len(seeds) + 1
+	workers := min(concurrency.BudgetFromCtx(ctx, ranges), ranges)
+	eg.SetLimit(workers)
+	// a cursor that merges in parallel gets only its range's share of the grant
+	cursorCtx := newContext
+	if budget := concurrency.BudgetFromCtx(ctx, 0); budget > 0 {
+		cursorCtx = concurrency.CtxWithBudget(newContext, max(1, budget/workers))
+	}
 
 	// There are three scenarios:
 	// 1. Read from beginning to first checkpoint
@@ -132,7 +142,7 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 
 	// S1: Read from beginning to first checkpoint:
 	eg.Go(func() error {
-		c := newCursor()
+		c := newCursor(cursorCtx)
 		defer c.Close()
 
 		count := 0
@@ -155,7 +165,7 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		end := seeds[i+1]
 
 		eg.Go(func() error {
-			c := newCursor()
+			c := newCursor(cursorCtx)
 			defer c.Close()
 
 			count := 0
@@ -175,7 +185,7 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 
 	// S3: Read from last checkpoint to end:
 	eg.Go(func() error {
-		c := newCursor()
+		c := newCursor(cursorCtx)
 		defer c.Close()
 
 		count := 0
