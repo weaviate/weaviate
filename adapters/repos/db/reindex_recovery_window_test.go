@@ -39,11 +39,6 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 		because    string
 	}{
 		{
-			name:    "iterating",
-			rec:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
-			because: "the scheduler restarts the unit and arms the mirror itself",
-		},
-		{
 			name:   "iterated",
 			rec:    func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
 			wantIn: true,
@@ -135,13 +130,6 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 		{
 			name:          "the load reconciler discarded the record",
 			noStagedDir:   true,
-			wantUntouched: true,
-		},
-		{
-			name: "iterating",
-			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordIterating(s, MigrationCheckpoint{})
-			},
 			wantUntouched: true,
 		},
 		{

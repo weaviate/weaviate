@@ -211,61 +211,28 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 	}
 }
 
-// Discard runs before the reverse edge: restarting when directories are
-// gone would arm a live mirror nothing will ever recreate them for.
 func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord,
 	someUnreadable bool,
 ) error {
-	subject := rec.Subject()
-
 	if someUnreadable {
-		_, err := r.restartIfRebuiltDataGone(subject)
-		return err
+		return nil
 	}
 
+	subject := rec.Subject()
 	verdict, why := r.localVerdict(subject)
 	switch verdict {
 	case migrationVerdictDiscard:
 		return r.discard(ctx, subject, why)
 	case migrationVerdictCommit:
-		// Above the restart edge, not below it: a migration the cluster
-		// committed can never be finished here, so restarting its rebuild
-		// would restart it on every load and the record would never terminate.
+		// Wedged so the arm skips it: restarting this committed migration would leave its record never terminating.
 		r.wedgeUncommittable(ctx, rec, why)
 		return nil
 	case migrationVerdictLeave:
+		r.leftStanding(subject, why)
+		return nil
 	default:
 		return fmt.Errorf("unhandled verdict %d", verdict)
 	}
-
-	restarted, err := r.restartIfRebuiltDataGone(subject)
-	if err != nil || restarted {
-		return err
-	}
-	r.leftStanding(subject, why)
-	return nil
-}
-
-// A missing owned directory means the rebuild never reached disk, so
-// resuming would swap in an incomplete bucket.
-func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
-	for _, dir := range migrationOwnedDirs(subject) {
-		there, err := r.dirs.Exists(dir)
-		if err != nil {
-			return false, err
-		}
-		if there {
-			continue
-		}
-
-		restarted := subject
-		restarted.IterationCutoff = migrationHorizonEverything
-
-		r.logger.WithField("record", subject.Key.String()).Warnf(
-			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
-		return true, r.store.Put(NewMigrationRecordIterating(restarted, MigrationCheckpoint{}))
-	}
-	return false, nil
 }
 
 func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec MigrationRecordMerged,

@@ -110,8 +110,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 	}
 }
 
-// Nothing else arms the mirror for a migration awaiting its flip, so the stamp
-// is the only thing carrying that across the restart to the promotion.
+// The stamp carries a failed arm across the restart, so the flip refuses the stale staged data.
 func TestRecoveryStampsAMigrationItCouldNotArm(t *testing.T) {
 	// The writer accepts this record; recovery cannot build a task from it.
 	noTokenization := func(s MigrationSubject) MigrationSubject {
@@ -153,8 +152,11 @@ func TestRecoveryStampsAMigrationItCouldNotArm(t *testing.T) {
 			},
 		},
 		{
-			name: "iterating: the scheduler restarts the unit and arms the mirror itself",
-			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
+			name: "iterating, record builds no task, so no mirror",
+			rec: func(s MigrationSubject) MigrationRecord {
+				return NewMigrationRecordIterating(noTokenization(s), MigrationCheckpoint{})
+			},
+			wantUnmirrored: true,
 		},
 	}
 

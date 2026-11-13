@@ -155,7 +155,7 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 	unbuildable := errorcompounder.New()
 	unbuildableCount := 0
 	for _, rec := range records {
-		if !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
+		if rec.State() == MigrationStatePromoted {
 			continue
 		}
 		subject := rec.Subject()
@@ -183,7 +183,7 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 	stamped, stampErr := stampUnmirroredRecords(store, unstamped, armable)
 	if len(stamped) > 0 {
 		r.unarmedFaults.WithSampling(func(logrus.FieldLogger) {
-			logger.Errorf("reindex recovery: %d migration(s) awaiting their flip could not be armed with a double-write "+
+			logger.Errorf("reindex recovery: %d unfinished migration(s) could not be armed with a double-write "+
 				"mirror, so writes this shard takes now reach the pre-migration bucket only. "+
 				"Their staged data is stale and will not be promoted over it. %s",
 				len(stamped), migrationUnmirroredRemedy)

@@ -19,7 +19,7 @@ godoc wins — and that's a bug in this doc.
 > **How migration state is stored, as of this build.** One JSON record per
 > (shard, migration) at `<shard>/lsm/.migrations/records/` holds it, in five
 > states — Iterating, Iterated, Merged, Swapped, Promoted — and
-> reconciliation at shard load makes every load-time decision. The record
+> reconciliation at shard load makes every load-time decision but the restart. The record
 > names each directory the migration touches, so the swap removes the
 > directory it displaces at the recorded handle rather than renaming it to a
 > derived backup name. `inverted_reindex_record.go` and
@@ -1000,12 +1000,10 @@ Then, per shard load:
    cannot be read is reported by the load reconciler, and nothing is
    recovered.
 3. `RecoverMigrations` reads those records. Raft may not be open yet, so
-   the record is its only source. For each record whose iteration
-   finished and whose flip is not promoted, it rebuilds a per-shard
-   `ShardReindexTaskGeneric`: the generation is the record's task
-   version, and a change-tokenization half is chosen by the record's
-   strategy code. The narrow window — "iterated but not yet promoted" —
-   is exactly the recovery gap the design exists to close. A record it
+   the record is its only source. For each record not yet promoted, it
+   rebuilds a per-shard `ShardReindexTaskGeneric`: the generation is the
+   record's task version, and a change-tokenization half is chosen by
+   the record's strategy code. A record it
    cannot build a task from is stamped `Unmirrored`, unless another record
    on the shard is unreadable, which freezes the store and the load
    reconciler instead. New tasks seed the
@@ -1051,7 +1049,8 @@ Then, per shard load:
        prepare on a task that is still active, or when the node cannot
        read its task list yet (eager loads at boot; setting the shard
        READY later retries the arm with the list readable).
-     - The held migration's own prepare and swap, and another migration's
+     - The held migration's own iteration unit (while it is still
+       iterating), prepare and swap, and another migration's
        unit, prepare or swap on the shard, wait and run again on a later tick
        (a waiting swap holds its task in `SWAPPING`, §6.3). If the shard also holds an
        unreadable record, a unit fails its migration, as on any shard; a
@@ -1101,6 +1100,7 @@ Then, per shard load:
        | What stopped the arm | Way out |
        |---|---|
        | The disk fails reads or writes | Once it works, set the shard READY |
+       | A migration's directory was lost and its restart could not be recorded | Clear the cause (make the records dir writable, or repair the unreadable record and restart), then set the shard READY |
        | A staged bucket cannot open because a segment file is damaged | Repair that file in place, then set the shard READY or restart the node. Never put back an older copy: compaction reuses segment file names, so an older copy silently lacks entries a later compaction merged in. If the migration's swap is not committed, and no migration with a committed swap or already swapped in is held on the same shard, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted. The refused lift says when a swap is committed ("has a committed swap"); then see the next row |
        | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. This node's swap waits, so the task stays `SWAPPING` (§6.3), as does every other migration that owes a swap on this shard; cancel any other migration on the collection that is still `STARTED` or `PREPARING`. Once the segment is repaired and the shard set READY, the node makes the swap on its own and the run finishes. Once the task has ended, in the order we recommend: **1. Restore from a backup.** This replaces the whole collection: every write since the backup is lost, on every tenant. **2. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when a backup cannot recover the data, and make the records dir writable first, or the delete leaves the record behind. |
        | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit or prepare waits on this shard; a SWAPPING task that owes a swap on this shard waits (§6.3), and a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED or PREPARING), and this shard stays READONLY. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
@@ -1809,7 +1809,7 @@ collection, or run its swap and schema flip again. Before rolling back:
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
 - [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
-- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition.
+- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition but the restart.
 
 **LSM primitives**
 

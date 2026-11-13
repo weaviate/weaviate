@@ -349,9 +349,7 @@ func TestAShardLoadLeavesAnUndecidedRecordExactlyAsItFoundIt(t *testing.T) {
 }
 
 // The counters answer two different operator questions, and the call site is
-// the only place that decides which count goes where. Both move on every
-// faulted load, so a swap of the two arguments shows up nowhere unless a test
-// drives a real load and gives the two counts different values.
+// the only place that decides which count goes where.
 func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing.T) {
 	ctx := testCtx()
 	className := "WiringRecordCounters_" + uuid.NewString()[:8]
@@ -362,17 +360,8 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	// One record the load cannot place: its rebuilt data is gone, so the pass
-	// tries to restart it, and the freeze the unreadable files raise refuses
-	// that write.
-	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-	subject.Key.UnitID = shard.migrationUnit()
-	require.NoError(t, shard.migrationRecords.Put(
-		NewMigrationRecordIterating(subject, MigrationCheckpoint{})))
-
-	// Two files, not one: equal counts would survive the swap this test exists
-	// to catch.
 	records := shard.migrationRecords.Dir()
+	require.NoError(t, os.MkdirAll(records, 0o755))
 	for _, version := range []uint64{7, 8} {
 		key := testMigrationSubject(version, StrategyCodeSearchableRetokenize, "title").Key
 		key.UnitID = shard.migrationUnit()
@@ -388,10 +377,10 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 
 	shard.reconcileMigrationRecords(ctx, class)
 
-	require.Equal(t, float64(1), testutil.ToFloat64(m.MigrationRecordsWedged)-wedgedBefore,
-		"the one record this load left standing belongs in the wedged counter")
 	require.Equal(t, float64(2), testutil.ToFloat64(m.MigrationRecordsNotUnderstood)-notUnderstoodBefore,
-		"and the two files it could not read belong in the other")
+		"the two files this load could not read belong in the not-understood counter")
+	require.Equal(t, float64(0), testutil.ToFloat64(m.MigrationRecordsWedged)-wedgedBefore,
+		"and none of them in the wedged counter")
 }
 
 // Pins the unit ID format independently of migrationUnit(): the store sets
