@@ -880,9 +880,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
-			// A collection without multi-tenancy migrates as one unnamed group, not a tenant.
-			if _, ungrouped := migrated[""]; !ungrouped {
-				idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+			if migratedTenants, totalTenants, ok := db.ReindexTenantCounts(migrated, covered); ok {
+				idx.MigratedTenants, idx.TotalTenants = int64(migratedTenants), int64(totalTenants)
 			}
 		}
 		idx.Progress = aggregateProgress(best)

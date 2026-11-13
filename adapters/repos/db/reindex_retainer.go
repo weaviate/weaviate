@@ -128,14 +128,23 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	return migrated, paid, covered
 }
 
-func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string, tenantCounts bool) string {
+// ReindexTenantCounts is false without multi-tenancy: that collection migrates as one unnamed group, not a tenant.
+func ReindexTenantCounts(migrated, covered map[string]struct{}) (migratedTenants, totalTenants int, ok bool) {
 	if _, ungrouped := migrated[""]; ungrouped {
+		return 0, 0, false
+	}
+	return len(migrated), len(covered), true
+}
+
+func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string, tenantCounts bool) string {
+	migratedTenants, totalTenants, ok := ReindexTenantCounts(migrated, covered)
+	if !ok {
 		return fmt.Sprintf("property %q of the collection is migrated", property)
 	}
 	if !tenantCounts {
 		return fmt.Sprintf("some tenants of property %q are migrated", property)
 	}
-	return fmt.Sprintf("%d of %d tenants of property %q are migrated", len(migrated), len(covered), property)
+	return fmt.Sprintf("%d of %d tenants of property %q are migrated", migratedTenants, totalTenants, property)
 }
 
 func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {

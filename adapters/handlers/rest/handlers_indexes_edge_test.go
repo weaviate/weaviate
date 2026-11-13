@@ -316,7 +316,8 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.9},
 		},
 	)
-	changeTokTask.Version = 2
+	// Skewed clocks can give the newer Version the earlier StartedAt.
+	changeTokTask.Version, changeTokTask.StartedAt = 2, enableTask.StartedAt.Add(-time.Hour)
 
 	for _, order := range []struct {
 		name  string

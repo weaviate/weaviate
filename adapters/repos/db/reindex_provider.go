@@ -2127,13 +2127,15 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	}
 	for _, propName := range payload.Properties {
 		if migrated, _, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
-			logger.WithFields(map[string]any{
+			fields := map[string]any{
 				"property":         propName,
 				"migration_type":   payload.MigrationType,
-				"migrated_tenants": len(migrated),
-				"total_tenants":    len(covered),
 				"resubmit_command": ReindexResubmitCommand(payload, propName),
-			}).Warnf("reindex provider: %s on %s.%s %s; %s; "+
+			}
+			if migratedTenants, totalTenants, ok := ReindexTenantCounts(migrated, covered); ok {
+				fields["migrated_tenants"], fields["total_tenants"] = migratedTenants, totalTenants
+			}
+			logger.WithFields(fields).Warnf("reindex provider: %s on %s.%s %s; %s; "+
 				"resubmit the same request to finish the migration", payload.MigrationType, payload.Collection,
 				propName, outcome, ReindexMigratedPhrase(migrated, covered, propName, true))
 			continue
