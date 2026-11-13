@@ -100,6 +100,10 @@ type ShardReindexTaskGeneric struct {
 	// failure-injecting wrapper. Always set - no test-only branch runs in
 	// production.
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
+
+	// keyDocColumnDrops holds the properties runtimeSwap left without a key/doc
+	// column, which the caller gathers from every task into one warning.
+	keyDocColumnDrops *keyDocColumnDrops
 }
 
 type indexClosingGuard func(shard ShardLike) error
@@ -126,6 +130,7 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		objectsIteratorAsync: objectsIteratorAsync,
 		config:               config,
 		closingGuard:         closingGuard,
+		keyDocColumnDrops:    &keyDocColumnDrops{},
 	}
 	t.processOneSwapPropFn = t.processOneSwapProp
 	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
@@ -1173,6 +1178,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
+	t.recordKeyDocColumnDrops(shard, oldMainBuckets)
 
 	concrete, err := unwrapShard(ctx, shard)
 	if err == nil {

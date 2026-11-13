@@ -114,6 +114,7 @@ type Metrics struct {
 	objectCount                  prometheus.Gauge
 	memtableDurations            prometheus.ObserverVec
 	memtableSize                 *prometheus.GaugeVec
+	keyDocColumnSize             prometheus.Gauge
 	IOWrite                      *prometheus.SummaryVec
 	IORead                       *monitoring.StripedSummaryVec
 	LazySegmentUnLoad            prometheus.Gauge
@@ -725,6 +726,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
+		keyDocColumnSize:  promMetrics.LSMKeyDocColumnSize,
 		IOWrite:           promMetrics.FileIOWrites,
 		IORead:            promMetrics.FileIOReads,
 		LazySegmentLoad:   lazySegmentLoad,
@@ -1061,6 +1063,15 @@ func (m *Metrics) ReadObserver(op string) BytesReadObserver {
 	summary := m.IORead.WithLabelValue(op)
 
 	return func(n int64, nanoseconds int64) { summary.Observe(uint64(n)) }
+}
+
+// AddKeyDocColumnSize moves lsm_key_doc_column_size by a bucket's signed change
+// in bytes. It has no bucket label, since one would add a series per shard.
+func (m *Metrics) AddKeyDocColumnSize(delta int64) {
+	if m == nil {
+		return
+	}
+	m.keyDocColumnSize.Add(float64(delta))
 }
 
 func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {

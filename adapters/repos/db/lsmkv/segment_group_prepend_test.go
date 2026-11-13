@@ -1059,3 +1059,96 @@ func TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow(t *test
 	require.Equal(t, uint64(3), count, "denominator must be the 3 survivors, not an underflowed uint64")
 	require.InDelta(t, 20.0, avg, 1e-9)
 }
+
+// createTestBucketRoaringSetWithKeyDocColumn is createTestBucketRoaringSet with a key/doc column.
+func createTestBucketRoaringSetWithKeyDocColumn(t *testing.T, ctx context.Context,
+	dir string, docIDCount uint64,
+) *Bucket {
+	t.Helper()
+	return createTestBucketWithOptions(t, ctx, dir,
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeyDocColumn(dir, func() uint64 { return docIDCount }),
+	)
+}
+
+// TestSegmentGroup_PrependSegments_KeyDocColumnDetached pins a prepend detaching the column, which never read the spliced segments.
+func TestSegmentGroup_PrependSegments_KeyDocColumnDetached(t *testing.T) {
+	ctx := context.Background()
+
+	// the segments to splice in, holding a document the target never saw
+	srcDir := t.TempDir()
+	src := createTestBucketRoaringSet(t, ctx, srcDir)
+	require.NoError(t, src.RoaringSetAddOne([]byte("prepended"), 1))
+	require.NoError(t, src.FlushAndSwitch())
+	require.NoError(t, src.Shutdown(ctx))
+
+	tgtDir := t.TempDir()
+	tgt := createTestBucketRoaringSetWithKeyDocColumn(t, ctx, tgtDir, 100)
+	defer tgt.Shutdown(ctx)
+
+	require.NoError(t, tgt.RoaringSetAddOne([]byte("present"), 2))
+	require.NoError(t, tgt.FlushAndSwitch())
+	require.NotNil(t, tgt.KeyDocColumn(), "the flush is absorbed, so a column is attached")
+
+	require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+
+	assert.Nil(t, tgt.KeyDocColumn(),
+		"a column built before the splice cannot answer for what was spliced in")
+
+	// the documents are all there to be read; only the shortcut to them is gone
+	for _, tc := range []struct {
+		key   string
+		docID uint64
+	}{{"prepended", 1}, {"present", 2}} {
+		bm, release, err := tgt.RoaringSetGet(ctx, []byte(tc.key))
+		require.NoError(t, err, tc.key)
+		assert.True(t, bm.Contains(tc.docID), "%s must still resolve to its document", tc.key)
+		release()
+	}
+}
+
+// TestSegmentGroup_PrependSegments_KeepsColumnWhenNothingIsSpliced pins a prepend that splices nothing keeping the column.
+func TestSegmentGroup_PrependSegments_KeepsColumnWhenNothingIsSpliced(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tt := range []struct {
+		name    string
+		srcDir  func(t *testing.T) string
+		wantErr bool
+	}{
+		{
+			name:    "the source cannot be read",
+			srcDir:  func(t *testing.T) string { return filepath.Join(t.TempDir(), "does-not-exist") },
+			wantErr: true,
+		},
+		{
+			name:   "the source holds no segments",
+			srcDir: func(t *testing.T) string { return t.TempDir() },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tgt := createTestBucketRoaringSetWithKeyDocColumn(t, ctx, t.TempDir(), 100)
+			defer tgt.Shutdown(ctx)
+
+			require.NoError(t, tgt.RoaringSetAddOne([]byte("present"), 2))
+			require.NoError(t, tgt.FlushAndSwitch())
+			require.NotNil(t, tgt.KeyDocColumn())
+
+			err := tgt.PrependSegmentsFromBucket(ctx, tt.srcDir(t))
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.NotNil(t, tgt.KeyDocColumn(),
+				"nothing was spliced in, so the column still answers for every segment")
+
+			bm, release, err := tgt.RoaringSetGet(ctx, []byte("present"))
+			require.NoError(t, err)
+			defer release()
+			assert.True(t, bm.Contains(2))
+		})
+	}
+}

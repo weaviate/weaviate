@@ -53,19 +53,25 @@ type ShardInvertedReindexer struct {
 
 	tasks []ShardInvertedReindexTask
 	class *models.Class
+	// columnDrops gathers the key/doc columns a bucket swap drops, for the
+	// caller to report once over every shard it reindexes.
+	columnDrops *keyDocColumnDrops
 }
 
-func NewShardInvertedReindexer(shard ShardLike, logger logrus.FieldLogger) *ShardInvertedReindexer {
+func NewShardInvertedReindexer(shard ShardLike, logger logrus.FieldLogger,
+	columnDrops *keyDocColumnDrops,
+) *ShardInvertedReindexer {
 	class := shard.Index().getSchema.ReadOnlyClass(shard.Index().Config.ClassName.String())
 	if class == nil {
 		return nil
 	}
 
 	return &ShardInvertedReindexer{
-		logger: logger,
-		shard:  shard,
-		tasks:  []ShardInvertedReindexTask{},
-		class:  class,
+		logger:      logger,
+		shard:       shard,
+		tasks:       []ShardInvertedReindexTask{},
+		class:       class,
+		columnDrops: columnDrops,
 	}
 }
 
@@ -175,10 +181,16 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 				WithField("temp_bucket", tempBucketName).
 				Debug("renamed bucket")
 		} else {
+			var dropped []string
+			if reindexProperties[i].IndexType == IndexTypePropValue {
+				dropped = propsWithKeyDocColumn(r.shard.Store(),
+					[]string{reindexProperties[i].PropertyName})
+			}
 			if err := r.shard.Store().ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
 				r.logError(err, "failed replacing buckets")
 				return err
 			}
+			r.columnDrops.record(r.shard.Index().Config.ClassName.String(), r.shard.Name(), dropped)
 
 			r.logger.
 				WithField("action", "inverted_reindex").

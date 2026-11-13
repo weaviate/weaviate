@@ -475,9 +475,17 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
+		valueBucketOpts := makeBucketOptions(lsmkv.StrategyRoaringSet)
+		// A column is requested only where the query path reads one, since a declined
+		// column holds memory nobody uses. reportKeyDocColumnConfig applies the same check.
+		if s.keyDocColumnConfigured(prop.Name) &&
+			inverted.WhyNotBatchable(prop, prop.Tokenization) == "" {
+			valueBucketOpts = append(valueBucketOpts,
+				lsmkv.WithKeyDocColumn(s.index.Config.ClassName.String()+"."+prop.Name, s.counter.Get))
+		}
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+			valueBucketOpts...,
 		); err != nil {
 			return err
 		}

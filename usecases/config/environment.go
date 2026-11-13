@@ -322,6 +322,21 @@ func FromEnv(config *Config) error {
 		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
 
+	// KeyDocColumnEnv takes REINDEX_INDEXES_AT_STARTUP's shape, with "*" naming
+	// every property. An empty property list is refused, since
+	// REINDEX_INDEXES_AT_STARTUP reads one as no properties.
+	if v := os.Getenv(KeyDocColumnEnv); v != "" {
+		cpts, err := cptParser.parse(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as class with props: %w", KeyDocColumnEnv, err)
+		}
+		indexes, err := propsPerShardBuiltIndex(KeyDocColumnEnv, "a key/doc column", "property", cpts)
+		if err != nil {
+			return err
+		}
+		config.Persistence.IndexFilterableKeyDocColumn = indexes
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -2264,24 +2279,32 @@ func parseIndexRangeableInMemory(p *collectionPropsTenantsParser, v string,
 		return false, nil, fmt.Errorf("parse %s as class with props: %w", indexRangeableInMemoryEnv, err)
 	}
 
-	// Refused rather than guessed at, since either reading costs memory for the
-	// life of the process. A tenant narrows nothing, because an index is built
-	// per shard. A bare collection means no properties to the reindex variable.
-	props = make(map[string][]string, len(cpts))
+	props, err = propsPerShardBuiltIndex(indexRangeableInMemoryEnv,
+		"the in-memory rangeable index", "rangeable property", cpts)
+	if err != nil {
+		return false, nil, err
+	}
+	return false, props, nil
+}
+
+// propsPerShardBuiltIndex maps each of cpts' collections to its properties, for
+// env naming an index built per shard. It refuses a tenant, since such an index
+// is configured per collection, and what [validateCollectionProps] refuses.
+func propsPerShardBuiltIndex(env, index, propNoun string, cpts []CollectionPropsTenants,
+) (map[string][]string, error) {
+	props := make(map[string][]string, len(cpts))
 	for _, cpt := range cpts {
 		if len(cpt.Tenants) > 0 {
-			return false, nil, fmt.Errorf("%s takes no tenants, and %q names %d: the in-memory "+
-				"rangeable index is built per shard, so it covers every tenant of a "+
-				"collection or none", indexRangeableInMemoryEnv, cpt.Collection, len(cpt.Tenants))
-		}
-		if len(cpt.Props) == 0 {
-			return false, nil, fmt.Errorf("%s names %q with no properties: list them, or write %q "+
-				"for every rangeable property it has", indexRangeableInMemoryEnv,
-				cpt.Collection, cpt.Collection+":"+AllProperties)
+			return nil, fmt.Errorf("%s takes no tenants, and %q names %d: %s is built per "+
+				"shard, so it covers every tenant of a collection or none",
+				env, cpt.Collection, len(cpt.Tenants), index)
 		}
 		props[cpt.Collection] = cpt.Props
 	}
-	return false, props, nil
+	if err := validateCollectionProps(env, propNoun, props); err != nil {
+		return nil, err
+	}
+	return props, nil
 }
 
 /*
@@ -2309,6 +2332,10 @@ of the collection or refuses it.
 // AllProperties stands for every property of the collection carrying it. No
 // property can be named this, so it is never ambiguous.
 const AllProperties = "*"
+
+// KeyDocColumnEnv names, per collection, the properties whose filterable bucket
+// gets a resident key/doc column; see docs/key-doc-column.md. Read once at startup.
+const KeyDocColumnEnv = "INDEX_FILTERABLE_KEY_DOC_COLUMN"
 
 type collectionPropsTenantsParser struct {
 	regexpCollection *regexp.Regexp

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -112,7 +113,16 @@ type SegmentGroup struct {
 	editOps *SegmentEditOps
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
-	bitmapBufPool                  roaringset.BitmapBufPool
+
+	// keyDocColumn is the optional resident index over these segments and the
+	// flushes absorbed since; atomic so it can be detached under lock-free reads.
+	keyDocColumn atomic.Pointer[keydoccolumn.Index]
+	// keyDocColumnSizeReported is the bytes this group last added to
+	// lsm_key_doc_column_size; keyDocColumnSizeMu also covers loading the column (see
+	// [SegmentGroup.reportKeyDocColumnSize]).
+	keyDocColumnSizeMu       sync.Mutex
+	keyDocColumnSizeReported int
+	bitmapBufPool            roaringset.BitmapBufPool
 	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
 	// base layer; built once at construction
 	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
@@ -152,6 +162,8 @@ type sgConfig struct {
 	cleanupInterval              time.Duration
 	enableChecksumValidation     bool
 	keepSegmentsInMemory         bool
+	keyDocColumnName             string
+	docIDCountGetter             roaringset.DocIDCountGetterFunc
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -619,6 +631,17 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				"bucket":  filepath.Base(cfg.dir),
 				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
 			}).Debug("rangeable segment-in-memory built")
+		}
+
+	case StrategyRoaringSet:
+		if cfg.keyDocColumnName != "" {
+			if err := sg.initKeyDocColumn(cfg.keyDocColumnName, cfg.docIDCountGetter); err != nil {
+				// Not fatal: the standard fold returns the same documents, slower.
+				logKeyDocColumnDecline(logger.WithFields(logrus.Fields{
+					"action": "keydoccolumn_build",
+					"bucket": filepath.Base(cfg.dir),
+				}), cfg.keyDocColumnName, err)
+			}
 		}
 	}
 
@@ -1334,6 +1357,10 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+	// Before anything that waits, so a flattening in flight gives up while this
+	// is still shutting down rather than after.
+	sg.dropKeyDocColumn()
+
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
@@ -1496,10 +1523,15 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 	// (ignore if compaction was not called within that time either)
 	forceCleanupInterval := time.Hour * 12
 
+	var worked bool
 	if time.Since(sg.lastCleanupCall) > forceCleanupInterval && sg.lastCleanupCall.Before(sg.lastCompactionCall) {
-		return cleanup() || compact()
+		worked = cleanup() || compact()
+	} else {
+		worked = compact() || cleanup()
 	}
-	return compact() || cleanup()
+	// Not counted as work: a restart refused again would hold the cycle at its fastest pace.
+	sg.startPendingKeyDocColumnFlatten()
+	return worked
 }
 
 func (sg *SegmentGroup) Len() int {

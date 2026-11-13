@@ -61,7 +61,7 @@ func TestAPartiallySeededUnitRebuildsItsNeverStartedHalf(t *testing.T) {
 	p.processOneUnit(ctx, &distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: desc,
 		Status: distributedtask.TaskStatusStarted, Payload: raw,
-	}, payload, idx, "u1", rec)
+	}, payload, idx, "u1", rec, &keyDocColumnDrops{})
 
 	require.Empty(t, rec.failed,
 		"a never-started half is built from the task payload instead of failing the unit")
