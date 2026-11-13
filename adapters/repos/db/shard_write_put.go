@@ -85,6 +85,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
+	if err := s.flushGeoQueues(); err != nil {
+		return err
+	}
+
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}

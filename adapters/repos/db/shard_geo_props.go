@@ -203,6 +203,18 @@ func (s *Shard) updatePropertySpecificIndices(ctx context.Context, object *storo
 	return nil
 }
 
+// flushGeoQueues flushes the commit logs of all geo indices, so that a single
+// object write is durable against a process crash once acknowledged, as its
+// vector index write already is. Batches flush them in flushWALs instead.
+func (s *Shard) flushGeoQueues() error {
+	return s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			return errors.Wrapf(err, "flush geo index of property %q", propName)
+		}
+		return nil
+	})
+}
+
 func (s *Shard) updatePropertySpecificIndex(ctx context.Context, propName string,
 	index propertyspecific.Index, obj *storobj.Object,
 	status objectInsertStatus,
