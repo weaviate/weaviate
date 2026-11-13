@@ -647,3 +647,33 @@ func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
 		})
 	}
 }
+
+func TestLookupShardByName(t *testing.T) {
+	present := &Shard{}
+	open := &Index{}
+	open.shards.Store("tenant-a", present)
+	closing, closingTenant := closingIndexWithAnUnvisitedShard(t)
+
+	tests := []struct {
+		name    string
+		idx     *Index
+		shard   string
+		want    ShardLike
+		wantErr string
+	}{
+		{name: "present shard", idx: open, shard: "tenant-a", want: present},
+		{name: "missing shard", idx: open, shard: "tenant-b", wantErr: `shard "tenant-b" not found`},
+		{name: "index closing", idx: closing, shard: closingTenant, wantErr: fmt.Sprintf("shard %q not found", closingTenant)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := lookupShardByName(tt.idx, tt.shard)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Same(t, tt.want, got)
+		})
+	}
+}

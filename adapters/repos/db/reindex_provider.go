@@ -1903,19 +1903,12 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	if len(shards) == 0 {
 		return false
 	}
-	// One walk for the whole payload: a per-name lookup walks the shard map
-	// again for every tenant the payload names.
+	if idx.closeCause() != nil {
+		return false
+	}
 	hosted := make(map[string]bool, len(shards))
 	for _, shardName := range shards {
-		hosted[shardName] = false
-	}
-	if err := idx.ForEachShard(func(name string, _ ShardLike) error {
-		if _, wanted := hosted[name]; wanted {
-			hosted[name] = true
-		}
-		return nil
-	}); err != nil {
-		return false
+		hosted[shardName] = idx.shards.Load(shardName) != nil
 	}
 	recordReads := 0
 	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.
@@ -2643,22 +2636,13 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 }
 
 // lookupShardByName returns the named shard from the index, or an error
-// describing why the lookup failed. There is no Index.GetShardByName, so
-// callers walk ForEachShard; centralise that walk here so the two call
-// sites (processOneUnit and OnGroupCompleted) report the same shape of
-// error.
+// if it is absent or the index is closing. It runs once per unit per phase,
+// so it must not walk all shards.
 func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
-	var found ShardLike
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
-		if name == shardName {
-			found = s
+	if idx.closeCause() == nil {
+		if s := idx.shards.Load(shardName); s != nil {
+			return s, nil
 		}
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("iterating shards: %w", err)
 	}
-	if found == nil {
-		return nil, fmt.Errorf("shard %q not found", shardName)
-	}
-	return found, nil
+	return nil, fmt.Errorf("shard %q not found", shardName)
 }
