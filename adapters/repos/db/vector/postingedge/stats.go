@@ -118,6 +118,10 @@ type SearchStats struct {
 	// stats does not spend it, so whoever times a search with stats from
 	// outside takes it off.
 	SpreadTime time.Duration
+
+	// trace, when set, follows the redundant edges the search meets
+	// (edgeTrace). Only the benchmark and the tests set it.
+	trace *edgeTrace
 }
 
 // EndpointsRepeated is the number of followed edges whose endpoint had

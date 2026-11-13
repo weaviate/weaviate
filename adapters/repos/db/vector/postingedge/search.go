@@ -239,6 +239,9 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 			}
 		}
 	}
+	if stats != nil && stats.trace != nil {
+		stats.trace.finish(sc)
+	}
 
 	candidates := sc.pool.sorted()
 	if rescoreLimit == 0 {
@@ -380,21 +383,14 @@ func (s *postingSearch) load(p uint32) error {
 				}
 			}
 		}
+		if tr := s.stats.trace; tr != nil {
+			tr.picked(sc, p)
+			tr.predict(sc, side.postingOf, &post, cut)
+		}
 		clock = time.Now()
 	}
 
-	sc.unscored = sc.unscored[:0]
-	for i, dist := range sc.memberDist {
-		if dist > cut {
-			continue
-		}
-		for _, endpoint := range post.edgesOf(i) {
-			if sc.loaded[side.postingOf[endpoint]] || sc.endpoints.CheckAndVisit(uint64(endpoint)) {
-				continue
-			}
-			sc.unscored = append(sc.unscored, endpoint)
-		}
-	}
+	sc.collectEndpoints(side.postingOf, &post, cut)
 
 	// Scored as one batch, then folded into the ranks of their postings.
 	if cap(sc.unscoredDist) < len(sc.unscored) {
@@ -404,9 +400,44 @@ func (s *postingSearch) load(p uint32) error {
 	if err := side.score(s.estimator, sc.unscored, dists); err != nil {
 		return err
 	}
+	sc.rankPostings(side.postingOf, dists)
+
+	if s.stats != nil {
+		s.stats.ExpandTime += time.Since(clock)
+		s.stats.EndpointsScored += len(sc.unscored)
+		if tr := s.stats.trace; tr != nil {
+			tr.scored(sc, side.postingOf, dists)
+		}
+	}
+	return nil
+}
+
+// collectEndpoints lists in sc.unscored the endpoints the sources of a loaded
+// posting lead to that have to be scored: those outside the loaded postings,
+// not scored before, in the order of the sources and of their edges. Each
+// is marked scored as it is listed. The sources are the members within the
+// cut, whose estimates are in sc.memberDist.
+func (sc *searchScratch) collectEndpoints(postingOf []uint32, post *posting, cut float32) {
+	sc.unscored = sc.unscored[:0]
+	for i, dist := range sc.memberDist {
+		if dist > cut {
+			continue
+		}
+		for _, endpoint := range post.edgesOf(i) {
+			if sc.loaded[postingOf[endpoint]] || sc.endpoints.CheckAndVisit(uint64(endpoint)) {
+				continue
+			}
+			sc.unscored = append(sc.unscored, endpoint)
+		}
+	}
+}
+
+// rankPostings folds the estimates of the endpoints in sc.unscored into the
+// ranks of their postings, in order: a posting keeps the best estimate.
+func (sc *searchScratch) rankPostings(postingOf []uint32, dists []float32) {
 	for i, endpoint := range sc.unscored {
 		dist := dists[i]
-		target := side.postingOf[endpoint]
+		target := postingOf[endpoint]
 		if dist < sc.rank[target] {
 			if sc.rank[target] == inf32 {
 				sc.frontier = append(sc.frontier, target)
@@ -414,12 +445,6 @@ func (s *postingSearch) load(p uint32) error {
 			sc.rank[target] = dist
 		}
 	}
-
-	if s.stats != nil {
-		s.stats.ExpandTime += time.Since(clock)
-		s.stats.EndpointsScored += len(sc.unscored)
-	}
-	return nil
 }
 
 // rescoreSpread tells where the candidates of the final rescore live: in how

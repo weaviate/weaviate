@@ -142,6 +142,10 @@ var (
 	benchCentroidMaxDrop = flag.Float64("bench.centroidmaxdrop", 0.0005, "postingedge, with -bench.centroidefs: the most recall a centroid ef may lose "+
 		"against the default at a point and still count as keeping it")
 
+	benchEdgeTrace = flag.Bool("bench.edgetrace", false, "postingedge: in the passes that collect the work of every search, also trace the "+
+		"endpoints scored through redundant edges and whether they set the rank of their posting (edgeTrace, v1.6). It allocates as it "+
+		"goes, so it is meant for timed=0 sweeps")
+
 	benchSweeps sweepFlag
 )
 
@@ -275,6 +279,8 @@ type statsSummary struct {
 	// TotalUs is the whole search as timed from outside, so that what the
 	// phases do not cover can be told.
 	TotalUs float64 `json:"totalUs"`
+	// EdgeTrace is there with -bench.edgetrace.
+	EdgeTrace *edgeTraceSummary `json:"edgeTrace,omitempty"`
 }
 
 type benchPoint struct {
@@ -833,6 +839,9 @@ func runPostingEdgePlan(t *testing.T, index *Index, data *benchData, uc UserConf
 			s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
 			s.RescoredPostingsMean, s.RescoredPostingsP95, s.RescoredElsewhereMax,
 			s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
+		if s.EdgeTrace != nil {
+			t.Logf("edge redundancy per query at ef=%d: %s", ef, s.EdgeTrace)
+		}
 		writeBenchResultTo(t, result, out)
 		return point
 	}
@@ -1295,8 +1304,12 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 				if i >= len(data.queries) {
 					return
 				}
+				var stats SearchStats
+				if *benchEdgeTrace {
+					stats.trace = newEdgeTrace()
+				}
 				begin := time.Now()
-				ids, _, stats, err := index.SearchByVectorWithStats(ctx, data.queries[i], *benchK, nil)
+				ids, _, err := index.search(ctx, data.queries[i], *benchK, nil, &stats)
 				if err != nil {
 					failed.Store(&err)
 					return
@@ -1363,6 +1376,14 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 	sum.LoadsP95 = percentileOf(loads, 0.95)
 	slices.Sort(rescoredPostings)
 	sum.RescoredPostingsP95 = percentileOf(rescoredPostings, 0.95)
+	if *benchEdgeTrace {
+		all := make([]SearchStats, len(answers))
+		for i, a := range answers {
+			all[i] = a.stats
+		}
+		sum.EdgeTrace = edgeTraceSummaryOf(all)
+		require.Zero(t, sum.EdgeTrace.Mispredicted, "loads whose scored endpoints the edge trace did not predict")
+	}
 	return &sum, float64(hits) / float64(total)
 }
 
