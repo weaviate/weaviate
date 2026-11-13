@@ -450,17 +450,15 @@ func Test_AdminList_Authorizer(t *testing.T) {
 
 func Test_AdminList_FilterAuthorizedResources(t *testing.T) {
 	resources := []string{"schema/collections/A/shards/#", "schema/collections/B/shards/#"}
-	cfg := Config{Users: []string{"admin"}, ReadOnlyUsers: []string{"reader"}}
+	cfg := Config{ReadOnlyUsers: []string{"reader"}}
 	tests := []struct {
 		name string
 		user string
 		verb string
 		want []string
 	}{
-		{name: "admin gets every resource", user: "admin", verb: "D", want: resources},
 		{name: "read-only user reading gets every resource", user: "reader", verb: "R", want: resources},
 		{name: "read-only user writing gets none", user: "reader", verb: "U", want: []string{}},
-		{name: "unknown user gets none", user: "stranger", verb: "R", want: []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

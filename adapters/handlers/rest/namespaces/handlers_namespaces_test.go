@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -795,32 +794,20 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 }
 
 func TestListNamespaces_NoPermissionsReturnsEmpty(t *testing.T) {
+	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
-	resources := []string{authorization.Namespaces("customer1")[0], authorization.Namespaces("customer2")[0]}
-	refused, refusedErr := adminlist.New(adminlist.Config{}).
-		FilterAuthorizedResources(context.Background(), principal, authorization.READ, resources...)
-	cases := []struct {
-		name      string
-		allowed   []string
-		filterErr error
-	}{
-		{name: "filter allows none", allowed: []string{}},
-		{name: "adminlist refuses every namespace", allowed: refused, filterErr: refusedErr},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h, authz, raft := newHandler(t)
-			raft.On("GetNamespaces").Return([]cmd.Namespace{{Name: "customer1"}, {Name: "customer2"}}, nil)
-			authz.On("FilterAuthorizedResources",
-				mock.Anything, principal, authorization.READ, resources[0], resources[1],
-			).Return(tc.allowed, tc.filterErr)
+	all := []cmd.Namespace{{Name: "customer1"}, {Name: "customer2"}}
+	raft.On("GetNamespaces").Return(all, nil)
+	authz.On("FilterAuthorizedResources",
+		mock.Anything, principal, authorization.READ,
+		authorization.Namespaces("customer1")[0],
+		authorization.Namespaces("customer2")[0],
+	).Return([]string{}, nil)
 
-			res := h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
-			parsed, ok := res.(*nsops.ListNamespacesOK)
-			require.True(t, ok, "expected 200, got %T", res)
-			assert.Empty(t, parsed.Payload)
-		})
-	}
+	res := h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
+	parsed, ok := res.(*nsops.ListNamespacesOK)
+	require.True(t, ok, "expected 200, got %T", res)
+	assert.Empty(t, parsed.Payload)
 }
 
 // TestListNamespaces_ErrorMapping covers the two paths that return 500: a

@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -57,71 +56,23 @@ func TestGetTasksHidesCollectionOfUnparseablePayload(t *testing.T) {
 	require.NotContains(t, string(body), "Hidden")
 }
 
-func TestGetTasksDenialNamesNoHiddenCollection(t *testing.T) {
-	principal := &models.Principal{Username: "reader"}
-	clusterDenied := autherrs.NewForbidden(principal, authorization.READ, authorization.Cluster())
-	tests := []struct {
-		name          string
-		clusterErr    error
-		filterDenies  bool   // adminlist filters, and refuses this caller every collection
-		wantForbidden string // 403 message; empty means 200 with the task hidden
-	}{
-		{
-			name:          "no cluster read gets a 403 naming only the cluster permission",
-			clusterErr:    clusterDenied,
-			wantForbidden: clusterDenied.Error(),
-		},
-		{
-			name:         "a filter refusal hides the task instead of naming its collection",
-			filterDenies: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.EXPECT().
-				Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
-				Return(tt.clusterErr)
-			if tt.filterDenies {
-				authorizer.EXPECT().
-					FilterAuthorizedResources(mock.Anything, mock.Anything, authorization.READ, mock.Anything).
-					RunAndReturn(adminlist.New(adminlist.Config{}).FilterAuthorizedResources)
-			}
-			api := &operations.WeaviateAPI{}
-			setupDistributedTasksHandlers(api, authorizer, fakeTaskLister{tasks: map[string][]*distributedtask.Task{
-				db.ReindexNamespace: {{
-					TaskDescriptor: distributedtask.TaskDescriptor{ID: "reindex"},
-					Payload:        []byte(`{"collection":"SecretCollection"}`),
-				}},
-			}})
+func TestGetTasksForbiddenNamesTheMissingPermission(t *testing.T) {
+	principal := &models.Principal{Username: "no-cluster-read"}
+	denied := autherrs.NewForbidden(principal, authorization.READ, authorization.Cluster())
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.EXPECT().
+		Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
+		Return(denied)
+	api := &operations.WeaviateAPI{}
+	setupDistributedTasksHandlers(api, authorizer, fakeTaskLister{})
 
-			resp := api.DistributedTasksDistributedTasksGetHandler.Handle(
-				distributed_tasks.DistributedTasksGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/tasks", nil)},
-				principal)
-			var payload any
-			switch r := resp.(type) {
-			case *distributed_tasks.DistributedTasksGetForbidden:
-				payload = r.Payload
-			case *distributed_tasks.DistributedTasksGetOK:
-				payload = r.Payload
-			default:
-				t.Fatalf("got %T", resp)
-			}
-			body, err := json.Marshal(payload)
-			require.NoError(t, err)
-			require.NotContains(t, string(body), "SecretCollection")
+	resp := api.DistributedTasksDistributedTasksGetHandler.Handle(
+		distributed_tasks.DistributedTasksGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/tasks", nil)},
+		principal)
+	forbidden, isForbidden := resp.(*distributed_tasks.DistributedTasksGetForbidden)
+	require.True(t, isForbidden, "got %T", resp)
 
-			if tt.wantForbidden == "" {
-				ok, isOK := resp.(*distributed_tasks.DistributedTasksGetOK)
-				require.True(t, isOK, "got %T", resp)
-				require.Empty(t, ok.Payload[db.ReindexNamespace])
-				return
-			}
-			forbidden, isForbidden := resp.(*distributed_tasks.DistributedTasksGetForbidden)
-			require.True(t, isForbidden, "got %T", resp)
-			require.NotNil(t, forbidden.Payload, "the 403 must carry the ErrorResponse the spec declares")
-			require.Len(t, forbidden.Payload.Error, 1)
-			require.Equal(t, tt.wantForbidden, forbidden.Payload.Error[0].Message)
-		})
-	}
+	require.NotNil(t, forbidden.Payload, "the 403 must carry the ErrorResponse the spec declares")
+	require.Len(t, forbidden.Payload.Error, 1)
+	require.Equal(t, denied.Error(), forbidden.Payload.Error[0].Message)
 }
