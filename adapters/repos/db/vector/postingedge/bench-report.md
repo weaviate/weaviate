@@ -191,7 +191,9 @@ La lectura queda así:
 
 ### Redundancia por query: resultados (2026-11-13, de día)
 
-**Veredicto, por el pre-registro: (1) es grande y (2) también.** Es el mismo mecanismo que mató al cap, y se documenta así: una arista por posting de destino no pasa a prototipo.
+**Por la lectura revisada: (1) es grande, y (2) es grande a 0.95 e intermedio a 0.99.** Una arista por posting de destino pasa a prototipo, con su propio pre-registro. (2) acota el reordenamiento, no anticipa el veredicto: si cuesta, lo dirá la frontera.
+
+Con la lectura original, la de antes de la corrida, el veredicto había sido el contrario: el mecanismo del cap, sin prototipo (`db459dbd6f`). La revisión llegó después de estos datos y está al final del pre-registro.
 
 La corrida fue de 08:18 a 09:04, sin cronometrar, con 1 000 queries y ninguna carga mal predicha. El build da el mismo recall y los mismos endpoints que el de esta mañana.
 
@@ -212,9 +214,9 @@ Lo que dicen:
 
 - **La redundancia llega casi entera a la búsqueda:** el 31.7 % de los endpoints puntuados, frente al 35.6 % de las aristas del build. Los filtros de postings cargados y de endpoints ya puntuados apenas la reducen.
 - **Casi ningún endpoint redundante fija un rango, pero los que lo fijan deciden cargas.** Solo lo fijan el 4.3 % y el 2.9 % de los redundantes. Sin embargo, de cada 8 postings que la búsqueda carga por rango a 0.95, uno debe su prioridad a uno de ellos: 1.5 de 12.1 por query. A 0.99 son 5.3 de 54.2. El ahorro estaría en el 96 % que no fija nada; el riesgo, en esa carga de cada 8.
-- **Es el mecanismo del cap, en menor grado.** Las aristas que se quitarían llevan parte del orden de carga. A diferencia del cap, ningún posting pierde su rango: le queda el de la arista más cercana del mismo source. Lo que cambia es la prioridad.
+- **(2) es una cota de reordenamiento, no de pérdida.** A diferencia del cap, ningún posting pierde su rango: le queda el de la arista más cercana del mismo source, y ese rango solo puede subir. A 0.95, como mucho una de cada 8 cargas por rango cambiaría de prioridad; a 0.99, una de cada 10. Este conteo no dice si esas cargas se harían igual más tarde, ni si cambiarlas de orden costaría recall o cargas de más.
 - **El ahorro, si nada volviera como cargas:** a 0.95, los 1 874 endpoints redundantes netos por query, a 55.8 ns cada uno con el kernel del PR, son unos 105 µs. Es un 10 % de la query.
-- **No se midió cuánto subiría el rango de esos postings sin la arista redundante,** ni si se cargarían igual más tarde. El pre-registro reservaba esa medida para la zona intermedia de (2), y 0.95 quedó por encima de ella.
+- **No se midió cuánto subiría el rango de esos postings sin la arista redundante,** ni si se cargarían igual más tarde. Con la lectura revisada no hace falta medirlo antes del prototipo: la frontera del prototipo lo sustituye.
 
 **El build no es determinista del todo.** Postings y aristas sí lo son, pero el grafo de centroides se construye con inserciones en paralelo (`centroids.go`). La fracción de queries cuya entrada es el centroide más cercano dio 0.998 esta mañana y 0.997 en este build, con el mismo recall a ef=20 (0.9543) y los mismos endpoints. Donde este informe dice que un build de posting-edge repite otro, vale para postings, aristas y recall. El grafo de centroides puede cambiar la entrada de alguna query de cada mil.
 
