@@ -1325,3 +1325,54 @@ func TestReplicationFactorMigration(t *testing.T) {
 		}
 	})
 }
+
+// Restore must advance the applied index to the snapshot index, or readers
+// gated on it hang on an idle cluster.
+func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
+	const snapIndex = uint64(20)
+
+	tests := []struct {
+		name             string
+		metadataOnly     bool
+		appliedAtRestore uint64
+		wantApplied      uint64
+	}{
+		{name: "voter", appliedAtRestore: 5, wantApplied: snapIndex},
+		{name: "metadata-only voter", metadataOnly: true, appliedAtRestore: 5, wantApplied: snapIndex},
+		{name: "applied index already past the snapshot", appliedAtRestore: 30, wantApplied: 30},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := NewMockStore(t, "source-node", 0)
+			snapshot, err := source.store.Snapshot()
+			require.NoError(t, err)
+			sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+			require.NoError(t, snapshot.Persist(sink))
+
+			target := NewMockStore(t, "node-1", 0, func(c *Config) { c.MetadataOnlyVoters = tt.metadataOnly })
+			target.store.init()
+			target.indexer.On("TriggerSchemaUpdateCallbacks").Return().Maybe()
+			target.indexer.On("ReloadLocalDB", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			// raft writes the installed snapshot to the store before calling Restore.
+			snapshotStore, err := raft.NewFileSnapshotStore(t.TempDir(), 3, nil)
+			require.NoError(t, err)
+			snap, err := snapshotStore.Create(raft.SnapshotVersionMax, snapIndex, 1, raft.Configuration{}, 1, nil)
+			require.NoError(t, err)
+			_, err = snap.Write(sink.Buffer.Bytes())
+			require.NoError(t, err)
+			require.NoError(t, snap.Close())
+			target.store.snapshotStore = snapshotStore
+
+			attachFollowerRaft(t, target.store)
+			target.store.lastAppliedIndexToDB.Store(10)
+			target.store.lastAppliedIndex.Store(tt.appliedAtRestore)
+
+			require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+			require.Equal(t, tt.wantApplied, target.store.lastAppliedIndex.Load())
+			require.True(t, target.store.FSMHasCaughtUp())
+			require.NoError(t, target.store.WaitForAppliedIndex(context.Background(), time.Millisecond, snapIndex))
+		})
+	}
+}
