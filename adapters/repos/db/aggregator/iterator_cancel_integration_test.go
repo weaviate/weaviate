@@ -50,7 +50,7 @@ func iteratorStrategies() []iteratorStrategy {
 				require.NoError(tb, b.Put(iteratorKey(i), []byte(fmt.Sprintf("value-%06d", i))))
 			},
 			newCurs: func(_ context.Context, b *lsmkv.Bucket) func() Cursor {
-				return func() Cursor { return ReplaceCursor{b.Cursor()} }
+				return func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }
 			},
 		},
 		{

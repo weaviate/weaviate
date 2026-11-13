@@ -80,7 +80,7 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 		return ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 		return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +451,7 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 		return ua.parseAndAddTextRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +480,7 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 		return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
