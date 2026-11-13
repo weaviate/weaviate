@@ -194,7 +194,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 				maxRequests:   3,
 			},
 			{
-				name:          "a 429 fails the query without retries",
+				name:          "a 429 is sent once and fails the query",
 				probabilities: allProbabilities,
 				failing:       noRefund,
 				failures:      map[string]fakeReply{noRefund: {status: http.StatusTooManyRequests, body: `{"error":{"message":"rate limited"}}`}},
@@ -205,7 +205,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 				maxRequests:   3,
 			},
 			{
-				name:          "a 500 fails the query without retries",
+				name:          "a 500 is sent once and fails the query",
 				probabilities: allProbabilities,
 				failing:       noRefund,
 				failures:      map[string]fakeReply{noRefund: {status: http.StatusInternalServerError, body: `{"error":{"message":"internal error"}}`}},

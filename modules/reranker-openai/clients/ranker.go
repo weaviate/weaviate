@@ -88,7 +88,13 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 	}
 }
 
-// RankProperty sends one request per document.
+// RankProperty judges each document in its own request. A blank document and
+// a duplicate of an earlier document have none.
+//
+// A reply with an error status, such as a 429 or a 500, fails the query, and
+// its request is not sent again. The shared transport sends a request again
+// when a connection from its pool breaks before a reply arrives. The host can
+// then receive the same request more than once.
 func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
