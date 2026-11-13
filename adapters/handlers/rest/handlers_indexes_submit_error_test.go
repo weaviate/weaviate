@@ -62,6 +62,15 @@ func TestMapSubmitTaskError(t *testing.T) {
 		assert.Contains(t, body.Error[0].Message, "resubmit it against the current state")
 	})
 
+	t.Run("tenants-not-hot sentinel -> 400", func(t *testing.T) {
+		fsmErr := fmt.Errorf("executing command: %w", distributedtask.NewTenantsNotHotError("C"))
+		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa", fsmErr)
+		code, body := statusOf(t, resp)
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Len(t, body.Error, 1)
+		assert.Contains(t, body.Error[0].Message, "set them to HOT")
+	})
+
 	t.Run("generic infra error -> 500", func(t *testing.T) {
 		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa",
 			errors.New("raft leader lost"))
