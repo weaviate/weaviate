@@ -39,7 +39,7 @@ func (l *LazyLoadShard) namespace() string {
 // Namespace is the namespace of the wrapper's collection, "" outside namespaces.
 func (l *LazyLoadShard) Namespace() string { return l.namespace() }
 
-// LastAccess is the [AccessClockNow] reading of the wrapper's last pin.
+// LastAccess is the access clock tick of the wrapper's last pin.
 func (l *LazyLoadShard) LastAccess() uint32 { return l.lastAccess.Load() }
 
 // UnloadedAt is when TryUnload last closed the shard; zero once it loads again.
@@ -67,16 +67,14 @@ func (l *LazyLoadShard) UnloadCandidate() bool {
 	return s != nil && !l.unloadPending.Load() && !s.shut.Load()
 }
 
-// recordAccess raises lastAccess to the access clock, never back and only when
-// it moved, so a hot shard's cache line is written at most once a tick.
-func (l *LazyLoadShard) recordAccess() {
-	now := accessClock.Load()
-	for {
-		last := l.lastAccess.Load()
-		if last >= now || l.lastAccess.CompareAndSwap(last, now) {
-			return
-		}
-	}
+// recordAccess stamps the current tick; a stalled clock ticker cannot make it stale.
+func (l *LazyLoadShard) recordAccess() { l.stampAccess(accessClockReading()) }
+
+// stampAccess raises the clock, then lastAccess, to tick, never back and only
+// when they moved, so a hot shard's cache line is written at most once a tick.
+func (l *LazyLoadShard) stampAccess(tick uint32) {
+	raiseUint32(&accessClock, tick)
+	raiseUint32(&l.lastAccess, tick)
 }
 
 // markLoaded registers a load that just published shard; callers hold l.mutex.

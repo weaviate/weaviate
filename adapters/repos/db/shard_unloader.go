@@ -184,8 +184,8 @@ func loadedShardsOnly(ctx context.Context) bool {
 	return only
 }
 
-// accessClock is a coarse seconds clock for LastAccess. Only a running unloader
-// ticks it, so a node without one never touches it.
+// accessClock is a coarse seconds clock for LastAccess. Only a node with an
+// unloader ticks or stamps it, so a node without one never touches it.
 var (
 	accessClock      atomic.Uint32
 	accessClockEpoch = time.Now()
@@ -201,16 +201,23 @@ func AccessClockIdle(now, last uint32, idleTTL time.Duration) bool {
 	return now > last && time.Duration(now-last-1)*accessClockTick >= idleTTL
 }
 
-// advanceAccessClock never moves the clock back, whichever DB's ticker runs it.
-func advanceAccessClock() {
-	now := uint32(time.Since(accessClockEpoch)/time.Second) + 1
+// accessClockReading is the access clock tick for now, from monotonic elapsed time.
+func accessClockReading() uint32 {
+	return uint32(time.Since(accessClockEpoch)/time.Second) + 1
+}
+
+// raiseUint32 stores x unless v already holds x or later, so it never moves v back.
+func raiseUint32(v *atomic.Uint32, x uint32) {
 	for {
-		cur := accessClock.Load()
-		if cur >= now || accessClock.CompareAndSwap(cur, now) {
+		cur := v.Load()
+		if cur >= x || v.CompareAndSwap(cur, x) {
 			return
 		}
 	}
 }
+
+// advanceAccessClock never moves the clock back, whichever DB's ticker runs it.
+func advanceAccessClock() { raiseUint32(&accessClock, accessClockReading()) }
 
 // startAccessClock ticks the access clock until stop closes.
 func startAccessClock(stop <-chan struct{}, logger logrus.FieldLogger) {
