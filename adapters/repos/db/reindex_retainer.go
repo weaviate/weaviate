@@ -129,7 +129,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 }
 
 func ReindexTenantCounts(migrated, covered map[string]struct{}) (migratedTenants, totalTenants int, ok bool) {
-	if _, withoutMultiTenancy := migrated[""]; withoutMultiTenancy {
+	if _, unnamedMigrated := migrated[""]; unnamedMigrated {
 		return 0, 0, false
 	}
 	return len(migrated), len(covered), true
