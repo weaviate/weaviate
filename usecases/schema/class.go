@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -681,6 +682,9 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			return err
 		}
 		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
+			return err
+		}
+		if err := h.validateChangedRerankerAndGenerativeSettings(ctx, initial, updated); err != nil {
 			return err
 		}
 	}
@@ -2247,6 +2251,26 @@ func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *m
 		}
 	}
 	return changes, nil
+}
+
+// validateChangedRerankerAndGenerativeSettings validates the class-level settings of each reranker and generative
+// module that the update adds or changes. The parser lets these settings change freely, so this is their only check
+// on an update. Modules whose settings match the stored class are skipped, so a stored setting that today's checks
+// would reject does not block an update that leaves it alone.
+func (h *Handler) validateChangedRerankerAndGenerativeSettings(ctx context.Context, initial, updated *models.Class) error {
+	initialConfig, updatedConfig := structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)
+	for _, module := range slices.Sorted(maps.Keys(updatedConfig)) {
+		if initialSettings, ok := initialConfig[module]; ok && reflect.DeepEqual(initialSettings, updatedConfig[module]) {
+			continue
+		}
+		if !h.parser.modules.IsGenerative(module) && !h.parser.modules.IsReranker(module) {
+			continue
+		}
+		if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, module, ""); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func structToMap(obj any) (objMap map[string]any) {
