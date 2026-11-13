@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -97,6 +98,34 @@ func TestMaxDocumentsPerQueryFromEnv(t *testing.T) {
 
 func TestRerankPropertyDataTypes(t *testing.T) {
 	assert.Equal(t, []schema.DataType{schema.DataTypeText, schema.DataTypeBlob}, New().RerankPropertyDataTypes())
+}
+
+func TestValidateRerankQuery(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		wantErr string
+	}{
+		{name: "a query", query: "The customer is about to churn"},
+		{name: "a blank query is a query", query: " "},
+		{name: "no query", wantErr: "rerank.query is required by reranker-openai: the query is the condition the model judges"},
+		{name: "the longest query", query: strings.Repeat("q", 100_000)},
+		{
+			name:    "a query one byte above the limit",
+			query:   strings.Repeat("q", 100_001),
+			wantErr: "rerank.query is 100001 bytes; reranker-openai sends it with every document and takes at most 100000 bytes",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := New().ValidateRerankQuery(tt.query)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestValidateClassRejectsAWrongSetting(t *testing.T) {

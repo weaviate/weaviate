@@ -92,6 +92,19 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 	}
 }
 
+// ValidateQuery returns the error of a rerank.query the module does not rank
+// with: an empty one, and one above maxQueryBytes.
+func ValidateQuery(query string) error {
+	if query == "" {
+		return errors.New("rerank.query is required by reranker-openai: the query is the condition the model judges")
+	}
+	if len(query) > maxQueryBytes {
+		return fmt.Errorf("rerank.query is %d bytes; reranker-openai sends it with every document and takes at most %d bytes",
+			len(query), maxQueryBytes)
+	}
+	return nil
+}
+
 // RankProperty judges each document in its own request. A blank document and
 // a duplicate of an earlier document have none.
 //
@@ -102,12 +115,8 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	if query == "" {
-		return nil, errors.New("rerank.query is required by reranker-openai: the query is the condition the model judges")
-	}
-	if len(query) > maxQueryBytes {
-		return nil, fmt.Errorf("rerank.query is %d bytes; reranker-openai sends it with every document and takes at most %d bytes",
-			len(query), maxQueryBytes)
+	if err := ValidateQuery(query); err != nil {
+		return nil, err
 	}
 	image, err := propertyInput(cfg, property)
 	if err != nil {

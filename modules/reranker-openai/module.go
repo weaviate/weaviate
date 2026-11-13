@@ -61,6 +61,12 @@ func (m *ReRankerOpenAIModule) RerankPropertyDataTypes() []schema.DataType {
 	return []schema.DataType{schema.DataTypeText, schema.DataTypeBlob}
 }
 
+// ValidateRerankQuery applies the rule of the rank call, which the GraphQL
+// search reaches without this check.
+func (m *ReRankerOpenAIModule) ValidateRerankQuery(query string) error {
+	return clients.ValidateQuery(query)
+}
+
 func (m *ReRankerOpenAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
@@ -121,4 +127,5 @@ var (
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.RerankPropertyDataTypes(New())
+	_ = modulecapabilities.RerankQueryValidator(New())
 )
