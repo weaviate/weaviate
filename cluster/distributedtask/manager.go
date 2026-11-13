@@ -64,8 +64,8 @@ type Manager struct {
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
-	// the Scheduler runs an immediate scheduling cycle instead of waiting
-	// for its next periodic tick. nil-safe so the Manager can be used in
+	// the Scheduler runs a cycle sooner than its periodic tick (paced by a
+	// minimum gap). nil-safe so the Manager can be used in
 	// tests and during bootstrap before the Scheduler is wired up. The
 	// notifier's Wake() must be non-blocking — it is called under the
 	// Manager's write lock to ensure every successful apply produces a
@@ -1045,13 +1045,8 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	return out
 }
 
-// This is not reached through the [TaskLister] interface in production —
-// [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
-// has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
-// own snapshot path, and [Manager.ListDistributedTasksPayload], on the
-// leader-routed distributed-task-list query dispatch. The TaskLister-shaped
-// signature stays because six scheduler tests drive the Manager directly and
-// need it that way.
+// ListDistributedTasks returns [Manager.LocalDistributedTasks] in the
+// [TaskLister] shape.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }
@@ -1083,31 +1078,6 @@ func sortTasksForDisplay(tasks []*Task) {
 
 		return tasks[i].ID < tasks[j].ID
 	})
-}
-
-// LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
-// status this build never declared, grouped by namespace.
-//
-// The leader-routed list stops carrying such a task once the peers clean
-// their copies up, which is exactly when a leftover local copy starts
-// silently refusing schema mutations.
-func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var result map[string][]*Task
-	for namespace, tasks := range m.tasks {
-		for _, task := range tasks {
-			if task.Status.IsRecognized() {
-				continue
-			}
-			if result == nil {
-				result = map[string][]*Task{}
-			}
-			result[namespace] = append(result[namespace], task.Clone())
-		}
-	}
-	return result
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {

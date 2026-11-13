@@ -138,8 +138,6 @@ type Scheduler struct {
 	// stopped reporting can be dropped one series at a time. Tick loop only.
 	unrecognizedStatusNamespaces map[string]struct{}
 
-	localTaskInspector LocalTaskInspector
-
 	// perTaskState holds all per-scheduler-instance per-task state for
 	// the two-phase callback firing and ack emission. Entries are
 	// per-task by TaskDescriptor; preparation* fields are populated
@@ -169,10 +167,11 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
-	// wakeCh signals the run loop to fire a scheduling cycle immediately
-	// instead of waiting for the next periodic tick. Sized 1 so concurrent
+	// wakeCh asks the run loop for a scheduling cycle before the next
+	// periodic tick, no sooner than minWakeSpacing after the last one.
+	// Sized 1 so concurrent
 	// callers coalesce — a pending wake-up is equivalent to any number of
-	// queued wake-ups, because the next loop iteration reads cluster-wide
+	// queued wake-ups, because the next loop iteration reads this node's
 	// task state from scratch.
 	//
 	// Why this exists: with the default 1-minute tickInterval, a barrier
@@ -180,8 +179,8 @@ type Scheduler struct {
 	// minute of "the followers haven't fired their OnGroupCompleted /
 	// OnTaskCompleted yet" — the FSM apply path knows the barrier is open,
 	// but the followers' scheduler loops are still asleep on their ticker.
-	// Wake() (called from the Manager's RAFT-apply paths) lets us collapse
-	// that gap to roughly one channel-send + one loop iteration.
+	// Wake() (called from the Manager's RAFT-apply paths) shortens that gap
+	// to at most minWakeSpacing.
 	wakeCh chan struct{}
 }
 
@@ -192,18 +191,20 @@ type SchedulerParams struct {
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
-	AckRecorder PostCompletionAckRecorder
-	// nil in unit tests that don't exercise the unrecognized-status warn.
-	LocalTaskInspector LocalTaskInspector
-	Providers          map[string]Provider
-	Clock              clockwork.Clock
-	Logger             logrus.FieldLogger
-	MetricsRegisterer  prometheus.Registerer
+	AckRecorder       PostCompletionAckRecorder
+	Providers         map[string]Provider
+	Clock             clockwork.Clock
+	Logger            logrus.FieldLogger
+	MetricsRegisterer prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
 	TickInterval     time.Duration
 }
+
+// minWakeSpacing paces woken ticks. Each tick copies every task under the
+// task manager's lock, and during a run nearly every apply wakes the loop.
+const minWakeSpacing = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
 	if params.Clock == nil {
@@ -225,7 +226,6 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
-		localTaskInspector: params.LocalTaskInspector,
 		clock:              params.Clock,
 
 		localNode:        params.LocalNode,
@@ -256,9 +256,10 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Wake requests an immediate scheduling cycle. Non-blocking: a pending
+// Wake requests a scheduling cycle no sooner than minWakeSpacing after the
+// last one. Non-blocking: a pending
 // wake-up coalesces additional calls (the next loop iteration sees the
-// latest cluster-wide task state regardless of how many wakes accumulated).
+// latest task state regardless of how many wakes accumulated).
 // Safe to call from any goroutine, including RAFT-apply paths.
 //
 // Wake is a no-op after [Scheduler.Close] returns — the run loop has
@@ -447,18 +448,29 @@ func filterTasks(tasks map[TaskDescriptor]*Task, predicate func(task *Task) bool
 func (s *Scheduler) loop() {
 	ticker := s.clock.NewTicker(s.tickInterval)
 	defer ticker.Stop()
+	var lastTick time.Time
 
 	for {
 		select {
 		case <-ticker.Chan():
+			lastTick = s.clock.Now()
 			s.tick()
 		case <-s.wakeCh:
 			// Reactive wake-up from a RAFT-apply path (typically the
 			// Manager observing a unit transition that opens a group
-			// barrier). Fire a tick immediately instead of waiting for
-			// the next ticker. The periodic ticker keeps running as a
+			// barrier). Fire a tick once minWakeSpacing has passed since
+			// the last one, instead of waiting for the next ticker. The
+			// periodic ticker keeps running as a
 			// fallback — late wake-ups, missed signals, and any state
 			// drift get cleaned up at the next periodic tick.
+			if wait := minWakeSpacing - s.clock.Since(lastTick); wait > 0 {
+				select {
+				case <-s.clock.After(wait):
+				case <-s.stopCh:
+					return
+				}
+			}
+			lastTick = s.clock.Now()
 			s.tick()
 		case <-s.stopCh:
 			return
@@ -476,14 +488,7 @@ const unrecognizedStatusWarnWindow = time.Hour
 // One aggregated sorted line per tick: naming the tasks one at a time let
 // the sampler's budget pick an arbitrary three by map-iteration order,
 // which is not a set an operator can act on.
-//
-// leaderListAvailable says whether tasksByNamespace is the cluster's task
-// list or nothing at all. It gates the metric prune: only the cluster's
-// list knows which namespaces exist.
-func (s *Scheduler) warnOnUnrecognizedStatuses(
-	tasksByNamespace map[string]map[TaskDescriptor]*Task,
-	leaderListAvailable bool,
-) {
+func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
 	counts := make(map[string]int, len(tasksByNamespace))
 	var named []string
 	for namespace, tasks := range tasksByNamespace {
@@ -497,33 +502,6 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(
 				namespace, task.ID, task.Version, task.Status))
 		}
 	}
-	if s.localTaskInspector != nil {
-		for namespace, tasks := range s.localTaskInspector.LocalUnrecognizedDistributedTasks() {
-			if _, ok := counts[namespace]; !ok {
-				counts[namespace] = 0
-			}
-			for _, task := range tasks {
-				// Skip only what the loop above already counted. Skipping on
-				// the leader having any copy at all loses the task whose copy
-				// the leader can name and this node cannot — counted nowhere,
-				// while this node keeps refusing schema mutations for it.
-				leaderCopy, onLeaderList := tasksByNamespace[namespace][task.TaskDescriptor]
-				if onLeaderList && !leaderCopy.Status.IsRecognized() {
-					continue
-				}
-				counts[namespace]++
-				// Naming the cluster's status is what makes the line
-				// actionable: it says this node has fallen behind the rest,
-				// rather than that the task exists nowhere else.
-				where := "this node only"
-				if onLeaderList {
-					where = fmt.Sprintf("this node only; cluster reports %s", leaderCopy.Status)
-				}
-				named = append(named, fmt.Sprintf("%s/%s@%d=%s (%s)",
-					namespace, task.ID, task.Version, task.Status, where))
-			}
-		}
-	}
 
 	// Write every namespace's value before dropping the ones that stopped
 	// reporting. Reset-then-Set drops every series first, and a scrape in
@@ -532,16 +510,10 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(
 		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
 		s.unrecognizedStatusNamespaces[namespace] = struct{}{}
 	}
-	// A tick without the cluster's list saw only this node's own
-	// unrecognized copies, which say nothing about the namespaces that
-	// have none. Pruning off that view drops the series reporting zero
-	// and the ones reporting a real count alike.
-	if leaderListAvailable {
-		for namespace := range s.unrecognizedStatusNamespaces {
-			if _, stillReporting := counts[namespace]; !stillReporting {
-				s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
-				delete(s.unrecognizedStatusNamespaces, namespace)
-			}
+	for namespace := range s.unrecognizedStatusNamespaces {
+		if _, stillReporting := counts[namespace]; !stillReporting {
+			s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
+			delete(s.unrecognizedStatusNamespaces, namespace)
 		}
 	}
 
@@ -566,10 +538,6 @@ func (s *Scheduler) tick() {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
 		})
-		// Warn on the error path rather than returning: returning would
-		// freeze the gauge at its last value for as long as the failure
-		// lasts, and this node's own copies need no leader anyway.
-		s.warnOnUnrecognizedStatuses(nil, false)
 		return
 	}
 
@@ -597,7 +565,7 @@ func (s *Scheduler) tick() {
 		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
 	}
 
-	s.warnOnUnrecognizedStatuses(tasksByNamespace, true)
+	s.warnOnUnrecognizedStatuses(tasksByNamespace)
 
 	for namespace, provider := range providers {
 		tasks := tasksByNamespace[namespace]

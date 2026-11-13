@@ -78,12 +78,6 @@ func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sche
 	s.store.SetDistributedTaskSchedulerNotifier(notifier)
 }
 
-// LocalUnrecognizedDistributedTasks implements
-// [distributedtask.LocalTaskInspector].
-func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
-	return s.store.LocalUnrecognizedDistributedTasks()
-}
-
 // LocalDistributedTasks reads this node's own FSM, not the leader. The schema
 // lives in that same FSM at the same applied index, so a caller that reads
 // tasks and then a schema flag gets a flag at least as new as the tasks. It
@@ -101,6 +95,21 @@ func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.Task
 
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
+}
+
+// LocalTaskLister lists this node's own task copy for the scheduler, instead
+// of fetching the leader's full list every tick. It fails while this node
+// knows no leader, so a quorum loss skips the tick instead of spending the
+// completion callbacks' retries on proposals that cannot commit.
+func (s *Raft) LocalTaskLister() distributedtask.TaskLister { return localTaskLister{s} }
+
+type localTaskLister struct{ s *Raft }
+
+func (l localTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+	if l.s.store.Leader() == "" {
+		return nil, l.s.leaderErr()
+	}
+	return l.s.LocalDistributedTasks(), nil
 }
 
 // FSMHasCaughtUp reports only that the log held at store open was replayed.

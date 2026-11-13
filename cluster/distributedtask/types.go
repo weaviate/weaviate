@@ -26,7 +26,7 @@ type TaskLister interface {
 }
 
 // SchedulerNotifier is implemented by the [Scheduler] and consumed by the
-// [Manager] to request an immediate scheduling cycle after a task-state
+// [Manager] to request an early scheduling cycle after a task-state
 // change applies via Raft. Without this hook the scheduler only reacts on
 // its periodic tick (default 1 minute, see
 // DefaultDistributedTasksSchedulerTickInterval), so a barrier opening from
@@ -68,13 +68,6 @@ type CompletedTaskRetainer interface {
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
-}
-
-// LocalTaskInspector exposes the part of this node's own FSM state that
-// the leader-routed [TaskLister] cannot report: a task the rest of the
-// cluster has already deleted but this node still holds.
-type LocalTaskInspector interface {
-	LocalUnrecognizedDistributedTasks() map[string][]*Task
 }
 
 // TaskFinalizer is how the [Scheduler] transitions a task out of
