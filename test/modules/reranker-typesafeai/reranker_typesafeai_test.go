@@ -21,6 +21,7 @@ import (
 	"image/draw"
 	"image/png"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -250,6 +251,44 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 				}
 			})
 		}
+
+		// The rank call does not run for a search without objects, so the
+		// query is checked before the search.
+		rejectedQueries := []struct {
+			name    string
+			query   *string
+			wantErr string
+		}{
+			{name: "a missing query", wantErr: "rerank.query is required by reranker-typesafeai"},
+			{name: "an empty query", query: new(""), wantErr: "rerank.query is required by reranker-typesafeai"},
+			{
+				name:    "a query too long to repeat in a request",
+				query:   new(strings.Repeat("q", 100_000)),
+				wantErr: "rerank.query is 100000 bytes",
+			},
+		}
+		for _, tt := range rejectedQueries {
+			t.Run(tt.name+" fails a search without objects", func(t *testing.T) {
+				fake.reset(nil, nil)
+				createTickets(t, map[string]any{"baseURL": fake.baseURL()}, nil)
+
+				_, err := grpcClient.Search(context.Background(), rerankRequest("text", tt.query))
+
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, fake.received())
+			})
+		}
+
+		t.Run("a search without objects and with a query returns no objects", func(t *testing.T) {
+			fake.reset(nil, nil)
+			createTickets(t, map[string]any{"baseURL": fake.baseURL()}, nil)
+
+			reply, err := grpcClient.Search(context.Background(), rerankRequest("text", new(churn)))
+
+			require.NoError(t, err)
+			assert.Empty(t, reply.Results)
+			assert.Empty(t, fake.received())
+		})
 
 		// The class base URL resolves to no host, so the request reaches the
 		// fake only through the base URL header.

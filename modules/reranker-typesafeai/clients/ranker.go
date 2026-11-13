@@ -99,14 +99,34 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 	}
 }
 
+// ValidateQuery returns the error of a rerank.query the module does not rank
+// with: an empty one, and one whose question for a document does not fit in
+// a request.
+func ValidateQuery(query string) error {
+	if query == "" {
+		return errors.New("rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
+	}
+	if questionBytes(query) >= MaxBatchCharacters {
+		return fmt.Errorf("rerank.query is %d bytes; reranker-typesafeai repeats it for every document within %d bytes per request",
+			len(query), MaxBatchCharacters)
+	}
+	return nil
+}
+
+// questionBytes is the size of the longest question a request repeats the
+// query in.
+func questionBytes(query string) int {
+	return len("In "+documentKey(MaxBatchDocuments-1)+": ") + len(query)
+}
+
 // RankProperty returns, per document, the probability that the query holds
 // for it. Documents that share a request influence each other's probability
 // a little.
 func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	if query == "" {
-		return nil, errors.New("rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
+	if err := ValidateQuery(query); err != nil {
+		return nil, err
 	}
 	image, err := propertyInput(cfg, property)
 	if err != nil {
@@ -119,11 +139,6 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
-	}
-	questionBytes := len("In "+documentKey(MaxBatchDocuments-1)+": ") + len(query)
-	if questionBytes >= MaxBatchCharacters {
-		return nil, fmt.Errorf("rerank.query is %d bytes; reranker-typesafeai repeats it for every document within %d bytes per request",
-			len(query), MaxBatchCharacters)
 	}
 
 	owner := make(map[string]int, len(documents))
@@ -152,7 +167,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		url: endpointURL, apiKey: apiKey, hostFromHeader: hostFromHeader,
 		model: settings.Model(), query: query, image: image,
 	}
-	requestBatches := batches(pending, documents, maxDocuments, maxCharacters, questionBytes)
+	requestBatches := batches(pending, documents, maxDocuments, maxCharacters, questionBytes(query))
 	scores := make([]float64, len(documents))
 	usages := make([]typesafeaiUsage, len(requestBatches))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
