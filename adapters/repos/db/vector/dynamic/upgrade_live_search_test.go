@@ -46,9 +46,10 @@ type upgradeTestEnv struct {
 	// hnsw derives its compressed bucket name from the id
 	id string
 
-	db    *bbolt.DB
-	store *lsmkv.Store
-	idx   *dynamic
+	db      *bbolt.DB
+	store   *lsmkv.Store
+	idx     *dynamic
+	logHook *test.Hook
 }
 
 func newUpgradeTestEnv(t *testing.T, root, targetVector string, vectors [][]float32,
@@ -74,7 +75,7 @@ func newUpgradeTestEnv(t *testing.T, root, targetVector string, vectors [][]floa
 // open loads the index from whatever is on disk under root.
 func (e *upgradeTestEnv) open(t *testing.T) {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
+	logger, logHook := test.NewNullLogger()
 	storeDir := filepath.Join(e.root, "store")
 	rootPath := filepath.Join(e.root, "index")
 	for _, d := range []string{storeDir, rootPath} {
@@ -113,7 +114,7 @@ func (e *upgradeTestEnv) open(t *testing.T) {
 	require.NoError(t, err)
 	idx.PostStartup(context.Background())
 
-	e.db, e.store, e.idx = db, store, idx
+	e.db, e.store, e.idx, e.logHook = db, store, idx, logHook
 	t.Cleanup(e.shutdown)
 }
 
@@ -462,6 +463,7 @@ func TestUpgrade_RetryAfterPanickedCopy(t *testing.T) {
 				}
 				return nil
 			})
+			testinghelpers.WaitForRecoveredPanic(t, env.logHook)
 			require.False(t, env.idx.IsUpgraded(), "the panicked upgrade must not commit")
 			_, err := os.Stat(hnswCommitLogDirectory(filepath.Join(env.root, "index"), env.id))
 			assert.True(t, os.IsNotExist(err), "the panicked copy must not leave a commit log behind")
