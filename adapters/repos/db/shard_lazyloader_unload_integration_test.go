@@ -345,6 +345,68 @@ func TestLazyLoadShard_TryUnloadRacesEachContender(t *testing.T) {
 	}
 }
 
+var errPinnedShardShut = errors.New("pin handed out a shut shard")
+
+func wrapperPinLoop(createLocked bool) func(r *unloadRace) error {
+	return func(r *unloadRace) error {
+		idx, name := r.f.index, r.f.name
+		if createLocked {
+			idx.shardCreateLocks.RLock(name)
+			defer idx.shardCreateLocks.RUnlock(name)
+		}
+		l := r.f.lazy
+		release, err := l.preventShutdown()
+		if err != nil {
+			if createLocked {
+				return fmt.Errorf("pin under the create lock: %s", err.Error())
+			}
+			return err
+		}
+		defer release()
+		if s := l.currentShard(); s == nil || s.shut.Load() {
+			return errPinnedShardShut
+		}
+		id, ok := r.someID()
+		if !ok {
+			return nil
+		}
+		exists, err := l.Exists(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("object %s lost", id)
+		}
+		return nil
+	}
+}
+
+func TestLazyLoadShard_TryUnloadRacesFastPathPins(t *testing.T) {
+	tests := []struct {
+		name         string
+		createLocked bool
+	}{
+		{name: "pin under the create lock", createLocked: true},
+		{name: "pin without the create lock"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			r := newUnloadRace(t, f)
+			r.addID(f.put(t))
+			r.runWithWatchdog([]unloadContender{
+				{name: "unload", run: unloaderLoop},
+				{name: "pins", run: wrapperPinLoop(tt.createLocked)},
+				{name: "pins-2", run: wrapperPinLoop(tt.createLocked), pause: 100 * time.Microsecond},
+				{name: "writes", run: writerLoop},
+			}, 1500*time.Millisecond, 20*time.Second)
+			r.requireInvariants(true)
+			require.Positive(t, r.counter("pins").Load(), "pins never succeeded")
+			t.Logf("unloads=%d pins=%d pins-2=%d", r.counter("unloaded").Load(), r.counter("pins").Load(), r.counter("pins-2").Load())
+		})
+	}
+}
+
 func TestLazyLoadShard_TryUnloadStressWithWatchdog(t *testing.T) {
 	coldUnloads := map[string]bool{"cold then hot": true, "namespace unload and reopen": true}
 	tests := []struct {
