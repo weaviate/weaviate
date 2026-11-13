@@ -789,6 +789,70 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
+// The class config holds the fake's URL, so the header names no other host.
+func TestRankTakesAHeaderBaseURLEqualToTheClassBaseURLAsAbsent(t *testing.T) {
+	tests := []struct {
+		name   string
+		suffix string
+	}{
+		{name: "the same URL"},
+		{name: "a trailing slash", suffix: "/"},
+		{name: "a /v1 suffix", suffix: "/v1"},
+		{name: "a /v1/ suffix", suffix: "/v1/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, release := newBlockingFake(t)
+			defer release()
+			f.replies = map[int]fakeReply{1: {status: http.StatusInternalServerError, body: `{"error":{"message":"The server had an error"}}`}}
+			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{f.url() + tt.suffix})
+			c := New("env", "org-env", testTimeout, 3, nullLogger())
+
+			result := rankInBackground(t, ctx, c, f, []string{noRefund})
+			require.Eventually(t, func() bool { return len(f.received()) == 1 }, 5*time.Second, time.Millisecond)
+			assert.Len(t, c.inFlight, 1)
+			assert.Empty(t, c.inFlightHeaderHost)
+			release()
+			require.NoError(t, <-result)
+
+			requests := f.received()
+			require.Len(t, requests, 1)
+			assert.Equal(t, "/v1/decisions", requests[0].path)
+			assert.Equal(t, "Bearer env", requests[0].authorization)
+			assert.Equal(t, []string{"org-env"}, requests[0].organization)
+
+			_, err := c.RankProperty(ctx, churn, "text", documentsOf(chargedTwice), classConfig(f.url(), nil))
+			require.EqualError(t, err, "connection to OpenAI API failed with status 500: The server had an error")
+		})
+	}
+}
+
+func TestRankTakesAnotherHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
+	tests := []struct {
+		name string
+		// <class> stands for the URL in the class config.
+		headerBaseURL string
+	}{
+		{name: "a path under the class base URL", headerBaseURL: "<class>/proxy"},
+		{name: "another name of the class host", headerBaseURL: "http://localhost:<port>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			_, port, err := net.SplitHostPort(strings.TrimPrefix(f.url(), "http://"))
+			require.NoError(t, err)
+			headerBaseURL := strings.NewReplacer("<class>", f.url(), "<port>", port).Replace(tt.headerBaseURL)
+			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{headerBaseURL})
+
+			_, err = New("env", "org-env", testTimeout, 3, nullLogger()).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
+
+			require.EqualError(t, err, "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request")
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
 func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 	tests := []struct {
 		name string
@@ -819,15 +883,17 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 			if tt.validate {
 				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
 			}
-			f := newFake(t)
+			// A header base URL equal to the class base URL counts as absent.
+			f, classHost := newFake(t), newFake(t)
 			ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
 			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{strings.ReplaceAll(tt.baseURL, "<fake>", f.url())})
 
 			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+				documentsOf(noRefund), classConfig(classHost.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Empty(t, f.received())
+			assert.Empty(t, classHost.received())
 		})
 	}
 }
@@ -1483,7 +1549,7 @@ func TestRankHeaderHostRequestsDoNotHoldTheClassHostSlots(t *testing.T) {
 	headerCtx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
 	headerCtx = context.WithValue(headerCtx, "X-Openai-Baseurl", []string{headerHost.url()})
 
-	blocked := rankInBackground(t, headerCtx, c, headerHost, numbered("ticket %d", 2*slots))
+	blocked := rankInBackground(t, headerCtx, c, classHost, numbered("ticket %d", 2*slots))
 	require.Eventually(t, func() bool { return len(headerHost.received()) == slots }, 5*time.Second, time.Millisecond)
 	require.Len(t, c.inFlightHeaderHost, slots)
 
