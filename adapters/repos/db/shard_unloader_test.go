@@ -432,13 +432,31 @@ func TestRecordAccessNeverMovesLastAccessBack(t *testing.T) {
 	prev := accessClock.Load()
 	t.Cleanup(func() { accessClock.Store(prev) })
 
-	accessClock.Store(1000)
-	f.lazy.recordAccess()
-	accessClock.Store(990)
-	f.lazy.recordAccess()
+	f.lazy.stampAccess(1000)
+	f.lazy.stampAccess(990)
 	require.EqualValues(t, 1000, f.lazy.LastAccess(), "an older stamp must not overwrite a newer one")
+	require.EqualValues(t, 1000, AccessClockNow(), "an older stamp must not move the clock back")
 
 	accessClock.Store(1003)
 	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: 5 * time.Second}))
+	require.True(t, f.lazy.isLoaded())
+}
+
+func TestRequestDuringAStalledAccessClockKeepsTheShard(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	prev := accessClock.Load()
+	t.Cleanup(func() { accessClock.Store(prev) })
+	require.Eventually(t, func() bool { return time.Since(accessClockEpoch) >= 3*time.Second },
+		5*time.Second, 10*time.Millisecond)
+
+	accessClock.Store(1)
+	_, release, err := f.index.GetShard(testCtx(), f.name)
+	require.NoError(t, err)
+	release()
+	advanceAccessClock()
+
+	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: time.Second}),
+		"a request during a stalled clock must still count as recent")
 	require.True(t, f.lazy.isLoaded())
 }
