@@ -3185,3 +3185,95 @@ func TestEnableAsyncReplicationInvalidHeightLeavesHashtreeNil(t *testing.T) {
 	enableAndAwaitAsync(t, ctx, s)
 	require.NoError(t, s.disableAsyncReplication(ctx))
 }
+
+// TestRunHashbeatCycleMaintenanceGate: a not-ready peer error proves the cycle reached the replicator; a nil error with the skip log proves the gate held.
+func TestRunHashbeatCycleMaintenanceGate(t *testing.T) {
+	ctx := context.Background()
+	const skipMsg = "skipping async replication in maintenance mode"
+
+	newGatedShard := func(t *testing.T, class string, maintenance *atomic.Bool, flag *configRuntime.DynamicValue[bool]) (*Shard, *test.Hook) {
+		logger, hook := test.NewNullLogger()
+		sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx),
+			withRemoteReplicaClient(t, &notReadyHashTreeClient{}),
+			func(i *Index) {
+				i.logger = logger
+				i.Config.MaintenanceModeEnabled = maintenance.Load
+				i.globalreplicationConfig = &entreplication.GlobalConfig{AsyncReplicationInMaintenanceEnabled: flag}
+			},
+		)
+		s := concreteShard(t, sl)
+		idx.SetReplicationFSMReader(nil)
+		setShardReplicas(t, idx, "node1", "node2")
+		enableAndAwaitAsync(t, ctx, s)
+		return s, hook
+	}
+
+	hasSkipLog := func(hook *test.Hook) bool {
+		for _, e := range hook.AllEntries() {
+			if e.Message == skipMsg {
+				return true
+			}
+		}
+		return false
+	}
+
+	tests := []struct {
+		name        string
+		maintenance bool
+		flag        *configRuntime.DynamicValue[bool]
+		wantBlocked bool
+	}{
+		{name: "maintenance off, flag nil", maintenance: false, flag: nil, wantBlocked: false},
+		{name: "maintenance off, flag off", maintenance: false, flag: configRuntime.NewDynamicValue(false), wantBlocked: false},
+		{name: "maintenance off, flag on", maintenance: false, flag: configRuntime.NewDynamicValue(true), wantBlocked: false},
+		{name: "maintenance on, flag nil", maintenance: true, flag: nil, wantBlocked: true},
+		{name: "maintenance on, flag off", maintenance: true, flag: configRuntime.NewDynamicValue(false), wantBlocked: true},
+		{name: "maintenance on, flag on", maintenance: true, flag: configRuntime.NewDynamicValue(true), wantBlocked: false},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var maintenance atomic.Bool
+			maintenance.Store(tt.maintenance)
+			s, hook := newGatedShard(t, fmt.Sprintf("HashbeatMaintenanceGate%d", i), &maintenance, tt.flag)
+
+			propagated, err := s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+			require.False(t, propagated)
+			if tt.wantBlocked {
+				require.NoError(t, err)
+				require.True(t, hasSkipLog(hook))
+				return
+			}
+			require.ErrorIs(t, err, errAsyncReplicationNotActive)
+			require.False(t, hasSkipLog(hook))
+		})
+	}
+
+	t.Run("flag flip between cycles applies on the next cycle", func(t *testing.T) {
+		var maintenance atomic.Bool
+		maintenance.Store(true)
+		flag := configRuntime.NewDynamicValue(false)
+		s, hook := newGatedShard(t, "HashbeatMaintenanceGateFlip", &maintenance, flag)
+
+		_, err := s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.NoError(t, err)
+		require.True(t, hasSkipLog(hook))
+
+		require.NoError(t, flag.SetValue(true))
+		hook.Reset()
+		_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, hasSkipLog(hook))
+
+		flag.Reset()
+		hook.Reset()
+		_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.NoError(t, err)
+		require.True(t, hasSkipLog(hook))
+
+		maintenance.Store(false)
+		hook.Reset()
+		_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, hasSkipLog(hook))
+	})
+}

@@ -27,40 +27,35 @@ type MeteredReader struct {
 	cb   MeteredReaderCallback
 }
 
-// Read passes the read through to the underlying reader. On a successful read,
-// it will trigger the attached callback and provide it with metrics. If no
-// callback is set, it will ignore it.
+// Read passes the read through to the underlying reader and reports it to the
+// callback; see [MeteredReader.observe].
 func (m *MeteredReader) Read(p []byte) (n int, err error) {
 	start := time.Now()
 	n, err = m.file.Read(p)
-	took := time.Since(start).Nanoseconds()
-	if err != nil {
-		return n, err
-	}
-
-	if m.cb != nil {
-		m.cb(int64(n), took)
-	}
-
+	m.observe(n, err, time.Since(start))
 	return n, err
 }
 
-// ReadAt passes the read through to the underlying reader. On a successful read,
-// it will trigger the attached callback and provide it with metrics. If no
-// callback is set, it will ignore it.
+// ReadAt passes the read through to the underlying reader and reports it to the
+// callback; see [MeteredReader.observe].
 func (m *MeteredReader) ReadAt(p []byte, off int64) (n int, err error) {
 	start := time.Now()
 	n, err = m.file.ReadAt(p, off)
-	took := time.Since(start).Nanoseconds()
-	if err != nil {
-		return n, err
-	}
-
-	if m.cb != nil {
-		m.cb(int64(n), took)
-	}
-
+	m.observe(n, err, time.Since(start))
 	return n, err
+}
+
+// observe reports a read to the callback, if one is set. A failed read is
+// reported only when it returned bytes, such as a short read that ends with
+// io.EOF.
+func (m *MeteredReader) observe(n int, err error, took time.Duration) {
+	if m.cb == nil {
+		return
+	}
+	if err != nil && n == 0 {
+		return
+	}
+	m.cb(int64(n), took.Nanoseconds())
 }
 
 func NewMeteredReader(file Reader, cb MeteredReaderCallback) *MeteredReader {

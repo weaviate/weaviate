@@ -69,9 +69,8 @@ type barrierRecordingProvider struct {
 	taskCallsBy    map[string]int
 	groupCompErr   error
 	swapRequestErr error
-	// groupErrs and swapErrs override the errors above for one group.
+	// groupErrs overrides groupCompErr for one group.
 	groupErrs map[string]error
-	swapErrs  map[string]error
 	// Status each callback was handed: the provider's only view of the task.
 	swapStatuses []TaskStatus
 	taskStatuses []TaskStatus
@@ -113,9 +112,6 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, groupID string, _
 	p.calls = append(p.calls, "swap:"+groupID)
 	p.swapCallsBy[task.ID]++
 	p.swapStatuses = append(p.swapStatuses, task.Status)
-	if err, ok := p.swapErrs[groupID]; ok {
-		return err
-	}
 	if p.swapRequestErr != nil {
 		return p.swapRequestErr
 	}
@@ -144,10 +140,10 @@ func (p *barrierRecordingProvider) SetSwapRequestedError(err error) {
 	p.swapRequestErr = err
 }
 
-func (p *barrierRecordingProvider) SetGroupErrors(prep, swap map[string]error) {
+func (p *barrierRecordingProvider) SetGroupErrors(errs map[string]error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.groupErrs, p.swapErrs = prep, swap
+	p.groupErrs = errs
 }
 
 func (p *barrierRecordingProvider) swapCount(taskID string) int {
@@ -439,12 +435,8 @@ func TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB(t *testing.T) {
 	}
 }
 
-// TestBarrier_G2_PartialPhaseBFailure: one OnSwapRequested returns
-// error, others succeed. The Success=false post-completion ack flips
-// the task to FAILED, MarkTaskFinalized refuses, and OnTaskCompleted
-// skips the schema flip via the FAILED gate. The cross-replica
-// failure shape PR #11328 targets but never directly tested at this
-// layer (the existing failure tests cover PHASE A only).
+// A swap that fails mid-SWAPPING stays owed and holds the flip; once its
+// retry pays, the run flips the schema and finishes.
 func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -481,34 +473,25 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	require.Equal(t, TaskStatusSwapping, task.Status)
 
 	h.tick(1)
-	task = h.getTask(t, taskID)
-	require.Equal(t, TaskStatusFailed, task.Status,
-		"task must transition to FAILED on any node's swap-ack failure")
-	require.Contains(t, task.Error, "synthetic ENOSPC during swap on node-2",
-		"node-2's swap error message must be preserved for forensics")
-	require.True(t, task.SwapOwedBy("", "node-2"), "a failed swap is not paid")
-	require.False(t, task.SwapOwedBy("", "node-1"), "node-1 paid its swap")
-
+	h.tick(2)
 	h.tick(0)
 	h.tick(1)
-	h.tick(2)
-	for _, n := range h.nodes {
-		require.Equal(t, 1, n.provider.taskCount(taskID),
-			"node %s: OnTaskCompleted must fire exactly once on FAILED across ticks", n.id)
-	}
 	task = h.getTask(t, taskID)
-	require.Equal(t, TaskStatusFailed, task.Status,
-		"task must remain FAILED — MarkTaskFinalized must not promote past FAILED")
+	require.Equal(t, TaskStatusSwapping, task.Status, "a failed swap does not fail the task")
 	require.Equal(t, map[string][]string{"": {"node-2"}}, task.SwapsOwed, "only node-2 still owes its swap")
+	for _, n := range h.nodes {
+		require.Zero(t, n.provider.taskCount(taskID), "node %s: no flip while a swap is owed", n.id)
+	}
 
 	h.nodes[1].provider.SetSwapRequestedError(nil)
-	h.restart(1)
 	h.tick(1)
+	h.tickAll()
+	h.tickAll()
 	task = h.getTask(t, taskID)
+	require.Equal(t, TaskStatusFinished, task.Status, "the run finishes once the retry pays")
 	require.Empty(t, task.SwapsOwed)
-	require.Equal(t, 1, h.nodes[0].provider.swapCount(taskID))
-	require.Equal(t, 1, h.nodes[2].provider.swapCount(taskID))
 	require.Equal(t, 3, h.nodes[1].provider.swapCount(taskID), "node-2 swapped until it succeeded")
+	require.Equal(t, []TaskStatus{TaskStatusSwapping}, h.nodes[0].provider.taskStatuses, "the flip runs on SWAPPING")
 }
 
 // A duplicate PreparationCompleteAck after PREPARING → SWAPPING is dropped.
@@ -541,19 +524,19 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 		"SWAPPING task MUST NOT pick up an error from a silently-dropped late prep-ack")
 
 	// Repeat for the FAILED case: drive a separate barrier task to
-	// FAILED via swap injection, then deliver a late prep ack — same
+	// FAILED via a failed prep ack, then deliver a late prep ack — same
 	// silent-drop expectation. The version on taskID2 has to be > the
 	// first taskID's version so AddTask accepts it; both use version 1
 	// because they have distinct IDs.
 	taskID2 := "barrier-g3-late-prep-ack-into-failed"
 	barrierAddTaskOneUnitPerNode(t, h, taskID2)
 	barrierDriveToPreparing(t, h, taskID2)
-	h.nodes[1].provider.SetSwapRequestedError(fmt.Errorf("force FAILED for late-prep-ack test"))
-	barrierDriveAllAcksAndAssertSwapping(t, h, taskID2)
-	h.tickAll()
+	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
+		context.Background(), h.namespace, taskID2, 1, "", "node-1", false, "force FAILED for late-prep-ack test",
+	))
 	failedTask := h.getTask(t, taskID2)
 	require.Equal(t, TaskStatusFailed, failedTask.Status,
-		"prerequisite: task2 must be FAILED via the injected swap error")
+		"prerequisite: task2 must be FAILED via the failed prep ack")
 	preFailedDecisions := failedTask.SwapDecidedGroups
 
 	// Deliver a late prep-ack for an already-acked node (the manager's
@@ -911,7 +894,7 @@ func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 		"the first node to see every ack runs the SWAPPING schema flip; the other sees it finished")
 }
 
-// Regression: a node's own failed PREP/SWAP ack must hand callbacks FAILED, not a stale PREPARING/SWAPPING.
+// Regression: a node's own failed PREP ack must hand callbacks FAILED, not a stale PREPARING.
 func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 	groupErr := func(p *barrierRecordingProvider) {
 		p.SetGroupCompletedError(fmt.Errorf("synthetic EIO on node-2"))
@@ -921,24 +904,11 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 		needsBarrier bool
 		// inject makes node-2's own phase fail.
 		inject func(p *barrierRecordingProvider)
-		// liftBarrier drives every prep ack so the task reaches SWAPPING.
-		liftBarrier bool
-		// swapStatuses is what node-2's OnSwapRequested may be handed.
-		swapStatuses []TaskStatus
 	}{
 		{
 			name:         "prep failure",
 			needsBarrier: true,
 			inject:       groupErr,
-		},
-		{
-			name:         "swap failure",
-			needsBarrier: true,
-			inject: func(p *barrierRecordingProvider) {
-				p.SetSwapRequestedError(fmt.Errorf("synthetic ENOSPC during swap on node-2"))
-			},
-			liftBarrier:  true,
-			swapStatuses: []TaskStatus{TaskStatusSwapping},
 		},
 		{
 			name:   "non-barrier group failure",
@@ -955,9 +925,6 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 			taskID := "barrier-failed-phase-status"
 			addTaskOneUnitPerNode(t, h, taskID, tt.needsBarrier)
 			completeAllUnits(t, h, taskID)
-			if tt.liftBarrier {
-				barrierDriveAllAcksAndAssertSwapping(t, h, taskID)
-			}
 			failing := h.nodes[1].provider
 			tt.inject(failing)
 
@@ -965,7 +932,7 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 			h.tick(1)
 			require.Equal(t, TaskStatusFailed, h.getTask(t, taskID).Status,
 				"node-2's failed ack must fail the task")
-			require.Equal(t, tt.swapStatuses, failing.swapStatuses,
+			require.Empty(t, failing.swapStatuses,
 				"node-2 must not run a swap the barrier did not lift")
 			h.tick(1)
 			require.Equal(t, []TaskStatus{TaskStatusFailed}, failing.taskStatuses,
@@ -1018,7 +985,7 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 				}
 				h.tick(0)
 				complete(t, h, "b-2", "node-2")
-				h.nodes[1].provider.SetGroupErrors(map[string]error{"tenant-b": errors.New("synthetic EIO")}, nil)
+				h.nodes[1].provider.SetGroupErrors(map[string]error{"tenant-b": errors.New("synthetic EIO")})
 				h.tick(1)
 				h.tick(1)
 				require.Contains(t, h.nodes[1].provider.swapGroups, "tenant-a", "node-2 swaps the decided tenant")
@@ -1058,62 +1025,45 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 	}
 }
 
-// A failed local group must fail the task even while another local group
+// A failed local prepare must fail the task even while another local group
 // is still retryable (context.Canceled, for example a held shard).
 func TestBarrier_FailedGroupAcksWhileOtherGroupRetryable(t *testing.T) {
-	groupErrs := map[string]error{
+	defer leaktest.Check(t)()
+
+	h := newBarrierHarness(t, []string{"node-1"})
+	defer h.close()
+
+	taskID := "barrier-failed-group-acks"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitSpecs: []*cmd.UnitSpec{
+			{Id: "u-a", GroupId: "group-a"},
+			{Id: "u-b", GroupId: "group-b"},
+		},
+		NeedsPreparationBarrier: true,
+	}), 1))
+	for _, u := range []string{"u-a", "u-b"} {
+		require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+			context.Background(), h.namespace, taskID, 1, "node-1", u, 0.1))
+	}
+	h.tick(0)
+	for _, u := range []string{"u-a", "u-b"} {
+		require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+			context.Background(), h.namespace, taskID, 1, "node-1", u))
+	}
+	require.Equal(t, TaskStatusPreparing, h.getTask(t, taskID).Status)
+
+	h.nodes[0].provider.SetGroupErrors(map[string]error{
 		"group-a": fmt.Errorf("shard held: %w", context.Canceled),
 		"group-b": fmt.Errorf("synthetic EIO"),
-	}
-	tests := []struct {
-		name        string
-		prepErrs    map[string]error
-		swapErrs    map[string]error
-		liftBarrier bool
-	}{
-		{name: "prep", prepErrs: groupErrs},
-		{name: "swap", swapErrs: groupErrs, liftBarrier: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer leaktest.Check(t)()
+	})
+	h.tick(0)
 
-			h := newBarrierHarness(t, []string{"node-1"})
-			defer h.close()
-
-			taskID := "barrier-failed-group-acks"
-			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-				Namespace:             h.namespace,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-				UnitSpecs: []*cmd.UnitSpec{
-					{Id: "u-a", GroupId: "group-a"},
-					{Id: "u-b", GroupId: "group-b"},
-				},
-				NeedsPreparationBarrier: true,
-			}), 1))
-			for _, u := range []string{"u-a", "u-b"} {
-				require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
-					context.Background(), h.namespace, taskID, 1, "node-1", u, 0.1))
-			}
-			h.tick(0)
-			for _, u := range []string{"u-a", "u-b"} {
-				require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
-					context.Background(), h.namespace, taskID, 1, "node-1", u))
-			}
-			require.Equal(t, TaskStatusPreparing, h.getTask(t, taskID).Status)
-			if tt.liftBarrier {
-				barrierDriveAllAcksAndAssertSwapping(t, h, taskID)
-			}
-
-			h.nodes[0].provider.SetGroupErrors(tt.prepErrs, tt.swapErrs)
-			h.tick(0)
-
-			task := h.getTask(t, taskID)
-			require.Equal(t, TaskStatusFailed, task.Status, "group-b's failure must be acked without waiting for group-a")
-			require.Contains(t, task.Error, `"group-b"`)
-		})
-	}
+	task := h.getTask(t, taskID)
+	require.Equal(t, TaskStatusFailed, task.Status, "group-b's failure must be acked without waiting for group-a")
+	require.Contains(t, task.Error, `"group-b"`)
 }
 
 func TestPerTenantSwap(t *testing.T) {
