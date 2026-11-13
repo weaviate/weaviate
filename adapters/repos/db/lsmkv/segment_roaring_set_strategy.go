@@ -19,9 +19,9 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// roaringSetGet returns the node's additions bitmap, safe to mutate: cloned
-// into a pooled buffer on the mmap path, backed by the pooled node buffer on
-// the pread path. The node's deletions are deliberately not read: this
+// roaringSetGet returns the node's additions bitmap, safe to mutate. The mmap
+// path clones it into a pooled buffer, and the pread path wraps the pooled node
+// buffer it read. The node's deletions are deliberately not read: this
 // method only runs for the oldest segment holding the key, whose tombstones
 // cannot mask anything older; newer segments' deletions are applied by
 // roaringSetMergeWith.
@@ -51,10 +51,7 @@ func (s *segment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roar
 		if err != nil {
 			return nil, noopRelease, err
 		}
-		// reuse buffer of entire segment node.
-		// node's data might get overwritten by changes of underlying additions bitmap.
-		// overwrites should be safe, as other data is not used later on
-		bm, release = sn.AdditionsUnlimited(), nodeRelease
+		bm, release = sn.AdditionsOwningBuf(bitmapBufPool, nodeRelease)
 	}
 
 	if bm == nil {

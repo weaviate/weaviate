@@ -13,6 +13,7 @@ package roaringsetrange
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,7 +199,7 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 			want, err := NewSegmentNode(tt.key, wantAdditions, wantDeletions)
 			require.NoError(t, err)
 
-			got, _ := NewSegmentNodeCompacted(tt.key, additions, deletions, nil)
+			got := NewSegmentNodeCompacted(tt.key, additions, deletions, &roaringset.SegmentNodeScratch{})
 
 			require.Equal(t, want.ToBuffer(), got.ToBuffer())
 			require.Equal(t, uint64(len(got.data)), got.Len(),
@@ -218,10 +219,9 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 	}
 }
 
-// TestNewSegmentNodeCompactedReusesTheScratch pins that the second return value is
-// the scratch for the next call rather than the node's own bytes. Every row builds
-// through the scratch the row before it handed back, so a node that shrinks is
-// where the previous node's tail would leak in.
+// TestNewSegmentNodeCompactedReusesTheScratch pins that every row builds in the
+// buffer of the largest node before it, so a node that shrinks is where the
+// previous node's tail would leak in.
 func TestNewSegmentNodeCompactedReusesTheScratch(t *testing.T) {
 	big := valuesFrom(0, 5000)
 
@@ -239,8 +239,9 @@ func TestNewSegmentNodeCompactedReusesTheScratch(t *testing.T) {
 	}
 
 	var (
-		scratch   []byte
+		scratch   roaringset.SegmentNodeScratch
 		highWater int
+		largest   *byte
 		shrank    bool
 	)
 	for _, tt := range tests {
@@ -250,21 +251,18 @@ func TestNewSegmentNodeCompactedReusesTheScratch(t *testing.T) {
 		want, err := NewSegmentNode(tt.key, additions.Compacted(), deletions.Compacted())
 		require.NoError(t, err, "row %q", tt.name)
 
-		handedIn := len(scratch)
-		got, out := NewSegmentNodeCompacted(tt.key, additions, deletions, scratch)
-		scratch = out
+		got := NewSegmentNodeCompacted(tt.key, additions, deletions, &scratch)
 
 		require.Equal(t, want.ToBuffer(), got.ToBuffer(),
 			"row %q: no byte of the previous node may survive inside this one", tt.name)
 
-		if int(got.Len()) < handedIn {
-			shrank = true
-		}
 		if int(got.Len()) > highWater {
-			highWater = int(got.Len())
+			highWater, largest = int(got.Len()), unsafe.SliceData(got.data)
+			continue
 		}
-		require.GreaterOrEqual(t, len(scratch), highWater,
-			"row %q: the scratch must still hold the largest node built so far", tt.name)
+		shrank = shrank || int(got.Len()) < highWater
+		require.Same(t, largest, unsafe.SliceData(got.data),
+			"row %q: the node must be built in the largest node's buffer", tt.name)
 	}
 
 	require.True(t, shrank,

@@ -44,11 +44,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// baseLayerHeadroomFactor sizes the base layer's pooled buffer with 25%
-// headroom so the in-place merges of later layers usually fit without
-// reallocating off-pool.
-const baseLayerHeadroomFactor = 1.25
-
 type SegmentGroup struct {
 	segments []Segment
 
@@ -113,14 +108,11 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
-	// base layer; built once at construction
-	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
-	bm25config                   *schema.BM25Config
-	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
-	writeSegmentInfoIntoFileName bool
-	writeMetadata                bool
-	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
+	bm25config                     *schema.BM25Config
+	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
+	writeSegmentInfoIntoFileName   bool
+	writeMetadata                  bool
+	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// averagePropLength caches the live-set property-length sum and count for BM25
@@ -194,7 +186,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sequentialAccess:             cfg.sequentialAccess,
 		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
-		bitmapBufPoolWithHeadroom:    roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, baseLayerHeadroomFactor),
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
@@ -1261,12 +1252,11 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 }
 
 // roaringSetGet folds all disk segments holding key into a single additions
-// bitmap: the first segment with the key becomes the base (additions cloned
-// into a pooled buffer with headroom), every later segment applies its
-// deletions and additions onto it in place. Disk reads produce additions
-// only — the base segment's own deletions are never read, as they cannot
-// mask anything older. If no segment has the key, a nil bitmap and noop
-// release are returned.
+// bitmap. segment.roaringSetGet reads the first segment with the key into a
+// pooled buffer as the base, and roaringSetMergeWith applies every later
+// segment's deletions and additions onto it in place. The base segment's own
+// deletions are never read, as they cannot mask anything older. If no segment
+// has the key, a nil bitmap and noop release are returned.
 func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (bm *sroar.Bitmap, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
@@ -1281,7 +1271,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 
 	i := 0
 	for ; i < ln; i++ {
-		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, h, sg.bitmapBufPoolWithHeadroom)
+		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, h, sg.bitmapBufPool)
 		if getErr == nil {
 			bm = baseBM
 			acquired = baseRelease

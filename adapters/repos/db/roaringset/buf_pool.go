@@ -14,7 +14,6 @@ package roaringset
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/bits"
 	"slices"
 	"sync"
@@ -29,44 +28,48 @@ import (
 )
 
 type BitmapBufPool interface {
+	// Get makes BitmapBufPool a sroar.BufPool, so a bitmap built into a buffer
+	// from it also grows through it.
 	Get(minCap int) (buf []byte, put func())
-	// getWithBitmap additionally returns a result Bitmap struct for the
-	// buffer. Pooling implementations return the entry's embedded struct —
-	// re-initialized by the caller over buf, so cloning allocates nothing —
-	// while non-pooling ones return a fresh struct. bm shares buf's
-	// lifetime: neither may be used after put.
-	getWithBitmap(minCap int) (buf []byte, bm *sroar.Bitmap, put func())
+	// GetBitmapStruct returns a zeroed sroar.Bitmap to pass as dst to a sroar
+	// ToBuf method. put releases the buffer the bitmap holds by then and
+	// recycles the struct, so neither may be used after it.
+	GetBitmapStruct() (dst *sroar.Bitmap, put func())
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
 	// CloneBytesToBuf clones an already-serialized bitmap into a pooled
 	// buffer without materializing an intermediate bitmap over src. src must
 	// be a valid, non-empty sroar serialization. Like CloneToBuf, the clone
-	// owns the buffer's full capacity and can grow in place.
+	// owns the buffer's full capacity and grows through the pool past it.
 	CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func())
 	// AccumulatorToBuf materializes the accumulator's union into a pooled
 	// buffer, so a warm accumulator building into pooled memory allocates
-	// nothing. The returned bitmap owns the buffer's full capacity: it can
-	// grow in place and migrates to the heap past that (same contract as
-	// CloneToBuf). Release via put; the accumulator stays reusable. acc must
-	// be non-nil (unlike CloneToBuf's nil tolerance, it panics).
+	// nothing. The returned bitmap owns the buffer's full capacity and grows
+	// through the pool past it (same contract as CloneToBuf). Release via put;
+	// the accumulator stays reusable. acc must be non-nil (unlike CloneToBuf's
+	// nil tolerance, it panics).
 	AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
 }
 
 func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, bm, put := pool.getWithBitmap(src.LenInBytes())
-	src.InitCloneToBuf(bm, buf)
-	return bm, put
+	dst, put := pool.GetBitmapStruct()
+	return src.CloneToBuf(dst, pool), put
 }
 
-// src must be a valid, non-empty sroar serialization (even length, >= 8
-// bytes): shorter input yields a bitmap not backed by the pooled buffer, and
-// odd-length input — always corruption, the format is []uint16-based — panics.
+// src must be a non-empty sroar serialization of at least 8 bytes, or the clone
+// is empty. Odd-length src is corrupt and panics.
 func cloneBytesToBuf(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
 	requireEvenLength(src)
-	buf, bm, put := pool.getWithBitmap(len(src))
+	buf, release := pool.Get(len(src))
 	buf = buf[:len(src)]
 	copy(buf, src)
-	sroar.InitFromBufferUnlimited(bm, buf)
-	return bm, put
+	return fromBufferToBuf(pool, buf, release)
+}
+
+// fromBufferToBuf wraps the serialized bitmap in buf, which may extend into
+// spare capacity, and takes ownership of release, the func freeing buf's memory.
+func fromBufferToBuf(pool BitmapBufPool, buf []byte, release func()) (bm *sroar.Bitmap, put func()) {
+	dst, put := pool.GetBitmapStruct()
+	return sroar.FromBufferToBuf(dst, buf, release, pool), put
 }
 
 // requireEvenLength rejects odd-length serializations — always corruption,
@@ -80,15 +83,46 @@ func requireEvenLength(src []byte) {
 }
 
 func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	// noop default so put stays callable even if a future sroar version
-	// short-circuits without invoking the allocation callback
-	put = func() {}
-	bm = acc.InitBitmapToBuf(func(sizeBytes int) (*sroar.Bitmap, []byte) {
-		buf, dst, p := pool.getWithBitmap(sizeBytes)
-		put = p
-		return dst, buf
-	})
-	return bm, put
+	dst, put := pool.GetBitmapStruct()
+	return acc.BitmapToBuf(dst, pool), put
+}
+
+// bitmapStructPool recycles the result structs sroar ToBuf methods build into.
+// It is separate from the buffer pools because a bitmap growing through them
+// releases its buffer while the struct is still in use.
+type bitmapStructPool struct {
+	pool *sync.Pool
+}
+
+// pooledBitmap pairs a result struct with its put, bound once at creation so
+// Get doesn't allocate a closure per call.
+type pooledBitmap struct {
+	bm  sroar.Bitmap
+	put func()
+}
+
+func newBitmapStructPool() *bitmapStructPool {
+	p := &bitmapStructPool{}
+	p.pool = &sync.Pool{
+		New: func() any {
+			pb := &pooledBitmap{}
+			pb.put = func() {
+				// The buffer handed out at clone may have been outgrown and already
+				// released, so only the bitmap knows which one it holds now.
+				pb.bm.ReleaseBuf()
+				// A parked struct must not pin heap memory the bitmap may have moved to.
+				pb.bm = sroar.Bitmap{}
+				p.pool.Put(pb)
+			}
+			return pb
+		},
+	}
+	return p
+}
+
+func (p *bitmapStructPool) Get() (dst *sroar.Bitmap, put func()) {
+	pb := p.pool.Get().(*pooledBitmap)
+	return &pb.bm, pb.put
 }
 
 func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics,
@@ -133,8 +167,8 @@ func (p *bitmapBufPoolNoop) Get(minCap int) (buf []byte, put func()) {
 	return make([]byte, 0, minCap), func() {}
 }
 
-func (p *bitmapBufPoolNoop) getWithBitmap(minCap int) (buf []byte, bm *sroar.Bitmap, put func()) {
-	return make([]byte, 0, minCap), &sroar.Bitmap{}, func() {}
+func (p *bitmapBufPoolNoop) GetBitmapStruct() (dst *sroar.Bitmap, put func()) {
+	return &sroar.Bitmap{}, func() {}
 }
 
 func (p *bitmapBufPoolNoop) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -156,6 +190,7 @@ type bitmapBufPoolRanged struct {
 	firstInMemoRngIdx int
 	poolsSync         []*BufPoolFixedSync
 	poolsInMemo       []*BufPoolFixedInMemory
+	structs           *bitmapStructPool
 	disposableMetrics bufDisposableMetrics
 }
 
@@ -202,33 +237,28 @@ func NewBitmapBufPoolRanged(metrics *monitoring.PrometheusMetrics,
 		firstInMemoRngIdx: firstInMemoRngIdx,
 		poolsSync:         poolsSync,
 		poolsInMemo:       poolsInMemo,
+		structs:           newBitmapStructPool(),
 		disposableMetrics: disposableMetrics,
 	}
 }
 
 func (p *bitmapBufPoolRanged) Get(minCap int) (buf []byte, put func()) {
-	buf, _, put = p.getWithBitmap(minCap)
-	return buf, put
-}
-
-func (p *bitmapBufPoolRanged) getWithBitmap(minCap int) (buf []byte, bm *sroar.Bitmap, put func()) {
 	for i := 0; i < p.firstInMemoRngIdx; i++ {
 		if minCap <= p.ranges[i] {
-			pb := p.poolsSync[i].getEntry()
-			return pb.buf, &pb.bm, pb.put
+			return p.poolsSync[i].Get()
 		}
 	}
 	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
 		if minCap <= p.ranges[i] {
-			pb := p.poolsInMemo[i-p.firstInMemoRngIdx].getEntry()
-			return pb.buf, &pb.bm, pb.put
+			return p.poolsInMemo[i-p.firstInMemoRngIdx].Get()
 		}
 	}
-	// Oversized buffers are not pooled; their Bitmap struct is a one-off for
-	// the same reason (wasted on plain Get, but negligible next to the
-	// oversized buffer itself).
 	p.disposableMetrics.bufCreated(minCap)
-	return make([]byte, 0, minCap), &sroar.Bitmap{}, func() {}
+	return make([]byte, 0, minCap), func() {}
+}
+
+func (p *bitmapBufPoolRanged) GetBitmapStruct() (dst *sroar.Bitmap, put func()) {
+	return p.structs.Get()
 }
 
 func (p *bitmapBufPoolRanged) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -271,54 +301,14 @@ func (p *bitmapBufPoolRanged) StartPeriodicCleanup(logger logrus.FieldLogger, n 
 
 // -----------------------------------------------------------------------------
 
-type bitmapBufPoolFactorWrapper struct {
-	pool   BitmapBufPool
-	factor float64
-}
-
-func NewBitmapBufPoolFactorWrapper(pool BitmapBufPool, factor float64) *bitmapBufPoolFactorWrapper {
-	factor = max(factor, 1.0)
-	return &bitmapBufPoolFactorWrapper{pool: pool, factor: factor}
-}
-
-func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
-	buf, _, put = p.getWithBitmap(minCap)
-	return buf, put
-}
-
-func (p *bitmapBufPoolFactorWrapper) getWithBitmap(minCap int) (buf []byte, bm *sroar.Bitmap, put func()) {
-	newMinCap := int(math.Ceil(float64(minCap) * p.factor))
-	return p.pool.getWithBitmap(newMinCap)
-}
-
-func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
-}
-
-func (p *bitmapBufPoolFactorWrapper) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
-}
-
-func (p *bitmapBufPoolFactorWrapper) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
-}
-
-// -----------------------------------------------------------------------------
-
 type BufPoolFixedSync struct {
 	pool *sync.Pool
 }
 
 // pooledBuf pairs a reusable buffer with its release closure, bound once at
 // creation so Get doesn't allocate a closure per call.
-//
-// bm is the reusable result view for the clone paths: it shares the buffer's
-// exact lifetime, so getWithBitmap hands it out to be re-initialized over buf
-// and the clone allocates nothing. put resets it so a parked entry cannot pin
-// heap memory that a mutated bitmap may have migrated its data to.
 type pooledBuf struct {
 	buf []byte
-	bm  sroar.Bitmap
 	put func()
 }
 
@@ -327,10 +317,7 @@ func NewBufPoolFixedSync(cap int) *BufPoolFixedSync {
 	p.pool = &sync.Pool{
 		New: func() any {
 			pb := &pooledBuf{buf: make([]byte, 0, cap)}
-			pb.put = func() {
-				pb.bm = sroar.Bitmap{}
-				p.pool.Put(pb)
-			}
+			pb.put = func() { p.pool.Put(pb) }
 			return pb
 		},
 	}
@@ -338,12 +325,8 @@ func NewBufPoolFixedSync(cap int) *BufPoolFixedSync {
 }
 
 func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
-	pb := p.getEntry()
+	pb := p.pool.Get().(*pooledBuf)
 	return pb.buf, pb.put
-}
-
-func (p *BufPoolFixedSync) getEntry() *pooledBuf {
-	return p.pool.Get().(*pooledBuf)
 }
 
 // -----------------------------------------------------------------------------
@@ -365,11 +348,6 @@ func NewBufPoolFixedInMemory(metrics bufPoolInMemoMetrics, cap int, limit int) *
 }
 
 func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
-	pb := p.getEntry()
-	return pb.buf, pb.put
-}
-
-func (p *BufPoolFixedInMemory) getEntry() *pooledBuf {
 	var pb *pooledBuf
 	select {
 	case pb = <-p.bufsCh:
@@ -380,11 +358,10 @@ func (p *BufPoolFixedInMemory) getEntry() *pooledBuf {
 		pb.put = func() { p.put(pb) }
 		p.metrics.bufCreated()
 	}
-	return pb
+	return pb.buf, pb.put
 }
 
 func (p *BufPoolFixedInMemory) put(pb *pooledBuf) bool {
-	pb.bm = sroar.Bitmap{}
 	select {
 	case p.bufsCh <- pb:
 		p.metrics.bufPut()

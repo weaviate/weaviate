@@ -82,7 +82,7 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 	// reused by the next. Safe because the node is written out before the loop
 	// comes round again, and because keys[i].Key does not alias this buffer.
 	var (
-		nodeScratch []byte
+		nodeScratch roaringset.SegmentNodeScratch
 		sn          roaringset.SegmentNode
 	)
 	// A nil key is the end of the walk, and the bucket refuses one as a key, so
@@ -98,8 +98,8 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 
 		// Compacting straight into the node buffer keeps the segment free of the
 		// container slack the memtable's bitmaps carry.
-		sn, nodeScratch, err = roaringset.NewSegmentNodeCompacted(key,
-			layer.Additions, layer.Deletions, nodeScratch)
+		sn, err = roaringset.NewSegmentNodeCompacted(key,
+			layer.Additions, layer.Deletions, &nodeScratch)
 		if err != nil {
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
