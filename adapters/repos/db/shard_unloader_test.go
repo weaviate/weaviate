@@ -425,3 +425,20 @@ func TestAccessClockIdle(t *testing.T) {
 		require.Equal(t, tc.want, AccessClockIdle(tc.now, tc.last, tc.ttl), "now=%d last=%d ttl=%v", tc.now, tc.last, tc.ttl)
 	}
 }
+
+func TestRecordAccessNeverMovesLastAccessBack(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	prev := accessClock.Load()
+	t.Cleanup(func() { accessClock.Store(prev) })
+
+	accessClock.Store(1000)
+	f.lazy.recordAccess()
+	accessClock.Store(990)
+	f.lazy.recordAccess()
+	require.EqualValues(t, 1000, f.lazy.LastAccess(), "an older stamp must not overwrite a newer one")
+
+	accessClock.Store(1003)
+	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: 5 * time.Second}))
+	require.True(t, f.lazy.isLoaded())
+}

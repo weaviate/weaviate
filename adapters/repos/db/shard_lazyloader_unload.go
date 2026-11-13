@@ -67,11 +67,15 @@ func (l *LazyLoadShard) UnloadCandidate() bool {
 	return s != nil && !l.unloadPending.Load() && !s.shut.Load()
 }
 
-// recordAccess stores the access clock only when it moved, so a hot shard's
-// cache line is written at most once a tick.
+// recordAccess raises lastAccess to the access clock, never back and only when
+// it moved, so a hot shard's cache line is written at most once a tick.
 func (l *LazyLoadShard) recordAccess() {
-	if now := accessClock.Load(); l.lastAccess.Load() != now {
-		l.lastAccess.Store(now)
+	now := accessClock.Load()
+	for {
+		last := l.lastAccess.Load()
+		if last >= now || l.lastAccess.CompareAndSwap(last, now) {
+			return
+		}
 	}
 }
 
