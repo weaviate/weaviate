@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,6 +59,7 @@ type startupMetricsHarness struct {
 	cfg       Config
 	uc        ent.UserConfig
 	store     *lsmkv.Store
+	logHook   *test.Hook
 	vectors   [][]float32
 	armed     atomic.Bool
 	panicking atomic.Bool
@@ -69,11 +71,12 @@ type startupMetricsHarness struct {
 func newStartupMetricsHarness(t *testing.T, indexID string, waitForPrefill bool) *startupMetricsHarness {
 	t.Helper()
 	tempDir := t.TempDir()
-	logger, _ := test.NewNullLogger()
+	logger, logHook := test.NewNullLogger()
 	vectors, _ := testinghelpers.RandomVecs(5, 0, 8)
 
 	h := &startupMetricsHarness{
 		store:    testinghelpers.NewDummyStoreFromFolder(tempDir, t),
+		logHook:  logHook,
 		vectors:  vectors,
 		entered:  make(chan struct{}, 1),
 		released: make(chan struct{}),
@@ -83,6 +86,7 @@ func newStartupMetricsHarness(t *testing.T, indexID string, waitForPrefill bool)
 	h.cfg = Config{
 		RootPath:            tempDir,
 		ID:                  indexID,
+		Logger:              logger,
 		DistanceProvider:    distancer.NewL2SquaredProvider(),
 		WaitForCachePrefill: waitForPrefill,
 		AllocChecker:        memwatch.NewDummyMonitor(),
@@ -246,6 +250,16 @@ func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 	h.panicking.Store(true)
 	index.PostStartup(ctx)
 	index.prefillWg.Wait()
+	// prefillWg is released before the recover handler reads the env, so the
+	// override must outlive the handler
+	require.Eventually(t, func() bool {
+		for _, e := range h.logHook.AllEntries() {
+			if strings.HasPrefix(e.Message, "Recovered from panic") {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 10*time.Millisecond)
 
 	require.Equal(t, before, hnswPrefillCount(t),
 		"a prefill that panicked is not a completed prefill")
