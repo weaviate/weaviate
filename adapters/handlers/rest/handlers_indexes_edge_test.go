@@ -284,15 +284,13 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 // order. The runtime delivers tasks in map iteration order which is
 // non-deterministic per call, so first-in-list ordering would mean
 // polling could see the answer change request-to-request. The
-// StartedAt tiebreak keeps the response stable.
+// Version tiebreak keeps the response stable.
 //
 // In practice checkReindexConflict rejects overlapping STARTED tasks
 // on the same bucket, but a runtime fault (e.g. cluster forwarding
 // edge cases) could in theory produce this state and the response must
 // still be stable.
 func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
-	now := time.Now()
-
 	enableTask := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -304,7 +302,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.2},
 		},
 	)
-	enableTask.StartedAt = now.Add(-1 * time.Hour) // older
+	enableTask.Version = 1
 
 	changeTokTask := buildTask(t, "C:change-tokenization:foo:0002",
 		distributedtask.TaskStatusStarted,
@@ -318,7 +316,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.9},
 		},
 	)
-	changeTokTask.StartedAt = now // newer
+	changeTokTask.Version = 2
 
 	for _, order := range []struct {
 		name  string
@@ -352,7 +350,8 @@ type taskAttempt struct {
 // on two rules and the rows hold them apart:
 //
 //   - an in-flight task beats a terminal one, whichever started first;
-//   - between two of equal standing, the later StartedAt wins.
+//   - between two of equal standing, the later Version (RAFT index) wins,
+//     even when skewed clocks give it the earlier StartedAt.
 //
 // Every row runs the list both ways round, because the merge loop must not
 // rank on slice position.
@@ -414,7 +413,7 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			build := func(id string, a taskAttempt, startedAt time.Time) *distributedtask.Task {
+			build := func(id string, a taskAttempt, version uint64, startedAt time.Time) *distributedtask.Task {
 				task := buildTask(t, id, a.status,
 					db.ReindexTaskPayload{
 						MigrationType: db.ReindexTypeEnableFilterable,
@@ -423,14 +422,14 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 					},
 					map[string]*distributedtask.Unit{"u": {ID: "u", Status: a.unit, Progress: a.progress}},
 				)
-				task.StartedAt = startedAt
+				task.Version, task.StartedAt = version, startedAt
 				if a.status.IsTerminal() {
 					task.FinishedAt = now
 				}
 				return task
 			}
-			older := build(olderID, tt.older, now.Add(-2*time.Hour))
-			newer := build(newerID, tt.newer, now)
+			older := build(olderID, tt.older, 1, now)
+			newer := build(newerID, tt.newer, 2, now.Add(-2*time.Hour))
 
 			for _, order := range [][]*distributedtask.Task{{older, newer}, {newer, older}} {
 				idx := &models.IndexStatus{Type: "filterable", Status: "ready"}

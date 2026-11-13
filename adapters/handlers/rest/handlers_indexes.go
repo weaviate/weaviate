@@ -801,7 +801,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
 	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt          (within the same priority)
+	//   higher Version > lower Version             (within the same priority)
+	// Version is the RAFT index, the order the retainer uses; StartedAt is
+	// the receiving node's clock and can disagree under skew.
 	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
@@ -841,7 +843,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 
 		if best == nil || taskStatusPriority(task) > taskStatusPriority(best) ||
-			(taskStatusPriority(task) == taskStatusPriority(best) && task.StartedAt.After(best.StartedAt)) {
+			(taskStatusPriority(task) == taskStatusPriority(best) && task.Version > best.Version) {
 			best = task
 			bestPayload = payload
 		}
@@ -878,7 +880,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		}
 		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
-			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+			// A collection without multi-tenancy migrates as one unnamed group, not a tenant.
+			if _, ungrouped := migrated[""]; !ungrouped {
+				idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+			}
 		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
