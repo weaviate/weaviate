@@ -1109,3 +1109,67 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
 }
+
+func TestAsyncReplicationInMaintenanceEnabledRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	tests := []struct {
+		name       string
+		envDefault bool
+		yamls      []string
+		want       []bool
+	}{
+		{
+			name:       "set on over default off, then cleared",
+			envDefault: false,
+			yamls:      []string{"async_replication_in_maintenance_enabled: true\n", ""},
+			want:       []bool{true, false},
+		},
+		{
+			name:       "set off over default on, then cleared",
+			envDefault: true,
+			yamls:      []string{"async_replication_in_maintenance_enabled: false\n", ""},
+			want:       []bool{false, true},
+		},
+		{
+			name:       "toggled on, off, on",
+			envDefault: false,
+			yamls: []string{
+				"async_replication_in_maintenance_enabled: true\n",
+				"async_replication_in_maintenance_enabled: false\n",
+				"async_replication_in_maintenance_enabled: true\n",
+			},
+			want: []bool{true, false, true},
+		},
+		{
+			name:       "unrelated key leaves default",
+			envDefault: false,
+			yamls:      []string{"async_replication_disabled: true\n"},
+			want:       []bool{false},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := &WeaviateRuntimeConfig{
+				AsyncReplicationInMaintenanceEnabled: runtime.NewDynamicValue(tt.envDefault),
+				AsyncReplicationDisabled:             runtime.NewDynamicValue(false),
+			}
+			for i, y := range tt.yamls {
+				parsed, err := ParseRuntimeConfig([]byte(y))
+				require.NoError(t, err)
+				require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+				assert.Equal(t, tt.want[i], source.AsyncReplicationInMaintenanceEnabled.Get(), "step %d", i)
+			}
+		})
+	}
+}
+
+func TestBuildRegisteredRuntimeConfig_RegistersAsyncReplicationInMaintenanceEnabled(t *testing.T) {
+	cfg := &Config{}
+	cfg.Replication.AsyncReplicationInMaintenanceEnabled = runtime.NewDynamicValue(false)
+
+	registered := BuildRegisteredRuntimeConfig(cfg)
+
+	require.Same(t, cfg.Replication.AsyncReplicationInMaintenanceEnabled, registered.AsyncReplicationInMaintenanceEnabled)
+}

@@ -79,3 +79,50 @@ func TestMeteredReader(t *testing.T) {
 		assert.Equal(t, int64(0), took)
 	})
 }
+
+// A read that hits the end of the data returns its bytes together with io.EOF;
+// the callback must still see them.
+func TestMeteredReaderCountsBytesReturnedWithEOF(t *testing.T) {
+	data := make([]byte, 100)
+
+	tests := []struct {
+		name string
+		read func(mr *MeteredReader) (int, error)
+		want int64
+	}{
+		{name: "Read", want: 100, read: func(mr *MeteredReader) (int, error) {
+			b, err := io.ReadAll(mr)
+			return len(b), err
+		}},
+		{name: "ReadAt", want: 40, read: func(mr *MeteredReader) (int, error) {
+			n, err := mr.ReadAt(make([]byte, 128), 60)
+			require.ErrorIs(t, err, io.EOF)
+			return n, nil
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var read int64
+			// a reader that returns the last bytes together with io.EOF, as files do
+			mr := NewMeteredReader(eofWithDataReader{bytes.NewReader(data)}, func(r, _ int64) { read += r })
+
+			n, err := tt.read(mr)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, int64(n))
+			assert.Equal(t, tt.want, read)
+		})
+	}
+}
+
+// eofWithDataReader returns io.EOF together with the last bytes of a Read,
+// which io.Reader allows and bytes.Reader does not do on its own.
+type eofWithDataReader struct{ *bytes.Reader }
+
+func (r eofWithDataReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err == nil && r.Len() == 0 {
+		return n, io.EOF
+	}
+	return n, err
+}

@@ -411,7 +411,7 @@ func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, c
 	}).Info("cancel: the task is SWAPPING and ends once every replica that owes a swap has swapped; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: "+
-			"it ends once every replica that owes a swap has swapped, and a node lost for good holds it. Nothing was cancelled",
+			"it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. Nothing was cancelled",
 			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
 }
 
