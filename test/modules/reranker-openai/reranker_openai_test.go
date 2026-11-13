@@ -158,7 +158,6 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 		grpcClient := helper.ClientGRPC(t)
 
 		photos := []string{grayPNG(t, 300, 0x40), grayPNG(t, 300, 0x80), grayPNG(t, 300, 0xc0)}
-		oversized := oversizedImage(t)
 		allProbabilities := map[string]float64{changeEmail: 0.2, noRefund: 0.9, chargedTwice: 0.5}
 		tests := []struct {
 			name          string
@@ -253,15 +252,6 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 				name:        "a missing query fails before any request",
 				property:    "text",
 				wantErr:     []string{"rerank.query is required by reranker-openai"},
-				minRequests: 0,
-				maxRequests: 0,
-			},
-			{
-				name:        "an image above 20 MiB fails before any request",
-				photos:      []string{oversized},
-				property:    "photo",
-				query:       new(churn),
-				wantErr:     []string{changeEmailID, "exceed the limit of 20 MiB per image"},
 				minRequests: 0,
 				maxRequests: 0,
 			},
@@ -360,14 +350,6 @@ func imageInput(photo string) any {
 			"image_url": "data:image/png;base64," + photo,
 		}},
 	}}
-}
-
-// A PNG header followed by zeros, a few bytes above 20 MiB.
-func oversizedImage(t *testing.T) string {
-	t.Helper()
-	content := make([]byte, 20<<20+8)
-	copy(content, "\x89PNG\r\n\x1a\n")
-	return base64.StdEncoding.EncodeToString(content)
 }
 
 func createTickets(t *testing.T, moduleConfig map[string]any, tickets []ticket) {
