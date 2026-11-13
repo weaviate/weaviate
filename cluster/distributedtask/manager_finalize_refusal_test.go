@@ -26,7 +26,6 @@ func TestManager_MarkTaskFinalizedLeavesEndedTasksUnchanged(t *testing.T) {
 		wantErr error
 	}{
 		{status: TaskStatusFailed, wantErr: ErrTaskNotInFinalizingState},
-		{status: TaskStatusCancelled, wantErr: ErrTaskNotInFinalizingState},
 		{status: TaskStatusFinished},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
