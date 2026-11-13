@@ -2881,27 +2881,20 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
-	// If the request is a BM25F with no properties selected, use all possible properties
+	// A BM25 search that names no properties means every searchable text
+	// property. A text property with indexSearchable disabled is an error
+	// here, not a silent omission: the query may only match that property,
+	// and hybrid search would then return vector hits alone (#5888).
 	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
-
 		cl := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
 		if cl == nil {
 			return nil, nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
 		}
-
-		propHash := cl.Properties
-		// Get keys of hash
-		for _, v := range propHash {
-			if inverted.PropertyHasSearchableIndex(i.getSchema.ReadOnlyClass(i.Config.ClassName.String()), v.Name) {
-				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
-			}
+		props, err := searchparams.ExpandKeywordProperties(cl)
+		if err != nil {
+			return nil, nil, err
 		}
-
-		// WEAVIATE-471 - error if we can't find a property to search
-		if len(keywordRanking.Properties) == 0 {
-			return nil, []float32{}, errors.New(
-				"No properties provided, and no indexed properties found in class")
-		}
+		keywordRanking.Properties = props
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties)

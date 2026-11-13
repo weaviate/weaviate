@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/search"
-
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 type SelectionMMR struct {
@@ -77,6 +77,55 @@ func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName strin
 	return HasSearchableIndex(p)
 }
 
+// ExpandKeywordProperties resolves the property list of a BM25 search that did
+// not name any. Searchable text properties are returned in schema order.
+//
+// A text or text[] property with indexSearchable disabled is not dropped.
+// Dropping it makes the search look empty when the query only occurs there,
+// and a hybrid search then returns vector hits with no keyword contribution
+// (https://github.com/weaviate/weaviate/issues/5888). The caller names the
+// properties it wants when some text properties are intentionally left out of
+// keyword search.
+func ExpandKeywordProperties(class *models.Class) ([]string, error) {
+	if class == nil {
+		return nil, fmt.Errorf("class not found in schema")
+	}
+
+	var searchable []string
+	var disabled []string
+	for _, prop := range class.Properties {
+		if prop == nil {
+			continue
+		}
+		if disabledSearchableText(prop) {
+			disabled = append(disabled, prop.Name)
+			continue
+		}
+		if HasSearchableIndex(prop) {
+			searchable = append(searchable, prop.Name)
+		}
+	}
+	if len(disabled) > 0 {
+		if len(searchable) == 0 {
+			return nil, inverted.NewNoSearchablePropertiesError(class.Class, disabled)
+		}
+		return nil, inverted.NewSkippedSearchableIndexError(disabled)
+	}
+	if len(searchable) == 0 {
+		return nil, inverted.NewNoSearchablePropertiesError(class.Class, nil)
+	}
+	return searchable, nil
+}
+
+func disabledSearchableText(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		return prop.IndexSearchable != nil && !*prop.IndexSearchable
+	default:
+		return false
+	}
+}
+
 // GetPropertyByName returns the class by its name
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
 	// a nested property is addressed by its first dot-notation segment
@@ -87,20 +136,6 @@ func GetPropertyByName(c *models.Class, propName string) (*models.Property, erro
 		}
 	}
 	return nil, fmt.Errorf("property %v not found %v", propName, c.Class)
-}
-
-func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
-	var validProperties []string
-	for _, prop := range k.Properties {
-		property, err := GetPropertyByName(class, prop)
-		if err != nil {
-			continue
-		}
-		if HasSearchableIndex(property) {
-			validProperties = append(validProperties, prop)
-		}
-	}
-	k.Properties = validProperties
 }
 
 type WeightedSearchResult struct {

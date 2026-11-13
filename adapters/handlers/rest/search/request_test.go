@@ -930,9 +930,12 @@ func TestDotPathsRejected(t *testing.T) {
 		body string
 		want string
 	}{
-		{"returnProperties nested field", `{"query":"x","returnProperties":["meta.isbn"]}`, "dot paths are not supported"},
-		{"returnProperties through a reference", `{"query":"x","returnProperties":["hasAuthor.name"]}`, "dot paths are not supported"},
-		{"linkOn with a dot", `{"query":"x","returnReferences":[{"linkOn":"hasAuthor.name"}]}`, "must be a reference property name"},
+		// queryProperties names a searchable field: Catalog also has "secret"
+		// with indexSearchable disabled, and a BM25 search that names no
+		// properties is rejected before these return-property checks.
+		{"returnProperties nested field", `{"query":"x","queryProperties":["title"],"returnProperties":["meta.isbn"]}`, "dot paths are not supported"},
+		{"returnProperties through a reference", `{"query":"x","queryProperties":["title"],"returnProperties":["hasAuthor.name"]}`, "dot paths are not supported"},
+		{"linkOn with a dot", `{"query":"x","queryProperties":["title"],"returnReferences":[{"linkOn":"hasAuthor.name"}]}`, "must be a reference property name"},
 		{"queryProperties nested field", `{"query":"x","queryProperties":["meta.isbn"]}`, "nested fields cannot be keyword-searched"},
 	}
 	for _, tt := range tests {
@@ -1052,7 +1055,7 @@ func unsearchableClass() *models.Class {
 
 func TestBm25NoSearchableProperties(t *testing.T) {
 	// empty queryProperties expand to all searchable properties; with none,
-	// the engine errors untyped (a 500), so the handler pre-checks with 422
+	// the handler pre-checks with 422 (the engine error is the same type)
 	for name, body := range map[string]string{
 		"omitted": `{"query":"space"}`,
 		"empty":   `{"query":"space","queryProperties":[]}`,
@@ -1062,6 +1065,10 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 			require.NotNil(t, apiErr)
 			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 			assert.Contains(t, apiErr.Error(), "no searchable properties")
+			assert.Contains(t, apiErr.Error(), "indexSearchable")
+			assert.Contains(t, apiErr.Error(), "code")
+			assert.Contains(t, apiErr.Error(), "Enable indexSearchable on a text property")
+			assert.NotContains(t, apiErr.Error(), "search properties")
 		})
 	}
 
@@ -1069,6 +1076,74 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+	})
+}
+
+// mixedSearchableClass is the issue #5888 reproduction: one text property is
+// searchable, another has indexSearchable disabled. A BM25 query that does
+// not name properties must not silently search only the searchable one.
+func mixedSearchableClass() *models.Class {
+	off := false
+	return &models.Class{
+		Class:             "TestCollection",
+		Vectorizer:        "text2vec-contextionary",
+		VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "text", DataType: schema.DataTypeText.PropString(), IndexSearchable: &off},
+		},
+	}
+}
+
+func TestBm25DisabledSearchableProperty(t *testing.T) {
+	class := mixedSearchableClass()
+
+	for name, body := range map[string]string{
+		"omitted": `{"query":"text"}`,
+		"empty":   `{"query":"text","queryProperties":[]}`,
+	} {
+		t.Run("bm25 "+name, func(t *testing.T) {
+			_, apiErr := buildBm25(t, class, body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "indexSearchable")
+			assert.Contains(t, apiErr.Error(), `"text"`)
+		})
+	}
+
+	t.Run("bm25 naming the searchable property succeeds", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, class, `{"query":"title","queryProperties":["title"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title"}, searcher.lastParams.KeywordRanking.Properties)
+	})
+
+	t.Run("bm25 naming the disabled property is a 422", func(t *testing.T) {
+		_, apiErr := buildBm25(t, class, `{"query":"text","queryProperties":["text"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "indexSearchable")
+		assert.Contains(t, apiErr.Error(), "text")
+	})
+
+	for _, alpha := range []string{"0", "0.5"} {
+		t.Run("hybrid alpha "+alpha+" without properties is a 422", func(t *testing.T) {
+			_, apiErr := buildHybrid(t, class, `{"query":"text","alpha":`+alpha+`}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "indexSearchable")
+			assert.Contains(t, apiErr.Error(), `"text"`)
+		})
+	}
+
+	t.Run("hybrid alpha 1 skips the keyword part", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, class, `{"query":"text","alpha":1}`)
+		assert.Nil(t, apiErr)
+	})
+
+	t.Run("hybrid naming the searchable property succeeds below alpha 1", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, class, `{"query":"title","alpha":0,"queryProperties":["title"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title"}, searcher.lastParams.HybridSearch.Properties)
 	})
 }
 
@@ -1773,6 +1848,8 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 			require.NotNil(t, apiErr)
 			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 			assert.Contains(t, apiErr.Error(), "no searchable properties")
+			assert.Contains(t, apiErr.Error(), "Enable indexSearchable on a text property")
+			assert.NotContains(t, apiErr.Error(), "search properties")
 		})
 	}
 

@@ -36,12 +36,19 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 		return nil, fmt.Errorf("could not find class %s in schema", a.params.ClassName)
 	}
 
-	for _, v := range cl.Properties {
-		if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
-			kw.Properties = append(kw.Properties, v.Name)
-		}
+	// Named properties are validated by BM25F, which errors when one is not
+	// searchable. An empty list is every searchable text property, and a
+	// text property with indexSearchable disabled is an error rather than a
+	// property that is quietly left out of the keyword leg (#5888).
+	if len(a.params.Hybrid.Properties) > 0 {
+		kw.Properties = append([]string(nil), a.params.Hybrid.Properties...)
+		return kw, nil
 	}
-
+	props, err := searchparams.ExpandKeywordProperties(cl)
+	if err != nil {
+		return nil, err
+	}
+	kw.Properties = props
 	return kw, nil
 }
 
@@ -61,8 +68,6 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", a.params.ClassName)
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
-
-	kw.ChooseSearchableProperties(class)
 
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
 		a.classSearcher, a.stopwordProvider,
