@@ -275,15 +275,15 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
 	}
 
-	// Normalize the `rangeable` alias to `rangeFilters` for the schema
-	// manager; other values pass through unchanged so DELETE stays
-	// byte-compatible with GA v1.36.
-	indexName := params.IndexName
-	if indexName == "rangeable" {
-		indexName = "rangeFilters"
+	indexType, ok := normalizeIndexTypeParam(params.IndexName)
+	if !ok {
+		err := fmt.Errorf("invalid property index type: %s", params.IndexName)
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, canonicalIndexType(indexType))
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -296,8 +296,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		}
 	}
 
-	// Same spelling as the cancel audit lines, so one query finds both.
-	indexType, _ := normalizeIndexTypeParam(params.IndexName)
+	// The cancel audit lines spell index_type the same way, so one query finds deletes and cancels.
 	s.logger.WithFields(logrus.Fields{
 		"audit_event": "property_index_deleted",
 		"collection":  qualifiedClass,

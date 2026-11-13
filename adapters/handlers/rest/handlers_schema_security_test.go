@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -133,32 +134,16 @@ func (r *propertyWriteRecorder) UpdateProperty(context.Context, string, *models.
 	return 0, nil
 }
 
-// useCaseDenyAuthorizer passes the handler's own check and denies the schema
-// use case's, which comes second.
-type useCaseDenyAuthorizer struct {
-	authorization.DummyAuthorizer
-	calls int
-}
-
-func (a *useCaseDenyAuthorizer) Authorize(_ context.Context, principal *models.Principal, verb string, resources ...string) error {
-	if a.calls++; a.calls > 1 {
-		return authzerrors.NewForbidden(principal, verb, resources...)
-	}
-	return nil
-}
-
 func TestDeleteClassPropertyIndex_WritesAnAuditLine(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		property      string
 		indexName     string
-		authz         authorization.Authorizer
 		wantForbidden bool
 		wantIndexType string
 	}{
-		{name: "filterable", property: "title", indexName: "filterable", authz: &authorization.DummyAuthorizer{}, wantIndexType: "filterable"},
-		{name: "rangeFilters logs the cancel spelling", property: "year", indexName: "rangeFilters", authz: &authorization.DummyAuthorizer{}, wantIndexType: "rangeable"},
-		{name: "forbidden by the schema use case", property: "title", indexName: "filterable", authz: &useCaseDenyAuthorizer{}, wantForbidden: true},
+		{name: "rangeFilters logs the cancel spelling", property: "year", indexName: "rangeFilters", wantIndexType: "rangeable"},
+		{name: "forbidden by the schema use case", property: "title", indexName: "filterable", wantForbidden: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := schemaUC.NewMockSchemaReader(t)
@@ -167,13 +152,18 @@ func TestDeleteClassPropertyIndex_WritesAnAuditLine(t *testing.T) {
 				{Name: "year", DataType: []string{"int"}, IndexRangeFilters: boolPtr(true)},
 			}}).Maybe()
 			writer := &propertyWriteRecorder{}
-			handler, err := schemaUC.NewHandler(reader, writer, nil, logrus.New(), tc.authz, nil, config.Config{},
+			authz := mocks.NewMockAuthorizer()
+			if tc.wantForbidden {
+				// Allows deleteClassPropertyIndex's Authorize and AuthorizeSilent, denies Handler.DeleteClassPropertyIndex's Authorize.
+				authz.SetErrAfter(2, authzerrors.NewForbidden(&models.Principal{Username: "admin"}, authorization.UPDATE, "Movies"))
+			}
+			handler, err := schemaUC.NewHandler(reader, writer, nil, logrus.New(), authz, nil, config.Config{},
 				nil, nil, nil, nil, nil, nil, schemaUC.Parser{}, nil, nil, nil)
 			require.NoError(t, err)
 			logger, hook := logrustest.NewNullLogger()
 			h := &schemaHandlers{
 				manager:             &schemaUC.Manager{Handler: handler},
-				authorizer:          tc.authz,
+				authorizer:          authz,
 				metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 				reindexTaskLister:   fakeReindexTaskLister{},
 				logger:              logger,
@@ -181,7 +171,7 @@ func TestDeleteClassPropertyIndex_WritesAnAuditLine(t *testing.T) {
 
 			resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
 				HTTPRequest:  httptest.NewRequest("DELETE", "/", nil),
-				ClassName:    "Movies",
+				ClassName:    "movies",
 				PropertyName: tc.property,
 				IndexName:    tc.indexName,
 			}, &models.Principal{Username: "admin"})
