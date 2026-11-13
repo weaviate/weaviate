@@ -155,6 +155,83 @@ func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 	assert.Equal(t, opened, f.opened.Load(), "the second query opened new connections")
 }
 
+// The first query leaves one connection in the pool. The transport sends a
+// request again only when its connection came from the pool.
+func TestRankSendsARequestAgainWhenAPooledConnectionBreaks(t *testing.T) {
+	f := newFake(t)
+	f.replies = map[int]fakeReply{1: {hangUp: true}}
+	c := newTestClient(defaultFakeKey)
+
+	_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), f.opened.Load())
+	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(chargedTwice), classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	assert.Equal(t, []ent.DocumentScore{{Document: chargedTwice, Score: 0.5}}, res.DocumentScores)
+	assert.Equal(t, []string{noRefund, chargedTwice, chargedTwice}, inputs(f.received()))
+	assert.Equal(t, int64(2), f.opened.Load())
+}
+
+func TestRankSendsARequestOnce(t *testing.T) {
+	tests := []struct {
+		name string
+		// pooled sends a query before, so that the request goes out on a
+		// connection from the pool.
+		pooled  bool
+		reply   fakeReply
+		wantErr string
+	}{
+		{
+			name:    "a 429 on a connection from the pool",
+			pooled:  true,
+			reply:   fakeReply{status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`},
+			wantErr: "connection to OpenAI API failed with status 429: slow down",
+		},
+		{
+			name:    "a 500 on a connection from the pool",
+			pooled:  true,
+			reply:   fakeReply{status: http.StatusInternalServerError, body: `{"error":{"message":"The server had an error"}}`},
+			wantErr: "connection to OpenAI API failed with status 500: The server had an error",
+		},
+		{
+			name:    "a 503 on a connection from the pool",
+			pooled:  true,
+			reply:   fakeReply{status: http.StatusServiceUnavailable, body: `{"error":{"message":"overloaded"}}`},
+			wantErr: "connection to OpenAI API failed with status 503: overloaded",
+		},
+		{
+			name:    "a 429 on a new connection",
+			reply:   fakeReply{status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`},
+			wantErr: "connection to OpenAI API failed with status 429: slow down",
+		},
+		{
+			name:    "a new connection that breaks",
+			reply:   fakeReply{hangUp: true},
+			wantErr: "send OpenAI request: ",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			c := newTestClient(defaultFakeKey)
+			want := []string{chargedTwice}
+			if tt.pooled {
+				_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+				require.NoError(t, err)
+				want = []string{noRefund, chargedTwice}
+			}
+			f.replies = map[int]fakeReply{len(want) - 1: tt.reply}
+
+			_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(chargedTwice), classConfig(f.url(), nil))
+
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Equal(t, want, inputs(f.received()))
+			assert.Equal(t, int64(1), f.opened.Load())
+		})
+	}
+}
+
 func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
@@ -1995,6 +2072,8 @@ type fakeReply struct {
 	body   string
 	// stalled sends the status and the headers, and never the body.
 	stalled bool
+	// hangUp closes the connection after it read the request, without a reply.
+	hangUp bool
 }
 
 // fakeOpenAI answers with the probability of the input, 0.5 when unknown, or
@@ -2092,6 +2171,13 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		<-f.release
 	}
 
+	if replied && reply.hangUp {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if assert.NoError(f.t, err) {
+			conn.Close()
+		}
+		return
+	}
 	if replied && reply.stalled {
 		w.Header().Set("Content-Length", "1024")
 		w.WriteHeader(reply.status)
