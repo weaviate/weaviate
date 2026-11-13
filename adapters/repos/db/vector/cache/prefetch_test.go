@@ -15,10 +15,71 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"unsafe"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+// TestPrefetchRangeReachesTheEndOfTheVector pins what the prefetch asks for.
+// The hints themselves cannot be observed, so the test follows the loop of
+// asm.PrefetchN: one hint per 64 bytes of the size, counting from the address.
+// A vector that starts late in a cache line ends one line further than its
+// size says, and the hints have to reach that line too.
+func TestPrefetchRangeReachesTheEndOfTheVector(t *testing.T) {
+	const line = 64
+	tests := []struct {
+		name     string
+		bytes    int
+		maxBytes int
+	}{
+		{name: "a 256d rq1 code", bytes: 40, maxBytes: compressedPrefetchMaxBytes},
+		{name: "a 768d rq1 code", bytes: 104, maxBytes: compressedPrefetchMaxBytes},
+		{name: "a 1536d rq1 code", bytes: 200, maxBytes: compressedPrefetchMaxBytes},
+		{name: "a 1536d 4-bit rq code", bytes: 784, maxBytes: compressedPrefetchMaxBytes},
+		{name: "longer than the cap", bytes: compressedPrefetchMaxBytes + 64, maxBytes: compressedPrefetchMaxBytes},
+		{name: "the head of a float vector", bytes: 6144, maxBytes: floatPrefetchMaxBytes},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// words, so that the same memory serves the byte and the uint64 view
+			backing := make([]uint64, (tt.bytes+2*line)/8+1)
+			buf := unsafe.Slice((*byte)(unsafe.Pointer(&backing[0])), len(backing)*8)
+			aligned := int((line - uintptr(unsafe.Pointer(&buf[0]))%line) % line)
+
+			for offset := 0; offset < line; offset += 8 {
+				vec := buf[aligned+offset : aligned+offset+tt.bytes]
+				addr, size := prefetchRange(vec, tt.maxBytes)
+				assertHintsCover(t, addr, size, uintptr(unsafe.Pointer(&vec[0])), min(tt.bytes, tt.maxBytes), offset)
+
+				if tt.bytes%8 != 0 {
+					continue
+				}
+				words := backing[(aligned+offset)/8 : (aligned+offset+tt.bytes)/8]
+				addr, size = prefetchRange(words, tt.maxBytes)
+				assertHintsCover(t, addr, size, uintptr(unsafe.Pointer(&words[0])), min(tt.bytes, tt.maxBytes), offset)
+			}
+		})
+	}
+}
+
+// assertHintsCover checks that the hints for (addr, size) cover the n bytes
+// at start and nothing after them.
+func assertHintsCover(t *testing.T, addr uintptr, size int, start uintptr, n, offset int) {
+	t.Helper()
+	const line = 64
+	hinted := map[uintptr]bool{}
+	for left := size; left > 0; left -= line {
+		hinted[addr/line] = true
+		addr += line
+	}
+	first, last := start/line, (start+uintptr(n)-1)/line
+	for l := first; l <= last; l++ {
+		assert.True(t, hinted[l], "offset %d: line %d of the vector is not hinted", offset, l-first)
+	}
+	assert.Len(t, hinted, int(last-first)+1, "offset %d: hints beyond the vector", offset)
+}
 
 // TestPrefetch exercises the data-prefetch path: empty slots, short vectors
 // (below one cache line), vectors longer than the cache's prefetch cap, and
