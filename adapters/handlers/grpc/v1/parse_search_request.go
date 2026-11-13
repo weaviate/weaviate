@@ -459,9 +459,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			}
 		}
 	}
-	if err := p.extractPropertiesForModules(&out); err != nil {
-		return dto.GetParams{}, err
-	}
+	p.extractPropertiesForModules(&out)
 	return out, nil
 }
 
@@ -1533,22 +1531,13 @@ func parseSelection(sel *pb.Selection) *searchparams.Selection {
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
-func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
+func (p *Parser) extractPropertiesForModules(params *dto.GetParams) {
 	var additionalProps []string
 	for _, value := range params.AdditionalProperties.ModuleParams {
 		extractor, ok := value.(additional2.PropertyExtractor)
 		if ok {
 			additionalProps = append(additionalProps, extractor.GetPropertiesToExtract()...)
 		}
-	}
-	class, err := p.authorizedGetClass(params.ClassName)
-	if err != nil {
-		return err
-	}
-	schemaProps := class.Properties
-	propDataTypes := make(map[string]schema.DataType)
-	for _, prop := range schemaProps {
-		propDataTypes[prop.Name] = schema.DataType(prop.DataType[0])
 	}
 	propsToAdd := make([]search.SelectProperty, 0)
 OUTER:
@@ -1558,18 +1547,14 @@ OUTER:
 				continue OUTER
 			}
 		}
-		if propDataTypes[additionalProp] == schema.DataTypeBlob || propDataTypes[additionalProp] == schema.DataTypeBlobHash {
-			// make sure that blobs/blobHash aren't added to the response payload by accident
-			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
-		} else {
-			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
-		}
+		// The property is loaded for the module. IsPrimitive false keeps it out
+		// of the reply, which returns only the properties the request asked for.
+		propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
 	}
 	params.Properties = append(params.Properties, propsToAdd...)
 	if len(params.Properties) > 0 {
 		params.AdditionalProperties.NoProps = false
 	}
-	return nil
 }
 
 func extractVectors(vectors []*pb.Vectors) (interface{}, error) {
