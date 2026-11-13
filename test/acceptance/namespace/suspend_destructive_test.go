@@ -160,7 +160,7 @@ func TestNamespaces_SuspendRefusesDestructiveSchemaOps(t *testing.T) {
 		// The read goes to the home node, because a forwarded read of a shard the
 		// sweep released before the resume fails. It uses NewClient, because
 		// SetupClient repoints the client every parallel test shares.
-		homeNode := helper.GetNamespace(t, ns1, adminKey).HomeNode
+		homeNode := helper.GetNamespace(t, ns1, adminKey).HomeNodes[0]
 		homeClient := helper.NewClient(t, uriForNode(t, homeNode))
 		tenant := keptTenant
 		params := objects.NewObjectsClassGetParams().

@@ -12,7 +12,9 @@
 package schema
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -23,8 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/versioned"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -53,6 +58,13 @@ func (f fakeNamespacesExister) GetNamespace(name string) (cmd.Namespace, bool) {
 		return cmd.Namespace{Name: name, HomeNodes: []string{f.defaultHomeNode}, State: cmd.NamespaceStateActive}, true
 	}
 	return cmd.Namespace{}, false
+}
+
+// homeNodes seeds an active namespace customer1 with nodes as its HomeNodes.
+func homeNodes(nodes ...string) fakeNamespacesExister {
+	return fakeNamespacesExister{byName: map[string]cmd.Namespace{
+		"customer1": {Name: "customer1", HomeNodes: nodes, State: cmd.NamespaceStateActive},
+	}}
 }
 
 // newTestHandlerWithNamespaces returns a Handler that has the cluster-wide
@@ -217,52 +229,51 @@ func TestAddClass(t *testing.T) {
 	}
 }
 
-// TestAddClass_PinsShardsToNamespaceHomeNode covers the placement override
-// on NS-enabled clusters: the shard state is built with [home_node] as the
-// candidate list, instead of the full storage candidate set. NS-disabled
-// clusters fall back to the default-spread behaviour.
+// TestAddClass_PinsShardsToNamespaceHomeNode pins a namespaced class to one
+// shard owned by the first RF home nodes in stored order, and refuses a factor
+// above their count. NS-disabled clusters place on the storage candidates.
 func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
 	allCandidates := []string{"node-1", "node-2", "node-3"}
 
 	tests := []struct {
-		name      string
-		enabled   bool
-		principal *models.Principal
-		exister   fakeNamespacesExister
-		inputName string
-		// allowedNodes is the set the picked shard node is expected to be
-		// a member of. With NS enabled and a pinned home_node it's the
-		// singleton {home_node}; with NS disabled InitState spreads across
-		// all storage candidates and picks one.
-		allowedNodes []string
+		name       string
+		disabled   bool // namespaces off, with a global principal
+		exister    fakeNamespacesExister
+		factor     int64
+		storage    []string // defaults to allCandidates
+		wantOwners []string // the one shard's BelongsToNodes, in order
+		wantErr    string
 	}{
 		{
-			name:      "NS enabled: shard pinned to namespace home_node",
-			enabled:   true,
-			principal: namespacedPrincipal("customer1"),
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
-			}},
-			inputName:    "Movies",
-			allowedNodes: []string{"node-2"},
+			name:    "NS enabled: RF=2 takes the first two home nodes in stored order",
+			exister: homeNodes("node-3", "node-1", "node-2"), factor: 2,
+			storage: []string{"node-1", "node-2", "node-3", "node-4"}, wantOwners: []string{"node-3", "node-1"},
 		},
 		{
-			name:         "NS disabled: pick from full storage candidates",
-			enabled:      false,
-			principal:    globalPrincipal(),
-			exister:      fakeNamespacesExister{},
-			inputName:    "Movies",
-			allowedNodes: allCandidates,
+			name:    "NS enabled: home nodes outside the storage candidates are skipped",
+			exister: homeNodes("node-1", "node-9", "node-8", "node-2"), factor: 2, wantOwners: []string{"node-1", "node-2"},
 		},
+		{
+			name:    "NS enabled: RF above the home-node count refused",
+			exister: homeNodes("node-1", "node-2"), factor: 3, wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace",
+		},
+		{name: "NS disabled: placed on the storage candidates", disabled: true, factor: 1, wantOwners: []string{"node-1"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			principal := namespacedPrincipal("customer1")
+			if tt.disabled {
+				principal = globalPrincipal()
+			}
+			handler, sm := newTestHandlerWithNamespaces(t, !tt.disabled)
 			sm.storageCandidates = allCandidates
+			if tt.storage != nil {
+				sm.storageCandidates = tt.storage
+			}
 			handler.namespacesExister = tt.exister
 
 			var capturedState *sharding.State
@@ -271,30 +282,46 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			}), mock.MatchedBy(func(s *sharding.State) bool {
 				capturedState = s
 				return true
-			})).Return(nil)
+			})).Return(nil).Maybe()
 
 			class := &models.Class{
-				Class:             tt.inputName,
+				Class:             "Movies",
 				Vectorizer:        "model1",
 				VectorIndexConfig: map[string]interface{}{},
-				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				ReplicationConfig: &models.ReplicationConfig{Factor: tt.factor},
 			}
-			_, _, err := handler.AddClass(context.Background(), tt.principal, class)
+			_, _, err := handler.AddClass(context.Background(), principal, class)
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, ErrValidation)
+				assert.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, append([]string{"customer1"}, tt.exister.byName["customer1"].HomeNodes...)...)
+				sm.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+				return
+			}
 			require.NoError(t, err)
 
 			require.NotNil(t, capturedState, "expected AddClass to be called with a sharding state")
 			require.Len(t, capturedState.Physical, 1, "single non-MT shard expected")
 			for _, phys := range capturedState.Physical {
-				require.Len(t, phys.BelongsToNodes, 1, "RF=1 should pick exactly one node")
-				assert.Contains(t, tt.allowedNodes, phys.BelongsToNodes[0])
+				assert.Equal(t, tt.wantOwners, phys.BelongsToNodes)
 			}
 		})
 	}
 }
 
+// assertErrorOmits fails when err holds any of names. A namespaced caller
+// receives the placement and factor refusals, so they name neither the
+// namespace nor a node.
+func assertErrorOmits(t *testing.T, err error, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		assert.NotContains(t, err.Error(), name)
+	}
+}
+
 // TestAddClass_NamespacePlacementErrors covers the failure modes that
-// surface before the RAFT propose: missing namespace, missing home_node, or
-// a home_node that no longer belongs to the cluster's storage candidates.
+// surface before the RAFT propose: missing namespace, or fewer home nodes
+// among the storage candidates than the replication factor.
 func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 	t.Parallel()
 
@@ -302,29 +329,22 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 		name       string
 		exister    fakeNamespacesExister
 		candidates []string
+		factor     int64
 		wantErr    string
 	}{
 		{
 			name:       "namespace not found",
 			exister:    fakeNamespacesExister{}, // no seed
 			candidates: []string{"node-1"},
-			wantErr:    "namespace \"customer1\" not found",
+			factor:     1,
+			wantErr:    "namespace not found",
 		},
 		{
-			name: "home_node empty",
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: nil, State: cmd.NamespaceStateActive},
-			}},
+			name:       "fewer home nodes among the storage candidates than the factor",
+			exister:    homeNodes("node-1", "node-9"),
 			candidates: []string{"node-1"},
-			wantErr:    "has no home_node",
-		},
-		{
-			name: "home_node not in storage candidates",
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-9"}, State: cmd.NamespaceStateActive},
-			}},
-			candidates: []string{"node-1"},
-			wantErr:    "is not a current storage candidate",
+			factor:     2,
+			wantErr:    "only 1 of the namespace's 2 home node(s) are storage candidates, fewer than replication factor 2",
 		},
 	}
 
@@ -339,11 +359,12 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 				Class:             "Movies",
 				Vectorizer:        "model1",
 				VectorIndexConfig: map[string]interface{}{},
-				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				ReplicationConfig: &models.ReplicationConfig{Factor: tt.factor},
 			}
 			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.ErrorContains(t, err, tt.wantErr)
+			assertErrorOmits(t, err, "customer1", "node-1", "node-9")
 		})
 	}
 }
@@ -473,7 +494,7 @@ func TestAddClass_OmittedShardingConfigPinsToHomeNode(t *testing.T) {
 	require.NotNil(t, capturedClass)
 	got, ok := capturedClass.ShardingConfig.(shardingcfg.Config)
 	require.True(t, ok, "ShardingConfig should be shardingcfg.Config, got %T", capturedClass.ShardingConfig)
-	assert.Equal(t, 1, got.DesiredCount, "override caps DesiredCount to len(candidates)")
+	assert.Equal(t, 1, got.DesiredCount, "a namespaced class has one shard")
 	assert.Equal(t, got.DesiredCount, got.ActualCount)
 	assert.Equal(t, got.DesiredCount*got.VirtualPerPhysical, got.DesiredVirtualCount)
 
@@ -533,10 +554,9 @@ func TestAddClass_ShardCapAppliesAfterOverride(t *testing.T) {
 	}
 }
 
-// TestAddTenants_PinsShardsToNamespaceHomeNode covers the placement
-// override for tenant creation on NS-enabled clusters: the AddTenants RPC
-// is built with ClusterNodes=[home_node]. NS-disabled clusters fall back
-// to the full storage candidate set.
+// TestAddTenants_PinsShardsToNamespaceHomeNode checks that a tenant create
+// sends the first RF home nodes that are storage candidates on NS-enabled
+// clusters, and every storage candidate on NS-disabled clusters.
 func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
@@ -544,38 +564,36 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		enabled   bool
-		principal *models.Principal
+		disabled  bool // namespaces off, with a global principal
 		exister   fakeNamespacesExister
-		class     string
+		factor    int
 		wantNodes []string
+		wantErr   string
 	}{
+		{name: "NS enabled: ClusterNodes is the home node", exister: homeNodes("node-2"), factor: 1, wantNodes: []string{"node-2"}},
 		{
-			name:      "NS enabled: ClusterNodes pinned to home_node",
-			enabled:   true,
-			principal: namespacedPrincipal("customer1"),
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
-			}},
-			class:     "Movies",
-			wantNodes: []string{"node-2"},
+			name:    "NS enabled: RF=2 sends the first two home nodes in stored order",
+			exister: homeNodes("node-3", "node-1", "node-2"), factor: 2, wantNodes: []string{"node-3", "node-1"},
 		},
+		{name: "NS enabled: a factor of 0 sends the first home node", exister: homeNodes("node-2", "node-1"), wantNodes: []string{"node-2"}},
 		{
-			name:      "NS disabled: ClusterNodes is the full candidate set",
-			enabled:   false,
-			principal: globalPrincipal(),
-			exister:   fakeNamespacesExister{},
-			class:     "Movies",
-			wantNodes: allCandidates,
+			name:    "NS enabled: fewer home nodes among the storage candidates than RF is refused",
+			exister: homeNodes("node-1", "node-9"), factor: 2, wantErr: "only 1 of the namespace's 2 home node(s) are storage candidates",
 		},
+		{name: "NS disabled: ClusterNodes is the full candidate set", disabled: true, wantNodes: allCandidates},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			principal := namespacedPrincipal("customer1")
+			if tt.disabled {
+				principal = globalPrincipal()
+			}
+			handler, sm := newTestHandlerWithNamespaces(t, !tt.disabled)
 			sm.storageCandidates = allCandidates
 			handler.namespacesExister = tt.exister
+			sm.On("ClassInfo", mock.Anything).Return(clusterSchema.ClassInfo{ReplicationFactor: tt.factor}).Maybe()
 
 			var captured *cmd.AddTenantsRequest
 			sm.On("AddTenants", mock.Anything, mock.MatchedBy(func(req *cmd.AddTenantsRequest) bool {
@@ -583,8 +601,14 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				return true
 			})).Return(nil)
 
-			_, err := handler.AddTenants(context.Background(), tt.principal, tt.class,
+			_, err := handler.AddTenants(context.Background(), principal, "Movies",
 				[]*models.Tenant{{Name: "T1"}, {Name: "T2"}})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, "customer1", "node-9")
+				assert.Nil(t, captured, "nothing may be proposed")
+				return
+			}
 			require.NoError(t, err)
 			require.NotNil(t, captured, "expected AddTenants to be called")
 			assert.Equal(t, tt.wantNodes, captured.ClusterNodes)
@@ -592,62 +616,121 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	}
 }
 
-// TestUpdateTenants_PinsShardsToNamespaceHomeNode covers the placement
-// override on the UpdateTenants path. The candidate list is consumed by
-// the apply-side unfreeze flow (GetPartitions), so pinning to [home_node]
-// here is what lands a reactivated tenant back on the namespace's home
-// node. Non-unfreeze transitions ignore the candidate list, so we just
-// assert what's serialized in the propose payload.
+// offloadModuleConfig enables offload-s3, which a FROZEN tenant update requires.
+type offloadModuleConfig struct{ fakeModuleConfig }
+
+func (*offloadModuleConfig) GetByName(name string) modulecapabilities.Module {
+	if name == modsloads3.Name {
+		return &modsloads3.Module{}
+	}
+	return nil
+}
+
+// TestUpdateTenants_PinsShardsToNamespaceHomeNode checks that a namespaced
+// unfreeze runs the home-node check and sends the first RF home nodes that are
+// storage candidates, and any other namespaced update sends nil ClusterNodes.
 func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
+	const (
+		hot      = models.TenantActivityStatusHOT
+		cold     = models.TenantActivityStatusCOLD
+		frozen   = models.TenantActivityStatusFROZEN
+		freezing = models.TenantActivityStatusFREEZING
+	)
 	allCandidates := []string{"node-1", "node-2", "node-3"}
+	missingHomeNode := "only 0 of the namespace's 1 home node(s) are storage candidates"
 
+	// held is the status the leader holds.
+	type tenantUpdate struct{ name, held, requested string }
 	tests := []struct {
 		name      string
-		enabled   bool
-		principal *models.Principal
-		exister   fakeNamespacesExister
-		class     string
+		disabled  bool   // namespaces off, with a global principal
+		global    bool   // a global principal on a namespaces-enabled cluster
+		homeNode  string // customer1's one home node; node-9, which is no storage candidate, when empty
+		offload   bool   // offload-s3 is enabled, which a FROZEN request requires
+		tenants   []tenantUpdate
+		localHOT  bool // this node's own schema still holds every tenant HOT
+		leaderErr error
 		wantNodes []string
+		wantErr   string
 	}{
+		{name: "NS enabled: an unfreeze sends the home node", homeNode: "node-2", tenants: []tenantUpdate{{"T1", frozen, hot}}, wantNodes: []string{"node-2"}},
 		{
-			name:      "NS enabled: ClusterNodes pinned to home_node",
-			enabled:   true,
-			principal: namespacedPrincipal("customer1"),
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
-			}},
-			class:     "Movies",
-			wantNodes: []string{"node-2"},
+			name:     "NS enabled: an unfreeze sends the home node while this node still reads the tenant as HOT",
+			homeNode: "node-2", tenants: []tenantUpdate{{"T1", frozen, hot}}, localHOT: true, wantNodes: []string{"node-2"},
 		},
 		{
-			name:      "NS disabled: ClusterNodes is the full candidate set",
-			enabled:   false,
-			principal: globalPrincipal(),
-			exister:   fakeNamespacesExister{},
-			class:     "Movies",
-			wantNodes: allCandidates,
+			name:     "NS enabled: a failed leader read refuses the update",
+			homeNode: "node-2", tenants: []tenantUpdate{{"T1", hot, cold}}, leaderErr: errors.New("leader unreachable"), wantErr: "leader unreachable",
+		},
+		{name: "NS disabled: ClusterNodes is the full candidate set", disabled: true, tenants: []tenantUpdate{{"T1", hot, hot}}, wantNodes: allCandidates},
+		{
+			name:   "NS enabled: an unqualified class runs the home-node check on every update",
+			global: true, tenants: []tenantUpdate{{"T1", hot, cold}}, wantErr: "expected namespace-qualified class name",
+		},
+		{
+			name:    "NS enabled: one unfreeze among HOT->COLD changes is refused",
+			tenants: []tenantUpdate{{"T1", hot, cold}, {"T2", frozen, hot}, {"T3", hot, cold}}, wantErr: missingHomeNode,
+		},
+		{name: "NS enabled: FROZEN->COLD is refused", tenants: []tenantUpdate{{"T1", frozen, cold}}, wantErr: missingHomeNode},
+		{name: "NS enabled: FREEZING->HOT is refused", tenants: []tenantUpdate{{"T1", freezing, hot}}, wantErr: missingHomeNode},
+		{name: "NS enabled: HOT->COLD skips the home-node check", tenants: []tenantUpdate{{"T1", hot, cold}}},
+		{
+			name:    "NS enabled: a re-sent freeze of a FREEZING tenant skips the home-node check",
+			offload: true, tenants: []tenantUpdate{{"T1", freezing, frozen}},
+		},
+		{
+			name:    "NS enabled: a re-sent HOT of an UNFREEZING tenant skips the home-node check",
+			tenants: []tenantUpdate{{"T1", models.TenantActivityStatusUNFREEZING, hot}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			principal := namespacedPrincipal("customer1")
+			if tt.disabled || tt.global {
+				principal = globalPrincipal()
+			}
+			handler, sm := newTestHandlerWithNamespaces(t, !tt.disabled)
 			sm.storageCandidates = allCandidates
-			handler.namespacesExister = tt.exister
+			handler.namespacesExister = homeNodes(cmp.Or(tt.homeNode, "node-9"))
+			if tt.offload {
+				handler.moduleConfig = &offloadModuleConfig{}
+			}
+			sm.On("ClassInfo", mock.Anything).Return(clusterSchema.ClassInfo{ReplicationFactor: 1}).Maybe()
+
+			held := make(map[string]string, len(tt.tenants))
+			local := make(map[string]string, len(tt.tenants))
+			names := make([]string, len(tt.tenants))
+			requested := make([]*models.Tenant, len(tt.tenants))
+			for i, tenant := range tt.tenants {
+				held[tenant.name] = tenant.held
+				local[tenant.name] = tenant.held
+				if tt.localHOT {
+					local[tenant.name] = hot
+				}
+				names[i] = tenant.name
+				requested[i] = &models.Tenant{Name: tenant.name, ActivityStatus: tenant.requested}
+			}
 
 			var captured *cmd.UpdateTenantsRequest
 			sm.On("UpdateTenants", mock.Anything, mock.MatchedBy(func(req *cmd.UpdateTenantsRequest) bool {
 				captured = req
 				return true
 			})).Return(nil)
-			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
-				Return(map[string]string{"T1": models.TenantActivityStatusHOT}, nil)
+			sm.On("TenantsShardsFromLeader", mock.Anything, names).Return(held, tt.leaderErr)
+			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, names).
+				Return(local, nil)
 
-			_, err := handler.UpdateTenants(context.Background(), tt.principal, tt.class,
-				[]*models.Tenant{{Name: "T1", ActivityStatus: models.TenantActivityStatusHOT}})
+			_, err := handler.UpdateTenants(context.Background(), principal, "Movies", requested)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, "customer1", "node-9")
+				assert.Nil(t, captured, "nothing may be proposed")
+				return
+			}
 			require.NoError(t, err)
 			require.NotNil(t, captured, "expected UpdateTenants to be called")
 			assert.Equal(t, tt.wantNodes, captured.ClusterNodes)
@@ -932,6 +1015,85 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 	}
 }
 
+// TestUpdateClass_NamespaceFactorAboveHomeNodes pins that UpdateClass refuses
+// a factor above the namespace's HomeNodes count before anything is proposed.
+func TestUpdateClass_NamespaceFactorAboveHomeNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		exister fakeNamespacesExister
+		mt      bool
+		// owners is the one shard's BelongsToNodes of a class that is not MT.
+		owners  []string
+		factor  int64
+		wantErr string
+	}{
+		{
+			name:    "MT class with no tenants raised above the home-node count",
+			exister: homeNodes("node-1"),
+			mt:      true,
+			factor:  3,
+			wantErr: "replication factor 3 exceeds the 1 home node(s) of the namespace",
+		},
+		{
+			name:    "class with one shard raised above the home-node count",
+			exister: homeNodes("node-1"),
+			owners:  []string{"node-1"},
+			factor:  2,
+			wantErr: "replication factor 2 exceeds the 1 home node(s) of the namespace",
+		},
+		{
+			name:    "MT class whose namespace is not found raised",
+			exister: fakeNamespacesExister{},
+			mt:      true,
+			factor:  3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, true)
+			handler.namespacesExister = tt.exister
+			principal, bodyName, storedName := namespacedPrincipal("customer1"), "Movies", "customer1:Movies"
+
+			class := func(name string, factor int64) *models.Class {
+				return &models.Class{
+					Class:              name,
+					Vectorizer:         "model1",
+					VectorIndexConfig:  map[string]interface{}{},
+					ReplicationConfig:  &models.ReplicationConfig{Factor: factor},
+					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tt.mt},
+				}
+			}
+			stored := class(storedName, 1)
+			state := &sharding.State{PartitioningEnabled: tt.mt, Physical: map[string]sharding.Physical{}}
+			if tt.owners != nil {
+				state.Physical["S1"] = sharding.Physical{Name: "S1", BelongsToNodes: tt.owners}
+			}
+			sm.On("ReadOnlyClass", storedName).Return(stored).Maybe()
+			sm.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			sm.On("Read", storedName, mock.Anything).Run(func(args mock.Arguments) {
+				reader := args.Get(1).(func(*models.Class, *sharding.State) error)
+				_ = reader(stored, state)
+			}).Return(nil).Maybe()
+			sm.On("UpdateClass", mock.Anything, mock.Anything, cmd.ClassUpdateOriginUser).Return(nil).Maybe()
+
+			err := handler.UpdateClass(context.Background(), principal, bodyName, class(bodyName, tt.factor))
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, ErrValidation)
+				assert.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, append([]string{"customer1"}, tt.exister.byName["customer1"].HomeNodes...)...)
+				sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything, cmd.ClassUpdateOriginUser)
+		})
+	}
+}
+
 // TestAddClass_NamespacedCollectionLimit checks that the
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
@@ -1004,4 +1166,25 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			sm.AssertExpectations(t)
 		})
 	}
+}
+
+// TestAddClass_NamespaceChecksRunAfterAuthorize pins that a namespaced caller
+// the authorizer denies gets that denial, not a placement or factor refusal.
+func TestAddClass_NamespaceChecksRunAfterAuthorize(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	handler.namespacesExister = homeNodes("node-1")
+	denied := errors.New("denied")
+	authorizer := mocks.NewMockAuthorizer()
+	authorizer.SetErr(denied)
+	handler.Authorizer = authorizer
+
+	_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), &models.Class{
+		Class:             "Movies",
+		Vectorizer:        "model1",
+		VectorIndexConfig: map[string]interface{}{},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 3},
+	})
+	require.ErrorIs(t, err, denied)
+	sm.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
 }

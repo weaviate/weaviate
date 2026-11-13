@@ -307,7 +307,7 @@ func (a *Client) SuspendNamespace(params *SuspendNamespaceParams, authInfo runti
 /*
 UpdateNamespace updates a namespace
 
-Update a namespace's `home_node`. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.
+Update a namespace's `home_nodes`. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.
 */
 func (a *Client) UpdateNamespace(params *UpdateNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateNamespaceOK, error) {
 	// TODO: Validate the params before sending

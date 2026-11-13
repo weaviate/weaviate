@@ -275,6 +275,25 @@ func (s *schema) CollectionsCount(namespace string) int {
 	return s.classCountByNamespace[namespace]
 }
 
+// ClassFactorsInNamespace maps each class qualified by namespace onto its
+// replication factor. An empty namespace returns nil, not every class of the cluster.
+func (s *schema) ClassFactorsInNamespace(namespace string) map[string]int64 {
+	if namespace == "" {
+		return nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	factors := make(map[string]int64)
+	for name, meta := range s.classes {
+		if namespacing.NamespaceFromQualified(name) == namespace {
+			factors[name] = int64(meta.ClassInfo().ReplicationFactor)
+		}
+	}
+	return factors
+}
+
 // ShardOwner returns the node owner of the specified shard
 func (s *schema) ShardOwner(class, shard string) (string, uint64, error) {
 	meta := s.metaClass(class)
@@ -342,8 +361,7 @@ func (s *schema) hasFrozenTenant(class string) bool {
 		return false
 	}
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if entSchema.TenantIsFrozenOrFreezing(t.ActivityStatus) {
 			return true
 		}
 	}

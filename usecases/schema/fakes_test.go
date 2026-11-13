@@ -191,11 +191,8 @@ func (f *fakeSchemaManager) ShardOwnerFromLeader(class, shard string) (string, u
 
 func (f *fakeSchemaManager) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	args := f.Called(class, tenants)
-	res := map[string]string{}
-	for idx := range tenants {
-		res[args.String(idx+1)] = ""
-	}
-	return res, 0, nil
+	held, _ := args.Get(0).(map[string]string)
+	return held, 0, args.Error(1)
 }
 
 func (f *fakeSchemaManager) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {

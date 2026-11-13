@@ -79,7 +79,7 @@ When a batch insert would exceed `MAXIMUM_ALLOWED_OBJECTS_COUNT`, the **shard-sl
 Supported deployment shapes (where the cap is meaningful and exact):
 
 - **Single-node clusters** (the Free Tier sandbox case) — there is no other node.
-- **Namespaced clusters in phase 1** — a namespace's collections/shards are pinned to a single node, so the per-namespace sum is local. `MAXIMUM_ALLOWED_OBJECTS_COUNT` applies per namespace.
+- **Namespaced clusters in phase 1** — a namespace's collections and tenants are placed on the first of its home nodes, so the per-namespace sum is local. `MAXIMUM_ALLOWED_OBJECTS_COUNT` applies per namespace.
 
 **Out of scope:**
 
@@ -102,6 +102,7 @@ The pre-existing `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` enforcement previously retu
 - **A `MOVE`'s target skips the cap until the `MOVE` is `READY`.** A put the target refused could otherwise commit on the source alone at `ONE`, and the `MOVE` then deletes the source's copy. So from `INTEGRATING` on, the target's yes alone commits a put at `ONE`, and from `DEHYDRATING` on, when the target is the shard's only write replica, at every consistency level. From `READY` on the target counts only its own node's objects, so a namespace whose shards a `MOVE` split across nodes is capped per node. Nothing times the window out: it lasts until every node in the RAFT configuration has reported `INTEGRATING` and then `DEHYDRATING`, so a node that is down holds it open until it returns or is removed from the cluster. A `MOVE` cannot be cancelled once its target has joined the sharding state; only force-deleting the operation ends the window early.
 - **One replica's yes can commit past another's cap.** Whenever a shard has two write replicas (during a movement, after a `COPY`, or with a cap set by runtime override on an RF>1 cluster), the coordinator commits once the consistency level's count of replicas say yes. So at `ONE`, one replica's yes commits a write another refused at the cap.
 - **Missed deletes keep counting.** A replica that was down while objects were deleted still counts them when it returns. Until async replication deletes them there (its hashtree init plus one hashbeat cycle), it refuses capped puts to the shards it holds, and a put whose consistency level needs its yes fails. With async replication disabled, or a class on the `NoAutomatedResolution` deletion strategy, it lasts until an operator deletes the objects on that replica.
+- **A namespace whose shards sit on more than one home node is capped per node.** Each node counts only the namespace's objects it holds, so the namespace can hold up to the cap on each. An update to `home_nodes` does this, because existing collections and tenants stay where they are. So does placement skipping a first home node that is not a storage candidate, which it logs as a warning naming that node.
 - **A refused put waits for the slowest replica.** Where the limit refusals alone make the consistency level unreachable, the coordinator still waits for every write replica's prepare answer before it returns the 429. So a stalled replica delays the 429 by up to the coordinator's 20-second deadline.
 
 ---

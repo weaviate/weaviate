@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
@@ -533,7 +534,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	}
 
 	// Initialize the schema manager with replication FSM
-	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, prometheus.NewPedanticRegistry(), mockStore.logger)
+	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, nil, prometheus.NewPedanticRegistry(), mockStore.logger)
 	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log
@@ -541,23 +542,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 
 func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
 	t.Helper()
-	ms := NewMockStore(t, "Node-1", 0)
-	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
-
-	tmpDir := t.TempDir()
-	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
-	if err != nil {
-		t.Fatalf("snapshot store: %v", err)
-	}
-	ms.store.snapshotStore = snapshotStore
-
-	ms.indexer.On("Open", mock.Anything).Return(nil)
-	ms.indexer.On("AddClass", mock.Anything).Return(nil)
-	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
-	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-	ms.parser.On("ParseClass", mock.Anything).Return(nil)
-	// Optional: only the class-delete applies cascade.
-	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil).Maybe()
+	ms := newClassApplyTestStore(t)
 
 	cls := &models.Class{Class: className}
 	state := &sharding.State{
@@ -576,7 +561,31 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 		Type:  raft.LogCommand,
 		Data:  cmdAsBytes(className, api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
 	}
-	return &ms, addLog, deleteLog
+	return ms, addLog, deleteLog
+}
+
+// newClassApplyTestStore returns a store built by NewFSM, with its own
+// SchemaManager, whose indexer and parser accept class adds and deletes.
+func newClassApplyTestStore(t *testing.T) *MockStore {
+	t.Helper()
+	ms := NewMockStore(t, "Node-1", 0)
+	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+
+	tmpDir := t.TempDir()
+	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
+	if err != nil {
+		t.Fatalf("snapshot store: %v", err)
+	}
+	ms.store.snapshotStore = snapshotStore
+
+	ms.indexer.On("Open", mock.Anything).Return(nil)
+	ms.indexer.On("AddClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	ms.parser.On("ParseClass", mock.Anything).Return(nil)
+	// Optional: only the class-delete applies cascade.
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil).Maybe()
+	return &ms
 }
 
 func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
@@ -823,4 +832,76 @@ func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
 	if got := len(postTasks["test-namespace"]); got != 0 {
 		t.Fatalf("post-replay-delete: got %d tasks, want 0 (cascade must fire even on schemaOnly apply)", got)
 	}
+}
+
+// TestStore_Apply_NamespaceFactorNotCheckedAtApply pins that a home-node shrink
+// past the leader's factor bound still applies. A binary without that bound
+// applies it too.
+func TestStore_Apply_NamespaceFactorNotCheckedAtApply(t *testing.T) {
+	const class = "alpha:Foo"
+	cls := &models.Class{Class: class, ReplicationConfig: &models.ReplicationConfig{Factor: 3}}
+	state := &sharding.State{ReplicationFactor: 3, Physical: map[string]sharding.Physical{
+		"S1": {Name: "S1", BelongsToNodes: []string{"Node-1", "Node-2", "Node-3"}},
+	}}
+	entries := [][]byte{
+		cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-1", "Node-2", "Node-3"}},
+			Version:   api.NamespaceLatestCommandPolicyVersion,
+		}, nil),
+		cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: state}, nil),
+		cmdAsBytes("", api.ApplyRequest_TYPE_UPDATE_NAMESPACE, api.UpdateNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-1", "Node-2"}},
+			Version:   api.NamespaceLatestCommandPolicyVersion,
+		}, nil),
+	}
+
+	ms := newClassApplyTestStore(t)
+	for i, data := range entries {
+		resp, ok := ms.store.Apply(&raft.Log{Index: uint64(i + 1), Type: raft.LogCommand, Data: data}).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error, "entry %d", i)
+	}
+
+	ns, ok := ms.store.namespaceManager.GetNamespace("alpha")
+	require.True(t, ok)
+	assert.Equal(t, []string{"Node-1", "Node-2"}, ns.HomeNodes)
+	got := ms.store.SchemaReader().ReadOnlyClass(class)
+	require.NotNil(t, got)
+	assert.Equal(t, int64(3), got.ReplicationConfig.Factor)
+}
+
+// TestStore_Apply_NamespacedTenantAddFillsFromHomeNodes pins that NewFSM hands
+// the namespace controller to SchemaManager, which fills a tenant add sent with
+// no nodes from the namespace's home nodes.
+func TestStore_Apply_NamespacedTenantAddFillsFromHomeNodes(t *testing.T) {
+	const class = "alpha:Foo"
+	ms := newClassApplyTestStore(t)
+	ms.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+
+	entries := [][]byte{
+		cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-2", "Node-1"}},
+			Version:   api.NamespaceLatestCommandPolicyVersion,
+		}, nil),
+		cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{
+				Class:              class,
+				ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			},
+			State: &sharding.State{ReplicationFactor: 1, PartitioningEnabled: true, Physical: map[string]sharding.Physical{}},
+		}, nil),
+		cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_TENANT, nil, &api.AddTenantsRequest{
+			Tenants: []*api.Tenant{{Name: "T1", Status: models.TenantActivityStatusHOT}},
+		}),
+	}
+	for i, data := range entries {
+		resp, ok := ms.store.Apply(&raft.Log{Index: uint64(i + 1), Type: raft.LogCommand, Data: data}).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error, "entry %d", i)
+	}
+
+	nodes, err := ms.store.SchemaReader().ShardReplicas(class, "T1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Node-2"}, nodes)
 }

@@ -275,7 +275,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 
