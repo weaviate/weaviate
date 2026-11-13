@@ -1,6 +1,6 @@
 # Índice posting+edges: notas para el diseño de la versión en disco
 
-**Estado:** semilla del design doc de disco. Tiene dos secciones: los layouts posibles del posting y de los vectores exactos en disco, y el detalle del último, que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11). El resto del diseño de disco no está escrito aquí.
+**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. La última sección, "Open for phase 2", lista lo que el diseño de disco tiene que resolver, sin resolverlo. El resto del diseño de disco no está escrito aquí.
 
 Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
 
@@ -192,3 +192,73 @@ Lo que queda por medir:
 - **El scan con el posting recién leído,** no en caché.
 - **El último bloque de cada posting va a medias:** 236 son 7 bloques llenos y 12 códigos, y el bloque incompleto cuesta como uno lleno.
 - **Construir las tablas de la query,** que en el prototipo sin optimizar cuesta 15.8 µs a 768 bits.
+
+## Open for phase 2
+
+*Añadido al cierre del 2026-11-13 como punto de partida del lunes. Son las cuatro preguntas abiertas, sin resolver. Cada una dice qué hay hoy en el índice en memoria y qué queda por decidir.*
+
+### 1. Mantenimiento: deletes, updates y el mapa vector→posting
+
+**Hoy no hay mantenimiento.** `Delete` devuelve `ErrNotSupported`, y volver a añadir un id también: un update se rechaza.
+
+**Cómo direcciona el índice sus vectores:**
+
+- **Por slot:** su posición en el orden por posting (`slotLayout`). Cada posting tiene un rango contiguo de slots.
+- **Una arista guarda el slot de su endpoint.**
+- **El sidecar se indexa por slot.**
+- **El posting de un endpoint sale de un mapa slot→posting** (`sidecar.postingOf`) en el momento de la búsqueda.
+
+**El argumento del mapa vector→posting.** Una arista apunta a un vector, no a un posting, y la búsqueda solo usa el endpoint para dar rango al posting donde vive. Si las aristas guardan un id estable del vector y el posting se resuelve con un mapa vector→posting, un vector que cambia de posting (un split, una reasignación) cambia una entrada del mapa, y ninguna arista. Con slots en orden de posting, como hoy, cambiar de posting es cambiar de slot, y cada arista que apunta a él quedaría mal.
+
+Abierto:
+
+- **El mapa en sí:** dónde vive, cuánto ocupa (4 B por vector serían 40 MB a 10M) y qué cuesta su indirección por endpoint frente al `postingOf` de hoy.
+- **El sidecar:** si se sigue indexando por slot o pasa al id estable, y qué hace con los huecos que dejan los deletes.
+- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas).
+- **Un update como delete más insert,** y qué les pasa a las aristas de los vecinos del vector movido.
+- **La invisibilidad transitoria de HFresh entre insert y split,** que deja vectores fuera de todo posting, como riesgo que el diseño tiene que cerrar por construcción.
+
+### 2. Build incremental
+
+**Hoy el build es en lote.** `AddBatch` solo admite vectores antes de `Build`; `Build` corre una vez y después `AddBatch` devuelve `ErrBuilt`. A 10M son unas 3 h 45 min, unas 8 veces el de HNSW:
+
+- **La asignación exacta, n·k:** cuadrática en N con S fijo, y anotada como TODO en el código.
+- **La etapa de aristas:** 3 668 s con P=320 y R=256.
+- **P y R crecen con N** para sostener el recall de arista (bench-report.md, v1.4).
+
+Abierto:
+
+- **Insertar un vector:** su posting de entrada, sus aristas (una búsqueda de vecinos sobre el índice ya construido) y si los vectores que ya existen ganan aristas hacia él, porque sin aristas inversas nadie lo alcanza por arista.
+- **Cuándo se parte un posting que pasa de S,** cómo se reasignan sus miembros y cómo se actualiza el grafo de centroides.
+- **Qué recall pierde un índice que crece por inserciones** frente a uno construido de una vez, y cada cuánto hace falta rehacerlo.
+- **Si la asignación exacta sobrevive** o pasa a una asignación asistida por el grafo de centroides, con el coste de cobertura que eso tenga.
+
+### 3. Modelo de I/O del layout
+
+**Hoy todo son cuentas, no tiempos.** Las cifras de este documento son cargas, rondas, bytes y lecturas por query; ninguna latencia de I/O está medida. A 10M (768d, rescoreLimit 200):
+
+- **A 0.95,** 12.6 cargas en 2.9 rondas.
+- **A 0.99,** 51.3 cargas en 12.6 rondas.
+- **El rescore** son 200 lecturas.
+
+Abierto:
+
+- **El coste de una ronda:** un lote de lecturas en paralelo, con su profundidad de cola, la latencia del dispositivo y su cola larga. Y el de una query: rondas en serie más el rescore.
+- **El tamaño del posting en disco,** con ids, códigos y aristas, su alineación a página y si se lee entero o por rangos.
+- **El S del modo disco,** que hay que re-derivar con el presupuesto de I/O. A 0.99, S=2048 son 3.6 veces menos cargas y 3.8 veces menos rondas que S=236, a cambio de 2.3 veces más vectores leídos (Fase C).
+- **El rescore:** al bucket de objetos, a un store propio (b') o con el refinado de (c), y cuánto pesa en la cola de latencia frente a las cargas.
+- **Qué postings se quedan en caché,** y cómo cambia el modelo con la caché caliente.
+
+### 4. Sidecar
+
+**Hoy el sidecar es el código completo de cada vector, residente en RAM,** indexado por slot. Es lo que puntúa los endpoints sin I/O, y lo que da al routing el código completo en el layout (c).
+
+- **A 10M y 768d son 992 MB,** 104 B por vector. A 1536d serían 200 B por vector, y a 100M de 10 a 20 GB.
+- **En memoria, postings y sidecar comparten un solo array de códigos.** En disco el posting lleva sus propios códigos y el sidecar queda como la única copia residente.
+
+Abierto:
+
+- **Si cabe residente a la escala objetivo,** o hace falta un sidecar capado, con lo que eso le quita al routing: con 256 bits para todo, 3.0x cargas a igual recall.
+- **Su relación con el layout (c):** el refinado lee el sidecar por cada candidato refinado.
+- **Cómo se mantiene con inserciones, deletes y movimientos de posting,** que depende del punto 1.
+- **Qué memoria deja el modo disco,** con el sidecar y los centroides residentes, frente a HNSW y a HFresh.
