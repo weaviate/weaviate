@@ -220,6 +220,71 @@ Lo que dicen:
 
 **El build no es determinista del todo.** Postings y aristas sí lo son, pero el grafo de centroides se construye con inserciones en paralelo (`centroids.go`). La fracción de queries cuya entrada es el centroide más cercano dio 0.998 esta mañana y 0.997 en este build, con el mismo recall a ef=20 (0.9543) y los mismos endpoints. Donde este informe dice que un build de posting-edge repite otro, vale para postings, aristas y recall. El grafo de centroides puede cambiar la entrada de alguna query de cada mil.
 
+### Una arista por posting de destino: prototipo a 10M (pre-registro, 2026-11-13, de día)
+
+*Escrito antes de compilar nada del prototipo y antes de ningún dato suyo.*
+
+**Qué se mide.** Una arista por posting de destino, aplicada como filtro sobre el build de 10M, sin reconstruirlo:
+
+- **El filtro:** de cada grupo de aristas de un vector que van al mismo posting, se conserva la más cercana al source. Las filas del constructor ya van ordenadas por distancia exacta al source, así que es la primera de cada grupo.
+- **Cómo se aplica:** el índice se vuelve a publicar con esas aristas sobre los mismos postings (`replaceEdges`), como el cap de v1.5.
+- **Lo que el filtro debe dar,** por la redundancia medida en este build:
+  - de 11.41 a 7.35 aristas por vector, un 35.6 % menos (40.6 M aristas, unos 155 MB);
+  - ningún destino perdido.
+- **Se comprueba en el propio paso:** los postings de destino distintos por vector no cambian y no queda ninguna arista redundante. Si no es así, es un bug del filtro, y el paso para sin cronometrar.
+
+**Celdas,** en este orden, sobre un solo build:
+
+1. sin filtro (el ancla);
+2. con filtro;
+3. sin filtro otra vez (el ancla del final).
+
+Todas con el kernel del PR, como el resto de la noche. En cada una:
+
+- frontera recall-QPS con 1 y 8 threads, rescoreLimit 200, margen 0.06, lotes de 4 y ef de 10 a 1024;
+- tres pasadas por punto y segunda ronda (`-bench.repeat`);
+- el pase instrumentado: endpoints puntuados, cargas, rondas y vectores escaneados por query;
+- memoria de aristas, y la búsqueda de 10 000 vectores con ellos mismos como query.
+
+**El build.** Hacerlo en el mismo proceso que el brazo de posting-edge de la noche exigiría tocar su binario (`postingedge-v16.test`), así que el paso construye una vez en su propio proceso.
+
+- **Configuración, la misma:** S=236, P=320 sobre la asignación de P=384 de la caché, R=256 y código completo.
+- **Postings y aristas salen idénticos a los de la noche,** porque el constructor es determinista. El grafo de centroides puede cambiar la entrada de alguna query de cada mil (ver arriba).
+- **Las tres celdas comparten ese build.**
+
+**El binario, aparte: `postingedge-v16o.test`,** de la cabeza de la rama.
+
+- **Qué lleva:** el kernel del PR (`d763bb23fc`) y, a diferencia del de la noche, el refactor de la búsqueda que hizo falta para la traza (`62fd80993a`). Hace las mismas operaciones, partidas en dos funciones que se llaman una vez por carga.
+- **El veredicto no depende de eso,** porque las dos anclas corren en ese binario.
+- **De paso, sin ser criterio,** el ancla del paso frente al brazo de posting-edge de la noche dice si el refactor cambia algo.
+
+**Stop, primero.** Antes de cronometrar nada, la celda con filtro pasa sin cronometrar por los ef de 10 a 1024. Si con ninguno llega a 0.99, se reporta con esos puntos y no se cronometra nada más.
+
+**Criterio:**
+
+| pre-registro | umbral |
+|---|---|
+| gana | con 8 threads y contra el ancla del principio, las tres cosas: QPS@0.95 sube un 5 % o más; QPS@0.99 no baja más de un 2 %; 0.99 sigue alcanzable subiendo solo ef, con rescoreLimit 200 |
+| decide | 8 threads, como en v1.5 |
+| se reporta además, sin ser criterio | endpoints puntuados, cargas y rondas a igual recall, para ver si el reordenamiento devuelve trabajo como cargas, como pasó con el cap; la memoria de aristas ahorrada; 1 thread |
+| stop | la celda con filtro no alcanza 0.99 con ef ≤ 1024: se reporta sin cronometrar el resto |
+| deriva (lo añado yo, como en v1.5) | si las dos anclas difieren más de un 2 % de mediana, se dice, y el veredicto se da contra las dos |
+
+- **QPS a igual recall:** se interpola en log-QPS sobre la curva de ef de cada celda, con la primera ronda, como en v1.5. La segunda ronda detecta deriva.
+- **El trabajo a igual recall:** se interpola igual, con 1 thread, del pase instrumentado.
+
+**El techo, para leer el resultado y no para decidirlo.** A 0.95, la query puntúa 1 874 endpoints redundantes netos, unos 105 µs: un 10 % de la query con 1 thread, si nada vuelve como cargas. Según (2), como mucho una de cada 8 cargas por rango cambia de prioridad. No anticipo veredicto. Lo que pase si gana tampoco lo fija este pre-registro: la propuesta sería llevarlo al constructor, con su propio encargo.
+
+**Protocolo.** El paso va en su propia cadena, `v1.6/scripts/run_v16_onepertarget.sh`, lanzada hoy bajo `caffeinate -s -i` con la máquina despierta del todo. La cadena de la noche ya está en cola y no se toca.
+
+1. **Espera a que acabe la cadena de la noche,** incluido el barrido del ef de centroides.
+2. **Después, las mismas condiciones:** desde las 23:00, sin otro binario de benchmark corriendo, con 15 minutos sin teclado ni trackpad y con la máquina despierta del todo.
+3. **Tiene que caber:** el paso dura unos 90 minutos, así que no arranca después de la 01:15, para acabar antes de las 03:00.
+   - El build tardó 59 minutos en v1.5.
+   - Cada celda, unos 8 a 11 minutos.
+4. **Si no cabe, pasa a la noche siguiente,** del 14 al 15, con las mismas condiciones y la misma hora límite. Si tampoco cabe, no corre, y se dice.
+5. **Al acabar,** deja en su salida los reposos, despertares y actividad de usuario de `pmset -g log`.
+
 ### Datos de día
 
 En `testdata/bench/`:
