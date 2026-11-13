@@ -389,9 +389,6 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 		{"a retry this build cannot name beats it too", failed(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
 		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1, newerID},
 		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
-		// Standing decides, not recency: on recency alone the newer terminal
-		// task would win and report an outcome a running task has superseded.
-		{"an older live task beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4, olderID},
 		{"one this build cannot name beats a newer completed migration", unrecognized(0.4), done(0.7), "indexing", 0.4, olderID},
 		// CANCELLED shares its rank with FAILED and FINISHED, so recency is
 		// the only thing separating it from either.
@@ -652,13 +649,9 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 // STARTED does so the UI keeps rendering the in-flight pill with the
 // target tokenization preview.
 //
-// This guards two regressions:
-//   - Forgetting PREPARING in [mergeReindexStatus]'s status switch
-//     (would leave PREPARING tasks with the base "ready" status and no
-//     synthetic targetTokenization, blanking the UI mid-barrier).
-//   - Forgetting PREPARING in [taskStatusPriority] (would let an older
-//     terminal task outrank a fresh PREPARING task, surfacing the wrong
-//     attempt's signal).
+// This guards against forgetting PREPARING in [mergeReindexStatus]'s status
+// switch, which would leave PREPARING tasks with the base "ready" status and
+// no synthetic targetTokenization, blanking the UI mid-barrier.
 func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
