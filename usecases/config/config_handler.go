@@ -357,6 +357,9 @@ type Config struct {
 	// with namespaces on. Deleting such a reference still works.
 	DisableMultiTargetReferencesWithoutClass *runtime.DynamicValue[bool] `json:"disable_multi_target_references_without_class" yaml:"disable_multi_target_references_without_class"`
 
+	// IdleShardCollector holds the runtime knobs of the licensed idle shard collector.
+	IdleShardCollector IdleShardCollector `json:"-" yaml:"-"`
+
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 

@@ -45,6 +45,7 @@ var wlGates = map[string]bool{
 	"setupDBUserExpirationHandlers":  true,
 	"suspendSweepFor":                true,
 	"rebalancePlannerFor":            true,
+	"idleShardCollectorFor":          true,
 }
 
 // gateModeArgs maps each function that takes a feature's mode to the index of that argument; the argument must be a variable or a ModeFor call.
@@ -58,6 +59,7 @@ var gateModeArgs = map[string]int{
 	"dbUserExpiryResolver":           0,
 	"suspendSweepFor":                0,
 	"rebalancePlannerFor":            0,
+	"idleShardCollectorFor":          0,
 }
 
 type goFile struct {
