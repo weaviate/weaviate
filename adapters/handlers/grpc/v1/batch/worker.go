@@ -12,13 +12,14 @@
 package batch
 
 import (
+	"bytes"
 	"context"
-	"fmt"
 	"math"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -283,8 +284,25 @@ func (w *worker) fanInReplies(
 	return errs, retriable
 }
 
-func toBeacon(ref *pb.BatchReference) string {
-	return fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.FromCollection, ref.FromUuid, ref.Name)
+// ReferenceUUID creates a universally unique reference ID.
+// It's a UUIDv3 (MD5 hash), that includes information
+// about both the source and the target of a cross-reference.
+//
+// The MD5 hash is a bit faster for having a higher collision rate.
+// Still, it's 2^64 to have a 50% probability of collision, an unlikely
+// number of references to be processed by a single stream.
+func ReferenceUUID(ref *pb.BatchReference) string {
+	var buf bytes.Buffer
+	buf.WriteString(ref.GetName())
+	buf.WriteString(ref.GetFromCollection())
+	buf.WriteString(ref.GetFromUuid())
+	buf.WriteString(ref.GetToCollection())
+	buf.WriteString(ref.GetToUuid())
+	buf.WriteString(ref.GetTenant())
+
+	// The ID is only relevant in the scope a single stream and doesn't need a namespace.
+	id := uuid.NewMD5(uuid.Nil, buf.Bytes())
+	return id.String()
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
@@ -294,7 +312,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
 				Error:  ctx.Err().Error(),
-				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: ReferenceUUID(ref)},
 			})
 		}
 		return nil, errors
@@ -309,7 +327,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
 				Error:  enterrors.MessageWithDocsLink(err),
-				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: ReferenceUUID(ref)},
 			})
 		}
 		return nil, errors
@@ -334,13 +352,13 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 			}
 			failed[err.Index] = struct{}{}
 			if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
-				w.logger.WithField("streamId", streamId).Infof("transient replication error for reference %s: %s", toBeacon(refs[err.Index]), err.Error)
+				w.logger.WithField("streamId", streamId).Infof("transient replication error for reference %s: %s", ReferenceUUID(refs[err.Index]), err.Error)
 				retriable = append(retriable, refs[err.Index])
 				continue
 			}
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
 				Error:  err.Error,
-				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(refs[err.Index])},
+				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: ReferenceUUID(refs[err.Index])},
 			})
 		}
 		if len(retriable) > 0 {
@@ -361,7 +379,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 			continue
 		}
 		successes = append(successes, &pb.BatchStreamReply_Results_Success{
-			Detail: &pb.BatchStreamReply_Results_Success_Beacon{Beacon: toBeacon(ref)},
+			Detail: &pb.BatchStreamReply_Results_Success_Beacon{Beacon: ReferenceUUID(ref)},
 		})
 	}
 	return successes, errors
