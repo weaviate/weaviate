@@ -23,3 +23,12 @@ import "github.com/weaviate/weaviate/entities/schema"
 type RerankPropertyDataTypes interface {
 	RerankPropertyDataTypes() []schema.DataType
 }
+
+// RerankQueryRequired is implemented by a reranker module that cannot rank
+// without rerank.query. The gRPC search rejects a rerank without a query
+// before the search, so the request fails whether or not the search returns
+// objects. A module that returns false accepts a rerank without a query, and
+// the check does not run for GraphQL.
+type RerankQueryRequired interface {
+	RerankQueryRequired() bool
+}

@@ -330,6 +330,21 @@ func (p *Provider) ValidateRerankProperty(class *models.Class, property string) 
 	return fmt.Errorf("rerank: property %q does not exist in collection %q", property, class.Class)
 }
 
+// ValidateRerankQuery rejects a rerank without a query when the class's
+// reranker module requires one. It accepts every query when the class has no
+// reranker module or when that module does not require a query.
+func (p *Provider) ValidateRerankQuery(class *models.Class, query string) error {
+	if query != "" {
+		return nil
+	}
+	reranker := p.classReranker(class)
+	module, ok := reranker.(modulecapabilities.RerankQueryRequired)
+	if !ok || !module.RerankQueryRequired() {
+		return nil
+	}
+	return fmt.Errorf("rerank.query is required by %s", reranker.Name())
+}
+
 // rerankPropertyDataType is the data type matched against the declared list.
 // A reference is cref. The string types deprecated in v1.19 are their text
 // counterparts: the migration runs on a schema write, so a class created

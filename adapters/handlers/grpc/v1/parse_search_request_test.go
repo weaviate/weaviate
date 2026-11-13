@@ -3036,18 +3036,31 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 	}
 }
 
+// rerankCheck is one call to a fakeRerankValidator: the check, the class and
+// the property or query it was called with.
+type rerankCheck struct {
+	check string
+	class string
+	value string
+}
+
 type fakeRerankValidator struct {
-	verdict  error
-	class    string
-	property string
+	propertyVerdict error
+	queryVerdict    error
+	calls           []rerankCheck
 }
 
 func (f *fakeRerankValidator) ValidateRerankProperty(class *models.Class, property string) error {
-	f.class, f.property = class.Class, property
-	return f.verdict
+	f.calls = append(f.calls, rerankCheck{check: "property", class: class.Class, value: property})
+	return f.propertyVerdict
 }
 
-func TestSearchRejectsRerankPropertyBeforeTheSearch(t *testing.T) {
+func (f *fakeRerankValidator) ValidateRerankQuery(class *models.Class, query string) error {
+	f.calls = append(f.calls, rerankCheck{check: "query", class: class.Class, value: query})
+	return f.queryVerdict
+}
+
+func TestSearchValidatesRerankBeforeTheSearch(t *testing.T) {
 	tickets := &models.Class{
 		Class:      "Tickets",
 		Properties: []*models.Property{{Name: "tags", DataType: schema.DataTypeTextArray.PropString()}},
@@ -3060,7 +3073,9 @@ func TestSearchRejectsRerankPropertyBeforeTheSearch(t *testing.T) {
 	}
 	property, query := "tags", "billing"
 	rerank := &pb.Rerank{Property: property, Query: &query}
-	rejection := errors.New(`rerank: property "tags" of collection "Tickets" is of type text[]; reranker-dummy reranks text, blob properties`)
+	rerankWithoutQuery := &pb.Rerank{Property: property}
+	propertyRejection := errors.New(`rerank: property "tags" of collection "Tickets" is of type text[]; reranker-dummy reranks text, blob properties`)
+	queryRejection := errors.New("rerank.query is required by reranker-query")
 	plain := dto.GetParams{
 		ClassName:  tickets.Class,
 		Pagination: &filters.Pagination{Limit: 10},
@@ -3070,24 +3085,68 @@ func TestSearchRejectsRerankPropertyBeforeTheSearch(t *testing.T) {
 	withRerank.AdditionalProperties = additional.Properties{
 		ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &property, Query: &query}},
 	}
+	withRerankWithoutQuery := plain
+	withRerankWithoutQuery.AdditionalProperties = additional.Properties{
+		ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &property}},
+	}
+	propertyCheck := rerankCheck{check: "property", class: tickets.Class, value: property}
+	queryCheck := rerankCheck{check: "query", class: tickets.Class, value: query}
+	emptyQueryCheck := rerankCheck{check: "query", class: tickets.Class, value: ""}
 
 	tests := []struct {
-		name    string
-		rerank  *pb.Rerank
-		verdict error
-		wantErr error
-		// property the validator saw; empty when it was not called
-		wantSeen string
-		out      dto.GetParams
+		name            string
+		rerank          *pb.Rerank
+		propertyVerdict error
+		queryVerdict    error
+		wantErr         error
+		// calls the validator saw, in order; nil when it was not called
+		wantCalls []rerankCheck
+		out       dto.GetParams
 	}{
-		{name: "validator rejects", rerank: rerank, verdict: rejection, wantErr: rejection, wantSeen: property},
-		{name: "validator accepts", rerank: rerank, wantSeen: property, out: withRerank},
-		{name: "no rerank, validator not called", verdict: rejection, out: plain},
+		{
+			name:            "validator rejects the property",
+			rerank:          rerank,
+			propertyVerdict: propertyRejection,
+			wantErr:         propertyRejection,
+			wantCalls:       []rerankCheck{propertyCheck},
+		},
+		{
+			name:         "validator rejects the query",
+			rerank:       rerank,
+			queryVerdict: queryRejection,
+			wantErr:      queryRejection,
+			wantCalls:    []rerankCheck{propertyCheck, queryCheck},
+		},
+		{
+			name:         "validator rejects a nil query",
+			rerank:       rerankWithoutQuery,
+			queryVerdict: queryRejection,
+			wantErr:      queryRejection,
+			wantCalls:    []rerankCheck{propertyCheck, emptyQueryCheck},
+		},
+		{
+			name:      "validator accepts",
+			rerank:    rerank,
+			wantCalls: []rerankCheck{propertyCheck, queryCheck},
+			out:       withRerank,
+		},
+		{
+			name:      "validator accepts a nil query, which it sees as empty",
+			rerank:    rerankWithoutQuery,
+			wantCalls: []rerankCheck{propertyCheck, emptyQueryCheck},
+			out:       withRerankWithoutQuery,
+		},
+		{
+			name:            "no rerank, validator not called",
+			propertyVerdict: propertyRejection,
+			queryVerdict:    queryRejection,
+			out:             plain,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &fakeRerankValidator{verdict: tt.verdict}
+			validator := &fakeRerankValidator{propertyVerdict: tt.propertyVerdict, queryVerdict: tt.queryVerdict}
 			parser := NewParser(false, getTickets, nil, namespacing.Disabled, validator)
 			req := &pb.SearchRequest{Collection: tickets.Class, Rerank: tt.rerank}
 
@@ -3095,7 +3154,7 @@ func TestSearchRejectsRerankPropertyBeforeTheSearch(t *testing.T) {
 
 			require.Equal(t, tt.wantErr, err)
 			require.Equal(t, tt.out, out)
-			require.Equal(t, tt.wantSeen, validator.property)
+			require.Equal(t, tt.wantCalls, validator.calls)
 		})
 	}
 }

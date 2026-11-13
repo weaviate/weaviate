@@ -66,7 +66,7 @@ type Service struct {
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 	qualifier            namespacing.Qualifier
-	modulesProvider      rerankPropertyValidator
+	modulesProvider      rerankRequestValidator
 
 	authenticator      *auth.Handler
 	batchHandler       batch.Batcher
@@ -96,7 +96,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
 	// A nil *modules.Provider stored in the interface would not compare equal to nil.
-	var modulesProvider rerankPropertyValidator
+	var modulesProvider rerankRequestValidator
 	if state.Modules != nil {
 		modulesProvider = state.Modules
 	}
