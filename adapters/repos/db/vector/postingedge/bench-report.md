@@ -380,7 +380,7 @@ QPS a igual recall, leído de la curva de ef de cada configuración. Posting-edg
 
 La columna de HNSW a 1M es el build de la tarde, el que repite. El de la mañana llega a 0.99 a ef=512 en vez de a ef=768, y ahí da 379 y 2 374 QPS (0.92x y 0.80x de posting-edge). Su curva de 1 thread se cronometró con el escritorio en uso y va un 8 % lenta.
 
-Para comparar, dbpedia 1M (1536d, Fase B): 2.27x / 1.93x / 2.32x con 1 thread y 2.38x / 1.99x / 2.35x con 8.
+Para comparar, dbpedia 1M (1536d, Fase B): 2.27x / 1.93x / 2.32x con 1 thread y 2.38x / 1.99x / 2.35x con 8 (la de 0.99 con 8, no confirmada: de 2.28x a 2.78x según la corrida del control, ver Fase C, "Ruido").
 
 **La pregunta central: el ratio no se mantiene plano en QPS; las cargas sí, a 0.95.**
 
@@ -711,7 +711,7 @@ Las cuatro celdas son de la misma sesión que la Fase B: el control es su celda 
 
 8 threads:
 
-| S | QPS@0.90 | QPS@0.95 | QPS@0.99 | contra el control, 0.90 / 0.95 / 0.99 | HNSW / celda, 0.90 / 0.95 / 0.99 |
+| S | QPS@0.90 | QPS@0.95 | QPS@0.99 (no confirmada) | contra el control, 0.90 / 0.95 / 0.99 (no confirmada) | HNSW / celda, 0.90 / 0.95 / 0.99 (no confirmada) |
 |---|---|---|---|---|---|
 | 236 (control) | 9973 | 7945 | 2009 | 1.00x | 2.38x / 1.99x / 2.35x |
 | 512, primera corrida | 8512 | 7688 | 1919 | 0.85x / 0.97x / 0.95x | 2.79x / 2.06x / 2.46x |
@@ -719,6 +719,8 @@ Las cuatro celdas son de la misma sesión que la Fase B: el control es su celda 
 | 1024 | 7234 | 7234 | 1991 | 0.73x / 0.91x / 0.99x | 3.28x / 2.19x / 2.37x |
 | 2048 | 5780 | 5780 | 1850 | 0.58x / 0.73x / 0.92x | 4.11x / 2.73x / 2.55x |
 | HNSW | 23752 | 15806 | 4720 | — | — |
+
+**Las columnas de 0.99 con 8 threads no están confirmadas.** La curva de 8 threads del control de ef=160 a 640 no repitió en su último intento, y va como banda: su QPS@0.99 fue 2 009, 1 695 y 2 067 en tres corridas con la máquina sola (ver "Ruido"). Las cifras de la tabla son las de 01:35. Con la banda, el control queda a 2.28x–2.78x de HNSW a 0.99, y los cocientes de cada celda contra el control a 0.99 se mueven con él.
 
 S=512 tiene dos filas. La primera corrida se cronometró mientras yo corría tests en prioridad de fondo y sale entre un 2 y un 3 % lenta; la repetición, de 09:31 a 09:59 con la máquina libre, es la que hay que leer (ver "Ruido"). El resto de las tablas de S=512 (perfil por fases, margen, techo) son de la primera corrida: sus cuentas de trabajo y su recall son idénticos, y sus tiempos llevan ese 2 a 3 %.
 
@@ -741,7 +743,7 @@ Lectura:
 
 1. **El control gana el extremo rápido.** A 0.95 nadie lo alcanza, y por debajo de 0.94 es la única celda con puntos.
 2. **S=512 empata desde 0.96** (dentro de un 3 %), **S=1024 desde 0.99** (dentro de un 5 % desde 0.97) **y S=2048 desde 0.9925.** A 0.995 los cuatro dan 146 a 149 QPS.
-3. **Nadie adelanta al control.** Las diferencias a favor de un S mayor son de un 1 a un 5 % con 1 thread. Con 8 threads S=512 sale entre un 6 y un 9 % por delante a 0.96 y 0.97 y empata a 0.99. No lo doy por ventaja: el punto del control que decide esa zona (ef=40 con 8 threads) escala 6.2x desde 1 thread cuando sus vecinos escalan entre 6.4x y 6.7x, y la repetición del control que tenía que aclararlo cayó con la máquina en uso (ver "Ruido").
+3. **Nadie adelanta al control.** Las diferencias a favor de un S mayor son de un 1 a un 5 % con 1 thread. Con 8 threads S=512 sale entre un 6 y un 9 % por delante a 0.96 y 0.97 y empata a 0.99 (el empate a 0.99 con 8 threads, no confirmado: ver la nota de la tabla). No lo doy por ventaja: el punto del control que decide esa zona (ef=40 con 8 threads) escala 6.2x desde 1 thread cuando sus vecinos escalan entre 6.4x y 6.7x, y la repetición del control que tenía que aclararlo cayó con la máquina en uso (ver "Ruido").
 4. **Memoria y build van en sentidos opuestos:** el índice baja un 6, un 10 y un 12 %, y el build sube un 19, un 42 y un 63 %.
 
 ### El perfil por fases: por qué no gana un S mayor
@@ -972,9 +974,30 @@ Lo que deja. El punto dudoso del control con 8 threads (ef=40) se quedó sin con
 
 Si no repite, la curva va como banda de varianza, con una nota del régimen: ancho de banda de memoria a 1536d con ef alto. Las cifras de 8 threads a 0.99 de las Fases B y C quedan entonces marcadas como no confirmadas. No se vuelve a encolar.
 
+**Resultado (00:32 a 00:52 del 13): no repite, por la mediana.** La máquina estaba sola: `pmset -g log` no da reposo ni actividad de teclado en la ventana.
+
+| curva | contra la corrida de 01:35 | criterio | ¿lo cumple? |
+|---|---|---|---|
+| 8 threads, ef=160 / 320 / 640 | +4.1 / +2.6 / +3.4 %, mediana +3.4 % | cada punto dentro de ±5 % y mediana dentro de ±2 % | los puntos sí, la mediana no |
+| 1 thread, el ancla (ef=10 a 1024) | mediana +0.1 %, de −0.2 a +1.4 % | mediana dentro de ±2 % | sí |
+
+- **Falla por arriba.** Esta vez la curva de 8 threads sale más rápida que la de 01:35, y entre un 17 y un 27 % más que la repetición de la mañana del 12. Escala de 1 a 8 threads entre 6.7x y 6.9x, frente a 6.5x–6.7x a las 01:35 y 5.3x–5.9x por la mañana. El ancla de 1 thread repite las tres veces: QPS@0.99 de 298 a 302.
+- **La curva va como banda de varianza.** Las tres corridas con la máquina sola, con 8 threads:
+
+| ef | 01:35 del 11 | 07:26 del 12 | 00:32 del 13 |
+|---|---|---|---|
+| 160 | 2 896 | 2 567 | 3 015 |
+| 320 | 1 868 | 1 560 | 1 917 |
+| 640 | 1 133 | 920 | 1 171 |
+| QPS@0.99 | 2 009 | 1 695 | 2 067 |
+
+- **Nota del régimen.** Es donde 8 threads leen más memoria a la vez: códigos de 200 B y vectores de 1536 dimensiones, con ef alto, donde cada query carga decenas de postings (53 a recall 0.99). Con 1 thread la curva repite en las tres sesiones, con medianas dentro de ±0.5 %, y con 8 threads y ef de 10 a 80 la mañana del 12 repitió la noche dentro de ±2 %, salvo en ef=40. Con 8 threads y ef de 160 en adelante, de una sesión a otra va de −19 % a +4 %, sin causa visible en `pmset`. Que sea el ancho de banda de memoria es la lectura del régimen; no está medido.
+- **Las cifras de 8 threads a 0.99 de las Fases B y C quedan marcadas como no confirmadas,** en sus tablas y en su lectura. Las de 01:35, que son las que usan, caen dentro de la banda, a un 3 % de su techo. A 0.99 con 8 threads, el ratio de HNSW contra el control va de 2.28x a 2.78x según la corrida del control, frente al 2.35x publicado.
+- **No se vuelve a encolar.**
+
 ### Datos y reproducción
 
-Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición del control de las 22:38, de la que solo vale la curva de rondas de 4 con 1 thread: ver "Ruido"), `dbpedia-1m-posting-236-batches-redo.json` (la de la mañana del 12, con rondas de 1, 2 y 4) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
+Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición del control de las 22:38, de la que solo vale la curva de rondas de 4 con 1 thread: ver "Ruido"), `dbpedia-1m-posting-236-batches-redo.json` (la de la mañana del 12, con rondas de 1, 2 y 4), `dbpedia-1m-control-8threads-last.json` (el último intento de la curva de 8 threads, la noche del 12 al 13; se compara con `v1.5/scripts/cmp_sessions.py`) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
 
 ```bash
 # las tablas
@@ -1040,13 +1063,15 @@ QPS a igual recall, leído de la curva de ef de cada configuración. Entre paré
 
 8 threads:
 
-| celda | margen | QPS@0.90 | QPS@0.95 | QPS@0.99 | contra el completo, 0.90 / 0.95 / 0.99 | HNSW / celda, 0.90 / 0.95 / 0.99 |
+| celda | margen | QPS@0.90 | QPS@0.95 | QPS@0.99 (no confirmada) | contra el completo, 0.90 / 0.95 / 0.99 (no confirmada) | HNSW / celda, 0.90 / 0.95 / 0.99 (no confirmada) |
 |---|---|---|---|---|---|---|
 | completo (control) | 0.06 | 9973 (64) | 7945 (64) | 2009 (64) | 1.00x | 2.38x / 1.99x / 2.35x |
 | 768 bits | 0.06 | 10054 (64) | 6226 (200) | 1893 (400) | 1.01x / 0.78x / 0.94x | 2.36x / 2.54x / 2.49x |
 | 512 bits | 0.06 | 8224 (200) | 5692 (200) | 1552 (800) | 0.82x / 0.72x / 0.77x | 2.89x / 2.78x / 3.04x |
 | 256 bits | 0.08 | 4887 (400) | 2443 (800) | no llega | 0.49x / 0.31x / — | 4.86x / 6.47x / — |
 | HNSW | — | 23752 | 15806 | 4720 | — | — |
+
+**Las columnas de 0.99 con 8 threads no están confirmadas,** por lo mismo que en la Fase C: la curva de 8 threads del control de ef=160 a 640 va como banda, con un QPS@0.99 de 1 695 a 2 067 (ver Fase C, "Ruido"). Las cifras de la tabla son las de 01:35.
 
 La celda de 512 bits es la de su repetición, entera y con los dos márgenes, de 07:33 a 09:20: unas seis horas después del control, no seguida de él. Lo que la hace comparable es que sus puntos con margen 0.08 ya estaban medidos antes de medianoche y repiten con 1 thread dentro de un ±2 % en 23 de 32 (detalle en "Ruido"). El margen 0.06 le da un 20 % más de QPS que el 0.08 a recall 0.90, 0.95 y 0.99, lo mismo que a 768 bits. La celda de 256 bits solo se cronometró con 0.08, así que su fila lleva esa desventaja; no cambia su lectura, porque su techo de recall no depende del margen.
 
@@ -1055,9 +1080,9 @@ Lectura:
 1. **A recall 0.90 la celda de 768 bits empata con el completo** (0.99x y 1.01x), con el mismo rescoreLimit 64. Un aviso sobre esa columna: el primer punto del control (ef=10) ya tiene recall 0.9221, así que su QPS@0.90 es el de un punto por encima de 0.90.
 2. **A 0.95 ninguna capada llega:** 0.74x, 0.67x y 0.28x. Se suman dos costes: más cargas a igual recall (1.3x a 768 bits, 1.8x a 512, 3.9x a 256) y un rescoreLimit mayor, porque con 64 el recall de las capadas se queda corto (techo 0.975 a 768 bits, 0.926 a 512, 0.752 a 256). Pasar de 64 a 200 son 140 µs más por query sobre unos 850.
 3. **El código corto apenas abarata cada vector.** Con cinco veces menos bytes, escanear un vector baja de 54 a 37 ns y puntuar un endpoint de 75 a 56 ns (tabla abajo). Domina el coste fijo por vector y el fallo de caché, no el conteo de bits, así que el trabajo de más no se recupera.
-4. **A 0.99 la de 768 bits se acerca:** 0.90x con 1 thread y 0.94x con 8, con rescoreLimit 400. Ahí el control ya carga 53 postings por query y los 400 vectores rescoreados pesan menos.
-5. **La de 512 bits queda entre las dos:** 0.79x / 0.67x / 0.75x con 1 thread y 0.82x / 0.72x / 0.77x con 8. Su 0.99 pide rescoreLimit 800; con 400 solo llega a ef=1024, a 0.55x del control.
-6. **Contra HNSW,** el control queda a 2.27x / 1.93x / 2.32x con 1 thread y 2.38x / 1.99x / 2.35x con 8, con 157 MB menos de índice (263.5 frente a 420.2 MB).
+4. **A 0.99 la de 768 bits se acerca:** 0.90x con 1 thread y 0.94x con 8 (no confirmado), con rescoreLimit 400. Ahí el control ya carga 53 postings por query y los 400 vectores rescoreados pesan menos.
+5. **La de 512 bits queda entre las dos:** 0.79x / 0.67x / 0.75x con 1 thread y 0.82x / 0.72x / 0.77x con 8 (la de 0.99, no confirmada). Su 0.99 pide rescoreLimit 800; con 400 solo llega a ef=1024, a 0.55x del control.
+6. **Contra HNSW,** el control queda a 2.27x / 1.93x / 2.32x con 1 thread y 2.38x / 1.99x / 2.35x con 8 (la de 0.99, no confirmada: 2.28x a 2.78x con la banda), con 157 MB menos de índice (263.5 frente a 420.2 MB).
 
 Coste por vector, del pase instrumentado a recall 0.95 con 1 thread:
 
@@ -1275,11 +1300,11 @@ Un punto de HNSW re-medido de noche salió entre un 5 y un 9 % más rápido que 
 | 1 | 0.99 | 600 | 699 | +17 % | 299 | 301 | +1 % |
 | 8 | 0.90 | 25006 | 23752 | -5 % | 9675 | 9973 | +3 % |
 | 8 | 0.95 | 16576 | 15806 | -5 % | 7888 | 7945 | +1 % |
-| 8 | 0.99 | 4353 | 4720 | +8 % | 1931 | 2009 | +4 % |
+| 8 | 0.99 | 4353 | 4720 | +8 % | 1931 | 2009 (no confirmada) | +4 % |
 
 - **El índice posting-edge repite sus números del v1.1** dentro de un 1 a 4 %. La corrida del v1.1 fue a las 17:04. Entre las dos el código de búsqueda solo cambia en el hint de prefetch del sidecar, que no afecta a los códigos de 25 palabras.
 - **El brazo HNSW se mueve más, y no en un solo sentido:** más rápido con 1 thread, más lento con 8 threads a ef bajo. Cada build de HNSW es además un grafo distinto (la inserción es concurrente).
-- **Efecto sobre los ratios publicados en el v1.1,** que comparaban dos sesiones: con 1 thread pasan de 2.15x / 1.90x / 2.01x a 2.27x / 1.93x / 2.32x, y con 8 de 2.58x / 2.10x / 2.25x a 2.38x / 1.99x / 2.35x. El pre-registro del v1.1 (≤ 2.2x a recall 0.95) se sigue cumpliendo; a 0.99 con 1 thread el ratio de una sola sesión es 2.32x, no 2.01x.
+- **Efecto sobre los ratios publicados en el v1.1,** que comparaban dos sesiones: con 1 thread pasan de 2.15x / 1.90x / 2.01x a 2.27x / 1.93x / 2.32x, y con 8 de 2.58x / 2.10x / 2.25x a 2.38x / 1.99x / 2.35x (la de 0.99 con 8, no confirmada: ver Fase C, "Ruido"). El pre-registro del v1.1 (≤ 2.2x a recall 0.95) se sigue cumpliendo; a 0.99 con 1 thread el ratio de una sola sesión es 2.32x, no 2.01x.
 
 El fix de los hints de prefetch de la caché de vectores (PR weaviate/weaviate#13853) está aplicado en los dos brazos esta noche y no estaba en el baseline de día. Con 1 thread no explica el cambio: con y sin el fix, alternando y con dos builds por lado, el QPS a ef 32, 48 y 64 coincide dentro de un ±1.5 %.
 
