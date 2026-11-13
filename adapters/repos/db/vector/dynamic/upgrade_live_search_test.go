@@ -16,7 +16,9 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -46,9 +48,10 @@ type upgradeTestEnv struct {
 	// hnsw derives its compressed bucket name from the id
 	id string
 
-	db    *bbolt.DB
-	store *lsmkv.Store
-	idx   *dynamic
+	db      *bbolt.DB
+	store   *lsmkv.Store
+	idx     *dynamic
+	logHook *test.Hook
 }
 
 func newUpgradeTestEnv(t *testing.T, root, targetVector string, vectors [][]float32,
@@ -74,7 +77,7 @@ func newUpgradeTestEnv(t *testing.T, root, targetVector string, vectors [][]floa
 // open loads the index from whatever is on disk under root.
 func (e *upgradeTestEnv) open(t *testing.T) {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
+	logger, logHook := test.NewNullLogger()
 	storeDir := filepath.Join(e.root, "store")
 	rootPath := filepath.Join(e.root, "index")
 	for _, d := range []string{storeDir, rootPath} {
@@ -113,7 +116,7 @@ func (e *upgradeTestEnv) open(t *testing.T) {
 	require.NoError(t, err)
 	idx.PostStartup(context.Background())
 
-	e.db, e.store, e.idx = db, store, idx
+	e.db, e.store, e.idx, e.logHook = db, store, idx, logHook
 	t.Cleanup(e.shutdown)
 }
 
@@ -462,6 +465,15 @@ func TestUpgrade_RetryAfterPanickedCopy(t *testing.T) {
 				}
 				return nil
 			})
+			// GoWrapper reads DISABLE_RECOVERY_ON_PANIC after the upgrade callback, so keep the override until it logs
+			require.Eventually(t, func() bool {
+				for _, e := range env.logHook.AllEntries() {
+					if strings.HasPrefix(e.Message, "Recovered from panic") {
+						return true
+					}
+				}
+				return false
+			}, 30*time.Second, 10*time.Millisecond, "the copy panic was never recovered and logged")
 			require.False(t, env.idx.IsUpgraded(), "the panicked upgrade must not commit")
 			_, err := os.Stat(hnswCommitLogDirectory(filepath.Join(env.root, "index"), env.id))
 			assert.True(t, os.IsNotExist(err), "the panicked copy must not leave a commit log behind")
