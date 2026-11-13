@@ -190,6 +190,12 @@ func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 	t.Parallel()
 	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer hung.Close()
+	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer stalled.Close()
 	down := httptest.NewServer(http.NotFoundHandler())
 	downHost := down.URL[7:]
 	down.Close()
@@ -208,6 +214,7 @@ func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
 			server *httptest.Server
 		}{
 			{name: "peer never answers", server: hung},
+			{name: "peer stalls an error body", server: stalled},
 		} {
 			t.Run(read.name+"/"+peer.name, func(t *testing.T) {
 				// Arrange
