@@ -29,6 +29,7 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -640,6 +641,91 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			require.EqualError(t, err, tt.wantErr)
 			assert.Len(t, used.received(), 1)
 			assert.Empty(t, unused.received())
+		})
+	}
+}
+
+func TestRankCutsAQuotedBodyWithoutSplittingACharacter(t *testing.T) {
+	// Byte 512 is the first of the two bytes of the first "é".
+	wholeCharacters := strings.Repeat("a", maxErrorBodyBytes-1)
+	body := wholeCharacters + strings.Repeat("é", 10)
+	tests := []struct {
+		name    string
+		status  int
+		wantErr string
+	}{
+		{
+			name:    "the body of a status other than 200",
+			status:  http.StatusInternalServerError,
+			wantErr: "connection to TypeSafe AI API failed with status 500: " + wholeCharacters,
+		},
+		{
+			name:    "the body of a 200 that is not JSON",
+			status:  http.StatusOK,
+			wantErr: "parse TypeSafe AI response: invalid character 'a' looking for beginning of value: " + wholeCharacters,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			f.replies = map[int]fakeReply{0: {status: tt.status, body: body}}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.True(t, utf8.ValidString(err.Error()))
+		})
+	}
+}
+
+// The cut of the quoted body drops bytes, and the search for the error_type
+// reads the bytes before that cut.
+func TestRankFindsTheErrorTypeInABodyThatIsNotUTF8(t *testing.T) {
+	f := newFake(t)
+	f.replies = map[int]fakeReply{0: {
+		status: http.StatusBadRequest,
+		body:   strings.Repeat("\xff", maxErrorBodyBytes-len(tooLargeError)) + tooLargeError,
+	}}
+
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(noRefund, chargedTwice), classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	assert.Len(t, res.DocumentScores, 2)
+	assert.Equal(t, []int{1, 1, 2}, sizes(f.received()))
+}
+
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: ""},
+		{name: "short", in: "a 400", want: "a 400"},
+		{name: "at the limit", in: strings.Repeat("a", maxErrorBodyBytes), want: strings.Repeat("a", maxErrorBodyBytes)},
+		{name: "above the limit", in: strings.Repeat("a", maxErrorBodyBytes+1), want: strings.Repeat("a", maxErrorBodyBytes)},
+		{
+			name: "a character ends at the limit",
+			in:   strings.Repeat("a", maxErrorBodyBytes-2) + "éé",
+			want: strings.Repeat("a", maxErrorBodyBytes-2) + "é",
+		},
+		{
+			name: "the limit splits a character",
+			in:   strings.Repeat("a", maxErrorBodyBytes-1) + "é",
+			want: strings.Repeat("a", maxErrorBodyBytes-1),
+		},
+		{
+			name: "a short body that ends inside a character",
+			in:   "caf\xc3",
+			want: "caf",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, truncate(tt.in))
+			assert.Equal(t, tt.want, truncate([]byte(tt.in)))
 		})
 	}
 }

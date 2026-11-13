@@ -343,7 +343,7 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 		tooLarge = res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError))
 		rejected := apiError{status: res.StatusCode}
 		if !hostFromHeader {
-			rejected.message = string(errorBody)
+			rejected.message = truncate(errorBody)
 		}
 		return typesafeaiResponse{}, tooLarge, rejected
 	}
@@ -402,15 +402,13 @@ func withBody(err error, body []byte, hostFromHeader bool) error {
 	if hostFromHeader || len(body) == 0 {
 		return err
 	}
-	return fmt.Errorf("%w: %s", err, body[:min(len(body), maxErrorBodyBytes)])
+	return fmt.Errorf("%w: %s", err, truncate(body))
 }
 
-// truncate cuts s to maxErrorBodyBytes without splitting a character.
-func truncate(s string) string {
-	if len(s) <= maxErrorBodyBytes {
-		return s
-	}
-	return strings.ToValidUTF8(s[:maxErrorBodyBytes], "")
+// truncate cuts s to maxErrorBodyBytes and drops the bytes that are not valid
+// UTF-8, such as those of a character the cut splits.
+func truncate[T string | []byte](s T) string {
+	return strings.ToValidUTF8(string(s[:min(len(s), maxErrorBodyBytes)]), "")
 }
 
 // apiError is a status other than 200. message is empty for a host the
