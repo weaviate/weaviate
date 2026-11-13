@@ -126,6 +126,7 @@ type Scheduler struct {
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
 	relaunchLogger           *logrusext.Sampler
+	swapRetryLogger          *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -237,6 +238,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		swapRetryLogger:          logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -1054,22 +1056,25 @@ func (s *Scheduler) runDecidedSwapPhase(
 			if err != nil {
 				state.swapPending[w.groupID] = struct{}{}
 				if errors.Is(err, context.Canceled) {
-					s.loggerWithTask(namespace, desc).WithField("groupID", w.groupID).
-						Debugf("swap of a decided group did not complete and is retryable; a later tick re-fires it: %v", err)
+					// Checked first so a discarded debug line spends no sampler budget.
+					if logrusext.LevelEnabled(s.logger, logrus.DebugLevel) {
+						s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
+							s.loggerWithTask(namespace, desc).WithField("groupID", w.groupID).
+								Debugf("swap of a decided group did not complete and is retryable; a later tick re-fires it: %v", err)
+						})
+					}
 				} else {
-					s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+					s.swapRetryLogger.WithSampling(func(l logrus.FieldLogger) {
 						l.WithField("taskID", desc.ID).WithField("groupID", w.groupID).WithField("node", s.localNode).
 							Errorf("swap of a decided group failed on this node; retrying it next tick: %v", err)
 					})
 				}
-				if errors.Is(err, context.Canceled) || task.Status != TaskStatusSwapping {
-					continue
-				}
+				continue
 			}
 			if state.swapAcksPending == nil {
 				state.swapAcksPending = map[string]error{}
 			}
-			state.swapAcksPending[w.groupID] = err
+			state.swapAcksPending[w.groupID] = nil
 		}
 		if s.ackRecorder == nil {
 			return nil

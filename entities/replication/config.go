@@ -21,6 +21,8 @@ import (
 // individual class
 type GlobalConfig struct {
 	AsyncReplicationDisabled *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	// AsyncReplicationInMaintenanceEnabled lets async replication run in and out of a node in maintenance mode.
+	AsyncReplicationInMaintenanceEnabled *runtime.DynamicValue[bool] `json:"async_replication_in_maintenance_enabled" yaml:"async_replication_in_maintenance_enabled"`
 
 	// Async replication knobs. A zero value means "not configured at the cluster
 	// level"; the per-class API override (or the hardcoded code default) takes

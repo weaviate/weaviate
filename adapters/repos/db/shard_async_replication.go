@@ -1696,10 +1696,11 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return len(s.targetNodeOverrides)
 	}()
 
-	if (!s.index.AsyncReplicationEnabledForShard(s.name) && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
+	blockedByMaintenance := s.index.asyncReplicationBlockedByMaintenance()
+	if (!s.index.AsyncReplicationEnabledForShard(s.name) && targetNodeOverridesLen == 0) || blockedByMaintenance {
 		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
-		// or maintenance mode is enabled for localhost
-		if s.index.maintenanceModeEnabled() {
+		// or maintenance mode is enabled for localhost without the async-replication-in-maintenance flag
+		if blockedByMaintenance {
 			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 				s.asyncRepLastLog.Store(time.Now().Unix())
 				s.index.logger.
