@@ -55,7 +55,7 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 }
 
 func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *logrusext.Sampler) {
-	if s.migrationRecords == nil || class == nil {
+	if s.migrationRecords == nil || class == nil || !s.migrationRecords.HasRecords() {
 		return
 	}
 	tasks, readable := s.migrations().LocalTasks()
@@ -125,7 +125,7 @@ func (s *Shard) reportUnbuildableOverlays(faults *logrusext.Sampler, unbuildable
 }
 
 func (s *Shard) migratedIndexStands(propName, indexType string) bool {
-	if s.migrationRecords == nil {
+	if s.migrationRecords == nil || !s.migrationRecords.HasRecords() {
 		return false
 	}
 	tasks, readable := s.migrations().LocalTasks()
