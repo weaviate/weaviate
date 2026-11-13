@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// With no records, the task list (a manager lock) must not be read.
+// Reading the task list takes the task manager's lock, which RAFT applies wait on.
 func TestAnEmptyRecordStoreSkipsTheTaskListRead(t *testing.T) {
 	tests := []struct {
 		name string
