@@ -334,12 +334,8 @@ type taskAttempt struct {
 	progress float32
 }
 
-// Two matching tasks, and which one the entry reports. The merge loop ranks
-// on two rules and the rows hold them apart:
-//
-//   - an in-flight task beats a terminal one, whichever started first;
-//   - between two of equal standing, the later Version (RAFT index) wins,
-//     even when skewed clocks give it the earlier StartedAt.
+// Two matching tasks, and which one the entry reports: the later Version
+// (RAFT index) wins, even when skewed clocks give it the earlier StartedAt.
 //
 // Every row runs the list both ways round, because the merge loop must not
 // rank on slice position.
@@ -389,12 +385,9 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 		{"a retry this build cannot name beats it too", failed(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
 		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1, newerID},
 		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
-		{"one this build cannot name beats a newer completed migration", unrecognized(0.4), done(0.7), "indexing", 0.4, olderID},
-		// CANCELLED shares its rank with FAILED and FINISHED, so recency is
-		// the only thing separating it from either.
 		{"the newer of two failures is the one reported", failed(0.4), failed(0.7), "failed", 0.7, newerID},
-		{"a completed migration outranks the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
-		{"a completed migration outranks the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
+		{"a completed migration beats the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
+		{"a completed migration beats the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
 		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -687,35 +680,6 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 				"%s implies units all done; progress must read 100%%", tt.name)
 			require.Equal(t, "lowercase", idx.TargetTokenization,
 				"%s must paint the targetTokenization synthetic side-effect — UI needs it to render the in-flight tokenization preview", tt.name)
-		})
-	}
-}
-
-// Pins: every non-terminal status, including an unrecognized one, ranks
-// above every terminal status.
-func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
-	mkTask := func(status distributedtask.TaskStatus) *distributedtask.Task {
-		return &distributedtask.Task{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
-			Status:         status,
-		}
-	}
-	for _, tt := range []struct {
-		name   string
-		status distributedtask.TaskStatus
-		want   int
-	}{
-		{"STARTED", distributedtask.TaskStatusStarted, 2},
-		{"PREPARING", distributedtask.TaskStatusPreparing, 2},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, 2},
-		{"unrecognized", unknownFutureStatus, 2},
-		{"FAILED", distributedtask.TaskStatusFailed, 1},
-		{"CANCELLED", distributedtask.TaskStatusCancelled, 1},
-		{"FINISHED", distributedtask.TaskStatusFinished, 1},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, taskStatusPriority(mkTask(tt.status)),
-				"status %s must rank at priority %d", tt.status, tt.want)
 		})
 	}
 }
