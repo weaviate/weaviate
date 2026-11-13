@@ -133,6 +133,15 @@ var (
 	benchCapMaxDrop = flag.Float64("bench.capmaxdrop", 0.01, "postingedge, with -bench.degreecaps: a cap whose edge recall falls more than this "+
 		"below that of the full edges is reported and not measured. The recall of a cap is against the k nearest of the true edges")
 
+	benchCentroidEFs = flag.String("bench.centroidefs", "", "postingedge, full mode: after the plan, efs of the centroid graph search below the default, "+
+		"largest first. Each is measured untimed at -bench.centroidpoints, next to -bench.out as <name>-centroidef<ef>.json, after the default; "+
+		"the walk stops at the first that loses more than -bench.centroidmaxdrop of recall at any point, and the last one that did not "+
+		"gets the plan, timed, in its file")
+	benchCentroidPoints = flag.String("bench.centroidpoints", "20,160", "postingedge, with -bench.centroidefs: the search efs the centroid efs are "+
+		"compared at, with the rescore limit, load batch and margin of the first sweep")
+	benchCentroidMaxDrop = flag.Float64("bench.centroidmaxdrop", 0.0005, "postingedge, with -bench.centroidefs: the most recall a centroid ef may lose "+
+		"against the default at a point and still count as keeping it")
+
 	benchSweeps sweepFlag
 )
 
@@ -310,6 +319,9 @@ type benchResult struct {
 	PeakRSSMB     float64            `json:"peakRSSMB"`
 	Components    map[string]float64 `json:"componentsMB"`
 	Diagnostics   map[string]float64 `json:"diagnostics,omitempty"`
+	// EdgeRedundancy is how the edges of the vectors spread over the
+	// postings they lead to.
+	EdgeRedundancy *edgeRedundancy `json:"edgeRedundancy,omitempty"`
 
 	Points     []benchPoint      `json:"points"`
 	ProbeSweep []probePoint      `json:"probeSweep,omitempty"`
@@ -569,6 +581,13 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 
 	var truth *edgeTruth
 	result.Diagnostics, truth = postingEdgeDiagnostics(t, index, data, build, *benchSample)
+	{
+		st := index.state.Load()
+		redundancy := edgeRedundancyOf(st.postings.edgeStart, st.postings.edges, st.side.postingOf)
+		result.EdgeRedundancy = &redundancy
+		maps.Copy(result.Diagnostics, redundancy.diagnostics())
+		t.Logf("edge redundancy: %s", redundancy.report())
+	}
 	if *benchReach > 0 {
 		for key, value := range edgeReachDiagnostics(t, index, data, *benchReach) {
 			result.Diagnostics[key] = value
@@ -582,9 +601,85 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 
 	if *benchDegreeCaps == "" {
 		runPostingEdgePlan(t, index, data, uc, plan, result, *benchOut)
+		if *benchCentroidEFs != "" {
+			benchCentroidEFSweep(t, index, data, uc, plan, result)
+		}
 		return
 	}
 	benchCappedDegrees(t, index, data, uc, plan, result, truth)
+}
+
+// benchCentroidEFSweep measures the centroid graph search at the efs of
+// -bench.centroidefs, below the default centroidEF, on the index the plan was
+// just measured on. Every ef, the default first, gets the points of
+// -bench.centroidpoints untimed: recall, work, and how often the entry is the
+// exact nearest centroid. The walk goes down the list and stops at the first
+// ef that loses more than -bench.centroidmaxdrop of recall at any point
+// against the default. The last ef that did not gets the plan, timed. The
+// default is put back at the end.
+func benchCentroidEFSweep(t *testing.T, index *Index, data *benchData, uc UserConfig, plan []sweep, result *benchResult) {
+	require.NotEmpty(t, *benchOut, "-bench.centroidefs writes a result per centroid ef next to -bench.out")
+	defer func() { require.NoError(t, index.setCentroidEF(centroidEF)) }()
+	first := plan[0]
+	rescore, batch, margin := first.rescores[0], first.batches[0], first.margins[0]
+	require.NotEqual(t, autoMargin, margin, "-bench.centroidefs needs a first sweep with a margin given")
+	points := parseInts(t, *benchCentroidPoints)
+	st := index.state.Load()
+	exact := exactEntries(st, data.queries)
+
+	outOf := func(ef int) string {
+		return strings.TrimSuffix(*benchOut, ".json") + fmt.Sprintf("-centroidef%d.json", ef)
+	}
+	untimed := func(ef int) *benchResult {
+		require.NoError(t, index.setCentroidEF(ef))
+		cell := *result
+		cell.Points, cell.Calibration, cell.AutoMargins, cell.AutoMargin = nil, nil, nil, nil
+		cell.Config = maps.Clone(result.Config)
+		cell.Config["centroidEF"] = ef
+		cell.Diagnostics = maps.Clone(result.Diagnostics)
+		cell.Diagnostics["entryIsNearestCentroid"] = entryAccuracy(st, data.queries, exact)
+		for _, searchEF := range points {
+			uc.EF, uc.LoadBatch, uc.RescoreLimit, uc.SourceMargin = searchEF, batch, rescore, float32(margin)
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+			// One thread, so that the phase times of the pass hold.
+			stats, recall := collectSearchStats(t, index, data, 1)
+			cell.Points = append(cell.Points, benchPoint{
+				EF: searchEF, Threads: 1, RescoreLimit: rescore, LoadBatch: batch, SourceMargin: margin,
+				Recall: recall, Stats: stats, Untimed: true,
+			})
+			t.Logf("centroid ef %d: ef=%d recall=%.4f | loads %.1f rounds %.1f endpoints %.0f scanned %.0f | "+
+				"entry is the nearest centroid %.4f | us, untimed pass: centroid %.0f total %.0f",
+				ef, searchEF, recall, stats.LoadsMean, stats.RoundsMean, stats.EndpointsMean, stats.ScannedMean,
+				cell.Diagnostics["entryIsNearestCentroid"], stats.CentroidUs, stats.TotalUs)
+		}
+		writeBenchResultTo(t, &cell, outOf(ef))
+		return &cell
+	}
+
+	base := untimed(centroidEF)
+	var kept *benchResult
+	keptEF := 0
+	for _, ef := range parseInts(t, *benchCentroidEFs) {
+		require.Less(t, ef, centroidEF, "-bench.centroidefs are efs below the default")
+		cell := untimed(ef)
+		worst := 0.0
+		for i, p := range cell.Points {
+			worst = max(worst, base.Points[i].Recall-p.Recall)
+		}
+		if worst > *benchCentroidMaxDrop {
+			t.Logf("centroid ef %d loses %.4f of recall against %d, more than %.4f: the walk stops", ef, worst, centroidEF, *benchCentroidMaxDrop)
+			break
+		}
+		t.Logf("centroid ef %d keeps the recall of %d (worst loss %.4f)", ef, centroidEF, worst)
+		kept, keptEF = cell, ef
+	}
+	if kept == nil {
+		t.Logf("no centroid ef below %d keeps its recall: nothing timed", centroidEF)
+		return
+	}
+	require.NoError(t, index.setCentroidEF(keptEF))
+	t.Logf("centroid ef %d: timing the plan", keptEF)
+	runPostingEdgePlan(t, index, data, uc, plan, kept, outOf(keptEF))
 }
 
 // benchCappedDegrees measures the plan once per cap of -bench.degreecaps on the
@@ -621,6 +716,9 @@ func benchCappedDegrees(t *testing.T, index *Index, data *benchData, uc UserConf
 		cell.Config["degreeCap"] = k
 		cell.Components = maps.Clone(result.Components)
 		cell.Diagnostics = maps.Clone(result.Diagnostics)
+		redundancy := edgeRedundancyOf(start, edges, index.state.Load().side.postingOf)
+		cell.EdgeRedundancy = &redundancy
+		maps.Copy(cell.Diagnostics, redundancy.diagnostics())
 		memory, _ := index.MemoryStats()
 		cell.Components["edges"] = float64(memory.EdgeBytes) / (1 << 20)
 		// The heap is read once, after the build: a cap frees what it drops.
@@ -1319,29 +1417,7 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 
 	// Entry accuracy: how often the centroid graph returns the exact
 	// nearest centroid of a query.
-	l2 := distancer.NewL2SquaredProvider()
-	var exactEntry atomic.Int64
-	parallelFor(len(data.queries), func(i int) {
-		query := data.queries[i]
-		best, bestDist := 0, float32(math.Inf(1))
-		for c, centroid := range st.centroids.vectors {
-			dist, err := l2.SingleDist(query, centroid)
-			if err != nil {
-				panic(err)
-			}
-			if dist < bestDist {
-				best, bestDist = c, dist
-			}
-		}
-		got, err := st.centroids.nearest(context.Background(), query, 1)
-		if err != nil {
-			panic(err)
-		}
-		if len(got) == 1 && got[0] == uint64(best) {
-			exactEntry.Add(1)
-		}
-	})
-	out["entryIsNearestCentroid"] = float64(exactEntry.Load()) / float64(len(data.queries))
+	out["entryIsNearestCentroid"] = entryAccuracy(st, data.queries, exactEntries(st, data.queries))
 
 	if selfSample, found := selfRetrieval(t, index, data); selfSample > 0 {
 		out["selfSample"], out["selfFound"] = float64(selfSample), found

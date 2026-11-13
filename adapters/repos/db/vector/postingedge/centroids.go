@@ -50,11 +50,6 @@ func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]
 		return vectors[id], nil
 	}
 
-	uc := enthnsw.UserConfig{}
-	uc.SetDefaults()
-	uc.Distance = entcommon.DistanceL2Squared
-	uc.EF = centroidEF
-
 	graph, err := hnsw.New(hnsw.Config{
 		RootPath:              dir,
 		ID:                    "centroids",
@@ -79,7 +74,7 @@ func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]
 		// Marks the graph as a component of another index for metrics, as
 		// HFresh does for its centroid graph.
 		HFreshMode: true,
-	}, uc, cyclemanager.NewCallbackGroupNoop(), nil)
+	}, centroidUserConfig(centroidEF), cyclemanager.NewCallbackGroupNoop(), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "create centroid graph")
 	}
@@ -101,6 +96,16 @@ func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]
 		return nil, err
 	}
 	return index, nil
+}
+
+// centroidUserConfig is the configuration of the centroid graph, searched with
+// the given ef.
+func centroidUserConfig(ef int) enthnsw.UserConfig {
+	uc := enthnsw.UserConfig{}
+	uc.SetDefaults()
+	uc.Distance = entcommon.DistanceL2Squared
+	uc.EF = ef
+	return uc
 }
 
 // nearest returns the ids of the postings whose centroids are nearest to the
