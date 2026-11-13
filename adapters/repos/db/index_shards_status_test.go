@@ -516,6 +516,15 @@ func TestIndex_ShardsStatusAndQueueSize_SkipPeerThatTimedOut(t *testing.T) {
 		"stuck": {err: fmt.Errorf("connect: %w", context.DeadlineExceeded)},
 		"node2": {status: "READY", size: 7},
 	}
+	stuckCalls := func(client *shardStatusRemoteClient) int {
+		calls := 0
+		for _, call := range client.askedFor() {
+			if strings.HasPrefix(call, "stuck/") {
+				calls++
+			}
+		}
+		return calls
+	}
 	for name, lookup := range shardLookups {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -527,36 +536,22 @@ func TestIndex_ShardsStatusAndQueueSize_SkipPeerThatTimedOut(t *testing.T) {
 
 			// Assert
 			require.NoError(t, err)
-			stuckCalls := 0
-			for _, call := range client.askedFor() {
-				if strings.HasPrefix(call, "stuck/") {
-					stuckCalls++
-				}
-			}
-			require.LessOrEqual(t, stuckCalls, limit, "calls to the peer that timed out")
+			require.LessOrEqual(t, stuckCalls(client), limit, "calls to the peer that timed out")
 		})
 	}
-}
+	t.Run("queue size after status in one listing", func(t *testing.T) {
+		// Arrange
+		client := &shardStatusRemoteClient{replies: replies}
+		index, _ := newShardStatusIndex(t, false, physical, nil, []string{"stuck", "node2"}, client)
+		ctx := sharding.WithTimedOutPeers(t.Context())
+		require.NoError(t, shardLookups["status"](ctx, index))
+		afterStatus := stuckCalls(client)
 
-func TestTimedOutPeers(t *testing.T) {
-	ended, cancel := context.WithCancel(t.Context())
-	cancel()
-	timedOut := fmt.Errorf("connect: %w", context.DeadlineExceeded)
-	for _, tc := range []struct {
-		name string
-		ctx  context.Context
-		err  error
-		want bool
-	}{
-		{name: "its own call timed out", ctx: t.Context(), err: timedOut, want: true},
-		{name: "it answered an error", ctx: t.Context(), err: errors.New("status code: 500")},
-		{name: "it answered", ctx: t.Context()},
-		{name: "the listing ended", ctx: ended, err: timedOut},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var peers timedOutPeers
-			peers.record(tc.ctx, "node1", tc.err)
-			require.Equal(t, tc.want, peers.has("node1"))
-		})
-	}
+		// Act
+		err := shardLookups["queue size"](ctx, index)
+
+		// Assert
+		require.NoError(t, err)
+		require.Equal(t, afterStatus, stuckCalls(client), "queue size asked the peer that timed out on status")
+	})
 }

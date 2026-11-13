@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -389,4 +390,51 @@ func TestExecutor(t *testing.T) {
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateShardStatus(req))
 	})
+}
+
+func TestExecutor_GetShardsStorageStatus(t *testing.T) {
+	status := map[string]map[string]string{"a": {"node1": "READY"}, "b": {"node1": "READONLY"}}
+	legacy := map[string]string{"a": "READY", "b": "READONLY"}
+	for _, tc := range []struct {
+		name  string
+		queue map[string]int64
+		want  models.ShardStatusList
+	}{
+		{
+			name:  "every shard in both lookups",
+			queue: map[string]int64{"a": 3, "b": 0},
+			want: models.ShardStatusList{
+				{Name: "a", Status: "READY", PerNodeStatus: status["a"], VectorQueueSize: 3},
+				{Name: "b", Status: "READONLY", PerNodeStatus: status["b"]},
+			},
+		},
+		{
+			name:  "tenant deleted between the lookups",
+			queue: map[string]int64{"a": 3},
+			want: models.ShardStatusList{
+				{Name: "a", Status: "READY", PerNodeStatus: status["a"], VectorQueueSize: 3},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			var peers []*sharding.TimedOutPeers
+			keep := func(args mock.Arguments) {
+				peers = append(peers, sharding.TimedOutPeersFrom(args.Get(0).(context.Context)))
+			}
+			migrator := &fakeMigrator{}
+			migrator.On("GetShardsStorageStatus", Anything, "C", "").Run(keep).Return(status, legacy, nil)
+			migrator.On("GetShardsQueueSize", Anything, "C", "").Run(keep).Return(tc.queue, nil)
+			x := newMockExecutor(migrator, &fakeSchemaManager{})
+
+			// Act
+			got, err := x.GetShardsStorageStatus(t.Context(), "C", "")
+
+			// Assert
+			require.NoError(t, err)
+			require.ElementsMatch(t, tc.want, got)
+			require.Len(t, peers, 2)
+			require.Same(t, peers[0], peers[1], "timed-out peers shared by both lookups")
+		})
+	}
 }

@@ -4508,7 +4508,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 
 	var mu sync.Mutex
 	shardsQueueSize := make(map[string]int64, len(shardNames))
-	var timedOut timedOutPeers
+	timedOut := sharding.TimedOutPeersFrom(ctx)
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 	for _, shardName := range shardNames {
@@ -4525,7 +4525,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 				if err != nil {
 					return err
 				}
-				if size, err = i.firstQueueSize(ctx, shardName, thisNode, replicas, &timedOut); err != nil && ctx.Err() == nil {
+				if size, err = i.firstQueueSize(ctx, shardName, thisNode, replicas, timedOut); err != nil && ctx.Err() == nil {
 					i.logger.WithField("shard", shardName).Warnf("queue size: no replica answered: %v", err)
 				}
 			}
@@ -4545,7 +4545,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 // firstQueueSize returns the first answering read replica's queue size, or every replica's error.
-func (i *Index) firstQueueSize(ctx context.Context, shardName, thisNode string, replicas []string, timedOut *timedOutPeers) (int64, error) {
+func (i *Index) firstQueueSize(ctx context.Context, shardName, thisNode string, replicas []string, timedOut *sharding.TimedOutPeers) (int64, error) {
 	if r := i.getReplicationFSMReader(); r != nil {
 		replicas = r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, replicas)
 	}
@@ -4555,11 +4555,11 @@ func (i *Index) firstQueueSize(ctx context.Context, shardName, thisNode string, 
 		var err error
 		if nodeName == thisNode {
 			size, err = i.IncomingGetShardQueueSize(ctx, shardName)
-		} else if timedOut.has(nodeName) {
+		} else if timedOut.Has(nodeName) {
 			err = errPeerTimedOut
 		} else {
 			size, err = i.remote.GetShardQueueSize(ctx, shardName, nodeName)
-			timedOut.record(ctx, nodeName, err)
+			timedOut.Record(ctx, nodeName, err)
 		}
 		if err == nil {
 			return size, nil
@@ -4570,21 +4570,6 @@ func (i *Index) firstQueueSize(ctx context.Context, shardName, thisNode string, 
 }
 
 var errPeerTimedOut = stderrors.New("peer timed out earlier in this listing")
-
-// timedOutPeers holds the peers that hit the per-call deadline during one listing, so later shards skip them.
-type timedOutPeers struct{ nodes sync.Map }
-
-func (p *timedOutPeers) has(node string) bool {
-	_, ok := p.nodes.Load(node)
-	return ok
-}
-
-// record keeps node only when its own call timed out while the listing's context is still live.
-func (p *timedOutPeers) record(ctx context.Context, node string, err error) {
-	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		p.nodes.Store(node, struct{}{})
-	}
-}
 
 // inactiveTenant reports whether the local schema lists shardName as a tenant that is not HOT.
 func (i *Index) inactiveTenant(shardName string) bool {
@@ -4693,7 +4678,7 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	var mu sync.Mutex // guards shardsStatus and legacyStatus
 	shardsStatus := make(map[string]map[string]string, len(shardNames))
 	legacyStatus := make(map[string]string, len(shardNames))
-	var timedOut timedOutPeers
+	timedOut := sharding.TimedOutPeersFrom(ctx)
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
@@ -4728,7 +4713,7 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 					} else {
 						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
-				} else if timedOut.has(nodeName) {
+				} else if timedOut.Has(nodeName) {
 					oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 				} else {
 					var status string
@@ -4736,7 +4721,7 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 						oneNodeStatus.CompareAndSwap(nil, status)
 						perNodeStatus[nodeName] = status
 					} else {
-						timedOut.record(ctx, nodeName, err)
+						timedOut.Record(ctx, nodeName, err)
 						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
 				}

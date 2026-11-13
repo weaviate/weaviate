@@ -122,3 +122,28 @@ func (f *fakeSchema) ShardOwner(class, shard string) (string, error) {
 func (f *fakeSchema) ShardReplicas(class, shard string) ([]string, error) {
 	return f.nodes, nil
 }
+
+func TestTimedOutPeers(t *testing.T) {
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	timedOut := fmt.Errorf("connect: %w", context.DeadlineExceeded)
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want bool
+	}{
+		{name: "its own call timed out", ctx: t.Context(), err: timedOut, want: true},
+		{name: "it answered an error", ctx: t.Context(), err: errors.New("status code: 500")},
+		{name: "it answered", ctx: t.Context()},
+		{name: "the listing ended", ctx: ended, err: timedOut},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var peers TimedOutPeers
+			peers.Record(tc.ctx, "node1", tc.err)
+			if got := peers.Has("node1"); got != tc.want {
+				t.Errorf("Has(node1) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

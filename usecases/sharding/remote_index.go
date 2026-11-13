@@ -524,3 +524,33 @@ func (ri *RemoteIndex) queryReplicas(
 	}
 	return resp, node, err
 }
+
+// TimedOutPeers holds the peers whose status or queue-size read timed out during one listing, so later reads skip them.
+type TimedOutPeers struct{ nodes sync.Map }
+
+func (p *TimedOutPeers) Has(node string) bool {
+	_, ok := p.nodes.Load(node)
+	return ok
+}
+
+// Record keeps node only when its own call timed out while the listing's context is still live.
+func (p *TimedOutPeers) Record(ctx context.Context, node string, err error) {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		p.nodes.Store(node, struct{}{})
+	}
+}
+
+type timedOutPeersKey struct{}
+
+// WithTimedOutPeers shares one TimedOutPeers between the lookups of a listing.
+func WithTimedOutPeers(ctx context.Context) context.Context {
+	return context.WithValue(ctx, timedOutPeersKey{}, &TimedOutPeers{})
+}
+
+// TimedOutPeersFrom returns ctx's TimedOutPeers, or a new one when ctx has none.
+func TimedOutPeersFrom(ctx context.Context) *TimedOutPeers {
+	if p, ok := ctx.Value(timedOutPeersKey{}).(*TimedOutPeers); ok {
+		return p
+	}
+	return &TimedOutPeers{}
+}
