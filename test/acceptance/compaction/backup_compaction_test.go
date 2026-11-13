@@ -19,12 +19,17 @@ package compaction_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -47,16 +52,31 @@ func getShardNameForClass(t *testing.T, className string) string {
 	return res.Payload[0].Name
 }
 
-// TestBackup_CompactionRunsDuringBackup verifies that LSM compaction continues
-// to merge segments while a backup is in progress, proving that the backup
-// descriptor path (hardlinks) does not hold a long-lived lock on the shard.
+func backupStatus(t *testing.T) string {
+	t.Helper()
+	resp, err := helper.CreateBackupStatus(t, "filesystem", backupID, "", "")
+	require.NoError(t, err)
+	return *resp.Payload.Status
+}
+
+// TestBackup_CompactionRunsDuringBackup verifies that LSM compaction merges
+// segments while a backup is open, proving that the hardlink snapshot path does
+// not keep the shard halted for the upload. The server holds every shard upload
+// until the test creates uploadHoldFile, so the backup stays open for as long as
+// compaction needs: up to the 60s maximum of the compaction cycle backoff.
 func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 	ctx := context.Background()
+
+	const (
+		uploadHoldFile = "/tmp/release-backup-upload"
+		holdDeadline   = 3 * time.Minute
+	)
 
 	compose, err := docker.New().
 		WithBackendFilesystem().
 		WithWeaviate().
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
+		WithWeaviateEnv("WEAVIATE_TEST_BACKUP_UPLOAD_HOLD_FILE", uploadHoldFile).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -68,7 +88,6 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 
 	container := compose.GetWeaviate().Container()
 
-	// 1. Create collection
 	helper.CreateClass(t, &models.Class{
 		Class:      backupCollection,
 		Vectorizer: "none",
@@ -79,77 +98,81 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, backupCollection)
 
-	// 2. Import initial data — 100 batches to make the backup take long enough to observe compactions during its execution
-	for i := 0; i < 100; i++ {
+	// Writes during the backup only overwrite churnIDs, so the object count is
+	// the same whether a write lands before or after the snapshot.
+	churnIDs := make([]strfmt.UUID, compactions.ObjectsPerBatch)
+	for i := range churnIDs {
+		churnIDs[i] = strfmt.UUID(uuid.New().String())
+	}
+	compactions.ImportBatchWithIDs(t, backupCollection, churnIDs)
+	for range 9 {
 		compactions.ImportBatch(t, backupCollection)
 	}
 
-	// 3. Wait for segments to appear on disk
 	shardName := getShardNameForClass(t, backupCollection)
 	require.Eventually(t, func() bool {
 		return compactions.TotalSegmentFileCount(ctx, container, backupCollection, shardName, "objects") >= 1
 	}, 180*time.Second, time.Second, "not enough segments appeared")
 
-	// 4. Record pre-backup object count
 	preBackupCount := moduleshelper.GetClassCount(t, backupCollection, "")
 
-	// 5. Start backup (returns immediately, runs async)
-	cfg := helper.DefaultBackupConfig()
-	_, err = helper.CreateBackup(t, cfg, backupCollection, "filesystem", backupID)
+	_, err = helper.CreateBackup(t, helper.DefaultBackupConfig(), backupCollection, "filesystem", backupID)
 	require.NoError(t, err)
 
-	// 6. Observe compaction during backup
-	var (
-		sawCompactionDuringBackup bool
-		prevMaxLevel              int
-		prevSegCount              int
-		backupDone                bool
-	)
-
-	require.Eventually(t, func() bool {
-		// Check backup status
-		resp, statusErr := helper.CreateBackupStatus(t, "filesystem", backupID, "", "")
-		if statusErr == nil && resp.Payload != nil {
-			status := *resp.Payload.Status
-			if status == "SUCCESS" || status == "FAILED" {
-				backupDone = true
-			}
+	// The hardlinks are made while the shard is halted, so every segment listed
+	// for the first time after this point was created during or after the halt.
+	for stageDeadline := time.Now().Add(2 * time.Minute); ; time.Sleep(time.Second) {
+		require.True(t, time.Now().Before(stageDeadline), "backup never staged a hard-linked snapshot")
+		n, err := compactions.StagedSegmentCount(ctx, container, fmt.Sprintf("/data/%s*/%s/%s/lsm/objects",
+			backup.BackupStagingPrefix, strings.ToLower(backupCollection), shardName))
+		require.NoError(t, err)
+		if n > 0 {
+			break
 		}
+	}
 
-		// Insert more data to keep creating segments that need compaction
-		compactions.ImportBatch(t, backupCollection)
-
-		// Snapshot segment state
-		maxLevel, segCount := compactions.MaxLevelAndCount(ctx, container, backupCollection, shardName, "objects")
-
-		t.Logf("  [poll] backup_done=%v segments=%d max_level=%d prev_segments=%d prev_max_level=%d\n",
-			backupDone, segCount, maxLevel, prevSegCount, prevMaxLevel)
-
-		// Detect compaction: new higher-level segments appeared, OR
-		// segment count decreased (merge consumed level-0 segments)
-		if !backupDone && (maxLevel > prevMaxLevel || (prevSegCount > 0 && segCount < prevSegCount)) {
-			sawCompactionDuringBackup = true
-		}
-		prevMaxLevel = maxLevel
-		prevSegCount = segCount
-
-		return backupDone
-	}, 10*time.Minute, 5*time.Second, "backup did not complete")
-
-	// 7. Assert compaction occurred during backup
-	require.True(t, sawCompactionDuringBackup,
-		"expected compaction to merge segments while backup was in progress")
-
-	// 8. Assert backup succeeded
-	resp, err := helper.CreateBackupStatus(t, "filesystem", backupID, "", "")
+	segments, err := compactions.SegmentNames(ctx, container, backupCollection, shardName, "objects")
 	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", *resp.Payload.Status)
+	var watcher compactions.MergeWatcher
+	watcher.Arm(segments)
 
-	// 9. Delete + Restore + Validate
+	for holdEnd := time.Now().Add(holdDeadline); ; {
+		require.True(t, time.Now().Before(holdEnd),
+			"no segment created after the snapshot was compacted within %s while the backup was held", holdDeadline)
+		time.Sleep(time.Second)
+
+		compactions.ImportBatchWithIDs(t, backupCollection, churnIDs)
+
+		segments, err := compactions.SegmentNames(ctx, container, backupCollection, shardName, "objects")
+		require.NoError(t, err)
+		merged := watcher.Observe(segments)
+
+		// Read after the listing, so a merge it shows happened while the backup was open.
+		status := backupStatus(t)
+		require.NotContains(t, []string{"SUCCESS", "FAILED"}, status,
+			"backup finished while held; upload hold not honoured")
+		t.Logf("[poll] backup=%s segments=%d merged=%v", status, len(segments), merged)
+		if merged {
+			break
+		}
+	}
+
+	code, _, err := container.Exec(ctx, []string{"touch", uploadHoldFile})
+	require.NoError(t, err)
+	require.Zero(t, code)
+
+	for doneDeadline := time.Now().Add(5 * time.Minute); ; time.Sleep(time.Second) {
+		require.True(t, time.Now().Before(doneDeadline), "backup did not complete after release")
+		status := backupStatus(t)
+		require.NotEqual(t, "FAILED", status, "backup failed")
+		if status == "SUCCESS" {
+			break
+		}
+	}
+
 	helper.DeleteClass(t, backupCollection)
 
-	restoreCfg := helper.DefaultRestoreConfig()
-	_, err = helper.RestoreBackup(t, restoreCfg, backupCollection, "filesystem", backupID, nil, false)
+	_, err = helper.RestoreBackup(t, helper.DefaultRestoreConfig(), backupCollection, "filesystem", backupID, nil, false)
 	require.NoError(t, err)
 	helper.ExpectBackupEventuallyRestored(t, backupID, "filesystem", nil,
 		helper.WithDeadline(2*time.Minute))

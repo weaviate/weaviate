@@ -51,11 +51,22 @@ func RandomText(n int) string {
 
 func ImportBatch(t *testing.T, className string) {
 	t.Helper()
-	objects := make([]*models.Object, ObjectsPerBatch)
-	for i := range objects {
+	ids := make([]strfmt.UUID, ObjectsPerBatch)
+	for i := range ids {
+		ids[i] = strfmt.UUID(uuid.New().String())
+	}
+	ImportBatchWithIDs(t, className, ids)
+}
+
+// ImportBatchWithIDs writes one object per id with fresh text. Reusing ids
+// overwrites those objects, which adds segment data without changing the count.
+func ImportBatchWithIDs(t *testing.T, className string, ids []strfmt.UUID) {
+	t.Helper()
+	objects := make([]*models.Object, len(ids))
+	for i, id := range ids {
 		objects[i] = &models.Object{
 			Class: className,
-			ID:    strfmt.UUID(uuid.New().String()),
+			ID:    id,
 			Properties: map[string]interface{}{
 				"text": RandomText(TextSize),
 			},

@@ -13,9 +13,10 @@ package slow
 
 import (
 	"context"
+	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 
@@ -29,16 +30,17 @@ import (
 )
 
 // Guards against a regression that re-introduces a long source halt during
-// HYDRATING. WEAVIATE_TEST_COPY_REPLICA_SLEEP holds the transfer open for a
-// known wall-clock window after the source has resumed maintenance, giving
-// us a deterministic interval to observe compaction signal on disk.
+// HYDRATING. The target holds the copy after the source has resumed maintenance
+// until the test creates copyHoldFile, so the op stays HYDRATING for as long as
+// compaction needs: up to the 60s maximum of the compaction cycle backoff.
 func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnSourceDuringHydrating() {
 	t := suite.T()
 	ctx := context.Background()
 
 	const (
 		className       = "ReplMoveCompactionTest"
-		sleepWindow     = 30 * time.Second
+		copyHoldFile    = "/tmp/release-replica-copy"
+		holdDeadline    = 3 * time.Minute
 		prePopBatches   = 20
 		observeDeadline = 10 * time.Minute
 	)
@@ -46,7 +48,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", sleepWindow.String()).
+		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_HOLD_FILE", copyHoldFile).
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
 		Start(ctx)
 	require.Nil(t, err)
@@ -106,21 +108,9 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 		compactions.ImportBatch(t, cls.Class)
 	}
 
-	buckets := []string{"objects"}
-	for _, b := range buckets {
-		bucket := b
-		require.Eventually(t, func() bool {
-			return compactions.TotalSegmentFileCount(ctx, sourceContainer, cls.Class, shard.Shard, bucket) >= 1
-		}, 60*time.Second, time.Second, "no segments in bucket %q", bucket)
-	}
-
-	prevMaxLevel := map[string]int{}
-	prevSegCount := map[string]int{}
-	sawCompaction := map[string]bool{}
-	for _, b := range buckets {
-		prevMaxLevel[b], prevSegCount[b] = compactions.MaxLevelAndCount(ctx, sourceContainer, cls.Class, shard.Shard, b)
-		t.Logf("baseline bucket=%q max_level=%d seg_count=%d", b, prevMaxLevel[b], prevSegCount[b])
-	}
+	require.Eventually(t, func() bool {
+		return compactions.TotalSegmentFileCount(ctx, sourceContainer, cls.Class, shard.Shard, "objects") >= 1
+	}, 60*time.Second, time.Second, "no segments in bucket %q", "objects")
 
 	repResp, err := helper.Client(t).Replication.Replicate(
 		replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
@@ -135,51 +125,70 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 	opID := *repResp.Payload.ID
 	t.Logf("started replicate op_id=%s", opID)
 
-	// Single-goroutine loop avoids any race on the global helper client and
-	// on the per-bucket tracking maps.
-	deadline := time.Now().Add(observeDeadline)
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	for {
-		if time.Now().After(deadline) {
-			t.Fatalf("replication op_id=%s did not reach READY in %s", opID, observeDeadline)
+	// The hardlinks are made while the source shard is halted, so every segment
+	// listed for the first time after this point was created during or after the halt.
+	for stageDeadline := time.Now().Add(2 * time.Minute); ; time.Sleep(time.Second) {
+		require.True(t, time.Now().Before(stageDeadline), "source never staged a hard-linked snapshot")
+		n, err := compactions.StagedSegmentCount(ctx, sourceContainer, "/data/.replica-staging-*/lsm/objects")
+		require.NoError(t, err)
+		if n > 0 {
+			break
 		}
+	}
+
+	segments, err := compactions.SegmentNames(ctx, sourceContainer, cls.Class, shard.Shard, "objects")
+	require.NoError(t, err)
+	var watcher compactions.MergeWatcher
+	watcher.Arm(segments)
+
+	for holdEnd := time.Now().Add(holdDeadline); ; {
+		require.True(t, time.Now().Before(holdEnd),
+			"no source segment created after the snapshot was compacted within %s while the copy was held", holdDeadline)
+		time.Sleep(time.Second)
 
 		compactions.ImportBatch(t, cls.Class)
 
-		for _, b := range buckets {
-			ml, sc := compactions.MaxLevelAndCount(ctx, sourceContainer, cls.Class, shard.Shard, b)
-			if ml > prevMaxLevel[b] || (prevSegCount[b] > 0 && sc < prevSegCount[b]) {
-				sawCompaction[b] = true
-			}
-			if ml > prevMaxLevel[b] {
-				prevMaxLevel[b] = ml
-			}
-			prevSegCount[b] = sc
-		}
+		segments, err := compactions.SegmentNames(ctx, sourceContainer, cls.Class, shard.Shard, "objects")
+		require.NoError(t, err)
+		merged := watcher.Observe(segments)
 
-		details, derr := helper.Client(t).Replication.ReplicationDetails(
-			replication.NewReplicationDetailsParams().WithID(opID), nil,
-		)
-		if derr != nil {
-			t.Fatalf("failed to get replication details for op_id=%s: %s", opID, derr.Error())
-		}
-		if details.Payload != nil && details.Payload.Status != nil &&
-			details.Payload.Status.State == "READY" {
+		// Read after the listing, so a merge it shows happened while the op was HYDRATING.
+		state := replicationState(t, opID)
+		require.NotEqual(t, "READY", state, "op finished while held; copy hold not honoured")
+		t.Logf("[poll] op=%s source_segments=%d merged=%v", state, len(segments), merged)
+		if merged {
 			break
 		}
-
-		<-ticker.C
 	}
 
-	for _, b := range buckets {
-		assert.Truef(t, sawCompaction[b],
-			"expected compaction signal in bucket %q during HYDRATING (max level/seg count never moved)", b)
+	targetContainer := nodeToContainer[targetName].Container()
+	code, _, err := targetContainer.Exec(ctx, []string{"touch", copyHoldFile})
+	require.NoError(t, err)
+	require.Zero(t, code)
+
+	for readyDeadline := time.Now().Add(observeDeadline); ; time.Sleep(time.Second) {
+		require.True(t, time.Now().Before(readyDeadline),
+			"replication op_id=%s did not reach READY in %s", opID, observeDeadline)
+		if replicationState(t, opID) == "READY" {
+			break
+		}
 	}
 
 	targetURI := nodeToContainer[targetName].URI()
 	require.Greater(t, common.CountObjects(t, targetURI, cls.Class), int64(0),
 		"target node should serve the replicated data")
+}
+
+func replicationState(t *testing.T, opID strfmt.UUID) string {
+	t.Helper()
+	details, err := helper.Client(t).Replication.ReplicationDetails(
+		replication.NewReplicationDetailsParams().WithID(opID), nil,
+	)
+	require.NoError(t, err)
+	if details.Payload == nil || details.Payload.Status == nil {
+		return ""
+	}
+	return details.Payload.Status.State
 }
 
 func canHardlinkInContainer(ctx context.Context, c testcontainers.Container) bool {
