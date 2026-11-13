@@ -415,26 +415,36 @@ func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) strin
 	return c.organization
 }
 
-// A base URL from the request header is used only with a key from the request
-// header, so the server's key never goes to a host the request names.
+// endpoint picks the base URL and the key of a query.
+//
+// A header base URL that is equal, once normalized, to the base URL of the
+// class or the default counts as absent: the request names no host the operator
+// did not name. The comparison is string equality, so a URL that differs only
+// in letter case or by a default port counts as another host.
+//
+// Any other header base URL makes the host one the request named. It is used
+// only with a key from the request header, so the server's key never goes to
+// that host.
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
-		if apiKey == "" {
-			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-				baseURLHeader, apiKeyHeader)
+		normalized, normalizeErr := config.NormalizeBaseURL(headerBaseURL)
+		hostFromHeader = normalizeErr != nil || normalized != classBaseURL
+		if hostFromHeader {
+			if apiKey == "" {
+				return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+					baseURLHeader, apiKeyHeader)
+			}
+			if normalizeErr != nil {
+				return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, normalizeErr)
+			}
+			if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
+				return "", "", false, err
+			}
+			baseURL = normalized
 		}
-		normalized, err := config.NormalizeBaseURL(headerBaseURL)
-		if err != nil {
-			return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, err)
-		}
-		if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
-			return "", "", false, err
-		}
-		baseURL = normalized
-		hostFromHeader = true
 	}
 	if apiKey == "" {
 		apiKey = c.apiKey
