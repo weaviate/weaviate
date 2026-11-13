@@ -112,3 +112,21 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 	}
 	return result, nil
 }
+
+// perInputClient returns vectors[input] for every input, in input order.
+type perInputClient struct {
+	vectors map[string][]float32
+}
+
+func (c *perInputClient) Vectorize(ctx context.Context,
+	texts, images, audio, video, imu, thermal, depth []string,
+) (*ent.VectorizationResult, error) {
+	result := &ent.VectorizationResult{}
+	for _, text := range texts {
+		result.TextVectors = append(result.TextVectors, c.vectors[text])
+	}
+	for _, image := range images {
+		result.ImageVectors = append(result.ImageVectors, c.vectors[image])
+	}
+	return result, nil
+}

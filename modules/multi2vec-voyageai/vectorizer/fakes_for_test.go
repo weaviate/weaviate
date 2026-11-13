@@ -132,3 +132,25 @@ func (c *fakeClient) VectorizeVideoQuery(ctx context.Context,
 	}
 	return result, nil
 }
+
+// perInputClient returns vectors[input] for every input, in input order.
+type perInputClient struct {
+	fakeClient
+	vectors map[string][]float32
+}
+
+func (c *perInputClient) Vectorize(ctx context.Context,
+	texts, images, videos []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{}
+	for _, text := range texts {
+		result.TextVectors = append(result.TextVectors, c.vectors[text])
+	}
+	for _, image := range images {
+		result.ImageVectors = append(result.ImageVectors, c.vectors[image])
+	}
+	for _, video := range videos {
+		result.VideoVectors = append(result.VideoVectors, c.vectors[video])
+	}
+	return result, nil
+}
