@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -70,6 +71,9 @@ type RebalanceDraftProvider struct {
 	localNode string
 	logger    logrus.FieldLogger
 	serverCtx context.Context
+	// syncDir fsyncs a directory. It is a field so a test can assert which
+	// directories are synced before a completion is recorded.
+	syncDir func(string) error
 }
 
 // NewRebalanceDraftProvider builds the provider. classes returns the
@@ -85,6 +89,7 @@ func NewRebalanceDraftProvider(sizer rebalanceDraftSizer, classes func() []*mode
 		localNode: localNode,
 		logger:    logger.WithField("namespace", types.RebalanceDraftNamespace),
 		serverCtx: serverCtx,
+		syncDir:   diskio.Fsync,
 	}
 }
 
@@ -130,9 +135,15 @@ func (p *RebalanceDraftProvider) run(ctx context.Context, task *distributedtask.
 	logger := p.logger.WithField("task", task.ID).WithField("version", task.Version)
 	name := draftFileName(task.TaskDescriptor)
 
-	// A draft file that survived a restart is already durable. Report it
+	// A draft file found here has synced content, but its dir entry may not
+	// be synced. An earlier attempt can rename the file into place and then
+	// fail the dir fsync. Syncing the dirs again makes the file durable
 	// without sizing again.
 	if _, err := os.Stat(filepath.Join(p.dir, name)); err == nil {
+		if err := p.syncDirs(); err != nil {
+			p.recordRetryableFailure(ctx, task, logger, err)
+			return
+		}
 		p.recordCompletion(ctx, task, logger)
 		return
 	}
@@ -153,11 +164,7 @@ func (p *RebalanceDraftProvider) run(ctx context.Context, task *distributedtask.
 		return
 	}
 	if err != nil {
-		logger.Errorf("rebalance draft: drafting failed: %v", err)
-		if rerr := p.recorder.RecordDistributedTaskRetryableUnitFailure(ctx, task.Namespace, task.ID,
-			task.Version, p.localNode, p.localNode, err.Error()); rerr != nil {
-			logger.Errorf("rebalance draft: record unit failure failed: %v", rerr)
-		}
+		p.recordRetryableFailure(ctx, task, logger, err)
 		return
 	}
 	// A Terminate that arrives after the ctx check above can still be followed
@@ -170,6 +177,16 @@ func (p *RebalanceDraftProvider) recordCompletion(ctx context.Context, task *dis
 	if err := p.recorder.RecordDistributedTaskUnitCompletion(ctx, task.Namespace, task.ID,
 		task.Version, p.localNode, p.localNode); err != nil {
 		logger.Errorf("rebalance draft: record unit completion failed: %v", err)
+	}
+}
+
+func (p *RebalanceDraftProvider) recordRetryableFailure(ctx context.Context, task *distributedtask.Task,
+	logger logrus.FieldLogger, err error,
+) {
+	logger.Errorf("rebalance draft: drafting failed: %v", err)
+	if rerr := p.recorder.RecordDistributedTaskRetryableUnitFailure(ctx, task.Namespace, task.ID,
+		task.Version, p.localNode, p.localNode, err.Error()); rerr != nil {
+		logger.Errorf("rebalance draft: record unit failure failed: %v", rerr)
 	}
 }
 
@@ -258,17 +275,45 @@ func (p *RebalanceDraftProvider) size(ctx context.Context, classes []*models.Cla
 }
 
 // writeDraft saves the draft as name in the draft dir and makes it durable.
-// It writes a temp file, fsyncs it, renames it into place, then fsyncs the dir.
+// It creates {dataPath}/.dtm and the draft dir, and fsyncs the parent of
+// each. Then it writes a temp file, fsyncs it, renames it into place and
+// fsyncs the draft dir.
 func (p *RebalanceDraftProvider) writeDraft(name string, draft rebalanceDraft) error {
 	content, err := json.Marshal(draft)
 	if err != nil {
 		return fmt.Errorf("marshal draft: %w", err)
 	}
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := p.mkdirSynced(); err != nil {
 		return fmt.Errorf("create draft dir: %w", err)
 	}
 	if err := writeFileAtomic(p.dir, name, content); err != nil {
 		return fmt.Errorf("write draft: %w", err)
+	}
+	return nil
+}
+
+// mkdirSynced creates {dataPath}/.dtm, then the draft dir, and fsyncs the
+// parent of each. It matches MigrationRecordStore.mkdirSynced. It syncs the
+// parent even when the dir already exists, because the process that created
+// it may have crashed before syncing.
+func (p *RebalanceDraftProvider) mkdirSynced() error {
+	for _, dir := range []string{filepath.Dir(p.dir), p.dir} {
+		if err := os.Mkdir(dir, 0o755); err != nil && !os.IsExist(err) {
+			return err
+		}
+		if err := p.syncDir(filepath.Dir(dir)); err != nil {
+			return fmt.Errorf("sync %s: %w", filepath.Dir(dir), err)
+		}
+	}
+	return nil
+}
+
+// syncDirs fsyncs {dataPath}, {dataPath}/.dtm and the draft dir, in that order.
+func (p *RebalanceDraftProvider) syncDirs() error {
+	for _, dir := range []string{filepath.Dir(filepath.Dir(p.dir)), filepath.Dir(p.dir), p.dir} {
+		if err := p.syncDir(dir); err != nil {
+			return fmt.Errorf("sync %s: %w", dir, err)
+		}
 	}
 	return nil
 }

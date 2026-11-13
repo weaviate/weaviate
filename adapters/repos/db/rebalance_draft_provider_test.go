@@ -251,6 +251,111 @@ func TestRebalanceDraftProvider(t *testing.T) {
 		})
 	}
 
+	t.Run("draft dirs are synced before the unit completes", func(t *testing.T) {
+		// Synced paths are relative to the data path.
+		draftRel := filepath.Join(".dtm", types.RebalanceDraftNamespace)
+		writeExisting := func(t *testing.T, p *RebalanceDraftProvider) {
+			require.NoError(t, p.writeDraft("plan-1-3.json", rebalanceDraft{TaskID: "plan-1", Version: 3}))
+		}
+		for _, tc := range []struct {
+			name       string
+			setup      func(t *testing.T, p *RebalanceDraftProvider)
+			failOn     string
+			wantSynced []string
+			wantCalls  []draftTestCall
+			wantSizing int64
+			wantDraft  bool
+		}{
+			{
+				name:       "write path creates the dirs",
+				wantSynced: []string{".", ".dtm"},
+				wantCalls: []draftTestCall{
+					{kind: "progress", unit: localNode, progress: 0},
+					{kind: "completion", unit: localNode},
+				},
+				wantSizing: 1,
+				wantDraft:  true,
+			},
+			{
+				name: "write path finds the dirs present",
+				setup: func(t *testing.T, p *RebalanceDraftProvider) {
+					require.NoError(t, os.MkdirAll(p.dir, 0o755))
+				},
+				wantSynced: []string{".", ".dtm"},
+				wantCalls: []draftTestCall{
+					{kind: "progress", unit: localNode, progress: 0},
+					{kind: "completion", unit: localNode},
+				},
+				wantSizing: 1,
+				wantDraft:  true,
+			},
+			{
+				name:       "write path sync fails",
+				failOn:     ".dtm",
+				wantSynced: []string{".", ".dtm"},
+				wantCalls: []draftTestCall{
+					{kind: "progress", unit: localNode, progress: 0},
+					{kind: "retryable failure", unit: localNode},
+				},
+				wantSizing: 1,
+				wantDraft:  false,
+			},
+			{
+				name:       "draft file already present",
+				setup:      writeExisting,
+				wantSynced: []string{".", ".dtm", draftRel},
+				wantCalls:  []draftTestCall{{kind: "completion", unit: localNode}},
+				wantSizing: 0,
+				wantDraft:  true,
+			},
+			{
+				name:       "draft file already present and sync fails",
+				setup:      writeExisting,
+				failOn:     draftRel,
+				wantSynced: []string{".", ".dtm", draftRel},
+				wantCalls:  []draftTestCall{{kind: "retryable failure", unit: localNode}},
+				wantSizing: 0,
+				wantDraft:  true,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				sizer := &draftTestSizer{usage: map[string]*usagetypes.CollectionUsage{"A": {}}}
+				p, rec := newProvider(t, sizer, "A")
+				if tc.setup != nil {
+					tc.setup(t, p)
+				}
+				dataPath := filepath.Dir(filepath.Dir(p.dir))
+				var synced, syncedAtCompletion []string
+				p.syncDir = func(path string) error {
+					rel, err := filepath.Rel(dataPath, path)
+					assert.NoError(t, err)
+					synced = append(synced, rel)
+					if rel == tc.failOn {
+						return errors.New("fsync: input/output error")
+					}
+					return nil
+				}
+				rec.onCompletion = func() { syncedAtCompletion = append([]string(nil), synced...) }
+
+				h, err := p.StartTask(newTask(distributedtask.UnitStatusInProgress, localNode))
+				require.NoError(t, err)
+				waitDone(t, h)
+
+				assert.Equal(t, tc.wantCalls, rec.kinds())
+				assert.Equal(t, tc.wantSynced, synced)
+				if tc.failOn == "" {
+					assert.Equal(t, tc.wantSynced, syncedAtCompletion)
+				}
+				assert.Equal(t, tc.wantSizing, sizer.calls.Load())
+				if tc.wantDraft {
+					assert.FileExists(t, draftPath(p))
+				} else {
+					assert.NoFileExists(t, draftPath(p))
+				}
+			})
+		}
+	})
+
 	t.Run("terminate stops drafting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			sizer := &draftTestSizer{waitForCancel: true}
