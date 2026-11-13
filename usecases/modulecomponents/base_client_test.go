@@ -196,11 +196,9 @@ func TestNewBaseHttpClientWithIdleConns(t *testing.T) {
 		round := func() {
 			var wg sync.WaitGroup
 			for range 8 {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					assert.NoError(t, get(t, client, server.URL))
-				}()
+				})
 			}
 			wg.Wait()
 		}
