@@ -286,6 +286,17 @@ func loadHead(b []byte, off, w int, mask uint64) uint64 {
 	return binary.BigEndian.Uint64(buf[:])
 }
 
+// queryHead is loadHead of full[skip:], read in place from full whenever full holds eight bytes.
+func queryHead(full []byte, skip int) uint64 {
+	if len(full) >= 8 {
+		off := min(skip, len(full)-8)
+		return binary.BigEndian.Uint64(full[off:]) << (8 * (skip - off))
+	}
+	var buf [8]byte
+	copy(buf[:], full[skip:])
+	return binary.BigEndian.Uint64(buf[:])
+}
+
 // docIDColumn packs one big-endian docID per key at w bytes. A base is as narrow
 // as its docIDs allow; a layer keeps all eight.
 type docIDColumn struct {
@@ -840,8 +851,8 @@ func (run *columnRun) scanPacked(data []byte, w, skip int, sortedKeys entinverte
 	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
 ) {
 	n, mask := len(data)/w, headMask(w)
-	qi, q := lo, sortedKeys.At(lo)[skip:]
-	t := loadHead(q, 0, len(q), headMask(len(q)))
+	k := sortedKeys.At(lo)
+	qi, q, t := lo, k[skip:], queryHead(k, skip)
 	si, _ := seekPacked(data, w, n, mask, 0, q, t)
 	for si < n {
 		var match bool
@@ -871,8 +882,8 @@ func (run *columnRun) scanPacked(data []byte, w, skip int, sortedKeys entinverte
 		if qi++; qi == hi {
 			return
 		}
-		q = sortedKeys.At(qi)[skip:]
-		t = loadHead(q, 0, len(q), headMask(len(q)))
+		k = sortedKeys.At(qi)
+		q, t = k[skip:], queryHead(k, skip)
 	}
 }
 
