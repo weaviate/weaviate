@@ -288,7 +288,12 @@ def test_usage_mt(
 def test_usage_enabling_compression(
     collection_factory: CollectionFactory, quantizer_config: _QuantizerConfigUpdate
 ) -> None:
-    collection = collection_factory(vector_config=vectors.self_provided(name=vector_names[0]))
+    # compression is enabled below, so the vector must start without the server default
+    collection = collection_factory(
+        vector_config=vectors.self_provided(
+            name=vector_names[0], quantizer=wvc.config.Configure.VectorIndex.Quantizer.none()
+        )
+    )
 
     # add 1000 objects
     for i in range(10):
@@ -354,10 +359,13 @@ def test_usage_enabling_compression(
 def test_multi_vector(collection_factory: CollectionFactory):
     collection = collection_factory(
         vector_config=[
-            wvc.config.Configure.MultiVectors.self_provided(name=vector_names[0]),
+            wvc.config.Configure.MultiVectors.self_provided(
+                name=vector_names[0], quantizer=quantizer.none()
+            ),
             wvc.config.Configure.MultiVectors.self_provided(
                 name=vector_names[1],
                 encoding=wvc.config.Configure.VectorIndex.MultiVector.Encoding.muvera(),
+                quantizer=quantizer.none(),
             ),
             wvc.config.Configure.MultiVectors.self_provided(
                 name=vector_names[2],

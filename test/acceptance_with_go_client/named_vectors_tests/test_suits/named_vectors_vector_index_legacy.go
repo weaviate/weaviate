@@ -60,6 +60,8 @@ func testCompressedLegacyVectorIndex(host string) func(t *testing.T) {
 			},
 			Vectorizer:      "none",
 			VectorIndexType: vectorIndexType,
+			// PQ is enabled once objects exist
+			VectorIndexConfig: uncompressed(),
 		}
 
 		insertObjects := func(t *testing.T, n int) {

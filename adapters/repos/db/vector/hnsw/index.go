@@ -122,6 +122,7 @@ type hnsw struct {
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
+	skipDimsCheck       bool
 	cachePrefilled      atomic.Bool
 	releaseVectorsOnce  sync.Once
 
@@ -384,6 +385,7 @@ func New(cfg Config, uc ent.UserConfig,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
+		skipDimsCheck:         cfg.SkipQueryDimensionCheck,
 		cachePrefilled:        atomic.Bool{}, // Will be set appropriately in init()
 		vectorForID:           vectorCache.Get,
 		multiVectorForID:      vectorCache.MultiGet,

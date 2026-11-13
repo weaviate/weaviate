@@ -691,6 +691,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 			default:
 				return fmt.Errorf("unsupported vector type: %T", v)
 			}
+			defer distancer.Close()
 			dist, err := distancer.DistanceToNode(docId)
 			if err != nil {
 				return err

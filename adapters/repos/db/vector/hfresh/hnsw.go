@@ -83,6 +83,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.RQ.RescoreLimit = 0
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
+	cfg.Centroids.HNSWConfig.SkipQueryDimensionCheck = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
 
 	h, err := hnsw.New(*cfg.Centroids.HNSWConfig, userConfig, cfg.TombstoneCallbacks, store)

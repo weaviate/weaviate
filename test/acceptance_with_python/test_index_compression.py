@@ -49,12 +49,15 @@ def test_index_compression() -> None:
 
         client.collections.delete(COLLECTION_NAME)
 
+        # the vectors compressed further down start uncompressed: an index keeps the
+        # compression it was created with, the server default included
         collection = client.collections.create(
             name=COLLECTION_NAME,
             vector_config=[
                 Configure.Vectors.self_provided(
                     name="uncompressed",
                     vector_index_config=Configure.VectorIndex.hnsw(),
+                    quantizer=Configure.VectorIndex.Quantizer.none(),
                 ),
                 Configure.Vectors.self_provided(
                     name="flat_bq",
@@ -69,22 +72,27 @@ def test_index_compression() -> None:
                 Configure.Vectors.self_provided(
                     name="hnsw_pq",
                     vector_index_config=Configure.VectorIndex.hnsw(),
+                    quantizer=Configure.VectorIndex.Quantizer.none(),
                 ),
                 Configure.Vectors.self_provided(
                     name="hnsw_sq",
                     vector_index_config=Configure.VectorIndex.hnsw(),
+                    quantizer=Configure.VectorIndex.Quantizer.none(),
                 ),
                 Configure.Vectors.self_provided(
                     name="hnsw_rq1",
                     vector_index_config=Configure.VectorIndex.hnsw(),
+                    quantizer=Configure.VectorIndex.Quantizer.none(),
                 ),
                 Configure.Vectors.self_provided(
                     name="hnsw_rq8",
                     vector_index_config=Configure.VectorIndex.hnsw(),
+                    quantizer=Configure.VectorIndex.Quantizer.none(),
                 ),
                 Configure.MultiVectors.self_provided(
                     name="multivector_uncompressed",
                     vector_index_config=Configure.VectorIndex.hnsw(),
+                    quantizer=Configure.VectorIndex.Quantizer.none(),
                 ),
                 Configure.MultiVectors.self_provided(
                     name="multivector_muvera_bq",
