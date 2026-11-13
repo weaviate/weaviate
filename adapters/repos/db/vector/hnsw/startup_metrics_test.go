@@ -259,7 +259,7 @@ func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 			}
 		}
 		return false
-	}, 30*time.Second, 10*time.Millisecond)
+	}, 30*time.Second, 10*time.Millisecond, "the prefill panic was never recovered and logged")
 
 	require.Equal(t, before, hnswPrefillCount(t),
 		"a prefill that panicked is not a completed prefill")
