@@ -282,6 +282,58 @@ func TestWorkerPoolResizesLive(t *testing.T) {
 	})
 }
 
+func TestRetiredWorkerStartsNoQueuedUnload(t *testing.T) {
+	const workers = 16
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.checkInterval, time.Hour)
+			set(t, k.workers, workers)
+			set(t, k.rate, 4*workers)
+		})
+		first, queued := make(chan struct{}), make(chan struct{})
+		shards := make([]*fakeShard, 2*workers)
+		for i := range shards {
+			shards[i] = h.reg.load(strconv.Itoa(i), "")
+			shards[i].block.Store(&first)
+		}
+		time.Sleep(10 * time.Second)
+		synctest.Wait()
+		set(t, h.knobs.idleTTL, 2*time.Second)
+		h.p.refreshConfig()
+		synctest.Wait()
+		inFlight := func() int {
+			n := 0
+			for _, s := range shards {
+				if len(s.requests()) > 0 && s.loaded() {
+					n++
+				}
+			}
+			return n
+		}
+		require.Equal(t, workers, inFlight())
+		for _, s := range shards {
+			if len(s.requests()) == 0 {
+				require.True(t, s.pending.Load())
+				s.block.Store(&queued)
+			}
+		}
+
+		set(t, h.knobs.workers, 1)
+		h.p.refreshConfig()
+		synctest.Wait()
+		close(first)
+		synctest.Wait()
+		require.LessOrEqual(t, inFlight(), 1, "a retired worker started a queued unload")
+		require.EqualValues(t, 1, h.p.workersRunning.Load())
+
+		close(queued)
+		synctest.Wait()
+		tickOnce(time.Hour)
+		require.Zero(t, h.loadedCount(shards), "a handoff a retired worker dropped is requeued")
+		require.Zero(t, h.p.pending.Load())
+	})
+}
+
 func TestUnloadPanicKeepsTheWorker(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, idleKnobs)
