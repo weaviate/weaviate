@@ -587,6 +587,8 @@ jobs:
             test: "--only-module-reranker-cohere"
           - name: "reranker-typesafeai"
             test: "--only-module-reranker-typesafeai"
+          - name: "reranker-openai"
+            test: "--only-module-reranker-openai"
           - name: "text2vec-voyageai"
             test: "--only-module-text2vec-voyageai"
           - name: "multi2vec-voyageai"
