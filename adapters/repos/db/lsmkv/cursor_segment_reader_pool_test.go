@@ -22,7 +22,7 @@ import (
 func TestSegmentCursorReaderReleaseContract(t *testing.T) {
 	c := &segmentCursorReplaceReusable{
 		preadReader: acquireSegmentCursorReader(bytes.NewReader(nil)),
-		preadOffset: &offsetReader{},
+		preadOffset: &meteredOffsetReader{},
 	}
 	require.NotNil(t, c.preadReader)
 

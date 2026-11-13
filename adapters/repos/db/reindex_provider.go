@@ -1333,16 +1333,9 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 
 		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
-			failsTask := task.NeedsPreparationBarrier && task.Status == distributedtask.TaskStatusSwapping
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
-				if failsTask {
-					agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex migration's "+
-						"double-write mirror; a SWAPPING task cannot wait on it, so it fails and its swap stays owed until the shard is set READY",
-						unitID, res.Shard.Name()))
-					return
-				}
 				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex "+
 					"migration's double-write mirror; the step waits until a status update makes it writable",
 					unitID, res.Shard.Name()))
@@ -1409,8 +1402,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 	}
 
-	// The task error drops acks from nodes that fail after the first one, so
-	// this line is the only record such a node leaves.
+	// A swap failure never reaches the task, so this line is its only record.
 	if len(refused) > 0 {
 		logRefused := func(logrus.FieldLogger) {
 			logger.WithField("shards", reportedShardNames(refused)).
@@ -2330,17 +2322,17 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// SearchableBlockmax stamp written above, which lands before FINISHED.
 		// The stamp landed, so a failed flip is only logged: failing would lock the property behind the run.
 		if defer_, err := p.shouldDeferBlockmaxFlip(payload, logger); err != nil {
-			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
-				"can use blockmax by default; a later change-algorithm cutover on this class, or a class update while " +
-				"USE_INVERTED_SEARCHABLE is on, sets the flag")
+			logger.Warnf("reindex provider: change-algorithm cutover: cannot check whether the class "+
+				"can use blockmax by default; a later change-algorithm cutover on this class, or a class update while "+
+				"USE_INVERTED_SEARCHABLE is on, sets the flag: %v", err)
 			return nil
 		} else if defer_ {
 			return nil
 		}
 		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
-			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: the property is migrated, but the " +
-				"class-level blockmax flag did not flip; a later change-algorithm cutover on this class, or a class update " +
-				"while USE_INVERTED_SEARCHABLE is on, sets it")
+			logger.Warnf("reindex provider: change-algorithm cutover: the property is migrated, but the "+
+				"class-level blockmax flag did not flip; a later change-algorithm cutover on this class, or a class update "+
+				"while USE_INVERTED_SEARCHABLE is on, sets it: %v", err)
 			return nil
 		}
 		logger.Info("reindex provider: change-algorithm cutover committed")

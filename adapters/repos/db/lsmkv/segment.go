@@ -799,8 +799,8 @@ func (n *nodeReader) Release() {
 }
 
 // meteredOffsetReader reads a file sequentially from off through ReadAt, so
-// concurrent readers never share the file's own offset, and meters each
-// successful read.
+// concurrent readers never share the file's own offset, and meters the bytes
+// of each read, including those a read returns together with io.EOF.
 type meteredOffsetReader struct {
 	ra      readerAt
 	off     int64
@@ -810,12 +810,12 @@ type meteredOffsetReader struct {
 func (r *meteredOffsetReader) Read(p []byte) (int, error) {
 	n, err := r.ra.ReadAt(p, r.off)
 	r.off += int64(n)
-	if err != nil {
+	if err != nil && n == 0 {
 		return n, err
 	}
 	// the observer records bytes only, so the read is not timed
 	r.observe(int64(n), 0)
-	return n, nil
+	return n, err
 }
 
 type nodeOffset struct {
