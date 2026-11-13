@@ -624,7 +624,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		eg.Go(func() error {
 			switch {
-			case i.Config.EnableLazyLoadShards:
+			case i.Config.lazyLoadsShards():
 				if err := i.ensureShardDir(shardName); err != nil {
 					return fmt.Errorf("init lazy shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -640,6 +640,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 						i.centralJobQueue, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
 					startupShards.lazy.Add(1)
+					return nil
+				}
+				if i.Config.lazyShardUnloading() {
+					lazyShard, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics,
+						loadOpts{skipMemoryCheck: true, warmup: true})
+					if err != nil {
+						return err
+					}
+					i.shards.Store(shardName, lazyShard)
+					startupShards.eager.Add(1)
 					return nil
 				}
 				// default behavior is to load all shards immediately
@@ -668,7 +678,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 
-	if !i.Config.EnableLazyLoadShards {
+	if !i.Config.lazyLoadsShards() {
 		i.allShardsReady.Store(true)
 		return nil
 	}
@@ -807,7 +817,11 @@ func (i *Index) warmupDecisionLocked(shardName string, shard ShardLike) (bool, m
 		return false, monitoring.WarmupSkippedRecovering
 	}
 	lazyShard, ok := asLazyLoadShard(shard)
-	if !ok || lazyShard.isLoaded() {
+	if !ok {
+		return false, monitoring.WarmupSkippedAlreadyLoaded
+	}
+	// A shard the unloader is tearing down was loaded already; warming it would wait on its teardown.
+	if loaded, tearing := lazyShard.loadState(); loaded || tearing {
 		return false, monitoring.WarmupSkippedAlreadyLoaded
 	}
 
@@ -906,7 +920,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	ctx, done := i.cancelOnCloseRequested(context.Background())
 	defer done()
 
-	_, loaded, err := lazyShard.loadIfCold(ctx)
+	_, loaded, err := lazyShard.loadForWarmup(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1095,6 +1109,13 @@ func (i *Index) ensureShardDir(shardName string) error {
 func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
+	if disableLazyLoad && i.Config.lazyShardUnloading() {
+		lazy, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics, loadOpts{})
+		if err != nil {
+			return nil, err
+		}
+		return lazy, nil
+	}
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
@@ -1787,6 +1808,10 @@ type IndexConfig struct {
 
 	// Consulted at startup for shards whose dir is missing; nil-safe.
 	SelfRecoveryOrchestrator SelfRecoveryOrchestrator
+	// ShardUnloader is nil unless the idle shard collector is licensed and on.
+	ShardUnloader ShardUnloader
+	// EagerShardLoads keeps an unloading index, lazy only for its wrappers, loading as eagerly as without them.
+	EagerShardLoads bool
 	// Seeded before initAndStoreShards so the startup recovery check can read it.
 	ReplicationFSM replicationTypes.ReplicationFSMReader
 
@@ -1799,7 +1824,12 @@ type IndexConfig struct {
 // lazy-loading path has one, and a negative LazyLoadShardWarmupMinObjects turns it
 // off. Which shards a non-negative value loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
-	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
+	return c.lazyLoadsShards() && c.LazyLoadShardWarmupMinObjects >= 0
+}
+
+// lazyLoadsShards reports whether shards load on first touch rather than eagerly.
+func (c IndexConfig) lazyLoadsShards() bool {
+	return c.EnableLazyLoadShards && !c.EagerShardLoads
 }
 
 // keepRangeableInMemory reports whether propName's rangeable bucket keeps its
@@ -3613,7 +3643,7 @@ func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string
 func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
 	implicitShardLoading bool,
 ) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.EnableLazyLoadShards, implicitShardLoading,
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.lazyLoadsShards(), implicitShardLoading,
 		callerTenantActivation, "tenant activated")
 }
 
@@ -3635,7 +3665,7 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 // nothing else would.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
-		!i.Config.EnableLazyLoadShards, false, callerReload)
+		!i.Config.lazyLoadsShards(), false, callerReload)
 	if namespaceRefusedShardLoad(err) {
 		return nil
 	}
@@ -3709,7 +3739,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
-	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
+	disableLazyLoad := mustLoad || !i.Config.lazyLoadsShards()
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {
@@ -3738,7 +3768,7 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	if !ok {
 		return nil
 	}
-	if mustLoad || !i.Config.EnableLazyLoadShards {
+	if mustLoad || !i.Config.lazyLoadsShards() {
 		_, _, err := l.loadIfCold(ctx)
 		return err
 	}
@@ -3747,6 +3777,10 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	if i.Config.backgroundWarmupEnabled() {
 		var shouldWarm bool
 		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm {
+			if lazy, isLazy := asLazyLoadShard(shard); isLazy {
+				_, _, err := lazy.loadForWarmup(ctx)
+				return err
+			}
 			_, _, err := l.loadIfCold(ctx)
 			return err
 		}
@@ -3990,6 +4024,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// directory's file locks. Same reasoning as getLoadedShard.
 	shard, release, err = i.pinResidentShard(shardName, ensureInit)
 	if err != nil || shard != nil {
+		if err == nil {
+			i.recordShardAccess(shard)
+		}
 		return shard, release, recoveringAsUnprocessable(err)
 	}
 	if !ensureInit {
@@ -4024,8 +4061,21 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	if err != nil {
 		return nil, func() {}, recoveringAsUnprocessable(fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err))
 	}
+	i.recordShardAccess(shard)
 
 	return shard, release, nil
+}
+
+// recordShardAccess feeds the unloader's LRU from request pins only; internal
+// walks, async replication and status reads pin through other paths, so they
+// never make an idle shard look used.
+func (i *Index) recordShardAccess(shard ShardLike) {
+	if i.Config.ShardUnloader == nil {
+		return
+	}
+	if lazy, ok := shard.(*LazyLoadShard); ok {
+		lazy.recordAccess()
+	}
 }
 
 // recoveringAsUnprocessable: 422 (retriable on a replica), not a 500, when the shard is mid-recovery.

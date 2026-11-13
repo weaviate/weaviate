@@ -200,7 +200,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 					m.db.config.LazyLoadShardSizeThresholdGB,
 				)
 				return lazyLoadShardEnabled
-			}(),
+			}() || m.db.config.wrapsShardsForUnloading(),
+			// A call, so it reads lazyLoadShardEnabled after the closure above sets it.
+			EagerShardLoads:                     func() bool { return m.db.config.wrapsShardsForUnloading() && !lazyLoadShardEnabled }(),
 			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
@@ -235,6 +237,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 			SelfRecoveryOrchestrator:     m.db.selfRecoveryOrchestrator,
+			ShardUnloader:                m.db.config.ShardUnloader,
 			ReplicationFSM:               m.db.replicationFSM,
 		},
 		// no backward-compatibility check required, since newly added classes will
