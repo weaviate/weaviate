@@ -58,23 +58,31 @@ type generativeParser interface {
 	ReturnDebugForGrouped() bool
 }
 
+type rerankRequestValidator interface {
+	ValidateRerankProperty(class *models.Class, property string) error
+	ValidateRerankQuery(class *models.Class, query string) error
+}
+
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
 	principal          *models.Principal
 	qualifier          namespacing.Qualifier
+	rerankValidator    rerankRequestValidator // nil accepts every rerank property and query
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
 	principal *models.Principal,
 	qualifier namespacing.Qualifier,
+	rerankValidator rerankRequestValidator,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
 		principal:          principal,
 		qualifier:          qualifier,
+		rerankValidator:    rerankValidator,
 	}
 }
 
@@ -381,6 +389,14 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Rerank != nil {
+		if p.rerankValidator != nil {
+			if err := p.rerankValidator.ValidateRerankProperty(class, req.Rerank.Property); err != nil {
+				return dto.GetParams{}, err
+			}
+			if err := p.rerankValidator.ValidateRerankQuery(class, req.Rerank.GetQuery()); err != nil {
+				return dto.GetParams{}, err
+			}
+		}
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}

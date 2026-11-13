@@ -66,6 +66,7 @@ type Service struct {
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 	qualifier            namespacing.Qualifier
+	rerankValidator      rerankRequestValidator
 
 	authenticator      *auth.Handler
 	batchHandler       batch.Batcher
@@ -104,6 +105,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		logger:               state.Logger,
 		authorizer:           state.Authorizer,
 		qualifier:            state.NamespaceQualifier,
+		rerankValidator:      state.Modules,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
@@ -366,6 +368,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		getClass,
 		principal,
 		s.qualifier,
+		s.rerankValidator,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

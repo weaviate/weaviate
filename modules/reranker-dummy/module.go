@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/reranker-dummy/clients"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
@@ -76,9 +77,14 @@ func (m *ReRankerDummyModule) AdditionalProperties() map[string]modulecapabiliti
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *ReRankerDummyModule) RerankPropertyDataTypes() []schema.DataType {
+	return []schema.DataType{schema.DataTypeText, schema.DataTypeBlob}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.RerankPropertyDataTypes(New())
 )
