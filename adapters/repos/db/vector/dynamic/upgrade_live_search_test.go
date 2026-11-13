@@ -16,9 +16,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -465,15 +463,7 @@ func TestUpgrade_RetryAfterPanickedCopy(t *testing.T) {
 				}
 				return nil
 			})
-			// GoWrapper reads DISABLE_RECOVERY_ON_PANIC after the upgrade callback, so keep the override until it logs
-			require.Eventually(t, func() bool {
-				for _, e := range env.logHook.AllEntries() {
-					if strings.HasPrefix(e.Message, "Recovered from panic") {
-						return true
-					}
-				}
-				return false
-			}, 30*time.Second, 10*time.Millisecond, "the copy panic was never recovered and logged")
+			testinghelpers.WaitForRecoveredPanic(t, env.logHook)
 			require.False(t, env.idx.IsUpgraded(), "the panicked upgrade must not commit")
 			_, err := os.Stat(hnswCommitLogDirectory(filepath.Join(env.root, "index"), env.id))
 			assert.True(t, os.IsNotExist(err), "the panicked copy must not leave a commit log behind")

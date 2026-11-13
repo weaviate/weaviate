@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -250,15 +249,7 @@ func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 	h.panicking.Store(true)
 	index.PostStartup(ctx)
 	index.prefillWg.Wait()
-	// GoWrapper reads DISABLE_RECOVERY_ON_PANIC after prefillWg.Done, so keep the override until it logs
-	require.Eventually(t, func() bool {
-		for _, e := range h.logHook.AllEntries() {
-			if strings.HasPrefix(e.Message, "Recovered from panic") {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 10*time.Millisecond, "the prefill panic was never recovered and logged")
+	testinghelpers.WaitForRecoveredPanic(t, h.logHook)
 
 	require.Equal(t, before, hnswPrefillCount(t),
 		"a prefill that panicked is not a completed prefill")

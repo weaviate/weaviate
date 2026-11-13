@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -350,4 +351,17 @@ func DistanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 		dist, _ := provider.SingleDist(x, y)
 		return dist
 	}
+}
+
+// WaitForRecoveredPanic waits until GoWrapper, which reads DISABLE_RECOVERY_ON_PANIC late, has recovered and logged.
+func WaitForRecoveredPanic(t *testing.T, hook *test.Hook) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.HasPrefix(e.Message, "Recovered from panic") {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 10*time.Millisecond, "the panic was never recovered and logged")
 }
