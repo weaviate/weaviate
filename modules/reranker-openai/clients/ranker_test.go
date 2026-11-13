@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -1591,6 +1592,64 @@ func TestRankCapsRequestsInFlight(t *testing.T) {
 	}
 	assert.Len(t, f.received(), 60)
 	assert.Equal(t, 3, f.maxInFlight())
+}
+
+// Without the limit of the error group a query starts one goroutine per
+// document, and all but three of them wait for a slot.
+func TestRankStartsNoMoreGoroutinesThanSlots(t *testing.T) {
+	const slots, documents = 3, 200
+	synctest.Test(t, func(t *testing.T) {
+		c := New(defaultFakeKey, "", testTimeout, slots, DefaultMaxDocumentsPerQuery, nullLogger())
+		transport := &holdingTransport{release: make(chan struct{})}
+		c.httpClient.Transport = transport
+		var calls sync.WaitGroup
+		var err error
+		calls.Go(func() {
+			_, err = c.RankProperty(context.Background(), churn, "text",
+				documentsOf(numbered("ticket %d", documents)...), classConfig("http://unused.invalid", nil))
+		})
+
+		synctest.Wait()
+		assert.Equal(t, slots, goroutinesIn("clients.(*client).judge("))
+		assert.Equal(t, int64(slots), transport.count.Load())
+
+		close(transport.release)
+		calls.Wait()
+		require.NoError(t, err)
+		assert.Equal(t, int64(documents), transport.count.Load())
+	})
+}
+
+// holdingTransport answers every request with a probability once release is
+// closed.
+type holdingTransport struct {
+	release chan struct{}
+	count   atomic.Int64
+}
+
+func (h *holdingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	h.count.Add(1)
+	select {
+	case <-h.release:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+	body := `{"answers":[{"type":"predicate","name":"condition","probability":0.5}]}`
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+}
+
+// goroutinesIn counts the goroutines with a frame of the function.
+func goroutinesIn(function string) int {
+	stacks := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(stacks, true)
+		if n < len(stacks) {
+			stacks = stacks[:n]
+			break
+		}
+		stacks = make([]byte, 2*len(stacks))
+	}
+	return strings.Count(string(stacks), function)
 }
 
 func TestRankStopsOnContextCancel(t *testing.T) {
