@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -39,6 +41,8 @@ type ShardUnloader interface {
 	Registry() *LoadedShardRegistry
 	// BeforeLoad runs before a cold wrapper loads, never for a startup warmup load; it cannot fail the load.
 	BeforeLoad(shard *LazyLoadShard)
+	// Collecting reports whether idle shards are being unloaded now; it reads atomics only.
+	Collecting() bool
 	// Close stops the unloader's goroutines. DB.Shutdown calls it before any
 	// index shuts down, so no unload races an index teardown.
 	Close(ctx context.Context) error
@@ -154,6 +158,30 @@ func (r *LoadedShardRegistry) AppendChunk(dst []*LazyLoadShard, from, limit int)
 		return dst, -1
 	}
 	return dst, end
+}
+
+// withBackgroundShardAccess marks ctx as background work: its shard pins never count as access.
+func withBackgroundShardAccess(ctx context.Context) context.Context {
+	return backgroundaccess.With(ctx)
+}
+
+func isBackgroundShardAccess(ctx context.Context) bool {
+	return backgroundaccess.Is(ctx)
+}
+
+type loadedShardsOnlyKey struct{}
+
+// errLoadedOnlyShardUnloaded is returned by a loaded-only pin of an unloaded lazy shard.
+var errLoadedOnlyShardUnloaded = errors.New("shard not loaded")
+
+// withLoadedShardsOnly makes local shard pins return errLoadedOnlyShardUnloaded instead of loading an unloaded lazy shard.
+func withLoadedShardsOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, loadedShardsOnlyKey{}, true)
+}
+
+func loadedShardsOnly(ctx context.Context) bool {
+	only, _ := ctx.Value(loadedShardsOnlyKey{}).(bool)
+	return only
 }
 
 // accessClock is a coarse seconds clock for LastAccess. Only a running unloader

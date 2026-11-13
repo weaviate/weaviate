@@ -22,12 +22,14 @@ import (
 	"github.com/google/uuid"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -628,6 +630,10 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		if err != nil {
 			return nil, fmt.Errorf("marshal filter: %w", err)
 		}
+	}
+
+	if v := backgroundaccess.Value(ctx); v != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, backgroundaccess.MetadataKey, v)
 	}
 
 	// No explicit timeout — relies on caller's context deadline, matching REST behavior.
