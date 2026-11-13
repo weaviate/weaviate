@@ -34,8 +34,10 @@ import (
 )
 
 const (
-	// A request for an image holds about three copies of its base64 while it
-	// holds a slot (80 MiB for a 20 MiB image), in each of the two pools.
+	// The client has two pools of slots, and each has
+	// RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS slots. Up to twice the value can
+	// be in flight per process. A request for an image holds about three copies
+	// of its base64 while it holds a slot (80 MiB for a 20 MiB image).
 	DefaultMaxConcurrentRequests = 32
 	MaxConcurrentRequestsLimit   = 256
 	// A query sends one billed request per object.
@@ -62,9 +64,11 @@ type client struct {
 	// inFlight bounds the requests to the class or default host, however many
 	// queries run.
 	inFlight chan struct{}
-	// inFlightHeaderHost serves requests to a host the request header named. A
-	// caller can name a host that never answers, and that must not hold the
-	// slots of requests to the class or default host.
+	// inFlightHeaderHost bounds the requests to all hosts that request headers
+	// named, in one pool. A caller can name a host that never answers. Its
+	// requests can then hold every slot of this pool until the client timeout,
+	// and other queries with X-Openai-Baseurl wait. They hold no slot of
+	// inFlight.
 	inFlightHeaderHost chan struct{}
 	// maxDocumentsPerQuery counts the documents that are sent: blank and
 	// duplicate documents are not.
