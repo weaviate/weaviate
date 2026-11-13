@@ -794,20 +794,33 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 }
 
 func TestListNamespaces_NoPermissionsReturnsEmpty(t *testing.T) {
-	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
-	all := []cmd.Namespace{{Name: "customer1"}, {Name: "customer2"}}
-	raft.On("GetNamespaces").Return(all, nil)
-	authz.On("FilterAuthorizedResources",
-		mock.Anything, principal, authorization.READ,
-		authorization.Namespaces("customer1")[0],
-		authorization.Namespaces("customer2")[0],
-	).Return([]string{}, nil)
+	resources := []string{authorization.Namespaces("customer1")[0], authorization.Namespaces("customer2")[0]}
+	cases := []struct {
+		name      string
+		allowed   []string
+		filterErr error
+	}{
+		{name: "filter allows none", allowed: []string{}},
+		{
+			name:      "filter refuses with Forbidden",
+			filterErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(principal, authorization.READ, resources...)),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, authz, raft := newHandler(t)
+			raft.On("GetNamespaces").Return([]cmd.Namespace{{Name: "customer1"}, {Name: "customer2"}}, nil)
+			authz.On("FilterAuthorizedResources",
+				mock.Anything, principal, authorization.READ, resources[0], resources[1],
+			).Return(tc.allowed, tc.filterErr)
 
-	res := h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
-	parsed, ok := res.(*nsops.ListNamespacesOK)
-	require.True(t, ok, "expected 200, got %T", res)
-	assert.Empty(t, parsed.Payload)
+			res := h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
+			parsed, ok := res.(*nsops.ListNamespacesOK)
+			require.True(t, ok, "expected 200, got %T", res)
+			assert.Empty(t, parsed.Payload)
+		})
+	}
 }
 
 // TestListNamespaces_ErrorMapping covers the two paths that return 500: a

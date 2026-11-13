@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -23,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 type Handler struct {
@@ -151,7 +153,8 @@ func (h *Handler) authorizedTasks(ctx context.Context, principal *models.Princip
 		resources[i] = resource(t.collection)
 	}
 	allowed, err := h.authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ, resources...)
-	if err != nil {
+	// A refusal allows none of them; its text names every collection asked about.
+	if err != nil && !errors.As(err, &autherrs.Forbidden{}) {
 		return nil, fmt.Errorf("authorize task collections: %w", err)
 	}
 	allowedSet := make(map[string]struct{}, len(allowed))

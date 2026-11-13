@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -400,7 +401,8 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	}
 
 	allowed, err := h.authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ, resources...)
-	if err != nil {
+	// A refusal allows none of them; its text names every namespace asked about.
+	if err != nil && !errors.As(err, &authzerrors.Forbidden{}) {
 		return nsops.NewListNamespacesInternalServerError().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("filtering authorized namespaces: %w", err)))
 	}
