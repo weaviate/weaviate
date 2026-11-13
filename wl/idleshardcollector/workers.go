@@ -52,8 +52,22 @@ func (p *policy[S]) work(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case it := <-p.backgroundCh:
+			if p.retired(stop) {
+				p.release(it)
+				return
+			}
 			p.process(it)
 		}
+	}
+}
+
+// retired reports whether stop closed or the policy stopped; select can still pick a queued item after either.
+func (p *policy[S]) retired(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return p.ctx.Err() != nil
 	}
 }
 
