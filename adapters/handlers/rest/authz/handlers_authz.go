@@ -386,7 +386,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	}
 
 	if err = h.controller.CreateRolesPermissions(map[string][]authorization.Policy{roleName: rolePolicies}); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -468,7 +468,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	if err := h.controller.UpdateRolesPermissions(map[string][]authorization.Policy{roleName: rolePolicies}); err != nil {
-		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -864,7 +864,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 
 	for _, userType := range userTypes {
 		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames); err != nil {
-			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("AddRolesForUser: %w", err)))
+			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(fmt.Errorf("AddRolesForUser: %w", err))))
 		}
 	}
 

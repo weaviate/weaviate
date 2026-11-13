@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func TestCreateRoleSuccess(t *testing.T) {
@@ -356,6 +357,24 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			upsertErr:     errors.New("upsert error"),
 			expectedError: "upsert error",
+		},
+		{
+			name: "namespace refusal renders neutral text",
+			params: authz.CreateRoleParams{
+				HTTPRequest: req,
+				Body: &models.Role{
+					Name: String("newRole"),
+					Permissions: []*models.Permission{
+						{
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
+						},
+					},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			upsertErr:     fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
+			expectedError: "instance suspended",
 		},
 	}
 

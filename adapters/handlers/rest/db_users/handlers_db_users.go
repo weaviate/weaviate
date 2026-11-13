@@ -913,7 +913,7 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		if errors.Is(err, apikey.ErrUserExists) {
 			return errResult("a different credential already exists for this user id")
 		}
-		return errResult(fmt.Sprintf("creating user: %v", err))
+		return errResult(cerrors.PublicNamespaceErr(fmt.Errorf("creating user: %w", err)).Error())
 	}
 
 	if !rec.Active {

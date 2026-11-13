@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func TestAssignRoleToUserSuccess(t *testing.T) {
@@ -567,6 +568,20 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			assignErr:     fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
+		},
+		{
+			name: "namespace refusal renders neutral text",
+			params: authz.AssignRoleToUserParams{
+				ID:          "testUser",
+				HTTPRequest: req,
+				Body: authz.AssignRoleToUserBody{
+					Roles:    []string{"testRole"},
+					UserType: userType,
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			assignErr:     fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
+			expectedError: "instance suspended",
 		},
 		{
 			name: "internal server error from getting role",
