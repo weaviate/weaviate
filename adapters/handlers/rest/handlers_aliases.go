@@ -115,7 +115,7 @@ func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
@@ -142,10 +142,10 @@ func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case cerrors.NamespaceErrRendersUnprocessable(err):
 			return schema.NewAliasesUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		default:
 			return schema.NewAliasesUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
@@ -170,9 +170,10 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case cerrors.NamespaceErrRendersUnprocessable(err):
 			return schema.NewAliasesDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		default:
-			return schema.NewAliasesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
+			return schema.NewAliasesDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 

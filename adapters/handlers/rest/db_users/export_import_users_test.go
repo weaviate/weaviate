@@ -318,6 +318,23 @@ func TestImportUsersHandler(t *testing.T) {
 		require.Equal(t, models.UserImportResultStatusSkippedExists, *result.Status)
 	})
 
+	// The pre-check passed, but the namespace left active before the create applied.
+	t.Run("renders a namespace refusal at create as neutral text", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
+		dynUser := NewMockDbUserAndRolesGetter(t)
+		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
+		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
+		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).
+			Return(fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended))
+
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
+		require.Equal(t, models.UserImportResultStatusError, *result.Status)
+		require.Equal(t, "instance suspended", result.Error)
+	})
+
 	t.Run("reports partial failure when deactivation fails after create", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)

@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 var req, _ = http.NewRequest("POST", "/activate", nil)
@@ -348,6 +349,26 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			upsertErr:     fmt.Errorf("some error from controller"),
 			expectedError: "some error from controller",
+		},
+		{
+			name: "namespace refusal renders neutral text",
+			params: authz.AddPermissionsParams{
+				ID:          "someRole",
+				HTTPRequest: req,
+				Body: authz.AddPermissionsBody{
+					Permissions: []*models.Permission{
+						{
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
+						},
+					},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			upsertErr:     fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
+			expectedError: "instance suspended",
 		},
 	}
 

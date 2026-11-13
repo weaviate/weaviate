@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -56,36 +58,40 @@ func (r *recordingLockProvider) SubmitLockFor(collection, property string) *sync
 	return &sync.Mutex{}
 }
 
-// A shard status update refused by the namespace is the caller's problem, not a
-// fault: the propose-time gate returns a lifecycle sentinel, and 500 would read
-// as a broken server and hide it from anything retrying on 4xx.
+// A namespace-refused shard status update is a 4xx, not a 500 fault, and its
+// body is the neutral namespaces.PublicMessage text.
 func TestShardStatusErrResponder(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want middleware.Responder
+		name    string
+		err     error
+		want    middleware.Responder
+		message string
 	}{
 		{
-			name: "suspended namespace is unprocessable",
-			err:  fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
-			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+			name:    "suspended namespace is unprocessable",
+			err:     fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
+			want:    schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+			message: "instance suspended",
 		},
 		{
-			name: "deleting namespace is unprocessable",
-			err:  namespaces.ErrNamespaceDeleting,
-			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+			name:    "deleting namespace is unprocessable",
+			err:     namespaces.ErrNamespaceDeleting,
+			want:    schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+			message: "instance unavailable",
 		},
 		{
-			name: "missing namespace is unprocessable",
-			err:  namespaces.ErrNamespaceGone,
-			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+			name:    "missing namespace is unprocessable",
+			err:     namespaces.ErrNamespaceGone,
+			want:    schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+			message: "instance unavailable",
 		},
 		// Resuming asks for 503, which this operation has no responder for, so it
 		// keeps the fallback rather than being mislabelled a client error.
 		{
-			name: "resuming namespace falls through",
-			err:  namespaces.ErrNamespaceResuming,
-			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
+			name:    "resuming namespace falls through",
+			err:     namespaces.ErrNamespaceResuming,
+			want:    schema.NewSchemaObjectsShardsUpdateInternalServerError(),
+			message: "instance resuming, retry shortly",
 		},
 		{
 			name: "a forbidden error still maps to forbidden",
@@ -111,8 +117,138 @@ func TestShardStatusErrResponder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.IsType(t, tt.want, shardStatusErrResponder(nil, tt.err))
+			resp := shardStatusErrResponder(nil, tt.err)
+			require.IsType(t, tt.want, resp)
+			if tt.message != "" {
+				_, body := statusOf(t, resp)
+				require.Len(t, body.Error, 1)
+				require.Equal(t, tt.message, body.Error[0].Message)
+			}
 		})
+	}
+}
+
+// aliasLookupFailure fails the alias lookup that alias update and delete start with.
+type aliasLookupFailure struct {
+	schemaUC.SchemaManager
+	err error
+}
+
+func (f aliasLookupFailure) GetAliases(context.Context, string, *models.Class) ([]*models.Alias, error) {
+	return nil, f.err
+}
+
+func (f aliasLookupFailure) GetAlias(context.Context, string) (*models.Alias, error) {
+	return nil, f.err
+}
+
+// Alias update and delete render a namespace refusal as namespaces.PublicMessage text.
+func TestAliasHandlersRenderNamespaceErrorsNeutrally(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		err      error
+		wantCode int
+		message  string
+	}{
+		{"suspended", fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended), http.StatusUnprocessableEntity, "instance suspended"},
+		{"deleting", namespaces.ErrNamespaceDeleting, http.StatusUnprocessableEntity, "instance unavailable"},
+		{"resuming", namespaces.ErrNamespaceResuming, http.StatusInternalServerError, "instance resuming, retry shortly"},
+		{"anything else keeps its detail", errors.New("boom"), http.StatusInternalServerError, "boom"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, err := schemaUC.NewHandler(nil, aliasLookupFailure{err: tt.err}, nil, logrus.New(),
+				&authorization.DummyAuthorizer{}, nil, config.Config{}, nil, nil, nil, nil, nil, nil,
+				schemaUC.Parser{}, nil, nil, nil)
+			require.NoError(t, err)
+			h := &aliasesHandlers{
+				manager:             &schemaUC.Manager{Handler: handler},
+				metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
+			}
+			req := httptest.NewRequest("PUT", "/", nil)
+
+			for op, resp := range map[string]middleware.Responder{
+				"update": h.updateAlias(schema.AliasesUpdateParams{
+					HTTPRequest: req, AliasName: "A", Body: schema.AliasesUpdateBody{Class: "C"},
+				}, nil),
+				"delete": h.deleteAlias(schema.AliasesDeleteParams{HTTPRequest: req, AliasName: "A"}, nil),
+			} {
+				code, body := statusOf(t, resp)
+				require.Equal(t, tt.wantCode, code, op)
+				require.Len(t, body.Error, 1, op)
+				require.Equal(t, tt.message, body.Error[0].Message, op)
+			}
+		})
+	}
+}
+
+// refusingAuthorizer fails every check with err, the first call each schema
+// write makes, so the handler renders err without further dependencies.
+type refusingAuthorizer struct {
+	authorization.DummyAuthorizer
+	err error
+}
+
+func (a *refusingAuthorizer) Authorize(context.Context, *models.Principal, string, ...string) error {
+	return a.err
+}
+
+// Schema writes the namespace can refuse render that refusal as
+// namespaces.PublicMessage text and keep their status code.
+func TestSchemaWritesRenderNamespaceErrorsNeutrally(t *testing.T) {
+	req := httptest.NewRequest("POST", "/", nil)
+	ops := []struct {
+		name     string
+		wantCode int
+		call     func(*schemaHandlers, *aliasesHandlers) middleware.Responder
+	}{
+		{"add class", http.StatusUnprocessableEntity, func(s *schemaHandlers, _ *aliasesHandlers) middleware.Responder {
+			return s.addClass(schema.SchemaObjectsCreateParams{HTTPRequest: req, ObjectClass: &models.Class{Class: "C"}}, nil)
+		}},
+		{"delete class", http.StatusBadRequest, func(s *schemaHandlers, _ *aliasesHandlers) middleware.Responder {
+			return s.deleteClass(schema.SchemaObjectsDeleteParams{HTTPRequest: req, ClassName: "C"}, nil)
+		}},
+		{"create tenants", http.StatusUnprocessableEntity, func(s *schemaHandlers, _ *aliasesHandlers) middleware.Responder {
+			return s.createTenants(schema.TenantsCreateParams{HTTPRequest: req, ClassName: "C", Body: []*models.Tenant{{Name: "t"}}}, nil)
+		}},
+		{"update tenants", http.StatusUnprocessableEntity, func(s *schemaHandlers, _ *aliasesHandlers) middleware.Responder {
+			return s.updateTenants(schema.TenantsUpdateParams{HTTPRequest: req, ClassName: "C", Body: []*models.Tenant{{Name: "t"}}}, nil)
+		}},
+		{"delete tenants", http.StatusUnprocessableEntity, func(s *schemaHandlers, _ *aliasesHandlers) middleware.Responder {
+			return s.deleteTenants(schema.TenantsDeleteParams{HTTPRequest: req, ClassName: "C", Tenants: []string{"t"}}, nil)
+		}},
+		{"add alias", http.StatusInternalServerError, func(_ *schemaHandlers, a *aliasesHandlers) middleware.Responder {
+			return a.addAlias(schema.AliasesCreateParams{HTTPRequest: req, Body: &models.Alias{Alias: "A", Class: "C"}}, nil)
+		}},
+	}
+	errs := []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{"suspended", fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended), "instance suspended"},
+		{"resuming", namespaces.ErrNamespaceResuming, "instance resuming, retry shortly"},
+		{"anything else keeps its detail", errors.New("boom"), "boom"},
+	}
+
+	for _, op := range ops {
+		for _, tt := range errs {
+			t.Run(op.name+"/"+tt.name, func(t *testing.T) {
+				handler, err := schemaUC.NewHandler(nil, nil, nil, logrus.New(),
+					&refusingAuthorizer{err: tt.err}, nil, config.Config{}, nil, nil, nil, nil, nil, nil,
+					schemaUC.Parser{}, nil, nil, nil)
+				require.NoError(t, err)
+				manager := &schemaUC.Manager{Handler: handler}
+				metrics := newSchemaRequestsTotal(nil, logrus.New())
+
+				code, body := statusOf(t, op.call(
+					&schemaHandlers{manager: manager, metricRequestsTotal: metrics},
+					&aliasesHandlers{manager: manager, metricRequestsTotal: metrics},
+				))
+				require.Equal(t, op.wantCode, code)
+				require.Len(t, body.Error, 1)
+				require.Equal(t, tt.message, body.Error[0].Message)
+			})
+		}
 	}
 }
 
