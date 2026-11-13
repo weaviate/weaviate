@@ -31,9 +31,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
+
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -798,6 +800,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 	}
 
 	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
+	backgroundaccess.SetHeader(req)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send http request")

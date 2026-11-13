@@ -21,11 +21,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -278,6 +280,12 @@ func (s *ReplicationService) FindUUIDs(ctx context.Context, req *pb.FindUUIDsReq
 		filter = &filters.LocalFilter{}
 		if err := json.Unmarshal(req.GetFilterJson(), filter); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "unmarshal filter: %v", err)
+		}
+	}
+
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if v := md.Get(backgroundaccess.MetadataKey); len(v) > 0 {
+			ctx = backgroundaccess.FromValue(ctx, v[0])
 		}
 	}
 

@@ -317,6 +317,9 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
+	// afterTTLBatchDelete, when set by a test, runs once a TTL batch delete has released its shard pin.
+	afterTTLBatchDelete func(shardName string)
+
 	replicaSnapshotsMu sync.Mutex
 	replicaSnapshots   map[string]struct{}
 
@@ -2268,6 +2271,7 @@ func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
 // shard. Called by the copier after a shard copy completes, before the index's
 // ReplicationFactor has been updated cluster-wide.
 func (i *Index) InitAsyncReplicationOnShard(ctx context.Context, shardName string) error {
+	ctx = withBackgroundShardAccess(ctx)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %s: %w", shardName, err)
@@ -2291,6 +2295,7 @@ func (i *Index) InitAsyncReplicationOnShard(ctx context.Context, shardName strin
 // dictated by the index's current ReplicationFactor. Called by the copier when
 // rolling back a copy operation.
 func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName string) error {
+	ctx = withBackgroundShardAccess(ctx)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %s: %w", shardName, err)
@@ -4022,10 +4027,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// it, and a teardown landing between the two would rebuild it on a wrapper
 	// that already left the map — an orphan nothing can shut down, holding the
 	// directory's file locks. Same reasoning as getLoadedShard.
-	shard, release, err = i.pinResidentShard(shardName, ensureInit)
+	shard, release, err = i.pinResidentShard(shardName, ensureInit, loadedShardsOnly(ctx))
 	if err != nil || shard != nil {
 		if err == nil {
-			i.recordShardAccess(shard)
+			i.recordShardAccess(ctx, shard)
 		}
 		return shard, release, recoveringAsUnprocessable(err)
 	}
@@ -4061,21 +4066,48 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	if err != nil {
 		return nil, func() {}, recoveringAsUnprocessable(fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err))
 	}
-	i.recordShardAccess(shard)
+	i.recordShardAccess(ctx, shard)
 
 	return shard, release, nil
 }
 
 // recordShardAccess feeds the unloader's LRU from request pins only; internal
-// walks, async replication and status reads pin through other paths, so they
-// never make an idle shard look used.
-func (i *Index) recordShardAccess(shard ShardLike) {
-	if i.Config.ShardUnloader == nil {
+// walks, async replication and status reads pin through other paths or carry
+// withBackgroundShardAccess, so they never make an idle shard look used.
+func (i *Index) recordShardAccess(ctx context.Context, shard ShardLike) {
+	if i.Config.ShardUnloader == nil || isBackgroundShardAccess(ctx) {
 		return
 	}
 	if lazy, ok := shard.(*LazyLoadShard); ok {
 		lazy.recordAccess()
 	}
+}
+
+// recordDeletions stamps a still pinned shard once a batch deleted something, background work included; a stamp after the release could miss an unload.
+func (i *Index) recordDeletions(shard ShardLike, objs objects.BatchSimpleObjects) {
+	if i.Config.ShardUnloader == nil {
+		return
+	}
+	lazy, ok := shard.(*LazyLoadShard)
+	if !ok {
+		return
+	}
+	for idx := range objs {
+		if objs[idx].Err == nil {
+			lazy.recordAccess()
+			return
+		}
+	}
+}
+
+// backgroundLeavesUnloaded: background work leaves an unloaded shard unloaded while the collector runs; otherwise it loads as before.
+func (i *Index) backgroundLeavesUnloaded(ctx context.Context) bool {
+	u := i.Config.ShardUnloader
+	return u != nil && isBackgroundShardAccess(ctx) && u.Collecting()
+}
+
+func (i *Index) backgroundSkipsShard(ctx context.Context, shardName string) bool {
+	return i.backgroundLeavesUnloaded(ctx) && i.shardIsLazyUnloaded(shardName)
 }
 
 // recoveringAsUnprocessable: 422 (retriable on a replica), not a 500, when the shard is mid-recovery.
@@ -4091,13 +4123,17 @@ func recoveringAsUnprocessable(err error) error {
 // caller re-checks and initializes under the write lock. Read-only callers keep
 // surfacing errAlreadyShutdown from the pin — the eventual-shutdown contract
 // pins GetShard to it.
-func (i *Index) pinResidentShard(shardName string, ensureInit bool) (shard ShardLike, release func(), err error) {
+func (i *Index) pinResidentShard(shardName string, ensureInit, loadedOnly bool) (shard ShardLike, release func(), err error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
 	shard = i.shards.Load(shardName)
 	if shard == nil {
 		return nil, func() {}, nil
+	}
+	// Under the create lock an unload cannot land between this check and the pin.
+	if l, ok := shard.(loadableShard); ok && loadedOnly && !l.isLoaded() {
+		return nil, func() {}, errLoadedOnlyShardUnloaded
 	}
 	if ensureInit {
 		// A torn shard (deep teardown failure) is held in the map as the last
@@ -4583,6 +4619,7 @@ func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) e
 }
 
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
+	ctx = withLoadedShardsOnly(withBackgroundShardAccess(ctx))
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
@@ -4613,6 +4650,9 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 				size, err = i.remote.GetShardQueueSize(ctx, shardName)
 				return err
 			})
+		if errors.Is(err, errLoadedOnlyShardUnloaded) {
+			size, err = 0, nil
+		}
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
@@ -4624,6 +4664,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+	ctx = withLoadedShardsOnly(withBackgroundShardAccess(ctx))
 	cold, err := i.unloadedLazyShard(shardName)
 	if err != nil {
 		return 0, err
@@ -4632,6 +4673,9 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 		return 0, nil
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
+	if errors.Is(err, errLoadedOnlyShardUnloaded) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -4687,6 +4731,7 @@ func shardQueueSize(shard ShardLike) int64 {
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
 func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+	ctx = withLoadedShardsOnly(withBackgroundShardAccess(ctx))
 	thisNode := i.Config.NodeName
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
@@ -4771,13 +4816,25 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 	}
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, shardName, localShardOperationRead, 0)
 	defer release()
+	if errors.Is(err, errLoadedOnlyShardUnloaded) {
+		return i.unloadedShardStatus(shardName), nil
+	}
 	if err != nil || shard == nil {
 		return "", err
 	}
 	return shard.GetStatus().String(), nil
 }
 
+// unloadedShardStatus reports the status of a shard a loaded-only pin found unloaded.
+func (i *Index) unloadedShardStatus(shardName string) string {
+	if s := i.shards.Load(shardName); s != nil {
+		return s.GetStatus().String()
+	}
+	return ""
+}
+
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
+	ctx = withLoadedShardsOnly(withBackgroundShardAccess(ctx))
 	cold, err := i.unloadedLazyShard(shardName)
 	if err != nil {
 		return "", err
@@ -4786,6 +4843,9 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 		return cold.GetStatus().String(), nil
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
+	if errors.Is(err, errLoadedOnlyShardUnloaded) {
+		return i.unloadedShardStatus(shardName), nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -4839,14 +4899,21 @@ func (i *Index) findUUIDs(ctx context.Context,
 	}
 	className := i.Config.ClassName.String()
 
+	findCtx := ctx
+	if i.backgroundLeavesUnloaded(ctx) {
+		findCtx = withLoadedShardsOnly(ctx)
+	}
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range readPlan.Shards() {
+		if i.backgroundSkipsShard(ctx, shardName) {
+			continue
+		}
 		var err error
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
 			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl, perShardLimit)
 		} else {
-			err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+			err = i.withShardOrRemote(findCtx, tenant, shardName, localShardOperationRead, 0,
 				func(shard ShardLike) error {
 					var err error
 					results[shardName], err = shard.FindUUIDs(ctx, filters, perShardLimit)
@@ -4859,6 +4926,9 @@ func (i *Index) findUUIDs(ctx context.Context,
 				})
 		}
 
+		if errors.Is(err, errLoadedOnlyShardUnloaded) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
@@ -4885,7 +4955,16 @@ func (i *Index) consistencyLevel(
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
+	if i.backgroundSkipsShard(ctx, shardName) {
+		return nil, nil
+	}
+	if i.backgroundLeavesUnloaded(ctx) {
+		ctx = withLoadedShardsOnly(ctx)
+	}
 	shard, release, err := i.GetShard(ctx, shardName)
+	if errors.Is(err, errLoadedOnlyShardUnloaded) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -4940,6 +5019,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						i.backupLock.RLock(shardName)
 						defer i.backupLock.RUnlock(shardName)
 						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+						if !dryRun {
+							i.recordDeletions(shard, objs)
+						}
 						return nil
 					},
 					func() error {

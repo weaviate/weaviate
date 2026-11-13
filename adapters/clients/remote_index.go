@@ -23,11 +23,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -489,6 +491,7 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	}
 
 	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
+	backgroundaccess.SetHeader(req)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send http request")
