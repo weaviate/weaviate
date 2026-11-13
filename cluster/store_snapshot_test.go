@@ -1356,7 +1356,6 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 			target := NewMockStore(t, "node-1", 0, func(c *Config) { c.MetadataOnlyVoters = tt.metadataOnly })
 			target.store.init()
 
-			// The index must not advance before the reload finishes.
 			reloadStarted, releaseReload := make(chan struct{}), make(chan struct{})
 			target.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
 				close(reloadStarted)
