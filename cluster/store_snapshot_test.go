@@ -1403,6 +1403,15 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 				appliedDuringReload := target.store.lastAppliedIndex.Load()
 				close(releaseReload)
 				require.Equal(t, appliedAtRestore, appliedDuringReload)
+			} else {
+				close(releaseReload)
+				defer func() {
+					select {
+					case <-reloadStarted:
+						t.Error("restore reloaded the DB")
+					default:
+					}
+				}()
 			}
 			require.NoError(t, <-restored)
 
