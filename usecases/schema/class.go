@@ -2147,17 +2147,26 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		// without enforcing that on the client. We just set these fields to their initial values.
 		switch cfg := v.VectorIndexConfig.(type) {
 		case hnsw.UserConfig:
-			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(hnsw.UserConfig)
+			cfgInitial, ok := initialVecCfg.VectorIndexConfig.(hnsw.UserConfig)
+			if !ok {
+				return errVectorIndexTypeImmutable(k, initialVecCfg.VectorIndexType, v.VectorIndexType)
+			}
 			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
 			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
 			v.VectorIndexConfig = cfg
 		case flat.UserConfig:
-			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(flat.UserConfig)
+			cfgInitial, ok := initialVecCfg.VectorIndexConfig.(flat.UserConfig)
+			if !ok {
+				return errVectorIndexTypeImmutable(k, initialVecCfg.VectorIndexType, v.VectorIndexType)
+			}
 			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
 			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
 			v.VectorIndexConfig = cfg
 		case dynamic.UserConfig:
-			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(dynamic.UserConfig)
+			cfgInitial, ok := initialVecCfg.VectorIndexConfig.(dynamic.UserConfig)
+			if !ok {
+				return errVectorIndexTypeImmutable(k, initialVecCfg.VectorIndexType, v.VectorIndexType)
+			}
 			cfg.HnswUC.SkipDefaultQuantization = cfgInitial.HnswUC.SkipDefaultQuantization
 			cfg.HnswUC.TrackDefaultQuantization = cfgInitial.HnswUC.TrackDefaultQuantization
 			cfg.FlatUC.SkipDefaultQuantization = cfgInitial.FlatUC.SkipDefaultQuantization

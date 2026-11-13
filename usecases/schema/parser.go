@@ -613,8 +613,7 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 
 		// immutable vector type
 		if initialCfg.VectorIndexType != updatedCfg.VectorIndexType {
-			return fmt.Errorf("vector index type of vector %q is immutable: attempted change from %q to %q",
-				vecName, initialCfg.VectorIndexType, updatedCfg.VectorIndexType)
+			return errVectorIndexTypeImmutable(vecName, initialCfg.VectorIndexType, updatedCfg.VectorIndexType)
 		}
 
 		// immutable vectorizer
@@ -685,4 +684,8 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool) error
 			second.VirtualPerPhysical)
 	}
 	return nil
+}
+
+func errVectorIndexTypeImmutable(vector, from, to string) error {
+	return fmt.Errorf("vector index type of vector %q is immutable: attempted change from %q to %q", vector, from, to)
 }
