@@ -353,7 +353,7 @@ func DistanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-// WaitForRecoveredPanic waits until GoWrapper, which reads DISABLE_RECOVERY_ON_PANIC late, has recovered and logged.
+// WaitForRecoveredPanic waits until GoWrapper has recovered and logged, because GoWrapper reads DISABLE_RECOVERY_ON_PANIC only after the wrapped function's defers have run.
 func WaitForRecoveredPanic(t *testing.T, hook *test.Hook) {
 	t.Helper()
 	require.Eventually(t, func() bool {
