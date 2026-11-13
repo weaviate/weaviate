@@ -31,6 +31,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -1326,35 +1327,38 @@ func TestReplicationFactorMigration(t *testing.T) {
 	})
 }
 
-// Restore must advance the applied index to the snapshot index, or readers
-// gated on it hang on an idle cluster.
+// Restore must advance the applied index, or gated readers hang on an idle cluster.
 func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 	const snapIndex = uint64(20)
 
+	source := NewMockStore(t, "source-node", 0)
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
+
 	tests := []struct {
-		name             string
-		metadataOnly     bool
-		appliedAtRestore uint64
-		wantApplied      uint64
+		name         string
+		metadataOnly bool
+		startup      bool
+		wantApplied  uint64
 	}{
-		{name: "voter", appliedAtRestore: 5, wantApplied: snapIndex},
-		{name: "metadata-only voter", metadataOnly: true, appliedAtRestore: 5, wantApplied: snapIndex},
-		{name: "applied index already past the snapshot", appliedAtRestore: 30, wantApplied: 30},
+		{name: "voter", wantApplied: snapIndex},
+		{name: "metadata-only voter", metadataOnly: true, wantApplied: snapIndex},
+		{name: "startup restore leaves the index to Open", startup: true, wantApplied: 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			source := NewMockStore(t, "source-node", 0)
-			snapshot, err := source.store.Snapshot()
-			require.NoError(t, err)
-			sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
-			require.NoError(t, snapshot.Persist(sink))
-
 			target := NewMockStore(t, "node-1", 0, func(c *Config) { c.MetadataOnlyVoters = tt.metadataOnly })
 			target.store.init()
-			target.indexer.On("TriggerSchemaUpdateCallbacks").Return().Maybe()
-			target.indexer.On("ReloadLocalDB", mock.Anything, mock.Anything).Return(nil).Maybe()
 
-			// raft writes the installed snapshot to the store before calling Restore.
+			// The index must not advance before the reload finishes.
+			reloadStarted, releaseReload := make(chan struct{}), make(chan struct{})
+			target.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+				close(reloadStarted)
+				<-releaseReload
+			}).Return().Maybe()
+
 			snapshotStore, err := raft.NewFileSnapshotStore(t.TempDir(), 3, nil)
 			require.NoError(t, err)
 			snap, err := snapshotStore.Create(raft.SnapshotVersionMax, snapIndex, 1, raft.Configuration{}, 1, nil)
@@ -1364,15 +1368,36 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 			require.NoError(t, snap.Close())
 			target.store.snapshotStore = snapshotStore
 
-			attachFollowerRaft(t, target.store)
+			appliedAtRestore := uint64(0)
+			if !tt.startup {
+				attachFollowerRaft(t, target.store)
+				appliedAtRestore = 5
+			}
 			target.store.lastAppliedIndexToDB.Store(10)
-			target.store.lastAppliedIndex.Store(tt.appliedAtRestore)
+			target.store.lastAppliedIndex.Store(appliedAtRestore)
 
-			require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+			restored := make(chan error, 1)
+			enterrors.GoWrapper(func() {
+				restored <- target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes())))
+			}, target.store.log)
+
+			if !tt.metadataOnly {
+				select {
+				case <-reloadStarted:
+				case err := <-restored:
+					t.Fatalf("restore returned without reloading the DB: %v", err)
+				}
+				appliedDuringReload := target.store.lastAppliedIndex.Load()
+				close(releaseReload)
+				require.Equal(t, appliedAtRestore, appliedDuringReload)
+			}
+			require.NoError(t, <-restored)
 
 			require.Equal(t, tt.wantApplied, target.store.lastAppliedIndex.Load())
-			require.True(t, target.store.FSMHasCaughtUp())
-			require.NoError(t, target.store.WaitForAppliedIndex(context.Background(), time.Millisecond, snapIndex))
+			if !tt.startup {
+				require.True(t, target.store.FSMHasCaughtUp())
+				require.NoError(t, target.store.WaitForAppliedIndex(context.Background(), time.Millisecond, snapIndex))
+			}
 		})
 	}
 }
