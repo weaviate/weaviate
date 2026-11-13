@@ -260,10 +260,28 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return decisionResponse{}, fmt.Errorf("send OpenAI request: %w", err)
+		return decisionResponse{}, transportError(ctx, "send OpenAI request", "no HTTP response from", err, r.hostFromHeader)
 	}
 	defer res.Body.Close()
 	return readResponse(res, r.hostFromHeader)
+}
+
+// transportError keeps the transport's error for the class or default host.
+// For a host the request header named it keeps only the end of the context:
+// net/http quotes bytes the host sent, and a dial error names the address that
+// refused the connection. failure says what the host did not deliver.
+func transportError(ctx context.Context, action, failure string, err error, hostFromHeader bool) error {
+	if !hostFromHeader {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("%s: %w", action, ctxErr)
+	}
+	// The client timeout ends a context of the transport, not ctx.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s: %w", action, context.DeadlineExceeded)
+	}
+	return fmt.Errorf("%s: %s the host named by %s", action, failure, baseURLHeader)
 }
 
 // readResponse quotes no status error body and no error object of a host the
