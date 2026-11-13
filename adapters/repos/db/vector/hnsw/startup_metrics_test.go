@@ -250,8 +250,7 @@ func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 	h.panicking.Store(true)
 	index.PostStartup(ctx)
 	index.prefillWg.Wait()
-	// prefillWg is released before the recover handler reads the env, so the
-	// override must outlive the handler
+	// GoWrapper reads DISABLE_RECOVERY_ON_PANIC after prefillWg.Done, so keep the override until it logs
 	require.Eventually(t, func() bool {
 		for _, e := range h.logHook.AllEntries() {
 			if strings.HasPrefix(e.Message, "Recovered from panic") {
