@@ -15,13 +15,16 @@ import (
 	"context"
 	"math"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -59,15 +62,28 @@ func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 	return dist, nil
 }
 
+// centroidTrainingLimit is the number of centroids sampled to fit the RQ4
+// centering mean. Until then the index holds float centroids in its cache.
+// EXPERIMENT: a restart before the upgrade loses those centroids, since the
+// centroid HNSW has no float source to refill from.
+const centroidTrainingLimit = 1000
+
 type HNSWIndex struct {
-	metrics *Metrics
-	hnsw    *hnsw.HNSW
-	counter atomic.Int32
+	metrics     *Metrics
+	hnsw        *hnsw.HNSW
+	logger      logrus.FieldLogger
+	counter     atomic.Int32
+	upgradeOnce atomic.Bool
+	// upgradeLock holds Get back while the centered RQ upgrade swaps the
+	// float cache for the compressor: hnsw.Get reads across that swap
+	// without the HNSW's own compression lock, unlike Add and Search.
+	upgradeLock sync.RWMutex
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
 	index := HNSWIndex{
 		metrics: metrics,
+		logger:  cfg.Logger,
 	}
 
 	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
@@ -79,7 +95,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.EF = 64
 	userConfig.EFConstruction = 64
 	userConfig.RQ.Enabled = true
-	userConfig.RQ.Bits = 8
+	userConfig.RQ.Bits = 4
+	userConfig.RQ.Centering = true
+	userConfig.RQ.TrainingLimit = centroidTrainingLimit
 	userConfig.RQ.RescoreLimit = 0
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
@@ -97,7 +115,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 }
 
 func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
+	i.upgradeLock.RLock()
 	vec, err := i.hnsw.Get(id)
+	i.upgradeLock.RUnlock()
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +143,30 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 	}
 	i.counter.Add(1)
 
+	// Centered RQ compresses through the deferred upgrade path, which the
+	// shard's vector index queue drives for regular indexes. The centroid
+	// HNSW has no queue, so trigger it here once enough centroids exist.
+	if i.counter.Load() >= centroidTrainingLimit && i.upgradeOnce.CompareAndSwap(false, true) {
+		enterrors.GoWrapper(i.upgrade, i.logger)
+	}
+
 	return nil
+}
+
+// upgrade mirrors VectorIndexQueue.checkCompressionSettings: block callers
+// for the duration of the compression pass and let the HNSW's completion
+// callback release them. Upgrade can fail without running the callback, so
+// the release is guarded to run exactly once.
+func (i *HNSWIndex) upgrade() {
+	i.upgradeLock.Lock()
+	var once sync.Once
+	release := func() { once.Do(i.upgradeLock.Unlock) }
+
+	err := i.hnsw.Upgrade(release)
+	if err != nil {
+		release()
+		i.logger.Errorf("hfresh: centroid index upgrade to centered rq4 failed: %v", err)
+	}
 }
 
 func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
