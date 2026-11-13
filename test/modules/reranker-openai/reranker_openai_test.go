@@ -20,6 +20,7 @@ import (
 	"image/draw"
 	"image/png"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -119,9 +120,14 @@ func testRerankerOpenAI(restURI, grpcURI string) func(t *testing.T) {
 					assert.LessOrEqual(t, r.Metadata.RerankScore, 1.0)
 				}
 				assert.IsNonIncreasing(t, scores)
-				last := len(scores) - 1
-				assert.Equal(t, tt.wantLowest, ids[last])
-				assert.Less(t, scores[last], scores[last-1])
+				// The model can give two objects the same score, and the order of
+				// a tie is not fixed.
+				lowest := slices.Index(ids, tt.wantLowest)
+				require.NotEqual(t, -1, lowest, "object %s is not in the results", tt.wantLowest)
+				for i, score := range scores {
+					assert.LessOrEqualf(t, scores[lowest], score, "object %s scores above object %s", tt.wantLowest, ids[i])
+				}
+				assert.Less(t, scores[lowest], slices.Max(scores))
 			})
 		}
 
