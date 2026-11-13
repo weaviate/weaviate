@@ -437,6 +437,54 @@ func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 	assert.Len(t, f.received(), 1)
 }
 
+// A redirect could send the request, and with a 307 or 308 its key, to a host
+// neither the class nor the request named.
+func TestRankDoesNotFollowARedirect(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		fromHeader bool
+		wantErr    string
+	}{
+		{name: "302", status: http.StatusFound, wantErr: "connection to TypeSafe AI API failed with status 302"},
+		{name: "307", status: http.StatusTemporaryRedirect, wantErr: "connection to TypeSafe AI API failed with status 307"},
+		{name: "308", status: http.StatusPermanentRedirect, wantErr: "connection to TypeSafe AI API failed with status 308"},
+		{
+			name:       "302 from a host the request names",
+			status:     http.StatusFound,
+			fromHeader: true,
+			wantErr:    "connection to TypeSafe AI API failed with status 302",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := newFake(t)
+			var redirected atomic.Int64
+			redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				redirected.Add(1)
+				w.Header().Set("Location", target.url()+apiPath)
+				w.WriteHeader(tt.status)
+			}))
+			t.Cleanup(redirecting.Close)
+			classBaseURL := redirecting.URL
+			ctx := context.Background()
+			if tt.fromHeader {
+				classBaseURL = newFake(t).url()
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{redirecting.URL})
+			}
+
+			res, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(classBaseURL, nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Nil(t, res)
+			assert.Equal(t, int64(1), redirected.Load())
+			assert.Empty(t, target.received())
+		})
+	}
+}
+
 // The 429 and 500 rows of TestRankFailsAtOnceOnProviderErrors pin that a
 // status is sent once.
 func TestRankSendsARequestAgainWhenItsReusedConnectionBreaks(t *testing.T) {

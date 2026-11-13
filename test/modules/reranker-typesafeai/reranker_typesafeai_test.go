@@ -26,6 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -249,6 +250,25 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 				}
 			})
 		}
+
+		// The class base URL resolves to no host, so the request reaches the
+		// fake only through the base URL header.
+		t.Run("the base URL and the key of the request headers are used", func(t *testing.T) {
+			const headerKey = "header-key"
+			fake.reset(map[string]float64{changeEmail: 0.2, noRefund: 0.9, chargedTwice: 0.5}, nil)
+			createTickets(t, map[string]any{"baseURL": "http://class-base-url.invalid"}, tickets())
+			ctx := metadata.AppendToOutgoingContext(context.Background(),
+				"X-Typesafeai-Api-Key", headerKey, "X-Typesafeai-Baseurl", fake.baseURL())
+
+			reply, err := grpcClient.Search(ctx, rerankRequest("text", new(churn)))
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{noRefundID, chargedTwiceID, changeEmailID}, resultIDs(reply.Results))
+			requests := fake.received()
+			require.Len(t, requests, 1)
+			assert.Equal(t, "/v1/systemone", requests[0].path)
+			assert.Equal(t, "Bearer "+headerKey, requests[0].authorization)
+		})
 	}
 }
 

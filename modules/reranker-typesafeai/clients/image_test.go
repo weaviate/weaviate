@@ -35,6 +35,11 @@ func TestCheckImage(t *testing.T) {
 		{name: "300x300 PNG", encoded: encodedImage(t, "png", 300, 300)},
 		{name: "300x300 JPEG", encoded: encodedImage(t, "jpeg", 300, 300)},
 		{name: "JPEG with an EXIF segment before the frame header", encoded: jpegWithEXIF(t)},
+		{name: "280x280, the smallest side", encoded: encodedImage(t, "png", 280, 280)},
+		{name: "1568x1568, the largest side", encoded: encodedImage(t, "jpeg", 1568, 1568)},
+		{name: "280x1568", encoded: encodedImage(t, "png", 280, 1568)},
+		{name: "1568x280", encoded: encodedImage(t, "jpeg", 1568, 280)},
+		{name: "16 MiB", encoded: pngOfSize(t, maxImageBytes)},
 		{
 			name:    "279x300",
 			encoded: encodedImage(t, "png", 279, 300),
@@ -44,6 +49,16 @@ func TestCheckImage(t *testing.T) {
 			name:    "1569x300",
 			encoded: encodedImage(t, "jpeg", 1569, 300),
 			wantErr: "1569x300 pixels: the API takes 280 to 1568 pixels per side",
+		},
+		{
+			name:    "300x279",
+			encoded: encodedImage(t, "jpeg", 300, 279),
+			wantErr: "300x279 pixels: the API takes 280 to 1568 pixels per side",
+		},
+		{
+			name:    "300x1569",
+			encoded: encodedImage(t, "png", 300, 1569),
+			wantErr: "300x1569 pixels: the API takes 280 to 1568 pixels per side",
 		},
 		{name: "animated PNG", encoded: animatedPNG(t), wantErr: "animated PNG: the API takes still images"},
 		{name: "GIF", encoded: encodedImage(t, "gif", 300, 300), wantErr: "not a PNG or JPEG image"},
