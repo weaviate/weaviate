@@ -66,7 +66,7 @@ type Service struct {
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 	qualifier            namespacing.Qualifier
-	modulesProvider      rerankRequestValidator
+	rerankValidator      rerankRequestValidator
 
 	authenticator      *auth.Handler
 	batchHandler       batch.Batcher
@@ -95,11 +95,6 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.NamespaceQualifier,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
-	// A nil *modules.Provider stored in the interface would not compare equal to nil.
-	var modulesProvider rerankRequestValidator
-	if state.Modules != nil {
-		modulesProvider = state.Modules
-	}
 	return &Service{
 		traverser:            state.Traverser,
 		authComposer:         authComposer,
@@ -110,7 +105,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		logger:               state.Logger,
 		authorizer:           state.Authorizer,
 		qualifier:            state.NamespaceQualifier,
-		modulesProvider:      modulesProvider,
+		rerankValidator:      state.Modules,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
@@ -373,7 +368,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		getClass,
 		principal,
 		s.qualifier,
-		s.modulesProvider,
+		s.rerankValidator,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

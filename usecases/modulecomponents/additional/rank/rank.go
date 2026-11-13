@@ -61,6 +61,7 @@ func New(reranker ReRankerClient) *ReRankerProvider {
 	return NewWithProperty(textOnly{reranker})
 }
 
+// NewWithProperty is for a client without a Rank method.
 func NewWithProperty(reranker PropertyReRankerClient) *ReRankerProvider {
 	return &ReRankerProvider{reranker}
 }

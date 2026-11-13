@@ -43,8 +43,7 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 	}
 
 	documents := make([]ent.Document, len(in))
-	for i := range in { // for each result of the general GraphQL Query
-		// get text property
+	for i := range in {
 		rankPropertyValue := ""
 		schema := in[i].Object().Properties.(map[string]interface{})
 		for property, value := range schema {
