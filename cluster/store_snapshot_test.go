@@ -1341,13 +1341,13 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 	tests := []struct {
 		name             string
 		metadataOnly     bool
-		startup          bool
+		noRaft           bool
 		noSnapshotListed bool
 		wantApplied      uint64
 	}{
 		{name: "voter", wantApplied: snapIndex},
 		{name: "metadata-only voter", metadataOnly: true, wantApplied: snapIndex},
-		{name: "startup restore leaves the index to Open", startup: true, wantApplied: 0},
+		{name: "restore before the store holds a raft node leaves the index to Open", noRaft: true, wantApplied: 0},
 		// A failed snapshot listing reads as index 0, which must not lower the index.
 		{name: "unlisted snapshot keeps the index", noSnapshotListed: true, wantApplied: 5},
 	}
@@ -1375,7 +1375,7 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 			target.store.snapshotStore = snapshotStore
 
 			appliedAtRestore := uint64(0)
-			if !tt.startup {
+			if !tt.noRaft {
 				attachFollowerRaft(t, target.store)
 				appliedAtRestore = 5
 			}
