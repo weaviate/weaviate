@@ -428,25 +428,29 @@ func (e apiError) Error() string {
 // endpoint returns the URL and the key of the requests, and whether the
 // request header named the host. A base URL from the request header is used
 // only with a key from the request header, so the server's key never goes to
-// a host the request names.
+// a host the request names. A header base URL whose normalized form equals
+// classBaseURL names the host of the class, so the request is handled as one
+// without that header.
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
-		if apiKey == "" {
-			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-				baseURLHeader, apiKeyHeader)
+		normalized, normalizeErr := config.NormalizeBaseURL(headerBaseURL)
+		if normalizeErr != nil || normalized != classBaseURL {
+			if apiKey == "" {
+				return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+					baseURLHeader, apiKeyHeader)
+			}
+			if normalizeErr != nil {
+				return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, normalizeErr)
+			}
+			if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
+				return "", "", false, err
+			}
+			baseURL = normalized
+			hostFromHeader = true
 		}
-		normalized, err := config.NormalizeBaseURL(headerBaseURL)
-		if err != nil {
-			return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, err)
-		}
-		if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
-			return "", "", false, err
-		}
-		baseURL = normalized
-		hostFromHeader = true
 	}
 	if apiKey == "" {
 		apiKey = c.apiKey
