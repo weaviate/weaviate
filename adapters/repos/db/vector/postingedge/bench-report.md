@@ -4,6 +4,67 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero en el v1 y el v1.1, en reposo y de noche en el v1.2
 
+## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
+
+**Estado: pre-registrado; se mide la noche del 13 al 14.** Esta sección se escribió antes de ningún dato de esa noche.
+
+### Qué se mide
+
+Un binario de la rama con el commit del PR [weaviate/weaviate#13880](https://github.com/weaviate/weaviate/pull/13880) encima (`d763bb23fc`, el mismo código que la cabeza del PR, `3c1c6740ee`). Las distancias no cambian, bit a bit, y los dos brazos llevan el kernel: HNSW y posting-edge calculan la distancia a un código CRQ1 con el mismo distanciador.
+
+1. **HNSW:** rescoreLimit 512, ef de 10 a 1024, con 1 y 8 threads, tres pasadas por punto y segunda ronda (`-bench.repeat`). Es la curva con la que HNSW da su mejor QPS a 0.95 y a 0.99 en v1.4; con rescoreLimit 64 no llega a 0.99.
+2. **Posting-edge, el default de v1.4:** S=236, P=320 sobre la asignación de P=384 de la caché, R=256 y código completo. Busca con rescoreLimit 200, margen 0.06 y lotes de 4, de ef 10 a 1024, con 1 y 8 threads y segunda ronda.
+3. **Detrás, sobre ese mismo build:** el barrido del ef de centroides (abajo).
+
+**Protocolo,** el de la noche anterior. La cadena (`v1.6/scripts/run_v16_night.sh`) corre bajo `caffeinate -s -i`, lanzada de día con la máquina despierta del todo. No arranca antes de las 23:00, ni después de las 03:00, ni con otro binario de benchmark corriendo, ni hasta 15 minutos sin teclado ni trackpad. Al acabar cada paso deja en su salida los reposos, despertares y actividad de usuario de `pmset -g log`.
+
+### El gate
+
+| pre-registro | umbral |
+|---|---|
+| el ratio HNSW / posting-edge a 0.95 cae dentro de la estimación | 1.87x–1.91x ±5 %, es decir de 1.78x a 2.01x |
+| si sale fuera | se explica qué supuesto de la estimación falló: el scan en caché, la aceleración a 8 threads o las distancias de HNSW extrapoladas |
+
+Cómo lo leo, decidido antes de los datos:
+
+- **El gate es con 1 thread,** que es donde se derivó la estimación (la tabla de palancas). El ratio con 8 threads se da contra la misma banda. Si el de 1 thread entra y el de 8 no, el supuesto que falla es la aceleración a 8 threads.
+- **El ratio se lee como en v1.4:** QPS a igual recall interpolado en la curva de ef de cada brazo, posting-edge con rescoreLimit 200 y HNSW con 512, sobre la primera ronda. La segunda ronda detecta deriva: si las dos rondas de un brazo difieren más de un 2 % de mediana, se dice, y el veredicto se da con las dos.
+
+### Lo que la banda supone, frente a lo que corre esta noche
+
+Dicho antes de los datos, porque cambia cómo se lee un resultado fuera de la banda:
+
+1. **La banda mezcla dos columnas de la estimación:** el kernel fusionado (1.90x–1.91x con 1 thread) y el fusionado más FastScan (1.86x–1.87x). El PR no lleva FastScan, así que la columna que le toca es la del fusionado: 1.90x–1.91x con 1 thread y 1.89x–1.96x con 8. Las dos caen dentro del gate.
+2. **El kernel del PR no es el prototipo.** Lee los cinco planos de la query de sus slices, sin intercalarlos: 14.2 ns frente a 12.5 a 768 bits, el kernel solo y en caché. A cambio, no prepara la query: la estimación le cargaba 15.8 µs por query al prototipo. Hoy, de día, mido el kernel del PR antes y después en los dos casos que usa la estimación (endpoints sueltos en 1 GiB y scan de un posting en caché), y mido las distancias de HNSW a 10M, que la estimación sacó de 1M. Con eso la estimación se rehace para el kernel que corre, y queda escrita aquí antes de la noche. El gate no cambia.
+3. **Una cuarta fuente que la banda no cubre: el build de HNSW.** Los builds de HNSW no son deterministas, y el de esta noche es un tercero. El rango de la banda sale de dos builds, cuyo ratio sin kernel era 2.10x y 2.14x con 1 thread.
+
+### Si sale fuera: cómo se lee cada supuesto
+
+Cada supuesto tiene su contraste, fijado antes de los datos:
+
+- **El scan en caché, y el ahorro por endpoint.** El pase instrumentado de posting-edge, con 1 thread, da µs por vector escaneado y por endpoint puntuado. El build es determinista y es el mismo que el ancla de v1.5, con 50.6 ns por vector escaneado y 72.2 ns por endpoint a 0.95. El ahorro medido esta noche contra ese se compara con el ahorro por código de los microbenchmarks de hoy.
+- **La aceleración a 8 threads.** Se compara la ganancia de posting-edge contra el ancla de v1.5 (la misma cadena de condiciones, un día antes) con 1 y con 8 threads. Para HNSW, el escalado de 1 a 8 threads de esta noche frente al de los dos builds de v1.4.
+- **Las distancias de HNSW extrapoladas.** Las cuentas de `TestSearchWork` a 10M de hoy, por ef, frente a las de 1M que usó la estimación.
+- **El build de HNSW.** El ef al que llega a 0.95 el build de esta noche frente al 48 y el 64 de los dos de v1.4. Y su QPS sin el kernel, deducido del medido y del ahorro estimado por distancia, frente al de esos dos builds.
+
+### El ef de centroides
+
+El grafo de centroides se busca con ef fijo de 64 para una sola entrada. A 10M son 42 373 centroides, y a 0.95 esa búsqueda es el 19 % del tiempo de posting-edge (225 µs de 1 168 en el ancla de v1.5); a 0.99, el 6 %.
+
+- **Valores:** 48, 32, 16 y 8, por debajo del 64 de hoy.
+- **Primero sin cronometrar,** en ef=20 y ef=160, los primeros ef que llegan a 0.95 y a 0.99 en la curva de rescoreLimit 200 (0.9543 y 0.9909 en v1.5). Por cada valor: recall, cargas, rondas, la fracción de queries cuya entrada es el centroide más cercano, y el tiempo de centroides del pase instrumentado, solo como indicación.
+- **"No pierde recall":** pierde como mucho 0.0005 (5 de los 10 000 resultados) en los dos puntos frente al ef de 64, en el mismo proceso. El barrido baja desde 48 y para en el primero que pierde.
+- **Se cronometra solo el último que no pierde:** el plan entero, con 1 y 8 threads y segunda ronda, que se compara a igual recall con la curva principal del mismo proceso. Si ninguno aguanta, no se cronometra nada.
+- **Lo que se espera:** si el tiempo de centroides se reduce a la mitad, la query a 0.95 baja un 10 % y a 0.99 un 3 %.
+- **Lo que no está pre-registrado:** cambiar el default. Si el ef menor gana a 0.95 más que la deriva entre rondas (2 %) sin perder recall, va como propuesta.
+
+### Redundancia de aristas (de día, sin cronometrar)
+
+Por vector: número de aristas frente a número de postings de destino distintos, en media y distribución. Además, cuántas aristas comparten posting de destino con una arista más cercana del mismo vector.
+
+- **Por qué importa:** la búsqueda puntúa un endpoint solo para dar rango al posting donde vive, con el endpoint más cercano de los que llevan allí. Una arista cuyo posting de destino ya alcanza otra más cercana del mismo vector añade un endpoint que puntuar y ningún posting que ordenar.
+- **La hipótesis:** si hay mucha redundancia, la siguiente propuesta es una arista por posting de destino. Es una hipótesis, no una orden de implementar, y espera a los números.
+
 ## Coste por distancia: el kernel CRQ1 (2026-11-12)
 
 **Estado:** lectura de código y microbenchmarks hechos, con prototipos de los kernels en `postingedge/kernelproto`. La traducción a QPS es una estimación. No hay máquina x86 donde medir.
