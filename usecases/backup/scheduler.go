@@ -379,14 +379,13 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 
 // permittedBackupResources returns which of resources pr may act on with verb,
 // through FilterAuthorizedResources, which writes no denial to the audit log.
-// adminlist refuses the whole list with Forbidden, which permits none of it.
 func (s *Scheduler) permittedBackupResources(ctx context.Context, pr *models.Principal, verb string, resources []string) (map[string]bool, error) {
 	permitted := make(map[string]bool, len(resources))
 	if len(resources) == 0 {
 		return permitted, nil
 	}
 	allowed, err := s.authorizer.FilterAuthorizedResources(ctx, pr, verb, resources...)
-	if err != nil && !errors.As(err, &authzerrors.Forbidden{}) {
+	if err != nil {
 		return nil, err
 	}
 	for _, r := range allowed {
@@ -812,15 +811,10 @@ func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Princi
 		}
 	}
 
-	// The adminlist authorizer answers a denied filter with Forbidden rather
-	// than an empty result. Both mean the caller sees no backup at all.
 	granted, err := s.authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ,
 		slices.Sorted(maps.Keys(named))...)
 	if err != nil {
-		if !errors.As(err, &authzerrors.Forbidden{}) {
-			return nil, err
-		}
-		return readable, nil
+		return nil, err
 	}
 	mayRead := make(map[string]struct{}, len(granted))
 	for _, resource := range granted {

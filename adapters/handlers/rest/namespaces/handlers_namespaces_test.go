@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -796,16 +797,15 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 func TestListNamespaces_NoPermissionsReturnsEmpty(t *testing.T) {
 	principal := &models.Principal{}
 	resources := []string{authorization.Namespaces("customer1")[0], authorization.Namespaces("customer2")[0]}
+	refused, refusedErr := adminlist.New(adminlist.Config{}).
+		FilterAuthorizedResources(context.Background(), principal, authorization.READ, resources...)
 	cases := []struct {
 		name      string
 		allowed   []string
 		filterErr error
 	}{
 		{name: "filter allows none", allowed: []string{}},
-		{
-			name:      "filter refuses with Forbidden",
-			filterErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(principal, authorization.READ, resources...)),
-		},
+		{name: "adminlist refuses every namespace", allowed: refused, filterErr: refusedErr},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

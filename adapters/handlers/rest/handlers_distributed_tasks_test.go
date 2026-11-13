@@ -12,9 +12,7 @@
 package rest
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -27,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -64,7 +63,7 @@ func TestGetTasksDenialNamesNoHiddenCollection(t *testing.T) {
 	tests := []struct {
 		name          string
 		clusterErr    error
-		filterDenies  bool   // filter refuses like adminlist, naming every resource asked about
+		filterDenies  bool   // adminlist filters, and refuses this caller every collection
 		wantForbidden string // 403 message; empty means 200 with the task hidden
 	}{
 		{
@@ -86,9 +85,7 @@ func TestGetTasksDenialNamesNoHiddenCollection(t *testing.T) {
 			if tt.filterDenies {
 				authorizer.EXPECT().
 					FilterAuthorizedResources(mock.Anything, mock.Anything, authorization.READ, mock.Anything).
-					RunAndReturn(func(_ context.Context, p *models.Principal, verb string, res ...string) ([]string, error) {
-						return nil, fmt.Errorf("adminlist: %w", autherrs.NewForbidden(p, verb, res...))
-					})
+					RunAndReturn(adminlist.New(adminlist.Config{}).FilterAuthorizedResources)
 			}
 			api := &operations.WeaviateAPI{}
 			setupDistributedTasksHandlers(api, authorizer, fakeTaskLister{tasks: map[string][]*distributedtask.Task{

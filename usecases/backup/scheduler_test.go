@@ -171,8 +171,6 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 			{name: "permitted class blocked by reindex", permitted: []string{"Allowed"}, backupableErr: fmt.Errorf("Allowed: %w", backup.ErrBackupBlockedByInFlightReindex), wantErr: "exclude that collection"},
 			{name: "reindex check could not run", permitted: []string{"Allowed"}, backupableErr: fmt.Errorf("Allowed: cannot check for a running runtime-reindex task: leader not found (%w)", backup.ErrBackupBlockedByInFlightReindex), wantErr: "otherwise retry later"},
 			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
-			// adminlist refuses a list it does not wholly permit.
-			{name: "authorizer refuses the whole list", authErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, authorization.Backups("Allowed", "Hidden")...)), wantErr: "forbidden", wantForbidden: true},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -703,7 +701,7 @@ func TestFilterBackupableClasses(t *testing.T) {
 	t.Run("non-empty input with no allowed collection is forbidden", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		auth := fs.auth.(*mocks.FakeAuthorizer)
-		auth.SetErr(authzerrors.NewForbidden(principal, authorization.CREATE, authorization.Backups("Books")...))
+		auth.Deny(append(authorization.Backups("Books"), authorization.Backups()...)...)
 		got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, []string{"Books"})
 		assert.Nil(t, got)
 		assert.ErrorAs(t, err, &authzerrors.Forbidden{})
@@ -2117,8 +2115,6 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
 			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "please choose from : [Allowed]"},
 			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
-			// adminlist refuses a list it does not wholly permit.
-			{name: "authorizer refuses the whole list", authErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, authorization.Backups("Allowed", "Hidden")...)), wantErr: "forbidden", wantForbidden: true},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -2565,24 +2561,6 @@ func TestSchedulerList(t *testing.T) {
 				assert.Equal(t, test.wantIDs, gotIDs)
 			})
 		}
-	})
-
-	t.Run("ForbiddenFilterListsNothing", func(t *testing.T) {
-		authorizer := mocks.NewMockAuthorizer()
-		authorizer.SetErr(authzerrors.NewForbidden(&models.Principal{}, authorization.READ, authorization.Backups(cls1)...))
-		fs := newFakeScheduler(nil)
-		fs.auth = authorizer
-		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
-			{
-				ID:     backupID1,
-				Status: backup.Success,
-				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
-			},
-		}, nil)
-
-		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
-		require.NoError(t, err)
-		assert.Len(t, *resp, 0)
 	})
 
 	t.Run("AuthorizerErrorFailsTheListing", func(t *testing.T) {
