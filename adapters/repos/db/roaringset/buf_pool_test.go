@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -149,19 +150,37 @@ func TestInMemoBufPool(t *testing.T) {
 	expired := inMemoIdleTTL + 10*time.Second
 
 	tests := []struct {
-		name   string
-		budget int
-		steps  []step
-		want   []string // stacked buffers, stack by stack, oldest first
+		name        string
+		budget      int
+		steps       []step
+		want        []string                // stacked buffers, stack by stack, oldest first
+		wantMetrics []countingInMemoMetrics // per stack, counted from the first put; nil skips
 	}{
 		{
-			name:   "over budget evicts the oldest buffer across sizes",
+			name:   "over budget discards a buffer whose size is already idle",
 			budget: 512 + 1024 + 2048,
 			steps: []step{
 				tick(0), put("A", 1), tick(10 * time.Second), put("B", 2),
 				tick(20 * time.Second), put("C", 0), tick(30 * time.Second), put("D", 0),
 			},
-			want: []string{"C", "D", "B"},
+			want:        []string{"C", "A", "B"},
+			wantMetrics: []countingInMemoMetrics{{put: 1, discarded: 1}, {put: 1}, {put: 1}},
+		},
+		{
+			name:   "over budget evicts the oldest buffer across sizes",
+			budget: 1024 + 2048,
+			steps: []step{
+				tick(0), put("A", 1), tick(10 * time.Second), put("B", 2),
+				tick(20 * time.Second), put("C", 0),
+			},
+			want:        []string{"C", "B"},
+			wantMetrics: []countingInMemoMetrics{{put: 1}, {put: 1, evicted: 1}, {put: 1}},
+		},
+		{
+			name:        "a discard keeps the idle buffers' stamps, so they still decay",
+			budget:      512,
+			steps:       []step{tick(0), put("A", 0), tick(50 * time.Second), put("B", 0), tick(expired)},
+			wantMetrics: []countingInMemoMetrics{{put: 1, discarded: 1, cleanedUp: 1}, {}, {}},
 		},
 		{
 			name:   "two buffers over budget evicts the two oldest",
@@ -176,7 +195,7 @@ func TestInMemoBufPool(t *testing.T) {
 			name:   "equal stamps across sizes evict the larger buffer",
 			budget: 2048 + 4*512,
 			steps: []step{
-				tick(0), put("A", 2), put("B", 0), put("C", 0), put("D", 0), put("E", 0), put("F", 2),
+				tick(0), put("A", 2), put("B", 0), put("C", 0), put("D", 0), put("E", 0), put("F", 1),
 			},
 			want: []string{"B", "C", "D", "E", "F"},
 		},
@@ -214,12 +233,12 @@ func TestInMemoBufPool(t *testing.T) {
 		},
 		{
 			name:   "decay keeps the survivors' stamps",
-			budget: 512 + 512 + 1024,
+			budget: 512 + 512 + 2048,
 			steps: []step{
-				tick(0), put("A", 0), put("B", 0), tick(50 * time.Second), put("C", 1),
+				tick(0), put("A", 0), put("B", 0), tick(50 * time.Second), put("C", 2),
 				tick(100 * time.Second), put("D", 1),
 			},
-			want: []string{"C", "D"},
+			want: []string{"D", "C"},
 		},
 		{
 			name:   "put stamps the clock tick last stored",
@@ -236,7 +255,7 @@ func TestInMemoBufPool(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p, _ := newPool(tc.budget)
+			p, metrics := newPool(tc.budget)
 			// Get every buffer up front, so each is created rather than reused.
 			labels := map[*byte]string{}
 			puts := map[string]func(){}
@@ -247,6 +266,9 @@ func TestInMemoBufPool(t *testing.T) {
 					puts[st.label] = put
 				}
 			}
+			for _, m := range metrics {
+				*m = countingInMemoMetrics{}
+			}
 			for _, st := range tc.steps {
 				if st.label == "" {
 					p.tick(st.tick)
@@ -256,12 +278,22 @@ func TestInMemoBufPool(t *testing.T) {
 			}
 
 			var got []string
+			stacked := int64(0)
 			for _, s := range p.stacks {
 				for _, id := range stackedBufIDs(s) {
 					got = append(got, labels[id])
+					stacked += int64(s.size)
 				}
 			}
 			assert.Equal(t, tc.want, got)
+			assert.Equal(t, stacked, p.idle.Load(), "idle must count exactly the stacked buffers")
+			if tc.wantMetrics != nil {
+				gotMetrics := make([]countingInMemoMetrics, len(metrics))
+				for i, m := range metrics {
+					gotMetrics[i] = *m
+				}
+				assert.Equal(t, tc.wantMetrics, gotMetrics)
+			}
 		})
 	}
 
@@ -563,6 +595,78 @@ func replayBurstyTrace(ttl time.Duration, fraction float64, budget int,
 		total.add(m)
 	}
 	return total, idleShare / float64(samples)
+}
+
+type atomicInMemoMetrics struct {
+	created, got, put, discarded, cleanedUp, evicted atomic.Int64
+}
+
+func (m *atomicInMemoMetrics) bufCreated()   { m.created.Add(1) }
+func (m *atomicInMemoMetrics) bufGot()       { m.got.Add(1) }
+func (m *atomicInMemoMetrics) bufPut()       { m.put.Add(1) }
+func (m *atomicInMemoMetrics) bufDiscarded() { m.discarded.Add(1) }
+func (m *atomicInMemoMetrics) bufCleanedUp() { m.cleanedUp.Add(1) }
+func (m *atomicInMemoMetrics) bufEvicted()   { m.evicted.Add(1) }
+
+// BenchmarkInMemoBufPoolOverBudgetPut runs 14 workers over a 2, 8 and 32 MiB mix
+// against a 128 MiB budget, with a virtual clock advanced per op. It reports the MiB
+// of buffers missed and the buffers evicted, discarded and decayed per 1000 ops.
+func BenchmarkInMemoBufPoolOverBudgetPut(b *testing.B) {
+	const (
+		mib     = 1 << 20
+		workers = 14
+	)
+	sizes := []int{2 * mib, 8 * mib, 32 * mib}
+	mix := []int{0, 0, 0, 0, 1, 1, 2}
+	for _, opsPerSec := range []int{2000, 200} {
+		b.Run(fmt.Sprintf("ops/s=%d", opsPerSec), func(b *testing.B) {
+			p := newInMemoBufPool(nil, sizes, 128*mib, inMemoIdleTTL, inMemoDecayFraction)
+			metrics := make([]*atomicInMemoMetrics, len(p.stacks))
+			for i, s := range p.stacks {
+				metrics[i] = &atomicInMemoMetrics{}
+				s.metrics = metrics[i]
+			}
+			opsPerTick := int64(float64(opsPerSec) * inMemoDecayTick.Seconds())
+
+			var ops atomic.Int64
+			var tickMu sync.Mutex
+			lastTick := int64(0)
+			var wg sync.WaitGroup
+			b.ResetTimer()
+			for range workers {
+				wg.Go(func() {
+					for n := ops.Add(1); n <= int64(b.N); n = ops.Add(1) {
+						buf, put := p.get(mix[n%int64(len(mix))])
+						buf[:1][0] = 1
+						put()
+						if n%opsPerTick != 0 {
+							continue
+						}
+						tickMu.Lock()
+						if t := n / opsPerTick; t > lastTick {
+							lastTick = t
+							p.tick(time.Duration(t) * inMemoDecayTick)
+						}
+						tickMu.Unlock()
+					}
+				})
+			}
+			wg.Wait()
+
+			var missed, evicted, discarded, decayed int64
+			for i, m := range metrics {
+				missed += m.created.Load() * int64(sizes[i])
+				evicted += m.evicted.Load()
+				discarded += m.discarded.Load()
+				decayed += m.cleanedUp.Load()
+			}
+			kops := float64(b.N) / 1000
+			b.ReportMetric(float64(missed)/mib/kops, "missMiB/kop")
+			b.ReportMetric(float64(evicted)/kops, "evicted/kop")
+			b.ReportMetric(float64(discarded)/kops, "discarded/kop")
+			b.ReportMetric(float64(decayed)/kops, "decayed/kop")
+		})
+	}
 }
 
 func TestBitmapBufPoolRanged(t *testing.T) {

@@ -311,9 +311,9 @@ func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 
 // -----------------------------------------------------------------------------
 
-// inMemoBufPool keeps idle buffers of every size under one budget of idle bytes,
-// evicting the oldest, larger sizes first among equal stamps, when a put would
-// exceed it. No path holds two idleStack locks at once, so eviction cannot deadlock.
+// inMemoBufPool keeps idle buffers of every size under one budget of idle bytes. A
+// put over budget evicts the oldest, the larger size on a tie, only when no buffer of
+// its own size is idle. No path holds two idleStack locks at once, so eviction cannot deadlock.
 type inMemoBufPool struct {
 	stacks []*idleStack
 	budget int64
@@ -365,8 +365,9 @@ func (p *inMemoBufPool) get(i int) (buf []byte, put func()) {
 	return pb.buf, pb.put
 }
 
-// put reserves the buffer's bytes before pushing it, so idle bytes never exceed
-// the budget, and a dropped buffer never raises idle.
+// put reserves the buffer's bytes before pushing it, so idle bytes never exceed the budget.
+// Over budget it discards the buffer while its size has one idle, so only a drained size evicts.
+// BenchmarkInMemoBufPoolOverBudgetPut sweeps the rule.
 func (p *inMemoBufPool) put(pb *pooledBuf, i int) {
 	s := p.stacks[i]
 	size := int64(s.size)
@@ -378,7 +379,7 @@ func (p *inMemoBufPool) put(pb *pooledBuf, i int) {
 			}
 			continue
 		}
-		if !p.evictOldest() {
+		if s.oldest.Load() != math.MaxInt64 || !p.evictOldest() {
 			s.metrics.bufDiscarded()
 			return
 		}
@@ -432,8 +433,8 @@ type idleStack struct {
 	// head indexes the oldest buffer. Taking from the front advances it instead of
 	// shifting bufs, and push reuses the freed front before growing bufs.
 	head int
-	// oldest mirrors bufs[head].since, or math.MaxInt64 when empty, so evictOldest
-	// can compare stacks without locking them.
+	// oldest mirrors bufs[head].since, or math.MaxInt64 when empty, so put and
+	// evictOldest can read it without locking the stack.
 	oldest    atomic.Int64
 	nextDecay int64
 	poolIdle  *atomic.Int64
