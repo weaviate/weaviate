@@ -6,18 +6,21 @@
 
 ## Resumen, al cierre del 2026-11-13
 
-*Una página. Cada cifra sale de las secciones de abajo. Faltan las de la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), que se añaden aquí cuando lleguen.*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos y el ef de centroides). Falta una arista por posting de destino, que corre detrás y se añade cuando llegue.*
 
-**Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall, sin el kernel de #13880. Los rangos de 10M son los dos builds de HNSW.
+**Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
 | | 1M | 10M |
 |---|---|---|
 | heap del índice | 165 MB, 0.49x de HNSW (335 MB) | 1 712 MB, 0.50x de HNSW (3 418 MB) |
-| ratio a 0.95, 1 / 8 threads | 1.53x / 1.26x | 2.10x–2.14x / 2.09x–2.20x |
-| ratio a 0.99, 1 / 8 threads | 0.77x / 0.62x: posting-edge por delante | 1.36x–1.72x / 1.34x–1.82x |
+| ratio a 0.95, 1 / 8 threads, sin el kernel | 1.53x / 1.26x | 2.10x–2.14x / 2.09x–2.20x |
+| ratio a 0.95, 1 / 8 threads, con el kernel (v1.6) | sin medir | 2.01x–2.08x / 2.02x–2.04x |
+| ratio a 0.99, 1 / 8 threads, sin el kernel | 0.77x / 0.62x: posting-edge por delante | 1.36x–1.72x / 1.34x–1.82x |
+| ratio a 0.99, 1 / 8 threads, con el kernel (v1.6) | sin medir | 1.03x–1.05x / 1.02x–1.04x |
 | gate de 0.99, subiendo solo ef | se cumple con rescoreLimit 200: 0.9904 a ef=160 | se cumple con rescoreLimit 200: 0.9909 a ef=160 |
 | cobertura | completa: 0 vectores perdidos o repetidos | completa: 0 perdidos o repetidos; 9 999 de 10 000 se encuentran a sí mismos |
 
+- **Los ratios de 10M llevan la variación entre builds de HNSW,** que es del orden de lo que se mide. El tercer build va de un 6 a un 13 % más rápido que los de v1.4 a 0.95, y necesita ef 394 para 0.99 donde uno de ellos necesitaba 256. Por eso, con el kernel, el ratio queda fuera de la banda pre-registrada (1.78x–2.01x), por encima, aunque posting-edge ganó lo estimado.
 - **El ratio crece con N; las cargas no.** A 0.95, posting-edge carga 13.4 postings a 1M y 12.6 a 10M. Lo que crece son los endpoints: el grado sube de 9.7 a 11.4 aristas por vector, porque con S fijo caen menos vecinos en el posting propio.
 - **dbpedia 1M (1536d):** 263.5 MB de índice frente a 420.1 de HNSW (v1). Ratio de 1.93x a 0.95 y 2.32x a 0.99 con 1 thread (v1.2).
 
@@ -45,9 +48,10 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Palancas, por lo medido:**
 
-1. **El kernel de #13880,** la única medida que mueve el ratio. La estimación es de 2.14x a 1.87x–1.91x a 0.95 con el prototipo, y 1.94x–1.95x con el kernel del PR. Se mide la noche del 13.
-2. **El número de distancias.** El cap no lo recorta a igual recall: lo sube un 3 a 4 % a 0.95 y un 46 a 54 % a 0.99. Una arista por posting de destino está pendiente. Quitaría el 35.6 % de las aristas, y el 31.7 % de los endpoints puntuados llega por ellas.
-3. **Centroides y contabilidad por endpoint:** el 19 % y el 15 % del tiempo a 0.95. Son ilustrativos; el ef de centroides se mide la noche del 13.
+1. **El ef de centroides (v1.6).** Bajarlo de 64 a 8 no pierde recall a 10M, y da de un 15 a un 22 % más de QPS a 0.95 y de un 6 a un 8 % a 0.99. El tiempo de centroides baja a un tercio. Es una propuesta y el default no cambia: faltan valores por debajo de 8, y 1M y dbpedia. Con el kernel, el ratio queda en 1.67x–1.68x a 0.95 frente al build de HNSW de esa noche (informativo).
+2. **El kernel de #13880 (v1.6).** Posting-edge gana lo estimado contra el mismo build: un 16 % a 0.95 y un 26 % a 0.99. El ratio baja menos de lo estimado, de 2.10x–2.14x a 2.01x–2.08x, porque el tercer build de HNSW es más rápido. El gate queda fuera de la banda, por encima.
+3. **El número de distancias.** El cap no lo recorta a igual recall: lo sube un 3 a 4 % a 0.95 y un 46 a 54 % a 0.99. Una arista por posting de destino se mide detrás de la noche del 13 al 14. Quitaría el 35.6 % de las aristas, y el 31.7 % de los endpoints puntuados llega por ellas.
+4. **Contabilidad por endpoint:** el 15 % del tiempo a 0.95. Es ilustrativo.
 
 **Limitaciones:**
 
@@ -61,7 +65,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
-**Estado: pre-registrado; se mide la noche del 13 al 14.** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
+**Estado: pre-registrado y medido la noche del 13 al 14. Los resultados están abajo, en «Resultados de la noche» y «El ef de centroides: resultados».** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
 
 ### Qué se mide
 
@@ -150,6 +154,99 @@ El grafo de centroides se busca con ef fijo de 64 para una sola entrada. A 10M s
 - **Se cronometra solo el último que no pierde:** el plan entero, con 1 y 8 threads y segunda ronda, que se compara a igual recall con la curva principal del mismo proceso. Si ninguno aguanta, no se cronometra nada.
 - **Lo que se espera:** si el tiempo de centroides se reduce a la mitad, la query a 0.95 baja un 10 % y a 0.99 un 3 %.
 - **Lo que no está pre-registrado:** cambiar el default. Si el ef menor gana a 0.95 más que la deriva entre rondas (2 %) sin perder recall, va como propuesta.
+
+### Resultados de la noche (2026-11-13 a 14)
+
+*Escrito el 14 de madrugada, después de la corrida. Las tablas completas están en `v1.6/night-verdict.md`, de `v1.6/scripts/v16_verdict.py`.*
+
+**Condiciones.** La cadena arrancó a las 23:00 con 2 h sin teclado ni trackpad, y acabó a las 00:25 sin que nadie los tocara (12 374 s de inactividad a las 00:26). `pmset -g log` no da reposo, DarkWake ni actividad de usuario. Sí da tareas de fondo:
+
+- Spotlight (`mds`, `mds_stores`) y la sincronización de la agenda, de 13 a 30 s, entre las 23:28 y las 23:29, que es la ventana de las queries de HNSW;
+- más de Spotlight durante el build de posting-edge.
+
+Los puntos no llevan hora, así que no se pueden asignar a un punto concreto.
+
+**Veredicto del gate: fuera de la banda, por encima.**
+
+- Con 1 thread y la primera ronda, el ratio a 0.95 es **2.010x**. La banda acaba en 2.0055x (1.91x más un 5 %), que se escribió redondeada como 2.01x.
+- La primera ronda de HNSW con 1 thread tiene deriva: la segunda va un 6.3 % más rápida en mediana, con un máximo de +21 % en ef=64. Así que el veredicto va con las dos rondas, y con la segunda el ratio es **2.081x**. Las otras tres curvas no tienen deriva (HNSW con 8 threads, y posting-edge con 1 y con 8): de −0.8 a +0.5 %.
+- Con 8 threads, el ratio es 2.022x con la primera ronda y 2.038x con la segunda. También fuera, por encima.
+
+| recall | threads | HNSW, 1ª / 2ª ronda | posting-edge, 1ª / 2ª | ratio, 1ª ronda | ratio, 2ª ronda | estimación rehecha | v1.4, sin kernel |
+|---|---|---|---|---|---|---|---|
+| 0.95 | 1 | 2 085 / 2 197 | 1 038 / 1 056 | **2.010x** | 2.081x | 1.94x–1.95x | 2.10x–2.14x |
+| 0.95 | 8 | 14 219 / 14 228 | 7 031 / 6 982 | 2.022x | 2.038x | 1.93x–2.00x | 2.09x–2.20x |
+| 0.99 | 1 | 344 / 353 | 333 / 336 | 1.033x | 1.052x | 1.18x–1.48x | 1.36x–1.72x |
+| 0.99 | 8 | 2 325 / 2 341 | 2 286 / 2 262 | 1.017x | 1.035x | 1.16x–1.57x | 1.34x–1.82x |
+
+**Lo que falló es el lado de HNSW. Posting-edge ganó con el kernel lo estimado.** La ganancia de cada brazo, primera ronda y, entre paréntesis, la segunda:
+
+| recall | threads | posting-edge / ancla de v1.5 (el mismo build) | estimado | HNSW / build de la tarde de v1.4 | HNSW / build de la mañana | estimado (tarde / mañana) |
+|---|---|---|---|---|---|---|
+| 0.95 | 1 | 1.159x (1.180x) | 1.16x | 1.122x (1.182x) | 1.141x (1.202x) | 1.06x / 1.07x |
+| 0.95 | 8 | 1.127x (1.119x) | 1.16x | 1.084x (1.084x) | 1.141x (1.141x) | 1.06x / 1.07x |
+| 0.99 | 1 | 1.260x (1.269x) | 1.22x | 0.769x (0.788x) | 0.970x (0.995x) | 1.05x / 1.06x |
+| 0.99 | 8 | 1.200x (1.187x) | 1.22x | 0.721x (0.726x) | 0.984x (0.991x) | 1.05x / 1.06x |
+
+Los cuatro contrastes, en el orden en que se pre-registraron:
+
+1. **El scan en caché y el ahorro por endpoint: se cumplen.** El pase instrumentado ahorra 15.6 ns por vector escaneado y 17.3 ns por endpoint a 0.95, frente a 15.2 y 16.4 de los microbenchmarks. A 0.99 ahorra 15.3 y 17.0. Pasa de 50.5 a 34.9 ns por escaneado y de 72.2 a 54.9 por endpoint. La query de 0.95 baja de 1 168 a 988 µs con el mismo trabajo: 3 314 escaneados y 6 908 endpoints, frente a 3 303 y 6 871.
+2. **La aceleración a 8 threads: falla en parte, en posting-edge.** Con 8 threads gana 3 puntos menos que con 1 (1.127x frente a 1.159x contra el ancla), y su escalado de 1 a 8 baja de 6.97x a 6.78x a 0.95. Esto explica que el ratio con 8 threads quede por encima del de 1 (2.022x frente a 2.010x). No explica la salida de la banda, que ya ocurre con 1 thread. El escalado de HNSW, 6.82x, está entre los dos builds de v1.4 (7.06x y 6.82x).
+3. **Las distancias de HNSW: no es esto.**
+   - El build de esta noche llega a 0.95 a ef 45.7 interpolado, con unas 1 716 distancias. La estimación supuso 1 780 y 2 209.
+   - Con menos distancias, el kernel le ahorra menos, no más.
+   - A 0.99 hace más: llega a ef 394, con unas 10 190.
+4. **El build de HNSW, la cuarta fuente que la banda no cubría: es esto.**
+   - Sin el kernel, deducido del QPS medido y de 16.4 ns por distancia, el HNSW de esta noche daría 1 970 QPS a 0.95 con la primera ronda y 2 069 con la segunda. Los dos builds de v1.4 dieron 1 859 y 1 828: este va de un 6 a un 13 % más rápido.
+   - A igual ef en la zona de 0.95 (ef 32 y 48), va de 1.07x a 1.10x por delante del build de la tarde con la primera ronda. El kernel solo explicaría de un 5 a un 6 %.
+   - A 0.99 pasa lo contrario: el build es peor, y necesita ef 394 donde el de la tarde necesitaba 256.
+
+**Lectura.**
+
+- **El kernel hace en posting-edge lo estimado:** +16 % a 0.95 y +26 % a 0.99 contra el mismo build, con 1 thread.
+- **El ratio contra HNSW no lo separa.** El tercer build de HNSW es más rápido a 0.95 que los dos de v1.4, en más de lo que el kernel mueve el ratio. La banda de ±5 % no cubría la variación entre builds de HNSW, que esta noche es del mismo orden que el efecto que se quería medir.
+- **A 0.99 el ratio cae a 1.03x–1.05x,** frente a 1.18x–1.48x estimado. Es el mismo efecto del build en sentido contrario: «a 0.99 el ratio depende del build de HNSW» (v1.4).
+
+**Lo demás del build,** igual que en v1.4 y v1.5:
+
+- posting-edge:
+  - heap de 1 712.4 MB;
+  - 11.41 aristas por vector, con el 35.6 % de ellas compartiendo posting de destino;
+  - cobertura completa;
+  - 9 999 de 10 000 se encuentran a sí mismos;
+  - build de 2 166 s con la asignación de la caché;
+- HNSW: heap de 3 417.6 MB y build de 1 527 s.
+
+La entrada es el centroide más cercano en el 99.5 % de las queries, frente al 99.7 % de v1.4. El grafo de centroides no es determinista, porque se construye con inserciones en paralelo.
+
+### El ef de centroides: resultados (2026-11-13 a 14)
+
+**Ninguno de los cuatro pierde recall.** De 48 a 16, la pérdida frente a 64 es 0.0000 en los dos puntos. A ef 8 el recall sube: 0.9548 frente a 0.9543 a ef=20, y 0.9910 frente a 0.9909 a ef=160. El barrido no paró, y se cronometró el último, el 8. Por debajo de 8 no se midió.
+
+| ef de centroides | recall a ef=20 / ef=160 | entrada = centroide más cercano | centroides, µs (ef=20) | total, µs (ef=20) |
+|---|---|---|---|---|
+| 64 | 0.9543 / 0.9909 | 99.5 % | 224 | 1 028 |
+| 48 | 0.9543 / 0.9909 | 99.0 % | 181 | 976 |
+| 32 | 0.9543 / 0.9909 | 98.3 % | 140 | 934 |
+| 16 | 0.9544 / 0.9909 | 96.2 % | 94 | 877 |
+| 8 | 0.9548 / 0.9910 | 91.5 % | 70 | 857 |
+
+Con ef 8, una de cada doce queries no entra por su centroide más cercano, y el recall no lo nota: las aristas corrigen la entrada.
+
+Cronometrado contra la curva principal del mismo proceso. La deriva de la celda de ef 8 entre sus dos rondas es de −0.2 % con 1 thread y +0.1 % con 8.
+
+| recall | threads | ef 64 | ef 8 | ganancia, 1ª ronda (2ª) | HNSW / posting-edge con ef 8 (informativo) |
+|---|---|---|---|---|---|
+| 0.95 | 1 | 1 038 | 1 244 | **+19.9 %** (+15.2 %) | 1.68x |
+| 0.95 | 8 | 7 031 | 8 533 | **+21.4 %** (+22.4 %) | 1.67x |
+| 0.99 | 1 | 333 | 358 | +7.4 % (+6.3 %) | 0.96x |
+| 0.99 | 8 | 2 286 | 2 448 | +7.1 % (+7.9 %) | 0.95x |
+
+- **Más que lo esperado** (un 10 % a 0.95 y un 3 % a 0.99 si el tiempo de centroides bajaba a la mitad), porque baja a un tercio: de 220 a 70 µs a 0.95.
+- **La query instrumentada baja un 15.5 % a 0.95** (de 988 a 835 µs) y un 5 % a 0.99 (de 3 184 a 3 014).
+- **El resto del trabajo no cambia:** 12.7 cargas en los dos casos a 0.95, y un 1.9 % más de endpoints.
+- **Va como propuesta, según el pre-registro:** ef de centroides 8 en lugar de 64. Gana a 0.95 mucho más que la deriva entre rondas (2 %), sin perder recall. El default no cambia. Antes de cambiarlo faltaría lo que no se midió: valores por debajo de 8, y 1M y dbpedia, donde hay diez veces menos centroides.
+- **El ratio de la última columna es informativo:** no está pre-registrado, y a 0.99 lleva el build de HNSW de esta noche, que es peor allí.
 
 ### Redundancia de aristas (de día, sin cronometrar)
 
@@ -356,6 +453,20 @@ WORK=<dir con los binarios> v1.6/scripts/run_v16_day.sh
 WORK=<dir con los binarios> v1.6/scripts/run_v16_edgetrace.sh
 WORK=<dir con los binarios> v1.6/scripts/run_kernel_pr_ab.sh 10 v1.6/kernel-pr-rounds.txt
 python3 v1.6/scripts/kernel_pr_estimate.py v1.6/kernel-pr-rounds.txt kernel/wikidpr-10m-hnsw-work.json
+```
+
+### Datos de la noche
+
+En `testdata/bench/v1.6/`:
+
+- `wikidpr-10m-hnsw.json` y `wikidpr-10m-pe.json`: los dos brazos con el kernel del PR, con su segunda ronda en `-repeat.json`.
+- `wikidpr-10m-pe-centroidef{64,48,32,16,8}.json`: los puntos sin cronometrar del barrido. El de 8 lleva además el plan cronometrado, con su segunda ronda en `wikidpr-10m-pe-centroidef8-repeat.json`.
+- `night-verdict.md`: las tablas de los resultados, con los cuatro contrastes y la comparación a igual ef de los tres builds de HNSW.
+- `scripts/v16_verdict.py`: el script que la escribe. Lee también el ancla de v1.5 y los dos builds de HNSW y el brazo posting-edge de v1.4.
+
+```bash
+WORK=<dir con postingedge-v16.test y hnsw-work.test> caffeinate -s -i v1.6/scripts/run_v16_night.sh 2300 0300
+python3 v1.6/scripts/v16_verdict.py . > v1.6/night-verdict.md
 ```
 
 ## Coste por distancia: el kernel CRQ1 (2026-11-12)
