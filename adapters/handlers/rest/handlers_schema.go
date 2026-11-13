@@ -296,11 +296,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		}
 	}
 
+	// Same spelling as the cancel audit lines, so one query finds both.
+	indexType, _ := normalizeIndexTypeParam(params.IndexName)
 	s.logger.WithFields(logrus.Fields{
 		"audit_event": "property_index_deleted",
 		"collection":  qualifiedClass,
 		"property":    params.PropertyName,
-		"index_type":  params.IndexName,
+		"index_type":  indexType,
 		"principal":   principalUsername(principal),
 	}).Info("property index deleted")
 

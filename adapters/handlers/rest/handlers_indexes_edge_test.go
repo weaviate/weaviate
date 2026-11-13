@@ -838,7 +838,7 @@ func auditEvent(t *testing.T, hook *logrustest.Hook) string {
 			events = append(events, v.(string))
 		}
 	}
-	require.Len(t, events, 1, "the handler arm must emit exactly one audit line")
+	require.Len(t, events, 1, "the handler must emit exactly one audit line")
 	return events[0]
 }
 

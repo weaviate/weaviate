@@ -133,41 +133,79 @@ func (r *propertyWriteRecorder) UpdateProperty(context.Context, string, *models.
 	return 0, nil
 }
 
-func TestDeleteClassPropertyIndex_WritesAnAuditLine(t *testing.T) {
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.EXPECT().ReadOnlyClass("Movies").Return(&models.Class{Class: "Movies", Properties: []*models.Property{
-		{Name: "title", DataType: []string{"text"}, IndexFilterable: boolPtr(true)},
-	}})
-	writer := &propertyWriteRecorder{}
-	authz := &authorization.DummyAuthorizer{}
-	handler, err := schemaUC.NewHandler(reader, writer, nil, logrus.New(), authz, nil, config.Config{},
-		nil, nil, nil, nil, nil, nil, schemaUC.Parser{}, nil, nil, nil)
-	require.NoError(t, err)
-	logger, hook := logrustest.NewNullLogger()
-	h := &schemaHandlers{
-		manager:             &schemaUC.Manager{Handler: handler},
-		authorizer:          authz,
-		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
-		reindexTaskLister:   fakeReindexTaskLister{},
-		logger:              logger,
+// useCaseDenyAuthorizer passes the handler's own check and denies the schema
+// use case's, which comes second.
+type useCaseDenyAuthorizer struct {
+	authorization.DummyAuthorizer
+	calls int
+}
+
+func (a *useCaseDenyAuthorizer) Authorize(_ context.Context, principal *models.Principal, verb string, resources ...string) error {
+	if a.calls++; a.calls > 1 {
+		return authzerrors.NewForbidden(principal, verb, resources...)
 	}
+	return nil
+}
 
-	resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
-		HTTPRequest:  httptest.NewRequest("DELETE", "/", nil),
-		ClassName:    "Movies",
-		PropertyName: "title",
-		IndexName:    "filterable",
-	}, &models.Principal{Username: "admin"})
+func TestDeleteClassPropertyIndex_WritesAnAuditLine(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		property      string
+		indexName     string
+		authz         authorization.Authorizer
+		wantForbidden bool
+		wantIndexType string
+	}{
+		{name: "filterable", property: "title", indexName: "filterable", authz: &authorization.DummyAuthorizer{}, wantIndexType: "filterable"},
+		{name: "rangeFilters logs the cancel spelling", property: "year", indexName: "rangeFilters", authz: &authorization.DummyAuthorizer{}, wantIndexType: "rangeable"},
+		{name: "forbidden by the schema use case", property: "title", indexName: "filterable", authz: &useCaseDenyAuthorizer{}, wantForbidden: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ReadOnlyClass("Movies").Return(&models.Class{Class: "Movies", Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}, IndexFilterable: boolPtr(true)},
+				{Name: "year", DataType: []string{"int"}, IndexRangeFilters: boolPtr(true)},
+			}}).Maybe()
+			writer := &propertyWriteRecorder{}
+			handler, err := schemaUC.NewHandler(reader, writer, nil, logrus.New(), tc.authz, nil, config.Config{},
+				nil, nil, nil, nil, nil, nil, schemaUC.Parser{}, nil, nil, nil)
+			require.NoError(t, err)
+			logger, hook := logrustest.NewNullLogger()
+			h := &schemaHandlers{
+				manager:             &schemaUC.Manager{Handler: handler},
+				authorizer:          tc.authz,
+				metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
+				reindexTaskLister:   fakeReindexTaskLister{},
+				logger:              logger,
+			}
 
-	_, ok := resp.(*schema.SchemaObjectsPropertiesDeleteOK)
-	require.True(t, ok, "got %T", resp)
-	require.True(t, writer.written, "the delete must reach the schema write")
-	require.Equal(t, "property_index_deleted", auditEvent(t, hook))
-	require.Equal(t, logrus.Fields{
-		"audit_event": "property_index_deleted",
-		"collection":  "Movies",
-		"property":    "title",
-		"index_type":  "filterable",
-		"principal":   "admin",
-	}, hook.LastEntry().Data)
+			resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
+				HTTPRequest:  httptest.NewRequest("DELETE", "/", nil),
+				ClassName:    "Movies",
+				PropertyName: tc.property,
+				IndexName:    tc.indexName,
+			}, &models.Principal{Username: "admin"})
+
+			if tc.wantForbidden {
+				_, ok := resp.(*schema.SchemaObjectsPropertiesDeleteForbidden)
+				require.True(t, ok, "got %T", resp)
+				require.False(t, writer.written)
+				for _, e := range hook.AllEntries() {
+					require.NotContains(t, e.Data, "audit_event", "a refused delete must write no audit line")
+				}
+				return
+			}
+			_, ok := resp.(*schema.SchemaObjectsPropertiesDeleteOK)
+			require.True(t, ok, "got %T", resp)
+			require.True(t, writer.written, "the delete must reach the schema write")
+			require.Equal(t, "property_index_deleted", auditEvent(t, hook))
+			require.Equal(t, logrus.Fields{
+				"audit_event": "property_index_deleted",
+				"collection":  "Movies",
+				"property":    tc.property,
+				"index_type":  tc.wantIndexType,
+				"principal":   "admin",
+			}, hook.LastEntry().Data)
+		})
+	}
 }
