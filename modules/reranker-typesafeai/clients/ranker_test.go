@@ -516,6 +516,102 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
+// A header base URL that normalizes to the class base URL names the host of
+// the class, so the request is handled as one without that header.
+func TestRankHandlesAHeaderBaseURLEqualToTheClassBaseURLAsAbsent(t *testing.T) {
+	const needsKey = "X-Typesafeai-Baseurl needs X-Typesafeai-Api-Key: the server's key is not sent to a host named by the request"
+	tests := []struct {
+		name string
+		// classPath and headerPath follow the URL of the fake.
+		classPath  string
+		headerPath string
+		headerKey  string
+		reply      *fakeReply
+		wantErr    string
+		wantAuth   string
+	}{
+		{name: "the same URL", wantAuth: "Bearer env"},
+		{name: "a trailing slash", headerPath: "/", wantAuth: "Bearer env"},
+		{name: "a /v1 suffix", headerPath: "/v1", wantAuth: "Bearer env"},
+		{name: "a /v1/ suffix", headerPath: "/v1/", wantAuth: "Bearer env"},
+		{name: "a /v1 suffix on the class base URL only", classPath: "/v1", wantAuth: "Bearer env"},
+		{name: "the same path", classPath: "/proxy", headerPath: "/proxy/v1", wantAuth: "Bearer env"},
+		{name: "the same URL and a header key", headerKey: "headerKey", wantAuth: "Bearer headerKey"},
+		{
+			name:    "the body of an error is quoted",
+			reply:   &fakeReply{status: http.StatusBadRequest, body: `{"error":"unknown model"}`},
+			wantErr: `connection to TypeSafe AI API failed with status 400: {"error":"unknown model"}`,
+		},
+		{name: "another path", headerPath: "/proxy", wantErr: needsKey},
+		{name: "another path under /v1", headerPath: "/v1/proxy", wantErr: needsKey},
+		{name: "a path the class base URL extends", classPath: "/proxy", wantErr: needsKey},
+		{name: "a query", headerPath: "?x=1", wantErr: needsKey},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			if tt.reply != nil {
+				f.replies = map[int]fakeReply{0: *tt.reply}
+			}
+			c := New("env", testTimeout, 1, nullLogger())
+			// A request to a host the header named would wait for this slot.
+			c.inFlightHeaderHost <- struct{}{}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{f.url() + tt.headerPath})
+			if tt.headerKey != "" {
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{tt.headerKey})
+			}
+
+			res, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(f.url()+tt.classPath, nil))
+
+			if tt.wantErr == needsKey {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				assert.Empty(t, f.received())
+				return
+			}
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Nil(t, res)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, res.DocumentScores, 1)
+			}
+			requests := f.received()
+			require.Len(t, requests, 1)
+			if tt.wantAuth != "" {
+				assert.Equal(t, tt.wantAuth, requests[0].authorization)
+			}
+			assert.Zero(t, len(c.inFlight), "the slot of the class host is released")
+		})
+	}
+}
+
+// With a key header, a header base URL that differs from the class base URL
+// is a host the request names: its requests take the slots of such hosts and
+// its error bodies are not quoted.
+func TestRankHandlesAHeaderBaseURLThatDiffersFromTheClassBaseURLAsNamedByTheRequest(t *testing.T) {
+	f := newFake(t)
+	f.replies = map[int]fakeReply{0: {status: http.StatusBadRequest, body: `{"error":"unknown model"}`}}
+	c := New("env", testTimeout, 1, nullLogger())
+	// A request to the class host would wait for this slot.
+	c.inFlight <- struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{f.url() + "/proxy"})
+	ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+
+	res, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+
+	require.EqualError(t, err, "connection to TypeSafe AI API failed with status 400")
+	assert.Nil(t, res)
+	requests := f.received()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "/proxy/v1/systemone", requests[0].path)
+	assert.Equal(t, "Bearer headerKey", requests[0].authorization)
+}
+
 func TestRankRejectsABaseURLHeaderThatIsNotAnAbsoluteURL(t *testing.T) {
 	tests := []struct {
 		name    string
