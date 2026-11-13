@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/exp/maps"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -667,6 +668,10 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
 				}
 			}
+		}
+
+		if err := rejectUnknownModules(h.parser.modules, initial, updated); err != nil {
+			return err
 		}
 
 		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
@@ -2094,6 +2099,27 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	}
 
 	return enabled, err
+}
+
+// rejectUnknownModules fails when the update adds a class-level module this
+// node does not have, as class create does. A module already stored passes,
+// so a class still updates after one of its modules is disabled. It runs
+// before the RAFT command and not in the apply, where nodes with different
+// modules would disagree.
+func rejectUnknownModules(modules modulesProvider, initial, updated *models.Class) error {
+	updatedConfig, _ := updated.ModuleConfig.(map[string]any)
+	initialConfig, _ := initial.ModuleConfig.(map[string]any)
+	added := maps.Keys(updatedConfig)
+	slices.Sort(added)
+	for _, module := range added {
+		if _, stored := initialConfig[module]; stored {
+			continue
+		}
+		if !modules.HasModule(module) {
+			return fmt.Errorf("module with name %s doesn't exist", module)
+		}
+	}
+	return nil
 }
 
 func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
