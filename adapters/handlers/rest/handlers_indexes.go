@@ -41,6 +41,9 @@ import (
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := &indexesHandlers{appState: appState, taskSource: resolveTaskSource(appState)}
+	if appState.ClusterService != nil {
+		h.taskLister = appState.ClusterService
+	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexUpsertHandler = schema.SchemaObjectsIndexUpsertHandlerFunc(h.upsertIndex)
 	api.SchemaSchemaObjectsIndexRebuildHandler = schema.SchemaObjectsIndexRebuildHandlerFunc(h.rebuildIndex)
@@ -101,6 +104,7 @@ type indexesHandlers struct {
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
 	// would put the leader-routed methods back within reach.
 	taskSource localTaskLister
+	taskLister distributedtask.TaskLister
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
@@ -158,7 +162,7 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
-func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []db.ReindexRun) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}
@@ -170,7 +174,12 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 	if class == nil {
 		return nil, nil
 	}
-	return class, parseReindexTasks(byNamespace[db.ReindexNamespace])
+	return class, db.ReindexRuns(byNamespace[db.ReindexNamespace])
+}
+
+func (h *indexesHandlers) mayReadTenants(ctx context.Context, principal *models.Principal, collection string) bool {
+	return h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
+		authorization.ShardsMetadata(collection)...) == nil
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
@@ -196,24 +205,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
-
-	// Precompute once so per-property resolution below is O(1); stamp/class-flag
-	// fast paths still take precedence in SearchablePropertyIsBlockmaxParsed.
-	finishedBlockmaxProps := make(map[string]struct{})
-	for _, pt := range parsedTasks {
-		if pt.task.Status != distributedtask.TaskStatusFinished {
-			continue
-		}
-		if !strings.EqualFold(pt.payload.Collection, collection) {
-			continue
-		}
-		if _, _, producesBlockmax, _ := db.ReindexBucketEffect(pt.payload.MigrationType); !producesBlockmax {
-			continue
-		}
-		for _, p := range pt.payload.Properties {
-			finishedBlockmaxProps[p] = struct{}{}
-		}
-	}
+	tenantCounts := h.mayReadTenants(params.HTTPRequest.Context(), principal, collection)
 
 	// Build per-property index status.
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
@@ -256,19 +248,19 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = models.IndexStatusAlgorithmWand
-				if db.SearchablePropertyIsBlockmaxParsed(class, prop.Name, finishedBlockmaxProps) {
+				if db.SearchablePropertyIsBlockmax(class, prop.Name) {
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
+			taskDriven := mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
+			if !tenantCounts {
+				idx.MigratedTenants, idx.TotalTenants = 0, 0
+			}
 			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
 			}
-			// Flag on → always emit. Flag off → emit only when a reindex
-			// task carries actionable signal (in-flight or terminal
-			// failure/cancellation).
-			if e.flagOn || isSyntheticStatus(idx.Status) {
+			if e.flagOn || taskDriven {
 				indexes = append(indexes, idx)
 			}
 		}
@@ -370,6 +362,8 @@ func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collecti
 	switch {
 	case target == nil:
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	case target.Status == distributedtask.TaskStatusSwapping:
+		return h.cancelTooLateResponder(target, collection, propertyName, indexType, principal)
 	case !target.Status.IsCancellable():
 		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
 	}
@@ -384,6 +378,8 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
 		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
+	case errors.Is(err, distributedtask.ErrNothingLeftToCancel):
+		return h.cancelTooLateResponder(target, collection, propertyName, indexType, principal)
 	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	}
@@ -391,7 +387,6 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 		fmt.Sprintf("cancelling task: %v", err)))
 }
 
-// cancelNoOpResponder answers a cancel that has nothing to cancel.
 func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_noop",
@@ -399,15 +394,27 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 		"property":    propertyName,
 		"index_type":  indexType,
 		"principal":   principalUsername(principal),
-	}).Info("cancel: no in-flight task to cancel; returning NO_OP")
+	}).Info("cancel: nothing left to cancel; returning NO_OP")
 	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 		Status: reindexCancelStatusNoOp,
 	})
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept. "Wait for
-// a terminal state" is honest advice in a coordination phase and a dead
-// end for a status only other nodes can terminate, hence two bodies.
+func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_refused",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"taskID":      target.ID,
+		"principal":   principalUsername(principal),
+	}).Info("cancel: the task is SWAPPING and ends once every replica that owes a swap has swapped; refusing")
+	return jsonResponder(http.StatusConflict, errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: "+
+			"it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. Nothing was cancelled",
+			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
+}
+
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -417,11 +424,13 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 		"taskID":      target.ID,
 		"status":      target.Status.String(),
 		"principal":   principalUsername(principal),
-	}).Info("cancel: task is past the point where cancelling is safe; refusing")
+	}).Info("cancel: task is in a status this build cannot classify; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
 			target.ID, collection, propertyName, target.Status,
-			cancelRefusalReason(target.Status))))
+			"this build cannot classify that status, so it cannot tell whether stopping the "+
+				"task is safe and refuses the cancel on every node — the task has to reach a terminal "+
+				"state on the nodes that do recognize it")))
 }
 
 // cancelRacedResponder answers a cancel whose target stopped accepting
@@ -440,25 +449,9 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 	}).Info("cancel: task left the cancellable state between the read and the apply; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s changed status between this request's task read and "+
-			"the cancel, and is no longer cancellable. Nothing was cancelled. It has either entered "+
-			"a cluster-wide coordination phase, where nodes may already have written merged state or "+
-			"renamed bucket directories, reached a status this node's build does not recognize, or "+
-			"already reached a terminal state. Re-read GET /v1/schema/%s/indexes to see where it landed",
+			"the cancel, and is no longer cancellable. Nothing was cancelled. It has either reached "+
+			"a status this node's build does not recognize, or already reached a terminal state. Re-read GET /v1/schema/%s/indexes to see where it landed",
 			target.ID, collection, propertyName, collection)))
-}
-
-// cancelRefusalReason explains a 409 from the cancel verb. Its
-// coordination-phase wording has to hold for PREPARING too, where no node
-// has swapped yet, so it cannot name the swap as under way.
-func cancelRefusalReason(status distributedtask.TaskStatus) string {
-	if !status.IsRecognized() {
-		return "this build cannot classify that status, so it cannot tell whether stopping the " +
-			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
-			"state on the nodes that do recognize it"
-	}
-	return "nodes may already have written merged state or renamed bucket directories, so " +
-		"stopping it now would leave the cluster serving migrated buckets under the " +
-		"pre-migration schema — wait for it to reach a terminal state"
 }
 
 // cancelReindexTask finds the in-flight reindex task targeting
@@ -761,45 +754,9 @@ func firstActiveReindexTask(
 	return nil, db.ReindexTaskPayload{}, false
 }
 
-// parsedReindexTask pairs a distributed task with its already-unmarshalled
-// reindex payload. The handler builds a slice of these once per request so
-// mergeReindexStatus doesn't re-unmarshal task.Payload N times where N is the
-// number of properties in the collection.
-type parsedReindexTask struct {
-	task    *distributedtask.Task
-	payload db.ReindexTaskPayload
-}
-
-// parseReindexTasks unmarshals every reindex task's payload once. Tasks
-// with unparseable payloads are skipped — those are flagged elsewhere by
-// checkReindexConflict at submit time; for the read-side merge they're
-// the same as no task.
-//
-// FINISHED tasks are kept: [indexesHandlers.getIndexes] matches them against
-// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last check in
-// [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
-// SearchableBlockmax stamp reaches that check: one migrated by a build older
-// than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
-// which never stamps. Dropping FINISHED tasks reports those as wand.
-//
-// [mergeReindexStatus] needs them for a second, independent reason: a
-// completed migration must outrank an older FAILED attempt on the same
-// property, or the entry reports "failed" after the retry succeeded.
-func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
-	parsed := make([]parsedReindexTask, 0, len(tasks))
-	for _, task := range tasks {
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		parsed = append(parsed, parsedReindexTask{task: task, payload: payload})
-	}
-	return parsed
-}
-
 // mergeReindexStatus checks if there's an active or recently-terminated
 // reindex task that targets the given property+indexType and updates the
-// IndexStatus accordingly.
+// IndexStatus accordingly. It reports whether a task drove the entry.
 //
 // Status values produced (in addition to the caller-supplied default
 // "ready"):
@@ -811,6 +768,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //     status this build does not recognize.
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
+//   - "partial":    latest matching task ended FAILED or CANCELLED after some tenants' swaps were decided.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -836,7 +794,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []db.ReindexRun, logger logrus.FieldLogger) bool {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -844,14 +802,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks stay in the loop for the tiebreak below; see
-	// [parseReindexTasks] for why. FINISHED itself surfaces nothing (see
-	// its case).
+	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
-		task := pt.task
-		payload := pt.payload
+		task := pt.Task
+		payload := pt.Payload
 
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
@@ -892,7 +848,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	if best == nil {
-		return
+		return false
 	}
 
 	// Decide the status first; only THEN apply per-migration-type side
@@ -915,12 +871,15 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	surfaceSyntheticFields := false
 
 	switch best.Status {
-	case distributedtask.TaskStatusFailed:
-		idx.Status = "failed"
-		idx.Progress = aggregateProgress(best)
-		surfaceSyntheticFields = true
-	case distributedtask.TaskStatusCancelled:
-		idx.Status = "cancelled"
+	case distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled:
+		idx.Status = models.IndexStatusStatusFailed
+		if best.Status == distributedtask.TaskStatusCancelled {
+			idx.Status = models.IndexStatusStatusCancelled
+		}
+		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
+			idx.Status = models.IndexStatusStatusPartial
+			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusStarted:
@@ -959,7 +918,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// in-flight signal. A "ready" entry is already fully described by the
 	// schema-derived fields above.
 	if !surfaceSyntheticFields {
-		return
+		return false
 	}
 
 	// Surface the driving task's ID on every task-driven entry; absent on a
@@ -988,11 +947,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		db.ReindexTypeRepairRangeable:
 		// No tokenization or algorithm side effects for these types.
 	}
+	return true
 }
 
 // taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
 // above them: an in-flight retry has to outrank a completed earlier attempt,
-// so a FINISHED task can only win on recency. See [parseReindexTasks].
+// so a FINISHED task can only win on recency, e.g. over an older FAILED attempt.
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2
@@ -1038,22 +998,6 @@ func shortRandomSuffix() string {
 		return "0000"
 	}
 	return hex.EncodeToString(b)
-}
-
-// isSyntheticStatus reports whether the IndexStatus.Status value was
-// emitted by mergeReindexStatus (i.e. driven by a reindex task) and so
-// should be surfaced even when the property's schema flag for that index
-// type is off. The default "ready" remains invisible when the flag is
-// off, since it carries no actionable signal.
-func isSyntheticStatus(s string) bool {
-	switch s {
-	case models.IndexStatusStatusIndexing,
-		models.IndexStatusStatusPending,
-		models.IndexStatusStatusFailed,
-		models.IndexStatusStatusCancelled:
-		return true
-	}
-	return false
 }
 
 func errorResponse(principal *models.Principal, msg string) *models.ErrorResponse {

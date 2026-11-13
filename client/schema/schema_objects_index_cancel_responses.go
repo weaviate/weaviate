@@ -95,7 +95,7 @@ func NewSchemaObjectsIndexCancelAccepted() *SchemaObjectsIndexCancelAccepted {
 /*
 SchemaObjectsIndexCancelAccepted describes a response with status code 202, with default header values.
 
-Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
+Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED or PREPARING task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
 */
 type SchemaObjectsIndexCancelAccepted struct {
 	Payload *models.IndexUpdateResponse
@@ -355,7 +355,7 @@ func NewSchemaObjectsIndexCancelConflict() *SchemaObjectsIndexCancelConflict {
 /*
 SchemaObjectsIndexCancelConflict describes a response with status code 409, with default header values.
 
-The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel. In the first two cases the task is still in flight and will reach a terminal state on its own. In the third it isn't possible to tell whether the task moved into a coordination phase or already reached a terminal state, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.
+The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.
 */
 type SchemaObjectsIndexCancelConflict struct {
 	Payload *models.ErrorResponse

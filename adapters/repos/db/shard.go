@@ -823,6 +823,10 @@ func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	}
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
+	s.retirePropertyOverlayLocked(propName, indexType)
+}
+
+func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
 	entry, ok := s.propertyOverlay[propName]
 	if !ok {
 		return

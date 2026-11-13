@@ -34,11 +34,9 @@ package reindex_multinode
 // 1M-object scale: ~1s window observed, 248ms within-window mixed-state
 // captured between probe samples 722 and 723).
 //
-// Post-barrier (this branch): OnGroupCompleted runs PREP only; every
-// node's PreparationCompleteAck must land via RAFT before the FSM transitions
-// PREPARING -> SWAPPING and OnSwapRequested fires. The cross-node SWAP
-// window is now bounded by RAFT propagation latency (tens of ms),
-// regardless of PREP duration.
+// Post-barrier: every node's PreparationCompleteAck must land via RAFT before
+// PREPARING -> SWAPPING, so the cross-node SWAP window no longer tracks the
+// slowest node's PREP.
 //
 // What this test asserts (end-to-end, in CI):
 //
@@ -62,6 +60,7 @@ package reindex_multinode
 // and friends. This file covers the end-to-end production path.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -256,8 +255,8 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 //     (barrier mode)" — fires once per node per task in PHASE A. The
 //     non-barrier path emits a different message ("group-completion
 //     → starting swap phase (no-barrier path)") instead.
-//   - "reindex provider: swap-requested → starting OVERLAY+SWAP after
-//     cluster-wide PREP barrier" — fires once per node per task in
+//   - "reindex provider: swap-requested → starting OVERLAY+SWAP for a
+//     decided group" — fires once per node per decided group in
 //     PHASE B. The non-barrier path never invokes OnSwapRequested at
 //     all.
 //
@@ -278,7 +277,7 @@ func scanForBarrierPhaseLogs(ctx context.Context, t *testing.T, compose *docker.
 	t.Helper()
 	const (
 		prepNeedle = "group-completion → starting PREP phase (barrier mode)"
-		swapNeedle = "swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier"
+		swapNeedle = "swap-requested → starting OVERLAY+SWAP for a decided group"
 	)
 	var prepFound, swapFound bool
 	for i := 1; i <= 3; i++ {
@@ -374,4 +373,139 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 		case <-ticker.C:
 		}
 	}
+}
+
+// Large enough to outlast the small tenant's swap.
+const perTenantLargeObjects = 60_000
+
+// perTenantSwapFixture builds a small and a large tenant of two-word phrases.
+func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string) {
+	t.Helper()
+	restURI := compose.GetWeaviate().URI()
+	createMTCollection(t, restURI, className, 3, textProps("text"))
+	createTenants(t, restURI, className, []string{"small", "large"})
+	importObjectsTenant(t, restURI, className, "small", []string{"needle phrase", "other words"})
+
+	const batchSize = 1000
+	for start := 0; start < perTenantLargeObjects; start += batchSize {
+		objects := make([]map[string]any, 0, batchSize)
+		for i := start; i < start+batchSize; i++ {
+			objects = append(objects, map[string]any{
+				"class": className, "tenant": "large",
+				"properties": map[string]any{"text": fmt.Sprintf("bulk %d", i)},
+			})
+		}
+		body, err := json.Marshal(map[string]any{"objects": objects})
+		require.NoError(t, err)
+		resp, err := http.Post(fmt.Sprintf("http://%s/v1/batch/objects?consistency_level=ALL", restURI),
+			"application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode, "batch import: %s", string(respBody))
+	}
+}
+
+// smallTenantMigratedOnEveryNode reports whether every node matches the small tenant's whole phrase but not a single word.
+func smallTenantMigratedOnEveryNode(t *testing.T, compose *docker.DockerCompose, className string) bool {
+	for i := 1; i <= 3; i++ {
+		uri := compose.GetWeaviateNode(i).URI()
+		whole, err := runBM25QueryOnNodeTenant(t, uri, className, "small", "needle phrase")
+		if err != nil || len(whole) != 1 {
+			return false
+		}
+		word, err := runBM25QueryOnNodeTenant(t, uri, className, "small", "needle")
+		if err != nil || len(word) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func reindexTaskStatus(restURI, taskID string) string {
+	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+	if !ok {
+		return ""
+	}
+	for _, byNamespace := range tasks {
+		for _, task := range byNamespace {
+			if task.ID == taskID {
+				return task.Status
+			}
+		}
+	}
+	return ""
+}
+
+// Pins that a tenant swaps once its own replicas are ready, while the large one still reindexes.
+func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	const className = "PerTenantSwap"
+	perTenantSwapFixture(t, compose, className)
+	restURI := compose.GetWeaviate().URI()
+
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
+	require.Eventually(t, func() bool {
+		return smallTenantMigratedOnEveryNode(t, compose, className)
+	}, 2*time.Minute, 200*time.Millisecond, "the small tenant must swap on every replica")
+	require.Equal(t, "STARTED", reindexTaskStatus(restURI, taskID),
+		"the small tenant must swap while the large one is still reindexing")
+
+	cycleNodeFast(ctx, t, compose, 1)
+	require.Eventually(t, func() bool {
+		return smallTenantMigratedOnEveryNode(t, compose, className)
+	}, time.Minute, 500*time.Millisecond, "a restarted replica must keep serving the small tenant's migrated index")
+
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(10*time.Minute))
+	for i := 1; i <= 3; i++ {
+		reindexhelpers.AwaitTokenizationVisible(t, compose.GetWeaviateNode(i).URI(), className, "text", "field")
+	}
+	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
+}
+
+// Pins that a cancel keeps the small tenant's swap, reports partial, and a resubmit finishes the rest.
+func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	const className = "PerTenantPartial"
+	perTenantSwapFixture(t, compose, className)
+	restURI := compose.GetWeaviate().URI()
+
+	reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
+	require.Eventually(t, func() bool {
+		return smallTenantMigratedOnEveryNode(t, compose, className)
+	}, 2*time.Minute, 200*time.Millisecond, "the small tenant must swap on every replica")
+
+	cancelled := reindexhelpers.CancelIndex(t, restURI, className, "text", "searchable")
+	require.Equal(t, "CANCELLED", cancelled.Status, "a cancel is never refused while the reindex runs")
+
+	require.Eventually(t, func() bool {
+		for _, prop := range reindexhelpers.GetIndexes(t, restURI, className).Properties {
+			for _, idx := range prop.Indexes {
+				if prop.Name == "text" && idx.Type == "searchable" {
+					return idx.Status == "partial" && idx.MigratedTenants == 1 && idx.TotalTenants == 2
+				}
+			}
+		}
+		return false
+	}, time.Minute, 500*time.Millisecond, "the indexes endpoint must read partial, 1 of 2 tenants")
+	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className),
+		"the decided tenant keeps its swap after the cancel")
+
+	retry := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
+	reindexhelpers.AwaitReindexFinished(t, restURI, retry, reindexhelpers.WithTimeout(10*time.Minute))
+	for i := 1; i <= 3; i++ {
+		reindexhelpers.AwaitTokenizationVisible(t, compose.GetWeaviateNode(i).URI(), className, "text", "field")
+		ids, err := runBM25QueryOnNodeTenant(t, compose.GetWeaviateNode(i).URI(), className, "large", "bulk 42")
+		require.NoError(t, err)
+		require.Len(t, ids, 1, "node %d: the large tenant must answer with field tokenization", i)
+	}
+	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
 }

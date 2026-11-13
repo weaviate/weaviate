@@ -43,7 +43,7 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	return &distributedtask.Task{
+	task := &distributedtask.Task{
 		Namespace: db.ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{
 			ID:      id,
@@ -54,10 +54,12 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 		StartedAt: time.Now(),
 		Units:     units,
 	}
+	task.IndexGroups()
+	return task
 }
 
-func tasksMap(tasks ...*distributedtask.Task) []parsedReindexTask {
-	return parseReindexTasks(tasks)
+func tasksMap(tasks ...*distributedtask.Task) []db.ReindexRun {
+	return db.ReindexRuns(tasks)
 }
 
 // Once a unit transitions to IN_PROGRESS the synthetic entry must read
@@ -327,7 +329,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order.tasks), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", db.ReindexRuns(order.tasks), nil)
 
 			require.InDelta(t, 0.9, idx.Progress, 0.0001,
 				"newest STARTED task (change-tokenization) must win regardless of slice order")
@@ -432,7 +434,7 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 
 			for _, order := range [][]*distributedtask.Task{{older, newer}, {newer, older}} {
 				idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-				mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order), nil)
+				mergeReindexStatus(idx, "C", "foo", "filterable", db.ReindexRuns(order), nil)
 
 				require.Equal(t, tt.wantStatus, idx.Status, "list starting at %s", order[0].ID)
 				require.InDelta(t, tt.wantProgress, idx.Progress, 0.0001,
@@ -748,11 +750,7 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // Pins the wire response of every cancel arm: the apply is reached for
-// STARTED alone, 409 for the coordination phases and for a status this
-// build cannot name, 202 NO_OP when nothing matches. Each arm's audit
-// line is pinned with it, and the two 409 conditions are held apart:
-// they need different bodies because only one of them can honestly tell
-// the operator to wait.
+// every in-flight status, 409 for an unnamed status, 202 NO_OP when nothing matches.
 func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,
@@ -777,14 +775,9 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			"unrecognized", unknownFutureStatus, payload.Properties,
 			http.StatusConflict, "cannot classify that status",
 		},
-		{
-			"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties,
-			http.StatusConflict, "wait for it to reach a terminal state",
-		},
-		{
-			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
-			http.StatusConflict, "wait for it to reach a terminal state",
-		},
+		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, 0, ""},
+		// A SWAPPING task ends once every replica that owes a swap has swapped.
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict, "can no longer be cancelled"},
 		// The three terminal rows never reach the refusal logic: they
 		// are filtered out as cancel targets, so what they pin is that a
 		// finished task is a NO_OP rather than a 409.
@@ -827,14 +820,6 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			}
 
 			body := rec.Body.String()
-			// Nothing on this node advances a status it cannot name, so
-			// the coordination-phase advice must not leak onto that arm.
-			// Asserted first on purpose: a Contains failing ahead of it
-			// would abort the subtest and leave the advice unchecked on
-			// exactly the arm that leaked it.
-			if !tc.status.IsRecognized() {
-				require.NotContains(t, body, "wait for it to reach a terminal state")
-			}
 			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
 			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
 			require.Contains(t, body, tc.wantReason)
@@ -882,11 +867,6 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	} {
 		everyStatus = append(everyStatus, status.String())
 	}
-	// The coordination-phase advice is wrong on the raced arm for the same
-	// reason: the task may have raced to the very terminal state that advice
-	// tells the operator to wait for. cancelRefusalReason is where it comes
-	// from, so a refactor routing this arm through it must fail here.
-	racedAbsent := append([]string{"wait for it to reach a terminal state"}, everyStatus...)
 
 	for _, tc := range []struct {
 		name      string
@@ -914,7 +894,7 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			wantCode:         http.StatusConflict,
 			wantAudit:        "reindex_task_cancel_raced",
 			wantBody:         "T1",
-			wantAbsent:       racedAbsent,
+			wantAbsent:       everyStatus,
 			wantStatusAtRead: "STARTED",
 		},
 		{
@@ -925,7 +905,7 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			wantCode:         http.StatusConflict,
 			wantAudit:        "reindex_task_cancel_raced",
 			wantBody:         "T1",
-			wantAbsent:       racedAbsent,
+			wantAbsent:       everyStatus,
 			wantStatusAtRead: "STARTED",
 		},
 		{
@@ -936,6 +916,15 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			wantCode:  http.StatusAccepted,
 			wantAudit: "reindex_task_cancel_noop",
 			wantBody:  reindexCancelStatusNoOp,
+		},
+		{
+			name: "the task reached SWAPPING before the cancel applied",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/nothing-left-to-cancel] task reindex/T1/1 is SWAPPING: %w",
+					distributedtask.ErrNothingLeftToCancel)),
+			wantCode:  http.StatusConflict,
+			wantAudit: "reindex_task_cancel_refused",
+			wantBody:  "can no longer be cancelled",
 		},
 		{
 			name:     "anything else",
@@ -996,20 +985,19 @@ func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
 		wantID string
 	}{
 		{
-			name: "a cancellable task behind a coordination phase",
+			name: "a cancellable task behind one this build cannot name",
 			tasks: []*distributedtask.Task{
-				task("swapping", distributedtask.TaskStatusSwapping),
-				task("started", distributedtask.TaskStatusStarted),
+				task("unknown", unknownFutureStatus),
+				task("preparing", distributedtask.TaskStatusPreparing),
 			},
-			wantID: "started",
+			wantID: "preparing",
 		},
 		{
 			name: "none cancellable, so the first match is refused",
 			tasks: []*distributedtask.Task{
-				task("swapping", distributedtask.TaskStatusSwapping),
-				task("preparing", distributedtask.TaskStatusPreparing),
+				task("unknown", unknownFutureStatus),
 			},
-			wantID: "swapping",
+			wantID: "unknown",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

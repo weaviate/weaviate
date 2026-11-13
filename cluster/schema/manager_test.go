@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -718,6 +719,16 @@ type recordingMutationGuard struct {
 	lastRemoved []string
 	lastShards  []string
 	rejectWith  error
+
+	migrationCalls      int
+	lastRun             cmd.MigrationRun
+	rejectMigrationWith error
+}
+
+func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, run cmd.MigrationRun) error {
+	g.migrationCalls++
+	g.lastRun = run
+	return g.rejectMigrationWith
 }
 
 func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
@@ -754,9 +765,7 @@ func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedV
 //   - MUST be consulted before the schema apply on any external
 //     UpdateProperty.
 //   - MUST be bypassed when FromInFlightMigration is true on the
-//     request (the migration-completion path uses this to flip its
-//     own scheduled schema update past the guard that would otherwise
-//     reject it during FINALIZING).
+//     request; CheckMigrationPropertyUpdate gates that write instead.
 //   - MUST short-circuit before the guard on malformed requests, so a
 //     bad payload doesn't waste a detector dispatch.
 //
@@ -770,6 +779,9 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 			Property:              &models.Property{Name: prop},
 			FieldsToUpdate:        fields,
 			FromInFlightMigration: fromMigration,
+		}
+		if fromMigration {
+			req.MigrationRun = &cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}
 		}
 		sub, err := json.Marshal(&req)
 		require.NoError(t, err)
@@ -808,21 +820,27 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 		require.Equal(t, "name", guard.lastProp)
 	})
 
-	t.Run("guard bypassed when FromInFlightMigration=true", func(t *testing.T) {
-		guard := &recordingMutationGuard{
-			rejectWith: fmt.Errorf("guard rejection that MUST be bypassed"),
-		}
-		sm := newSM(guard)
-		// FromInFlightMigration=true bypasses the guard. The downstream
-		// apply still errors (no class set up), but the guard
-		// rejection text must NOT appear in the returned error and the
-		// guard call counter must stay at zero.
-		err := sm.UpdateProperty(mkRequest("C", "name", true), true, false)
-		require.Error(t, err, "downstream apply still errors on missing class, but the error must not be a guard rejection")
-		require.NotContains(t, err.Error(), "MUST be bypassed",
-			"FromInFlightMigration=true MUST bypass the guard rejection")
-		require.Equal(t, 0, guard.called,
-			"guard MUST NOT be consulted when FromInFlightMigration=true")
+	t.Run("a migration write is gated only by its run completing", func(t *testing.T) {
+		guard := &recordingMutationGuard{}
+		_ = newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
+		require.Equal(t, 0, guard.called, "the property guard MUST NOT be consulted for a migration write")
+		require.Equal(t, 1, guard.migrationCalls)
+		require.Equal(t, cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}, guard.lastRun)
+
+		// A peer's flip arriving after its run was marked FAILED or CANCELLED.
+		late := errors.New("no reindex run is completing")
+		guard = &recordingMutationGuard{rejectMigrationWith: late}
+		err := newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
+		require.ErrorIs(t, err, late)
+		require.ErrorIs(t, err, ErrBadRequest)
+	})
+
+	t.Run("a migration write naming no run consults no guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{}
+		req := mkRequest("C", "name", false)
+		req.SubCommand, _ = json.Marshal(&cmd.UpdatePropertyRequest{Property: &models.Property{Name: "name"}, FromInFlightMigration: true})
+		_ = newSM(guard).UpdateProperty(req, true, false)
+		require.Zero(t, guard.called+guard.migrationCalls)
 	})
 
 	t.Run("no guard registered → no extra rejection", func(t *testing.T) {
@@ -918,6 +936,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 // issues on drop-vector marker introduction.
 type fakeCascadeDeleter struct {
 	collectionCalls []string
+	forgotten       []string
 	activeMatch     bool
 	purgeErr        error // non-sentinel purge failure
 	targetCalls     []struct {
@@ -929,6 +948,10 @@ type fakeCascadeDeleter struct {
 func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
 	f.collectionCalls = append(f.collectionCalls, collection)
 	return nil
+}
+
+func (f *fakeCascadeDeleter) ForgetGroupsForCollection(collection string, groups []string) {
+	f.forgotten = append(f.forgotten, collection+":"+strings.Join(groups, ","))
 }
 
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
@@ -1239,6 +1262,16 @@ func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
 		require.Contains(t, err.Error(), "tenants blocked")
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("a deleted tenant is forgotten by the collection's finished runs", func(t *testing.T) {
+		sm := newSM(nil)
+		deleter := &fakeCascadeDeleter{}
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"t1": {Name: "t1"}}}, 1))
+		require.NoError(t, sm.DeleteTenants(mkRequest("C", []string{"t1"}), true))
+		require.Equal(t, []string{"C:t1"}, deleter.forgotten)
 	})
 
 	t.Run("empty tenants list does not consult the guard", func(t *testing.T) {

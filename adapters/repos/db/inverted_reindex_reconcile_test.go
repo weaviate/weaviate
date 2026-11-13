@@ -178,8 +178,10 @@ func (f *reconcileFixture) reconcile() *migrationReconciler {
 
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
+		// The shard testMigrationSubject's unit names.
+		Shard: "shard-1",
 		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
-			return migrationTaskStatuses(f.tasks), f.tasksReadable
+			return migrationTaskStatuses(f.tasks, "shard-1"), f.tasksReadable
 		},
 		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 			f.asked = append(f.asked, liveUnitKey{desc, unitID})
@@ -1081,9 +1083,11 @@ func TestTheReconcilerReportsOneLinePerRecordNotOnePerProperty(t *testing.T) {
 
 func TestReconcilePromotedClosure(t *testing.T) {
 	tests := []struct {
-		name       string
-		leftovers  []string
-		class      *models.Class
+		name      string
+		leftovers []string
+		class     *models.Class
+		// taskStatus is the owning task's; empty means it is gone.
+		taskStatus distributedtask.TaskStatus
 		wantRecord bool
 		wantWarn   string
 	}{
@@ -1095,6 +1099,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 		{
 			name:       "directories gone but the effect is not visible yet: keep the record",
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1102,6 +1107,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "a leftover with the effect still not visible: reclaim it and keep the record",
 			leftovers:  []string{"property_title__s42_reindex"},
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1130,6 +1136,9 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			f.class = tt.class
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			if tt.taskStatus != "" {
+				f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, tt.taskStatus)}
+			}
 			f.mkdirs(append([]string{"property_title_searchable"}, tt.leftovers...)...)
 			f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
 
@@ -1752,7 +1761,7 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"),
 		"so the rename it would have run never ran")
 
-	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing)
+	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing, true)
 	require.ErrorIs(t, outranErr, context.Canceled,
 		"and so does the sweep that re-runs a promotion the record outran")
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"))

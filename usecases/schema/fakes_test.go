@@ -62,7 +62,7 @@ func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, prop
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, _ command.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
 	args := f.Called(class, property, fields)
 	return 0, args.Error(0)
 }

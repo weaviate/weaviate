@@ -700,7 +700,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicaCopier:               replicaCopier,
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
-		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
@@ -1118,12 +1117,6 @@ func initReindexAndDistributedTasks(
 
 	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
-	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
-	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
-	enterrors.GoWrapper(func() {
-		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
-	}, appState.Logger)
-
 	// The drop-vector-index provider. Its guards are registered separately,
 	// in the rConfig DistributedTask*Detectors maps in MakeAppState.
 	// Wake the reconcile loop when a round ends with work remaining (batch
@@ -1157,11 +1150,6 @@ func initReindexAndDistributedTasks(
 			appState.ClusterService.IsLeader, dropVectorReconcileNudge,
 		)
 	}, appState.Logger)
-
-	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
-		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
-			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
-	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,

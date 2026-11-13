@@ -152,36 +152,6 @@ func cancelResponse(t *testing.T, resp middleware.Responder) (int, string, strin
 	return rec.Code, body.Status, rec.Body.String()
 }
 
-// TestCancelReindexTask_CoordinationPhaseIsConflict pins that a
-// PREPARING/SWAPPING target is refused with 409 against the real FSM: the
-// cancel is past the point where stopping it is safe, so the pre-flight
-// answers before the apply and never reports the request as a no-op.
-func TestCancelReindexTask_CoordinationPhaseIsConflict(t *testing.T) {
-	principal := &models.Principal{Username: "tester"}
-	for _, tc := range []struct {
-		name   string
-		target distributedtask.TaskStatus
-	}{
-		{"SWAPPING is refused", distributedtask.TaskStatusSwapping},
-		{"PREPARING is refused", distributedtask.TaskStatusPreparing},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
-			seedReindexTask(t, mgr, "C:enable-filterable:p:aaaa", "C", "p",
-				db.ReindexTypeEnableFilterable, tc.target, nil)
-
-			h := &indexesHandlers{appState: &state.State{Logger: logrus.New()}}
-			resp := h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},
-				"C", "p", "filterable", principal)
-
-			code, status, body := cancelResponse(t, resp)
-			require.Equal(t, http.StatusConflict, code, "coordination-phase cancel must be 409")
-			assert.NotEqual(t, reindexCancelStatusNoOp, status, "a refused cancel is not a no-op")
-			assert.Contains(t, body, "wait for it to reach a terminal state")
-		})
-	}
-}
-
 // TestCancelReindexTask_StartedTaskCancels pins the happy path: a STARTED
 // task cancels through the real FSM and returns 202 CANCELLED.
 func TestCancelReindexTask_StartedTaskCancels(t *testing.T) {

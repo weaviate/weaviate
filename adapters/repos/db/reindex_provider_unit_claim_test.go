@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -104,6 +106,7 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	require.NoError(t, p.OnSwapRequested(&distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: desc,
 		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
+		SwapDecidedGroups: map[string]time.Time{"g1": {}},
 	}, "g1", []string{unitID}))
 
 	got, err := os.ReadFile(filepath.Join(tenantLSM, canonical, "promoted.marker"))
@@ -135,6 +138,10 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	tasks, err := p.createReindexTasks(desc, "u1", payload)
 	require.NoError(t, err)
 	require.NotEmpty(t, tasks)
+	// Recovery seeds only tasks whose record is on disk.
+	for _, task := range tasks {
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, hot))
+	}
 	p.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{
 		desc: {"u1": tasks},
 	})
@@ -418,4 +425,70 @@ func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Pins that a stopped run's cached swap retry pays its debt once a newer run retired its record.
+func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
+	for _, unreadable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("unreadable=%t", unreadable), func(t *testing.T) {
+			ctx := testCtx()
+			className := "LateSwap_" + uuid.NewString()[:8]
+			shd, idx := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+			registerIndex(idx, className)
+			unit := shard.migrationUnit()
+			logger, hook := logrustest.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+			payload := &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
+				TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
+				UnitToShard: map[string]string{unit: shard.Name()},
+			}
+			desc := distributedtask.TaskDescriptor{ID: "R1", Version: 1}
+			tasks, err := p.createReindexTasks(desc, unit, payload)
+			require.NoError(t, err)
+			p.cacheReindexTasks(desc, unit, tasks)
+			if unreadable {
+				plantUnreadableRecord(t, shard.migrationRecords.Dir())
+				require.NoError(t, shard.migrationRecords.Load())
+			}
+			resolve := func() phaseUnitResolution {
+				return p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, payload, unit, idx, p.logger)
+			}
+
+			got := resolve()
+			require.Equal(t, unreadable, len(got.Errs) > 0, "an unreadable record is never read as gone")
+			require.Equal(t, !unreadable, got.Skip, "a retired record leaves nothing of the run in flight")
+			for range maxReportedErrors {
+				resolve()
+			}
+			require.LessOrEqual(t, len(hook.AllEntries()), maxReportedErrors, "a retry per tick logs only sampled lines")
+		})
+	}
+}
+
+// Pins that a swap retried after OnTaskCompleted decodes the payload once and frees it when the task leaves.
+func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
+	p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
+	raw, err := json.Marshal(ReindexTaskPayload{Collection: "Docs", MigrationType: ReindexTypeChangeTokenization})
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+		Status:         distributedtask.TaskStatusFailed, Payload: raw,
+	}
+
+	first, err := p.loadPayload(task)
+	require.NoError(t, err)
+	again, err := p.loadPayload(task)
+	require.NoError(t, err)
+	require.Same(t, first, again, "a retry reuses the decoded payload")
+	require.Equal(t, []distributedtask.TaskDescriptor{task.TaskDescriptor}, p.GetLocalTasks())
+
+	require.NoError(t, p.CleanupTask(task.TaskDescriptor))
+	require.Empty(t, p.GetLocalTasks())
+	fresh, err := p.loadPayload(task)
+	require.NoError(t, err)
+	require.NotSame(t, first, fresh, "a cleaned-up task decodes again")
 }

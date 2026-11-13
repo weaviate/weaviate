@@ -265,7 +265,6 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 func validateTokenizationChange(
 	class *models.Class,
 	propName, targetTokenization string,
-	reindexTasks []*distributedtask.Task,
 ) (bucketStrategy string, err error) {
 	// Find the property.
 	var targetProp *models.Property
@@ -293,11 +292,7 @@ func validateTokenizationChange(
 		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
 	}
 
-	// change-tokenization preserves the bucket's existing strategy, derived from
-	// RAFT-consistent state (durable stamp, else class flag/task list) — the
-	// stamp keeps a stamped-blockmax property on StrategyInverted after its task ages out.
-	return lsmkv.DefaultSearchableStrategy(
-		db.SearchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
+	return lsmkv.DefaultSearchableStrategy(db.SearchablePropertyIsBlockmax(class, propName)), nil
 }
 
 // buildUnitSpecs creates UnitSpec entries with GroupID = shardName (= tenant

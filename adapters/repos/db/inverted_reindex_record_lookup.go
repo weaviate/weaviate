@@ -118,8 +118,6 @@ func (s migrationPreservedState) bucketsOf(mainBucketName string) []string {
 	return out
 }
 
-func migrationRecordStagingIncomplete(rec MigrationRecord) bool { return !rec.StagedDataComplete() }
-
 func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigrationType,
 	properties []string, want func(MigrationRecord) bool,
 ) bool {

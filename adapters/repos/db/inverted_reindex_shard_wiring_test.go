@@ -80,7 +80,9 @@ func installTestMigrationTaskSources(ctx context.Context, database *DB, leaderEr
 	tasks ...*distributedtask.Task,
 ) {
 	database.SetMigrationTaskSources(ctx,
-		func() ([]distributedtask.TaskStatusEntry, bool) { return migrationTaskStatuses(tasks), true },
+		func(group string) ([]distributedtask.TaskStatusEntry, bool) {
+			return migrationTaskStatuses(tasks, group), true
+		},
 		func(context.Context) ([]*distributedtask.Task, error) {
 			if leaderErr != nil {
 				return nil, leaderErr
