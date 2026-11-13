@@ -14,9 +14,11 @@ package roaringset
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/bits"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -125,34 +127,36 @@ func (p *bitmapStructPool) Get() (dst *sroar.Bitmap, put func()) {
 	return &pb.bm, pb.put
 }
 
+// These in-memory tier defaults are provisional. A shorter inMemoIdleTTL or a
+// larger inMemoDecayFraction frees idle buffers sooner and lowers the hit rate.
+// BenchmarkInMemoBufPoolDecaySweep sweeps both.
+const (
+	inMemoDecayTick     = 10 * time.Second
+	inMemoIdleTTL       = time.Minute
+	inMemoDecayFraction = 0.5
+)
+
+// idleBudget bounds the bytes of idle in-memory buffers. Buffers handed out are
+// not counted.
 func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics,
-	inMemoMaxBufSize int, maxMemoSizeForBufs int,
+	inMemoMaxBufSize int, idleBudget int,
 ) (pool BitmapBufPool, close func()) {
-	syncMinRangeP2 := 9  // 2^9 = 512B
-	syncMaxRangeP2 := 20 // 2^20 = 1MB
-	syncRanges := calculateSyncBufferRanges(syncMinRangeP2, syncMaxRangeP2)
+	syncMinRangePo2 := 9  // 2^9 = 512B
+	syncMaxRangePo2 := 20 // 2^20 = 1MB
+	syncRanges := calculateSyncBufferRanges(syncMinRangePo2, syncMaxRangePo2)
 	syncMaxBufSize := syncRanges[len(syncRanges)-1]
 
-	inMemoMinRangeP2 := syncMaxRangeP2 + 1
-	inMemoRanges, inMemoBufsLimits := calculateInMemoBufferRangesAndLimits(syncMaxBufSize, inMemoMinRangeP2,
-		inMemoMaxBufSize, maxMemoSizeForBufs)
+	inMemoMinRangePo2 := syncMaxRangePo2 + 1
+	inMemoRanges := calculateInMemoBufferRanges(syncMaxBufSize, inMemoMinRangePo2,
+		inMemoMaxBufSize, idleBudget)
 
-	allRanges := syncRanges
+	stopDecay := func() {}
+	p := NewBitmapBufPoolRanged(metrics, idleBudget, syncRanges, inMemoRanges)
 	if len(inMemoRanges) > 0 {
-		allRanges = append(allRanges, inMemoRanges...)
+		stopDecay = p.startDecay(logger, inMemoDecayTick)
 	}
 
-	stopCleanup := func() {}
-	p := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, inMemoBufsLimits, allRanges...)
-	if ln := len(inMemoRanges); ln > 0 {
-		limitMaxRange := inMemoBufsLimits[inMemoRanges[ln-1]]
-		nBuffers := (limitMaxRange + 1) / 2
-		cleanupInterval := 1 * time.Minute
-		// try to clean half of buffers every minute
-		stopCleanup = p.StartPeriodicCleanup(logger, nBuffers, cleanupInterval)
-	}
-
-	return p, stopCleanup
+	return p, stopDecay
 }
 
 // -----------------------------------------------------------------------------
@@ -187,71 +191,46 @@ func (p *bitmapBufPoolNoop) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.
 
 type bitmapBufPoolRanged struct {
 	ranges            []int
-	firstInMemoRngIdx int
 	poolsSync         []*BufPoolFixedSync
-	poolsInMemo       []*BufPoolFixedInMemory
+	inMemo            *inMemoBufPool
 	structs           *bitmapStructPool
 	disposableMetrics bufDisposableMetrics
 }
 
-// Creates multiple pools, one for specified range of sizes (given in bytes).
-// E.g. for ranges 1024, 2048 and 4096, 3 internal buffer pools will be
-// created to handle ranges of size: [1-1024], [1025-2048], [2048-4096].
-// Buffers of sizes bigger than highest range will be created but not kept in pool
-// (to be removed by GC when no longer needed)
-// Ranges <=0 or duplicated will be ignored.
-func NewBitmapBufPoolRanged(metrics *monitoring.PrometheusMetrics,
-	syncMaxBufSize int, inMemoBufsLimits map[int]int, ranges ...int,
+// NewBitmapBufPoolRanged pools buffers of syncSizes in sync.Pools and of inMemoSizes
+// under idleBudget. Get rounds a request up to the next size, and above the largest
+// allocates a buffer GC reclaims. Sizes must ascend across both lists.
+func NewBitmapBufPoolRanged(metrics *monitoring.PrometheusMetrics, idleBudget int,
+	syncSizes, inMemoSizes []int,
 ) *bitmapBufPoolRanged {
-	ranges = validateBufferRanges(ranges)
-	poolsSync := []*BufPoolFixedSync{}
-	poolsInMemo := []*BufPoolFixedInMemory{}
-
-	var inMemoMetrics bufPoolInMemoMetrics
 	var disposableMetrics bufDisposableMetrics
 	if metrics == nil {
-		inMemoMetrics = &bufPoolNoopMetrics{}
 		disposableMetrics = &bufDisposableNoopMetrics{}
 	} else {
 		disposableMetrics = newPromBufDisposableMetrics(metrics)
 	}
 
-	i := 0
-	for ; i < len(ranges) && ranges[i] <= syncMaxBufSize; i++ {
-		poolsSync = append(poolsSync, NewBufPoolFixedSync(ranges[i]))
-	}
-	firstInMemoRngIdx := i
-	for ; i < len(ranges); i++ {
-		limit := 1
-		if lmt, ok := inMemoBufsLimits[ranges[i]]; ok {
-			limit = lmt
-		}
-		if metrics != nil {
-			inMemoMetrics = newPromBufPoolInMemoMetrics(metrics, ranges[i])
-		}
-		poolsInMemo = append(poolsInMemo, NewBufPoolFixedInMemory(inMemoMetrics, ranges[i], limit))
+	poolsSync := make([]*BufPoolFixedSync, len(syncSizes))
+	for i, size := range syncSizes {
+		poolsSync[i] = NewBufPoolFixedSync(size)
 	}
 
 	return &bitmapBufPoolRanged{
-		ranges:            ranges,
-		firstInMemoRngIdx: firstInMemoRngIdx,
+		ranges:            slices.Concat(syncSizes, inMemoSizes),
 		poolsSync:         poolsSync,
-		poolsInMemo:       poolsInMemo,
+		inMemo:            newInMemoBufPool(metrics, inMemoSizes, idleBudget, inMemoIdleTTL, inMemoDecayFraction),
 		structs:           newBitmapStructPool(),
 		disposableMetrics: disposableMetrics,
 	}
 }
 
 func (p *bitmapBufPoolRanged) Get(minCap int) (buf []byte, put func()) {
-	for i := 0; i < p.firstInMemoRngIdx; i++ {
-		if minCap <= p.ranges[i] {
-			return p.poolsSync[i].Get()
-		}
-	}
-	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
-		if minCap <= p.ranges[i] {
-			return p.poolsInMemo[i-p.firstInMemoRngIdx].Get()
-		}
+	i, _ := slices.BinarySearch(p.ranges, minCap)
+	switch nSync := len(p.poolsSync); {
+	case i < nSync:
+		return p.poolsSync[i].Get()
+	case i < len(p.ranges):
+		return p.inMemo.get(i - nSync)
 	}
 	p.disposableMetrics.bufCreated(minCap)
 	return make([]byte, 0, minCap), func() {}
@@ -273,17 +252,15 @@ func (p *bitmapBufPoolRanged) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroa
 	return accumulatorToBuf(p, acc)
 }
 
-func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
-	cleaned := map[int]int{}
-	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
-		cleaned[p.ranges[i]] = p.poolsInMemo[i-p.firstInMemoRngIdx].Cleanup(n)
-	}
-	return cleaned
-}
-
-func (p *bitmapBufPoolRanged) StartPeriodicCleanup(logger logrus.FieldLogger, n int, interval time.Duration) (stop func()) {
+// startDecay advances the in-memory tier's clock and decays its idle buffers
+// every interval until stop. The pool stays usable after stop, with idle bytes
+// still bounded by the budget.
+func (p *bitmapBufPoolRanged) startDecay(logger logrus.FieldLogger, interval time.Duration) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	epoch := time.Now()
 	errors.GoWrapper(func() {
+		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -292,11 +269,14 @@ func (p *bitmapBufPoolRanged) StartPeriodicCleanup(logger logrus.FieldLogger, n 
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				p.cleanup(n)
+				p.inMemo.tick(time.Since(epoch))
 			}
 		}
 	}, logger)
-	return cancel
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -331,144 +311,261 @@ func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 
 // -----------------------------------------------------------------------------
 
-type BufPoolFixedInMemory struct {
-	cap     int
-	limit   int
-	bufsCh  chan *pooledBuf
-	metrics bufPoolInMemoMetrics
+// inMemoBufPool keeps idle buffers of every size under one budget of idle bytes. A
+// put over budget evicts the oldest, the larger size on a tie, only when no buffer of
+// its own size is idle. No path holds two idleStack locks at once, so eviction cannot deadlock.
+type inMemoBufPool struct {
+	stacks []*idleStack
+	budget int64
+	// idle is the bytes of buffers idle in all stacks. put adds a buffer's size
+	// before pushing it, and every removal from a stack subtracts it.
+	idle atomic.Int64
+	// now is the clock tick last stored, in nanoseconds. push stamps buffers with it.
+	now           atomic.Int64
+	ttl           int64
+	decayFraction float64
 }
 
-func NewBufPoolFixedInMemory(metrics bufPoolInMemoMetrics, cap int, limit int) *BufPoolFixedInMemory {
-	return &BufPoolFixedInMemory{
-		cap:     cap,
-		limit:   limit,
-		bufsCh:  make(chan *pooledBuf, limit),
-		metrics: metrics,
+func newInMemoBufPool(metrics *monitoring.PrometheusMetrics, sizes []int, budget int,
+	ttl time.Duration, decayFraction float64,
+) *inMemoBufPool {
+	p := &inMemoBufPool{
+		stacks:        make([]*idleStack, len(sizes)),
+		budget:        int64(budget),
+		ttl:           int64(ttl),
+		decayFraction: decayFraction,
 	}
+	for i, size := range sizes {
+		var m bufPoolInMemoMetrics = &bufPoolNoopMetrics{}
+		if metrics != nil {
+			m = newPromBufPoolInMemoMetrics(metrics, size)
+		}
+		p.stacks[i] = &idleStack{size: size, poolIdle: &p.idle, poolNow: &p.now, metrics: m}
+		p.stacks[i].oldest.Store(math.MaxInt64)
+	}
+	return p
 }
 
-func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
-	var pb *pooledBuf
-	select {
-	case pb = <-p.bufsCh:
-		p.metrics.bufGot()
-	default:
-		// bind the release closure once; reused buffers keep theirs
-		pb = &pooledBuf{buf: make([]byte, 0, p.cap)}
-		pb.put = func() { p.put(pb) }
-		p.metrics.bufCreated()
+// get takes the newest idle buffer of size i, else borrows one of a larger size
+// up to twice size i. A borrowed buffer returns to its own size on put.
+func (p *inMemoBufPool) get(i int) (buf []byte, put func()) {
+	s := p.stacks[i]
+	for _, lender := range p.stacks[i:] {
+		if lender.size > 2*s.size {
+			break
+		}
+		if pb := lender.popNewest(); pb != nil {
+			s.metrics.bufGot()
+			return pb.buf, pb.put
+		}
 	}
+	pb := &pooledBuf{buf: make([]byte, 0, s.size)}
+	pb.put = func() { p.put(pb, i) }
+	s.metrics.bufCreated()
 	return pb.buf, pb.put
 }
 
-func (p *BufPoolFixedInMemory) put(pb *pooledBuf) bool {
-	select {
-	case p.bufsCh <- pb:
-		p.metrics.bufPut()
-		// successfully returned
-		return true
-	default:
-		p.metrics.bufDiscarded()
-		// chan full, discard buffer
-		return false
+// put reserves the buffer's bytes before pushing it, so idle bytes never exceed the budget.
+// Over budget it discards the buffer while its size has one idle, so only a drained size evicts.
+// BenchmarkInMemoBufPoolOverBudgetPut sweeps the rule.
+func (p *inMemoBufPool) put(pb *pooledBuf, i int) {
+	s := p.stacks[i]
+	size := int64(s.size)
+	for {
+		cur := p.idle.Load()
+		if cur+size <= p.budget {
+			if p.idle.CompareAndSwap(cur, cur+size) {
+				break
+			}
+			continue
+		}
+		if s.oldest.Load() != math.MaxInt64 || !p.evictOldest() {
+			s.metrics.bufDiscarded()
+			return
+		}
+	}
+	s.push(pb)
+	s.metrics.bufPut()
+}
+
+// evictOldest drops the oldest idle buffer across all sizes. It returns false
+// only when every stack is empty.
+func (p *inMemoBufPool) evictOldest() bool {
+	for {
+		var victim *idleStack
+		oldest := int64(math.MaxInt64)
+		for _, s := range slices.Backward(p.stacks) {
+			if since := s.oldest.Load(); since < oldest {
+				victim, oldest = s, since
+			}
+		}
+		if victim == nil {
+			return false
+		}
+		if victim.popOldest() != nil {
+			victim.metrics.bufEvicted()
+			return true
+		}
 	}
 }
 
-// Cleanup removes available buffers from the pool and returs number of buffers removed.
-// Buffers are removed up to configured limit to prevent indefinite removal in case
-// new ones are created in the parallel.
-func (p *BufPoolFixedInMemory) Cleanup(n int) int {
-	i := 0
-outer:
-	for n = min(n, p.limit); i < n; i++ {
-		select {
-		case <-p.bufsCh:
-			p.metrics.bufCleanedUp()
-			// discard taken buffer
-		default:
-			break outer
-		}
+// tick sets the clock to elapsed and decays every stack's expired buffers.
+func (p *inMemoBufPool) tick(elapsed time.Duration) {
+	now := int64(elapsed)
+	p.now.Store(now)
+	for _, s := range p.stacks {
+		s.expire(now, p.ttl, p.decayFraction)
 	}
-	return i
+}
+
+type idleBuf struct {
+	pb    *pooledBuf
+	since int64
+}
+
+// idleStack holds the idle buffers of one size in bufs[head:], oldest first. Gets
+// take the newest from the back, and eviction and decay the oldest from the front.
+// Methods removing buffers subtract their bytes from poolIdle.
+type idleStack struct {
+	size int
+	mu   sync.Mutex
+	bufs []idleBuf
+	// head indexes the oldest buffer. Taking from the front advances it instead of
+	// shifting bufs, and push reuses the freed front before growing bufs.
+	head int
+	// oldest mirrors bufs[head].since, or math.MaxInt64 when empty, so put and
+	// evictOldest can read it without locking the stack.
+	oldest    atomic.Int64
+	nextDecay int64
+	poolIdle  *atomic.Int64
+	poolNow   *atomic.Int64
+	metrics   bufPoolInMemoMetrics
+}
+
+// push reads the clock under mu, so stamps stay in age order when a tick
+// lands between put's reservation and the push.
+func (s *idleStack) push(pb *pooledBuf) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.bufs) == cap(s.bufs) && s.head > 0 {
+		n := copy(s.bufs, s.bufs[s.head:])
+		clear(s.bufs[n:])
+		s.bufs = s.bufs[:n]
+		s.head = 0
+	}
+	s.bufs = append(s.bufs, idleBuf{pb: pb, since: s.poolNow.Load()})
+	s.updateOldest()
+}
+
+func (s *idleStack) popNewest() *pooledBuf {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	last := len(s.bufs) - 1
+	if last < s.head {
+		return nil
+	}
+	pb := s.bufs[last].pb
+	s.bufs[last] = idleBuf{}
+	s.bufs = s.bufs[:last]
+	s.removed(1)
+	return pb
+}
+
+func (s *idleStack) popOldest() *pooledBuf {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.head == len(s.bufs) {
+		return nil
+	}
+	pb := s.bufs[s.head].pb
+	s.bufs[s.head] = idleBuf{}
+	s.head++
+	s.removed(1)
+	return pb
+}
+
+// expire drops the oldest decayFraction of the buffers idle longer than ttl,
+// rounded up, at most once per ttl. Survivors keep their stamps.
+func (s *idleStack) expire(now, ttl int64, decayFraction float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if now < s.nextDecay {
+		return
+	}
+	expired := 0
+	for _, b := range s.bufs[s.head:] {
+		if now-b.since <= ttl {
+			break
+		}
+		expired++
+	}
+	if expired == 0 {
+		return
+	}
+	dropped := int(math.Ceil(float64(expired) * decayFraction))
+	clear(s.bufs[s.head : s.head+dropped])
+	s.head += dropped
+	s.removed(dropped)
+	s.nextDecay = now + ttl
+	for range dropped {
+		s.metrics.bufCleanedUp()
+	}
+}
+
+// removed returns n removed buffers' bytes to the budget. Caller holds mu.
+func (s *idleStack) removed(n int) {
+	s.poolIdle.Add(-int64(n * s.size))
+	if s.head == len(s.bufs) {
+		s.bufs = s.bufs[:0]
+		s.head = 0
+	}
+	s.updateOldest()
+}
+
+func (s *idleStack) updateOldest() {
+	if s.head == len(s.bufs) {
+		s.oldest.Store(math.MaxInt64)
+		return
+	}
+	s.oldest.Store(s.bufs[s.head].since)
 }
 
 // -----------------------------------------------------------------------------
 
-func validateBufferRanges(ranges []int) []int {
-	if ln := len(ranges); ln > 0 {
-		// cleanup ranges, keep unique and > 0
-		unique_gt0 := map[int]struct{}{}
-		for i := 0; i < ln; i++ {
-			if rng := ranges[i]; rng > 0 {
-				unique_gt0[rng] = struct{}{}
-			}
-		}
-		i := 0
-		for rng := range unique_gt0 {
-			ranges[i] = rng
-			i++
-		}
-		ranges = ranges[:i]
-		slices.Sort(ranges)
+// powersOfTwo returns 2^minPo2, 2^(minPo2+1), ... up to limit, stopping before
+// 1<<63, which overflows int.
+func powersOfTwo(minPo2, limit int) []int {
+	var sizes []int
+	for po2 := minPo2; po2 < bits.UintSize-1 && 1<<po2 <= limit; po2++ {
+		sizes = append(sizes, 1<<po2)
 	}
-	return ranges
+	return sizes
 }
 
-func calculateSyncBufferRanges(minRangeP2, maxRangeP2 int) []int {
-	if minRangeP2 < 0 || maxRangeP2 < 0 || minRangeP2 > maxRangeP2 {
+func calculateSyncBufferRanges(minRangePo2, maxRangePo2 int) []int {
+	if minRangePo2 < 0 || maxRangePo2 < 0 || minRangePo2 > maxRangePo2 {
 		return []int{}
 	}
-
-	rangesLn := maxRangeP2 - minRangeP2 + 1
-	ranges := make([]int, rangesLn)
-	for i := range ranges {
-		ranges[i] = 1 << (i + minRangeP2)
-	}
-	return ranges
+	return powersOfTwo(minRangePo2, 1<<maxRangePo2)
 }
 
-func calculateInMemoBufferRangesAndLimits(maxSyncBufSize, minRangeP2, maxBufSize, maxMemoSize int,
-) ([]int, map[int]int) {
-	if maxBufSize > maxSyncBufSize {
-		maxRangeP2 := 63 - bits.LeadingZeros64(uint64(maxBufSize))
-
-		rangesLn := maxRangeP2 - minRangeP2 + 1
-		ranges := make([]int, rangesLn, rangesLn+1)
-		for i := 0; i < rangesLn; i++ {
-			ranges[i] = 1 << (i + minRangeP2)
-		}
-		if maxBufSize != 1<<maxRangeP2 {
-			rangesLn++
-			ranges = append(ranges, maxBufSize)
-		}
-
-		sums := make([]int, rangesLn)
-		for i := 0; i < rangesLn; i++ {
-			sums[i] = ranges[i]
-			if i != 0 {
-				sums[i] += sums[i-1]
-			}
-			if sums[i] > maxMemoSize {
-				sums = sums[:i]
-				ranges = ranges[:i]
-				break
-			}
-		}
-
-		rangesLn = len(ranges)
-		bufsLimits := make(map[int]int, len(ranges)) // range -> limit
-		for i := rangesLn - 1; i >= 0; i-- {
-			bufsLimits[ranges[i]] = maxMemoSize / sums[i]
-			maxMemoSize -= sums[i] * bufsLimits[ranges[i]]
-
-			if i != rangesLn-1 {
-				bufsLimits[ranges[i]] += bufsLimits[ranges[i+1]]
-			}
-		}
-
-		return ranges, bufsLimits
+// calculateInMemoBufferRanges returns powers of two from 2^minRangePo2 up to
+// maxBufSize, plus maxBufSize itself, leaving out sizes that cannot fit idleBudget.
+func calculateInMemoBufferRanges(maxSyncBufSize, minRangePo2, maxBufSize, idleBudget int) []int {
+	if maxBufSize <= maxSyncBufSize {
+		return nil
 	}
-	return []int{}, map[int]int{}
+	ranges := powersOfTwo(minRangePo2, min(maxBufSize, idleBudget))
+	maxIsPowerOfTwo := bits.OnesCount(uint(maxBufSize)) == 1 // then powersOfTwo added it
+	maxFitsBudget := maxBufSize <= idleBudget
+	if !maxIsPowerOfTwo && maxFitsBudget {
+		ranges = append(ranges, maxBufSize)
+	}
+	return ranges
 }
 
 // -----------------------------------------------------------------------------
@@ -479,39 +576,36 @@ type bufPoolInMemoMetrics interface {
 	bufPut()
 	bufDiscarded()
 	bufCleanedUp()
+	bufEvicted()
 }
 
+// promBufPoolInMemoMetrics resolves its counters once, so get and put skip the
+// label lookup.
 type promBufPoolInMemoMetrics struct {
-	usageCounter *prometheus.CounterVec
-	size         string
+	created, got, put, discarded, cleanedUp, evicted prometheus.Counter
 }
 
 func newPromBufPoolInMemoMetrics(metrics *monitoring.PrometheusMetrics, sizeInBytes int) *promBufPoolInMemoMetrics {
+	size := humanize.IBytes(uint64(sizeInBytes))
+	counter := func(op string) prometheus.Counter {
+		return metrics.LSMBitmapBuffersUsage.WithLabelValues(size, op)
+	}
 	return &promBufPoolInMemoMetrics{
-		usageCounter: metrics.LSMBitmapBuffersUsage,
-		size:         humanize.IBytes(uint64(sizeInBytes)),
+		created:   counter("inmemo_created"),
+		got:       counter("inmemo_got"),
+		put:       counter("inmemo_put"),
+		discarded: counter("inmemo_discarded"),
+		cleanedUp: counter("inmemo_cleanedUp"),
+		evicted:   counter("inmemo_evicted"),
 	}
 }
 
-func (m *promBufPoolInMemoMetrics) bufCreated() {
-	m.usageCounter.WithLabelValues(m.size, "inmemo_created").Inc()
-}
-
-func (m *promBufPoolInMemoMetrics) bufGot() {
-	m.usageCounter.WithLabelValues(m.size, "inmemo_got").Inc()
-}
-
-func (m *promBufPoolInMemoMetrics) bufPut() {
-	m.usageCounter.WithLabelValues(m.size, "inmemo_put").Inc()
-}
-
-func (m *promBufPoolInMemoMetrics) bufDiscarded() {
-	m.usageCounter.WithLabelValues(m.size, "inmemo_discarded").Inc()
-}
-
-func (m *promBufPoolInMemoMetrics) bufCleanedUp() {
-	m.usageCounter.WithLabelValues(m.size, "inmemo_cleanedUp").Inc()
-}
+func (m *promBufPoolInMemoMetrics) bufCreated()   { m.created.Inc() }
+func (m *promBufPoolInMemoMetrics) bufGot()       { m.got.Inc() }
+func (m *promBufPoolInMemoMetrics) bufPut()       { m.put.Inc() }
+func (m *promBufPoolInMemoMetrics) bufDiscarded() { m.discarded.Inc() }
+func (m *promBufPoolInMemoMetrics) bufCleanedUp() { m.cleanedUp.Inc() }
+func (m *promBufPoolInMemoMetrics) bufEvicted()   { m.evicted.Inc() }
 
 type bufPoolNoopMetrics struct{}
 
@@ -520,6 +614,7 @@ func (m *bufPoolNoopMetrics) bufGot()       {}
 func (m *bufPoolNoopMetrics) bufPut()       {}
 func (m *bufPoolNoopMetrics) bufDiscarded() {}
 func (m *bufPoolNoopMetrics) bufCleanedUp() {}
+func (m *bufPoolNoopMetrics) bufEvicted()   {}
 
 // -----------------------------------------------------------------------------
 
