@@ -104,9 +104,9 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
-// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts the jsonparser
-// path with every property listed yields the same object as json.Unmarshal —
-// the equivalence the MultiObjectByID fast path relies on.
+// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts both jsonparser
+// paths, every property listed and every property stored, yield the same object
+// as json.Unmarshal. MultiObjectByID relies on the first, listing on the second.
 func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 	const className = "MyFavoriteClass"
 
@@ -194,6 +194,18 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			name:  "empty",
 			props: map[string]interface{}{},
 		},
+		{
+			name:  "no_properties",
+			props: nil,
+		},
+		{
+			name:  "null_value",
+			props: map[string]interface{}{"hasRef": models.MultipleRef(nil), "title": "x"},
+		},
+		{
+			name:  "empty_array",
+			props: map[string]interface{}{"tags": []interface{}{}},
+		},
 	}
 
 	for _, tc := range cases {
@@ -218,6 +230,13 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			viaJSON, err := FromBinaryDisk(asBinary, className)
 			require.NoError(t, err)
 
+			viaStored, err := FromBinaryDiskWithProps(asBinary, className, StoredPropertiesExtraction())
+			require.NoError(t, err)
+			assert.Equal(t, viaJSON, viaStored)
+
+			if tc.props == nil {
+				return // the listed path decodes a stored null as an empty map
+			}
 			pe := NewPropExtraction()
 			for name := range tc.props {
 				pe.Add(name)
@@ -941,6 +960,19 @@ func TestUnmarshalProperties(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+func TestFromBinaryDiskWithPropsReturnsStoredDecodeError(t *testing.T) {
+	obj := FromObject(&models.Object{
+		Class:      "MyFavoriteClass",
+		ID:         strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		Properties: map[string]interface{}{"count": json.Number("1e400")}, // past float64, so json.Unmarshal rejects it too
+	}, nil, nil, nil)
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = FromBinaryDiskWithProps(asBinary, "MyFavoriteClass", StoredPropertiesExtraction())
+	require.Error(t, err)
 }
 
 func TestStorageObjectMarshallingWithGroup(t *testing.T) {
