@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/config"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // What splitting a ContainsAll across workers is worth on rows big enough for
@@ -137,8 +136,7 @@ func newRoaringRowsFixture(tb testing.TB, rows [][]uint64, docIDCount uint64) *r
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
-		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	return &roaringRowsFixture{searcher: searcher, store: store, rows: rows}
 }
