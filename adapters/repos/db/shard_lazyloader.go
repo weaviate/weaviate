@@ -150,11 +150,23 @@ func (l *LazyLoadShard) currentShard() *Shard {
 	return l.shard.Load()
 }
 
+// liveShard returns the loaded shard without l.mutex, or nil when it is cold,
+// shut or a TryUnload is deciding on it; those callers take the mutex path.
+func (l *LazyLoadShard) liveShard() *Shard {
+	if s := l.currentShard(); s != nil && !s.shut.Load() && l.unloadPhase.Load() == unloadPhaseNone {
+		return s
+	}
+	return nil
+}
+
 // loadedShard waits for any load in flight, then returns the shard, or nil when
 // it is cold. It never starts a load. The wait keeps enableAsyncReplication from
 // skipping a shard whose load read the config too early. Callers must not hold
 // l.mutex.
 func (l *LazyLoadShard) loadedShard() *Shard {
+	if s := l.liveShard(); s != nil {
+		return s
+	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -222,6 +234,9 @@ type loadOpts struct {
 }
 
 func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, error) {
+	if s := l.liveShard(); s != nil {
+		return s, false, nil
+	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -327,6 +342,9 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	if s := l.liveShard(); s != nil {
+		return s.GetStatus()
+	}
 	if !l.lockUnlessTearing() {
 		return storagestate.StatusLazyLoading
 	}
@@ -339,6 +357,9 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 }
 
 func (l *LazyLoadShard) GetStatusReason() string {
+	if s := l.liveShard(); s != nil {
+		return s.GetStatusReason()
+	}
 	if !l.lockUnlessTearing() {
 		return storagestate.StatusLazyLoading.String()
 	}
@@ -389,6 +410,9 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
+	if s := l.liveShard(); s != nil {
+		return s.ObjectCountAsync(ctx)
+	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 

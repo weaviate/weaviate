@@ -40,6 +40,9 @@ func shardKnownShut(s ShardLike) bool {
 	case *Shard:
 		return sh.shut.Load() && sh.teardownError() == nil
 	case *LazyLoadShard:
+		if sh.liveShard() != nil {
+			return false
+		}
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
 		loaded := sh.currentShard()
@@ -98,6 +101,9 @@ func shardTeardownError(s ShardLike) error {
 	case *Shard:
 		return sh.teardownError()
 	case *LazyLoadShard:
+		if sh.liveShard() != nil {
+			return nil
+		}
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
 		loaded := sh.currentShard()
