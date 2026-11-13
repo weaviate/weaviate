@@ -24,11 +24,12 @@ type RerankPropertyDataTypes interface {
 	RerankPropertyDataTypes() []schema.DataType
 }
 
-// RerankQueryRequired is implemented by a reranker module that cannot rank
-// without rerank.query. The gRPC search rejects a rerank without a query
+// RerankQueryValidator is implemented by a reranker module that rejects some
+// values of rerank.query, such as an empty one. The gRPC search calls it
 // before the search, so the request fails whether or not the search returns
-// objects. A module that returns false accepts a rerank without a query, and
-// the check does not run for GraphQL.
-type RerankQueryRequired interface {
-	RerankQueryRequired() bool
+// objects: the rank call does not run for an empty result set. A rerank
+// without a query reaches it as an empty string. The check does not run for
+// GraphQL, so the module's rank call must apply the same rule.
+type RerankQueryValidator interface {
+	ValidateRerankQuery(query string) error
 }

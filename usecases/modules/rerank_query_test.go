@@ -12,6 +12,8 @@
 package modules
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -22,25 +24,30 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// queryReranker is a reranker module that states whether it requires
-// rerank.query.
+// queryReranker is a reranker module that rejects an empty rerank.query and
+// one longer than its limit.
 type queryReranker struct {
 	plainReranker
-	required bool
+	maxQueryBytes int
 }
 
-func (m queryReranker) RerankQueryRequired() bool {
-	return m.required
+func (m queryReranker) ValidateRerankQuery(query string) error {
+	if query == "" {
+		return errors.New("rerank.query is required by reranker-query")
+	}
+	if len(query) > m.maxQueryBytes {
+		return fmt.Errorf("rerank.query is %d bytes; reranker-query takes %d", len(query), m.maxQueryBytes)
+	}
+	return nil
 }
 
-var _ modulecapabilities.RerankQueryRequired = queryReranker{}
+var _ modulecapabilities.RerankQueryValidator = queryReranker{}
 
 func TestValidateRerankQuery(t *testing.T) {
 	plain := func(name string) plainReranker {
 		return plainReranker{dummyNonVectorizerModule: newDummyNonVectorizerModule(name)}
 	}
-	requiring := queryReranker{plainReranker: plain("reranker-query"), required: true}
-	optional := queryReranker{plainReranker: plain("reranker-query")}
+	requiring := queryReranker{plainReranker: plain("reranker-query"), maxQueryBytes: 8}
 	configOf := func(modules ...string) map[string]any {
 		moduleConfig := map[string]any{}
 		for _, module := range modules {
@@ -63,11 +70,6 @@ func TestValidateRerankQuery(t *testing.T) {
 			moduleConfig: configOf("reranker-plain"),
 		},
 		{
-			name:         "module that does not require a query, no query",
-			modules:      []modulecapabilities.Module{optional},
-			moduleConfig: configOf("reranker-query"),
-		},
-		{
 			name:         "module that requires a query, no query",
 			modules:      []modulecapabilities.Module{requiring},
 			moduleConfig: configOf("reranker-query"),
@@ -80,10 +82,23 @@ func TestValidateRerankQuery(t *testing.T) {
 			query:        "billing",
 		},
 		{
-			name:         "module that requires a query, whitespace query is a query",
+			name:         "the query reaches the module as sent",
 			modules:      []modulecapabilities.Module{requiring},
 			moduleConfig: configOf("reranker-query"),
 			query:        " ",
+		},
+		{
+			name:         "query at the module's limit",
+			modules:      []modulecapabilities.Module{requiring},
+			moduleConfig: configOf("reranker-query"),
+			query:        "12345678",
+		},
+		{
+			name:         "query above the module's limit",
+			modules:      []modulecapabilities.Module{requiring},
+			moduleConfig: configOf("reranker-query"),
+			query:        "123456789",
+			wantErr:      "rerank.query is 9 bytes; reranker-query takes 8",
 		},
 		{
 			// The only reranker module serves every class, configured or not.
@@ -98,7 +113,7 @@ func TestValidateRerankQuery(t *testing.T) {
 			moduleConfig: configOf("reranker-plain"),
 		},
 		{
-			name:         "class names two rerankers, the requiring one last by name",
+			name:         "class names two rerankers, the validating one last by name",
 			modules:      []modulecapabilities.Module{requiring, plain("reranker-plain")},
 			moduleConfig: configOf("reranker-query", "reranker-plain"),
 			wantErr:      wantErr,

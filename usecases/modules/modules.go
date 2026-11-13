@@ -330,19 +330,15 @@ func (p *Provider) ValidateRerankProperty(class *models.Class, property string) 
 	return fmt.Errorf("rerank: property %q does not exist in collection %q", property, class.Class)
 }
 
-// ValidateRerankQuery rejects a rerank without a query when the class's
-// reranker module requires one. It accepts every query when the class has no
-// reranker module or when that module does not require a query.
+// ValidateRerankQuery returns the error of the class's reranker module for a
+// rerank query that module rejects. It accepts every query when the class has
+// no reranker module or when that module does not validate the query.
 func (p *Provider) ValidateRerankQuery(class *models.Class, query string) error {
-	if query != "" {
+	validator, ok := p.classReranker(class).(modulecapabilities.RerankQueryValidator)
+	if !ok {
 		return nil
 	}
-	reranker := p.classReranker(class)
-	module, ok := reranker.(modulecapabilities.RerankQueryRequired)
-	if !ok || !module.RerankQueryRequired() {
-		return nil
-	}
-	return fmt.Errorf("rerank.query is required by %s", reranker.Name())
+	return validator.ValidateRerankQuery(query)
 }
 
 // rerankPropertyDataType is the data type matched against the declared list.
