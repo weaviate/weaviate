@@ -663,12 +663,6 @@ func (s *MigrationRecordStore) Records() []MigrationRecord {
 	return out
 }
 
-func (s *MigrationRecordStore) HasRecords() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.records) > 0
-}
-
 // HasUndecided reports whether any understood record is still pre-swap and
 // still movable. A wedged one is neither, and asking again about it is what
 // makes the periodic pass repeat forever with nothing to show for it.
