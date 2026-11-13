@@ -227,7 +227,6 @@ func processDenseSearch(ctx context.Context,
 	query := params.Query
 	vector := params.Vector
 	if params.HybridSearch.NearTextParams != nil {
-		params.NearTextParams = params.HybridSearch.NearTextParams
 		query = params.HybridSearch.NearTextParams.Values[0]
 	}
 

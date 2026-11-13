@@ -3743,31 +3743,40 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		return i.aggregateCount(ctx, readPlan)
 	}
 
+	// Every shard scans all of its data, so the shards run side by side: the
+	// query then takes as long as its slowest shard, not all of them in turn.
 	shards := readPlan.Shards()
 	results := make([]*aggregation.Result, len(shards))
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	// at least 3, so that a single-tenant rf=3 query is not serialized on 1 CPU
+	eg.SetLimit(_NUMCPU*2 + 1)
 	for j, shardName := range shards {
-		var res *aggregation.Result
-
-		err := i.withShardOrRemote(ctx, params.Tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				var err error
-				res, err = shard.Aggregate(ctx, params, modules)
-				return err
-			},
-			func() error {
-				var err error
-				res, err = i.remote.Aggregate(ctx, shardName, params)
-				if err != nil || res == nil {
+		eg.Go(func() error {
+			var res *aggregation.Result
+			err := i.withShardOrRemote(ctx, params.Tenant, shardName, localShardOperationRead, 0,
+				func(shard ShardLike) error {
+					var err error
+					res, err = shard.Aggregate(ctx, params, modules)
 					return err
-				}
-				// restore wire state here so a malformed payload error still names the shard
-				return aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-
-		results[j] = res
+				},
+				func() error {
+					var err error
+					res, err = i.remote.Aggregate(ctx, shardName, params)
+					if err != nil || res == nil {
+						return err
+					}
+					// restore wire state here so a malformed payload error still names the shard
+					return aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
+				})
+			if err != nil {
+				return errors.Wrapf(err, "shard %s", shardName)
+			}
+			results[j] = res
+			return nil
+		}, shardName)
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	return aggregator.NewShardCombiner().Do(results)
