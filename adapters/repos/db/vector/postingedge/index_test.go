@@ -1118,21 +1118,27 @@ func TestReplaceEdges(t *testing.T) {
 	}
 	before := search()
 
+	capped := func(k int) func() ([]uint32, []uint32) {
+		return func() ([]uint32, []uint32) { return capDegree(fullStart, fullEdges, k) }
+	}
 	tests := []struct {
-		name string
-		k    int
+		name  string
+		edges func() ([]uint32, []uint32)
+		full  bool
 	}{
-		{name: "one edge per vector", k: 1},
-		{name: "three edges per vector", k: 3},
-		{name: "no edges at all", k: -1},
-		{name: "the full edges again", k: 0},
+		{name: "one edge per vector", edges: capped(1)},
+		{name: "three edges per vector", edges: capped(3)},
+		{name: "one edge per target posting", edges: func() ([]uint32, []uint32) {
+			return onePerTarget(fullStart, fullEdges, index.state.Load().side.postingOf)
+		}},
+		{name: "no edges at all", edges: func() ([]uint32, []uint32) {
+			return make([]uint32, len(fullStart)), []uint32{}
+		}},
+		{name: "the full edges again", edges: capped(0), full: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			start, edges := capDegree(fullStart, fullEdges, tt.k)
-			if tt.k < 0 {
-				start, edges = make([]uint32, len(fullStart)), []uint32{}
-			}
+			start, edges := tt.edges()
 			require.NoError(t, index.replaceEdges(start, edges))
 
 			memory, ok := index.MemoryStats()
@@ -1149,7 +1155,7 @@ func TestReplaceEdges(t *testing.T) {
 			assert.Equal(t, full.start, st.postings.start)
 
 			got := search()
-			if tt.k == 0 {
+			if tt.full {
 				assert.Equal(t, before, got, "the full edges give back the results of the build")
 			}
 			// Every query is a stored vector, found through its own posting

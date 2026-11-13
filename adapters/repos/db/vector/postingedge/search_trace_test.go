@@ -248,25 +248,6 @@ func TestEdgeTraceCounts(t *testing.T) {
 	})
 }
 
-// onePerTarget keeps, of every row of edges, the nearest edge into each of
-// its target postings.
-func onePerTarget(edgeStart, edges, postingOf []uint32) (keptStart, kept []uint32) {
-	n := len(edgeStart) - 1
-	keptStart = make([]uint32, n+1)
-	var marks []bool
-	for slot := 0; slot < n; slot++ {
-		row := edges[edgeStart[slot]:edgeStart[slot+1]]
-		marks = redundantEdges(row, postingOf, marks)
-		for j, endpoint := range row {
-			if !marks[j] {
-				kept = append(kept, endpoint)
-			}
-		}
-		keptStart[slot+1] = uint32(len(kept))
-	}
-	return keptStart, kept
-}
-
 // The trace changes nothing a search does, predicts every load right, and
 // its counts hold together, over margins, batches and efs. With one edge per
 // target posting there is nothing for it to count.
