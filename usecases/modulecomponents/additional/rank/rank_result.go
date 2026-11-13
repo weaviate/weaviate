@@ -62,8 +62,17 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 		return nil, fmt.Errorf("client rank: %w", err)
 	}
 
-	// add scores to results
+	if len(result.DocumentScores) != len(in) {
+		return nil, fmt.Errorf("reranker returned %d scores for %d results", len(result.DocumentScores), len(in))
+	}
+
+	// add scores to results, dropping the ones the reranker left unscored
+	// (e.g. cut off by a top-N setting)
+	out := make([]search.Result, 0, len(in))
 	for i := range in {
+		if result.DocumentScores[i].Unscored {
+			continue
+		}
 		if in[i].AdditionalProperties == nil {
 			in[i].AdditionalProperties = models.AdditionalProperties{}
 		}
@@ -72,15 +81,16 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 				Score: &result.DocumentScores[i].Score,
 			},
 		}
+		out = append(out, in[i])
 	}
 
 	// sort the list
-	sort.Slice(in, func(i, j int) bool {
-		apI := in[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
-		apJ := in[j].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
+	sort.Slice(out, func(i, j int) bool {
+		apI := out[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
+		apJ := out[j].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
 
 		// Sort in descending order, based on Score values
 		return *apI[0].Score > *apJ[0].Score
 	})
-	return in, nil
+	return out, nil
 }

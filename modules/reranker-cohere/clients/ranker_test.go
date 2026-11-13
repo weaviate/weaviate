@@ -236,3 +236,42 @@ func TestRank_client_getCohereUrl(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "base-url-from-ctx/v2/rerank", url)
 }
+
+func TestRankMapsPartialAndInvalidResults(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []Result
+		want    []ent.DocumentScore
+		wantErr string
+	}{
+		{
+			name:    "documents cut off by top-N are unscored",
+			results: []Result{{Index: 2, RelevanceScore: 0.8}, {Index: 0, RelevanceScore: 0.3}},
+			want: []ent.DocumentScore{
+				{Document: "doc1", Score: 0.3},
+				{Document: "doc2", Unscored: true},
+				{Document: "doc3", Score: 0.8},
+			},
+		},
+		{
+			name:    "index out of range is an error",
+			results: []Result{{Index: 0, RelevanceScore: 0.3}, {Index: 5, RelevanceScore: 0.8}},
+			wantErr: "reranker result index 5 out of range for 3 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testRankHandler{t: t, response: RankResponse{Results: tt.results}})
+			defer server.Close()
+			c := New("apiKey", 0, nullLogger())
+			c.urlBuilder = &fakeUrlBuilder{server.URL}
+			res, err := c.Rank(context.Background(), "q", []string{"doc1", "doc2", "doc3"}, nil)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
+		})
+	}
+}

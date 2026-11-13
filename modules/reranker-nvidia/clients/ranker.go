@@ -141,7 +141,9 @@ func (c *client) performRank(ctx context.Context,
 		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
 
-	return c.toDocumentScores(documents, resBody.Rankings), nil
+	return ent.ToDocumentScores(documents, resBody.Rankings, func(r ranking) (int, float64) {
+		return r.Index, r.Logit
+	})
 }
 
 func (c *client) getRankRequest(model, query string, documents []string) rankRequest {
@@ -154,17 +156,6 @@ func (c *client) getRankRequest(model, query string, documents []string) rankReq
 		Query:    text{Text: query},
 		Passages: passages,
 	}
-}
-
-func (c *client) toDocumentScores(documents []string, results []ranking) []ent.DocumentScore {
-	documentScores := make([]ent.DocumentScore, len(results))
-	for _, result := range results {
-		documentScores[result.Index] = ent.DocumentScore{
-			Document: documents[result.Index],
-			Score:    result.Logit,
-		}
-	}
-	return documentScores
 }
 
 func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
@@ -217,7 +208,7 @@ func (c *client) getResponseError(statusCode int, bodyBytes []byte) error {
 		}
 		details := make([]string, len(resBody.Detail))
 		for i := range resBody.Detail {
-			details[i] = resBody.Detail[0].Message
+			details[i] = resBody.Detail[i].Message
 		}
 		return fmt.Errorf("connection to NVIDIA API failed with status: %d error: %s", statusCode, strings.Join(details, " "))
 	default:
