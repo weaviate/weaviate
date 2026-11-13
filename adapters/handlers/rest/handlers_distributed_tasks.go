@@ -46,7 +46,8 @@ func (h *distributedTasksHandlers) getTasks(params distributed_tasks.Distributed
 	tasks, err := h.handler.ListTasks(params.HTTPRequest.Context(), principal)
 	if err != nil {
 		if errors.As(err, &autherrs.Forbidden{}) {
-			return distributed_tasks.NewDistributedTasksGetForbidden()
+			return distributed_tasks.NewDistributedTasksGetForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 		return distributed_tasks.NewDistributedTasksGetInternalServerError().
 			WithPayload(errPayloadFromSingleErr(principal, err))
