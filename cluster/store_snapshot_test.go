@@ -1339,17 +1339,19 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 	require.NoError(t, snapshot.Persist(sink))
 
 	tests := []struct {
-		name             string
-		metadataOnly     bool
-		noRaft           bool
-		noSnapshotListed bool
-		wantApplied      uint64
+		name              string
+		metadataOnly      bool
+		noRaft            bool
+		noSnapshotListed  bool
+		dbAheadOfSnapshot bool
+		wantApplied       uint64
 	}{
 		{name: "voter", wantApplied: snapIndex},
 		{name: "metadata-only voter", metadataOnly: true, wantApplied: snapIndex},
 		{name: "restore before the store holds a raft node leaves the index to Open", noRaft: true, wantApplied: 0},
 		// A failed snapshot listing reads as index 0, which must not lower the index.
 		{name: "unlisted snapshot keeps the index", noSnapshotListed: true, wantApplied: 5},
+		{name: "voter whose DB is ahead of the snapshot advances without a reload", dbAheadOfSnapshot: true, wantApplied: snapIndex},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1378,7 +1380,11 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 				attachFollowerRaft(t, target.store)
 				appliedAtRestore = 5
 			}
-			target.store.lastAppliedIndexToDB.Store(10)
+			appliedToDB := uint64(10)
+			if tt.dbAheadOfSnapshot {
+				appliedToDB = 30
+			}
+			target.store.lastAppliedIndexToDB.Store(appliedToDB)
 			target.store.lastAppliedIndex.Store(appliedAtRestore)
 			target.store.metrics.fsmLastAppliedIndex.Set(float64(appliedAtRestore))
 			target.store.metrics.raftLastAppliedIndex.Set(float64(appliedAtRestore))
@@ -1388,7 +1394,7 @@ func TestRestoreAdvancesAppliedIndexToSnapshot(t *testing.T) {
 				restored <- target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes())))
 			}, target.store.log)
 
-			if !tt.metadataOnly && !tt.noSnapshotListed {
+			if !tt.metadataOnly && !tt.noSnapshotListed && !tt.dbAheadOfSnapshot {
 				select {
 				case <-reloadStarted:
 				case err := <-restored:
