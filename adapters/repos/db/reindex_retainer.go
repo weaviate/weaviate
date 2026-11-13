@@ -128,7 +128,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	return migrated, paid, covered
 }
 
-// ReindexTenantCounts is false without multi-tenancy: that collection migrates as one unnamed group, not a tenant.
+// ReindexTenantCounts reports ok=false when migrated holds "", the unnamed group of a collection without multi-tenancy.
 func ReindexTenantCounts(migrated, covered map[string]struct{}) (migratedTenants, totalTenants int, ok bool) {
 	if _, ungrouped := migrated[""]; ungrouped {
 		return 0, 0, false

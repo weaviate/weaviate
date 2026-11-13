@@ -802,8 +802,6 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   higher Version > lower Version             (within the same priority)
-	// Version is the RAFT index, the order the retainer uses; StartedAt is
-	// the receiving node's clock and can disagree under skew.
 	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload

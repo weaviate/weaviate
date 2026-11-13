@@ -275,21 +275,8 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// Edge case 6: Two overlapping STARTED tasks targeting the same property.
-// One is enable-filterable (progress 0.2), the other is change-tokenization
-// (progress 0.9). For indexType="filterable", both match. The current
-// implementation iterates `tasks` in map-list order and `return`s on the
-// When two STARTED tasks for the same (collection, prop, indexType)
-// coexist, the most recently started one wins regardless of slice
-// order. The runtime delivers tasks in map iteration order which is
-// non-deterministic per call, so first-in-list ordering would mean
-// polling could see the answer change request-to-request. The
-// Version tiebreak keeps the response stable.
-//
-// In practice checkReindexConflict rejects overlapping STARTED tasks
-// on the same bucket, but a runtime fault (e.g. cluster forwarding
-// edge cases) could in theory produce this state and the response must
-// still be stable.
+// Two overlapping STARTED tasks for the same property: the higher Version wins
+// regardless of slice order.
 func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	enableTask := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusStarted,
@@ -404,7 +391,7 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
 		// Standing decides, not recency: on recency alone the newer terminal
 		// task would win and report an outcome a running task has superseded.
-		{"a live task started earlier beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4, olderID},
+		{"an older live task beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4, olderID},
 		{"one this build cannot name beats a newer completed migration", unrecognized(0.4), done(0.7), "indexing", 0.4, olderID},
 		// CANCELLED shares its rank with FAILED and FINISHED, so recency is
 		// the only thing separating it from either.

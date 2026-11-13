@@ -229,7 +229,8 @@ Per-property, per-index-type snapshot:
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`,
 `partial` (a stopped run left some tenants migrated; `migratedTenants` and
-`totalTenants` count them). The counts, and the tenant counts in a partial
+`totalTenants` count them, and both are absent for a collection without
+multi-tenancy). The counts, and the tenant counts in a partial
 run's refusals, go only to a caller who may read the collection's tenants;
 a count of tenants is tenant metadata.
 The status is synthesized in `mergeReindexStatus` from the DTM task
