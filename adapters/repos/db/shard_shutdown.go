@@ -72,6 +72,7 @@ func shardRegistration(s ShardLike) monitoring.ShardRegistration {
 func (i *Index) evictShutShard(shardName string) {
 	if shard, ok := i.shards.LoadAndDelete(shardName); ok {
 		i.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
+		deregisterEvictedWrapper(shard)
 	}
 }
 
@@ -258,7 +259,19 @@ func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard 
 	// already-shut case, not a failure (a cold-tenant batch would otherwise
 	// fail whole on one racy tenant).
 	idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
+	deregisterEvictedWrapper(shard)
 	return ShardUnloadOutcomeUnloaded, errAlreadyShutdown
+}
+
+// deregisterEvictedWrapper drops a wrapper leaving the shard map from the
+// unloader's registry: a deferred shutdown closes the shard without its
+// wrapper, which then still counts as loaded.
+func deregisterEvictedWrapper(shard ShardLike) {
+	if lazy, ok := asLazyLoadShard(shard); ok && lazy.unloader() != nil {
+		lazy.mutex.Lock()
+		lazy.markUnloaded()
+		lazy.mutex.Unlock()
+	}
 }
 
 // restoreShardIfStillAlive puts a shard whose Shutdown failed back into the
@@ -330,9 +343,43 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			Debugf("shard %q is still in use", s.name)
 		return fmt.Errorf("shard %q: %w", s.name, errShardStillInUse)
 	}
+	return s.teardownLocked(ctx, nil)
+}
+
+// tryShutdownIdle is the unloader's performShutdown: it only try-locks, refuses
+// a shard that is shut, pinned or asked to shut down or drop, and never sets
+// shutdownRequested, so a concurrent pin is never answered errShutdownInProgress.
+// marked runs once shut is set, before the teardown; the caller releases
+// shardCreateLocks there.
+func (s *Shard) tryShutdownIdle(ctx context.Context, marked func()) (bool, error) {
+	if !s.shutdownLock.TryLock() {
+		return false, nil
+	}
+	defer s.shutdownLock.Unlock()
+	if s.shut.Load() {
+		return false, nil
+	}
+	if s.inUseCounter.Load() != 0 || s.shutdownRequested.Load() || s.dropRequested.Load() {
+		return false, nil
+	}
+	if err := s.teardownLocked(ctx, marked); err != nil {
+		if s.teardownErr == nil {
+			s.teardownErr = err
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// teardownLocked marks the shard shut and tears it down. Callers hold
+// shutdownLock for writing and have checked it is not shut and not in use.
+func (s *Shard) teardownLocked(ctx context.Context, marked func()) (err error) {
 	s.shut.Store(true)
 	defer s.releaseCountedStatus()
 	s.shutdownRequested.Store(false)
+	if marked != nil {
+		marked()
+	}
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
 	// The teardown below cannot be abandoned: every step of it consumes ctx.
@@ -540,7 +587,12 @@ func (s *Shard) refCountSub() {
 	// a shutdown requested while the shard was in use runs once the last
 	// reference drops
 	if s.inUseCounter.Add(-1) == 0 && s.shutdownRequested.Load() {
-		if err := s.performShutdown(context.TODO()); err != nil {
+		err := s.performShutdown(context.TODO())
+		// The callback deregisters only while the wrapper is registered for this shard.
+		if s.shut.Load() && s.deferredShutdownDone != nil {
+			s.deferredShutdownDone()
+		}
+		if err != nil {
 			// No caller to receive this: the deferred completion runs on
 			// whichever request releases the last ref. teardownErr keeps deep
 			// failures sticky for later Shutdown/reactivation attempts, but

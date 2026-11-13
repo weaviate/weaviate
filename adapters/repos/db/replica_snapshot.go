@@ -43,7 +43,7 @@ func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (h
 	if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
 		return false, false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
 	}
-	if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+	if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoadedAfterTeardown() {
 		return i.probeShardDataOnDisk(shardName)
 	}
 	if s == nil {
