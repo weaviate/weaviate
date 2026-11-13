@@ -83,10 +83,8 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
 // this node (deleted, or never held here), possibly after sweeping some
-// shards before a mid-walk delete. Whatever state remains — including files a
-// backup in flight keeps past the drop ([Index.drop]'s keepFiles) — is
-// harmless: with the class gone from the schema, no later submit can
-// short-circuit on it.
+// shards before a mid-walk delete. Whatever state remains is harmless, since
+// with the class gone from the schema no later submit can short-circuit on it.
 var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is not on this node")
 
 // ErrCleanupShardFailed marks a sweep that reached a shard and could not

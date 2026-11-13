@@ -164,7 +164,7 @@ func benchmarkReassignNeighborsOfScenario(b *testing.B, vectorCount int, dimensi
 		VectorCacheMaxObjects: vectorCount + 1000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(b, err)
-	defer index.Drop(context.Background(), false)
+	defer index.Drop(context.Background())
 
 	// Add all vectors to index
 	for i := 0; i < vectorCount; i++ {
@@ -278,7 +278,7 @@ func benchmarkReassignNeighborScenario(b *testing.B, vectorCount int, tombstoneP
 		VectorCacheMaxObjects: vectorCount + 1000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(b, err)
-	defer index.Drop(context.Background(), false)
+	defer index.Drop(context.Background())
 
 	// Add all vectors
 	for i := 0; i < vectorCount; i++ {
@@ -380,7 +380,7 @@ func benchmarkConnectionsPointToScenario(b *testing.B, vectorCount int, deleteCo
 		VectorCacheMaxObjects: vectorCount + 1000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(b, err)
-	defer index.Drop(context.Background(), false)
+	defer index.Drop(context.Background())
 
 	// Add vectors
 	for i := 0; i < vectorCount; i++ {
@@ -519,7 +519,7 @@ func benchmarkCleanUpTombstonedNodesScenario(b *testing.B, vectorCount int, tomb
 
 		b.StopTimer()
 		store.Shutdown(context.Background())
-		index.Drop(context.Background(), false)
+		index.Drop(context.Background())
 	}
 }
 

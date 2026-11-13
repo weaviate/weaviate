@@ -526,25 +526,6 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 // ─── Async Replication Lifecycle ─────────────────────────────────────────────
 
-// minAsyncReplicationConfig returns a valid AsyncReplicationConfig suitable
-// for unit tests that enable async replication.  All ticker durations are
-// non-zero (time.NewTicker panics on zero) but large enough that background
-// goroutines don't fire during the test lifetime.
-func minAsyncReplicationConfig() AsyncReplicationConfig {
-	return AsyncReplicationConfig{
-		hashtreeHeight:            1,
-		frequency:                 10 * time.Minute,
-		frequencyWhilePropagating: 10 * time.Minute,
-		diffBatchSize:             100,
-		propagationLimit:          100,
-		propagationConcurrency:    1,
-		propagationBatchSize:      10,
-		diffPerNodeTimeout:        5 * time.Second,
-		prePropagationTimeout:     5 * time.Second,
-		propagationTimeout:        5 * time.Second,
-	}
-}
-
 // awaitHashtreeInitialized polls hashtreeFullyInitialized until it is true or
 // the deadline fires.  Since writes no longer update the hashtree, the init
 // goroutine is the only writer; polling under RLock is safe and race-free.
@@ -2036,7 +2017,7 @@ func TestHaltForTransferOffloadDoesNotPersistHashtree(t *testing.T) {
 	ctx := context.Background()
 	_, s := newSeededAsyncShard(t, ctx, "HaltOffloadNoHashtreeTest")
 
-	require.NoError(t, s.HaltForTransfer(ctx, true, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, true))
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
 		"offload halt must not persist a hashtree for a live shard")
 
@@ -2480,7 +2461,7 @@ func TestResumeMaintenanceCyclesReappliesSkippedEnable(t *testing.T) {
 	s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
 	s.index.replicationConfigLock.Unlock()
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, false))
 
 	override := additional.AsyncReplicationTargetNodeOverride{
 		CollectionID:   class,
@@ -2502,6 +2483,47 @@ func TestResumeMaintenanceCyclesReappliesSkippedEnable(t *testing.T) {
 	installed = s.hashtree != nil
 	s.asyncReplicationRWMux.RUnlock()
 	require.True(t, installed, "the halt-skipped enable must be re-derived on resume")
+}
+
+// TestResumeMaintenanceCyclesReapplyGate: the re-apply of a halt-skipped enable fires only once a resume completes.
+func TestResumeMaintenanceCyclesReapplyGate(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a failed resume defers the re-apply to the successful retry", func(t *testing.T) {
+		const class = "ResumeReapplyGateTest"
+		// testShard installs noop cycle callbacks whose Activate never fails, so install real ones.
+		sl, _ := testShard(t, ctx, class, withAsyncScheduler(t), func(i *Index) { i.initCycleCallbacks() })
+		s := concreteShard(t, sl)
+		t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+		s.index.replicationConfigLock.Lock()
+		s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+		s.index.replicationConfigLock.Unlock()
+
+		require.NoError(t, s.HaltForTransfer(ctx, false))
+		require.NoError(t, s.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   class,
+			ShardID:        s.name,
+			SourceNode:     "nodeA",
+			TargetNode:     "nodeB",
+			UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+		}))
+		require.False(t, asyncReplicationInstalled(s), "the enable must be skipped while halted")
+
+		// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+		cc := s.cycleCallbacks
+		require.NoError(t, cc.vectorCombinedCallbacksCtrl.Unregister(ctx))
+		require.Error(t, s.resumeMaintenanceCycles(ctx))
+		require.Zero(t, s.haltForTransferCount.Load())
+		require.True(t, s.resumeIncomplete.Load())
+		require.False(t, asyncReplicationInstalled(s), "a failed resume must not re-apply the skipped enable")
+
+		reregisterVectorCallbacks(s)
+
+		require.NoError(t, s.resumeMaintenanceCycles(ctx))
+		require.False(t, s.resumeIncomplete.Load())
+		require.True(t, asyncReplicationInstalled(s), "the successful retry must re-apply the skipped enable")
+	})
 }
 
 // TestHaltedForTransferDoesNotBlockOnHeldMux: haltedForTransfer must report the true count promptly while the mux is held — neither parking on the backup prep nor misreading a concurrent holder as halted.
@@ -2799,49 +2821,28 @@ func TestEnableAsyncReplicationShutObservedUnderLock(t *testing.T) {
 	t.Fatal("enable never reached the in-lock check across attempts")
 }
 
-// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no snapshot consumed, no tree, no registration, nothing resurrected.
+// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no tree, no registration, nothing resurrected.
 func TestEnableAsyncReplicationSkipsDroppedShard(t *testing.T) {
 	ctx := context.Background()
+	sl, _ := testShard(t, ctx, "EnableSkipsDroppedShard", withAsyncScheduler(t))
+	s := concreteShard(t, sl)
 
-	t.Run("keepFiles drop leaves planted snapshot", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardKeep", withAsyncScheduler(t))
-		s := concreteShard(t, sl)
+	require.NoError(t, s.drop())
 
-		dir := s.pathHashTree()
-		require.NoError(t, os.MkdirAll(dir, os.ModePerm))
-		stray := filepath.Join(dir, "hashtree-00000000000000aa.ht")
-		require.NoError(t, os.WriteFile(stray, []byte("snapshot"), 0o600))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree)
+	s.asyncReplicationRWMux.RUnlock()
+	_, err := os.Stat(s.path())
+	require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
 
-		require.NoError(t, s.drop(true))
-
-		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-		s.asyncReplicationRWMux.RLock()
-		require.Nil(t, s.hashtree)
-		s.asyncReplicationRWMux.RUnlock()
-		require.Len(t, htFilesInDir(t, dir), 1, "skip must not consume the snapshot")
-
-		sched := s.index.asyncReplicationScheduler
-		require.Never(t, func() bool {
-			sched.mu.Lock()
-			defer sched.mu.Unlock()
-			_, registered := sched.entries[s]
-			return registered
-		}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
-	})
-
-	t.Run("full drop resurrects nothing", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardFull", withAsyncScheduler(t))
-		s := concreteShard(t, sl)
-
-		require.NoError(t, s.drop(false))
-
-		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-		s.asyncReplicationRWMux.RLock()
-		require.Nil(t, s.hashtree)
-		s.asyncReplicationRWMux.RUnlock()
-		_, err := os.Stat(s.path())
-		require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
-	})
+	sched := s.index.asyncReplicationScheduler
+	require.Never(t, func() bool {
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		_, registered := sched.entries[s]
+		return registered
+	}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
 }
 
 // TestRebuildFromScratchSkipsDroppedShard: a rebuild racing a tenant delete must install nothing and resurrect nothing.
@@ -2851,7 +2852,7 @@ func TestRebuildFromScratchSkipsDroppedShard(t *testing.T) {
 	s := concreteShard(t, sl)
 	enableAndAwaitAsync(t, ctx, s)
 
-	require.NoError(t, s.drop(false))
+	require.NoError(t, s.drop())
 
 	require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
 	s.asyncReplicationRWMux.RLock()
@@ -2868,7 +2869,7 @@ func TestDisableAsyncReplicationSkipsDroppedShard(t *testing.T) {
 	s := concreteShard(t, sl)
 	enableAndAwaitAsync(t, ctx, s)
 
-	require.NoError(t, s.drop(false))
+	require.NoError(t, s.drop())
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
 	_, err := os.Stat(s.path())

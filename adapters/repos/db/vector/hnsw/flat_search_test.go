@@ -106,6 +106,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 					Centroids:     256,
 					Encoder:       ent.NewDefaultUserConfig().PQ.Encoder,
 					TrainingLimit: 5_000,
+					RescoreLimit:  ent.RescoreLimitAuto,
 				}
 				uc.EF = 256
 				wg := sync.WaitGroup{}

@@ -55,7 +55,7 @@ func TestDeleteEntrypoint_CandidatesUnderMaintenance(t *testing.T) {
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
-	defer index.Drop(ctx, false)
+	defer index.Drop(ctx)
 
 	for i := 0; i < len(vectors); i++ {
 		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))

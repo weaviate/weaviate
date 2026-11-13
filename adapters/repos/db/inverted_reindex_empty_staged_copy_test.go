@@ -92,7 +92,7 @@ func TestShardCopyOfAnEmptyStagedBucketDoesNotWedgeTheMigration(t *testing.T) {
 				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, lateToken)))
 			}
 
-			require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+			require.NoError(t, shard.HaltForTransfer(ctx, false))
 			files, err := shard.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 			require.NoError(t, err)
 			require.NoError(t, shard.resumeMaintenanceCycles(ctx))

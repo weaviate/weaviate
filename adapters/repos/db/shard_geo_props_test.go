@@ -398,7 +398,7 @@ func TestInitGeoProp(t *testing.T) {
 			setup: func(t *testing.T, ctx context.Context, s *Shard) {
 				s.propertyIndicesLock.Lock()
 				defer s.propertyIndicesLock.Unlock()
-				require.NoError(t, s.propertyIndices.DropAll(ctx, false))
+				require.NoError(t, s.propertyIndices.DropAll(ctx))
 			},
 			wantSame: false,
 		},

@@ -149,7 +149,7 @@ func TestShutdownReleasesVectors(t *testing.T) {
 				err = index.Shutdown(context.Background())
 			}
 			if test.dropAfterShutdown {
-				require.NoError(t, index.Drop(context.Background(), true))
+				require.NoError(t, index.Drop(context.Background()))
 			}
 
 			if test.compressed {

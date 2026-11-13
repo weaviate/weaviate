@@ -152,8 +152,8 @@ var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-r
 const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and [Shard.haltForTransfer].
+// [DB.Backupable], [Index.backupInactiveShardWithHardlinks], and
+// [Shard.haltForTransfer].
 //
 // If i.db is nil it refuses the backup without calling gate.
 func (i *Index) refuseIfReindexInFlight(shardName string, gate reindexGate) error {

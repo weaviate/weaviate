@@ -107,7 +107,7 @@ func (i *Index) GetKeys(id uint64) (uint64, uint64, error) {
 	return 0, 0, errors.Errorf("cannot get keys from a class not vector-indexed")
 }
 
-func (i *Index) Drop(context.Context, bool) error {
+func (i *Index) Drop(context.Context) error {
 	// silently ignore
 	return nil
 }

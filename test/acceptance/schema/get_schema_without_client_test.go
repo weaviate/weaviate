@@ -52,7 +52,9 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"dynamicEfFactor":        float64(8),
 					"distance":               "cosine",
 					"bq": map[string]interface{}{
-						"enabled": false,
+						"enabled":       false,
+						"rescoreLimit":  float64(-1),
+						"rescoreFactor": float64(-1),
 					},
 					"pq": map[string]interface{}{
 						"bitCompression": false,
@@ -64,17 +66,21 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						},
 						"segments":      float64(0),
 						"trainingLimit": float64(100000),
+						"rescoreLimit":  float64(-1),
+						"rescoreFactor": float64(-1),
 					},
 					"sq": map[string]interface{}{
 						"enabled":       false,
 						"trainingLimit": float64(100000),
-						"rescoreLimit":  float64(20),
+						"rescoreLimit":  float64(-1),
+						"rescoreFactor": float64(-1),
 					},
 					// the server's built-in DEFAULT_QUANTIZATION
 					"rq": map[string]interface{}{
 						"enabled":       true,
 						"bits":          float64(4),
-						"rescoreLimit":  float64(20),
+						"rescoreLimit":  float64(-1),
+						"rescoreFactor": float64(-1),
 						"centering":     false,
 						"trainingLimit": float64(10000),
 					},

@@ -95,10 +95,10 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 	sourceContainer := nodeToContainer[sourceName].Container()
 	t.Logf("source=%s target=%s shard=%s", sourceName, targetName, shard.Shard)
 
-	// Halt-for-duration mode keeps the source halted for the whole transfer,
-	// which would make this test fail for the wrong reason.
+	// Replica movement is refused on a filesystem without hard links, so the
+	// movement this test drives would never start.
 	if !canHardlinkInContainer(ctx, sourceContainer) {
-		t.Skip("container fs does not support hardlinks; replica path uses halt-for-duration mode")
+		t.Skip("container fs does not support hardlinks; replica movement is refused")
 	}
 
 	t.Log("pre-populating source shard")

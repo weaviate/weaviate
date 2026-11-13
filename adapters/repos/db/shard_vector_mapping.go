@@ -17,9 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 )
@@ -102,12 +106,53 @@ func (r *vectorIndexRecord) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// queueIDOrDefault is the queue ID a record names, or the physical ID for a
-// record from before the field existed: the queue has always lived under
-// the index's ID.
+// storageID is the ID r's index files are named by. Every reader of the
+// physical ID goes through it; a test refuses any other read of the field.
+func (r vectorIndexRecord) storageID() string {
+	return vectorIndexStorageID(r.PhysicalID)
+}
+
+// recordedID is the physical ID as the record holds it, for messages only:
+// files are named by storageID.
+func (r vectorIndexRecord) recordedID() string {
+	return r.PhysicalID
+}
+
+// vectorIndexStorageID is the naming rule from a physical ID to the ID its
+// files are named by. "main" and "vectors_<x>" keep their names; any other ID
+// is named as if it were "vectors_<id>". The index implementations treat an
+// ID without the "vectors_" prefix as the legacy vector's, so an ID that
+// skipped this rule would name the legacy vector's files.
+func vectorIndexStorageID(physicalID string) string {
+	if physicalID == vectorIndexID("") || strings.HasPrefix(physicalID, helpers.VectorsBucketLSM+"_") {
+		return physicalID
+	}
+	return helpers.VectorsBucketLSM + "_" + physicalID
+}
+
+var (
+	vectorIndexDefaultIDPattern   = regexp.MustCompile(`^` + helpers.VectorsBucketLSM + `_` + schema.TargetVectorNameRegex + `$`)
+	vectorIndexGeneratedIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*-[A-Za-z0-9_-]*$`)
+)
+
+// validateVectorIndexID accepts the IDs the naming rule gives a vector name,
+// "main" and "vectors_<name>", and generated IDs, which contain a "-" so they
+// can never equal one of those: a vector name has no "-". The schema's
+// collision check reads names only and relies on it.
+func validateVectorIndexID(id string) error {
+	if id == vectorIndexID("") || vectorIndexDefaultIDPattern.MatchString(id) || vectorIndexGeneratedIDPattern.MatchString(id) {
+		return nil
+	}
+	return fmt.Errorf("%q is neither %q, \"vectors_<vector name>\", nor an ID with a \"-\" made of letters, digits, \"_\" and \"-\"",
+		id, vectorIndexID(""))
+}
+
+// queueIDOrDefault is the queue ID a record names, or the index's storage ID
+// for a record from before the field existed: the queue has always lived
+// under the index's ID.
 func (r vectorIndexRecord) queueIDOrDefault() string {
 	if r.QueueID == "" {
-		return r.PhysicalID
+		return r.storageID()
 	}
 	return r.QueueID
 }
@@ -157,6 +202,17 @@ func vectorIndexMappingName(key string) (name string, ok bool) {
 func (r vectorIndexRecord) validate() error {
 	if r.PhysicalID == "" {
 		return errors.New("empty physical id")
+	}
+	err := validateVectorIndexID(r.PhysicalID)
+	if err != nil {
+		return fmt.Errorf("physical id: %w", err)
+	}
+	// empty in a record from before the field existed
+	if r.QueueID != "" {
+		err := validateVectorIndexID(r.QueueID)
+		if err != nil {
+			return fmt.Errorf("queue id: %w", err)
+		}
 	}
 	if r.IndexType == "" {
 		return errors.New("empty index type")
@@ -340,12 +396,18 @@ func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord,
 	// one open for both keys; an absent key is a nil value
 	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexMappingNamespace,
 		[]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingKey(name)))
-	if err != nil || vals == nil || vals[0] == nil {
+	if err != nil || vals == nil {
 		return vectorIndexRecord{}, false, false, err
 	}
 	version, v := vals[0], vals[1]
 	// the same refusals as Load: a deletion must not act on a record this
 	// binary cannot read
+	if version == nil {
+		if v != nil {
+			return vectorIndexRecord{}, false, false, errors.New("records without a format version")
+		}
+		return vectorIndexRecord{}, false, false, nil
+	}
 	if string(version) != vectorIndexMappingFormatVersion {
 		return vectorIndexRecord{}, false, true, fmt.Errorf("unsupported format version %q, this binary reads %q",
 			version, vectorIndexMappingFormatVersion)
@@ -361,6 +423,64 @@ func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord,
 		return vectorIndexRecord{}, false, true, fmt.Errorf("record %q: %w", name, err)
 	}
 	return rec, true, true, nil
+}
+
+// unloadedVectorIndexStorageIDs maps each of names, vectors of a shard that is
+// not loaded, to the ID its files are named by: its record's, or the naming
+// rule's for a vector without one. When a load holds the mapping (locked) or
+// it cannot be read (err), the IDs are the naming rule's and may be wrong.
+func unloadedVectorIndexStorageIDs(shardDir string, names []string) (ids map[string]string, locked bool, err error) {
+	namingRule := func() map[string]string {
+		ids := make(map[string]string, len(names))
+		for _, name := range names {
+			ids[name] = vectorIndexID(name)
+		}
+		return ids
+	}
+	ids = namingRule()
+	keys := make([][]byte, 0, len(names)+1)
+	keys = append(keys, []byte(vectorIndexMappingFormatVersionKey))
+	for _, name := range names {
+		keys = append(keys, []byte(vectorIndexMappingKey(name)))
+	}
+	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexMappingNamespace, keys...)
+	if shardmeta.IsLocked(err) {
+		return ids, true, nil
+	}
+	if err != nil {
+		return namingRule(), false, fmt.Errorf("read vector index mapping: %w", err)
+	}
+	if vals == nil {
+		return ids, false, nil
+	}
+	if vals[0] == nil {
+		// a load refuses records without a version; with none, the naming
+		// rule is what the first load records
+		if slices.ContainsFunc(vals[1:], func(v []byte) bool { return v != nil }) {
+			return namingRule(), false, errors.New("read vector index mapping: records without a format version")
+		}
+		return ids, false, nil
+	}
+	if string(vals[0]) != vectorIndexMappingFormatVersion {
+		return namingRule(), false, fmt.Errorf("read vector index mapping: unsupported format version %q, this binary reads %q",
+			vals[0], vectorIndexMappingFormatVersion)
+	}
+	for i, name := range names {
+		v := vals[i+1]
+		if v == nil {
+			continue
+		}
+		var rec vectorIndexRecord
+		err := json.Unmarshal(v, &rec)
+		if err == nil {
+			err = rec.validate()
+		}
+		if err != nil {
+			return namingRule(), false, fmt.Errorf("read vector index mapping: record %q: %w", name, err)
+		}
+		ids[name] = rec.storageID()
+	}
+	return ids, false, nil
 }
 
 func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {

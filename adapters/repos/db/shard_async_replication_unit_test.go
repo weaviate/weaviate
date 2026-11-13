@@ -354,3 +354,22 @@ func TestHashBeatRejectsUnreadyHashtree(t *testing.T) {
 		})
 	}
 }
+
+// minAsyncReplicationConfig returns a valid AsyncReplicationConfig suitable
+// for unit tests that enable async replication.  All ticker durations are
+// non-zero (time.NewTicker panics on zero) but large enough that background
+// goroutines don't fire during the test lifetime.
+func minAsyncReplicationConfig() AsyncReplicationConfig {
+	return AsyncReplicationConfig{
+		hashtreeHeight:            1,
+		frequency:                 10 * time.Minute,
+		frequencyWhilePropagating: 10 * time.Minute,
+		diffBatchSize:             100,
+		propagationLimit:          100,
+		propagationConcurrency:    1,
+		propagationBatchSize:      10,
+		diffPerNodeTimeout:        5 * time.Second,
+		prePropagationTimeout:     5 * time.Second,
+		propagationTimeout:        5 * time.Second,
+	}
+}
