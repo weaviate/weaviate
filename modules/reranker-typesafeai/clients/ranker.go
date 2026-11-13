@@ -333,7 +333,8 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return typesafeaiResponse{}, false, fmt.Errorf("send TypeSafe AI request: %w", err)
+		return typesafeaiResponse{}, false, transportError(ctx, "send TypeSafe AI request",
+			"no HTTP response from the host named by "+baseURLHeader, err, hostFromHeader)
 	}
 	defer res.Body.Close()
 
@@ -349,7 +350,8 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 
 	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
 	if err != nil {
-		return typesafeaiResponse{}, false, fmt.Errorf("read TypeSafe AI response: %w", err)
+		return typesafeaiResponse{}, false, transportError(ctx, "read TypeSafe AI response",
+			"incomplete response from the host named by "+baseURLHeader, err, hostFromHeader)
 	}
 	if len(responseBody) > maxResponseBodyBytes {
 		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes)
@@ -372,6 +374,26 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 			responseBody, hostFromHeader)
 	}
 	return response, false, nil
+}
+
+// transportError wraps err for the class or default host. For a host the
+// request header named it returns headerHostMessage instead: net/http can
+// quote bytes the host sent, and a dial or read error names the address it
+// resolved to. An error of the context or of the client timeout stays
+// identifiable with errors.Is.
+func transportError(ctx context.Context, action, headerHostMessage string, err error, hostFromHeader bool) error {
+	if !hostFromHeader {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("%s: %w", action, ctxErr)
+	}
+	for _, kept := range []error{context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, kept) {
+			return fmt.Errorf("%s: %w", action, kept)
+		}
+	}
+	return fmt.Errorf("%s: %s", action, headerHostMessage)
 }
 
 // withBody appends the start of the body to err, unless the request header

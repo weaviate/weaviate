@@ -12,6 +12,7 @@
 package clients
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -640,6 +642,223 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			assert.Empty(t, unused.received())
 		})
 	}
+}
+
+// net/http quotes what a host sent in place of a response, and a dial error
+// names the address, so the error of a host the request names holds neither.
+func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
+	const (
+		banner   = "SSH-2.0-OpenSSH_9.6\r\n"
+		cutShort = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"answers\""
+	)
+	tests := []struct {
+		name string
+		// host returns the base URL of the host the request goes to.
+		host       func(t *testing.T) string
+		fromHeader bool
+		// wantErr is the whole error. <host> stands for the base URL.
+		wantErr      string
+		wantContains []string
+		wantIs       error
+	}{
+		{
+			name:       "a banner that is not HTTP from the header base URL",
+			host:       func(t *testing.T) string { return newRawHost(t, banner) },
+			fromHeader: true,
+			wantErr:    "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl",
+		},
+		{
+			name: "a banner that is not HTTP from the class base URL",
+			host: func(t *testing.T) string { return newRawHost(t, banner) },
+			wantContains: []string{
+				`send TypeSafe AI request: Post "<host>/v1/systemone": `,
+				`malformed HTTP response "SSH-2.0-OpenSSH_9.6"`,
+			},
+		},
+		{
+			name:       "a closed port at the header base URL",
+			host:       closedPort,
+			fromHeader: true,
+			wantErr:    "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl",
+		},
+		{
+			name:         "a closed port at the class base URL",
+			host:         closedPort,
+			wantContains: []string{`send TypeSafe AI request: Post "<host>/v1/systemone": dial tcp `},
+			wantIs:       syscall.ECONNREFUSED,
+		},
+		{
+			name:       "a body cut short from the header base URL",
+			host:       func(t *testing.T) string { return newRawHost(t, cutShort) },
+			fromHeader: true,
+			wantErr:    "read TypeSafe AI response: incomplete response from the host named by X-Typesafeai-Baseurl",
+		},
+		{
+			name:    "a body cut short from the class base URL",
+			host:    func(t *testing.T) string { return newRawHost(t, cutShort) },
+			wantErr: "read TypeSafe AI response: unexpected EOF",
+			wantIs:  io.ErrUnexpectedEOF,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host := tt.host(t)
+			classBaseURL := host
+			ctx := context.Background()
+			if tt.fromHeader {
+				classServer := newFake(t)
+				defer func() { assert.Empty(t, classServer.received()) }()
+				classBaseURL = classServer.url()
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{host})
+			}
+
+			res, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(classBaseURL, nil))
+
+			require.Error(t, err)
+			assert.Nil(t, res)
+			if tt.wantErr != "" {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+			for _, part := range tt.wantContains {
+				assert.ErrorContains(t, err, strings.ReplaceAll(part, "<host>", host))
+			}
+			if tt.wantIs != nil {
+				assert.ErrorIs(t, err, tt.wantIs)
+			}
+			if tt.fromHeader {
+				address := strings.TrimPrefix(host, "http://")
+				for _, hidden := range []string{"SSH", "refused", address, "EOF"} {
+					assert.NotContains(t, err.Error(), hidden)
+				}
+			}
+		})
+	}
+}
+
+// The dial guard's error has no exported type or sentinel, so it cannot be
+// told apart from the other transport errors of a host the request names.
+func TestSendHidesTheDialGuardErrorOfAHostTheRequestNames(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	tests := []struct {
+		name           string
+		hostFromHeader bool
+		wantErr        string
+		wantContains   string
+	}{
+		{
+			name:           "a host the request names",
+			hostFromHeader: true,
+			wantErr:        "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl",
+		},
+		{
+			name:         "the class host",
+			wantContains: "refusing to dial internal address",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			_, _, err := newTestClient(defaultFakeKey).send(context.Background(), f.url()+apiPath, "key", []byte("{}"),
+				false, tt.hostFromHeader)
+
+			require.Error(t, err)
+			if tt.wantErr != "" {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+			assert.ErrorContains(t, err, tt.wantContains)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
+func TestRankKeepsTheContextErrorOfAHostTheRequestNames(t *testing.T) {
+	headerContext := func(host string) context.Context {
+		ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
+		return context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{host})
+	}
+
+	t.Run("a cancelled query", func(t *testing.T) {
+		hung, release := newBlockingFake(t)
+		defer release()
+		classServer := newFake(t)
+		c := newTestClient(defaultFakeKey)
+		ctx, cancel := context.WithCancel(headerContext(hung.url()))
+		defer cancel()
+		var call sync.WaitGroup
+		defer call.Wait()
+		result := make(chan error, 1)
+		call.Go(func() {
+			_, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(classServer.url(), nil))
+			result <- err
+		})
+		require.Eventually(t, func() bool { return len(hung.received()) == 1 }, 5*time.Second, time.Millisecond)
+
+		cancel()
+
+		select {
+		case err := <-result:
+			require.ErrorIs(t, err, context.Canceled)
+			assert.EqualError(t, err, "send TypeSafe AI request: context canceled")
+		case <-time.After(5 * time.Second):
+			t.Fatal("RankProperty did not return after the cancel")
+		}
+		assert.Zero(t, len(c.inFlightHeaderHost), "every in-flight slot is released")
+	})
+
+	t.Run("the client timeout", func(t *testing.T) {
+		hung, release := newBlockingFake(t)
+		defer release()
+		classServer := newFake(t)
+		c := New(defaultFakeKey, 50*time.Millisecond, 2, nullLogger())
+
+		_, err := c.RankProperty(headerContext(hung.url()), churn, "text", documentsOf(noRefund),
+			classConfig(classServer.url(), nil))
+
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.EqualError(t, err, "send TypeSafe AI request: context deadline exceeded")
+		assert.Zero(t, len(c.inFlightHeaderHost), "every in-flight slot is released")
+	})
+}
+
+// newRawHost returns the base URL of a host that answers every connection
+// with reply, which need not be HTTP, and closes it.
+func newRawHost(t *testing.T, reply string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	var serving sync.WaitGroup
+	serving.Go(func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// A close with unread bytes resets the connection, and the client
+			// can then lose the reply.
+			if request, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
+				io.Copy(io.Discard, request.Body)
+			}
+			io.WriteString(conn, reply)
+			conn.Close()
+		}
+	})
+	t.Cleanup(func() {
+		listener.Close()
+		serving.Wait()
+	})
+	return "http://" + listener.Addr().String()
+}
+
+// closedPort returns the base URL of a local port nothing listens on.
+func closedPort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	require.NoError(t, listener.Close())
+	return "http://" + listener.Addr().String()
 }
 
 func TestRankKeepsTheBaseURLPath(t *testing.T) {
