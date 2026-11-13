@@ -69,3 +69,32 @@ func TestShardFileSanitize(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, file)
 }
+
+func TestShardFilePutterSanitize(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClassFilePutter"
+	shd, idx := testShard(t, ctx, className)
+	rootPath := idx.Config.RootPath
+
+	// A relative path that traverses out of the shard root must be rejected,
+	// and nothing may be written outside the root. The cluster files endpoint
+	// forwards the URL segment verbatim, so filePutter is the write-side
+	// counterpart of the GetFile sanitization checked above.
+	escapeName := "escape-outside-root.txt"
+	wc, err := idx.IncomingFilePutter(ctx, shd.Name(), filepath.Join("..", escapeName))
+	require.Error(t, err)
+	require.Nil(t, wc)
+	_, statErr := os.Stat(filepath.Join(filepath.Dir(rootPath), escapeName))
+	require.True(t, os.IsNotExist(statErr), "file must not be written outside shard root")
+
+	// An absolute path must be rejected as well.
+	wc, err = idx.IncomingFilePutter(ctx, shd.Name(), filepath.Join(t.TempDir(), "abs.txt"))
+	require.Error(t, err)
+	require.Nil(t, wc)
+
+	// A valid relative path under the shard still works.
+	wc, err = idx.IncomingFilePutter(ctx, shd.Name(), filepath.Join(shd.Name(), "valid.txt"))
+	require.NoError(t, err)
+	require.NotNil(t, wc)
+	require.NoError(t, wc.Close())
+}
