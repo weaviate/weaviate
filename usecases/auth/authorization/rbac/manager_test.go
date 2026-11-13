@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -318,6 +319,90 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 	})
 }
 
+func TestScopedSnapshot(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	editor := conv.PrefixRoleName("editor")
+	reader := conv.PrefixRoleName("reader")
+	alice := []string{"db:alice", editor}
+	aliceReader := []string{"db:alice", reader}
+	bob := []string{"db:bob", editor}
+	nsAlice := []string{"db:ns1:alice", editor}
+
+	seed := func(t *testing.T) *Manager {
+		m, err := setupTestManagerWithStaticUsers(t, logger, "custom-user")
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", reader, "collections/*", authorization.READ, authorization.SchemaDomain)
+		require.NoError(t, err)
+		for _, g := range [][]string{
+			{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor},
+			{"db:custom-user", editor},
+			{"oidc:carl", editor},
+			{conv.PrefixGroupName("devs"), editor},
+			alice, aliceReader, bob, nsAlice,
+		} {
+			_, err = m.casbin.AddRoleForUser(g[0], g[1])
+			require.NoError(t, err)
+		}
+		return m
+	}
+
+	// Each case expects the unscoped Snapshot of the same roles, minus the rows in
+	// drop. Every other row must survive, including static, placeholder, oidc and
+	// group rows.
+	tests := []struct {
+		name     string
+		forUsers []string
+		roles    []string
+		drop     [][]string
+	}{
+		{
+			name:     "a partial user set keeps that set's dynamic rows and drops the rest",
+			forUsers: []string{"alice"},
+			drop:     [][]string{bob, nsAlice},
+		},
+		{
+			name: "an empty set drops every dynamic row and keeps static, placeholder, oidc and group rows",
+			drop: [][]string{alice, aliceReader, bob, nsAlice},
+		},
+		{
+			name:     "a namespaced subject matches its qualified id",
+			forUsers: []string{"ns1:alice"},
+			drop:     [][]string{alice, aliceReader, bob},
+		},
+		{
+			name:     "role filtering still applies",
+			forUsers: []string{"bob"},
+			roles:    []string{"reader"},
+			drop:     [][]string{aliceReader},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := seed(t)
+			full, err := m.Snapshot(tt.roles...)
+			require.NoError(t, err)
+			var want snapshot
+			require.NoError(t, json.Unmarshal(full, &want))
+			for _, d := range tt.drop {
+				require.Contains(t, want.GroupingPolicy, d, "seed lacks a row the case drops")
+			}
+			want.GroupingPolicy = slices.DeleteFunc(want.GroupingPolicy, func(g []string) bool {
+				return slices.ContainsFunc(tt.drop, func(d []string) bool { return slices.Equal(d, g) })
+			})
+
+			blob, err := m.ScopedSnapshot(tt.forUsers, tt.roles...)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(blob, &got))
+			assert.ElementsMatch(t, want.Policy, got.Policy)
+			assert.ElementsMatch(t, want.GroupingPolicy, got.GroupingPolicy)
+			assert.Equal(t, SnapshotVersionLatest, got.Version)
+		})
+	}
+}
+
 // TestBuiltInAssignments covers the admin and viewer grants a backup carries for the
 // users it backs up.
 func TestBuiltInAssignments(t *testing.T) {
@@ -599,6 +684,218 @@ func TestMergeSnapshots(t *testing.T) {
 			tt.check(t, merged)
 		})
 	}
+}
+
+func TestReplaceDynamicUserAssignments(t *testing.T) {
+	encode := func(t *testing.T, s snapshot) []byte {
+		var buf bytes.Buffer
+		require.NoError(t, json.NewEncoder(&buf).Encode(s))
+		return buf.Bytes()
+	}
+
+	editor := conv.PrefixRoleName("editor")
+	nsEditor := conv.PrefixRoleName("ns1:editor")
+	gone := conv.PrefixRoleName("gone")
+	viewer := conv.PrefixRoleName(authorization.Viewer)
+	editorP := []string{editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain}
+	nsEditorP := []string{nsEditor, "collections/ns1:*", authorization.UPDATE, authorization.SchemaDomain}
+	placeholder := []string{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor}
+	empty := conv.PrefixRoleName("empty")
+	emptyPlaceholder := []string{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), empty}
+	static := []string{"custom-user"}
+
+	tests := []struct {
+		name           string
+		backup, target snapshot
+		want           snapshot
+	}{
+		{
+			name: "drops the backup's dynamic-user rows, plain and namespaced",
+			backup: snapshot{
+				Policy:         [][]string{editorP, nsEditorP},
+				GroupingPolicy: [][]string{{"db:alice", editor}, {"db:ns1:alice", nsEditor}},
+				Version:        SnapshotVersionLatest,
+			},
+			want: snapshot{
+				Policy:  [][]string{editorP, nsEditorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "appends a target dynamic-user row for a role the backup defines",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{placeholder, {"db:alice", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", editor}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{placeholder, {"db:bob", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "appends a target row for a role only the placeholder row holds",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{emptyPlaceholder, {"db:alice", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", empty}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{emptyPlaceholder, {"db:bob", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "drops a target row for a role only a dropped dynamic row holds",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", empty}}},
+			want: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "keeps a target row to built-in viewer the backup lacks",
+			backup: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", viewer}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:bob", viewer}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "drops a target row to a role the backup lacks",
+			backup: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+			target: snapshot{
+				Policy:         [][]string{{gone, "collections/*", authorization.READ, authorization.SchemaDomain}},
+				GroupingPolicy: [][]string{{"db:bob", gone}},
+			},
+			want: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "keeps the backup's oidc, group, static and placeholder rows but not the target's",
+			backup: snapshot{
+				Policy: [][]string{editorP},
+				// "db:" does not parse, so it is not a dynamic-user row.
+				GroupingPolicy: [][]string{
+					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}, {"db:", editor},
+				},
+				Version: SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{
+				placeholder, {"oidc:dana", editor}, {"group:ops", editor}, {"db:custom-user", viewer},
+			}},
+			want: snapshot{
+				Policy: [][]string{editorP},
+				GroupingPolicy: [][]string{
+					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}, {"db:", editor},
+				},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "keeps a V0 backup's version and user rows",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"user:test-user", editor}},
+				Version:        SnapshotVersionV0,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", editor}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"user:test-user", editor}, {"db:bob", editor}},
+				Version:        SnapshotVersionV0,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := ReplaceDynamicUserAssignments(encode(t, tt.backup), encode(t, tt.target), static)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(out, &got))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("an empty backup returns empty", func(t *testing.T) {
+		target := encode(t, snapshot{GroupingPolicy: [][]string{{"db:bob", viewer}}})
+		out, err := ReplaceDynamicUserAssignments(nil, target, nil)
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
+	t.Run("a nil target still drops the backup's dynamic rows", func(t *testing.T) {
+		backup := snapshot{
+			Policy:         [][]string{editorP},
+			GroupingPolicy: [][]string{placeholder, {"oidc:carl", editor}, {"db:alice", editor}},
+			Version:        SnapshotVersionLatest,
+		}
+		out, err := ReplaceDynamicUserAssignments(encode(t, backup), nil, nil)
+		require.NoError(t, err)
+		var got snapshot
+		require.NoError(t, json.Unmarshal(out, &got))
+		assert.Equal(t, snapshot{
+			Policy:         [][]string{editorP},
+			GroupingPolicy: [][]string{placeholder, {"oidc:carl", editor}},
+			Version:        SnapshotVersionLatest,
+		}, got)
+	})
+
+	t.Run("malformed input returns an error", func(t *testing.T) {
+		valid := encode(t, snapshot{Policy: [][]string{editorP}})
+		_, err := ReplaceDynamicUserAssignments([]byte("{"), valid, nil)
+		require.ErrorContains(t, err, "decode backup")
+		_, err = ReplaceDynamicUserAssignments(valid, []byte("{"), nil)
+		require.ErrorContains(t, err, "decode target")
+	})
+
+	// The strip turns db:ns1:alice into db:alice. Keeping that backup row next to
+	// the target's db:alice row would make the strip fail on a duplicate subject.
+	t.Run("output from a namespaced backup plus bare target rows passes the strip", func(t *testing.T) {
+		reader := conv.PrefixRoleName("reader")
+		backup := encode(t, snapshot{
+			Policy: [][]string{nsEditorP, {reader, "collections/*", authorization.READ, authorization.SchemaDomain}},
+			GroupingPolicy: [][]string{
+				{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), nsEditor},
+				{"db:ns1:alice", nsEditor},
+				{"oidc:ns1:carl", nsEditor},
+			},
+			Version:    SnapshotVersionLatest,
+			Namespaces: []string{"ns1"},
+		})
+		target := encode(t, snapshot{GroupingPolicy: [][]string{
+			{"db:alice", reader}, {"db:bob", viewer}, {"db:carol", editor},
+		}})
+
+		out, err := ReplaceDynamicUserAssignments(backup, target, nil)
+		require.NoError(t, err)
+		var got snapshot
+		require.NoError(t, json.Unmarshal(out, &got))
+		assert.Equal(t, []string{"ns1"}, got.Namespaces)
+		assert.Contains(t, got.GroupingPolicy, []string{"db:alice", reader})
+		// The backup defines ns1:editor but not editor, so the db:carol row is dropped.
+		assert.NotContains(t, got.GroupingPolicy, []string{"db:carol", editor})
+		require.NoError(t, ValidateNamespaceStrip(out, nil))
+	})
 }
 
 // TestSnapshotRecordsNamespaces covers what a snapshot writes into its namespace list.

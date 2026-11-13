@@ -101,10 +101,13 @@ type UserLister interface {
 // BuiltInAssignments returns an RBAC snapshot of the admin and viewer assignments the given db user ids hold, or nil when they hold none.
 //
 // OIDCBuiltInAssignments returns an RBAC snapshot of the oidc-specific admin and viewer assignments for the given namespaces, or nil when there are none.
+//
+// Snapshot returns an RBAC snapshot of this node's store; with no roles it covers the whole store.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
 	BuiltInAssignments(userIDs ...string) ([]byte, error)
 	OIDCBuiltInAssignments(namespaces ...string) ([]byte, error)
+	Snapshot(roles ...string) ([]byte, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):

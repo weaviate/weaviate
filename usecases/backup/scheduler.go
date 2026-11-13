@@ -319,12 +319,26 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if meta.SkipRoles {
 		rbacBlob = nil
 	}
-	// Merge before the strip and reference checks below, so they also check the
-	// built-in assignments. noRestore applies no role blob, so it skips the merge
-	// and any merge decode error.
+	// Build the role blob to apply before the strip and reference checks below,
+	// so those checks see the rows that will be applied. rolesOptions=noRestore
+	// applies no role blob, so it skips this block and its decode errors.
+	//
+	// The backup's dynamic-user role assignments apply only with the backup's
+	// users. No backup users apply when usersOptions=noRestore, when dynamic users
+	// are disabled on this node, or when the backup has no user snapshot. Then
+	// the backup's dynamic-user rows are replaced with this node's current ones.
 	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore && s.roleLister != nil {
 		if rbacBlob, err = rbac.MergeSnapshots(rbacBlob, meta.BuiltInRoleAssignments); err != nil {
 			return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
+		}
+		if req.UserRestoreOption == models.RestoreConfigUsersOptionsNoRestore || s.userLister == nil || len(userBlob) == 0 {
+			current, err := s.roleLister.Snapshot()
+			if err != nil {
+				return nil, err
+			}
+			if rbacBlob, err = rbac.ReplaceDynamicUserAssignments(rbacBlob, current, s.staticAPIKeyUsers); err != nil {
+				return nil, backup.NewErrUnprocessable(fmt.Errorf("replace dynamic user assignments: %w", err))
+			}
 		}
 	}
 
@@ -1516,7 +1530,7 @@ func (s *Scheduler) validateNamespaceReferences(userBlob, rbacBlob []byte, userR
 		return nil
 	}
 	slices.Sort(errs)
-	return fmt.Errorf("backup references namespaces that are missing or deleting on this cluster: %s. Create the namespaces first, or restore without 'rolesOptions'/'usersOptions'", strings.Join(errs, "; "))
+	return fmt.Errorf("the restore would apply roles or users that reference namespaces missing or deleting on this cluster: %s. Create the namespaces first, or restore without 'rolesOptions'/'usersOptions'", strings.Join(errs, "; "))
 }
 
 // logSubsystemDisabled is the only signal that the restore skipped roles or

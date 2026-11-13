@@ -677,6 +677,101 @@ func MergeSnapshots(a, b []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ReplaceDynamicUserAssignments returns backup with its dynamic-user role
+// assignments swapped for target's.
+//
+// A dynamic-user row is a g-row (role assignment) whose subject is "db:<id>".
+// The id is not the role placeholder and is not in staticAPIKeyUsers.
+//
+// The result keeps every backup p-row (permission) and every backup g-row that
+// is not a dynamic-user row. It then adds each target dynamic-user row whose
+// role is live. A role is live if it is built in, or if a kept row defines or
+// assigns it. Target rows for other roles are dropped: they would bring the
+// role back as an empty role.
+//
+// An empty backup is returned unchanged. The result keeps backup's Version and
+// Namespaces.
+func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []string) ([]byte, error) {
+	if len(backup) == 0 {
+		return backup, nil
+	}
+
+	var sb, st snapshot
+	if err := json.Unmarshal(backup, &sb); err != nil {
+		return nil, fmt.Errorf("replace dynamic user assignments: decode backup: %w", err)
+	}
+	// Manager.Snapshot returns an empty blob when RBAC holds no store.
+	if len(target) > 0 {
+		if err := json.Unmarshal(target, &st); err != nil {
+			return nil, fmt.Errorf("replace dynamic user assignments: decode target: %w", err)
+		}
+	}
+
+	isDynamicUserRow := dynamicUserRowClassifier(staticAPIKeyUsers)
+
+	live := make(map[string]struct{}, len(authorization.BuiltInRoles))
+	for _, r := range authorization.BuiltInRoles {
+		live[conv.PrefixRoleName(r)] = struct{}{}
+	}
+	for _, p := range sb.Policy {
+		if len(p) > 0 {
+			live[p[0]] = struct{}{}
+		}
+	}
+	var groupingPolicy [][]string
+	for _, g := range sb.GroupingPolicy {
+		if _, ok := isDynamicUserRow(g); ok {
+			continue
+		}
+		groupingPolicy = append(groupingPolicy, g)
+		if len(g) > 1 {
+			live[g[1]] = struct{}{}
+		}
+	}
+	for _, g := range st.GroupingPolicy {
+		if _, ok := isDynamicUserRow(g); len(g) < 2 || !ok {
+			continue
+		}
+		if _, ok := live[g[1]]; ok {
+			groupingPolicy = append(groupingPolicy, g)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         sb.Policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        sb.Version,
+		Namespaces:     sb.Namespaces,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// dynamicUserRowClassifier returns a function that takes a g-row. When the row
+// assigns a role to a dynamic user, it returns that user's id and true.
+// A subject that does not parse is never a dynamic user.
+func dynamicUserRowClassifier(staticAPIKeyUsers []string) func(g []string) (string, bool) {
+	static := make(map[string]struct{}, len(staticAPIKeyUsers))
+	for _, u := range staticAPIKeyUsers {
+		static[u] = struct{}{}
+	}
+	return func(g []string) (string, bool) {
+		if len(g) == 0 {
+			return "", false
+		}
+		user, prefix, err := conv.GetUserAndPrefix(g[0])
+		if err != nil || prefix != string(authentication.AuthTypeDb) || user == conv.InternalPlaceHolder {
+			return "", false
+		}
+		if _, ok := static[user]; ok {
+			return "", false
+		}
+		return user, true
+	}
+}
+
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
 //
 // Only the prefixes the strip has to resolve are candidates: role names, resource paths,
@@ -756,6 +851,39 @@ type snapshot struct {
 // come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
+	return m.buildSnapshot(roles, nil)
+}
+
+// ScopedSnapshot is [Manager.Snapshot] minus the dynamic-user role assignments
+// of users not in forUsers. A backup that carries only some dynamic users calls
+// it, so every carried assignment belongs to a carried user.
+//
+// forUsers holds user ids in the dynamic-user store's form: "ns1:alice" matches
+// the subject "db:ns1:alice". An empty forUsers drops every dynamic-user
+// assignment. All p-rows and all other g-rows are kept.
+func (m *Manager) ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error) {
+	if m == nil {
+		return []byte{}, nil
+	}
+	isDynamicUserRow := dynamicUserRowClassifier(StaticAPIKeyUsers(m.authNconf))
+	carried := make(map[string]struct{}, len(forUsers))
+	for _, u := range forUsers {
+		carried[u] = struct{}{}
+	}
+	return m.buildSnapshot(roles, func(g []string) bool {
+		user, ok := isDynamicUserRow(g)
+		if !ok {
+			return true
+		}
+		_, ok = carried[user]
+		return ok
+	})
+}
+
+// buildSnapshot encodes the rows that [Manager.Snapshot] selects for roles.
+// If keepGrouping is non-nil, each g-row it returns false for is dropped.
+// The drop happens before the namespace list is computed.
+func (m *Manager) buildSnapshot(roles []string, keepGrouping func(g []string) bool) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
 		return []byte{}, nil
@@ -798,6 +926,15 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
+	}
+	if keepGrouping != nil {
+		var kept [][]string
+		for _, g := range groupingPolicy {
+			if keepGrouping(g) {
+				kept = append(kept, g)
+			}
+		}
+		groupingPolicy = kept
 	}
 
 	// Use a buffer to stream the JSON encoding

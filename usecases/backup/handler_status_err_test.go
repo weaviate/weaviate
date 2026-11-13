@@ -401,6 +401,10 @@ func (s *abortingSnapshotter) Snapshot(roles ...string) ([]byte, error) {
 	return nil, s.err
 }
 
+func (s *abortingSnapshotter) ScopedSnapshot(_ []string, roles ...string) ([]byte, error) {
+	return s.Snapshot(roles...)
+}
+
 func (s *abortingSnapshotter) Restore(snapshot []byte, stripNamespaces bool) error {
 	return nil
 }

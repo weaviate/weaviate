@@ -1945,6 +1945,8 @@ func TestRestoreClassDirSkipsStagingMarker(t *testing.T) {
 
 // A skip flag excludes the corresponding snapshot. Restore leaves a backend
 // untouched when its blob is absent and replaces its state when one is present.
+// A user selection, including one that matched nothing, scopes the RBAC
+// snapshot to the selected users.
 func TestUploaderSnapshotSkip(t *testing.T) {
 	const class = "Article"
 
@@ -1952,10 +1954,12 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 		name                string
 		sel                 snapshotSelection
 		wantUsers, wantRBAC bool
+		wantScoped          bool
 	}{
 		{name: "whole-cluster default", sel: snapshotSelection{}, wantUsers: true, wantRBAC: true},
-		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
-		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true},
+		{name: "roles only", sel: snapshotSelection{roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
+		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true, wantScoped: true},
+		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true, wantScoped: true},
 		{name: "roles missed", sel: snapshotSelection{users: []string{"u"}, skipRoles: true}, wantUsers: true, wantRBAC: false},
 		{name: "both missed", sel: snapshotSelection{skipUsers: true, skipRoles: true}, wantUsers: false, wantRBAC: false},
 	}
@@ -1989,17 +1993,32 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 
 			assert.Equal(t, tt.wantRBAC, rbac.calls == 1, "rbac snapshotter calls: %d", rbac.calls)
 			assert.Equal(t, tt.wantRBAC, len(desc.RbacBackups) > 0)
+			assert.Equal(t, tt.wantScoped, rbac.scopedCalls == 1, "rbac scoped snapshot calls: %d", rbac.scopedCalls)
+			if tt.wantScoped {
+				assert.Equal(t, tt.sel.users, rbac.forUsers)
+			}
 			assert.Equal(t, tt.wantUsers, users.calls == 1, "user snapshotter calls: %d", users.calls)
 			assert.Equal(t, tt.wantUsers, len(desc.UserBackups) > 0)
 		})
 	}
 }
 
-type countingSnapshotter struct{ calls int }
+// countingSnapshotter: calls counts every snapshot, scoped or not.
+// scopedCalls and forUsers record only ScopedSnapshot calls.
+type countingSnapshotter struct {
+	calls, scopedCalls int
+	forUsers           []string
+}
 
 func (s *countingSnapshotter) Snapshot(...string) ([]byte, error) {
 	s.calls++
 	return []byte(`{"v":1}`), nil
+}
+
+func (s *countingSnapshotter) ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error) {
+	s.scopedCalls++
+	s.forUsers = forUsers
+	return s.Snapshot(roles...)
 }
 
 func (s *countingSnapshotter) Restore([]byte, bool) error { return nil }
