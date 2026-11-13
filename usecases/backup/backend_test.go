@@ -1899,7 +1899,6 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
 			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
 
 			logger := logrus.New()

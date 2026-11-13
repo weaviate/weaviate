@@ -503,7 +503,7 @@ type ClassDescriptor struct {
 	// aliases
 	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
-	StagingDir              string             `json:"-"` // non-serialized; staging dir for hard-linked snapshot files
+	StagingDir              string             `json:"-"` // the uploader reads every shard's files from it, so a class with shards must set it
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }

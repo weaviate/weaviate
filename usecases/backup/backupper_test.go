@@ -223,7 +223,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -268,7 +267,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 				sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 				sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-				backend.On("SourceDataPath").Return(sourcePath)
 				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 				backend.On("Initialize", ctx, nodeHome).Return(nil)
 				backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -308,7 +306,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -361,7 +358,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		// this node has no descriptor in the base backup
 		backend.On("GetObject", any, baseHome, BackupFile).Return(nil, errNotFound)
@@ -439,7 +435,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 		// backend
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -509,7 +504,7 @@ func genClassDescriptions(t *testing.T, sourcePath string, classes ...string) []
 
 	for i, cls := range classes {
 		ret[i] = backup.ClassDescriptor{
-			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			Name: cls, Schema: rawbytes, ShardingState: rawbytes, StagingDir: sourcePath,
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",

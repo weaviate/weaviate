@@ -606,13 +606,6 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 		}).Warn("class left out of the backup, not all of its shards uploaded")
 	}
 
-	// Determine source path: use staging dir (hard-linked snapshot) if available,
-	// otherwise fall back to live data path for backward compatibility.
-	sourcePath := u.backend.SourceDataPath()
-	if cdesc.StagingDir != "" {
-		sourcePath = cdesc.StagingDir
-	}
-
 	u.log.WithField("class", cu.desc.Name).Info("start uploading files")
 
 	nShards := len(cu.desc.Shards)
@@ -632,7 +625,7 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 					cu.finish()
 				}
 			}()
-			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, sourcePath)
+			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, cdesc.StagingDir)
 		})
 	}
 	return cu
@@ -711,7 +704,7 @@ func (u *uploader) compress(ctx context.Context,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
 	fileSizeExceededWrite *SplitFile, // if not nil, continue from previous split
 	overrideBucket, overridePath string, // bucket name and path
-	sourcePath string, // root path for reading source files (staging dir or live data path)
+	sourcePath string, // the dir shard.Files are relative to, which submitClass passes as the class's staging dir
 ) (*SplitFile, int64, error) {
 	var (
 		chunkKey           = chunkKey(class, chunk)

@@ -19,10 +19,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,11 +58,10 @@ type uploadProbe struct {
 	// producerStopsAfter, when positive, ends the producer after that many
 	// descriptors with no error descriptor, as a recovered panic in it would.
 	producerStopsAfter int
-	// panicOnSourcePathCall, when positive, panics on that call to SourceDataPath.
-	// submitClass calls it once per class, so this panics inside the descriptor
-	// loop with the classes before it already running in the pool.
-	panicOnSourcePathCall int
-	sourcePathCalls       atomic.Int64
+	// panicOnSubmit names the class whose "start uploading files" entry panics.
+	// submitClass logs it inside the descriptor loop, so the classes before it
+	// are already running in the pool.
+	panicOnSubmit string
 
 	mu sync.Mutex
 	// writing counts the chunk writes of each class that have not returned.
@@ -192,14 +191,9 @@ func (p *uploadProbe) PutObject(_ context.Context, _, key, _, _ string, b []byte
 	return nil
 }
 
-func (p *uploadProbe) SourceDataPath() string {
-	if n := p.sourcePathCalls.Add(1); p.panicOnSourcePathCall > 0 && n == int64(p.panicOnSourcePathCall) {
-		panic("uploadProbe: injected panic in the descriptor loop")
-	}
-	return p.sourcePath
-}
-func (p *uploadProbe) IsExternal() bool { return true }
-func (p *uploadProbe) Name() string     { return "uploadProbe" }
+func (p *uploadProbe) SourceDataPath() string { return p.sourcePath }
+func (p *uploadProbe) IsExternal() bool       { return true }
+func (p *uploadProbe) Name() string           { return "uploadProbe" }
 
 func (p *uploadProbe) HomeDir(_, _, _ string) string { return p.sourcePath }
 
@@ -260,6 +254,9 @@ func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *b
 		names[i] = d.Name
 	}
 	logger, _ := test.NewNullLogger()
+	if p.panicOnSubmit != "" {
+		logger.AddHook(panicOnSubmitHook{class: p.panicOnSubmit})
+	}
 	store := nodeStore{objectStore{backend: p, backupId: "backup-1"}}
 	stat := &backupStat{}
 	u := newUploader(config.Backup{}, p, nil, nil, snapshotSelection{}, store, "backup-1", stat, logger).
@@ -267,6 +264,18 @@ func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *b
 
 	desc := &backup.BackupDescriptor{ID: "backup-1", Classes: make([]backup.ClassDescriptor, 0, len(names))}
 	return u, desc, names, stat
+}
+
+// panicOnSubmitHook is the injector behind uploadProbe.panicOnSubmit.
+type panicOnSubmitHook struct{ class string }
+
+func (panicOnSubmitHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h panicOnSubmitHook) Fire(e *logrus.Entry) error {
+	if e.Message == "start uploading files" && e.Data["class"] == h.class {
+		panic("uploadProbe: injected panic in the descriptor loop")
+	}
+	return nil
 }
 
 // classDescriptorWithShards returns desc carrying n copies of its shard, so one
@@ -394,7 +403,7 @@ func TestUploaderAllClassDescriptors(t *testing.T) {
 			for i, n := range tc.shards {
 				descs[i] = classDescriptorWithShards(descs[i], n)
 			}
-			p := newUploadProbe(sourcePath, descs...)
+			p := newUploadProbe(t.TempDir(), descs...)
 
 			desc, err := runUpload(t, context.Background(), p, tc.poolSize)
 			require.NoError(t, err)
@@ -721,7 +730,7 @@ func TestUploaderAllCancelsThePoolBeforeDrainingIt(t *testing.T) {
 	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
 	// Class-A is submitted and its shard reaches the backend. Class-B panics on
 	// its way into the pool, leaving Class-A in flight.
-	p.panicOnSourcePathCall = 2
+	p.panicOnSubmit = "Class-B"
 	p.onWrite = func(ctx context.Context, _, _ string) error {
 		<-ctx.Done()
 		return ctx.Err()
@@ -768,7 +777,7 @@ func TestUploaderAllDoesNotPublishSuccessOnPanic(t *testing.T) {
 	}{
 		{
 			name:     "descriptor loop",
-			panicIn:  func(p *uploadProbe) { p.panicOnSourcePathCall = 2 },
+			panicIn:  func(p *uploadProbe) { p.panicOnSubmit = "Class-B" },
 			poolSize: len(classes),
 		},
 		{
