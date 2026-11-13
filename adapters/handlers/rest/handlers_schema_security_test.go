@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -26,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // denyAuthorizer denies every request with a Forbidden error and records the
@@ -117,4 +120,54 @@ func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T
 	require.Equal(t, authorization.UPDATE, authz.verb)
 	require.Equal(t, authorization.Collections("Movies"), authz.resources,
 		"DELETE per-property index must demand Collections (data+metadata), not metadata-only")
+}
+
+// propertyWriteRecorder records the property write the index delete sends to RAFT.
+type propertyWriteRecorder struct {
+	schemaUC.SchemaManager
+	written bool
+}
+
+func (r *propertyWriteRecorder) UpdateProperty(context.Context, string, *models.Property, ...string) (uint64, error) {
+	r.written = true
+	return 0, nil
+}
+
+func TestDeleteClassPropertyIndex_WritesAnAuditLine(t *testing.T) {
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().ReadOnlyClass("Movies").Return(&models.Class{Class: "Movies", Properties: []*models.Property{
+		{Name: "title", DataType: []string{"text"}, IndexFilterable: boolPtr(true)},
+	}})
+	writer := &propertyWriteRecorder{}
+	authz := &authorization.DummyAuthorizer{}
+	handler, err := schemaUC.NewHandler(reader, writer, nil, logrus.New(), authz, nil, config.Config{},
+		nil, nil, nil, nil, nil, nil, schemaUC.Parser{}, nil, nil, nil)
+	require.NoError(t, err)
+	logger, hook := logrustest.NewNullLogger()
+	h := &schemaHandlers{
+		manager:             &schemaUC.Manager{Handler: handler},
+		authorizer:          authz,
+		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
+		reindexTaskLister:   fakeReindexTaskLister{},
+		logger:              logger,
+	}
+
+	resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
+		HTTPRequest:  httptest.NewRequest("DELETE", "/", nil),
+		ClassName:    "Movies",
+		PropertyName: "title",
+		IndexName:    "filterable",
+	}, &models.Principal{Username: "admin"})
+
+	_, ok := resp.(*schema.SchemaObjectsPropertiesDeleteOK)
+	require.True(t, ok, "got %T", resp)
+	require.True(t, writer.written, "the delete must reach the schema write")
+	require.Equal(t, "property_index_deleted", auditEvent(t, hook))
+	require.Equal(t, logrus.Fields{
+		"audit_event": "property_index_deleted",
+		"collection":  "Movies",
+		"property":    "title",
+		"index_type":  "filterable",
+		"principal":   "admin",
+	}, hook.LastEntry().Data)
 }

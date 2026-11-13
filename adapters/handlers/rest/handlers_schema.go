@@ -296,6 +296,14 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		}
 	}
 
+	s.logger.WithFields(logrus.Fields{
+		"audit_event": "property_index_deleted",
+		"collection":  qualifiedClass,
+		"property":    params.PropertyName,
+		"index_type":  params.IndexName,
+		"principal":   principalUsername(principal),
+	}).Info("property index deleted")
+
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
