@@ -464,57 +464,6 @@ func (ix *Index) MemoryStats() (stats MemoryStats, ok bool) {
 	return st.memoryStats(), true
 }
 
-// replaceEdges publishes the built index again with other edges over the same
-// postings. Searches that started before keep the edges they started with.
-// The edges are in the form buildEdges returns: one offset per slot and one
-// that closes the last, endpoints that are slots of the index. It is how a
-// benchmark times one build under several caps on the degree (capDegree)
-// without building it again.
-func (ix *Index) replaceEdges(edgeStart, edges []uint32) error {
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
-	if ix.closed {
-		return errors.New("posting-edge index is closed")
-	}
-	st := ix.state.Load()
-	if st == nil {
-		return errors.New("posting-edge index is not built")
-	}
-	n := st.postings.vectors()
-	if len(edgeStart) != n+1 {
-		return errors.Errorf("%d edge offsets for %d vectors, expected %d", len(edgeStart), n, n+1)
-	}
-	if edgeStart[0] != 0 || int(edgeStart[n]) != len(edges) {
-		return errors.Errorf("edge offsets span [%d, %d), the edges [0, %d)", edgeStart[0], edgeStart[n], len(edges))
-	}
-	for slot := 0; slot < n; slot++ {
-		if edgeStart[slot+1] < edgeStart[slot] {
-			return errors.Errorf("edge offsets decrease at slot %d", slot)
-		}
-	}
-	for i, endpoint := range edges {
-		if int(endpoint) >= n {
-			return errors.Errorf("edge %d ends at slot %d, the index has %d", i, endpoint, n)
-		}
-	}
-
-	postings := *st.postings
-	postings.edgeStart, postings.edges = edgeStart, edges
-	next := &state{
-		dims:          st.dims,
-		quantizer:     st.quantizer,
-		scanQuantizer: st.scanQuantizer,
-		centroids:     st.centroids,
-		postings:      &postings,
-		side:          st.side,
-		visited:       st.visited,
-		build:         st.build,
-	}
-	next.scratch.New = st.scratch.New
-	ix.state.Store(next)
-	return nil
-}
-
 func (st *state) memoryStats() MemoryStats {
 	p := st.postings
 	var centroidBytes int64

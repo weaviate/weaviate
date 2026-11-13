@@ -147,24 +147,3 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 	}
 	return edgeStart, edges, totalScored.Load(), nil
 }
-
-// capDegree keeps at most k edges per source, its k nearest. The rows of
-// buildEdges are nearest first, so a capped row is a prefix of the full one
-// and no distance is computed again. With k <= 0 every edge stays, and the
-// arrays come back as they were given. Otherwise the result is new arrays in
-// the same CSR form, and the given ones are left as they are.
-func capDegree(edgeStart, edges []uint32, k int) (cappedStart, capped []uint32) {
-	if k <= 0 || len(edgeStart) == 0 {
-		return edgeStart, edges
-	}
-	n := len(edgeStart) - 1
-	cappedStart = make([]uint32, n+1)
-	for slot := 0; slot < n; slot++ {
-		cappedStart[slot+1] = cappedStart[slot] + min(edgeStart[slot+1]-edgeStart[slot], uint32(k))
-	}
-	capped = make([]uint32, cappedStart[n])
-	for slot := 0; slot < n; slot++ {
-		copy(capped[cappedStart[slot]:cappedStart[slot+1]], edges[edgeStart[slot]:edgeStart[slot+1]])
-	}
-	return cappedStart, capped
-}
