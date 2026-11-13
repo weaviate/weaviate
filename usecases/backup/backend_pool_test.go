@@ -783,8 +783,9 @@ func TestUploaderAllDoesNotPublishSuccessOnPanic(t *testing.T) {
 		{
 			name: "shard job",
 			panicIn: func(p *uploadProbe) {
-				// a nil descriptor panics in createFileList, which runs before compress
-				// installs its own recovery around the consumer goroutine
+				// a nil shard descriptor panics where the job evaluates shard.Name for
+				// cdesc.ShardFileSource, which runs before compress installs its own
+				// recovery around the consumer goroutine
 				p.descs[0] = classDescriptorWithShards(p.descs[0], 2)
 				p.descs[0].Shards[0] = nil
 			},

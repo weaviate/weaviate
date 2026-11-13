@@ -469,7 +469,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
 	}
 
-	if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
+	if err := sd.FillFileInfo(files, shardBaseDescr, backup.NewTreeFileSource(stagingRoot)); err != nil {
 		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
 	}
 
@@ -520,7 +520,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("hardlink inactive shard %s files to staging: %w", name, err)
 	}
 
-	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+	if err := sd.FillFileInfo(files, shardBaseDescr, backup.NewTreeFileSource(i.Config.RootPath)); err != nil {
 		return fmt.Errorf("gather inactive shard %s file info: %w", name, err)
 	}
 

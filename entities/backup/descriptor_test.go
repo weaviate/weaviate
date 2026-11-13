@@ -1070,7 +1070,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				Node: "test-node",
 			}
 
-			err := s.FillFileInfo(tc.files, tc.shardBaseDescrs, tempDir)
+			err := s.FillFileInfo(tc.files, tc.shardBaseDescrs, NewTreeFileSource(tempDir))
 
 			if tc.errorContains != "" {
 				require.Error(t, err)
