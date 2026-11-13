@@ -20,6 +20,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -177,11 +179,22 @@ func TestRerankCorePath(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				_, err := grpcClient.Search(ctx, searchRequest([]float32{1, 0}, tt.property))
 				require.Error(t, err)
+				// The search handler returns a request validation error
+				// without a status, which gRPC reports as Unknown.
+				assert.Equal(t, codes.Unknown, status.Code(err), "%v", err)
 				for _, part := range tt.errParts {
 					assert.ErrorContains(t, err, part)
 				}
 			})
 		}
+	})
+
+	t.Run("reranker-dummy accepts a rerank without a query", func(t *testing.T) {
+		req := searchRequest([]float32{1, 0}, "text")
+		req.Rerank.Query = nil
+		reply, err := grpcClient.Search(ctx, req)
+		require.NoError(t, err)
+		assert.Equal(t, []string{idDDDDDD, idAAAA, idBB, idCC}, resultIDs(reply.Results))
 	})
 
 	t.Run("a limit above the maximum is rejected by the search", func(t *testing.T) {

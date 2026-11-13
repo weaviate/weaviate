@@ -36,6 +36,19 @@ func (m typedReranker) RerankPropertyDataTypes() []schema.DataType {
 
 var _ modulecapabilities.RerankPropertyDataTypes = typedReranker{}
 
+// aliasedReranker is a typedReranker that a class can also configure under
+// altName.
+type aliasedReranker struct {
+	typedReranker
+	altName string
+}
+
+func (m aliasedReranker) AltNames() []string {
+	return []string{m.altName}
+}
+
+var _ modulecapabilities.ModuleHasAltNames = aliasedReranker{}
+
 func TestValidateRerankProperty(t *testing.T) {
 	reranker := func(name string) plainReranker {
 		return plainReranker{dummyNonVectorizerModule: newDummyNonVectorizerModule(name)}
@@ -52,6 +65,10 @@ func TestValidateRerankProperty(t *testing.T) {
 		return moduleConfig
 	}
 	onlyTyped := []modulecapabilities.Module{typed}
+	arrayAndHash := []modulecapabilities.Module{typedReranker{
+		plainReranker: reranker("reranker-typed"),
+		types:         []schema.DataType{schema.DataTypeTextArray, schema.DataTypeBlobHash},
+	}}
 	typedConfig := configOf("reranker-typed")
 
 	tests := []struct {
@@ -82,6 +99,39 @@ func TestValidateRerankProperty(t *testing.T) {
 			modules:      onlyTyped,
 			moduleConfig: typedConfig,
 			property:     "legacy",
+		},
+		{
+			name:         "deprecated string[] property reads as text[]",
+			modules:      onlyTyped,
+			moduleConfig: typedConfig,
+			property:     "legacyTags",
+			wantErr:      `rerank: property "legacyTags" of collection "Tickets" is of type text[]; reranker-typed reranks text, blob properties`,
+		},
+		{
+			name:         "deprecated string[] property, reranker that reads text[]",
+			modules:      arrayAndHash,
+			moduleConfig: typedConfig,
+			property:     "legacyTags",
+		},
+		{
+			name:         "blobHash property is not a blob property",
+			modules:      onlyTyped,
+			moduleConfig: typedConfig,
+			property:     "digest",
+			wantErr:      `rerank: property "digest" of collection "Tickets" is of type blobHash; reranker-typed reranks text, blob properties`,
+		},
+		{
+			name:         "blobHash property, reranker that reads blobHash",
+			modules:      arrayAndHash,
+			moduleConfig: typedConfig,
+			property:     "digest",
+		},
+		{
+			name:         "blob property is not a blobHash property",
+			modules:      arrayAndHash,
+			moduleConfig: typedConfig,
+			property:     "photo",
+			wantErr:      `rerank: property "photo" of collection "Tickets" is of type blob; reranker-typed reranks text[], blobHash properties`,
 		},
 		{
 			name:         "reference property",
@@ -152,6 +202,18 @@ func TestValidateRerankProperty(t *testing.T) {
 			moduleConfig: configOf("reranker-typed", "reranker-untyped"),
 			property:     "tags",
 		},
+		{
+			// With two rerankers registered, a module serves the class only
+			// when the class configures it.
+			name: "class configures the typed reranker under its alternative name",
+			modules: []modulecapabilities.Module{
+				aliasedReranker{typedReranker: typed, altName: "reranker-alias"},
+				reranker("reranker-plain"),
+			},
+			moduleConfig: configOf("reranker-alias"),
+			property:     "tags",
+			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text, blob properties`,
+		},
 		{name: "class without a reranker", property: "tags"},
 	}
 	for _, tt := range tests {
@@ -169,6 +231,8 @@ func TestValidateRerankProperty(t *testing.T) {
 					{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
 					{Name: "count", DataType: schema.DataTypeInt.PropString()},
 					{Name: "legacy", DataType: schema.DataTypeString.PropString()},
+					{Name: "legacyTags", DataType: schema.DataTypeStringArray.PropString()},
+					{Name: "digest", DataType: schema.DataTypeBlobHash.PropString()},
 					{Name: "author", DataType: []string{"Author"}},
 					{Name: "broken", DataType: []string{}},
 				},
