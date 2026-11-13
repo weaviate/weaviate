@@ -15,12 +15,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +32,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -523,8 +527,15 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 				db.indices[spec.name] = idx
 			}
 
-			err = db.Shutdown(context.Background())
+			report := shutdownreport.New("node-1")
+			err = db.Shutdown(shutdownreport.With(context.Background(), report))
 
+			f := shutdownreporttest.Summary(t, report)
+			n := int64(len(tt.indices))
+			assert.Equal(t, n, f["indexes_total"])
+			assert.Equal(t, n, f["indexes_done"], "a failing index is still done")
+			assert.Equal(t, true, f["db_reached"])
+			assert.Len(t, slowestEntries(f["slowest_indexes"]), int(min(3, n)))
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
 			} else {
@@ -543,6 +554,36 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// TestDBShutdownHeartbeatNamesCurrentIndex: a heartbeat during an index close names that index,
+// and the summary times that close.
+func TestDBShutdownHeartbeatNamesCurrentIndex(t *testing.T) {
+	const indexClose = 10 * time.Millisecond
+	var current any
+	shard := NewMockShardLike(t)
+	shard.EXPECT().Name().Return("shard1").Maybe()
+	shard.EXPECT().Shutdown(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+		current = shutdownreporttest.Heartbeat(t, shutdownreport.From(ctx))["current_index"]
+		time.Sleep(indexClose)
+		return nil
+	}).Once()
+	idx := newShutdownTestIndex(t, nil)
+	idx.shards.Store("shard1", shard)
+
+	logger, _ := test.NewNullLogger()
+	db := newShutdownTestDB(t, logger, 0)
+	db.indices = map[string]*Index{"Alpha": idx}
+	report := shutdownreport.New("node-1")
+
+	require.NoError(t, db.Shutdown(shutdownreport.With(context.Background(), report)))
+	require.Equal(t, "Alpha", current)
+	name, took, ok := strings.Cut(shutdownreporttest.Summary(t, report)["slowest_indexes"].(string), "=")
+	require.True(t, ok)
+	require.Equal(t, "Alpha", name)
+	d, err := time.ParseDuration(took)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, d, indexClose, "slowest_indexes must carry the index close's duration")
 }
 
 // TestIndexShutdownAbortsInFlightReader pins that Shutdown requests the close

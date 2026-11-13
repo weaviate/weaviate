@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,6 +64,21 @@ func Test_staticRoute(t *testing.T) {
 			assert.Equal(t, tc.expected, got)
 		})
 	}
+}
+
+func TestServerRequestsRunningPanickingHandler(t *testing.T) {
+	s := &Server{}
+	h := s.countRunning(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, int64(1), s.RequestsRunning(), "requests running inside the handler")
+		panic(http.ErrAbortHandler)
+	}))
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		h.ServeHTTP(httptest.NewRecorder(), newRequest(t, "/nodes/"))
+	}()
+	assert.Equal(t, http.ErrAbortHandler, recovered, "the panic must reach net/http")
+	assert.Equal(t, int64(0), s.RequestsRunning(), "requests running after the handler")
 }
 
 func newRequest(t *testing.T, path string) *http.Request {
