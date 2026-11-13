@@ -67,6 +67,7 @@ HNSW / posting-edge con el kernel del PR. El rango son los dos builds de HNSW de
 Lo que cambia:
 
 - **Posting-edge gana menos que con el prototipo:** un 16 % a 0.95, en vez de un 19 %, y un 22 % a 0.99, en vez de un 29 %. La distancia del PR cuesta entre 4.5 y 5.0 ns más por código que la del prototipo, en los tres casos medidos: 18.9 frente a 14.4 ns con todo en caché, 18.0 frente a 13.3 en el scan de un posting, y 32.7 frente a 27.7 en endpoints sueltos. No preparar la query no lo compensa: la query de 0.95 ahorraría 163 µs con el kernel del PR, frente a 188 µs con el prototipo.
+- **Esos 4.5–5.0 ns van como follow-up de #13880,** no como cambio del PR mientras está en review. Quedan anotados en su descripción como posible mejora futura. El prototipo intercala los cinco planos por bloque de 128 bits, una vez por query, y el PR los lee de cinco slices. No está medido cuánto de la diferencia viene de eso y cuánto del resto de la distancia.
 - **HNSW gana casi lo mismo,** un 5 a 7 %. Hace más distancias de las que se suponían, pero ahorra menos en cada una.
 - **El ratio esperado a 0.95 sube unas 0.04,** a 1.94x–1.95x con 1 thread. Sigue dentro del gate, a un 2 % por encima del borde de la banda (1.91x). Con 8 threads, el build de HNSW de la tarde da 2.00x, en el borde del gate.
 - **El tercer build de HNSW, el de `TestSearchWork`,** llega a 0.95 a ef 45 con 1 693 distancias, y a 0.99 a ef 308 con 8 215. Queda entre los dos de v1.4.
