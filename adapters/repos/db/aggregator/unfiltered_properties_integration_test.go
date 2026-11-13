@@ -123,7 +123,7 @@ func TestUnfilteredProperties_ReadObjectsOnceForAllProperties(t *testing.T) {
 	require.Len(t, got, len(allProps)-1)
 
 	wantText := func(values func(o propsTestObject) []string) aggregation.Text {
-		agg := newTextAggregator(topAll)
+		agg := newTextAggregator(textAggs, false)
 		for _, o := range objects {
 			for _, v := range values(o) {
 				require.NoError(t, agg.AddText(v))

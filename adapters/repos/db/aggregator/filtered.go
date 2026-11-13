@@ -387,11 +387,10 @@ type propAgg struct {
 // propAggs groups propAgg helpers by prop name
 type propAggs map[string]propAgg
 
-func (pa *propAgg) initAggregator() {
+func (pa *propAgg) initAggregator(onlyRequested bool) {
 	switch pa.aggType {
 	case aggregation.PropertyTypeText:
-		limit := extractLimitFromTopOccs(pa.specifiedAggregators)
-		pa.textAgg = newTextAggregator(limit)
+		pa.textAgg = newTextAggregator(pa.specifiedAggregators, onlyRequested)
 	case aggregation.PropertyTypeBoolean:
 		pa.boolAgg = newBoolAggregator()
 	case aggregation.PropertyTypeNumerical:
@@ -456,7 +455,7 @@ func (fa *filteredAggregator) prepareAggregatorsForProps() (propAggs, error) {
 
 		pa.aggType = at
 		pa.dataType = dt
-		pa.initAggregator()
+		pa.initAggregator(fa.params.OnlyRequestedAggregations)
 		out[prop.Name.String()] = pa
 	}
 

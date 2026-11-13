@@ -292,6 +292,42 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "text top occurrences without a limit",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{{
+					Property:    "first",
+					Aggregation: &pb.AggregateRequest_Aggregation_Text_{Text: &pb.AggregateRequest_Aggregation_Text{TopOccurences: true}},
+				}},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{{
+					Name:        "first",
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
+				}},
+			},
+		},
+		{
+			name: "text top occurrences with a limit",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{{
+					Property: "first",
+					Aggregation: &pb.AggregateRequest_Aggregation_Text_{Text: &pb.AggregateRequest_Aggregation_Text{
+						TopOccurences: true, TopOccurencesLimit: ptr(uint32(3)),
+					}},
+				}},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{{
+					Name:        "first",
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(ptr(3))},
+				}},
+			},
+		},
 	}
 
 	parser := NewAggregateParser(getClass, false, nil)
@@ -302,6 +338,8 @@ func TestGRPCAggregateRequest(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+				require.True(t, out.OnlyRequestedAggregations)
+				out.OnlyRequestedAggregations = false
 				require.EqualValues(t, tt.out, out)
 			}
 		})

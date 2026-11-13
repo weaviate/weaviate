@@ -93,7 +93,7 @@ def test_aggregate_hybrid_applies_filter(
         vector=[1, 0, 0, 0],
         object_limit=object_limit,
         filters=wvc.query.Filter.by_property("category").equal("fruit"),
-        return_metrics=[wvc.aggregate.Metrics("name").text(top_occurrences_value=True)],
+        return_metrics=[wvc.aggregate.Metrics("name").text(top_occurrences_count=True, top_occurrences_value=True)],
     )
     assert res.total_count == expected_count
     assert sorted(occ.value for occ in res.properties["name"].top_occurrences) == [

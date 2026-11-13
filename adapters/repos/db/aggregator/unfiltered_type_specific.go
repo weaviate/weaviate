@@ -408,7 +408,7 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 }
 
 func (ua unfilteredAggregator) textScan(prop aggregation.ParamProperty) objectScan {
-	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
+	agg := newTextAggregator(prop.Aggregators, ua.params.OnlyRequestedAggregations)
 
 	return objectScan{
 		name: prop.Name,

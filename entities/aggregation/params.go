@@ -39,6 +39,11 @@ type Params struct {
 	NearObject       *searchparams.NearObject   `json:"nearObject"`
 	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
 	Selection        *searchparams.Selection    `json:"selection"`
+	// OnlyRequestedAggregations is set by callers that return only the
+	// aggregations a request names, so the shards can skip computing the rest.
+	// The gRPC parser sets it: a text property's top occurrences are computed
+	// only when requested.
+	OnlyRequestedAggregations bool `json:"onlyRequestedAggregations"`
 }
 
 func (p *Params) UnmarshalJSON(data []byte) error {
