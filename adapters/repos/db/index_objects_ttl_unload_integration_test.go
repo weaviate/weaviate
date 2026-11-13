@@ -129,6 +129,8 @@ func TestTTLSweepCountsAsAccessBeforeItsPinIsReleased(t *testing.T) {
 			}
 			require.False(t, lazy.isLoaded())
 			require.NotZero(t, lazy.LastAccess())
+			require.Never(t, lazy.isLoaded, 1500*time.Millisecond, 10*time.Millisecond,
+				"nothing reloads the shard the sweep's unload left cold")
 		})
 	}
 }
