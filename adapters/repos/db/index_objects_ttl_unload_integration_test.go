@@ -37,6 +37,7 @@ func setupTTLUnloaderRepo(t *testing.T, shardState *sharding.State, class *model
 
 	repo := setupTestDBWithShardState(t, t.TempDir(), shardState, func(cfg *Config) {
 		cfg.EnableLazyLoadShards = boolPtr(true)
+		cfg.LazyLoadShardWarmupMinObjects = -1
 		cfg.ShardUnloader = newFakeShardUnloader()
 	}, nil, class)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
