@@ -875,7 +875,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, skipTenantsAlreadyMigrated(ownership, "C", "title", plan, tc.tasks))
+			require.Equal(t, tc.want, skipTenantsAlreadyMigrated(ownership, paidTenants("C", "title", plan, tc.tasks)))
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
@@ -996,8 +996,52 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, plan.conflict)
 			require.Equal(t, tc.mt, plan.migrationType)
-			got := skipTenantsAlreadyMigrated(map[string][]string{"n1": {"a", "b"}, "n2": {"a", "b"}}, "C", "p", plan, tasks)
+			got := skipTenantsAlreadyMigrated(map[string][]string{"n1": {"a", "b"}, "n2": {"a", "b"}}, paidTenants("C", "p", plan, tasks))
 			require.ElementsMatch(t, []string{"a", "b"}, got["n1"])
+		})
+	}
+}
+
+// Pins that a resubmit after a partial run needs HOT only the tenants that
+// still get work: a finished tenant may be COLD, but a needed one may not.
+func TestResubmitAfterPartialRunChecksHotOnlyForNeededTenants(t *testing.T) {
+	hot, cold, frozen := models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD, models.TenantActivityStatusFROZEN
+	cases := []struct {
+		name     string
+		statuses map[string]string
+		finished []string
+		wantCode int
+	}{
+		{"a finished tenant is COLD", map[string]string{"a": cold, "b": hot, "c": hot}, []string{"a"}, http.StatusInternalServerError},
+		{"a needed tenant is COLD", map[string]string{"a": hot, "b": cold, "c": hot}, []string{"a"}, http.StatusBadRequest},
+		{"a finished tenant is FROZEN", map[string]string{"a": frozen, "b": hot, "c": hot}, []string{"a"}, http.StatusBadRequest},
+		{"every tenant finished, one COLD", map[string]string{"a": cold, "b": hot}, []string{"a", "b"}, http.StatusBadRequest},
+		{"every tenant finished, all HOT", map[string]string{"a": hot, "b": hot}, []string{"a", "b"}, http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run := partlyMigratedRun(t, "p", db.ReindexTypeChangeTokenization, models.PropertyTokenizationField, tc.finished...)
+			for _, g := range tc.finished {
+				run.SwapDecidedGroups[g] = time.Time{}
+			}
+			h := &indexesHandlers{appState: &state.State{
+				Logger: logrus.New(), DB: dbWithTenants(t, tc.statuses), ClusterService: &rCluster.Service{},
+			}}
+			class := &models.Class{
+				Class:              "C",
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
+			}
+			plan := upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField}
+
+			resp := h.submitReindexTask(context.Background(), nil, class, "C", "p", plan, nil, []*distributedtask.Task{run})
+
+			code, body := statusOf(t, resp)
+			require.Equal(t, tc.wantCode, code)
+			if tc.wantCode == http.StatusBadRequest {
+				require.Len(t, body.Error, 1)
+				assert.Equal(t, db.ErrTenantsNotHot.Error(), body.Error[0].Message)
+			}
 		})
 	}
 }
