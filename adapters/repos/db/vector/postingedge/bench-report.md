@@ -4,6 +4,61 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero en el v1 y el v1.1, en reposo y de noche en el v1.2
 
+## Resumen, al cierre del 2026-11-13
+
+*Una página. Cada cifra sale de las secciones de abajo. Faltan las de la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), que se añaden aquí cuando lleguen.*
+
+**Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall, sin el kernel de #13880. Los rangos de 10M son los dos builds de HNSW.
+
+| | 1M | 10M |
+|---|---|---|
+| heap del índice | 165 MB, 0.49x de HNSW (335 MB) | 1 712 MB, 0.50x de HNSW (3 418 MB) |
+| ratio a 0.95, 1 / 8 threads | 1.53x / 1.26x | 2.10x–2.14x / 2.09x–2.20x |
+| ratio a 0.99, 1 / 8 threads | 0.77x / 0.62x: posting-edge por delante | 1.36x–1.72x / 1.34x–1.82x |
+| gate de 0.99, subiendo solo ef | se cumple con rescoreLimit 200: 0.9904 a ef=160 | se cumple con rescoreLimit 200: 0.9909 a ef=160 |
+| cobertura | completa: 0 vectores perdidos o repetidos | completa: 0 perdidos o repetidos; 9 999 de 10 000 se encuentran a sí mismos |
+
+- **El ratio crece con N; las cargas no.** A 0.95, posting-edge carga 13.4 postings a 1M y 12.6 a 10M. Lo que crece son los endpoints: el grado sube de 9.7 a 11.4 aristas por vector, porque con S fijo caen menos vecinos en el posting propio.
+- **dbpedia 1M (1536d):** 263.5 MB de índice frente a 420.1 de HNSW (v1). Ratio de 1.93x a 0.95 y 2.32x a 0.99 con 1 thread (v1.2).
+
+**Defaults cerrados:**
+
+- código completo y S=236 vectores por posting, fijado;
+- ef 20, lotes de 4 postings por ronda y una entrada;
+- margen de source automático (0.06 en cosine);
+- rescoreLimit 64 a 1536d; a 768d va acoplado, 200 (400 para 0.99);
+- P=256 y R=64. A 10M hacen falta P=320 y R=256 para un recall de arista de 0.94.
+
+Todo default pasa el gate de 0.99 subiendo solo ef.
+
+**Opt-in.** El modo memoria es `CodeBits` 768, a 1536d: un 34 % menos de índice, a 0.74x del QPS a 0.95 y 0.90x a 0.99. Pide R=512, S=236 fijado y rescoreLimit 200 (400 para 0.99). El de 512 bits es un valor válido sin recomendación. A 768d no hay modo memoria que recomendar: 512 bits ahorra un 18 % a 0.70x–0.77x.
+
+**Lo que murió, y por qué:**
+
+- **Poda triangular por source (v1.1):** poda el 0.1 % de los sources en su mejor caso, frente al 20 % del gate.
+- **Códigos capados como default (Fase B):** ninguno iguala el QPS a 0.95; el de 768 bits queda a 0.74x.
+- **256 bits en memoria (Fase B):** el routing necesita los bits, y carga 3.0x postings a igual recall.
+- **Celda desacoplada en memoria:** scan a 256 bits y routing completo. No llega a 0.99 y queda a 0.37x a 0.95, con más memoria. Pasa a disco como layout (c).
+- **S mayor que 236 (Fase C):** el scan crece con S y los endpoints casi no bajan; ningún S domina.
+- **FastScan en memoria:** pediría una segunda copia de los códigos, 992 MB a 10M. Pasa a disco, donde no cuesta.
+- **Cap de grado (v1.5):** empata a 0.95 y pierde un 28 a 32 % a 0.99, porque las aristas que quita llevan recall.
+
+**Palancas, por lo medido:**
+
+1. **El kernel de #13880,** la única medida que mueve el ratio. La estimación es de 2.14x a 1.87x–1.91x a 0.95 con el prototipo, y 1.94x–1.95x con el kernel del PR. Se mide la noche del 13.
+2. **El número de distancias.** El cap no lo recorta a igual recall: lo sube un 3 a 4 % a 0.95 y un 46 a 54 % a 0.99. Una arista por posting de destino está pendiente. Quitaría el 35.6 % de las aristas, y el 31.7 % de los endpoints puntuados llega por ellas.
+3. **Centroides y contabilidad por endpoint:** el 19 % y el 15 % del tiempo a 0.95. Son ilustrativos; el ef de centroides se mide la noche del 13.
+
+**Limitaciones:**
+
+- **Build en lote:** `AddBatch` solo admite vectores antes de `Build`, que corre una vez; después devuelve `ErrBuilt`.
+- **Sin deletes ni updates:** `Delete`, y volver a añadir un id, devuelven `ErrNotSupported`.
+- **Build de ~4x HNSW a 1M y ~8x a 10M:** unas 3 h 45 min frente a 27 min.
+  - La asignación exacta es n·k, cuadrática en N con S fijo.
+  - P y R crecen con N. Es el riesgo principal para 100M.
+- **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
+- **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
+
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
 **Estado: pre-registrado; se mide la noche del 13 al 14.** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
