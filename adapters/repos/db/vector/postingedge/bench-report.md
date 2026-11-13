@@ -102,6 +102,57 @@ Por vector: número de aristas frente a número de postings de destino distintos
 - **Por qué importa:** la búsqueda puntúa un endpoint solo para dar rango al posting donde vive, con el endpoint más cercano de los que llevan allí. Una arista cuyo posting de destino ya alcanza otra más cercana del mismo vector añade un endpoint que puntuar y ningún posting que ordenar.
 - **La hipótesis:** si hay mucha redundancia, la siguiente propuesta es una arista por posting de destino. Es una hipótesis, no una orden de implementar, y espera a los números.
 
+### Redundancia de aristas: resultados (2026-11-13, de día)
+
+*Añadido el 13 por la mañana, antes de la noche.*
+
+Se midió sobre el build de 10M de esta noche y, como control de escala, sobre el de 1M de v1.4, sin cronometrar ninguno. El build de 10M es el mismo de v1.4 y v1.5, porque el constructor es determinista: a ef=20 da el mismo recall, 0.9543.
+
+| por vector | 10M | 1M |
+|---|---|---|
+| aristas (vecinos fuera de su posting) | 11.41 | 9.74 |
+| postings de destino distintos | 7.35 (p50 7, p95 13) | 5.55 (p50 5, p95 11) |
+| aristas que comparten destino con una más cercana del mismo vector | 4.06 (p95 9), el 35.6 % | 4.19 (p95 10), el 43.0 % |
+| vectores con al menos una de esas | 91.3 % | 86.2 % |
+| aristas al posting de destino que más recibe, mediana / p95 | 3 / 8 | 3 / 8 |
+| vectores sin aristas (sus 16 vecinos en su propio posting) | 2.0 % | 5.9 % |
+
+Por rango en la fila (la arista 0 es la más cercana), la fracción que comparte destino con una más cercana:
+
+| rango | 1 | 2 | 4 | 6 | 8 | 10 | 12 | 15 |
+|---|---|---|---|---|---|---|---|---|
+| 10M | 22 % | 30 % | 37 % | 42 % | 44 % | 45 % | 45 % | 44 % |
+| 1M | 28 % | 38 % | 47 % | 51 % | 54 % | 55 % | 55 % | 55 % |
+
+Lo que dicen:
+
+- **La redundancia pasa de un tercio:** de las 114.1 M aristas de 10M, 40.6 M llevan a un posting al que ya llega una arista más cercana del mismo vector. Con una arista por posting de destino quedarían 7.35 por vector en vez de 11.41, sin perder ningún destino.
+- **Crece con el rango y se satura en torno al 45 %.** Las aristas más cercanas casi siempre abren un posting nuevo. De la octava en adelante, casi la mitad repite uno.
+- **A 10M hay menos que a 1M:** un 35.6 % frente a un 43.0 %. A 10M los vecinos se reparten entre más postings: un 28 % cae en el posting propio, frente a un 39 % a 1M. El build de 1M tiene otra configuración (P=256, R=64), así que la comparación de escala no es limpia.
+- **No es el cap de v1.5.** El cap 8 quitaba las aristas de rango 8 a 15, que son 41.1 M. Solo 18.4 M de ellas (un 45 %) repetían posting. Las otras 22.6 M eran la única arista del vector hacia su posting: el cap perdía un 31 % de los 73.5 M destinos. Una arista por posting quita 40.6 M aristas y ningún destino.
+
+Lo que estos números no dicen, y la hipótesis necesita saber:
+
+- **Cuánto llega a la búsqueda.** Los números de arriba son por vector, en el build. La búsqueda ya se salta un endpoint cuyo posting está cargado o que otra arista ya puntuó. Si las aristas redundantes llevan sobre todo a postings que se cargan igualmente, quitarlas ahorra menos de un 36 % de endpoints. Esto se mide por query: qué fracción de los endpoints puntuados viene de una arista redundante.
+- **Si la arista redundante da rango.** El rango de un posting es la distancia a la query más pequeña entre sus endpoints puntuados. Una segunda arista hacia el mismo posting no abre otro posting, pero le baja el rango si su endpoint está más cerca de la query que el de la arista más cercana al vector. Quitarla puede cambiar el orden de carga, y el trabajo puede volver como cargas, como pasó con el cap. Esto también se mide por query: con qué frecuencia el endpoint de una arista redundante es el que fija el rango de su posting.
+- **El techo, si toda la redundancia llegara a la búsqueda:** un 36 % menos de endpoints a 0.95 serían unos 136 µs de los 1 005 de la query con el kernel del PR, un 14 %. La cuenta sale del ancla de v1.5 (6 871 endpoints en 496 µs, 1 168 µs por query) menos el ahorro del kernel del PR. Es un techo: supone que la redundancia por query es la del build, que todos los endpoints cuestan lo mismo y que no vuelve trabajo en forma de cargas. En memoria, 155 MB menos de aristas, un 9 % del heap del índice (1 712 MB).
+
+### Datos de día
+
+En `testdata/bench/`:
+
+- `v1.6/wikidpr-10m-edge-redundancy.json` y `v1.6/wikidpr-1m-edge-redundancy.json`: la redundancia (`edgeRedundancy`, con las tablas por rango y por grado y los histogramas) y el punto sin cronometrar de ef=20.
+- `kernel/wikidpr-10m-hnsw-work.json`: las distancias por query de HNSW a 10M, `TestSearchWork` con rescoreLimit 512, de ef 10 a 1024.
+- `v1.6/kernel-pr-rounds.txt`: las diez rondas intercaladas del kernel, antes y después del PR.
+- `v1.6/kernel-pr-estimate.md`: la estimación rehecha, con los QPS.
+- `v1.6/scripts/`: `run_v16_day.sh` (las tres corridas de día), `run_kernel_pr_ab.sh` (las rondas), `kernel_pr_estimate.py` (la estimación rehecha) y `run_v16_night.sh` (la noche).
+
+```bash
+WORK=<dir con los binarios> v1.6/scripts/run_v16_day.sh
+WORK=<dir con los binarios> v1.6/scripts/run_kernel_pr_ab.sh 10 v1.6/kernel-pr-rounds.txt
+python3 v1.6/scripts/kernel_pr_estimate.py v1.6/kernel-pr-rounds.txt kernel/wikidpr-10m-hnsw-work.json
+```
+
 ## Coste por distancia: el kernel CRQ1 (2026-11-12)
 
 **Estado:** lectura de código y microbenchmarks hechos, con prototipos de los kernels en `postingedge/kernelproto`. La traducción a QPS es una estimación. No hay máquina x86 donde medir.

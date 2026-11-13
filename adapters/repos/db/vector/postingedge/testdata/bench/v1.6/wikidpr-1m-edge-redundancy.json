@@ -1,0 +1,335 @@
+{
+  "arm": "postingedge",
+  "dataset": "wikidpr-1m-e5-gt.bin",
+  "vectors": 1000000,
+  "dims": 768,
+  "queries": 1000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "buildProbe": 256,
+    "cacheProbe": 256,
+    "codeBits": 0,
+    "distance": "cosine",
+    "edges": 16,
+    "entryPostings": 1,
+    "partitionFromCache": true,
+    "quantization": "rq bits=1 centering=true",
+    "rescueLimit": 64,
+    "targetPostingSize": 236,
+    "trainingLimit": 10000,
+    "workThreads": 8
+  },
+  "buildSec": 155.781244958,
+  "buildStageSec": {
+    "add": 0.588858791,
+    "assign": 0,
+    "centroidGraph": 0.155830833,
+    "edges": 154.3149075,
+    "encode": 0.716401334,
+    "partition": 0
+  },
+  "memBaseline": {
+    "heapAllocMB": 2961.7536010742188,
+    "heapInuseMB": 2964.34375,
+    "rssMB": 3000.125,
+    "footprintMB": 2980
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 3126.8071670532227,
+    "heapInuseMB": 3130.640625,
+    "rssMB": 7849.40625,
+    "footprintMB": 3201
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 3133.021659851074,
+    "heapInuseMB": 3136.6484375,
+    "rssMB": 7849.453125,
+    "footprintMB": 3205
+  },
+  "settleQueries": 1000,
+  "indexHeapMB": 165.0535659790039,
+  "peakRSSMB": 7848.171875,
+  "componentsMB": {
+    "centroidVectors": 12.416015625,
+    "codes": 99.18212890625,
+    "edges": 40.96879959106445,
+    "f32": 2929.6875,
+    "otherMeasured": 1.0263595581054688,
+    "postings": 11.460262298583984
+  },
+  "diagnostics": {
+    "candidatesPerVector": 54564.839218,
+    "edgeRecall": 0.946078431372549,
+    "edgeTargetsP50": 5,
+    "edgeTargetsP95": 11,
+    "edgeTargetsPerVector": 5.552827,
+    "edgesIntoLargestTargetP95": 8,
+    "edgesPerVector": 9.739724,
+    "edgesSharingTargetMean": 4.186897,
+    "edgesSharingTargetP95": 10,
+    "edgesSharingTargetShare": 0.42987840312518094,
+    "entryIsNearestCentroid": 1,
+    "neighborsInOwnPosting": 0.388,
+    "postingSizeMax": 664,
+    "postingSizeMean": 235.96035865974517,
+    "postingSizeMin": 3,
+    "postingSizeP50": 232,
+    "postingSizeP95": 367,
+    "postings": 4238,
+    "selfFound": 1,
+    "selfSample": 10000,
+    "vectorsAdded": 1000000,
+    "vectorsInPostings": 1000000,
+    "vectorsMissing": 0,
+    "vectorsNeverAdded": 0,
+    "vectorsRepeated": 0,
+    "vectorsWithSharedTarget": 0.861779
+  },
+  "edgeRedundancy": {
+    "vectors": 1000000,
+    "edges": 9739724,
+    "targets": 5552827,
+    "shared": 4186897,
+    "vectorsWithShared": 861779,
+    "byRank": [
+      {
+        "edges": 940731,
+        "shared": 0
+      },
+      {
+        "edges": 915507,
+        "shared": 260277
+      },
+      {
+        "edges": 888207,
+        "shared": 336990
+      },
+      {
+        "edges": 857778,
+        "shared": 372401
+      },
+      {
+        "edges": 823882,
+        "shared": 388198
+      },
+      {
+        "edges": 785700,
+        "shared": 389300
+      },
+      {
+        "edges": 742723,
+        "shared": 381316
+      },
+      {
+        "edges": 694750,
+        "shared": 366435
+      },
+      {
+        "edges": 641997,
+        "shared": 345103
+      },
+      {
+        "edges": 582754,
+        "shared": 317241
+      },
+      {
+        "edges": 517192,
+        "shared": 284750
+      },
+      {
+        "edges": 444182,
+        "shared": 245506
+      },
+      {
+        "edges": 363997,
+        "shared": 200801
+      },
+      {
+        "edges": 276155,
+        "shared": 152234
+      },
+      {
+        "edges": 180613,
+        "shared": 100037
+      },
+      {
+        "edges": 83556,
+        "shared": 46308
+      }
+    ],
+    "byDegree": [
+      {
+        "vectors": 59269,
+        "targets": 0
+      },
+      {
+        "vectors": 25224,
+        "targets": 25224
+      },
+      {
+        "vectors": 27300,
+        "targets": 44298
+      },
+      {
+        "vectors": 30429,
+        "targets": 65972
+      },
+      {
+        "vectors": 33896,
+        "targets": 89707
+      },
+      {
+        "vectors": 38182,
+        "targets": 119680
+      },
+      {
+        "vectors": 42977,
+        "targets": 154093
+      },
+      {
+        "vectors": 47973,
+        "targets": 193932
+      },
+      {
+        "vectors": 52753,
+        "targets": 237765
+      },
+      {
+        "vectors": 59243,
+        "targets": 295715
+      },
+      {
+        "vectors": 65562,
+        "targets": 360524
+      },
+      {
+        "vectors": 73010,
+        "targets": 440966
+      },
+      {
+        "vectors": 80185,
+        "targets": 530473
+      },
+      {
+        "vectors": 87842,
+        "targets": 638273
+      },
+      {
+        "vectors": 95542,
+        "targets": 758383
+      },
+      {
+        "vectors": 97057,
+        "targets": 835093
+      },
+      {
+        "vectors": 83556,
+        "targets": 762729
+      }
+    ],
+    "targetsHist": [
+      59269,
+      64252,
+      83333,
+      99058,
+      106695,
+      106381,
+      101262,
+      92639,
+      80754,
+      67480,
+      52909,
+      38228,
+      25031,
+      14062,
+      6180,
+      2115,
+      352
+    ],
+    "sharedHist": [
+      138221,
+      86983,
+      104211,
+      116533,
+      119404,
+      111438,
+      96715,
+      77464,
+      57717,
+      39291,
+      24850,
+      14110,
+      7260,
+      3544,
+      1593,
+      666
+    ],
+    "largestHist": [
+      59269,
+      78952,
+      186724,
+      211091,
+      160392,
+      109199,
+      71060,
+      46078,
+      29351,
+      18835,
+      11609,
+      7300,
+      4384,
+      2566,
+      1612,
+      912,
+      666
+    ]
+  },
+  "points": [
+    {
+      "ef": 20,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9414,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 2.682999999999964,
+        "roundsP50": 2,
+        "roundsP95": 5,
+        "roundsMax": 9,
+        "loadsMean": 11.732000000000083,
+        "loadsP50": 9,
+        "loadsP95": 21,
+        "scannedMean": 2907.196999999998,
+        "scannedAgainMean": 550.656,
+        "sourcesCutMean": 1819.5809999999974,
+        "edgesCutMean": 18825.77199999998,
+        "edgesFollowedMean": 10972.297,
+        "endpointsInLoadedMean": 1562.903000000001,
+        "endpointsRepeatedMean": 4145.9389999999985,
+        "endpointsMean": 5263.454999999999,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 11.72700000000008,
+        "rescoredPostingsP95": 21,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    }
+  ]
+}
