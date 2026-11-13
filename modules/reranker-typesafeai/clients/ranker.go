@@ -35,17 +35,19 @@ import (
 )
 
 const (
-	// A request with images holds two to four times their base64 while it
-	// holds a slot, up to 24 MiB of base64 per request, in each of the two
-	// pools.
+	// DefaultMaxConcurrentRequests is the default size of each of the two
+	// pools of the client, so a process has up to twice as many requests in
+	// flight. A request with images holds two to four times their base64
+	// while it holds a slot, up to 24 MiB of base64 per request.
 	DefaultMaxConcurrentRequests = 16
 	MaxConcurrentRequestsLimit   = 256
 
 	// The API does not publish its request size limit: 141,000 characters
-	// were accepted and 149,000 rejected. MaxBatchCharacters bounds the bytes
-	// of the documents of a request plus their questions, each of which
-	// repeats the query. A non-ASCII character takes several bytes, so such
-	// text makes smaller requests, never larger ones. Beyond 50 documents a
+	// were accepted and 149,000 rejected. A batch closes before the bytes of
+	// its documents plus their questions, each of which repeats the query,
+	// would pass MaxBatchCharacters. One document above the limit is sent
+	// alone. A non-ASCII character takes several bytes, so a batch of such
+	// text holds fewer characters than the limit. Beyond 50 documents a
 	// request saves almost no tokens and answers more slowly than two sent in
 	// parallel.
 	MaxBatchDocuments  = 50
@@ -66,20 +68,25 @@ const (
 type client struct {
 	apiKey     string
 	httpClient *http.Client
-	// inFlight holds a slot per request to the class or default host being
-	// built or sent. It is shared by every call, so it bounds the load on the
-	// API and the request bodies in memory however many queries run.
+	// inFlight holds a slot per request to a class or default host being
+	// built or sent. Every call and every such host share it, so it bounds
+	// the load on the API and the request bodies in memory however many
+	// queries run. A class baseURL host that never answers holds its slots
+	// until the client timeout, and the queries of every other collection
+	// wait for them.
 	inFlight chan struct{}
 	// inFlightHeaderHost is the pool of requests to a host the request header
-	// named. A caller can name a host that never answers, and that must not
-	// hold the slots of requests to the class or default host.
+	// named. It has the size of inFlight and every such host shares it. A
+	// caller can name a host that never answers, and that must not hold the
+	// slots of requests to a class or default host.
 	inFlightHeaderHost chan struct{}
 	logger             logrus.FieldLogger
 }
 
-// New returns a client that sends at most maxConcurrentRequests requests at
-// once to the class or default host, and as many to hosts the request header
-// names.
+// New returns a client with two pools of maxConcurrentRequests slots: one
+// for the requests to class and default hosts, one for the requests to hosts
+// the request header names. Up to twice maxConcurrentRequests requests are in
+// flight at once.
 func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	slots := max(maxConcurrentRequests, 1)
 	return &client{
