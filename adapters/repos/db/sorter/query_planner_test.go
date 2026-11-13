@@ -14,6 +14,7 @@ package sorter
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -36,6 +37,7 @@ func TestQueryPlanner(t *testing.T) {
 		sort                 []filters.Sort
 		shouldChooseInverted bool
 		disabled             bool
+		unsupportedType      bool
 	}
 
 	testCases := []testCase{
@@ -122,6 +124,7 @@ func TestQueryPlanner(t *testing.T) {
 			limit:                100,
 			sort:                 sortsBy("text", "asc", "int", "asc"),
 			shouldChooseInverted: false,
+			unsupportedType:      true,
 		},
 		{
 			name:                 "multiple sort args, first one is not indexed",
@@ -170,6 +173,7 @@ func TestQueryPlanner(t *testing.T) {
 				},
 			},
 			shouldChooseInverted: false,
+			unsupportedType:      true,
 		},
 		{
 			name:        "nil bitmap, i.e. unfiltered search",
@@ -196,6 +200,7 @@ func TestQueryPlanner(t *testing.T) {
 				},
 			},
 			shouldChooseInverted: false,
+			unsupportedType:      true,
 		},
 		{
 			name:        "high match ratio, but globally disabled",
@@ -218,7 +223,7 @@ func TestQueryPlanner(t *testing.T) {
 			var (
 				dirName   = t.TempDir()
 				logger, _ = test.NewNullLogger()
-				ctx       = context.Background()
+				ctx       = helpers.InitSlowQueryDetails(context.Background())
 			)
 			store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 				cyclemanager.NewCallbackGroupNoop(),
@@ -257,6 +262,9 @@ func TestQueryPlanner(t *testing.T) {
 			shouldUseInverted, err := qp.Do(ctx, bm, tc.limit, tc.sort)
 			require.Nil(t, err)
 			assert.Equal(t, tc.shouldChooseInverted, shouldUseInverted)
+			plannerLog := fmt.Sprint(helpers.ExtractSlowQueryDetails(ctx)["sort_query_planner"])
+			assert.Equal(t, !tc.unsupportedType, strings.Contains(plannerLog, "estimated costs"),
+				"an unsupported type must skip the cost estimate: %s", plannerLog)
 		})
 	}
 }
