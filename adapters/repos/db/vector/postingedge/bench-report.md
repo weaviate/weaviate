@@ -173,6 +173,35 @@ Una arista redundante nunca deja sin rango a su posting: la arista más cercana 
 - **No toca las secciones cronometradas.** La parte que necesita las distancias va después de la que mide la expansión.
 - **El conteo predice, antes de puntuar, qué endpoints puntuará la búsqueda,** y lo compara con los que puntúa de verdad. Si alguna vez no coinciden, la corrida falla.
 
+### Redundancia por query: resultados (2026-11-13, de día)
+
+**Veredicto, por el pre-registro: (1) es grande y (2) también.** Es el mismo mecanismo que mató al cap, y se documenta así: una arista por posting de destino no pasa a prototipo.
+
+La corrida fue de 08:18 a 09:04, sin cronometrar, con 1 000 queries y ninguna carga mal predicha. El build da el mismo recall y los mismos endpoints que el de esta mañana.
+
+| por query | ef=20 (recall 0.9543) | ef=160 (0.9909) |
+|---|---|---|
+| endpoints puntuados | 7 227 | 35 571 |
+| **(1)** puntuados por una arista redundante | 2 294, **el 31.7 %** | 10 908, **el 30.7 %** |
+| de ellos, alcanzados después por una arista directa de otro source | 420 | 2 577 |
+| (1) sin esos | 25.9 % | 23.4 % |
+| redundantes que fijan el rango de su posting | 99.1, el 4.3 % de los redundantes | 319, el 2.9 % |
+| de esos postings, los que se cargan | 1.48, el 1.5 % | 5.28, el 1.7 % |
+| **(2)** postings cargados por rango cuyo rango vino de un redundante | **el 12.2 %** de 12.1 | **el 9.7 %** de 54.2 |
+
+- **(1) es grande:** un 31.7 % y un 30.7 %, lejos del umbral del 10 %. Sin los endpoints que alcanza después una arista directa, un 25.9 % y un 23.4 %: la misma categoría.
+- **(2) es grande:** a 0.95 llega al 12.2 %, por encima del umbral del 10 %. A 0.99 queda en el 9.7 %, en la zona intermedia. El umbral pedía uno de los dos puntos.
+
+Lo que dicen:
+
+- **La redundancia llega casi entera a la búsqueda:** el 31.7 % de los endpoints puntuados, frente al 35.6 % de las aristas del build. Los filtros de postings cargados y de endpoints ya puntuados apenas la reducen.
+- **Casi ningún endpoint redundante fija un rango, pero los que lo fijan deciden cargas.** Solo lo fijan el 4.3 % y el 2.9 % de los redundantes. Sin embargo, de cada 8 postings que la búsqueda carga por rango a 0.95, uno debe su prioridad a uno de ellos: 1.5 de 12.1 por query. A 0.99 son 5.3 de 54.2. El ahorro estaría en el 96 % que no fija nada; el riesgo, en esa carga de cada 8.
+- **Es el mecanismo del cap, en menor grado.** Las aristas que se quitarían llevan parte del orden de carga. A diferencia del cap, ningún posting pierde su rango: le queda el de la arista más cercana del mismo source. Lo que cambia es la prioridad.
+- **El ahorro, si nada volviera como cargas:** a 0.95, los 1 874 endpoints redundantes netos por query, a 55.8 ns cada uno con el kernel del PR, son unos 105 µs. Es un 10 % de la query.
+- **No se midió cuánto subiría el rango de esos postings sin la arista redundante,** ni si se cargarían igual más tarde. El pre-registro reservaba esa medida para la zona intermedia de (2), y 0.95 quedó por encima de ella.
+
+**El build no es determinista del todo.** Postings y aristas sí lo son, pero el grafo de centroides se construye con inserciones en paralelo (`centroids.go`). La fracción de queries cuya entrada es el centroide más cercano dio 0.998 esta mañana y 0.997 en este build, con el mismo recall a ef=20 (0.9543) y los mismos endpoints. Donde este informe dice que un build de posting-edge repite otro, vale para postings, aristas y recall. El grafo de centroides puede cambiar la entrada de alguna query de cada mil.
+
 ### Datos de día
 
 En `testdata/bench/`:
@@ -181,10 +210,12 @@ En `testdata/bench/`:
 - `kernel/wikidpr-10m-hnsw-work.json`: las distancias por query de HNSW a 10M, `TestSearchWork` con rescoreLimit 512, de ef 10 a 1024.
 - `v1.6/kernel-pr-rounds.txt`: las diez rondas intercaladas del kernel, antes y después del PR.
 - `v1.6/kernel-pr-estimate.md`: la estimación rehecha, con los QPS.
-- `v1.6/scripts/`: `run_v16_day.sh` (las tres corridas de día), `run_kernel_pr_ab.sh` (las rondas), `kernel_pr_estimate.py` (la estimación rehecha) y `run_v16_night.sh` (la noche).
+- `v1.6/wikidpr-10m-edge-trace.json`: la redundancia por query en ef=20 y ef=160 (`stats.edgeTrace` de cada punto).
+- `v1.6/scripts/`: `run_v16_day.sh` (las tres corridas de día), `run_v16_edgetrace.sh` (la redundancia por query), `run_kernel_pr_ab.sh` (las rondas), `kernel_pr_estimate.py` (la estimación rehecha) y `run_v16_night.sh` (la noche).
 
 ```bash
 WORK=<dir con los binarios> v1.6/scripts/run_v16_day.sh
+WORK=<dir con los binarios> v1.6/scripts/run_v16_edgetrace.sh
 WORK=<dir con los binarios> v1.6/scripts/run_kernel_pr_ab.sh 10 v1.6/kernel-pr-rounds.txt
 python3 v1.6/scripts/kernel_pr_estimate.py v1.6/kernel-pr-rounds.txt kernel/wikidpr-10m-hnsw-work.json
 ```

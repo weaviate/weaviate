@@ -1,0 +1,404 @@
+{
+  "arm": "postingedge",
+  "dataset": "wikidpr-10m-e5.bin",
+  "vectors": 10000000,
+  "dims": 768,
+  "queries": 1000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "buildProbe": 320,
+    "cacheProbe": 384,
+    "codeBits": 0,
+    "distance": "cosine",
+    "edges": 16,
+    "entryPostings": 1,
+    "partitionFromCache": true,
+    "quantization": "rq bits=1 centering=true",
+    "rescueLimit": 256,
+    "targetPostingSize": 236,
+    "trainingLimit": 10000,
+    "workThreads": 8
+  },
+  "buildSec": 2386.113510952,
+  "buildStageSec": {
+    "add": 8.180000452,
+    "assign": 0,
+    "centroidGraph": 2.32578175,
+    "edges": 2357.669551792,
+    "encode": 17.127895958,
+    "partition": 0
+  },
+  "memBaseline": {
+    "heapAllocMB": 9.167495727539062,
+    "heapInuseMB": 11.203125,
+    "rssMB": 38.875,
+    "footprintMB": 22
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 1721.56103515625,
+    "heapInuseMB": 1737.7421875,
+    "rssMB": 16539.65625,
+    "footprintMB": 2181
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 31259.036918640137,
+    "heapInuseMB": 31275.3515625,
+    "rssMB": 39196.921875,
+    "footprintMB": 31744
+  },
+  "settleQueries": 1000,
+  "indexHeapMB": 1712.393539428711,
+  "peakRSSMB": 32991.5,
+  "componentsMB": {
+    "centroidVectors": 124.1396484375,
+    "codes": 991.8212890625,
+    "edges": 473.3705406188965,
+    "f32": 29296.875,
+    "otherMeasured": 8.45949935913086,
+    "postings": 114.6025619506836
+  },
+  "diagnostics": {
+    "candidatesPerVector": 66060.3208457,
+    "edgeRecall": 0.9470475526911688,
+    "edgeTargetsP50": 7,
+    "edgeTargetsP95": 13,
+    "edgeTargetsPerVector": 7.34789,
+    "edgesIntoLargestTargetP95": 8,
+    "edgesPerVector": 11.4091246,
+    "edgesSharingTargetMean": 4.0612346,
+    "edgesSharingTargetP95": 9,
+    "edgesSharingTargetShare": 0.3559637345007171,
+    "entryIsNearestCentroid": 0.997,
+    "neighborsInOwnPosting": 0.282375,
+    "postingSizeMax": 1098,
+    "postingSizeMean": 235.99933920185023,
+    "postingSizeMin": 3,
+    "postingSizeP50": 230,
+    "postingSizeP95": 393,
+    "postings": 42373,
+    "selfFound": 1,
+    "selfSample": 10000,
+    "vectorsAdded": 10000000,
+    "vectorsInPostings": 10000000,
+    "vectorsMissing": 0,
+    "vectorsNeverAdded": 0,
+    "vectorsRepeated": 0,
+    "vectorsWithSharedTarget": 0.9131179
+  },
+  "edgeRedundancy": {
+    "vectors": 10000000,
+    "edges": 114091246,
+    "targets": 73478900,
+    "shared": 40612346,
+    "vectorsWithShared": 9131179,
+    "byRank": [
+      {
+        "edges": 9804453,
+        "shared": 0
+      },
+      {
+        "edges": 9669903,
+        "shared": 2151027
+      },
+      {
+        "edges": 9513661,
+        "shared": 2820716
+      },
+      {
+        "edges": 9329174,
+        "shared": 3190022
+      },
+      {
+        "edges": 9111238,
+        "shared": 3408798
+      },
+      {
+        "edges": 8853121,
+        "shared": 3523545
+      },
+      {
+        "edges": 8548089,
+        "shared": 3559665
+      },
+      {
+        "edges": 8187839,
+        "shared": 3522006
+      },
+      {
+        "edges": 7761936,
+        "shared": 3417788
+      },
+      {
+        "edges": 7257804,
+        "shared": 3253915
+      },
+      {
+        "edges": 6659978,
+        "shared": 3015473
+      },
+      {
+        "edges": 5950322,
+        "shared": 2706552
+      },
+      {
+        "edges": 5101049,
+        "shared": 2315739
+      },
+      {
+        "edges": 4075493,
+        "shared": 1837113
+      },
+      {
+        "edges": 2850477,
+        "shared": 1269949
+      },
+      {
+        "edges": 1416709,
+        "shared": 620038
+      }
+    ],
+    "byDegree": [
+      {
+        "vectors": 195547,
+        "targets": 0
+      },
+      {
+        "vectors": 134550,
+        "targets": 134550
+      },
+      {
+        "vectors": 156242,
+        "targets": 260778
+      },
+      {
+        "vectors": 184487,
+        "targets": 418805
+      },
+      {
+        "vectors": 217936,
+        "targets": 615884
+      },
+      {
+        "vectors": 258117,
+        "targets": 868536
+      },
+      {
+        "vectors": 305032,
+        "targets": 1186106
+      },
+      {
+        "vectors": 360250,
+        "targets": 1589685
+      },
+      {
+        "vectors": 425903,
+        "targets": 2107184
+      },
+      {
+        "vectors": 504132,
+        "targets": 2772827
+      },
+      {
+        "vectors": 597826,
+        "targets": 3641514
+      },
+      {
+        "vectors": 709656,
+        "targets": 4768411
+      },
+      {
+        "vectors": 849273,
+        "targets": 6286269
+      },
+      {
+        "vectors": 1025556,
+        "targets": 8378889
+      },
+      {
+        "vectors": 1225016,
+        "targets": 11026384
+      },
+      {
+        "vectors": 1433768,
+        "targets": 14186632
+      },
+      {
+        "vectors": 1416709,
+        "targets": 15236446
+      }
+    ],
+    "targetsHist": [
+      195547,
+      311712,
+      464715,
+      624448,
+      764878,
+      874357,
+      944778,
+      977666,
+      970699,
+      924831,
+      840735,
+      720128,
+      576653,
+      413388,
+      251844,
+      114674,
+      28947
+    ],
+    "sharedHist": [
+      868821,
+      996205,
+      1293266,
+      1426139,
+      1383254,
+      1211648,
+      969418,
+      715829,
+      489389,
+      307495,
+      177265,
+      92491,
+      43457,
+      17601,
+      6120,
+      1602
+    ],
+    "largestHist": [
+      195547,
+      673274,
+      2529344,
+      2479989,
+      1647598,
+      999315,
+      597905,
+      358234,
+      215155,
+      127880,
+      77084,
+      45392,
+      25987,
+      14441,
+      7457,
+      3796,
+      1602
+    ]
+  },
+  "points": [
+    {
+      "ef": 20,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9543,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 3.0189999999999606,
+        "roundsP50": 3,
+        "roundsP95": 6,
+        "roundsMax": 10,
+        "loadsMean": 13.076000000000093,
+        "loadsP50": 13,
+        "loadsP95": 25,
+        "scannedMean": 3419.294000000006,
+        "scannedAgainMean": 515.4559999999996,
+        "sourcesCutMean": 2204.1400000000003,
+        "edgesCutMean": 25247.765999999992,
+        "edgesFollowedMean": 13278.679999999993,
+        "endpointsInLoadedMean": 1456.0430000000001,
+        "endpointsRepeatedMean": 4595.546,
+        "endpointsMean": 7227.091000000001,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 13.074000000000094,
+        "rescoredPostingsP95": 25,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0,
+        "edgeTrace": {
+          "redundantMean": 2294.094,
+          "reachedDirectlyMean": 420.268,
+          "rankSetMean": 99.062,
+          "rankSetLoadedMean": 1.477,
+          "rankedLoadedMean": 12.076,
+          "redundantShare": 0.31742979298309654,
+          "netShare": 0.259278041469244,
+          "rankSetShare": 0.04318131689459979,
+          "rankSetLoadedShare": 0.014909854434596515,
+          "loadsShare": 0.12230871149387214,
+          "mispredicted": 0
+        }
+      },
+      "untimed": true
+    },
+    {
+      "ef": 160,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9909,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 13.540999999999942,
+        "roundsP50": 12,
+        "roundsP95": 27,
+        "roundsMax": 36,
+        "loadsMean": 55.164000000000065,
+        "loadsP50": 49,
+        "loadsP95": 109,
+        "scannedMean": 14056.186000000009,
+        "scannedAgainMean": 4033.3310000000047,
+        "sourcesCutMean": 7148.990999999995,
+        "edgesCutMean": 83138.06500000006,
+        "edgesFollowedMean": 79164.85799999995,
+        "endpointsInLoadedMean": 11445.691000000003,
+        "endpointsRepeatedMean": 32148.45999999998,
+        "endpointsMean": 35570.70700000005,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 55.02400000000004,
+        "rescoredPostingsP95": 109,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0,
+        "edgeTrace": {
+          "redundantMean": 10908.401,
+          "reachedDirectlyMean": 2577.242,
+          "rankSetMean": 319.25,
+          "rankSetLoadedMean": 5.276,
+          "rankedLoadedMean": 54.164,
+          "redundantShare": 0.30666809630744757,
+          "netShare": 0.23421404022135406,
+          "rankSetShare": 0.029266434191408987,
+          "rankSetLoadedShare": 0.01652623335943618,
+          "loadsShare": 0.0974078723875637,
+          "mispredicted": 0
+        }
+      },
+      "untimed": true
+    }
+  ]
+}
