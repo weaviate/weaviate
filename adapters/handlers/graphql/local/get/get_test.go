@@ -1224,6 +1224,24 @@ func TestNearVectorRanker(t *testing.T) {
 
 	resolver := newMockResolver()
 
+	t.Run("for actions with search-time hnsw ef", func(t *testing.T) {
+		query := `{ Get { SomeAction(hnsw: {ef: 128}, nearVector: {
+								vector: [0.123, 0.984]
+							}) { intField } } }`
+		ef := 128
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors: []models.Vector{[]float32{0.123, 0.984}},
+			},
+			HNSW: &searchparams.HNSW{EF: &ef},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearVector: {
 								vector: [0.123, 0.984]

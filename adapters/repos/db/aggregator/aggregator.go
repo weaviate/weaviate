@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -136,6 +137,7 @@ func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 }
 
 func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
+	ctx = searchparams.WithHNSWSearch(ctx, a.params.HNSW)
 	if a.params.GroupBy != nil {
 		return newGroupedAggregator(a).Do(ctx)
 	}

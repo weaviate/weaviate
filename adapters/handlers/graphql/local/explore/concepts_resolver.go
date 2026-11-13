@@ -111,6 +111,12 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 		params.NearObject = &extracted
 	}
 
+	hnswParams, err := common_filters.ExtractHNSW(p.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract hnsw params: %w", err)
+	}
+	params.HNSW = hnswParams
+
 	if param, ok := p.Args["offset"]; ok {
 		params.Offset = param.(int)
 	}

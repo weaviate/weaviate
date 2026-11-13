@@ -60,6 +60,9 @@ type SearchCommon struct {
 	// Reserved for reranking. Returns 422 (not yet supported).
 	Rerank *SearchRerank `json:"rerank,omitempty"`
 
+	// HNSW-only search parameters. ef overrides the collection's vectorIndexConfig.ef for this query.
+	HNSW *SearchHNSW `json:"hnsw,omitempty"`
+
 	// The retrieval metadata to return under each result's `metadata` key. The object `id` is always returned as each result's `id` field. Omitted or empty returns no `metadata` block.
 	ReturnMetadata []string `json:"returnMetadata"`
 
@@ -88,6 +91,10 @@ func (m *SearchCommon) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateRerank(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateHNSW(formats); err != nil {
 		res = append(res, err)
 	}
 

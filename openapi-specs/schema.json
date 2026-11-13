@@ -4321,6 +4321,24 @@
         "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
           "$ref": "#/definitions/SearchRerank"
+        },
+        "hnsw": {
+          "description": "HNSW-only search parameters. `ef` overrides the collection's `vectorIndexConfig.ef` for this query, including dynamic ef. Only HNSW and dynamic indexes accept it.",
+          "$ref": "#/definitions/SearchHNSW"
+        }
+      }
+    },
+    "SearchHNSW": {
+      "description": "HNSW-only search parameters. Shared by every REST search because any of them can run a vector search.",
+      "type": "object",
+      "properties": {
+        "ef": {
+          "description": "Size of the HNSW candidate list for this query. Overrides the collection's vectorIndexConfig.ef, including dynamic ef. Must be between 1 and 1048576. When it is smaller than the number of neighbors requested, the search raises it to that number so results are not truncated. The index also caps ef to the number of indexed nodes.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1,
+          "maximum": 1048576,
+          "x-nullable": true
         }
       }
     },

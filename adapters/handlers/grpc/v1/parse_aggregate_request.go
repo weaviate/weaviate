@@ -349,6 +349,12 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 		return nil, fmt.Errorf("unrecognized search: %T", req.GetSearch())
 	}
 
+	hnswParams, err := parseHNSWSearch(req.GetHnsw())
+	if err != nil {
+		return nil, err
+	}
+	params.HNSW = hnswParams
+
 	return params, nil
 }
 

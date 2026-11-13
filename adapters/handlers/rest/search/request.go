@@ -77,7 +77,28 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	}
 	out.Pagination = pagination
 
+	hnsw, apiErr := parseSearchHNSW(common.HNSW)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.HNSW = hnsw
+
 	return out, nil
+}
+
+func parseSearchHNSW(in *models.SearchHNSW) (*searchparams.HNSW, *APIError) {
+	if in == nil || in.EF == nil {
+		return nil, nil
+	}
+	if *in.EF > int64(math.MaxInt) {
+		return nil, newAPIError(http.StatusBadRequest, "hnsw.ef must be between 1 and %d, got %d", searchparams.MaxEF, *in.EF)
+	}
+	ef := int(*in.EF)
+	params := &searchparams.HNSW{EF: &ef}
+	if err := params.Validate(); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "%s", err.Error())
+	}
+	return params, nil
 }
 
 // fillSelectionAndFilter fills the fields every search type shares: the
