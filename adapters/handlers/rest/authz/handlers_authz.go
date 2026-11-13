@@ -809,6 +809,11 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
+	// Every read hides the migration marker, so a delete of it answers 204,
+	// as for an absent role. Deleting it would rerun the migration.
+	if params.ID == conv.BackupPrincipalsMigratedRole {
+		return authz.NewDeleteRoleNoContent()
+	}
 
 	roleName, err := h.resolveRoleNameForCaller(principal, params.ID)
 	if errors.Is(err, namespacing.ErrRoleNotFound) {

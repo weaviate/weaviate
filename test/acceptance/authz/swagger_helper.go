@@ -290,6 +290,9 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 	case "object":
 		obj := make(map[string]interface{})
 		for propName, propSchema := range schema.Properties {
+			if isExclusiveBackupTarget(schema, propName) {
+				continue
+			}
 			data, err := generateValidData(&propSchema, definitions)
 			if err != nil {
 				return nil, err
@@ -309,6 +312,21 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 		return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 	}
 	return jsonData, nil
+}
+
+// isExclusiveBackupTarget reports whether propName is the user or role target
+// of a backups permission. A backups permission names at most one of
+// collection, user and role, so a generated body sets collection alone.
+func isExclusiveBackupTarget(schema *spec.Schema, propName string) bool {
+	if propName != "user" && propName != "role" {
+		return false
+	}
+	for _, target := range []string{"collection", "user", "role"} {
+		if _, ok := schema.Properties[target]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveReference resolves a reference to a schema definition in the Swagger file

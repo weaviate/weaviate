@@ -383,6 +383,21 @@ func TestMigrateRevokeRoles(t *testing.T) {
 			},
 		},
 		{
+			name: "group subject passes through",
+			input: &cmd.RevokeRolesForUserRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "group:some-group",
+			},
+			expectedOutput: []*cmd.RevokeRolesForUserRequest{
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "group:some-group",
+				},
+			},
+		},
+		{
 			name: "Request to update, but missing user prefix",
 			input: &cmd.RevokeRolesForUserRequest{
 				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
@@ -491,6 +506,22 @@ func TestMigrateAssignRoles(t *testing.T) {
 				},
 			},
 			authNconfig: config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"some-user"}}},
+		},
+		{
+			name: "group subject passes through unsplit",
+			input: &cmd.AddRolesForUsersRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "group:some-group",
+			},
+			expectedOutput: []*cmd.AddRolesForUsersRequest{
+				{
+					Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1,
+					Roles:   []string{"something"},
+					User:    "group:some-group",
+				},
+			},
+			authNconfig: config.Authentication{OIDC: oidc, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"some-group"}}},
 		},
 	}
 

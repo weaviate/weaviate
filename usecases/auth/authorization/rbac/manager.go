@@ -238,6 +238,9 @@ func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, 
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
+	// The marker is bookkeeping, not a role. Dropping it here hides it from
+	// listings and from lookups by name alike.
+	delete(policies, conv.BackupPrincipalsMigratedRole)
 	return policies, nil
 }
 
@@ -790,6 +793,14 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
+		// A restore replaces the whole store. Without the marker row the
+		// leader would rerun the migration and re-add grants that were removed
+		// after it first ran.
+		marker, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(conv.BackupPrincipalsMigratedRole))
+		if err != nil {
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+		}
+		groupingPolicy = append(groupingPolicy, marker...)
 	}
 
 	// Use a buffer to stream the JSON encoding
@@ -886,13 +897,11 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
 
-	_, err := m.casbin.AddPolicies(snapshot.Policy)
-	if err != nil {
+	if _, err := m.casbin.AddPolicies(snapshot.Policy); err != nil {
 		return fmt.Errorf("add policies: %w", err)
 	}
 
-	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
-	if err != nil {
+	if _, err := m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy); err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
 
@@ -926,6 +935,68 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 	}
 
 	return nil
+}
+
+// BackupPrincipalMigration returns the rows each custom role still lacks.
+// These are the rows conv.BackupPrincipalGrants derives from the role's
+// backups collections rows. Roles that need no rows are absent.
+// conv.BackupPrincipalsMigratedRole is always present with no rows, so
+// upserting the result also writes the marker. Built-in roles are left out,
+// because applyPredefinedRoles rewrites their rows on every load. It does not
+// change the store.
+func (m *Manager) BackupPrincipalMigration() (map[string][]authorization.Policy, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	rows, err := m.copyPolicies()
+	if err != nil {
+		return nil, fmt.Errorf("copyPolicies: %w", err)
+	}
+	held := map[string]map[authorization.Policy]struct{}{}
+	for _, row := range rows {
+		if len(row) < 4 {
+			continue
+		}
+		if held[row[0]] == nil {
+			held[row[0]] = map[authorization.Policy]struct{}{}
+		}
+		held[row[0]][authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}] = struct{}{}
+	}
+
+	out := map[string][]authorization.Policy{conv.BackupPrincipalsMigratedRole: {}}
+	for _, row := range rows {
+		if len(row) < 4 {
+			continue
+		}
+		name := conv.TrimRoleNamePrefix(row[0])
+		if slices.Contains(authorization.BuiltInRoles, name) || name == conv.BackupPrincipalsMigratedRole {
+			continue
+		}
+		for _, g := range conv.BackupPrincipalGrants(authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}) {
+			if _, ok := held[row[0]][g]; ok {
+				continue
+			}
+			held[row[0]][g] = struct{}{}
+			out[name] = append(out[name], g)
+		}
+	}
+	return out, nil
+}
+
+// BackupPrincipalsMigrated reports whether the store holds the placeholder
+// row of conv.BackupPrincipalsMigratedRole. Upserting the result of
+// BackupPrincipalMigration writes that row.
+func (m *Manager) BackupPrincipalsMigrated() (bool, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	ok, err := m.casbin.HasNamedGroupingPolicy("g",
+		conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb),
+		conv.PrefixRoleName(conv.BackupPrincipalsMigratedRole))
+	if err != nil {
+		return false, fmt.Errorf("HasNamedGroupingPolicy: %w", err)
+	}
+	return ok, nil
 }
 
 func validateStorableRows(ptype string, rows [][]string) error {
@@ -996,6 +1067,12 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
 		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
 			s += fmt.Sprintf("Collection: %s", strip(*perm.Backups.Collection))
+		}
+		if perm.Backups.User != nil && *perm.Backups.User != "" {
+			s += fmt.Sprintf(" User: %s", strip(*perm.Backups.User))
+		}
+		if perm.Backups.Role != nil && *perm.Backups.Role != "" {
+			s += fmt.Sprintf(" Role: %s", strip(*perm.Backups.Role))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
