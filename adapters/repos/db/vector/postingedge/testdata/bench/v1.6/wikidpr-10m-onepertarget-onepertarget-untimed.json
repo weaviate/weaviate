@@ -1,0 +1,609 @@
+{
+  "arm": "postingedge",
+  "dataset": "wikidpr-10m-e5.bin",
+  "vectors": 10000000,
+  "dims": 768,
+  "queries": 1000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "buildProbe": 320,
+    "cacheProbe": 384,
+    "codeBits": 0,
+    "distance": "cosine",
+    "edgeCell": "onepertarget",
+    "edges": 16,
+    "entryPostings": 1,
+    "partitionFromCache": true,
+    "quantization": "rq bits=1 centering=true",
+    "rescueLimit": 256,
+    "targetPostingSize": 236,
+    "trainingLimit": 10000,
+    "workThreads": 8
+  },
+  "buildSec": 2192.170420432,
+  "buildStageSec": {
+    "add": 7.437870266,
+    "assign": 0,
+    "centroidGraph": 1.982037667,
+    "edges": 2164.458048917,
+    "encode": 18.071403501,
+    "partition": 0
+  },
+  "memBaseline": {
+    "heapAllocMB": 9.181495666503906,
+    "heapInuseMB": 11.1953125,
+    "rssMB": 39.125,
+    "footprintMB": 22
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 1721.5648345947266,
+    "heapInuseMB": 1739.6875,
+    "rssMB": 18192.9375,
+    "footprintMB": 2157
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 31259.529899597168,
+    "heapInuseMB": 31277.65625,
+    "rssMB": 40393.140625,
+    "footprintMB": 31744
+  },
+  "settleQueries": 1000,
+  "indexHeapMB": 1557.4595336914062,
+  "peakRSSMB": 39623.15625,
+  "componentsMB": {
+    "centroidVectors": 124.1396484375,
+    "codes": 991.8212890625,
+    "edges": 318.4467353820801,
+    "f32": 29296.875,
+    "otherMeasured": 8.449298858642578,
+    "postings": 114.6025619506836
+  },
+  "diagnostics": {
+    "candidatesPerVector": 66060.3208457,
+    "edgeRecall": 0.9470475526911688,
+    "edgeRecallOfAllEdges": 0.6033792022295767,
+    "edgeTargetsP50": 7,
+    "edgeTargetsP95": 13,
+    "edgeTargetsPerVector": 7.34789,
+    "edgesDropped": 0.35596373450071706,
+    "edgesIntoLargestTargetP95": 1,
+    "edgesPerVector": 7.34789,
+    "edgesSharingTargetMean": 0,
+    "edgesSharingTargetP95": 0,
+    "edgesSharingTargetShare": 0,
+    "entryIsNearestCentroid": 0.998,
+    "neighborsInOwnPosting": 0.282375,
+    "postingSizeMax": 1098,
+    "postingSizeMean": 235.99933920185023,
+    "postingSizeMin": 3,
+    "postingSizeP50": 230,
+    "postingSizeP95": 393,
+    "postings": 42373,
+    "selfFound": 1,
+    "selfSample": 10000,
+    "vectorsAdded": 10000000,
+    "vectorsInPostings": 10000000,
+    "vectorsMissing": 0,
+    "vectorsNeverAdded": 0,
+    "vectorsRepeated": 0,
+    "vectorsWithSharedTarget": 0
+  },
+  "edgeRedundancy": {
+    "vectors": 10000000,
+    "edges": 73478900,
+    "targets": 73478900,
+    "shared": 0,
+    "vectorsWithShared": 0,
+    "byRank": [
+      {
+        "edges": 9804453,
+        "shared": 0
+      },
+      {
+        "edges": 9492741,
+        "shared": 0
+      },
+      {
+        "edges": 9028026,
+        "shared": 0
+      },
+      {
+        "edges": 8403578,
+        "shared": 0
+      },
+      {
+        "edges": 7638700,
+        "shared": 0
+      },
+      {
+        "edges": 6764343,
+        "shared": 0
+      },
+      {
+        "edges": 5819565,
+        "shared": 0
+      },
+      {
+        "edges": 4841899,
+        "shared": 0
+      },
+      {
+        "edges": 3871200,
+        "shared": 0
+      },
+      {
+        "edges": 2946369,
+        "shared": 0
+      },
+      {
+        "edges": 2105634,
+        "shared": 0
+      },
+      {
+        "edges": 1385506,
+        "shared": 0
+      },
+      {
+        "edges": 808853,
+        "shared": 0
+      },
+      {
+        "edges": 395465,
+        "shared": 0
+      },
+      {
+        "edges": 143621,
+        "shared": 0
+      },
+      {
+        "edges": 28947,
+        "shared": 0
+      }
+    ],
+    "byDegree": [
+      {
+        "vectors": 195547,
+        "targets": 0
+      },
+      {
+        "vectors": 311712,
+        "targets": 311712
+      },
+      {
+        "vectors": 464715,
+        "targets": 929430
+      },
+      {
+        "vectors": 624448,
+        "targets": 1873344
+      },
+      {
+        "vectors": 764878,
+        "targets": 3059512
+      },
+      {
+        "vectors": 874357,
+        "targets": 4371785
+      },
+      {
+        "vectors": 944778,
+        "targets": 5668668
+      },
+      {
+        "vectors": 977666,
+        "targets": 6843662
+      },
+      {
+        "vectors": 970699,
+        "targets": 7765592
+      },
+      {
+        "vectors": 924831,
+        "targets": 8323479
+      },
+      {
+        "vectors": 840735,
+        "targets": 8407350
+      },
+      {
+        "vectors": 720128,
+        "targets": 7921408
+      },
+      {
+        "vectors": 576653,
+        "targets": 6919836
+      },
+      {
+        "vectors": 413388,
+        "targets": 5374044
+      },
+      {
+        "vectors": 251844,
+        "targets": 3525816
+      },
+      {
+        "vectors": 114674,
+        "targets": 1720110
+      },
+      {
+        "vectors": 28947,
+        "targets": 463152
+      }
+    ],
+    "targetsHist": [
+      195547,
+      311712,
+      464715,
+      624448,
+      764878,
+      874357,
+      944778,
+      977666,
+      970699,
+      924831,
+      840735,
+      720128,
+      576653,
+      413388,
+      251844,
+      114674,
+      28947
+    ],
+    "sharedHist": [
+      10000000
+    ],
+    "largestHist": [
+      195547,
+      9804453
+    ]
+  },
+  "points": [
+    {
+      "ef": 10,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9088,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 2.1529999999999663,
+        "roundsP50": 2,
+        "roundsP95": 5,
+        "roundsMax": 9,
+        "loadsMean": 9.61200000000007,
+        "loadsP50": 9,
+        "loadsP95": 21,
+        "scannedMean": 2514.864000000001,
+        "scannedAgainMean": 197.9880000000001,
+        "sourcesCutMean": 1761.2529999999983,
+        "edgesCutMean": 13134.759000000007,
+        "edgesFollowedMean": 5224.091999999998,
+        "endpointsInLoadedMean": 395.13899999999967,
+        "endpointsRepeatedMean": 1420.9609999999996,
+        "endpointsMean": 3407.992000000001,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 9.610000000000069,
+        "rescoredPostingsP95": 21,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 20,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9478,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 3.008999999999961,
+        "roundsP50": 3,
+        "roundsP95": 6,
+        "roundsMax": 10,
+        "loadsMean": 13.036000000000096,
+        "loadsP50": 13,
+        "loadsP95": 25,
+        "scannedMean": 3394.531,
+        "scannedAgainMean": 343.54799999999926,
+        "sourcesCutMean": 2176.0400000000027,
+        "edgesCutMean": 16205.436000000002,
+        "edgesFollowedMean": 8583.551999999998,
+        "endpointsInLoadedMean": 707.4080000000001,
+        "endpointsRepeatedMean": 2486.2990000000023,
+        "endpointsMean": 5389.845,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 13.033000000000095,
+        "rescoredPostingsP95": 25,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 40,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9678,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 4.645999999999961,
+        "roundsP50": 4,
+        "roundsP95": 9,
+        "roundsMax": 18,
+        "loadsMean": 19.584000000000128,
+        "loadsP50": 17,
+        "loadsP95": 37,
+        "scannedMean": 5052.6309999999985,
+        "scannedAgainMean": 673.3979999999992,
+        "sourcesCutMean": 2964.9469999999983,
+        "edgesCutMean": 22384.389000000014,
+        "edgesFollowedMean": 15084.522999999983,
+        "endpointsInLoadedMean": 1388.3560000000002,
+        "endpointsRepeatedMean": 4667.474999999999,
+        "endpointsMean": 9028.691999999997,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 19.580000000000123,
+        "rescoredPostingsP95": 37,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 80,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9814,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 7.707999999999954,
+        "roundsP50": 7,
+        "roundsP95": 15,
+        "roundsMax": 23,
+        "loadsMean": 31.83200000000007,
+        "loadsP50": 29,
+        "loadsP95": 61,
+        "scannedMean": 8145.580000000002,
+        "scannedAgainMean": 1399.0459999999998,
+        "sourcesCutMean": 4411.2480000000005,
+        "edgesCutMean": 33688.440999999984,
+        "edgesFollowedMean": 27719.941999999926,
+        "endpointsInLoadedMean": 2919.901999999999,
+        "endpointsRepeatedMean": 9201.860000000006,
+        "endpointsMean": 15598.18000000001,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 31.827000000000066,
+        "rescoredPostingsP95": 61,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 160,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.989,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 13.27199999999993,
+        "roundsP50": 12,
+        "roundsP95": 26,
+        "roundsMax": 33,
+        "loadsMean": 54.08800000000007,
+        "loadsP50": 49,
+        "loadsP95": 105,
+        "scannedMean": 13725.678999999986,
+        "scannedAgainMean": 2941.7729999999992,
+        "sourcesCutMean": 6900.8120000000135,
+        "edgesCutMean": 53024.72899999999,
+        "edgesFollowedMean": 51749.605000000054,
+        "endpointsInLoadedMean": 6315.760999999987,
+        "endpointsRepeatedMean": 18361.014000000003,
+        "endpointsMean": 27072.829999999984,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 53.86100000000003,
+        "rescoredPostingsP95": 105,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 320,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9918,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 23.200999999999954,
+        "roundsP50": 21,
+        "roundsP95": 46,
+        "roundsMax": 59,
+        "loadsMean": 93.80399999999997,
+        "loadsP50": 85,
+        "loadsP95": 185,
+        "scannedMean": 23645.781999999992,
+        "scannedAgainMean": 6121.761999999997,
+        "sourcesCutMean": 11129.232999999998,
+        "edgesCutMean": 85822.47600000001,
+        "edgesFollowedMean": 96511.62099999998,
+        "endpointsInLoadedMean": 13723.168999999996,
+        "endpointsRepeatedMean": 36323.371,
+        "endpointsMean": 46465.08100000005,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 63.95899999999991,
+        "rescoredPostingsP95": 126,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 640,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9948,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 40.75499999999994,
+        "roundsP50": 37,
+        "roundsP95": 78,
+        "roundsMax": 110,
+        "loadsMean": 164.01999999999984,
+        "loadsP50": 149,
+        "loadsP95": 313,
+        "scannedMean": 41080.384,
+        "scannedAgainMean": 12315.35600000001,
+        "sourcesCutMean": 18280.69199999999,
+        "edgesCutMean": 141326.01200000025,
+        "edgesFollowedMean": 177934.28200000006,
+        "endpointsInLoadedMean": 29213.269000000048,
+        "endpointsRepeatedMean": 69964.25900000014,
+        "endpointsMean": 78756.75400000013,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 66.19699999999995,
+        "rescoredPostingsP95": 131,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    },
+    {
+      "ef": 1024,
+      "threads": 1,
+      "rescoreLimit": 200,
+      "loadBatch": 4,
+      "sourceMargin": 0.06,
+      "recall": 0.9959,
+      "qps": 0,
+      "qpsRuns": null,
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "stats": {
+        "roundsMean": 59.847999999999914,
+        "roundsP50": 55,
+        "roundsP95": 110,
+        "roundsMax": 160,
+        "loadsMean": 240.3920000000002,
+        "loadsP50": 221,
+        "loadsP95": 441,
+        "scannedMean": 60001.61700000001,
+        "scannedAgainMean": 19527.458999999963,
+        "sourcesCutMean": 25781,
+        "edgesCutMean": 199321.6209999999,
+        "edgesFollowedMean": 268349.52099999983,
+        "endpointsInLoadedMean": 48219.38599999994,
+        "endpointsRepeatedMean": 107835.12499999999,
+        "endpointsMean": 112295.0100000001,
+        "rescoredMean": 199.9999999999972,
+        "rescoredPostingsMean": 67.07499999999996,
+        "rescoredPostingsP95": 132,
+        "rescoredElsewhereMean": 0,
+        "rescoredElsewhereMax": 0,
+        "centroidUs": 0,
+        "scanUs": 0,
+        "expandUs": 0,
+        "selectUs": 0,
+        "rescoreUs": 0,
+        "totalUs": 0
+      },
+      "untimed": true
+    }
+  ]
+}
