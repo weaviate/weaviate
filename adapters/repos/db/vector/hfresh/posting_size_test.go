@@ -101,23 +101,22 @@ func TestPostingSizes(t *testing.T) {
 		require.ErrorIs(t, err, ErrPostingNotFound)
 	})
 
-	t.Run("Set persists after FastIncrement changed memory only", func(t *testing.T) {
+	t.Run("Set persists the exact size after FastIncrement", func(t *testing.T) {
 		sizes := makePostingSizes(t)
 
-		size := sizes.FastIncrement(42)
-		require.EqualValues(t, 1, size)
+		for range 3 {
+			_, err := sizes.FastIncrement(ctx, 42)
+			require.NoError(t, err)
+		}
 
-		_, err := sizes.store.Get(ctx, 42)
-		require.ErrorIs(t, err, ErrPostingNotFound)
-
-		err = sizes.Set(ctx, 42, 1)
+		err := sizes.Set(ctx, 42, 3)
 		require.NoError(t, err)
 
 		persisted, err := sizes.store.Get(ctx, 42)
 		require.NoError(t, err)
-		require.EqualValues(t, 1, persisted)
+		require.EqualValues(t, 3, persisted)
 		require.EqualValues(t, 1, sizes.Count())
-		require.EqualValues(t, 1, sizes.totalSize.Load())
+		require.EqualValues(t, 3, sizes.totalSize.Load())
 	})
 
 	t.Run("Set unchanged persisted size keeps value", func(t *testing.T) {
@@ -179,22 +178,46 @@ func TestPostingSizes(t *testing.T) {
 		require.ErrorIs(t, err, ErrPostingNotFound)
 	})
 
-	t.Run("FastIncrement tracks memory without persisting", func(t *testing.T) {
+	t.Run("FastIncrement persists the first vector only", func(t *testing.T) {
 		sizes := makePostingSizes(t)
 
-		size := sizes.FastIncrement(42)
+		size, err := sizes.FastIncrement(ctx, 42)
+		require.NoError(t, err)
 		require.EqualValues(t, 1, size)
-		size = sizes.FastIncrement(42)
+		size, err = sizes.FastIncrement(ctx, 42)
+		require.NoError(t, err)
 		require.EqualValues(t, 2, size)
 
-		size, err := sizes.Get(ctx, 42)
+		size, err = sizes.Get(ctx, 42)
 		require.NoError(t, err)
 		require.EqualValues(t, 2, size)
 		require.EqualValues(t, 1, sizes.Count())
 		require.EqualValues(t, 2, sizes.totalSize.Load())
 
-		_, err = sizes.store.Get(ctx, 42)
+		// a stale but non-zero size is enough for search not to skip the
+		// posting; the analyze task persists the exact one
+		persisted, err := sizes.store.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, persisted)
+	})
+
+	t.Run("FastIncrement persists a refilled empty posting", func(t *testing.T) {
+		sizes := makePostingSizes(t)
+
+		require.NoError(t, sizes.Set(ctx, 42, 10))
+		require.NoError(t, sizes.Set(ctx, 42, 0))
+		_, err := sizes.store.Get(ctx, 42)
 		require.ErrorIs(t, err, ErrPostingNotFound)
+
+		size, err := sizes.FastIncrement(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, size)
+
+		persisted, err := sizes.store.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, persisted)
+		require.EqualValues(t, 1, sizes.Count())
+		require.EqualValues(t, 1, sizes.totalSize.Load())
 	})
 
 	t.Run("FastIncrement continues from a persisted size in memory", func(t *testing.T) {
@@ -203,7 +226,8 @@ func TestPostingSizes(t *testing.T) {
 		err := sizes.Set(ctx, 42, 10)
 		require.NoError(t, err)
 
-		size := sizes.FastIncrement(42)
+		size, err := sizes.FastIncrement(ctx, 42)
+		require.NoError(t, err)
 		require.EqualValues(t, 11, size)
 
 		persisted, err := sizes.store.Get(ctx, 42)

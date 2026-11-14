@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
@@ -113,4 +114,34 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 	data, err = mustBucket(t, index.IndexMetadata.bucket).Get(unrelatedKey)
 	require.NoError(t, err)
 	require.Equal(t, unrelatedValue, data)
+}
+
+// The first posting gets its vectors through the insert fast path only; its
+// analyze task must not be needed for search to find them after a restart.
+func TestPostingFoundAfterRestartBeforeAnalyze(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	// a scheduler that never runs, so the analyze tasks stay pending
+	cfg.Scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: cfg.Logger})
+	vectors := &testVectorStore{m: make(map[uint64][]float32)}
+	cfg.VectorForIDThunk = vectors.get
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	vecs, _ := testinghelpers.RandomVecs(20, 0, 32)
+	for i, v := range vecs {
+		vectors.put(uint64(i), v)
+		require.NoError(t, index.Add(t.Context(), uint64(i), v))
+	}
+	require.EqualValues(t, 1, index.PostingSizes.Count(), "the test needs a single, never analyzed posting")
+
+	ids, _, err := index.SearchByVector(t.Context(), vecs[7], 3, nil)
+	require.NoError(t, err)
+	require.Contains(t, ids, uint64(7))
+
+	require.NoError(t, index.Shutdown(t.Context()))
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+
+	ids, _, err = index.SearchByVector(t.Context(), vecs[7], 3, nil)
+	require.NoError(t, err)
+	require.Contains(t, ids, uint64(7))
 }
