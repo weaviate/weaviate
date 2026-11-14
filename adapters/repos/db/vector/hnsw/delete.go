@@ -747,6 +747,18 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex, vec []float32) (bool
 		return false, nil
 	}
 
+	return h.takeOverDeadEntrypoint(id, node, vec)
+}
+
+// takeOverDeadEntrypoint makes the inserting node the entrypoint, unless the
+// current one is live, and reports whether the node has nothing left to connect. A
+// node whose delete has overtaken its insert stays out of it: it needs no links, and
+// nothing would move an entrypoint that was tombstoned before it became one.
+func (h *hnsw) takeOverDeadEntrypoint(id uint64, node *vertex, vec []float32) (bool, error) {
+	if h.hasTombstone(id) {
+		return true, nil
+	}
+
 	h.Lock()
 	defer h.Unlock()
 
@@ -785,7 +797,7 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex, vec []float32) (bool
 		"shard":  h.shardName,
 		"id":     id,
 		"level":  level,
-	}).Infof("class %s: shard %s: node %d is the last live node, made it the entrypoint",
+	}).Infof("class %s: shard %s: no live node in reach of node %d, made it the entrypoint",
 		h.className, h.shardName, id)
 	return true, nil
 }
@@ -928,6 +940,22 @@ func (h *hnsw) hasTombstones(ids []uint64) bool {
 		has = has || ok
 	}
 	return has
+}
+
+// splitOffTombstones partitions ids in place, under a single lock for the whole list.
+func (h *hnsw) splitOffTombstones(ids []uint64) (live, tombstoned []uint64) {
+	h.tombstoneLock.RLock()
+	defer h.tombstoneLock.RUnlock()
+
+	live = ids[:0]
+	for _, id := range ids {
+		if _, ok := h.tombstones[id]; ok {
+			tombstoned = append(tombstoned, id)
+		} else {
+			live = append(live, id)
+		}
+	}
+	return live, tombstoned
 }
 
 func (h *hnsw) addTombstone(ids ...uint64) error {
