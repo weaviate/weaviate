@@ -117,6 +117,8 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return nil
 	}
 
+	ctx = committedWriteContext(ctx)
+
 	for targetVector, vector := range obj.Vectors {
 		if isDroppedVectorIndex(class, targetVector) {
 			continue
@@ -213,6 +215,14 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		obj.DocID = status.docID
 		if status.skipUpsert {
 			return nil
+		}
+
+		// Here and not in MergeObject: replication enters merge directly and meets no
+		// other check. Only the vectors the merge supplies count, the others were
+		// accepted when they were stored.
+		err = s.validateVectors(merge.ID, vectorsAsMap(merge.Vectors), multiVectorsAsMap(merge.Vectors), merge.Vector)
+		if err != nil {
+			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
 		}
 
 		objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
