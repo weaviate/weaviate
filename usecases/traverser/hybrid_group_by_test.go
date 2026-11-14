@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -68,13 +69,48 @@ func TestExtractGroupByValues(t *testing.T) {
 			expected: []string{},
 		},
 		{
-			name:     "integer value (skipped)",
+			name:     "integer value",
 			input:    42,
-			expected: []string{},
+			expected: []string{"42"},
 		},
 		{
-			name:     "boolean value (skipped)",
+			name:     "int64 value",
+			input:    int64(-7),
+			expected: []string{"-7"},
+		},
+		{
+			name:     "boolean true",
 			input:    true,
+			expected: []string{"true"},
+		},
+		{
+			name:     "boolean false",
+			input:    false,
+			expected: []string{"false"},
+		},
+		{
+			name:     "whole float64 keeps no decimal point",
+			input:    float64(2),
+			expected: []string{"2"},
+		},
+		{
+			name:     "fractional float64",
+			input:    0.5,
+			expected: []string{"0.5"},
+		},
+		{
+			name:     "large whole float64 is not rounded or put in exponent form",
+			input:    float64(12345678),
+			expected: []string{"12345678"},
+		},
+		{
+			name:     "json.Number",
+			input:    json.Number("1.5"),
+			expected: []string{"1.5"},
+		},
+		{
+			name:     "unsupported type (skipped)",
+			input:    map[string]interface{}{"a": 1},
 			expected: []string{},
 		},
 		{
@@ -348,11 +384,63 @@ func TestExplorerGroupSearchResults(t *testing.T) {
 		assert.Len(t, grouped, 2)
 	})
 
-	t.Run("skip non-string properties", func(t *testing.T) {
+	t.Run("group by bool, int and number properties", func(t *testing.T) {
+		groupBy := &searchparams.GroupBy{
+			Property:        "category",
+			Groups:          10,
+			ObjectsPerGroup: 5,
+		}
+
+		tests := []struct {
+			name     string
+			values   []interface{}
+			expected []string
+		}{
+			{
+				name:     "bool",
+				values:   []interface{}{true, false, true},
+				expected: []string{"true", "false"},
+			},
+			{
+				name:     "int",
+				values:   []interface{}{float64(1), float64(2), float64(1)},
+				expected: []string{"1", "2"},
+			},
+			{
+				name:     "number",
+				values:   []interface{}{0.5, 1.5, 0.5},
+				expected: []string{"0.5", "1.5"},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				results := make(search.Results, len(tt.values))
+				for i, v := range tt.values {
+					results[i] = createSearchResult(fmt.Sprintf("obj%d", i+1),
+						map[string]interface{}{"category": v}, float32(i)/10)
+				}
+
+				grouped, err := explorer.groupSearchResults(ctx, results, groupBy)
+				require.NoError(t, err)
+
+				require.Len(t, grouped, len(tt.expected))
+				for i, want := range tt.expected {
+					group := grouped[i].AdditionalProperties["group"].(*additional.Group)
+					assert.Equal(t, want, group.GroupedBy.Value)
+				}
+				// the first value occurs twice and must land in one group
+				first := grouped[0].AdditionalProperties["group"].(*additional.Group)
+				assert.Equal(t, 2, first.Count)
+			})
+		}
+	})
+
+	t.Run("skip unsupported property types", func(t *testing.T) {
 		results := search.Results{
 			createSearchResult("obj1", map[string]interface{}{"category": "A"}, 0.1),
-			createSearchResult("obj2", map[string]interface{}{"category": 42}, 0.2),   // integer, should be skipped
-			createSearchResult("obj3", map[string]interface{}{"category": true}, 0.3), // boolean, should be skipped
+			createSearchResult("obj2", map[string]interface{}{"category": map[string]interface{}{"x": 1}}, 0.2), // object, should be skipped
+			createSearchResult("obj3", map[string]interface{}{"category": struct{}{}}, 0.3),                     // unknown type, should be skipped
 			createSearchResult("obj4", map[string]interface{}{"category": "B"}, 0.4),
 		}
 
@@ -365,7 +453,7 @@ func TestExplorerGroupSearchResults(t *testing.T) {
 		grouped, err := explorer.groupSearchResults(ctx, results, groupBy)
 		require.NoError(t, err)
 
-		// Should have only 2 groups: A and B (non-string properties skipped)
+		// Should have only 2 groups: A and B (unsupported types skipped)
 		assert.Len(t, grouped, 2)
 	})
 }
