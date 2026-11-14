@@ -6,7 +6,7 @@
 
 ## Resumen, al cierre del 2026-11-13
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos y el ef de centroides). Falta una arista por posting de destino, que corre detrás y se añade cuando llegue.*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino).*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -45,12 +45,13 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **S mayor que 236 (Fase C):** el scan crece con S y los endpoints casi no bajan; ningún S domina.
 - **FastScan en memoria:** pediría una segunda copia de los códigos, 992 MB a 10M. Pasa a disco, donde no cuesta.
 - **Cap de grado (v1.5):** empata a 0.95 y pierde un 28 a 32 % a 0.99, porque las aristas que quita llevan recall.
+- **Una arista por posting de destino (v1.6):** gana un 5.4 % a 0.95 con 8 threads, pero pierde un 4.4 % a 0.99, donde el umbral era un 2 %. No pierde destinos, pero los ordena peor: a 0.99 hace falta más ef, con un 28 % más de cargas.
 
 **Palancas, por lo medido:**
 
 1. **El ef de centroides (v1.6).** Bajarlo de 64 a 8 no pierde recall a 10M, y da de un 15 a un 22 % más de QPS a 0.95 y de un 6 a un 8 % a 0.99. El tiempo de centroides baja a un tercio. Es una propuesta y el default no cambia: faltan valores por debajo de 8, y 1M y dbpedia. Con el kernel, el ratio queda en 1.67x–1.68x a 0.95 frente al build de HNSW de esa noche (informativo).
 2. **El kernel de #13880 (v1.6).** Posting-edge gana lo estimado contra el mismo build: un 16 % a 0.95 y un 26 % a 0.99. El ratio baja menos de lo estimado, de 2.10x–2.14x a 2.01x–2.08x, porque el tercer build de HNSW es más rápido. El gate queda fuera de la banda, por encima.
-3. **El número de distancias.** El cap no lo recorta a igual recall: lo sube un 3 a 4 % a 0.95 y un 46 a 54 % a 0.99. Una arista por posting de destino se mide detrás de la noche del 13 al 14. Quitaría el 35.6 % de las aristas, y el 31.7 % de los endpoints puntuados llega por ellas.
+3. **El número de distancias.** Ni el cap ni una arista por posting de destino lo recortan a igual recall a 0.99: lo que quitan vuelve como cargas. A 0.95, una por posting recorta un 9 % de las distancias y un 3.7 % de la query. A 0.99 las sube un 7 %. El cap las sube en los dos puntos.
 4. **Contabilidad por endpoint:** el 15 % del tiempo a 0.95. Es ilustrativo.
 
 **Limitaciones:**
@@ -65,7 +66,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
-**Estado: pre-registrado y medido la noche del 13 al 14. Los resultados están abajo, en «Resultados de la noche» y «El ef de centroides: resultados».** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
+**Estado: pre-registrado y medido la noche del 13 al 14. Los resultados están abajo, en «Resultados de la noche», «El ef de centroides: resultados» y «Una arista por posting de destino: resultados».** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
 
 ### Qué se mide
 
@@ -437,6 +438,57 @@ Todas con el kernel del PR, como el resto de la noche. En cada una:
 4. **Si no cabe, pasa a la noche siguiente,** del 14 al 15, con las mismas condiciones y la misma hora límite. Si tampoco cabe, no corre, y se dice.
 5. **Al acabar,** deja en su salida los reposos, despertares y actividad de usuario de `pmset -g log`.
 
+### Una arista por posting de destino: resultados (2026-11-14, de madrugada)
+
+*Escrito después de la corrida. Las tablas completas están en `v1.6/onepertarget-verdict.md`, de `v1.6/scripts/onepertarget_verdict.py`.*
+
+**Condiciones.** El paso cupo en la misma noche. Arrancó a las 00:26, un minuto después de acabar la cadena de la noche, y acabó a la 01:25:
+
+- build de 2 192 s;
+- comprobación sin cronometrar;
+- las tres celdas, de 01:03 a 01:25.
+
+`pmset -g log` no da reposo, DarkWake ni actividad de usuario. Sí da tareas de fondo de Spotlight (`mds_stores`) durante todo el paso:
+
+- largas, de 7 y 9 minutos, durante el build. Parte de ellas pudo venir de mis commits en el repositorio entre las 00:30 y las 00:40, mientras el build corría;
+- cortas, de 10 s a 1 min, durante las celdas.
+
+Las dos anclas no se separan: −0.2 % de mediana, sin deriva.
+
+**El filtro hace lo previsto:**
+
+- de 11.41 a 7.35 aristas por vector (un 35.6 % menos) y de 473.4 a 318.4 MB de aristas, 155 MB, un 9 % del heap del índice;
+- los postings de destino por vector no cambian, 7.35, y no queda ninguna arista redundante (la comprobación del paso);
+- los 10 000 vectores de la muestra se encuentran a sí mismos con los dos juegos de aristas;
+- el recall de arista contra todas las aristas verdaderas baja de 0.9470 a 0.6034, porque cuenta aristas y no destinos.
+
+**Stop: no se activa.** Sin cronometrar, la celda con filtro llega a 0.9918 en ef=320 y a 0.9959 en ef=1024.
+
+**Veredicto: no gana.** Con 8 threads, que decide, cumple dos de las tres condiciones y falla la de 0.99:
+
+| criterio, 8 threads contra el ancla del principio | umbral | medido, 1ª ronda (2ª) | contra el ancla del final |
+|---|---|---|---|
+| QPS@0.95 | +5 % o más | **+5.4 %** (+5.4 %) | +6.1 % |
+| QPS@0.99 | no baja más de un 2 % | **−4.4 %** (−4.0 %) | −3.9 % |
+| 0.99 alcanzable con rescoreLimit 200 | sí | sí, a ef=320 (sin filtro, a ef=160) | — |
+
+Con 1 thread, sin ser criterio: +3.5 % (segunda ronda +6.1 %) a 0.95 y −7.6 % (−7.0 %) a 0.99.
+
+**Por qué: el reordenamiento devuelve trabajo como cargas, como el cap, sobre todo a 0.99.** A igual ef el filtro recorta un 25 % de los endpoints con las mismas cargas, pero pierde recall: 0.9478 frente a 0.9543 en ef=20, y 0.9890 frente a 0.9909 en ef=160. Para recuperarlo hace falta más ef. Trabajo a igual recall, 1 thread, del pase instrumentado:
+
+| recall | celda | ef | cargas | rondas | endpoints | escaneados | distancias | µs por query |
+|---|---|---|---|---|---|---|---|---|
+| 0.95 | sin filtro | 19 | 12.6 | 2.9 | 6 872 | 3 303 | 10 178 | 968 |
+| 0.95 | una por posting | 22 | 13.6 | 3.2 | 5 705 | 3 546 | 9 252 | 932 |
+| 0.99 | sin filtro | 146 | 51.3 | 12.6 | 33 017 | 13 077 | 46 094 | 3 156 |
+| 0.99 | una por posting | 205 | 65.8 | 16.2 | 32 833 | 16 669 | 49 502 | 3 410 |
+
+- **A 0.95** quedan un 17 % menos de endpoints, a cambio de un 8 % más de cargas y un 7 % más de scan. La query baja un 3.7 %, unos 36 µs: un tercio del techo de 105 µs, que suponía que nada volvía como cargas.
+- **A 0.99** los endpoints quedan igual: el ef más alto devuelve lo que el filtro quitó. Las cargas suben un 28 % y el scan un 27 %, y la query sube un 8 %.
+- **La lectura revisada lo dejaba abierto,** y la frontera lo cierra. (2) acotaba el reordenamiento y no la pérdida, y a 0.99 ese reordenamiento cuesta más que lo que ahorra. El endpoint más cercano al source no es el que da el rango del posting para la query, y los demás endpoints del mismo posting sí aportaban rango.
+
+**De paso, sin ser criterio:** el ancla del paso, en el binario con el refactor de la traza, va un 2.6 % y un 0.7 % por delante del brazo de la noche a 0.95 (1 y 8 threads), y un 1.8 % y un −0.9 % a 0.99. Son otro proceso y otro grafo de centroides: la entrada es el centroide más cercano en el 99.8 % de las queries, frente al 99.5 % de la noche. No hay señal de que el refactor cambie nada.
+
 ### Datos de día
 
 En `testdata/bench/`:
@@ -463,10 +515,18 @@ En `testdata/bench/v1.6/`:
 - `wikidpr-10m-pe-centroidef{64,48,32,16,8}.json`: los puntos sin cronometrar del barrido. El de 8 lleva además el plan cronometrado, con su segunda ronda en `wikidpr-10m-pe-centroidef8-repeat.json`.
 - `night-verdict.md`: las tablas de los resultados, con los cuatro contrastes y la comparación a igual ef de los tres builds de HNSW.
 - `scripts/v16_verdict.py`: el script que la escribe. Lee también el ancla de v1.5 y los dos builds de HNSW y el brazo posting-edge de v1.4.
+- Una arista por posting de destino:
+  - `wikidpr-10m-onepertarget.json`: el build, con su memoria y sus diagnósticos;
+  - `wikidpr-10m-onepertarget-onepertarget-untimed.json`: la comprobación sin cronometrar;
+  - `wikidpr-10m-onepertarget-{full,onepertarget,full-2}.json`: las tres celdas en el orden en que corrieron, con su segunda ronda en `-repeat.json`;
+  - `onepertarget-verdict.md`: las tablas, de `scripts/onepertarget_verdict.py`;
+  - `scripts/run_v16_onepertarget.sh` y `scripts/v16_queue.sh`: la cadena.
 
 ```bash
 WORK=<dir con postingedge-v16.test y hnsw-work.test> caffeinate -s -i v1.6/scripts/run_v16_night.sh 2300 0300
 python3 v1.6/scripts/v16_verdict.py . > v1.6/night-verdict.md
+WORK=<dir con postingedge-v16o.test> caffeinate -s -i v1.6/scripts/run_v16_onepertarget.sh 2300 0115
+python3 v1.6/scripts/onepertarget_verdict.py v1.6 > v1.6/onepertarget-verdict.md
 ```
 
 ## Coste por distancia: el kernel CRQ1 (2026-11-12)
