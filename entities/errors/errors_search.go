@@ -33,8 +33,28 @@ func NewErrNoVectorizerModule(err error) ErrNoVectorizerModule {
 	return ErrNoVectorizerModule{err}
 }
 
+// ErrModulePrecondition: a request header or environment variable the module
+// needs is missing. Weaviate finds this before any provider call, so the
+// message is safe to show to the caller.
+type ErrModulePrecondition struct {
+	err error
+}
+
+func (e ErrModulePrecondition) Error() string {
+	return e.err.Error()
+}
+
+func (e ErrModulePrecondition) Unwrap() error {
+	return e.err
+}
+
+func NewErrModulePrecondition(err error) ErrModulePrecondition {
+	return ErrModulePrecondition{err}
+}
+
 // ErrQueryVectorization marks a failure to turn the query into a vector.
-// Check ErrNoVectorizerModule first — it surfaces wrapped inside this one.
+// Check ErrNoVectorizerModule and ErrModulePrecondition first, because they
+// arrive wrapped inside this one.
 type ErrQueryVectorization struct {
 	err error
 }

@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -34,7 +33,7 @@ func NewSearcher[T dto.Embedding](vectorizer imgVectorizer[T]) *Searcher[T] {
 		searchID := fmt.Sprintf("search_%v", time.Now().UnixNano())
 		vector, err := vectorizer.VectorizeImage(ctx, searchID, params.(*NearImageParams).Image, cfg)
 		if err != nil {
-			return nil, errors.Errorf("vectorize image: %v", err)
+			return nil, fmt.Errorf("vectorize image: %w", err)
 		}
 		return vector, nil
 	}}

@@ -42,6 +42,7 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 type fakeSearcher struct {
@@ -787,9 +788,19 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 	}
 }
 
+const missingClusterURLMsg = "no cluster URL found in request header: X-Weaviate-Cluster-Url"
+
+// missingHeaderErr is the module's typed error the way a near-text search
+// hands it over: inside the vectorization error.
+func missingHeaderErr() error {
+	return fmt.Errorf("explorer: get class: vectorize search vector: %w",
+		enterrors.NewErrQueryVectorization(fmt.Errorf("vectorize keywords: %w",
+			enterrors.NewErrModulePrecondition(errors.New(missingClusterURLMsg)))))
+}
+
 // TestStatusFromErrorMessages: engine errors reach the client with their wrap
-// chain intact, for parity with GraphQL and gRPC. The one exception is the
-// provider response, whose credential-bearing detail stays in the log.
+// chain intact, like GraphQL and gRPC, except a provider response (it can
+// contain credentials) and a missing header (the module's own message only).
 func TestStatusFromErrorMessages(t *testing.T) {
 	wrap := func(err error) error {
 		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)
@@ -836,6 +847,20 @@ func TestStatusFromErrorMessages(t *testing.T) {
 			wantCause:  "sk-bad",
 		},
 		{
+			name:       "missing vectorizer header shows the module's sentence, the chain as cause",
+			err:        missingHeaderErr(),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantMsg:    missingClusterURLMsg,
+			wantCause:  "vectorize keywords: " + missingClusterURLMsg,
+		},
+		{
+			name:       "server too busy answers the GraphQL rate-limit message, the detail as cause",
+			err:        wrap(queryadmission.ErrOverloaded),
+			wantStatus: http.StatusTooManyRequests,
+			wantMsg:    enterrors.NewErrRateLimit().Error(),
+			wantCause:  queryadmission.ErrOverloaded.Error(),
+		},
+		{
 			name:       "unclassified failure is a 500 carrying the chain",
 			err:        wrap(errors.New("trying parse time as RFC3339 string: cannot parse")),
 			wantStatus: http.StatusInternalServerError,
@@ -869,32 +894,78 @@ func TestStatusFromErrorMessages(t *testing.T) {
 	}
 }
 
-// TestHandlerLogsFailures: server-side failures are logged with their full
-// cause, client errors only at debug level.
+// TestHandlerLogsFailures: server-side failures log at error with the full
+// cause, a missing header or an overload logs at warn, other client errors
+// only at debug.
 func TestHandlerLogsFailures(t *testing.T) {
-	deps := newTestHandler(t)
-	logger, hook := test.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-	deps.handler.logger = logger
+	tests := []struct {
+		name        string
+		searcherErr error
+		body        string
+		wantStatus  int
+		wantLevel   logrus.Level
+		wantLogged  string
+		wantHidden  string
+	}{
+		{
+			name:        "provider failure logs at error, hidden from the client",
+			searcherErr: enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad")),
+			body:        `{"query":["space"]}`,
+			wantStatus:  http.StatusInternalServerError,
+			wantLevel:   logrus.ErrorLevel,
+			wantLogged:  "sk-bad",
+			wantHidden:  "sk-bad",
+		},
+		{
+			name:        "missing vectorizer header logs at warn with the full chain",
+			searcherErr: missingHeaderErr(),
+			body:        `{"query":["space"]}`,
+			wantStatus:  http.StatusUnprocessableEntity,
+			wantLevel:   logrus.WarnLevel,
+			wantLogged:  "vectorize keywords: " + missingClusterURLMsg,
+			wantHidden:  "vectorize keywords",
+		},
+		{
+			name:        "overload logs at warn with the shard detail, hidden from the client",
+			searcherErr: fmt.Errorf("shard Movie_abc: %w", queryadmission.ErrOverloaded),
+			body:        `{"query":["space"]}`,
+			wantStatus:  http.StatusTooManyRequests,
+			wantLevel:   logrus.WarnLevel,
+			wantLogged:  "shard Movie_abc",
+			wantHidden:  "shard Movie_abc",
+		},
+		{
+			name: "no vectorizer configured stays at debug",
+			searcherErr: enterrors.NewErrQueryVectorization(
+				enterrors.NewErrNoVectorizerModule(errors.New("no vectorizer module configured"))),
+			body:       `{"query":["space"]}`,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  logrus.DebugLevel,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			deps.handler.logger = logger
+			deps.searcher.err = tt.searcherErr
 
-	deps.searcher.err = enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad"))
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
-	assert.NotContains(t, apiErr.Error(), "sk-bad")
+			_, apiErr := doNearText(t, deps, nil, "Movie", tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			if tt.wantHidden != "" {
+				assert.NotContains(t, apiErr.Error(), tt.wantHidden)
+			}
 
-	require.Len(t, hook.AllEntries(), 1)
-	entry := hook.LastEntry()
-	assert.Equal(t, logrus.ErrorLevel, entry.Level)
-	assert.Contains(t, entry.Message, "sk-bad")
-	assert.Equal(t, "near-text", entry.Data["op"])
-	assert.Equal(t, "Movie", entry.Data["collection"])
-
-	hook.Reset()
-	_, apiErr = doNearText(t, deps, nil, "Movie", `{"query":[]}`)
-	require.NotNil(t, apiErr)
-	require.Len(t, hook.AllEntries(), 1)
-	assert.Equal(t, logrus.DebugLevel, hook.LastEntry().Level)
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, tt.wantLevel, entry.Level)
+			assert.Contains(t, entry.Message, tt.wantLogged)
+			assert.Equal(t, "near-text", entry.Data["op"])
+			assert.Equal(t, "Movie", entry.Data["collection"])
+		})
+	}
 }
 
 // TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow

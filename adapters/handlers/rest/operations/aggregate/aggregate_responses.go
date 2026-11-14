@@ -339,6 +339,51 @@ func (o *AggregateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, pro
 	}
 }
 
+// AggregateTooManyRequestsCode is the HTTP code returned for type AggregateTooManyRequests
+const AggregateTooManyRequestsCode int = 429
+
+/*
+AggregateTooManyRequests The server's query rate limit was reached; retry later.
+
+swagger:response aggregateTooManyRequests
+*/
+type AggregateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAggregateTooManyRequests creates AggregateTooManyRequests with default headers values
+func NewAggregateTooManyRequests() *AggregateTooManyRequests {
+
+	return &AggregateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the aggregate too many requests response
+func (o *AggregateTooManyRequests) WithPayload(payload *models.ErrorResponse) *AggregateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aggregate too many requests response
+func (o *AggregateTooManyRequests) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AggregateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // AggregateInternalServerErrorCode is the HTTP code returned for type AggregateInternalServerError
 const AggregateInternalServerErrorCode int = 500
 

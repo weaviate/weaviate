@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -250,9 +251,9 @@ func (c *Client) getApiKey(ctx context.Context) (string, error) {
 	if c.apiKey != "" {
 		return c.apiKey, nil
 	}
-	return "", errors.New("no api key found " +
+	return "", enterrors.NewErrModulePrecondition(errors.New("no api key found " +
 		"neither in request header: X-Cohere-Api-Key " +
-		"nor in environment variable under COHERE_APIKEY")
+		"nor in environment variable under COHERE_APIKEY"))
 }
 
 func (c *Client) HasTokenLimit() bool { return false }
