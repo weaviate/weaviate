@@ -71,9 +71,16 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
 
+	fieldWeights, err := v.fieldWeights(ichek)
+	if err != nil {
+		return nil, err
+	}
+
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
+	textWeights := []float32{}
+	imageWeights := []float32{}
 
 	if object.Properties != nil {
 		schemamap := object.Properties.(map[string]interface{})
@@ -82,14 +89,25 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 			case string:
 				if ichek.ImageField(propName) {
 					images = append(images, val)
+					if fieldWeights != nil {
+						imageWeights = append(imageWeights, fieldWeights[propName])
+					}
 				}
 				if ichek.TextField(propName) {
 					texts = append(texts, val)
+					if fieldWeights != nil {
+						textWeights = append(textWeights, fieldWeights[propName])
+					}
 				}
 
 			case []string:
 				if ichek.TextField(propName) {
 					texts = append(texts, val...)
+					if fieldWeights != nil {
+						for range val {
+							textWeights = append(textWeights, fieldWeights[propName])
+						}
+					}
 				}
 			default: // properties that are not part of the object
 
@@ -98,6 +116,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	}
 
 	vectors := [][]float32{}
+	weights := []float32{}
 	if len(texts) > 0 || len(images) > 0 {
 		res, err := v.client.Vectorize(ctx, texts, images, v.getVectorizationConfig(cfg))
 		if err != nil {
@@ -105,17 +124,18 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 		}
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
-	}
-	weights, err := v.getWeights(ichek)
-	if err != nil {
-		return nil, err
+		weights = append(weights, textWeights...)
+		weights = append(weights, imageWeights...)
 	}
 
-	return libvectorizer.CombineVectorsWithWeights(vectors, weights), nil
+	return libvectorizer.CombineVectorsWithWeights(vectors, moduletools.NormalizeWeights(weights)), nil
 }
 
-func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
-	weights := []float32{}
+// fieldWeights maps each configured field name to its weight, keyed by field
+// name rather than by position. object() looks weights up by the field that
+// produced each vector, instead of assuming the weights and the vectors they
+// are meant to scale end up in the same order.
+func (v *Vectorizer) fieldWeights(ichek ClassSettings) (map[string]float32, error) {
 	textFieldsWeights, err := ichek.TextFieldsWeights()
 	if err != nil {
 		return nil, err
@@ -125,10 +145,24 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 		return nil, err
 	}
 
-	weights = append(weights, textFieldsWeights...)
-	weights = append(weights, imageFieldsWeights...)
+	weights := append(append([]float32{}, textFieldsWeights...), imageFieldsWeights...)
+	if len(weights) == 0 {
+		return nil, nil
+	}
 
-	normalizedWeights := moduletools.NormalizeWeights(weights)
+	properties, err := ichek.Properties()
+	if err != nil {
+		return nil, err
+	}
+	if len(properties) != len(weights) {
+		// A field category is configured without a matching weights entry.
+		// Fall back to an unweighted combination rather than misassigning weights.
+		return nil, nil
+	}
 
-	return normalizedWeights, nil
+	fieldWeights := make(map[string]float32, len(properties))
+	for i, name := range properties {
+		fieldWeights[name] = weights[i]
+	}
+	return fieldWeights, nil
 }

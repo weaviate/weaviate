@@ -121,8 +121,14 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
 
+	fieldWeights, err := v.fieldWeights(icheck)
+	if err != nil {
+		return nil, err
+	}
+
 	// vectorize image and text
 	var texts, images, audio, video, imu, thermal, depth []string
+	var textWeights, imageWeights, audioWeights, videoWeights, imuWeights, thermalWeights, depthWeights []float32
 
 	if object.Properties != nil {
 		schemamap := object.Properties.(map[string]interface{})
@@ -131,29 +137,55 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 			case string:
 				if icheck.ImageField(propName) {
 					images = append(images, typed)
+					if fieldWeights != nil {
+						imageWeights = append(imageWeights, fieldWeights[propName])
+					}
 				}
 				if icheck.TextField(propName) {
 					texts = append(texts, typed)
+					if fieldWeights != nil {
+						textWeights = append(textWeights, fieldWeights[propName])
+					}
 				}
 				if icheck.AudioField(propName) {
 					audio = append(audio, typed)
+					if fieldWeights != nil {
+						audioWeights = append(audioWeights, fieldWeights[propName])
+					}
 				}
 				if icheck.VideoField(propName) {
 					video = append(video, typed)
+					if fieldWeights != nil {
+						videoWeights = append(videoWeights, fieldWeights[propName])
+					}
 				}
 				if icheck.IMUField(propName) {
 					imu = append(imu, typed)
+					if fieldWeights != nil {
+						imuWeights = append(imuWeights, fieldWeights[propName])
+					}
 				}
 				if icheck.ThermalField(propName) {
 					thermal = append(thermal, typed)
+					if fieldWeights != nil {
+						thermalWeights = append(thermalWeights, fieldWeights[propName])
+					}
 				}
 				if icheck.DepthField(propName) {
 					depth = append(depth, typed)
+					if fieldWeights != nil {
+						depthWeights = append(depthWeights, fieldWeights[propName])
+					}
 				}
 
 			case []string:
 				if icheck.TextField(propName) {
 					texts = append(texts, typed...)
+					if fieldWeights != nil {
+						for range typed {
+							textWeights = append(textWeights, fieldWeights[propName])
+						}
+					}
 				}
 
 			default:
@@ -162,6 +194,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	}
 
 	vectors := [][]float32{}
+	weights := []float32{}
 	if len(texts) > 0 || len(images) > 0 || len(audio) > 0 || len(video) > 0 ||
 		len(imu) > 0 || len(thermal) > 0 || len(depth) > 0 {
 		res, err := v.client.Vectorize(ctx, texts, images, audio, video, imu, thermal, depth)
@@ -175,22 +208,31 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 		vectors = append(vectors, res.IMUVectors...)
 		vectors = append(vectors, res.ThermalVectors...)
 		vectors = append(vectors, res.DepthVectors...)
-	}
-	weights, err := v.getWeights(icheck)
-	if err != nil {
-		return nil, err
+		weights = append(weights, textWeights...)
+		weights = append(weights, imageWeights...)
+		weights = append(weights, audioWeights...)
+		weights = append(weights, videoWeights...)
+		weights = append(weights, imuWeights...)
+		weights = append(weights, thermalWeights...)
+		weights = append(weights, depthWeights...)
 	}
 
-	return libvectorizer.CombineVectorsWithWeights(vectors, weights), nil
+	return libvectorizer.CombineVectorsWithWeights(vectors, moduletools.NormalizeWeights(weights)), nil
 }
 
-func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
-	weights := []float32{}
-	textFieldsWeights, err := ichek.TextFieldsWeights()
+// fieldWeights maps each configured field name to its weight, keyed by field
+// name rather than by position. object() looks weights up by the field that
+// produced each vector, instead of assuming the weights and the vectors they
+// are meant to scale end up in the same order. The weights here are
+// concatenated in the same per-category order as the `fields` variable in
+// class_settings.go (image, text, audio, video, imu, thermal, depth), since
+// that is the order Properties() returns names in.
+func (v *Vectorizer) fieldWeights(ichek ClassSettings) (map[string]float32, error) {
+	imageFieldsWeights, err := ichek.ImageFieldsWeights()
 	if err != nil {
 		return nil, err
 	}
-	imageFieldsWeights, err := ichek.ImageFieldsWeights()
+	textFieldsWeights, err := ichek.TextFieldsWeights()
 	if err != nil {
 		return nil, err
 	}
@@ -215,15 +257,31 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 		return nil, err
 	}
 
-	weights = append(weights, textFieldsWeights...)
+	weights := []float32{}
 	weights = append(weights, imageFieldsWeights...)
+	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, audioFieldsWeights...)
 	weights = append(weights, videoFieldsWeights...)
 	weights = append(weights, imuFieldsWeights...)
 	weights = append(weights, thermalFieldsWeights...)
 	weights = append(weights, depthFieldsWeights...)
+	if len(weights) == 0 {
+		return nil, nil
+	}
 
-	normalizedWeights := moduletools.NormalizeWeights(weights)
+	properties, err := ichek.Properties()
+	if err != nil {
+		return nil, err
+	}
+	if len(properties) != len(weights) {
+		// A field category is configured without a matching weights entry.
+		// Fall back to an unweighted combination rather than misassigning weights.
+		return nil, nil
+	}
 
-	return normalizedWeights, nil
+	fieldWeights := make(map[string]float32, len(properties))
+	for i, name := range properties {
+		fieldWeights[name] = weights[i]
+	}
+	return fieldWeights, nil
 }
