@@ -90,9 +90,11 @@ A replica copy or move, or a scale plan that removes a replica or adds one
 with no source node, requested while a migration runs on its collection is
 refused with 409. So is any of them on a shard that a stopped migration still
 owes a swap on some node; the error names those nodes. Removing a node from the
-cluster skips such a shard with a warning, which keeps the removed node as one
-of its replicas, and rebalances the others. Once the refusal clears, remove the
-node again or apply a scale plan whose `removeNodes` lists it. A movement that
+cluster forgets the swaps that node owes in stopped migrations, so a shard only
+it still owed rebalances like any other; a shard another node still owes, or
+any shard of a collection a migration runs on, is skipped with a warning, which
+keeps the removed node as one of its replicas. Once the refusal clears, remove
+the node again or apply a scale plan whose `removeNodes` lists it. A movement that
 reaches a shard still being cleaned up after a cancelled or failed
 migration waits for the cleanup to finish.
 
@@ -1143,7 +1145,10 @@ The post-completion barrier is split into two phases.
    records the group's swap as decided (`Task.SwapDecidedGroups`). From
    then on every replica of the group owes its swap (`Task.SwapsOwed`),
    even if the task later fails or is cancelled, and the task is kept
-   until every replica paid. `PREPARING → SWAPPING` happens once every
+   until every replica paid. Once the task has stopped, a node removed
+   from the RAFT cluster no longer owes anything: the configuration
+   entry that removes it forgets its debts (`Store.StoreConfiguration`).
+   `PREPARING → SWAPPING` happens once every
    group is decided.
 3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
    group this node owes, in any task status, and retries a failed swap

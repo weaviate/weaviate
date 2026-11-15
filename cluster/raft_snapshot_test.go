@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -217,6 +218,99 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 
 	m.indexer.On("Close", Anything).Return(nil)
 	require.NoError(t, srv.Close(ctx))
+}
+
+// Every step goes through the log, so a reopen rebuilds the same state from snapshot or replay.
+func TestDepartedNodeSwapDebtForgottenAcrossRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		snapshot bool
+	}{
+		{name: "restored from a snapshot taken after the removal", snapshot: true},
+		{name: "replayed from the log"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) { c.TelemetryEnabled = false })
+			addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+			open := func() *Raft {
+				srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+				m.indexer.On("Open", Anything).Return(nil)
+				m.indexer.On("Close", Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Maybe()
+				require.NoError(t, srv.Open(ctx, m.indexer))
+				require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+				require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
+				require.NoError(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
+				return srv
+			}
+			owed := func(srv *Raft) map[string][]string {
+				tasks, err := srv.store.distributedTasksManager.ListDistributedTasks(ctx)
+				require.NoError(t, err)
+				require.Len(t, tasks[exclusionNamespace], 1)
+				return tasks[exclusionNamespace][0].SwapsOwed
+			}
+
+			srv := open()
+			require.NoError(t, srv.store.Join("node-2", fmt.Sprintf("127.0.0.1:%d", utils.MustGetFreeTCPPort()), false))
+			owedThroughLog(t, srv.store, "g", []string{"Node-1", "node-2"})
+			require.ElementsMatch(t, []string{"Node-1", "node-2"}, owed(srv)["g"])
+
+			require.NoError(t, srv.Remove(ctx, "node-2"))
+			want := map[string][]string{"g": {"Node-1"}}
+			require.Equal(t, want, owed(srv), "the departed node's debt is gone, the member's stays")
+			if tc.snapshot {
+				require.NoError(t, srv.store.raft.Load().Snapshot().Error())
+			}
+			lastIndex := srv.store.raft.Load().LastIndex()
+			require.Equal(t, tc.snapshot, lastSnapshotIndex(srv.store.snapshotStore) >= lastIndex)
+			require.NoError(t, srv.Close(ctx))
+
+			s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
+			m.store = &s
+			m.indexer = fakes.NewMockSchemaExecutor()
+			srv = open()
+			defer srv.Close(ctx)
+			require.Equal(t, want, owed(srv))
+		})
+	}
+}
+
+// owedThroughLog leaves a cancelled task whose group every node in nodes still owes.
+func owedThroughLog(t *testing.T, s *Store, group string, nodes []string) {
+	t.Helper()
+	execute := func(typ api.ApplyRequest_Type, sub any) uint64 {
+		b, err := json.Marshal(sub)
+		require.NoError(t, err)
+		v, err := s.Execute(&api.ApplyRequest{Type: typ, SubCommand: b})
+		require.NoError(t, err)
+		return v
+	}
+	// The undecided group keeps the task PREPARING until the cancel.
+	specs := []*api.UnitSpec{{Id: "undecided", GroupId: "undecided"}}
+	for _, node := range nodes {
+		specs = append(specs, &api.UnitSpec{Id: node, GroupId: group})
+	}
+	version := execute(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &api.AddDistributedTaskRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, NeedsPreparationBarrier: true, UnitSpecs: specs,
+	})
+	for _, spec := range specs {
+		node := spec.Id
+		if spec.GroupId != group {
+			node = nodes[0]
+		}
+		execute(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &api.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: exclusionNamespace, Id: owingTaskID, Version: version, NodeId: node, UnitId: spec.Id,
+		})
+	}
+	for _, node := range nodes {
+		execute(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK, &api.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: exclusionNamespace, Id: owingTaskID, Version: version, GroupId: new(group), NodeId: node, Success: true,
+		})
+	}
+	execute(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL, &api.CancelDistributedTaskRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, Version: version,
+	})
 }
 
 func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantName string) string {
