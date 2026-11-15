@@ -94,7 +94,7 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 		if !task.Status.IsActive() {
 			continue
 		}
-		if c := task.Collection(); c != "" && !strings.EqualFold(c, newP.Collection) {
+		if task.OnKnownOtherCollection(newP.Collection) {
 			continue
 		}
 

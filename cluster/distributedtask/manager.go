@@ -73,12 +73,6 @@ type Manager struct {
 	notifier SchedulerNotifier
 }
 
-// CheckPropertyUpdate consults every registered
-// [SchemaMutationDetector] against the current FSM-stored task list
-// and returns the first conflict reported. Called by the schema FSM's
-// UpdateProperty apply path BEFORE the merge is applied; returning a
-// non-nil error causes the apply to reject with that error.
-//
 // RAFT-deterministic by construction: under m.mu (write lock to match
 // the apply paths that mutate m.tasks), every node sees the same task
 // list at the same applyIndex, and each detector is contractually a
@@ -170,7 +164,7 @@ func (m *Manager) dispatchSchemaMutation(className string, callDetector func(Sch
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
-			if t.collection != "" && !strings.EqualFold(t.collection, className) {
+			if t.OnKnownOtherCollection(className) {
 				continue
 			}
 			existing = append(existing, t)
@@ -234,7 +228,7 @@ func NewManager(params ManagerParameters) *Manager {
 
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
 // cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
-// write wins per namespace; nil / empty arguments are silently dropped.
+// write wins, but each task caches its answer when added and the conflict checks trust it, so register before the first task.
 // It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
@@ -346,11 +340,6 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 	return removed, nil
 }
 
-// DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
-// from the schema FSM on DELETE_CLASS so a drop+recreate of the same class name
-// starts with a clean task slate. Empty `collection` is rejected (an extractor
-// emitting ("", true) on stray bytes would otherwise wipe the cluster).
-// See weaviate/0-weaviate-issues#231.
 func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	if collection == "" {
 		return nil
@@ -360,18 +349,13 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	defer m.mu.Unlock()
 
 	var removed []TaskDescriptor
-	for namespace, tasksByID := range m.tasks {
-		extractor, ok := m.collectionExtractors[namespace]
-		if !ok || extractor == nil {
-			continue
-		}
+	for _, tasksByID := range m.tasks {
 		for taskID, task := range tasksByID {
-			c, ok := task.collection, task.collection != ""
 			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
 			// identifiers, and a byte-exact cascade would leak a case-twin
 			// record past DELETE_CLASS.
-			if !ok || !strings.EqualFold(c, collection) {
+			if !strings.EqualFold(task.collection, collection) {
 				continue
 			}
 			delete(tasksByID, taskID)

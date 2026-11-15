@@ -15,6 +15,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -744,8 +745,8 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
-func (t *Task) Collection() string {
-	return t.collection
+func (t *Task) OnKnownOtherCollection(collection string) bool {
+	return t.collection != "" && !strings.EqualFold(t.collection, collection)
 }
 
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
