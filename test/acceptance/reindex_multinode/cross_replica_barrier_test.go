@@ -468,7 +468,7 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
 }
 
-// Pins that a cancel keeps the small tenant's swap, a resubmit finishes the rest while it is not HOT, and it serves the target once HOT.
+// Pins that a cancel keeps the small tenant's swap and a resubmit finishes the rest without needing it HOT.
 func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *testing.T) {
 	for _, parked := range []string{models.TenantActivityStatusFROZEN, models.TenantActivityStatusCOLD} {
 		t.Run(parked, func(t *testing.T) { cancelThenResubmitWhileFinishedTenantIs(t, parked) })

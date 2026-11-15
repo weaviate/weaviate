@@ -2546,7 +2546,7 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 // ShardReplicaOwnershipForMT returns shard ownership for the named tenants
 // (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
 // tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
-// A tenant earlier runs to target migrated on every replica is left out, whatever its status, unless all are.
+// Tenants already migrated to target on every replica are skipped (even if not HOT), unless all are.
 func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTaskPayload, property string,
 	tenantNames []string, tasks []*distributedtask.Task,
 ) (map[string][]string, error) {
