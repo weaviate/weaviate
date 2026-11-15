@@ -759,6 +759,19 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	distss := make([][]float32, len(targetVectors))
 	beforeVector := time.Now()
 
+	// Each target index is searched independently and the per-target results are
+	// only combined afterwards. Searching a target with the final top-k would
+	// therefore truncate that target's candidates before the combination ever
+	// sees them: a candidate that is in the top-k of one target but has the
+	// best combined score would be dropped and could never win.
+	//
+	// Search every target with the configured result cap instead and let the
+	// combiner apply the final limit to the combined result.
+	perTargetLimit := limit
+	if len(targetVectors) > 1 && perTargetLimit >= 0 {
+		perTargetLimit = int(s.index.Config.QueryMaximumResults)
+	}
+
 	for i, targetVector := range targetVectors {
 		i := i
 		targetVector := targetVector
@@ -817,7 +830,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("vector search: %w", err)
 					}
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, perTargetLimit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -833,7 +846,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("multi vector search: %w", err)
 					}
-					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, perTargetLimit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
