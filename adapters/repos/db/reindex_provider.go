@@ -656,12 +656,6 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
-	for _, reindexTask := range tasks {
-		if err := reindexTask.refuseUnmirroredOn(shard); err != nil {
-			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), err))
-			return
-		}
-	}
 	// Compose per-task progress into a single per-unit envelope so the
 	// operator sees a monotonic 0→1 climb across N tasks instead of N
 	// independent 0→0.99 ramps that look like regressions on the same
@@ -1185,11 +1179,6 @@ func (p *ReindexProvider) runShardPrepPhase(
 	ok = true
 	for _, reindexTask := range unitTasks {
 		if rehydrate {
-			if err := reindexTask.refuseUnmirroredOn(shard); err != nil {
-				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
-				ok = false
-				continue
-			}
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)

@@ -205,6 +205,9 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 	if err != nil {
 		return false, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
+	if err := t.refuseUnmirroredOn(concreteShard); err != nil {
+		return false, err
+	}
 
 	// context.Canceled means the index is closing — propagate unwrapped so
 	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
@@ -291,9 +294,6 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 	}
 
 	if !rec.IterationComplete() {
-		if err := t.refuseUnmirroredOn(concreteShard); err != nil {
-			return nil, err
-		}
 		logger.Info(method + ": rebuild not yet complete; resuming iteration")
 		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
 			return nil, fmt.Errorf("resume iteration: %w", err)
