@@ -119,61 +119,98 @@ func TestDropRequestCancelsRunningPhase(t *testing.T) {
 	requireDropWithin(t, deleted, 5*time.Second)
 }
 
-func TestPhaseOnClosingIndexLoadsNoShard(t *testing.T) {
-	ctx := testCtx()
+func TestStoppedUnitLoadsNoShard(t *testing.T) {
 	const (
 		prop   = "title"
 		node   = "node1"
 		tenant = "cold-shard"
 	)
 	unitID := MigrationUnitID(tenant, node)
-	className := "ClosingPhase" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{prop})
-	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	t.Cleanup(func() { _ = hot.Shutdown(context.Background()) })
-
-	tenantDir := shardPath(idx.path(), tenant)
-	mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), StrategyCodeSearchableRetokenize, "T_closing", 1, unitID,
-		ReindexTypeChangeTokenization, MigrationStateSwapped, prop)
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
-	idx.shards.Store(tenant, cold)
-	t.Cleanup(func() {
-		if cold.isLoaded() {
-			_ = cold.Shutdown(context.Background())
-		}
-	})
-	registerIndex(idx, className)
-
-	logger, _ := logrustest.NewNullLogger()
-	p := NewReindexProvider(idx.db, nil, nil, logger, node, nil, ctx)
-	payload := &ReindexTaskPayload{
-		Collection: className, MigrationType: ReindexTypeChangeTokenization,
-		Properties: []string{prop}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
-		UnitToShard: map[string]string{unitID: tenant},
-		UnitToNode:  map[string]string{unitID: node},
-	}
 	desc := distributedtask.TaskDescriptor{ID: "T_closing", Version: 1}
-	tasks, err := p.createReindexTasks(desc, unitID, payload)
-	require.NoError(t, err)
-	p.cacheReindexTasks(desc, unitID, tasks[:1])
+	started := &distributedtask.Task{Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusStarted}
+	cancelled, cancel := context.WithCancel(testCtx())
+	cancel()
 
-	// The drop has asked the index to close and removed the tenant's files.
-	idx.signalCloseRequested(errIndexDropped)
-	require.NoError(t, os.RemoveAll(tenantDir))
+	for _, tc := range []struct {
+		name    string
+		closing bool
+		run     func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) error
+		wantErr error
+	}{
+		{
+			name: "swap on a dropped collection", closing: true, wantErr: context.Canceled,
+			run: func(p *ReindexProvider, _ *Index, payload *ReindexTaskPayload, _ *fakeRecorder) error {
+				raw, err := json.Marshal(payload)
+				require.NoError(t, err)
+				return p.OnSwapRequested(&distributedtask.Task{
+					Namespace: ReindexNamespace, TaskDescriptor: desc,
+					Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
+					SwapDecidedGroups: map[string]time.Time{"g1": {}},
+				}, "g1", []string{unitID})
+			},
+		},
+		{
+			name: "scheduler unit on a dropped collection", closing: true,
+			run: func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) error {
+				p.processUnits(testCtx(), started, payload, idx, []string{unitID}, rec)
+				return nil
+			},
+		},
+		{
+			name: "scheduler unit cancelled before its load",
+			run: func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) error {
+				p.processOneUnit(cancelled, started, payload, idx, unitID, rec)
+				return nil
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "ClosingPhase" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{prop})
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			t.Cleanup(func() { _ = hot.Shutdown(context.Background()) })
 
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	err = p.OnSwapRequested(&distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: desc,
-		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
-		SwapDecidedGroups: map[string]time.Time{"g1": {}},
-	}, "g1", []string{unitID})
+			tenantDir := shardPath(idx.path(), tenant)
+			mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), StrategyCodeSearchableRetokenize, desc.ID, desc.Version, unitID,
+				ReindexTypeChangeTokenization, MigrationStateSwapped, prop)
+			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(tenant, cold)
+			t.Cleanup(func() {
+				if cold.isLoaded() {
+					_ = cold.Shutdown(context.Background())
+				}
+			})
+			registerIndex(idx, className)
 
-	require.NoDirExists(t, tenantDir, "a load would recreate the dropped tenant's directory")
-	require.False(t, cold.isLoaded())
-	require.ErrorIs(t, err, context.Canceled, "the step waits instead of failing the task")
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, node, func() int { return 1 }, ctx)
+			payload := &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeChangeTokenization,
+				Properties: []string{prop}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
+				UnitToShard: map[string]string{unitID: tenant},
+				UnitToNode:  map[string]string{unitID: node},
+			}
+			tasks, err := p.createReindexTasks(desc, unitID, payload)
+			require.NoError(t, err)
+			p.cacheReindexTasks(desc, unitID, tasks[:1])
+
+			if tc.closing {
+				idx.signalCloseRequested(errIndexDropped)
+			}
+			require.NoError(t, os.RemoveAll(tenantDir))
+			rec := newFakeRecorder()
+
+			err = tc.run(p, idx, payload, rec)
+
+			require.NoDirExists(t, tenantDir, "a load would recreate the removed tenant's directory")
+			require.False(t, cold.isLoaded())
+			require.Empty(t, rec.failed, "a stopped unit is not failed")
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 func TestRecoveryClaimSkipsAClosingIndex(t *testing.T) {
@@ -208,6 +245,7 @@ func TestRecoveryClaimSkipsAClosingIndex(t *testing.T) {
 // blockingProgressRecorder holds every non-zero progress write until release closes.
 type blockingProgressRecorder struct {
 	*fakeRecorder
+	unitCtx     context.Context
 	blockedOnce sync.Once
 	blocked     chan struct{}
 	release     chan struct{}
@@ -216,6 +254,9 @@ type blockingProgressRecorder struct {
 func (r *blockingProgressRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string,
 	version uint64, nodeID, unitID string, progress float32,
 ) error {
+	if progress == 0 {
+		r.unitCtx = ctx
+	}
 	if progress > 0 {
 		r.blockedOnce.Do(func() { close(r.blocked) })
 		<-r.release
@@ -232,7 +273,7 @@ func TestDropNotHeldByAUnitProgressWrite(t *testing.T) {
 	registerIndex(idx, className)
 
 	logger, _ := logrustest.NewNullLogger()
-	p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+	p := NewReindexProvider(idx.db, nil, nil, logger, "node1", func() int { return 1 }, ctx)
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
@@ -255,9 +296,9 @@ func TestDropNotHeldByAUnitProgressWrite(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		p.processOneUnit(ctx, &distributedtask.Task{
+		p.processUnits(ctx, &distributedtask.Task{
 			Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusStarted,
-		}, payload, idx, "u1", rec)
+		}, payload, idx, []string{"u1"}, rec)
 	}()
 	select {
 	case <-rec.blocked:
@@ -268,6 +309,7 @@ func TestDropNotHeldByAUnitProgressWrite(t *testing.T) {
 	deleted := make(chan error, 1)
 	go func() { deleted <- idx.db.DeleteIndex(entschema.ClassName(className)) }()
 	requireDropWithin(t, deleted, 5*time.Second)
+	require.ErrorIs(t, context.Cause(rec.unitCtx), errIndexDropped)
 	releaseWrites()
 	<-done
 }

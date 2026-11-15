@@ -605,6 +605,10 @@ func (p *ReindexProvider) processOneUnit(
 	concreteShard, unwrapErr := unwrapShard(ctx, shard)
 	if unwrapErr != nil {
 		exitLoad()
+		if errors.Is(unwrapErr, context.Canceled) && ctx.Err() != nil {
+			p.logUnitNotStarted(task.ID, unitID, shardName, context.Cause(ctx))
+			return
+		}
 		p.failUnit(ctx, task, unitID, recorder,
 			fmt.Sprintf("unwrap shard: %v", unwrapErr))
 		return
@@ -770,7 +774,7 @@ func (p *ReindexProvider) runUnitTasks(ctx context.Context, task *distributedtas
 			// weaviate/0-weaviate-issues#239 Mode 1: don't FSM-flip
 			// FAILED on a shutdown signal.
 			if errors.Is(runErr, context.Canceled) {
-				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
+				logger.Infof("reindex provider: unit stopped before it finished: %v", context.Cause(ctx))
 				return "", false
 			}
 			return fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr), false

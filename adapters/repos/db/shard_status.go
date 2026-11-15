@@ -240,7 +240,11 @@ func (s *Shard) rearmHeld() error {
 	// Buckets the arm opened go back to READONLY before the hold changes, so no lift races the reset.
 	ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
 	if len(skipped) > 0 {
-		ec.Add(fmt.Errorf("%d migration(s) were not re-armed: %w; set the status again once that ends", len(skipped), refusal))
+		retry := "; set the status again once that ends"
+		if errors.Is(refusal, errIndexDropped) {
+			retry = ""
+		}
+		ec.Add(fmt.Errorf("%d migration(s) were not re-armed: %w%s", len(skipped), refusal, retry))
 	}
 	if err != nil || len(skipped) > 0 {
 		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))
