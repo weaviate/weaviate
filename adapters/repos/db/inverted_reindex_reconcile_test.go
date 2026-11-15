@@ -721,6 +721,8 @@ func TestReconcileUncommitted(t *testing.T) {
 					"a record no load here can finish has to terminate as wedged")
 				require.False(t, f.store.HasUndecided(),
 					"and the wedge outlives this pass, or the record asks the leader once a minute forever")
+			} else {
+				require.Zero(t, r.WedgedCount(), "a record left standing is not wedged")
 			}
 		})
 	}
