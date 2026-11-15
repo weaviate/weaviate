@@ -683,11 +683,6 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
 	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
 	// returns before this and is deliberately not refused: it starts nothing.
-	// Refuse before the stale-state sweep below loads this node's shards.
-	if err := usecasesNamespaces.RequireActive(h.appState.NamespacesController,
-		namespacing.NamespaceFromQualified(collection)); err != nil {
-		return h.mapSubmitTaskError(principal, collection, "", err)
-	}
 	if err := validateNoSidecarShapedProperties(class); err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -896,6 +891,7 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 // their state is unverified rather than known stale, and a healthy node
 // produces that from a tenant leaving the shard map mid-walk. Refusing the
 // submit on it would turn ordinary tenant movement into a 500.
+// A sweep the namespace state stopped still refuses: the leader would anyway.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
 	collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
@@ -930,6 +926,9 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"migration_type": migrationType,
 			"index_type":     it,
 		})
+		if _, ok := usecasesNamespaces.PublicMessage(err); ok {
+			return h.mapSubmitTaskError(principal, collection, "", err)
+		}
 		if errors.Is(err, db.ErrCleanupSweepTruncated) {
 			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
 			continue

@@ -205,6 +205,10 @@ func (i *Index) cleanStalePartialReindexState(
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
+		// Per shard, not once per walk, so a suspend applied mid-walk stops the next load.
+		if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+			return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
+		}
 		shard, ok := shardLike.(*Shard)
 		if !ok {
 			lazy, isLazy := shardLike.(*LazyLoadShard)
