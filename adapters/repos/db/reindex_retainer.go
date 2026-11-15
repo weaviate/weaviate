@@ -229,15 +229,12 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 }
 
 // reindexTarget is the subset of ReindexTaskPayload the retainer reads.
-// Skipping the per-unit maps keeps each run's first decode cheap and its
-// cache entry small.
 type reindexTarget struct {
 	MigrationType ReindexMigrationType `json:"migrationType"`
 	Collection    string               `json:"collection"`
 	Properties    []string             `json:"properties"`
 }
 
-// reindexTargets decodes each task at most once; nil marks an unreadable payload.
 type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
 
 // reindexTargetCache keeps decoded targets across ticks: a payload never changes for an (ID, Version).
@@ -246,9 +243,6 @@ type reindexTargetCache struct {
 	targets reindexTargets
 }
 
-// acquire drops entries whose task left namespaceTasks and returns the cache
-// with its lock held until release. Pruning in place avoids copying the whole
-// cache on every call, which was measured at 80 MiB per tick for 1000 runs.
 func (c *reindexTargetCache) acquire(namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task) reindexTargets {
 	c.mu.Lock()
 	if c.targets == nil {

@@ -21,7 +21,6 @@ import (
 )
 
 // TestShouldRetainCompletedTaskDecodesEachRunOnce makes a payload unreadable after the first tick.
-// A run decoded earlier keeps its verdict, and one that left the namespace is decoded again.
 func TestShouldRetainCompletedTaskDecodesEachRunOnce(t *testing.T) {
 	failedRun := func(version uint64, prop string) *distributedtask.Task {
 		payload, err := json.Marshal(ReindexTaskPayload{
