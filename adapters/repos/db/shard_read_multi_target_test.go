@@ -1,16 +1,3 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
-//
-//  CONTACT: hello@weaviate.io
-//
-
-//go:build integrationTest
-
 package db
 
 import (
@@ -28,6 +15,75 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
+
+// multiTargetFixture builds a shard with the named vector indexes "a" and "b",
+// both exact (flat), and the given objects inserted into it.
+//
+// queryMaximumResults caps the number of results a single target search
+// returns. It is lowered so that a test can put the cap below the number of
+// objects in the shard.
+func multiTargetFixture(t *testing.T, ctx context.Context, className string,
+	vectors map[string]struct{ a, b []float32 }, queryMaximumResults int64,
+) (ShardLike, *Index, map[string]strfmt.UUID) {
+	t.Helper()
+
+	_, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: className},
+		nil,
+		false,
+		true,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				// dot product, as in the issue's reproduction. Cosine would tie
+				// every vector here, because they are all collinear.
+				"a": flat.UserConfig{Distance: "dot"},
+				"b": flat.UserConfig{Distance: "dot"},
+			}
+			i.Config.QueryMaximumResults = queryMaximumResults
+		},
+	)
+	t.Cleanup(func() {
+		require.Nil(t, index.drop())
+	})
+
+	shard := firstShard(t, index)
+
+	ids := map[string]strfmt.UUID{}
+	var objs []*storobj.Object
+	for name, v := range vectors {
+		id := strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(name)).String())
+		ids[name] = id
+		objs = append(objs, &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				Class:      className,
+				ID:         id,
+				Properties: map[string]interface{}{"name": name},
+			},
+			Vectors: map[string][]float32{"a": v.a, "b": v.b},
+		})
+	}
+
+	for _, err := range shard.PutObjectBatch(ctx, objs) {
+		require.Nil(t, err)
+	}
+
+	// wait for the vector indexes to catch up
+	for _, name := range []string{"a", "b"} {
+		vidx, q := getVectorIndexAndQueue(t, shard, name)
+		require.NotNil(t, vidx)
+		for i := 0; i < 20; i++ {
+			if q.Size() == 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	return shard, index, ids
+}
 
 // TestMultiTargetSumIsNotTruncatedByPerTargetTopK reproduces #13833.
 //
@@ -51,67 +107,11 @@ func TestMultiTargetSumIsNotTruncatedByPerTargetTopK(t *testing.T) {
 	ctx := context.Background()
 	className := "MultiTargetSumTopK"
 
-	_, index := testShardWithSettings(
-		t,
-		ctx,
-		&models.Class{Class: className},
-		nil,
-		false,
-		true,
-		func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				// dot product, as in the issue's reproduction. Cosine would tie
-				// every vector here, because they are all collinear.
-				"a": flat.UserConfig{Distance: "dot"},
-				"b": flat.UserConfig{Distance: "dot"},
-			}
-		},
-	)
-	shard := firstShard(t, index)
-
-	seed := map[string]struct {
-		a, b []float32
-	}{
+	shard, _, ids := multiTargetFixture(t, ctx, className, map[string]struct{ a, b []float32 }{
 		"A": {[]float32{10, 0}, []float32{1, 0}},
 		"B": {[]float32{1, 0}, []float32{9, 0}},
 		"C": {[]float32{6, 0}, []float32{6, 0}},
-	}
-
-	ids := map[string]strfmt.UUID{}
-	var objs []*storobj.Object
-	for name, vectors := range seed {
-		id := strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(name)).String())
-		ids[name] = id
-		obj := &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				Class:      className,
-				ID:         id,
-				Properties: map[string]interface{}{"name": name},
-			},
-			Vectors: map[string][]float32{
-				"a": vectors.a,
-				"b": vectors.b,
-			},
-		}
-		objs = append(objs, obj)
-	}
-
-	for _, err := range shard.PutObjectBatch(ctx, objs) {
-		require.Nil(t, err)
-	}
-
-	// wait for the vector indexes to catch up
-	for _, name := range []string{"a", "b"} {
-		vidx, q := getVectorIndexAndQueue(t, shard, name)
-		require.NotNil(t, vidx)
-		for i := 0; i < 20; i++ {
-			if q.Size() == 0 {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
+	}, 10000)
 
 	search := func(limit int) []strfmt.UUID {
 		objs, _, err := shard.ObjectVectorSearch(ctx,
@@ -148,4 +148,77 @@ func TestMultiTargetSumIsNotTruncatedByPerTargetTopK(t *testing.T) {
 	require.Len(t, top1, 1)
 	require.Equal(t, ids["C"], top1[0],
 		"multi-target sum must not truncate each target to the final top-k")
+}
+
+// TestMultiTargetSumFindsBestCandidateBeyondTheCap covers the case where the
+// best combined candidate is not in either target's top-k, so simply raising
+// the per-target cap does not help.
+//
+// The per-target result cap is set to 2, and the shard holds more objects than
+// that. The best combined candidate is ranked below the cap on both targets,
+// so it is only found if the target retrieval is exhaustive.
+func TestMultiTargetSumFindsBestCandidateBeyondTheCap(t *testing.T) {
+	ctx := context.Background()
+	className := "MultiTargetSumBeyondCap"
+
+	// A and A2 tie on target a, B and B2 tie on target b, so the top-1 on each
+	// target is arbitrary between the pair. C is second on both, but its
+	// combined score is the best.
+	vectors := map[string]struct{ a, b []float32 }{
+		"A":  {[]float32{10, 0}, []float32{0, 0}},
+		"A2": {[]float32{10, 0}, []float32{0, 0}},
+		"B":  {[]float32{0, 0}, []float32{10, 0}},
+		"B2": {[]float32{0, 0}, []float32{10, 0}},
+		"C":  {[]float32{6, 0}, []float32{6, 0}},
+	}
+
+	// A cap of 2 is below the number of objects, so a capped per-target search
+	// cannot return C on its own.
+	shard, _, ids := multiTargetFixture(t, ctx, className, vectors, 2)
+
+	objs, _, err := shard.ObjectVectorSearch(ctx,
+		[]models.Vector{[]float32{1, 0}, []float32{1, 0}},
+		[]string{"a", "b"},
+		0,
+		1,
+		nil,
+		nil,
+		nil,
+		additional.Properties{},
+		&dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1}},
+		nil,
+	)
+	require.Nil(t, err)
+	require.Len(t, objs, 1)
+	require.Equal(t, ids["C"], objs[0].ID(),
+		"the best combined candidate must be found even when it is not in either target's top-1")
+}
+
+// TestMultiTargetMinimumKeepsRequestedLimit checks that the default
+// combination method is not affected: a Minimum combination is answered by
+// the union of the per-target top-k, so it must not pull extra candidates.
+func TestMultiTargetMinimumKeepsRequestedLimit(t *testing.T) {
+	ctx := context.Background()
+	className := "MultiTargetMinimum"
+
+	shard, _, _ := multiTargetFixture(t, ctx, className, map[string]struct{ a, b []float32 }{
+		"A": {[]float32{10, 0}, []float32{1, 0}},
+		"B": {[]float32{1, 0}, []float32{9, 0}},
+		"C": {[]float32{6, 0}, []float32{6, 0}},
+	}, 10000)
+
+	objs, _, err := shard.ObjectVectorSearch(ctx,
+		[]models.Vector{[]float32{1, 0}, []float32{1, 0}},
+		[]string{"a", "b"},
+		0,
+		1,
+		nil,
+		nil,
+		nil,
+		additional.Properties{},
+		&dto.TargetCombination{Type: dto.Minimum},
+		nil,
+	)
+	require.Nil(t, err)
+	require.Len(t, objs, 1)
 }

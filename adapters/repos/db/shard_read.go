@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -765,10 +766,15 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	// sees them: a candidate that is in the top-k of one target but has the
 	// best combined score would be dropped and could never win.
 	//
-	// Search every target with the configured result cap instead and let the
-	// combiner apply the final limit to the combined result.
+	// This only applies to the combinations that aggregate scores across
+	// targets. A Minimum combination is answered by the union of the per-target
+	// top-k, because the winner is the best object on at least one target, so
+	// it is in that target's top-k already. Expanding its candidates would
+	// only cost work.
 	perTargetLimit := limit
-	if len(targetVectors) > 1 && perTargetLimit >= 0 {
+	expandCandidates := len(targetVectors) > 1 && perTargetLimit >= 0 &&
+		targetCombination != nil && targetCombination.Type != dto.Minimum
+	if expandCandidates {
 		perTargetLimit = int(s.index.Config.QueryMaximumResults)
 	}
 
@@ -830,7 +836,22 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("vector search: %w", err)
 					}
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, perTargetLimit, allowList)
+					if expandCandidates && vidx.Type() == common.IndexTypeFlat {
+						// An exact index can enumerate every candidate, so
+						// retrieve them all and let the combiner apply the
+						// final limit. A fixed cap would only move the
+						// truncation boundary: a candidate that is worse than
+						// the cap on every target, but the best combined,
+						// would still be cut.
+						//
+						// A negative max limit means "no limit": the search
+						// keeps expanding until every candidate is within
+						// the threshold.
+						ids, dists, err = vidx.SearchByVectorDistance(ctx, searchVector,
+							math.MaxFloat32, -1, allowList)
+					} else {
+						ids, dists, err = vidx.SearchByVector(ctx, searchVector, perTargetLimit, allowList)
+					}
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
