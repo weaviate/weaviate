@@ -13,7 +13,9 @@ package cluster
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -633,7 +635,9 @@ func admitProposeBytes(t *testing.T, ms *MockStore, data []byte) error {
 	require.NoError(t, gproto.Unmarshal(data, req))
 	collection, task, err := ms.store.taskOrMovementCollection(req)
 	require.NoError(t, err)
-	return ms.store.admitPropose(req, collection, task)
+	suspended, err := suspendedNamespace(req)
+	require.NoError(t, err)
+	return ms.store.admitPropose(req, collection, task, suspended)
 }
 
 // TestExecuteGate_DestructiveApplyTypes drives the three destructive commands
@@ -1332,6 +1336,95 @@ func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func payloadIsCollection(p []byte) (string, bool) { return string(p), len(p) > 0 }
+
+func TestAdmitPropose_SuspendRefusedWhileReindexWrites(t *testing.T) {
+	task := func(namespace, collection string, status distributedtask.TaskStatus, swapsOwed map[string][]string) *distributedtask.Task {
+		return &distributedtask.Task{
+			Namespace:      namespace,
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "task1", Version: 1},
+			Payload:        []byte(collection),
+			Status:         status,
+			SwapsOwed:      swapsOwed,
+		}
+	}
+	owed := map[string][]string{"shard1": {"node2"}}
+
+	for _, tc := range []struct {
+		name    string
+		task    *distributedtask.Task
+		target  api.NamespaceState
+		refused bool
+	}{
+		{name: "started", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusStarted, nil), target: api.NamespaceStateSuspended, refused: true},
+		{name: "swapping", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusSwapping, nil), target: api.NamespaceStateSuspended, refused: true},
+		{name: "cancelled with a swap owed", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusCancelled, owed), target: api.NamespaceStateSuspended, refused: true},
+		{name: "cancelled with no swap owed", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusCancelled, nil), target: api.NamespaceStateSuspended},
+		{name: "failed with no swap owed", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusFailed, nil), target: api.NamespaceStateSuspended},
+		{name: "finished", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusFinished, nil), target: api.NamespaceStateSuspended},
+		{name: "started drop-vector-index task", task: task(db.DropVectorIndexNamespace, "alpha:Movies", distributedtask.TaskStatusStarted, nil), target: api.NamespaceStateSuspended},
+		{name: "started in a namespace with a common prefix", task: task(db.ReindexNamespace, "alphabet:Movies", distributedtask.TaskStatusStarted, nil), target: api.NamespaceStateSuspended},
+		{name: "resume", task: task(db.ReindexNamespace, "alpha:Movies", distributedtask.TaskStatusStarted, nil), target: api.NamespaceStateActive},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewMockStore(t, "node1", 0, func(c *Config) {
+				c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+					db.ReindexNamespace:         payloadIsCollection,
+					db.DropVectorIndexNamespace: payloadIsCollection,
+				}
+			}).store
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{
+				"tasks": {tc.task.Namespace: {tc.task}},
+			})
+			require.NoError(t, err)
+			require.NoError(t, s.distributedTasksManager.Restore(snapshot))
+			sub, err := json.Marshal(api.ChangeNamespaceStateRequest{Name: "alpha", TargetState: tc.target})
+			require.NoError(t, err)
+			req := &api.ApplyRequest{Type: api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE, SubCommand: sub}
+			suspended, err := suspendedNamespace(req)
+			require.NoError(t, err)
+
+			err = s.admitPropose(req, "", nil, suspended)
+			if !tc.refused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, namespaces.ErrSuspendBlockedByReindex)
+			require.Contains(t, err.Error(), `reindex task "task1" on collection "alpha:Movies"`)
+			require.Contains(t, err.Error(), "POST /v1/schema/alpha:Movies/properties/{property}/index/{index}/cancel")
+		})
+	}
+}
+
+func TestExecute_ConcurrentTaskAddAndSuspendAdmitOnlyOne(t *testing.T) {
+	srv, ms := newBarrierTestStore(t, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			db.ReindexNamespace: payloadIsCollection,
+		}
+	})
+
+	for i := range 20 {
+		ns := fmt.Sprintf("ns%d", i)
+		seedNamespaceInState(t, ms.cfg.NamespacesController, ns, api.NamespaceStateActive)
+		addSub, err := json.Marshal(&api.AddDistributedTaskRequest{
+			Namespace: db.ReindexNamespace, Id: ns, UnitIds: []string{"unit1"},
+			Payload: []byte(ns + ":Movies"), SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		})
+		require.NoError(t, err)
+		suspendSub, err := json.Marshal(api.ChangeNamespaceStateRequest{
+			Name: ns, TargetState: api.NamespaceStateSuspended, Version: api.NamespaceLatestCommandPolicyVersion,
+		})
+		require.NoError(t, err)
+
+		t.Run(ns, func(t *testing.T) {
+			requireExecuteAdmitsOnlyOne(t, srv.store, []*api.ApplyRequest{
+				{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: addSub},
+				{Type: api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE, SubCommand: suspendSub},
+			}, namespaces.ErrSuspendBlockedByReindex, namespaces.ErrNamespaceSuspended)
 		})
 	}
 }

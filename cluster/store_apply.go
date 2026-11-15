@@ -57,14 +57,18 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// Both locks are held until the apply returns, so a second submit is judged against the first's outcome. Taken before waitLeaderFSMCaughtUp, namespace before collection.
+	// Held until the apply returns, so a reindex add and a suspend of its namespace, or a task and a movement on its collection, each see what the other applied.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
-	ns, err := taskOrSuspendNamespace(req, collection, task)
+	suspended, err := suspendedNamespace(req)
 	if err != nil {
 		return 0, err
+	}
+	ns := suspended
+	if task != nil && task.Namespace == db.ReindexNamespace {
+		ns = namespacing.NamespaceFromQualified(collection)
 	}
 	if ns != "" {
 		st.namespaceTaskLocks.Lock(ns)
@@ -77,7 +81,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
 	// has not drained what it inherited must not judge yet. After the tenant,
-	// collection and task-movement locks, not before: each is held across the
+	// collection, task-movement and namespace locks, not before: each is held across the
 	// apply, so a caller can wait on it long enough for leadership to turn over,
 	// and a term confirmed before the wait says nothing about the term it wakes
 	// up in.
@@ -95,7 +99,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req, collection, task); err != nil {
+	if err := st.admitPropose(req, collection, task, suspended); err != nil {
 		return 0, err
 	}
 
@@ -135,7 +139,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // after, so a state flip landing in between still lets an accepted command
 // through. That is deliberate, and matches the rule that a suspend does not
 // cancel work already accepted. Every node applies the entry either way, so the
-// outcome stays the same across the cluster.
+// outcome stays the same across the cluster. A suspend is refused while a reindex may still rewrite the namespace's shards, and namespaceTaskLocks closes this window between the two.
 //
 // A command that materializes a shard is checked here too. The flip it can race
 // leaves the schema entry standing with its shard still to open, which is the
@@ -144,8 +148,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
 // admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
-func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
-	if err := st.admitSuspend(req); err != nil {
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest, suspended string) error {
+	if err := st.admitSuspend(suspended); err != nil {
 		return err
 	}
 	if err := st.admitDestructive(req); err != nil {
@@ -255,13 +259,11 @@ func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection s
 	}
 }
 
-// admitSuspend refuses a suspend while a reindex may still rewrite the namespace's shards, since a suspend promises its data is at rest.
-func (st *Store) admitSuspend(req *api.ApplyRequest) error {
-	ns, err := suspendedNamespace(req)
-	if err != nil || ns == "" {
-		return err
+func (st *Store) admitSuspend(ns string) error {
+	if ns == "" {
+		return nil
 	}
-	taskID, collection, ok := st.distributedTasksManager.TaskWritingCollection(func(c string) bool {
+	taskID, collection, ok := st.distributedTasksManager.TaskWritingCollection(db.ReindexNamespace, func(c string) bool {
 		return namespacing.NamespaceFromQualified(c) == ns
 	})
 	if !ok {
@@ -270,13 +272,6 @@ func (st *Store) admitSuspend(req *api.ApplyRequest) error {
 	return fmt.Errorf("%w: namespace %q: reindex task %q on collection %q; wait for it to finish, "+
 		"or cancel it with POST /v1/schema/%s/properties/{property}/index/{index}/cancel, then retry",
 		usecasesNamespaces.ErrSuspendBlockedByReindex, ns, taskID, collection, collection)
-}
-
-func taskOrSuspendNamespace(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) (string, error) {
-	if task != nil && collection != "" {
-		return namespacing.NamespaceFromQualified(collection), nil
-	}
-	return suspendedNamespace(req)
 }
 
 func suspendedNamespace(req *api.ApplyRequest) (string, error) {

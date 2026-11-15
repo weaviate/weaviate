@@ -426,17 +426,14 @@ func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	return false
 }
 
-// TaskWritingCollection returns a task on a collection match accepts that may still rewrite its shards.
-// A FAILED or CANCELLED task counts while a replica still owes it a swap, since that swap rewrites the shard.
-func (m *Manager) TaskWritingCollection(match func(collection string) bool) (taskID, collection string, ok bool) {
+// TaskWritingCollection returns a task of namespace on a collection match accepts that is active or still owed a swap, since either rewrites its shards.
+func (m *Manager) TaskWritingCollection(namespace string, match func(collection string) bool) (taskID, collection string, ok bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for ns := range m.collectionExtractors {
-		for _, task := range m.tasks[ns] {
-			if (task.Status.IsActive() || len(task.SwapsOwed) > 0) && match(task.collection) {
-				return task.ID, task.collection, true
-			}
+	for _, task := range m.tasks[namespace] {
+		if (task.Status.IsActive() || len(task.SwapsOwed) > 0) && match(task.collection) {
+			return task.ID, task.collection, true
 		}
 	}
 	return "", "", false

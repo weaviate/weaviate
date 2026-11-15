@@ -1778,12 +1778,14 @@ func openExclusionStore(t *testing.T) *Store {
 
 // Without Store.Execute's per-collection lock both submits can pass admitTaskOrMovement before either applies.
 func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
-	s := openExclusionStore(t)
-	commands := []*cmd.ApplyRequest{
-		exclusionMovementCommand(t),
-		exclusionTaskCommand(t, exclusionNamespace),
-	}
+	requireExecuteAdmitsOnlyOne(t, openExclusionStore(t),
+		[]*cmd.ApplyRequest{exclusionMovementCommand(t), exclusionTaskCommand(t, exclusionNamespace)},
+		replicationTypes.ErrMovementBlockedByTask, distributedtask.ErrTaskBlockedByReplicaMovement)
+}
 
+// requireExecuteAdmitsOnlyOne releases all commands into Execute at once, so each check races the others' commit.
+func requireExecuteAdmitsOnlyOne(t *testing.T, s *Store, commands []*cmd.ApplyRequest, refusals ...error) {
+	t.Helper()
 	errs := make([]error, len(commands))
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -1804,12 +1806,11 @@ func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 			admitted++
 			continue
 		}
-		require.True(t, errors.Is(err, replicationTypes.ErrMovementBlockedByTask) ||
-			errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement),
+		require.True(t, slices.ContainsFunc(refusals, func(r error) bool { return errors.Is(err, r) }),
 			"the loser must be refused by the exclusion, got: %v", err)
 	}
 	require.Equal(t, 1, admitted,
-		"both submits were admitted, so the check ran against state the other one had not committed yet")
+		"exactly one submit must be admitted; more means a check ran against state another had not committed yet")
 }
 
 func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
@@ -1846,7 +1847,7 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			collection, task, err := s.taskOrMovementCollection(command)
 			require.NoError(t, err)
 
-			err = s.admitPropose(command, collection, task)
+			err = s.admitPropose(command, collection, task, "")
 			if len(tc.wantErrs) == 0 {
 				require.NoError(t, err)
 				return
@@ -1959,7 +1960,7 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 			// Execute's own sequence, so the check sees the task as decoded from the proposal.
 			collection, task, err := s.taskOrMovementCollection(req)
 			require.NoError(t, err)
-			err = s.admitPropose(req, collection, task)
+			err = s.admitPropose(req, collection, task, "")
 			if !tc.wantRefused {
 				require.NoError(t, err)
 				return
