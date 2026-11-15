@@ -135,7 +135,6 @@ func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigratio
 	return false
 }
 
-// Every record short of promoted has staged data that can fall behind. Once promoted, the canonical name holds it.
 func migrationRecordStampedUnmirrored(rec MigrationRecord) (MigrationRecord, bool) {
 	switch typed := rec.(type) {
 	case MigrationRecordIterating:

@@ -811,8 +811,6 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	return true, nil
 }
 
-// A lost directory means the rebuild never reached disk. A failed write must fail
-// the arm: a directory that survived would miss this boot's writes.
 func restartIfOwnedDirGone(logger logrus.FieldLogger, shard *Shard, subject MigrationSubject) (MigrationRecord, error) {
 	dirs := shardBucketDirs(shard.pathLSM())
 	for _, dir := range migrationOwnedDirs(subject) {

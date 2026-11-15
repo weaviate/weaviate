@@ -624,7 +624,6 @@ func (p *ReindexProvider) processOneUnit(
 		cached = len(tasks) > 0
 	}
 	if cached {
-		// Recovery seeds only halves that have a record; the other builds here.
 		fresh, createErr := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
