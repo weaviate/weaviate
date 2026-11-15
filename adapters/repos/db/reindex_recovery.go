@@ -225,7 +225,7 @@ func (r *MigrationRecoveryReindexer) reuseCachedTasks(built []*ShardReindexTaskG
 	return out
 }
 
-const migrationUnmirroredRemedy = "The migration fails at its next prepare or swap step; once it has failed and " +
+const migrationUnmirroredRemedy = "The migration fails at its next unit, prepare or swap step; once it has failed and " +
 	"the cause is cleared, submit a new migration covering the same properties."
 
 // stampUnmirroredRecords stops a later promotion from renaming stale staged data over the live bucket.

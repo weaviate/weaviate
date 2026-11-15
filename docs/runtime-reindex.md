@@ -1023,9 +1023,10 @@ Then, per shard load:
    double-write callbacks before any post-restart write can reach the
    shard. Without this, writes that arrive between shard init and the
    swap that completes a deferred reindex go only to the old main bucket
-   and are lost when the swap replaces it with the ingest bucket. Before
-   it opens a migration's buckets, the arm checks that every directory
-   the record names exists. If one is gone, it restarts the rebuild: it
+   and are lost when the swap replaces it with the ingest bucket. For a
+   migration whose staged data is not complete (Iterating or Iterated),
+   the arm first checks that each property's staged and sidecar
+   directories exist. If one is gone, it restarts the rebuild: it
    rewrites the record as Iterating with an empty checkpoint and a cutoff
    covering every write, and if that write fails, the arm fails. The arm
    does not use the request's context, so a client that gives up on a
@@ -1034,12 +1035,14 @@ Then, per shard load:
    - **The mirror fails to arm and the stamp lands.** Only possible while
      the migration's swap is not committed (below). The shard loads
      writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
-     the unit's tasks from the provider's cache. `RunPrepareOnShard`
-     refuses an `Unmirrored` record, and the swap phase swaps no task of a
-     unit that has one. A semantic migration fails at this node's prepare
-     ack, before any replica or sibling half swaps; a format-only one
-     fails its unit, and other replicas may already have swapped. Either
-     way it has to be resubmitted.
+     the unit's tasks from the provider's cache. A rebuild refuses an
+     `Unmirrored` record before it does anything else, as do
+     `RunPrepareOnShard` and the swap phase. So a migration whose unit
+     has not completed on this node fails that unit when it next runs. A
+     semantic migration whose unit completed fails at this node's prepare
+     ack. Either way, a semantic migration fails before any replica or
+     sibling half swaps; a format-only one fails its unit, and other
+     replicas may already have swapped. It has to be resubmitted.
    - **The mirror fails to arm and no stamp can be written.** This covers a
      failing disk, an unreadable record on the shard (the store then
      refuses every write), and a migration whose swap is committed. The
@@ -1813,7 +1816,7 @@ collection, or run its swap and schema flip again. Before rolling back:
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
 - [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
-- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition except restarting a lost rebuild, which the arm does.
+- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition except restarting a lost rebuild, which the shard-load arm (`OnAfterLsmInit`, §6.2 step 5) does.
 
 **LSM primitives**
 
