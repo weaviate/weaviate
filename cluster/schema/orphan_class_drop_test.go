@@ -50,6 +50,8 @@ func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, ha
 
 func (r *recordingIndexer) TriggerSchemaUpdateCallbacks() {}
 
+func (r *recordingIndexer) DeleteClass(string, bool) error { return nil }
+
 func (r *recordingIndexer) ReloadLocalDB(_ context.Context, all []command.UpdateClassRequest) error {
 	if r.onReload != nil {
 		r.onReload(all)

@@ -932,6 +932,31 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	})
 }
 
+// The task cascade matches names case-insensitively, so a delete that
+// removed no class must not reach it.
+func TestSchemaManager_DeleteClass_CascadesOnlyARemovedClass(t *testing.T) {
+	for _, tc := range []struct {
+		name, deleted string
+		wantCascade   []string
+	}{
+		{name: "exact name", deleted: "MyClass", wantCascade: []string{"MyClass"}},
+		{name: "case variant", deleted: "MYCLASS"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			deleter := &fakeCascadeDeleter{}
+			sm.SetDistributedTaskManager(deleter)
+			addClass(t, sm, "MyClass")
+
+			require.NoError(t, sm.DeleteClass(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: tc.deleted}, false, false))
+			require.Equal(t, tc.wantCascade, deleter.collectionCalls)
+			require.Equal(t, tc.wantCascade == nil, sm.schema.ClassInfo("MyClass").Exists)
+		})
+	}
+}
+
 // fakeCascadeDeleter records the target-scoped purge calls the schema FSM
 // issues on drop-vector marker introduction.
 type fakeCascadeDeleter struct {

@@ -775,7 +775,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DeleteClass validates nothing, so a name that was never a
 				// collection would otherwise be recorded too. Whether the
 				// directory is really ours is settled at the drop.
-				if s.schema.deleteClass(cmd.Class) && schemaOnly {
+				removed := s.schema.deleteClass(cmd.Class)
+				if removed && schemaOnly {
 					s.recordOrphan(cmd.Class, hasFrozen)
 				}
 				// Cascade lives in updateSchema (not updateStore) so it
@@ -783,7 +784,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// FSM state, rebuilt from RAFT log on restart, and the
 				// DELETE_CLASS apply MUST drop tasks the replay just
 				// re-added. weaviate/0-weaviate-issues#231.
-				s.cascadeDeleteDistributedTasks(cmd.Class)
+				if removed {
+					s.cascadeDeleteDistributedTasks(cmd.Class)
+				}
 				// Same reasoning for the replication FSM: its ops must be
 				// flagged on every apply path, schemaOnly replay and
 				// MetadataOnlyVoters included. Otherwise ShouldConsumeOps(),
