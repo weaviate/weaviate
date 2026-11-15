@@ -291,6 +291,9 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 	}
 
 	if !rec.IterationComplete() {
+		if err := t.refuseUnmirroredOn(concreteShard); err != nil {
+			return nil, err
+		}
 		logger.Info(method + ": rebuild not yet complete; resuming iteration")
 		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
 			return nil, fmt.Errorf("resume iteration: %w", err)

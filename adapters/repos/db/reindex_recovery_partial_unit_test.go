@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -71,7 +72,23 @@ func TestAPartiallySeededUnitRebuildsItsNeverStartedHalf(t *testing.T) {
 	require.Same(t, tasks[0], cached[0], "the seeded half keeps the instance its mirror is armed on")
 }
 
-func TestAUnitWhoseMigrationIsStampedUnmirroredFailsBeforeItIterates(t *testing.T) {
+func TestAMigrationStampedUnmirroredFailsBeforeItIterates(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		unit      bool
+		rehydrate bool
+	}{
+		{name: "the unit", unit: true},
+		{name: "prep's rehydrate", rehydrate: true},
+		{name: "prepare's resume"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testStampedMigrationRefusal(t, tc.unit, tc.rehydrate)
+		})
+	}
+}
+
+func testStampedMigrationRefusal(t *testing.T, unit, rehydrate bool) {
 	ctx := testCtx()
 	className := "StampedUnit" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
@@ -102,18 +119,23 @@ func TestAUnitWhoseMigrationIsStampedUnmirroredFailsBeforeItIterates(t *testing.
 	stamped.Unmirrored = true
 	require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordIterating(stamped, MigrationCheckpoint{})))
 
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	recorder := newFakeRecorder()
-	p.processOneUnit(ctx, &distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: desc,
-		Status: distributedtask.TaskStatusStarted, Payload: raw,
-	}, payload, idx, unitID, recorder)
-
-	require.Contains(t, recorder.failed[unitID], "no double-write mirror armed")
-	for _, task := range tasks {
-		rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
-		require.True(t, ok)
-		require.Equal(t, MigrationStateIterating, rec.State(), "the unit refuses before it iterates")
+	var refusal string
+	if unit {
+		raw, err := json.Marshal(payload)
+		require.NoError(t, err)
+		recorder := newFakeRecorder()
+		p.processOneUnit(ctx, &distributedtask.Task{
+			Namespace: ReindexNamespace, TaskDescriptor: desc,
+			Status: distributedtask.TaskStatusStarted, Payload: raw,
+		}, payload, idx, unitID, recorder)
+		refusal = recorder.failed[unitID]
+	} else {
+		ok, out := p.runShardPrepPhase(ctx, unitID, shard, tasks, rehydrate, logger)
+		require.False(t, ok)
+		refusal = strings.Join(out.Errs, "; ")
 	}
+	require.Contains(t, refusal, "no double-write mirror armed")
+	rec, ok = shard.migrationRecords.Get(tasks[0].migrationRecordKey())
+	require.True(t, ok)
+	require.Equal(t, MigrationStateIterating, rec.State(), "the stamped migration is refused before it iterates")
 }

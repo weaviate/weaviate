@@ -1185,6 +1185,11 @@ func (p *ReindexProvider) runShardPrepPhase(
 	ok = true
 	for _, reindexTask := range unitTasks {
 		if rehydrate {
+			if err := reindexTask.refuseUnmirroredOn(shard); err != nil {
+				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
+				ok = false
+				continue
+			}
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
