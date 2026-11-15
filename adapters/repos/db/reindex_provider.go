@@ -2635,9 +2635,6 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 	return result, nil
 }
 
-// lookupShardByName returns the named shard from the index, or an error
-// if it is absent or the index is closing. It runs once per unit per phase,
-// so it must not walk all shards.
 func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
 	if idx.closeCause() == nil {
 		if s := idx.shards.Load(shardName); s != nil {
