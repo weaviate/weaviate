@@ -139,7 +139,7 @@ func TestNamespaces_SuspendRefusesDestructiveSchemaOps(t *testing.T) {
 		var refused *schemaCli.SchemaObjectsIndexUpsertUnprocessableEntity
 		require.ErrorAs(t, err, &refused, "got %T: %v", err, err)
 		require.NotEmpty(t, refused.Payload.Error)
-		// The reindex endpoint renders the public wording for every caller.
+		// mapSubmitTaskError renders namespaces.PublicMessage even for the global operator.
 		assert.Contains(t, refused.Payload.Error[0].Message, "instance suspended")
 	})
 

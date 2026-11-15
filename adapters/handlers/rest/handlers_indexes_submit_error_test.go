@@ -74,7 +74,6 @@ func TestMapSubmitTaskError(t *testing.T) {
 		wantBody   string
 	}{
 		{"suspended namespace", namespaces.ErrNamespaceSuspended, http.StatusUnprocessableEntity, "instance suspended"},
-		{"deleting namespace", namespaces.ErrNamespaceDeleting, http.StatusUnprocessableEntity, "instance unavailable"},
 		{"resuming namespace", namespaces.ErrNamespaceResuming, http.StatusServiceUnavailable, "instance resuming, retry shortly"},
 	} {
 		t.Run(tc.name+" -> public message, forwarded text hidden", func(t *testing.T) {

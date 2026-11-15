@@ -1066,7 +1066,7 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	})
 }
 
-// Only reindex tasks are gated, on the namespace of the collection they name.
+// admitTaskAdd gates only reindex tasks, on the namespace of the collection they name.
 func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
