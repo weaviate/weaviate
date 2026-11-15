@@ -1116,7 +1116,6 @@ func initReindexAndDistributedTasks(
 	appState.ReindexProvider = reindexProvider
 
 	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
-	repo.SetReindexIndexDrain(reindexProvider.DrainIndex)
 
 	// The drop-vector-index provider. Its guards are registered separately,
 	// in the rConfig DistributedTask*Detectors maps in MakeAppState.

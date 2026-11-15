@@ -457,7 +457,9 @@ func TestAnUncachedStepFailsOnAHeldShardWithAnUnreadableRecord(t *testing.T) {
 	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
 	err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
 		[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, "group-completion", "starting", false,
-		func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult { return phaseResult{} })
+		func(context.Context, string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+			return phaseResult{}
+		})
 	require.ErrorContains(t, err, "migration record fault(s) on this shard")
 	require.NotErrorIs(t, err, context.Canceled, "the step fails instead of waiting")
 }
@@ -639,7 +641,7 @@ func TestALiftSkipsAMigrationATeardownHolds(t *testing.T) {
 	unseal, sealed := fx.provider.SealLocalUnit(fx.desc, fx.subject.Key.UnitID)
 	require.True(t, sealed)
 	defer unseal()
-	require.ErrorContains(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)), "a teardown holds the unit")
+	require.ErrorContains(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)), errUnitTornDown.Error())
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 	require.Len(t, shard.migrationMirrors.heldUnarmed(), 1)
@@ -1177,7 +1179,7 @@ func (fx *doubleFaultFixture) requireStepsWait(t *testing.T) {
 		ran := make(chan struct{}, 1)
 		err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
 			[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, callback, "starting", callback == "swap-requested",
-			func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+			func(context.Context, string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
 				ran <- struct{}{}
 				return phaseResult{}
 			})

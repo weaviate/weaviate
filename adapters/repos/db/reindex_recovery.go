@@ -108,12 +108,15 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 }
 
 func (r *MigrationRecoveryReindexer) ClaimUnits(shard *Shard, tasks []*ShardReindexTaskGeneric,
-) (claimed, skipped []*ShardReindexTaskGeneric, release func()) {
+) (claimed, skipped []*ShardReindexTaskGeneric, release func(), refusal error) {
 	var releases []func()
 	for _, t := range tasks {
-		drop, entered := r.provider.enterLocalUnit(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID, shard.index)
-		if !entered {
+		drop, err := r.provider.enterLocalUnit(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID, shard.index)
+		if err != nil {
 			skipped = append(skipped, t)
+			if refusal == nil {
+				refusal = err
+			}
 			continue
 		}
 		claimed = append(claimed, t)
@@ -123,7 +126,7 @@ func (r *MigrationRecoveryReindexer) ClaimUnits(shard *Shard, tasks []*ShardRein
 		for _, drop := range releases {
 			drop()
 		}
-	}
+	}, refusal
 }
 
 func (r *MigrationRecoveryReindexer) UnbuildableFaults() *logrusext.Sampler {

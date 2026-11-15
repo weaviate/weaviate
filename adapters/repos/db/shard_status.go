@@ -232,7 +232,7 @@ func (s *Shard) rearmHeld() error {
 	if len(held) == 0 {
 		return nil
 	}
-	claimed, skipped, releaseClaims := s.reindexer.ClaimUnits(s, held)
+	claimed, skipped, releaseClaims, refusal := s.reindexer.ClaimUnits(s, held)
 	defer releaseClaims()
 	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), claimed)
 	ec := errorcompounder.New()
@@ -240,7 +240,7 @@ func (s *Shard) rearmHeld() error {
 	// Buckets the arm opened go back to READONLY before the hold changes, so no lift races the reset.
 	ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
 	if len(skipped) > 0 {
-		ec.Add(fmt.Errorf("a teardown holds the unit of %d migration(s); set the status again once it ends", len(skipped)))
+		ec.Add(fmt.Errorf("%d migration(s) were not re-armed: %w; set the status again once that ends", len(skipped), refusal))
 	}
 	if err != nil || len(skipped) > 0 {
 		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))

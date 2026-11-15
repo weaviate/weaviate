@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -98,8 +99,7 @@ type ReindexProvider struct {
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
 	// liveUnits counts this node's workers per (task, unit), guarded by [mu]. A count, not a flag: two can hold one unit.
-	liveUnits   unitClaims
-	liveOnIndex map[*Index]int
+	liveUnits unitClaims
 
 	teardownHeldOnce sync.Once
 	teardownHeld     *logrusext.Sampler
@@ -337,63 +337,41 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string, idx *Index) (func(), bool) {
+var errUnitTornDown = errors.New("a teardown holds this unit")
+
+// enterLocalUnit refuses the unit while a teardown seals it or once idx is asked to close, and returns why.
+func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string, idx *Index) (func(), error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.sealedUnits[desc][unitID] > 0 || len(p.sealedTasks[desc]) > 0 || idx.closeRequestedCause() != nil {
-		return nil, false
+	if p.sealedUnits[desc][unitID] > 0 || len(p.sealedTasks[desc]) > 0 {
+		return nil, errUnitTornDown
 	}
-	if p.liveOnIndex == nil {
-		p.liveOnIndex = map[*Index]int{}
+	if cause := idx.closeRequestedCause(); cause != nil {
+		return nil, cause
 	}
-	p.liveOnIndex[idx]++
-	dropUnit, released := p.liveUnits.take(desc, unitID), false
-	return p.releaseOf(func() {
-		if released {
-			return
-		}
-		released = true
-		if p.liveOnIndex[idx]--; p.liveOnIndex[idx] <= 0 {
-			delete(p.liveOnIndex, idx)
-		}
-		dropUnit()
-	}), true
+	return p.releaseOf(p.liveUnits.take(desc, unitID)), nil
 }
 
-// DrainIndex waits out this node's reindex units on idx; none enters once its drop marks it closing.
-// Bounded, because a unit's cluster write can queue behind the drop's own apply.
-func (p *ReindexProvider) DrainIndex(idx *Index) {
-	collection := idx.Config.ClassName.String()
-	func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		for desc, handle := range p.runningHandles {
-			if payload := p.payloads[desc]; payload != nil && strings.EqualFold(payload.Collection, collection) {
-				handle.Terminate()
-			}
-		}
-	}()
-	ctx, cancel := context.WithTimeout(p.serverCtx, reindexDropDrainTimeout)
-	defer cancel()
-	ticker := time.NewTicker(localUnitDrainPollInterval)
-	defer ticker.Stop()
-	for p.liveUnitsOn(idx) > 0 {
-		select {
-		case <-ticker.C:
-		case <-ctx.Done():
-			p.logger.WithField("collection", collection).Errorf("reindex work on a dropped collection "+
-				"did not stop within %s; dropping it anyway", reindexDropDrainTimeout)
-			return
-		}
+// enterIndex admits a unit as a reader of idx, so a drop or shutdown of idx waits for it to release. It refuses
+// once idx is asked to close. Never call it under p.mu or hold it across a cluster write, which a drop's apply would wait on.
+func enterIndex(idx *Index) (func(), error) {
+	if err := idx.enterRead(); err != nil {
+		return nil, err
 	}
+	if cause := idx.closeRequestedCause(); cause != nil {
+		idx.exitRead()
+		return nil, cause
+	}
+	return idx.exitRead, nil
 }
 
-const reindexDropDrainTimeout = 30 * time.Second
-
-func (p *ReindexProvider) liveUnitsOn(idx *Index) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.liveOnIndex[idx]
+func unitContext(parent context.Context, idx *Index) (context.Context, func()) {
+	ctx, cancel := context.WithCancelCause(idx.closeRequestedCtx)
+	stop := context.AfterFunc(parent, func() { cancel(context.Cause(parent)) })
+	return ctx, func() {
+		stop()
+		cancel(context.Canceled)
+	}
 }
 
 type unitClaims map[distributedtask.TaskDescriptor]map[string]int
@@ -563,6 +541,8 @@ func (p *ReindexProvider) processUnits(
 	recorder distributedtask.TaskCompletionRecorder,
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
+	ctx, cancel := unitContext(ctx, idx)
+	defer cancel()
 
 	// defer Wait so an early return on Acquire ctx-cancel still drains
 	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
@@ -605,9 +585,18 @@ func (p *ReindexProvider) processOneUnit(
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
 
+	exitLoad, err := enterIndex(idx)
+	if err != nil {
+		p.logUnitNotStarted(task.ID, unitID, shardName, err)
+		return
+	}
+	exitLoad = sync.OnceFunc(exitLoad)
+	defer exitLoad()
+
 	// Find the shard.
 	shard, err := lookupShardByName(idx, shardName)
 	if err != nil {
+		exitLoad()
 		p.failUnit(ctx, task, unitID, recorder, err.Error())
 		return
 	}
@@ -615,6 +604,7 @@ func (p *ReindexProvider) processOneUnit(
 	// Load up front, so a shard that cannot load fails the unit before it is claimed.
 	concreteShard, unwrapErr := unwrapShard(ctx, shard)
 	if unwrapErr != nil {
+		exitLoad()
 		p.failUnit(ctx, task, unitID, recorder,
 			fmt.Sprintf("unwrap shard: %v", unwrapErr))
 		return
@@ -623,6 +613,7 @@ func (p *ReindexProvider) processOneUnit(
 	// may still need: it could hold writes the staged copy never saw.
 	if store := concreteShard.migrationRecordStore(); store != nil {
 		if fault := unreadableRecordFault(store); fault != "" {
+			exitLoad()
 			p.failUnit(ctx, task, unitID, recorder, fault)
 			return
 		}
@@ -631,13 +622,11 @@ func (p *ReindexProvider) processOneUnit(
 	if p.unitWaitsOnHold(concreteShard, task.ID, unitID) {
 		return
 	}
+	exitLoad()
 
-	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID, idx)
-	if !entered {
-		p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
-			l.WithField("taskID", task.ID).WithField("unit", unitID).WithField("shard", shardName).
-				Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
-		})
+	release, err := p.enterLocalUnit(task.TaskDescriptor, unitID, idx)
+	if err != nil {
+		p.logUnitNotStarted(task.ID, unitID, shardName, err)
 		return
 	}
 	defer release()
@@ -666,6 +655,40 @@ func (p *ReindexProvider) processOneUnit(
 		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
 
+	// Cluster writes stay outside the index admission.
+	var writes progressWrites
+	failure, completed := p.runUnitTasks(ctx, task, payload, idx, unitID, shard, recorder, &writes, logger)
+	writes.wait()
+	if failure != "" {
+		p.failUnit(ctx, task, unitID, recorder, failure)
+		return
+	}
+	if !completed {
+		return
+	}
+
+	logger.Info("reindex provider: unit completed")
+
+	if err := recorder.RecordDistributedTaskUnitCompletion(
+		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID,
+	); err != nil {
+		logger.Errorf("reindex provider: failed to record completion: %v", err)
+		return
+	}
+}
+
+func (p *ReindexProvider) runUnitTasks(ctx context.Context, task *distributedtask.Task, payload *ReindexTaskPayload,
+	idx *Index, unitID string, shard ShardLike, recorder distributedtask.TaskCompletionRecorder,
+	writes *progressWrites, logger logrus.FieldLogger,
+) (failure string, completed bool) {
+	exit, err := enterIndex(idx)
+	if err != nil {
+		p.logUnitNotStarted(task.ID, unitID, payload.UnitToShard[unitID], err)
+		return "", false
+	}
+	defer exit()
+	semantic := IsSemanticMigration(payload.MigrationType)
+
 	var (
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
@@ -679,8 +702,7 @@ func (p *ReindexProvider) processOneUnit(
 		// between a unit's halves leaves the other one to build here.
 		fresh, createErr := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
-			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
-			return
+			return fmt.Sprintf("creating reindex tasks: %v", createErr), false
 		}
 		seeded := make(map[MigrationRecordKey]struct{}, len(tasks))
 		for _, t := range tasks {
@@ -705,8 +727,7 @@ func (p *ReindexProvider) processOneUnit(
 		var createErr error
 		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
-			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
-			return
+			return fmt.Sprintf("creating reindex tasks: %v", createErr), false
 		}
 	}
 	// Compose per-task progress into a single per-unit envelope so the
@@ -721,12 +742,14 @@ func (p *ReindexProvider) processOneUnit(
 		taskIdx := idx
 		taskRef.SetProgressCallback(func(progress float32) {
 			envelope := composeProgressEnvelope(taskIdx, totalTasks, progress)
-			if err := recorder.UpdateDistributedTaskUnitProgress(
-				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, envelope,
-			); err != nil {
-				logger.WithField("progress", envelope).
-					Debugf("reindex provider: failed to report progress (will retry on next tick): %v", err)
-			}
+			writes.send(logger, func() {
+				if err := recorder.UpdateDistributedTaskUnitProgress(
+					ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, envelope,
+				); err != nil {
+					logger.WithField("progress", envelope).
+						Debugf("reindex provider: failed to report progress (will retry on next tick): %v", err)
+				}
+			})
 		})
 	}
 
@@ -748,23 +771,40 @@ func (p *ReindexProvider) processOneUnit(
 			// FAILED on a shutdown signal.
 			if errors.Is(runErr, context.Canceled) {
 				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
-				return
+				return "", false
 			}
-			p.failUnit(ctx, task, unitID, recorder,
-				fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
-			return
+			return fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr), false
 		}
 	}
+	return "", true
+}
 
-	logger.Info("reindex provider: unit completed")
+func (p *ReindexProvider) logUnitNotStarted(taskID, unitID, shardName string, cause error) {
+	p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
+		l.WithField("taskID", taskID).WithField("unit", unitID).WithField("shard", shardName).
+			Warnf("reindex provider: this unit is not started: %v", cause)
+	})
+}
 
-	if err := recorder.RecordDistributedTaskUnitCompletion(
-		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID,
-	); err != nil {
-		logger.Errorf("reindex provider: failed to record completion: %v", err)
+// progressWrites runs one progress write at a time off the reindex loop, and drops a value that arrives meanwhile.
+type progressWrites struct {
+	busy atomic.Bool
+	wg   sync.WaitGroup
+}
+
+func (w *progressWrites) send(logger logrus.FieldLogger, write func()) {
+	if !w.busy.CompareAndSwap(false, true) {
 		return
 	}
+	w.wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer w.wg.Done()
+		defer w.busy.Store(false)
+		write()
+	}, logger)
 }
+
+func (w *progressWrites) wait() { w.wg.Wait() }
 
 const migrationUnitContentionWindow = time.Minute
 
@@ -1356,9 +1396,10 @@ func (p *ReindexProvider) runPerUnitPhase(
 	callbackName string,
 	start string,
 	parallel bool,
-	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
+	runPhase func(ctx context.Context, unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
-	ctx := p.serverCtx
+	ctx, cancel := unitContext(p.serverCtx, idx)
+	defer cancel()
 	var agg phaseResult
 	var aggMu sync.Mutex
 	refused := map[string]struct{}{}
@@ -1367,6 +1408,17 @@ func (p *ReindexProvider) runPerUnitPhase(
 	retried := false
 
 	runOne := func(unitID string) {
+		exit, err := enterIndex(idx)
+		if err != nil {
+			func() {
+				aggMu.Lock()
+				defer aggMu.Unlock()
+				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: the phase did not run: %v", unitID, err))
+				agg.Transient = true
+			}()
+			return
+		}
+		defer exit()
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
 		if res.Skip {
 			return
@@ -1403,20 +1455,19 @@ func (p *ReindexProvider) runPerUnitPhase(
 			retried = true
 			p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) { logger.Info(start) })
 		})
-		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID, idx)
-		if !entered {
+		release, err := p.enterLocalUnit(task.TaskDescriptor, unitID, idx)
+		if err != nil {
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
-				agg.Errs = append(agg.Errs,
-					fmt.Sprintf("unit %s: a teardown holds this unit, so the phase did not run", unitID))
+				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: the phase did not run: %v", unitID, err))
 				agg.Transient = true
 			}()
 			return
 		}
 		phase := func() phaseResult {
 			defer release()
-			return runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+			return runPhase(ctx, unitID, res.Shard, res.UnitTasks, res.Rehydrate)
 		}()
 		func() {
 			aggMu.Lock()
@@ -1528,13 +1579,12 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		// Sequential: prep is heavy disk work on every shard (flush, bucket
 		// shutdown, segment prepend), and until its swap a shard's queries
 		// still read its old buckets.
 		"group-completion", start, false,
-		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
+		func(ctx context.Context, unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
@@ -1607,10 +1657,9 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group", true,
-		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
+		func(ctx context.Context, unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
