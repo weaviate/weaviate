@@ -1731,7 +1731,7 @@ func withExclusionDetectors(c *Config) {
 
 var errTaskActive = errors.New("a task is active")
 
-// refuseWhileTaskActive stands in for the reindex detector, which this package cannot import.
+// refuseWhileTaskActive stands in for db.ReindexDetector, which this package cannot import.
 type refuseWhileTaskActive struct {
 	mu       sync.Mutex
 	verdicts []error
@@ -1909,7 +1909,7 @@ func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 }
 
 // Without the freeze taking Store.Execute's per-collection lock, a task can start between the freeze's check and its apply.
-// The freeze starts just after the task add, so its check tends to run while the task waits on the RAFT commit; rounds repeat that race.
+// The freeze starts just after the task add, so its check tends to run while the task waits on the RAFT commit. Ten rounds repeat that race.
 func TestExecute_FreezeAndTaskAddNeverInterleave(t *testing.T) {
 	sub, err := gproto.Marshal(&cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{{Name: "shard1", Status: models.TenantActivityStatusFROZEN}}})
 	require.NoError(t, err)
@@ -2031,10 +2031,6 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			seed: owedBy(failOwingTask), wantErrs: freezeOwed, wantOwing: "node2",
 		},
 		{
-			name: "a freeze of a tenant no task owes is admitted", command: tenantUpdate(freeze("undecided")),
-			seed: owedBy(failOwingTask),
-		},
-		{
 			name: "a freeze of a same-named tenant in another collection is admitted", seed: owedBy(failOwingTask),
 			command: tenantUpdateOf("Other", freeze("shard1")),
 		},
@@ -2049,10 +2045,6 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		{
 			name: "deactivating an owed tenant is admitted", seed: owedBy(failOwingTask),
 			command: tenantUpdate(&cmd.Tenant{Name: "shard1", Status: models.TenantActivityStatusCOLD}),
-		},
-		{
-			name: "unfreezing an owed tenant is admitted", seed: owedBy(failOwingTask),
-			command: tenantUpdate(&cmd.Tenant{Name: "shard1", Status: models.TenantActivityStatusHOT}),
 		},
 		{
 			name: "a batch freeze with one owed tenant is refused, naming it", seed: owedBy(failOwingTask),

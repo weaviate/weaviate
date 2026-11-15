@@ -57,7 +57,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. A replicate, a task add and a freeze take it. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
 	p, err := st.decodeProposal(req)
 	if err != nil {
 		return 0, err
@@ -155,7 +155,7 @@ func (st *Store) admitPropose(req *api.ApplyRequest, p proposal) error {
 	return st.admitTaskReplicas(p.task, p.collection)
 }
 
-// admitFreeze refuses freezing a tenant whose swap a task still owes, since unfreezing can place it on nodes the debt does not name. It also refuses while a task runs on the collection, since that task could decide a swap and stop before the freeze applies.
+// admitFreeze refuses freezing a tenant whose swap a task still owes, since unfreezing can place it on nodes other than the ones TaskOwingSwap names. It also refuses while a task runs on the collection, since that task could decide a swap and stop before the freeze applies.
 func (st *Store) admitFreeze(collection string, frozen []string) error {
 	if len(frozen) == 0 {
 		return nil
