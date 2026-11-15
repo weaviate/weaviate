@@ -14,12 +14,17 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -149,7 +154,12 @@ func TestRemoveRefusesNamespaceHomeNode(t *testing.T) {
 func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 	ctx := context.Background()
 
-	m := NewMockStore(t, "node-1", utils.MustGetFreeTCPPort())
+	m := NewMockStore(t, "node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: func([]byte) (string, bool) { return "Owed", true },
+		}
+	})
+	logs := logrustest.NewLocal(m.logger)
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
@@ -182,9 +192,19 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 		className   string
 		factor      int64
 		shards      map[string][]string
+		owedShard   string
 		removedNode string
 		want        map[string][]string
 	}{
+		{
+			name:        "a shard a stopped task still owes is skipped, the class's other shards still move",
+			className:   "Owed",
+			factor:      2,
+			shards:      map[string][]string{"S1": {"node-1", "node-2"}, "S2": {"node-1", "node-2"}},
+			owedShard:   "S1",
+			removedNode: "node-1",
+			want:        map[string][]string{"S1": {"node-1", "node-2"}, "S2": {"node-2", "node-3"}},
+		},
 		{
 			// Several shards: a candidate picked without regard for the home
 			// node would have to hit it for all of them to satisfy this.
@@ -256,12 +276,22 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 				require.NoError(t, err)
 			}()
 
+			if tt.owedShard != "" {
+				seedOwedSwap(t, r.store, tt.owedShard, [2]string{tt.removedNode, "node-2"}, failOwingTask)
+			}
+			logs.Reset()
+
 			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
 
 			for shard, want := range tt.want {
 				got, err := r.SchemaReader().ShardReplicas(tt.className, shard)
 				require.NoError(t, err)
 				require.ElementsMatch(t, want, got)
+			}
+			if tt.owedShard != "" {
+				require.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
+					return e.Level == logrus.WarnLevel && e.Data["skipped_shards"] == 1 && strings.Contains(e.Message, "node-2")
+				}), "the skipped shard must be logged with the node that still owes its swap")
 			}
 		})
 	}

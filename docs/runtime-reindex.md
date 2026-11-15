@@ -86,9 +86,11 @@ together into a small REST surface rooted at
 > the flag on, except recovery at shard load (§6.2), which re-arms or
 > stamps an in-flight migration whatever the flag says.
 
-A replica movement requested while a migration runs on its collection is
-refused with 409. So is a copy or move of a shard that a stopped migration
-still owes a swap on some node; the error names those nodes. One that
+A replica copy, move, removal or empty addition (direct or in a scale plan)
+requested while a migration runs on its collection is refused with 409. So is
+any of them on a shard that a stopped migration still owes a swap on some
+node; the error names those nodes. Removing a node from the cluster skips such
+a shard with a warning and rebalances the others. A movement that
 reaches a shard still being cleaned up after a cancelled or failed
 migration waits for the cleanup to finish.
 

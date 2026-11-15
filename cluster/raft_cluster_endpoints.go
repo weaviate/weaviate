@@ -13,12 +13,14 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -154,10 +156,27 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 		desiredRF := int(classInfo.ReplicationFactor)
 
+		var firstRefusal error
+		skipped := 0
 		for _, shardName := range shardsWithRemovedNode {
-			if err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF); err != nil {
+			err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF)
+			if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+				if skipped == 0 {
+					firstRefusal = err
+				}
+				skipped++
+				continue
+			}
+			if err != nil {
 				return err
 			}
+		}
+		if skipped > 0 {
+			s.log.WithFields(logrus.Fields{
+				"collection":     className,
+				"removed_node":   removedNode,
+				"skipped_shards": skipped,
+			}).Warnf("skipping replica rebalance of %d shards after node departure, first refusal: %v; rerun a scale plan for them once admitted", skipped, firstRefusal)
 		}
 	}
 
