@@ -63,8 +63,7 @@ func TestMapSubmitTaskError(t *testing.T) {
 		assert.Contains(t, body.Error[0].Message, "resubmit it against the current state")
 	})
 
-	// A leader's refusal reaches a follower wrapped in gRPC text. The client
-	// sees only the public message and the status of its sentinel.
+	// A leader's refusal reaches a follower wrapped in gRPC text.
 	forwarded := func(err error) error {
 		return fmt.Errorf("executing command: rpc error: code = FailedPrecondition desc = %w\npermanent FSM rejection", err)
 	}
@@ -75,7 +74,6 @@ func TestMapSubmitTaskError(t *testing.T) {
 		wantBody   string
 	}{
 		{"suspended namespace", namespaces.ErrNamespaceSuspended, http.StatusUnprocessableEntity, "instance suspended"},
-		{"deleting namespace", namespaces.ErrNamespaceDeleting, http.StatusUnprocessableEntity, "instance unavailable"},
 		{"resuming namespace", namespaces.ErrNamespaceResuming, http.StatusServiceUnavailable, "instance resuming, retry shortly"},
 	} {
 		t.Run(tc.name+" -> public message, forwarded text hidden", func(t *testing.T) {

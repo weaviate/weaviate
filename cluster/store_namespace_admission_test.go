@@ -424,8 +424,6 @@ func shardStatusCommand() gatedCommand {
 	}
 }
 
-// taskAddRequest builds a task add in the given task namespace whose payload is
-// the collection it names, read back by taskCollectionIsPayload.
 func taskAddRequest(taskNamespace, target string) *api.ApplyRequest {
 	sub, err := json.Marshal(&api.AddDistributedTaskRequest{
 		Namespace: taskNamespace, Id: "task1", UnitIds: []string{"unit1"},
@@ -437,7 +435,6 @@ func taskAddRequest(taskNamespace, target string) *api.ApplyRequest {
 	return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
 }
 
-// taskAddCommand drives a reindex task add, the only task kind that is gated.
 func taskAddCommand() gatedCommand {
 	return gatedCommand{
 		cmdType: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
@@ -1073,9 +1070,7 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	})
 }
 
-// TestExecuteGate_RejectsTaskAddApplyType drives a task add through the
-// propose-time check. Its namespace comes off the collection the task names.
-// Only reindex tasks are gated. A drop-vector-index task is admitted.
+// admitTaskAdd gates only reindex tasks, on the namespace of the collection they name.
 func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
