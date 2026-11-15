@@ -699,14 +699,12 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
+	payload := buildReindexPayload(class, collection, properties, plan, tenants)
 	// One unit per shard per replica: each replica has its own local copy.
 	var shardOwnership map[string][]string
 	var err error
 	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &db.ReindexTaskPayload{
-			Collection: collection, MigrationType: plan.migrationType,
-			TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
-		}, propertyName, tenants, reindexTasks)
+		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &payload, propertyName, tenants, reindexTasks)
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
@@ -726,9 +724,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
 	}
 
-	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
-
-	payload := buildReindexPayload(class, collection, properties, plan, tenants, unitToShard, unitToNode)
+	var unitIDs []string
+	unitIDs, payload.UnitToShard, payload.UnitToNode = buildUnitMaps(shardOwnership)
 
 	// Human-readable task ID with a random suffix for uniqueness.
 	// Format: "Collection:migration-type:property:ab3f".
@@ -783,7 +780,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 // recorded for RAFT-log diagnostics only — no runtime reader (see its godoc on
 // ReindexTaskPayload).
 func buildReindexPayload(class *models.Class, collection string, properties []string, plan upsertPlan,
-	tenants []string, unitToShard, unitToNode map[string]string,
+	tenants []string,
 ) db.ReindexTaskPayload {
 	var originalTok string
 	if mt := plan.migrationType; mt == db.ReindexTypeChangeTokenization ||
@@ -800,8 +797,6 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 		OriginalTokenization: originalTok,
 		BucketStrategy:       plan.bucketStrategy,
 		Tenants:              tenants,
-		UnitToNode:           unitToNode,
-		UnitToShard:          unitToShard,
 	}
 }
 

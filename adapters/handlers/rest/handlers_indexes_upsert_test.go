@@ -760,10 +760,17 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 		{
 			name:     "a resubmit after a partial run, to a tenant reader, counts only tenants still needing work",
 			statuses: map[string]string{"a": models.TenantActivityStatusCOLD, "b": models.TenantActivityStatusCOLD, "c": models.TenantActivityStatusHOT},
-			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField},
-			tasks:    []*distributedtask.Task{partlyMigratedRun(t, "p", db.ReindexTypeChangeTokenization, models.PropertyTokenizationField, "a", "b", "c")},
-			reader:   true,
-			wantErr:  db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 1)",
+			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField, bucketStrategy: "mapcollection"},
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				run := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+					Collection: "C", Properties: []string{"p"}, MigrationType: db.ReindexTypeChangeTokenization,
+					TargetTokenization: models.PropertyTokenizationField, BucketStrategy: "mapcollection",
+				}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}, "c": {ID: "c", GroupID: "c"}})
+				run.SwapDecidedGroups = map[string]time.Time{"a": {}}
+				return run
+			}()},
+			reader:  true,
+			wantErr: db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 1)",
 		},
 		{
 			name:     "collection-wide with a FROZEN tenant",
