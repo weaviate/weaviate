@@ -1356,7 +1356,9 @@ identity, so there is no per-tenant index-status surface.
 tenant that transitions to FROZEN mid-flight fails the affected unit;
 the post-completion ack barrier propagates that failure to the task.
 Operator can resume by un-freezing the tenant (transition back to HOT)
-and re-submitting.
+and re-submitting. While any task, even a failed or cancelled one, still
+owes a tenant's swap, freezing that tenant is refused (`422`, naming the
+owing nodes); un-freezing and `COLD` are not.
 
 ## 9. Per-migration generation + deferred live-bucket rename
 

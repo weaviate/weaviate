@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,7 +149,36 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection, shard string, t
 	if err := st.admitTaskOrMovement(req.Type, collection, shard); err != nil {
 		return err
 	}
+	if err := st.admitFreeze(req); err != nil {
+		return err
+	}
 	return st.admitTaskReplicas(task, collection)
+}
+
+// admitFreeze refuses freezing a tenant whose swap a task still owes, since unfreezing can place it on nodes the debt does not name.
+func (st *Store) admitFreeze(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_UPDATE_TENANT {
+		return nil
+	}
+	sub := &api.UpdateTenantsRequest{}
+	if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("unmarshal update-tenants subcommand: %w", err)
+	}
+	var owed []string
+	for _, tenant := range sub.Tenants {
+		if tenant.Status != models.TenantActivityStatusFROZEN {
+			continue
+		}
+		if taskID, nodes, ok := st.distributedTasksManager.TaskOwingSwap(req.Class, tenant.Name); ok {
+			owed = append(owed, fmt.Sprintf("%q (task %q, nodes %v)", tenant.Name, taskID, nodes))
+		}
+	}
+	if len(owed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: cannot freeze tenants %s of collection %q while they still owe a reindex swap; "+
+		"bring those nodes back and set the tenant READY so the swap lands, or delete the tenant",
+		replicationTypes.ErrMovementBlockedByTask, strings.Join(owed, ", "), req.Class)
 }
 
 // admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.

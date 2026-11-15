@@ -1902,6 +1902,16 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		seedOwedSwap(t, s, "", [2]string{"node1", "node2"}, failSwappingTask)
 	}
 	owed := []error{replicationTypes.ErrMovementBlockedByTask}
+	tenantUpdate := func(tenants ...*cmd.Tenant) func(*testing.T) *cmd.ApplyRequest {
+		return func(t *testing.T) *cmd.ApplyRequest {
+			sub, err := gproto.Marshal(&cmd.UpdateTenantsRequest{Tenants: tenants})
+			require.NoError(t, err)
+			return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: exclusionCollection, SubCommand: sub}
+		}
+	}
+	freeze := func(tenant string) *cmd.Tenant {
+		return &cmd.Tenant{Name: tenant, Status: models.TenantActivityStatusFROZEN}
+	}
 
 	for _, tc := range []struct {
 		name     string
@@ -1942,6 +1952,30 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 				owedBy(failOwingTask)(t, s)
 				paySwap(t, s, "shard1", "node2")
 			},
+		},
+		{
+			name: "a freeze is refused while a failed task owes the tenant's swap", command: tenantUpdate(freeze("shard1")),
+			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "a freeze is refused while a cancelled task owes the tenant's swap", command: tenantUpdate(freeze("shard1")),
+			seed: owedBy(cancelOwingTask), wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "a freeze of a tenant no task owes is admitted", command: tenantUpdate(freeze("undecided")),
+			seed: owedBy(failOwingTask),
+		},
+		{
+			name: "deactivating an owed tenant is admitted", seed: owedBy(failOwingTask),
+			command: tenantUpdate(&cmd.Tenant{Name: "shard1", Status: models.TenantActivityStatusCOLD}),
+		},
+		{
+			name: "unfreezing an owed tenant is admitted", seed: owedBy(failOwingTask),
+			command: tenantUpdate(&cmd.Tenant{Name: "shard1", Status: models.TenantActivityStatusHOT}),
+		},
+		{
+			name: "a batch freeze with one owed tenant is refused, naming it", seed: owedBy(failOwingTask),
+			command: tenantUpdate(freeze("undecided"), freeze("shard1")), wantErrs: owed, wantOwing: `"shard1"`,
 		},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,
