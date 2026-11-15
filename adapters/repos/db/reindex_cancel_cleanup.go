@@ -97,6 +97,8 @@ var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep 
 
 var errCleanupShardWithheld = errors.New("cleanup withheld")
 
+var errCleanupNamespaceClosed = errors.New("cleanup stopped by the namespace state")
+
 type cleanupWithheldError struct{ faults []MigrationRecordUnreadable }
 
 func (e *cleanupWithheldError) Error() string {
@@ -205,7 +207,7 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		// Checked per shard, so a namespace suspended mid-walk stops the walk at the next shard.
 		if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
-			return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
+			return fmt.Errorf("%w: %w: %w", ErrCleanupSweepTruncated, errCleanupNamespaceClosed, err)
 		}
 		shard, ok := shardLike.(*Shard)
 		if !ok {
