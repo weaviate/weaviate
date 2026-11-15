@@ -13,6 +13,7 @@ package namespace
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -244,4 +246,82 @@ func deletingNamespace(t *testing.T) string {
 	helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
 	t.Cleanup(func() { helper.WaitForNamespaceGone(t, ns, adminKey, 30*time.Second) })
 	return ns
+}
+
+func followerURI(t *testing.T) string {
+	t.Helper()
+	resp, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	for _, s := range resp.Payload.Statistics {
+		if leader, _ := s.LeaderID.(string); leader != "" && leader != s.Name {
+			return uriForNode(t, s.Name)
+		}
+	}
+	t.Fatal("no node reports a leader other than itself")
+	return ""
+}
+
+// The suspend goes to a follower, so the leader's refusal has to survive the forward and still answer 409.
+func TestNamespaces_SuspendRefusedWhileReindexRuns(t *testing.T) {
+	t.Parallel()
+
+	const (
+		class = "SuspendDuringReindex"
+		// Enough rows that the reindex is still running when the suspend reaches the leader.
+		objects = 3000
+	)
+
+	ns := uniqueNS()
+	helper.CreateNamespace(t, ns, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
+
+	setupClassInNs1(t, ns, class, userKey)
+	for start := 0; start < objects; start += 1000 {
+		batch := make([]*models.Object, 0, 1000)
+		for i := start; i < start+1000; i++ {
+			batch = append(batch, &models.Object{Class: class, Properties: map[string]any{"title": fmt.Sprintf("Title Number %d", i)}})
+		}
+		helper.CreateObjectsBatchAuth(t, batch, userKey)
+	}
+	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
+
+	follower := helper.NewClient(t, followerURI(t))
+	suspend := func() error {
+		_, err := follower.Namespaces.SuspendNamespace(
+			namespaces.NewSuspendNamespaceParams().WithNamespaceID(ns), helper.CreateAuth(adminKey))
+		return err
+	}
+
+	_, _, err := helper.Client(t).Schema.SchemaObjectsIndexUpsert(
+		schema.NewSchemaObjectsIndexUpsertParams().WithClassName(class).WithPropertyName("title").
+			WithIndexName("searchable").WithBody(&models.IndexUpsertRequest{Tokenization: "lowercase"}),
+		helper.CreateAuth(userKey))
+	require.NoError(t, err)
+
+	t.Run("a suspend sent to a follower is refused with 409", func(t *testing.T) {
+		var conflict *namespaces.SuspendNamespaceConflict
+		err := suspend()
+		require.True(t, errors.As(err, &conflict), "expected 409 (nil means the reindex finished first; raise objects), got %T: %v", err, err)
+		require.NotEmpty(t, conflict.Payload.Error)
+		require.Contains(t, conflict.Payload.Error[0].Message, "reindex task")
+	})
+
+	t.Run("after a cancel the suspend goes through", func(t *testing.T) {
+		_, err := helper.Client(t).Schema.SchemaObjectsIndexCancel(
+			schema.NewSchemaObjectsIndexCancelParams().WithClassName(ns+":"+class).
+				WithPropertyName("title").WithIndexName("searchable"),
+			helper.CreateAuth(adminKey))
+		// A task already swapping refuses the cancel, and then the suspend goes through once it finishes.
+		var swapping *schema.SchemaObjectsIndexCancelConflict
+		if err != nil && !errors.As(err, &swapping) {
+			require.NoError(t, err)
+		}
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			assert.NoError(c, suspend())
+		}, 2*time.Minute, time.Second, "the suspend was still refused after the cancel")
+	})
 }
