@@ -65,9 +65,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	case collection != "":
 		st.taskMovementLocks.Lock(collection)
 		defer st.taskMovementLocks.Unlock(collection)
-	case (req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
-		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS) &&
-		st.schemaManager.NewSchemaReader().ClassInfo(req.Class).Exists:
+	case req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
+		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS:
 		st.taskMovementLocks.RLock(req.Class)
 		defer st.taskMovementLocks.RUnlock(req.Class)
 	}

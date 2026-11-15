@@ -21,7 +21,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
@@ -2023,25 +2022,21 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		change  *cmd.ApplyRequest
+		create  bool
 		wantErr error
 	}{
 		{name: "delete", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: "Books", SubCommand: deleteT2}, wantErr: distributedtask.ErrTaskReplicasChanged},
 		{name: "deactivate", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: "Books", SubCommand: deactivateT2}, wantErr: distributedtask.ErrTaskTenantsNotHot},
 		{name: "delete class", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "Books"}, wantErr: distributedtask.ErrTaskReplicasChanged},
+		{name: "delete class before its create applied", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "Novels"}, create: true, wantErr: distributedtask.ErrTaskReplicasChanged},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, m := reindexTenantsStore(t)
-
-			held, release := make(chan struct{}), make(chan struct{})
-			var releaseOnce sync.Once
-			t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
-			m.indexer.On("AddTenants", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
-				close(held)
-				<-release
-			}).Return(nil).Once()
+			class := tc.change.Class
+			heldTenant, release := holdIndexer(t, m, "AddTenants", mock.Anything, mock.Anything)
 
 			var wg sync.WaitGroup
-			var holdErr, changeErr, taskErr error
+			var holdErr, createErr, changeErr, taskErr error
 			execute := func(req *cmd.ApplyRequest, errp *error) {
 				wg.Add(1)
 				go func() {
@@ -2056,37 +2051,41 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 			})
 			require.NoError(t, err)
 			execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_TENANT, Class: "Books", SubCommand: addT3}, &holdErr)
-			select {
-			case <-held:
-			case <-time.After(10 * time.Second):
-				t.Fatal("the FSM never reached the held entry")
+			waitHeld(t, heldTenant)
+			appended := settledLogIndex(t, s)
+			appendNext := func(req *cmd.ApplyRequest, errp *error) {
+				execute(req, errp)
+				appended++
+				want := appended
+				require.Eventually(t, func() bool { return s.raft.Load().LastIndex() >= want },
+					10*time.Second, time.Millisecond, "%s was never appended", req.Type)
 			}
-			base := settledLogIndex(t, s)
 
-			execute(tc.change, &changeErr)
-			require.Eventually(t, func() bool { return s.raft.Load().LastIndex() > base },
-				10*time.Second, time.Millisecond, "the tenant change was never appended")
+			if tc.create {
+				heldClass, releaseClass := holdIndexer(t, m, "AddClass", mock.Anything)
+				appendNext(addMTClassCmd(t, class), &createErr)
+				appendNext(tc.change, &changeErr)
+				release()
+				waitHeld(t, heldClass)
+				release = releaseClass
+			} else {
+				appendNext(tc.change, &changeErr)
+			}
 
-			execute(reindexTitleTaskCmd(t), &taskErr)
-			// Release once the task is appended, or once it waits on the lock the tenant change holds.
+			execute(reindexTitleTaskCmd(t, class), &taskErr)
+			// Release once the task is appended, or once it waits behind the change's read lock.
 			require.Eventually(t, func() bool {
-				if s.raft.Load().LastIndex() > base+1 {
-					return true
-				}
-				if s.taskMovementLocks.TryRLock("Books") {
-					s.taskMovementLocks.RUnlock("Books")
-					return false
-				}
-				return true
+				return s.raft.Load().LastIndex() > appended || lockRefs(s.taskMovementLocks, class) > 1
 			}, 10*time.Second, time.Millisecond, "the task submit never reached the collection lock")
-			releaseOnce.Do(func() { close(release) })
+			release()
 			wg.Wait()
 
 			require.NoError(t, holdErr)
+			require.NoError(t, createErr)
 			require.NoError(t, changeErr)
 			require.ErrorIs(t, taskErr, tc.wantErr,
 				"the task was admitted with a unit for a tenant changed during its submit")
-			require.False(t, s.distributedTasksManager.HasActiveTaskForCollection("Books"))
+			require.False(t, s.distributedTasksManager.HasActiveTaskForCollection(class))
 		})
 	}
 }
@@ -2101,20 +2100,45 @@ func TestExecute_ChangeOnUnknownClassLeavesNoLock(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// KeyRWLocker exposes no size, so read its map through the field.
-	keys := reflect.ValueOf(s.taskMovementLocks).Elem().FieldByName("m")
-	m := (*sync.Map)(unsafe.Pointer(keys.UnsafeAddr()))
-	size := func() (n int) {
-		m.Range(func(any, any) bool { n++; return true })
-		return n
-	}
 	for i := range 50 {
 		class := fmt.Sprintf("Missing%d", i)
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: class, SubCommand: deleteT2})
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: class, SubCommand: updateT2})
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: class})
 	}
-	require.Zero(t, size())
+	s.taskMovementLocks.mu.Lock()
+	defer s.taskMovementLocks.mu.Unlock()
+	require.Empty(t, s.taskMovementLocks.entries)
+}
+
+func lockRefs(l *keyRWLocker, key string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e := l.entries[key]; e != nil {
+		return e.refs
+	}
+	return 0
+}
+
+func holdIndexer(t *testing.T, m *MockStore, method string, args ...any) (held <-chan struct{}, release func()) {
+	h, r := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(r) }) }
+	t.Cleanup(release)
+	m.indexer.On(method, args...).Run(func(mock.Arguments) {
+		close(h)
+		<-r
+	}).Return(nil).Once()
+	return h, release
+}
+
+func waitHeld(t *testing.T, held <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the FSM never reached the held entry")
+	}
 }
 
 func reindexTenantsStore(t *testing.T) (*Store, *MockStore) {
@@ -2124,37 +2148,41 @@ func reindexTenantsStore(t *testing.T) (*Store, *MockStore) {
 		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{db.ReindexNamespace: db.ExtractReindexTaskReplicas}
 		c.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}}
 	})
+	m.indexer.ExpectedCalls = slices.DeleteFunc(m.indexer.ExpectedCalls, func(c *mock.Call) bool { return c.Method == "AddClass" })
 	m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().DeleteReplicationsByTenants(mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	addClass, err := json.Marshal(cmd.AddClassRequest{
-		Class: &models.Class{Class: "Books", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+	require.NoError(t, srv.store.schemaManager.AddClass(addMTClassCmd(t, "Books"), srv.store.cfg.NodeID, true, false))
+	return srv.store, m
+}
+
+func addMTClassCmd(t *testing.T, class string) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: class, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
 		State: &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{
 			"t1": {Name: "t1", BelongsToNodes: []string{"Node-1"}, Status: models.TenantActivityStatusHOT},
 			"t2": {Name: "t2", BelongsToNodes: []string{"Node-1"}, Status: models.TenantActivityStatusHOT},
 		}},
 	})
 	require.NoError(t, err)
-	require.NoError(t, srv.store.schemaManager.AddClass(&cmd.ApplyRequest{
-		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "Books", SubCommand: addClass,
-	}, srv.store.cfg.NodeID, true, false))
-	return srv.store, m
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: class, SubCommand: sub}
 }
 
-func reindexTitleTaskCmd(t *testing.T) *cmd.ApplyRequest {
+func reindexTitleTaskCmd(t *testing.T, class string) *cmd.ApplyRequest {
 	t.Helper()
 	payload, err := json.Marshal(db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeChangeTokenization, Collection: "Books", Properties: []string{"title"},
+		MigrationType: db.ReindexTypeChangeTokenization, Collection: class, Properties: []string{"title"},
 		TargetTokenization: "field",
 		UnitToShard:        map[string]string{"u1": "t1", "u2": "t2"},
 		UnitToNode:         map[string]string{"u1": "Node-1", "u2": "Node-1"},
 	})
 	require.NoError(t, err)
 	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
-		Namespace: db.ReindexNamespace, Id: "Books:change-tokenization:title:abcd", Payload: payload,
+		Namespace: db.ReindexNamespace, Id: class + ":change-tokenization:title:abcd", Payload: payload,
 		UnitIds: []string{"u1", "u2"}, SubmittedAtUnixMillis: time.Now().UnixMilli(),
 	})
 	require.NoError(t, err)
