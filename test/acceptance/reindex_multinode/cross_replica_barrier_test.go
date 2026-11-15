@@ -74,6 +74,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
@@ -422,6 +423,23 @@ func smallTenantMigratedOnEveryNode(t *testing.T, compose *docker.DockerCompose,
 	return true
 }
 
+func setTenantStatus(t *testing.T, className, tenant, status string) {
+	t.Helper()
+	helper.UpdateTenants(t, className, []*models.Tenant{{Name: tenant, ActivityStatus: status}})
+	require.Eventually(t, func() bool {
+		got, err := helper.GetTenants(t, className)
+		if err != nil {
+			return false
+		}
+		for _, tn := range got.Payload {
+			if tn.Name == tenant {
+				return tn.ActivityStatus == status
+			}
+		}
+		return false
+	}, 2*time.Minute, 500*time.Millisecond, "tenant %s must reach %s", tenant, status)
+}
+
 func reindexTaskStatus(restURI, taskID string) string {
 	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
 	if !ok {
@@ -467,10 +485,10 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
 }
 
-// Pins that a cancel keeps the small tenant's swap, reports partial, and a resubmit finishes the rest.
+// Pins that a cancel keeps the small tenant's swap, a resubmit finishes the rest while it is frozen, and it serves the target once unfrozen.
 func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *testing.T) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	compose, cleanup := startReindexCluster(ctx, t, reindexClusterBuilder(t).WithOffloadS3("offloading", "us-east-1"))
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
@@ -499,8 +517,11 @@ func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *test
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className),
 		"the decided tenant keeps its swap after the cancel")
 
+	helper.SetupClient(restURI)
+	setTenantStatus(t, className, "small", models.TenantActivityStatusFROZEN)
 	retry := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, retry, reindexhelpers.WithTimeout(10*time.Minute))
+	setTenantStatus(t, className, "small", models.TenantActivityStatusHOT)
 	for i := 1; i <= 3; i++ {
 		reindexhelpers.AwaitTokenizationVisible(t, compose.GetWeaviateNode(i).URI(), className, "text", "field")
 		ids, err := runBM25QueryOnNodeTenant(t, compose.GetWeaviateNode(i).URI(), className, "large", "bulk 42")
