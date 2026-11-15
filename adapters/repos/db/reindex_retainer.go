@@ -237,7 +237,7 @@ type reindexTarget struct {
 
 type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
 
-// reindexTargetCache keeps decoded targets across ticks: a payload never changes for an (ID, Version).
+// reindexTargetCache keeps decoded targets across scheduler ticks. A payload never changes for one TaskDescriptor.
 type reindexTargetCache struct {
 	mu      sync.Mutex
 	targets reindexTargets
