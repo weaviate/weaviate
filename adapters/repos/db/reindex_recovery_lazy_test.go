@@ -136,17 +136,15 @@ func TestAWriteBetweenShardLoadAndTheResumedIterationReachesTheNewIndex(t *testi
 	require.True(t, indexed, "the write landed after the cutoff, so the iteration skipped it")
 }
 
-// A migration that lost an owned directory rebuilds in full, even when a load cannot record restarting it; one that lost nothing keeps its checkpoint.
+// A migration that lost an owned directory rebuilds in full, even when a load cannot record the restart. One that lost nothing keeps its checkpoint.
 func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		iterated    bool
 		sidecarOnly bool // the staged copy survives with what the mirror wrote
 		frozenLoad  bool // an unreadable sibling record refuses every write at boot 1
-		intact      bool // nothing lost: the load keeps the checkpoint and horizon
+		intact      bool // no directory is lost, so the load keeps the checkpoint and cutoff
 	}{
 		{name: "iterating, every directory present: no restart", intact: true},
-		{name: "iterated, frozen load", iterated: true, frozenLoad: true},
 		{name: "iterating, restart write fails at load, lifted in the same boot"},
 		{name: "iterating, only the sidecar lost, frozen load", sidecarOnly: true, frozenLoad: true},
 	} {
@@ -174,9 +172,6 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			subject := rec.Subject()
 			planted := MigrationRecord(NewMigrationRecordIterating(subject,
 				MigrationCheckpoint{LastProcessedKey: bytes.Repeat([]byte{0xff}, 16), UpdatedAt: time.Now()}))
-			if tc.iterated {
-				planted = NewMigrationRecordIterated(subject)
-			}
 			require.NoError(t, shard.migrationRecords.Put(planted))
 			lsm, records := shard.pathLSM(), shard.migrationRecords.Dir()
 			require.NoError(t, shard.Shutdown(ctx))

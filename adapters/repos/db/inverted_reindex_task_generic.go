@@ -701,7 +701,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 	return t.onAfterLsmInit(ctx, shard)
 }
 
-// Writes a record only to restart a migration whose owned directory is gone. No closing check: some NewShard routes hold closeLock.RLock.
+// OnAfterLsmInit writes a record only to restart a migration whose owned directory is gone. It skips closingGuard because some NewShard routes hold closeLock.RLock.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	rec, hasRecord := t.migrationRecord(shard)
 	if !hasRecord || rec.State() == MigrationStatePromoted {
@@ -764,7 +764,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 		logger.Debug("merged, not swapped. starting ingest buckets")
 	} else {
 		if hasRecord {
-			// Opening a bucket creates its directory, which would pass an empty one off as the rebuild.
+			// loadReindexBuckets creates a missing directory empty, so resuming without this restart would swap in an empty rebuild.
 			if err = restartIfOwnedDirGone(logger, shard, rec.Subject()); err != nil {
 				return false, err
 			}
