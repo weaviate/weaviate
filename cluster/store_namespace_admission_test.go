@@ -1077,6 +1077,7 @@ func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
 	}{
 		{"suspended namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateSuspended, namespaces.ErrNamespaceSuspended},
 		{"deleting namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateDeleting, namespaces.ErrNamespaceDeleting},
+		{"resuming namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateResuming, namespaces.ErrNamespaceResuming},
 		{"active namespace admitted", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateActive, nil},
 		{"drop-vector task in a suspended namespace is not gated", db.DropVectorIndexNamespace, "alpha:Foo", api.NamespaceStateSuspended, nil},
 	} {
