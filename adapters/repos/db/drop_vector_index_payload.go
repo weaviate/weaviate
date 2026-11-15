@@ -85,6 +85,9 @@ type DropVectorIndexTaskPayload struct {
 	// "owed nothing" — the conservative reading, and the one that keeps the
 	// closed-epoch fence.
 	//
+	// A FAILED or CANCELLED round owes more than this list: the shards whose
+	// units did not complete are owed too (see ResolvedByShardDeletion).
+	//
 	// Size: mirrors CleanedShards (one name per shard, no per-replica blowup);
 	// a drop on a 100k-tenant collection with most tenants cold carries the
 	// complement of CleanedShards here.
@@ -106,35 +109,62 @@ type DropVectorIndexTaskPayload struct {
 // shards or nodes, so it stays hidden until it is listed here.
 var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId", "verifyOnly"}
 
-// ResolvedByShardDeletion reports whether p's recorded coverage spans every
-// shard in shards while a shard p still OWED has since disappeared — i.e. the
-// drop's outstanding work did not get done, it ceased to exist along with its
-// tenant. Such a chain is complete for the collection as it now stands, so the
-// marker can be removed without re-stripping shards that are already clean.
+// ResolvedByShardDeletion reports whether the round stripped every shard in
+// shards while a shard it still OWED has since disappeared — i.e. the drop's
+// outstanding work did not get done, it ceased to exist along with its tenant.
+// Such a chain is complete for the collection as it now stands, so the marker
+// can be removed without re-stripping shards that are already clean.
 //
-// A payload that owed nothing returns false even with full coverage: that is
+// A round owes the shards it deferred and, when it ended FAILED or CANCELLED,
+// the shards whose units did not all complete: a tenant deleted mid-strip
+// fails its unit, and that work vanished exactly like a deleted deferred
+// tenant's. Such a round is credited only with what it provably stripped —
+// its inherited cleaned set and its completed units — never with a shard
+// whose unit failed.
+//
+// A round that owed nothing returns false even with full coverage: that is
 // the closed-epoch residue shape (a finalized drop's records beside a
 // re-created name's marker), and it must keep re-cleaning.
 //
 // Deterministic over its inputs: the enqueuer and the FSM removal gate both
 // call it, so they read a round the same way.
-func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(shards []string) bool {
-	if len(p.DeferredShards) == 0 {
-		return false
-	}
-	if len(ShardsNotCovered(shards, p.CoveredShards())) > 0 {
+func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(task *distributedtask.Task, shards []string) bool {
+	stripped, owed := p.strippedAndOwedShards(task)
+	if len(owed) == 0 || len(ShardsNotCovered(shards, stripped)) > 0 {
 		return false
 	}
 	current := make(map[string]struct{}, len(shards))
 	for _, shard := range shards {
 		current[shard] = struct{}{}
 	}
-	for _, owed := range p.DeferredShards {
-		if _, stillThere := current[owed]; !stillThere {
+	for _, shard := range owed {
+		if _, stillThere := current[shard]; !stillThere {
 			return true
 		}
 	}
 	return false
+}
+
+// strippedAndOwedShards splits the shards a terminal round knew about into the
+// ones it proves stripped and the ones it left unstripped.
+func (p *DropVectorIndexTaskPayload) strippedAndOwedShards(task *distributedtask.Task) (stripped map[string]struct{}, owed []string) {
+	if !terminalWithPartialWork(task.Status) {
+		return p.CoveredShards(), p.DeferredShards
+	}
+	stripped = make(map[string]struct{}, len(p.UnitToShard)+len(p.CleanedShards))
+	for _, shard := range p.CleanedShards {
+		stripped[shard] = struct{}{}
+	}
+	for _, shard := range CompletedUnitShards(task, p) {
+		stripped[shard] = struct{}{}
+	}
+	owed = append(owed, p.DeferredShards...)
+	for _, shard := range p.UnitToShard {
+		if _, ok := stripped[shard]; !ok {
+			owed = append(owed, shard)
+		}
+	}
+	return stripped, owed
 }
 
 // SameTargetSet reports whether two target lists contain the same names with
@@ -412,7 +442,7 @@ func resolvedByDeletion(tasks []*distributedtask.Task, collection string, target
 		if !SameDrop(p, collection, targets) || p.DropEpochID != epoch {
 			continue
 		}
-		if p.ResolvedByShardDeletion(shardNames) {
+		if p.ResolvedByShardDeletion(task, shardNames) {
 			return true
 		}
 	}

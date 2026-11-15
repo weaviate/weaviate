@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1922,6 +1923,322 @@ func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
 			})
 		require.Error(t, err)
 	})
+}
+
+// dropRound describes one terminal drop-vector round for removal-gate tests:
+// units maps a shard to the status of each of its replica units.
+type dropRound struct {
+	id, epoch string
+	status    distributedtask.TaskStatus
+	units     map[string][]distributedtask.UnitStatus
+	cleaned   []string
+	deferred  []string
+}
+
+func (r dropRound) task(t *testing.T, collection string, targets ...string) *distributedtask.Task {
+	t.Helper()
+	payload := &DropVectorIndexTaskPayload{
+		Collection: collection, Targets: targets, OpID: "op-" + r.id,
+		UnitToShard: map[string]string{}, DropEpochID: r.epoch,
+		CleanedShards: r.cleaned, DeferredShards: r.deferred,
+	}
+	units := map[string]*distributedtask.Unit{}
+	for shard, statuses := range r.units {
+		for i, status := range statuses {
+			unitID := fmt.Sprintf("%s__n%d", shard, i)
+			payload.UnitToShard[unitID] = shard
+			units[unitID] = &distributedtask.Unit{Status: status}
+		}
+	}
+	enc, err := payload.encode()
+	require.NoError(t, err)
+	return &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: r.id, Version: 1},
+		Payload:        enc,
+		Status:         r.status,
+		Units:          units,
+	}
+}
+
+// TestCheckVectorConfigRemoval_DeletionResolvedVoucher_CountsOnlyStrippedShards
+// pins what a terminal round's coverage means to the deletion-resolved
+// voucher: a FAILED or CANCELLED round strips only the shards whose every
+// replica unit completed, so a shard with an unfinished unit still holds the
+// dropped vector and the marker must stay.
+func TestCheckVectorConfigRemoval_DeletionResolvedVoucher_CountsOnlyStrippedShards(t *testing.T) {
+	const (
+		completed = distributedtask.UnitStatusCompleted
+		failed    = distributedtask.UnitStatusFailed
+		pending   = distributedtask.UnitStatusPending
+	)
+	units := func(statuses ...distributedtask.UnitStatus) []distributedtask.UnitStatus { return statuses }
+
+	tests := []struct {
+		name    string
+		rounds  []dropRound
+		shards  []string
+		wantErr bool
+	}{
+		{
+			name: "failed round, only unit failed: refused",
+			rounds: []dropRound{{
+				id: "t1", epoch: "E1", status: distributedtask.TaskStatusFailed,
+				units:    map[string][]distributedtask.UnitStatus{"s1": units(failed)},
+				deferred: []string{"s3"},
+			}},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name: "cancelled round, unit never ran: refused",
+			rounds: []dropRound{{
+				id: "t1", epoch: "E1", status: distributedtask.TaskStatusCancelled,
+				units:    map[string][]distributedtask.UnitStatus{"s1": units(pending)},
+				deferred: []string{"s3"},
+			}},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name: "failed round, one replica of the shard unfinished: refused",
+			rounds: []dropRound{{
+				id: "t1", epoch: "E1", status: distributedtask.TaskStatusFailed,
+				units:    map[string][]distributedtask.UnitStatus{"s1": units(completed, failed)},
+				deferred: []string{"s3"},
+			}},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name: "failed round, one of two shards unfinished: refused",
+			rounds: []dropRound{{
+				id: "t1", epoch: "E1", status: distributedtask.TaskStatusFailed,
+				units: map[string][]distributedtask.UnitStatus{
+					"s1": units(completed), "s2": units(failed),
+				},
+				deferred: []string{"s3"},
+			}},
+			shards:  []string{"s1", "s2"},
+			wantErr: true,
+		},
+		{
+			name: "failed round, inherited shards stripped but own unit failed: refused",
+			rounds: []dropRound{
+				{
+					id: "t1", epoch: "E1", status: distributedtask.TaskStatusFinished,
+					units:    map[string][]distributedtask.UnitStatus{"s1": units(completed)},
+					deferred: []string{"s2", "s3"},
+				},
+				{
+					id: "t2", epoch: "E1", status: distributedtask.TaskStatusFailed,
+					units:   map[string][]distributedtask.UnitStatus{"s2": units(failed)},
+					cleaned: []string{"s1"}, deferred: []string{"s3"},
+				},
+			},
+			shards:  []string{"s1", "s2"},
+			wantErr: true,
+		},
+		{
+			name: "another epoch's completed unit does not cover the failed one: refused",
+			rounds: []dropRound{
+				{
+					id: "t1", epoch: "E1", status: distributedtask.TaskStatusFailed,
+					units: map[string][]distributedtask.UnitStatus{"s1": units(completed)},
+				},
+				{
+					id: "t2", epoch: "E2", status: distributedtask.TaskStatusFailed,
+					units:    map[string][]distributedtask.UnitStatus{"s1": units(failed)},
+					deferred: []string{"s3"},
+				},
+			},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name: "failed round, the unfinished shard was deleted too: vouches",
+			rounds: []dropRound{{
+				id: "t1", epoch: "E1", status: distributedtask.TaskStatusFailed,
+				units: map[string][]distributedtask.UnitStatus{
+					"s1": units(completed, completed), "s2": units(failed),
+				},
+				deferred: []string{"s3"},
+			}},
+			shards: []string{"s1"},
+		},
+		{
+			name: "failed rounds of one epoch that together stripped every shard: vouches",
+			rounds: []dropRound{
+				{
+					id: "t1", epoch: "E1", status: distributedtask.TaskStatusFailed,
+					units: map[string][]distributedtask.UnitStatus{
+						"s1": units(completed), "s2": units(failed),
+					},
+					deferred: []string{"s3"},
+				},
+				{
+					id: "t2", epoch: "E1", status: distributedtask.TaskStatusCancelled,
+					units: map[string][]distributedtask.UnitStatus{
+						"s2": units(completed), "s4": units(pending),
+					},
+					cleaned: []string{"s1"}, deferred: []string{"s3"},
+				},
+			},
+			shards: []string{"s1", "s2"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tasks := make([]*distributedtask.Task, 0, len(tt.rounds))
+			for _, round := range tt.rounds {
+				tasks = append(tasks, round.task(t, "C", "v1"))
+			}
+			err := NewDropVectorIndexDetector(logrus.New()).
+				CheckVectorConfigRemoval("C", []string{"v1"}, tt.shards, tasks)
+			if tt.wantErr {
+				require.ErrorContains(t, err, `cannot remove dropped vector "v1"`)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestCheckVectorConfigRemoval_DeletionResolvedVoucher_UnfinishedUnits pins
+// what a FAILED or CANCELLED round may vouch for: it is credited only with the
+// shards whose every replica unit completed, and it owes the rest, so it
+// vouches exactly when every unstripped shard it knew about is gone.
+func TestCheckVectorConfigRemoval_DeletionResolvedVoucher_UnfinishedUnits(t *testing.T) {
+	const (
+		done   = distributedtask.UnitStatusCompleted
+		failed = distributedtask.UnitStatusFailed
+	)
+	tests := []struct {
+		name     string
+		status   distributedtask.TaskStatus
+		units    map[string]distributedtask.UnitStatus // unit ID "<shard>__<node>"; "" = no FSM record
+		earlier  map[string]distributedtask.UnitStatus // units of an earlier FAILED round of the epoch
+		cleaned  []string
+		deferred []string
+		shards   []string
+		wantErr  bool
+	}{
+		{
+			name:   "failed unit's shard deleted, survivors stripped",
+			status: distributedtask.TaskStatusFailed,
+			units:  map[string]distributedtask.UnitStatus{"s1__n1": done, "s2__n1": done, "s3__n1": failed},
+			shards: []string{"s1", "s2"},
+		},
+		{
+			name:   "cancelled round, unrecorded unit's shard deleted",
+			status: distributedtask.TaskStatusCancelled,
+			units:  map[string]distributedtask.UnitStatus{"s1__n1": done, "s3__n1": ""},
+			shards: []string{"s1"},
+		},
+		{
+			name:    "survivor stripped by an earlier round of the epoch",
+			status:  distributedtask.TaskStatusFailed,
+			units:   map[string]distributedtask.UnitStatus{"s2__n1": done, "s3__n1": failed},
+			earlier: map[string]distributedtask.UnitStatus{"s1__n1": done, "s2__n1": failed},
+			cleaned: []string{"s1"},
+			shards:  []string{"s1", "s2"},
+		},
+		{
+			name:    "inherited cleaned shard has no record of the epoch behind it",
+			status:  distributedtask.TaskStatusFailed,
+			units:   map[string]distributedtask.UnitStatus{"s2__n1": done, "s3__n1": failed},
+			cleaned: []string{"s1"},
+			shards:  []string{"s1", "s2"},
+			wantErr: true,
+		},
+		{
+			name:   "replicated: deleted shard had one replica done, one failed",
+			status: distributedtask.TaskStatusFailed,
+			units: map[string]distributedtask.UnitStatus{
+				"s1__n1": done, "s1__n2": done, "s3__n1": done, "s3__n2": failed,
+			},
+			shards: []string{"s1"},
+		},
+		{
+			name:    "failed unit's shard still exists",
+			status:  distributedtask.TaskStatusFailed,
+			units:   map[string]distributedtask.UnitStatus{"s1__n1": done, "s3__n1": failed},
+			shards:  []string{"s1", "s3"},
+			wantErr: true,
+		},
+		{
+			name:    "a surviving shard's unit failed too",
+			status:  distributedtask.TaskStatusFailed,
+			units:   map[string]distributedtask.UnitStatus{"s1__n1": failed, "s3__n1": failed},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name:     "surviving shard's unit failed, deferred shard deleted",
+			status:   distributedtask.TaskStatusFailed,
+			units:    map[string]distributedtask.UnitStatus{"s1__n1": failed},
+			deferred: []string{"s3"},
+			shards:   []string{"s1"},
+			wantErr:  true,
+		},
+		{
+			name:   "replicated: a surviving shard has one replica unstripped",
+			status: distributedtask.TaskStatusFailed,
+			units: map[string]distributedtask.UnitStatus{
+				"s1__n1": done, "s1__n2": failed, "s3__n1": failed, "s3__n2": failed,
+			},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name:    "every unit completed and nothing deferred: owed nothing",
+			status:  distributedtask.TaskStatusFailed,
+			units:   map[string]distributedtask.UnitStatus{"s1__n1": done, "s2__n1": done},
+			shards:  []string{"s1", "s2"},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			round := func(version uint64, status distributedtask.TaskStatus,
+				unitStatuses map[string]distributedtask.UnitStatus, cleaned, deferred []string,
+			) *distributedtask.Task {
+				payload := &DropVectorIndexTaskPayload{
+					Collection: "C", Targets: []string{"v1"}, OpID: "E1", DropEpochID: "E1",
+					UnitToShard: map[string]string{}, CleanedShards: cleaned, DeferredShards: deferred,
+				}
+				units := map[string]*distributedtask.Unit{}
+				for unitID, unitStatus := range unitStatuses {
+					payload.UnitToShard[unitID] = strings.Split(unitID, "__")[0]
+					if unitStatus != "" {
+						units[unitID] = &distributedtask.Unit{Status: unitStatus}
+					}
+				}
+				enc, err := payload.encode()
+				require.NoError(t, err)
+				return &distributedtask.Task{
+					Namespace:      DropVectorIndexNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: fmt.Sprintf("t%d", version), Version: version},
+					Payload:        enc,
+					Status:         status,
+					Units:          units,
+				}
+			}
+			var tasks []*distributedtask.Task
+			if tt.earlier != nil {
+				tasks = append(tasks, round(1, distributedtask.TaskStatusFailed, tt.earlier, nil, nil))
+			}
+			tasks = append(tasks, round(2, tt.status, tt.units, tt.cleaned, tt.deferred))
+
+			err := NewDropVectorIndexDetector(logrus.New()).
+				CheckVectorConfigRemoval("C", []string{"v1"}, tt.shards, tasks)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {

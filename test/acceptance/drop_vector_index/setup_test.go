@@ -147,6 +147,7 @@ func runSuiteGroup1(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("lifecycle", testLifecycle())
 	t.Run("multi tenant", testMultiTenant())
 	t.Run("tenant mutation during drop", testTenantMutationDuringDrop())
+	t.Run("failed round keeps marker after deferred tenant delete", testFailedRoundKeepsMarkerAfterDeferredTenantDelete())
 	t.Run("cold tenant deferred finalize", testColdTenantDeferredFinalize())
 	t.Run("partially cold tenants", testPartiallyColdTenants())
 	t.Run("multi vector", testMultiVector())
