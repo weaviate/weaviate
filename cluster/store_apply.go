@@ -12,10 +12,12 @@
 package cluster
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,19 +58,19 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// Held until the apply returns; class and tenant changes take it shared, so a submit sees them applied.
+	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
-	switch {
+	switch key := classLockKey(cmp.Or(collection, req.Class)); {
 	case collection != "":
-		st.taskMovementLocks.Lock(collection)
-		defer st.taskMovementLocks.Unlock(collection)
+		st.taskMovementLocks.Lock(key)
+		defer st.taskMovementLocks.Unlock(key)
 	case req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
 		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS:
-		st.taskMovementLocks.RLock(req.Class)
-		defer st.taskMovementLocks.RUnlock(req.Class)
+		st.taskMovementLocks.RLock(key)
+		defer st.taskMovementLocks.RUnlock(key)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -156,7 +158,12 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	return st.admitTaskReplicas(task, collection)
 }
 
-// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// classLockKey gives every spelling of a class one key, since the schema matches class names with strings.EqualFold.
+func classLockKey(class string) string {
+	return strings.ToLower(strings.ToUpper(class))
+}
+
+// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed, and a task naming a shard that is not HOT.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
 // A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
@@ -180,7 +187,9 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 				changed = true
 				return nil
 			}
-			notHot = notHot || physical.ActivityStatus() != models.TenantActivityStatusHOT
+			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+				notHot = true
+			}
 		}
 		return nil
 	}); errors.Is(err, schema.ErrClassNotFound) {

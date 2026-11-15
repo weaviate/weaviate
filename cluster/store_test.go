@@ -2009,8 +2009,8 @@ func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical
 	return m.store
 }
 
-// A tenant or class change appended but not yet applied when a task is submitted must not leave the task with a unit
-// for a tenant it cannot reindex.
+// Store.Execute refuses a task submitted while a tenant delete, tenant deactivation or class delete on its class is
+// appended but not yet applied. Admitted, the task would carry a unit for a tenant it cannot reindex.
 func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	deleteT2, err := gproto.Marshal(&cmd.DeleteTenantsRequest{Tenants: []string{"t2"}})
 	require.NoError(t, err)
@@ -2020,23 +2020,23 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
-		name    string
-		change  *cmd.ApplyRequest
-		create  bool
-		wantErr error
+		name         string
+		change       *cmd.ApplyRequest
+		metadataOnly bool
+		wantErr      error
 	}{
 		{name: "delete", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: "Books", SubCommand: deleteT2}, wantErr: distributedtask.ErrTaskReplicasChanged},
 		{name: "deactivate", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: "Books", SubCommand: deactivateT2}, wantErr: distributedtask.ErrTaskTenantsNotHot},
 		{name: "delete class", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "Books"}, wantErr: distributedtask.ErrTaskReplicasChanged},
-		{name: "delete class before its create applied", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "Novels"}, create: true, wantErr: distributedtask.ErrTaskReplicasChanged},
+		{name: "delete names the class in another case", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "BOOKS"}, metadataOnly: true, wantErr: distributedtask.ErrTaskReplicasChanged},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, m := reindexTenantsStore(t)
-			class := tc.change.Class
-			heldTenant, release := holdIndexer(t, m, "AddTenants", mock.Anything, mock.Anything)
+			const class = "Books"
+			s, m := reindexTenantsStore(t, func(c *Config) { c.MetadataOnlyVoters = tc.metadataOnly })
+			held, release := holdCall(t, m.replicationFSM.On("DeleteReplicationsByCollection", heldClass))
 
 			var wg sync.WaitGroup
-			var holdErr, createErr, changeErr, taskErr error
+			var holdErr, changeErr, taskErr error
 			execute := func(req *cmd.ApplyRequest, errp *error) {
 				wg.Add(1)
 				go func() {
@@ -2045,43 +2045,22 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 				}()
 			}
 
-			addT3, err := gproto.Marshal(&cmd.AddTenantsRequest{
-				ClusterNodes: []string{s.cfg.NodeID},
-				Tenants:      []*cmd.Tenant{{Name: "t3", Status: models.TenantActivityStatusHOT}},
-			})
-			require.NoError(t, err)
-			execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_TENANT, Class: "Books", SubCommand: addT3}, &holdErr)
-			waitHeld(t, heldTenant)
-			appended := settledLogIndex(t, s)
-			appendNext := func(req *cmd.ApplyRequest, errp *error) {
-				execute(req, errp)
-				appended++
-				want := appended
-				require.Eventually(t, func() bool { return s.raft.Load().LastIndex() >= want },
-					10*time.Second, time.Millisecond, "%s was never appended", req.Type)
-			}
-
-			if tc.create {
-				heldClass, releaseClass := holdIndexer(t, m, "AddClass", mock.Anything)
-				appendNext(addMTClassCmd(t, class), &createErr)
-				appendNext(tc.change, &changeErr)
-				release()
-				waitHeld(t, heldClass)
-				release = releaseClass
-			} else {
-				appendNext(tc.change, &changeErr)
-			}
+			execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: heldClass}, &holdErr)
+			waitHeld(t, held)
+			appended := settledLogIndex(t, s) + 1
+			execute(tc.change, &changeErr)
+			require.Eventually(t, func() bool { return s.raft.Load().LastIndex() >= appended },
+				10*time.Second, time.Millisecond, "the change was never appended")
 
 			execute(reindexTitleTaskCmd(t, class), &taskErr)
 			// Release once the task is appended, or once it waits behind the change's read lock.
 			require.Eventually(t, func() bool {
-				return s.raft.Load().LastIndex() > appended || lockRefs(s.taskMovementLocks, class) > 1
+				return s.raft.Load().LastIndex() > appended || lockRefs(s.taskMovementLocks, classLockKey(class)) > 1
 			}, 10*time.Second, time.Millisecond, "the task submit never reached the collection lock")
 			release()
 			wg.Wait()
 
 			require.NoError(t, holdErr)
-			require.NoError(t, createErr)
 			require.NoError(t, changeErr)
 			require.ErrorIs(t, taskErr, tc.wantErr,
 				"the task was admitted with a unit for a tenant changed during its submit")
@@ -2090,9 +2069,16 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	}
 }
 
-// A tenant or class change naming a class that does not exist must not leave a lock entry behind.
+// A tenant add, tenant delete, tenant update or class delete naming a class that does not exist leaves no entry in
+// tenantAddLocks or taskMovementLocks.
 func TestExecute_ChangeOnUnknownClassLeavesNoLock(t *testing.T) {
 	s, _ := reindexTenantsStore(t)
+	s.schemaManager.SetTenantLimit(func() int { return 100 }, nil)
+	addT3, err := gproto.Marshal(&cmd.AddTenantsRequest{
+		ClusterNodes: []string{s.cfg.NodeID},
+		Tenants:      []*cmd.Tenant{{Name: "t3", Status: models.TenantActivityStatusHOT}},
+	})
+	require.NoError(t, err)
 	deleteT2, err := gproto.Marshal(&cmd.DeleteTenantsRequest{Tenants: []string{"t2"}})
 	require.NoError(t, err)
 	updateT2, err := gproto.Marshal(&cmd.UpdateTenantsRequest{
@@ -2102,16 +2088,16 @@ func TestExecute_ChangeOnUnknownClassLeavesNoLock(t *testing.T) {
 
 	for i := range 50 {
 		class := fmt.Sprintf("Missing%d", i)
+		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: addT3})
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: class, SubCommand: deleteT2})
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: class, SubCommand: updateT2})
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: class})
 	}
-	s.taskMovementLocks.mu.Lock()
-	defer s.taskMovementLocks.mu.Unlock()
-	require.Empty(t, s.taskMovementLocks.entries)
+	require.Zero(t, lockEntries(s.tenantAddLocks), "tenantAddLocks")
+	require.Zero(t, lockEntries(s.taskMovementLocks), "taskMovementLocks")
 }
 
-func lockRefs(l *keyRWLocker, key string) int {
+func lockRefs(l *evictingKeyRWLocker, key string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if e := l.entries[key]; e != nil {
@@ -2120,12 +2106,18 @@ func lockRefs(l *keyRWLocker, key string) int {
 	return 0
 }
 
-func holdIndexer(t *testing.T, m *MockStore, method string, args ...any) (held <-chan struct{}, release func()) {
+func lockEntries(l *evictingKeyRWLocker) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.entries)
+}
+
+func holdCall(t *testing.T, call *mock.Call) (held <-chan struct{}, release func()) {
 	h, r := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	release = func() { once.Do(func() { close(r) }) }
 	t.Cleanup(release)
-	m.indexer.On(method, args...).Run(func(mock.Arguments) {
+	call.Run(func(mock.Arguments) {
 		close(h)
 		<-r
 	}).Return(nil).Once()
@@ -2141,21 +2133,24 @@ func waitHeld(t *testing.T, held <-chan struct{}) {
 	}
 }
 
-func reindexTenantsStore(t *testing.T) (*Store, *MockStore) {
+// heldClass is deleted to stall the FSM: its delete reaches the replication FSM on data nodes and metadata-only voters alike.
+const heldClass = "Held"
+
+func reindexTenantsStore(t *testing.T, tweaks ...func(*Config)) (*Store, *MockStore) {
 	t.Helper()
-	srv, m := newBarrierTestStore(t, func(c *Config) {
+	srv, m := newBarrierTestStore(t, append([]func(*Config){func(c *Config) {
 		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{db.ReindexNamespace: db.ExtractReindexTaskCollection}
 		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{db.ReindexNamespace: db.ExtractReindexTaskReplicas}
 		c.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}}
-	})
-	m.indexer.ExpectedCalls = slices.DeleteFunc(m.indexer.ExpectedCalls, func(c *mock.Call) bool { return c.Method == "AddClass" })
+	}}, tweaks...)...)
 	m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil).Maybe()
-	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(mock.Anything).Return(nil).Maybe()
+	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(mock.MatchedBy(func(c string) bool { return c != heldClass })).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().DeleteReplicationsByTenants(mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	require.NoError(t, srv.store.schemaManager.AddClass(addMTClassCmd(t, "Books"), srv.store.cfg.NodeID, true, false))
+	require.NoError(t, srv.store.schemaManager.AddClass(addClassCmd(t, heldClass), srv.store.cfg.NodeID, true, false))
 	return srv.store, m
 }
 
