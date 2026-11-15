@@ -13,12 +13,17 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -79,5 +84,57 @@ func TestAdmitPropose_SuspendRefusedWhileReindexWrites(t *testing.T) {
 			require.Contains(t, err.Error(), `reindex task "task1" on collection "alpha:Movies"`)
 			require.Contains(t, err.Error(), "POST /v1/schema/alpha:Movies/properties/{property}/index/{index}/cancel")
 		})
+	}
+}
+
+func TestExecute_ConcurrentTaskAddAndSuspendAdmitOnlyOne(t *testing.T) {
+	srv, ms := newBarrierTestStore(t, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			"reindex": func(p []byte) (string, bool) { return string(p), len(p) > 0 },
+		}
+	})
+	s := srv.store
+
+	for i := range 20 {
+		ns := fmt.Sprintf("ns%d", i)
+		seedNamespaceInState(t, ms.cfg.NamespacesController, ns, api.NamespaceStateActive)
+		addSub, err := json.Marshal(&api.AddDistributedTaskRequest{
+			Namespace: "reindex", Id: ns, UnitIds: []string{"unit1"},
+			Payload: []byte(ns + ":Movies"), SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		})
+		require.NoError(t, err)
+		suspendSub, err := json.Marshal(api.ChangeNamespaceStateRequest{
+			Name: ns, TargetState: api.NamespaceStateSuspended, Version: api.NamespaceLatestCommandPolicyVersion,
+		})
+		require.NoError(t, err)
+		commands := []*api.ApplyRequest{
+			{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: addSub},
+			{Type: api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE, SubCommand: suspendSub},
+		}
+
+		errs := make([]error, len(commands))
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for j, command := range commands {
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				<-start
+				_, errs[j] = s.Execute(command)
+			}, s.log)
+		}
+		close(start)
+		wg.Wait()
+
+		admitted := 0
+		for _, err := range errs {
+			if err == nil {
+				admitted++
+				continue
+			}
+			require.True(t, errors.Is(err, namespaces.ErrSuspendBlockedByReindex) ||
+				errors.Is(err, namespaces.ErrNamespaceSuspended), "%s: unexpected refusal: %v", ns, err)
+		}
+		require.Equal(t, 1, admitted, "%s: the task add and the suspend were both admitted", ns)
 	}
 }

@@ -57,10 +57,18 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	// Both locks are held until the apply returns, so a second submit is judged against the first's outcome. Taken before waitLeaderFSMCaughtUp, namespace before collection.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
+	}
+	ns, err := taskOrSuspendNamespace(req, collection, task)
+	if err != nil {
+		return 0, err
+	}
+	if ns != "" {
+		st.namespaceTaskLocks.Lock(ns)
+		defer st.namespaceTaskLocks.Unlock(ns)
 	}
 	if collection != "" {
 		st.taskMovementLocks.Lock(collection)
@@ -249,25 +257,40 @@ func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection s
 
 // admitSuspend refuses a suspend while a reindex may still rewrite the namespace's shards, since a suspend promises its data is at rest.
 func (st *Store) admitSuspend(req *api.ApplyRequest) error {
-	if req.Type != api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE {
-		return nil
-	}
-	sub := &api.ChangeNamespaceStateRequest{}
-	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-		return fmt.Errorf("unmarshal change-namespace-state subcommand: %w", err)
-	}
-	if sub.TargetState != api.NamespaceStateSuspended {
-		return nil
+	ns, err := suspendedNamespace(req)
+	if err != nil || ns == "" {
+		return err
 	}
 	taskID, collection, ok := st.distributedTasksManager.TaskWritingCollection(func(c string) bool {
-		return namespacing.NamespaceFromQualified(c) == sub.Name
+		return namespacing.NamespaceFromQualified(c) == ns
 	})
 	if !ok {
 		return nil
 	}
 	return fmt.Errorf("%w: namespace %q: reindex task %q on collection %q; wait for it to finish, "+
 		"or cancel it with POST /v1/schema/%s/properties/{property}/index/{index}/cancel, then retry",
-		usecasesNamespaces.ErrSuspendBlockedByReindex, sub.Name, taskID, collection, collection)
+		usecasesNamespaces.ErrSuspendBlockedByReindex, ns, taskID, collection, collection)
+}
+
+func taskOrSuspendNamespace(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) (string, error) {
+	if task != nil && collection != "" {
+		return namespacing.NamespaceFromQualified(collection), nil
+	}
+	return suspendedNamespace(req)
+}
+
+func suspendedNamespace(req *api.ApplyRequest) (string, error) {
+	if req.Type != api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE {
+		return "", nil
+	}
+	sub := &api.ChangeNamespaceStateRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return "", fmt.Errorf("unmarshal change-namespace-state subcommand: %w", err)
+	}
+	if sub.TargetState != api.NamespaceStateSuspended {
+		return "", nil
+	}
+	return sub.Name, nil
 }
 
 // admitShardStatus refuses a manual shard status change outside the active
