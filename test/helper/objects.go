@@ -656,7 +656,8 @@ func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-// SetTenantsStatus waits until every tenant reports status; COLD and HOT also accept their INACTIVE and ACTIVE aliases.
+// SetTenantsStatus sets each named tenant to status and waits until all report
+// it. COLD and HOT also accept their INACTIVE and ACTIVE aliases.
 func SetTenantsStatus(t *testing.T, class string, names []string, status string) {
 	t.Helper()
 	updates := make([]*models.Tenant, len(names))

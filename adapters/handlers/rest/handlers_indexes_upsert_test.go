@@ -14,10 +14,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -759,7 +757,7 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 		},
 		{
 			name:     "a resubmit after a partial run, to a tenant reader, counts only tenants still needing work",
-			statuses: map[string]string{"a": models.TenantActivityStatusCOLD, "b": models.TenantActivityStatusCOLD, "c": models.TenantActivityStatusHOT},
+			statuses: map[string]string{"a": models.TenantActivityStatusCOLD, "b": models.TenantActivityStatusCOLD, "c": models.TenantActivityStatusHOT, "d": models.TenantActivityStatusFROZEN},
 			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField, bucketStrategy: "mapcollection"},
 			tasks: []*distributedtask.Task{func() *distributedtask.Task {
 				run := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
@@ -770,7 +768,7 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 				return run
 			}()},
 			reader:  true,
-			wantErr: db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 1)",
+			wantErr: db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 2)",
 		},
 		{
 			name:     "collection-wide with a FROZEN tenant",
@@ -856,6 +854,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 
 	for _, tc := range []struct {
 		name            string
+		tenants         []string
 		tasks           []*distributedtask.Task
 		want            []string
 		status          string
@@ -878,6 +877,13 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			status: "partial", migrated: 3, total: 3,
 		},
 		{
+			name:    "every named tenant decided: rerun those, though an unnamed one still needs work",
+			tenants: []string{"a", "b"},
+			tasks:   []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a", "b")},
+			want:    []string{"a", "b"},
+			status:  "partial", migrated: 2, total: 3,
+		},
+		{
 			name: "a resubmit that swapped some adds them to the first run's",
 			tasks: []*distributedtask.Task{
 				run(1, cancelled, changeTok, field, "abc", "a"),
@@ -898,7 +904,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			database := dbWithTenants(t, map[string]string{"a": hot, "b": hot, "c": hot})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", nil, tc.tasks)
+			got, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", tc.tenants, tc.tasks)
 			require.NoError(t, err)
 			require.Equal(t, map[string][]string{"node1": tc.want}, got)
 
@@ -1027,45 +1033,6 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			}, "p", nil, tasks)
 			require.NoError(t, err)
 			require.Equal(t, map[string][]string{"node1": {"a", "b"}}, got)
-		})
-	}
-}
-
-// Pins that a resubmit needs HOT only for tenants still needing work (all, once every one is finished).
-func TestResubmitAfterPartialRunChecksHotOnlyForNeededTenants(t *testing.T) {
-	hot, cold, frozen, offloaded := models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD,
-		models.TenantActivityStatusFROZEN, models.TenantActivityStatusOFFLOADED
-	cases := []struct {
-		name       string
-		statuses   map[string]string
-		finished   []string
-		want       []string
-		wantNotHot int
-	}{
-		{"finished tenants are COLD, FROZEN and OFFLOADED", map[string]string{"a": cold, "b": frozen, "c": offloaded, "d": hot}, []string{"a", "b", "c"}, []string{"d"}, 0},
-		{"two needed tenants are COLD and FROZEN", map[string]string{"a": frozen, "b": cold, "c": frozen}, []string{"a"}, nil, 2},
-		{"every tenant finished, one FROZEN", map[string]string{"a": frozen, "b": hot}, []string{"a", "b"}, nil, 1},
-	}
-	changeTok, field := db.ReindexTypeChangeTokenization, models.PropertyTokenizationField
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			run := partlyMigratedRun(t, "p", changeTok, field, slices.Sorted(maps.Keys(tc.statuses))...)
-			run.SwapDecidedGroups = map[string]time.Time{}
-			for _, g := range tc.finished {
-				run.SwapDecidedGroups[g] = time.Time{}
-			}
-			target := &db.ReindexTaskPayload{Collection: "C", MigrationType: changeTok, TargetTokenization: field}
-
-			got, err := dbWithTenants(t, tc.statuses).ShardReplicaOwnershipForMT(context.Background(), target, "p", nil, []*distributedtask.Task{run})
-
-			if tc.wantNotHot > 0 {
-				var notHot *db.TenantsNotHotError
-				require.ErrorAs(t, err, &notHot)
-				require.Equal(t, tc.wantNotHot, notHot.Count)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, map[string][]string{"node1": tc.want}, got)
 		})
 	}
 }
