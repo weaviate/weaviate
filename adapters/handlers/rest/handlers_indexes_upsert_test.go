@@ -771,6 +771,20 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 			wantErr: db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 2)",
 		},
 		{
+			name:     "a rerun after every tenant finished needs them all HOT",
+			statuses: map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusCOLD},
+			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField, bucketStrategy: "mapcollection"},
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				run := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+					Collection: "C", Properties: []string{"p"}, MigrationType: db.ReindexTypeChangeTokenization,
+					TargetTokenization: models.PropertyTokenizationField, BucketStrategy: "mapcollection",
+				}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+				run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
+				return run
+			}()},
+			wantErr: db.ErrTenantsNotHot.Error(),
+		},
+		{
 			name:     "collection-wide with a FROZEN tenant",
 			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "frozen": models.TenantActivityStatusFROZEN},
 			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
