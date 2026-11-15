@@ -1717,11 +1717,45 @@ var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
 
 func exclusionStore(t *testing.T) *Store {
 	t.Helper()
-	return NewMockStore(t, "node1", 0, func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: namesExclusionCollection,
+	return NewMockStore(t, "node1", 0, withExclusionDetectors).store
+}
+
+func withExclusionDetectors(c *Config) {
+	c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+		exclusionNamespace: namesExclusionCollection,
+	}
+	c.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{
+		exclusionNamespace: &refuseWhileTaskActive{},
+	}
+}
+
+var errTaskActive = errors.New("a task is active")
+
+// refuseWhileTaskActive stands in for the reindex detector, which this package cannot import.
+type refuseWhileTaskActive struct {
+	mu       sync.Mutex
+	verdicts []error
+}
+
+func (*refuseWhileTaskActive) CheckPropertyUpdate(string, string, []*distributedtask.Task) error {
+	return nil
+}
+
+func (*refuseWhileTaskActive) CheckClassMutation(string, []*distributedtask.Task) error {
+	return nil
+}
+
+func (d *refuseWhileTaskActive) CheckTenantMutation(class string, _ []string, existing []*distributedtask.Task) error {
+	var err error
+	for _, task := range existing {
+		if task.Status.IsActive() {
+			err = fmt.Errorf("%w on %s", errTaskActive, class)
 		}
-	}).store
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.verdicts = append(d.verdicts, err)
+	return err
 }
 
 func namesExclusionCollection([]byte) (string, bool) { return exclusionCollection, true }
@@ -1822,11 +1856,7 @@ func cancelOwingTask(t *testing.T, m *distributedtask.Manager) {
 // openExclusionStore opens a single-node raft, so the admitted submit really applies and the other one's check can see it.
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
-	srv, _ := newBarrierTestStore(t, func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: namesExclusionCollection,
-		}
-	})
+	srv, _ := newBarrierTestStore(t, withExclusionDetectors)
 
 	// Manager.Replicate validates against the schema, so the class must place shard1 on node1.
 	addClass, err := json.Marshal(cmd.AddClassRequest{
@@ -1878,6 +1908,43 @@ func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 		"both submits were admitted, so the check ran against state the other one had not committed yet")
 }
 
+// Without the freeze taking Store.Execute's per-collection lock, a task can start between the freeze's check and its apply.
+// The freeze starts just after the task add, so its check tends to run while the task waits on the RAFT commit; rounds repeat that race.
+func TestExecute_FreezeAndTaskAddNeverInterleave(t *testing.T) {
+	sub, err := gproto.Marshal(&cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{{Name: "shard1", Status: models.TenantActivityStatusFROZEN}}})
+	require.NoError(t, err)
+	taskAdd := exclusionTaskCommand(t, exclusionNamespace)
+	freeze := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: exclusionCollection, SubCommand: sub}
+
+	for round := range 10 {
+		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
+			s := openExclusionStore(t)
+			taskStarted := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Add(2)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				close(taskStarted)
+				_, _ = s.Execute(taskAdd)
+			}, s.log)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				<-taskStarted
+				_, _ = s.Execute(freeze)
+			}, s.log)
+			wg.Wait()
+
+			detector := s.cfg.DistributedTaskSchemaMutationDetectors[exclusionNamespace].(*refuseWhileTaskActive)
+			detector.mu.Lock()
+			verdicts := detector.verdicts
+			detector.mu.Unlock()
+			require.NotEmpty(t, verdicts)
+			require.False(t, len(verdicts) == 2 && verdicts[0] == nil && verdicts[1] != nil,
+				"the freeze was admitted with no task running, and a task had started by the time it applied")
+		})
+	}
+}
+
 func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 	movement := exclusionMovementCommand
 	reindexTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, exclusionNamespace) }
@@ -1902,12 +1969,18 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		seedOwedSwap(t, s, "", [2]string{"node1", "node2"}, failSwappingTask)
 	}
 	owed := []error{replicationTypes.ErrMovementBlockedByTask}
-	tenantUpdate := func(tenants ...*cmd.Tenant) func(*testing.T) *cmd.ApplyRequest {
+	freezeOwed := []error{schema.ErrBadRequest}
+	taskActive := []error{errTaskActive, schema.ErrBadRequest}
+	keepRunning := func(*testing.T, *distributedtask.Manager) {}
+	tenantUpdateOf := func(class string, tenants ...*cmd.Tenant) func(*testing.T) *cmd.ApplyRequest {
 		return func(t *testing.T) *cmd.ApplyRequest {
 			sub, err := gproto.Marshal(&cmd.UpdateTenantsRequest{Tenants: tenants})
 			require.NoError(t, err)
-			return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: exclusionCollection, SubCommand: sub}
+			return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: class, SubCommand: sub}
 		}
+	}
+	tenantUpdate := func(tenants ...*cmd.Tenant) func(*testing.T) *cmd.ApplyRequest {
+		return tenantUpdateOf(exclusionCollection, tenants...)
 	}
 	freeze := func(tenant string) *cmd.Tenant {
 		return &cmd.Tenant{Name: tenant, Status: models.TenantActivityStatusFROZEN}
@@ -1955,15 +2028,23 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		},
 		{
 			name: "a freeze is refused while a failed task owes the tenant's swap", command: tenantUpdate(freeze("shard1")),
-			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
-		},
-		{
-			name: "a freeze is refused while a cancelled task owes the tenant's swap", command: tenantUpdate(freeze("shard1")),
-			seed: owedBy(cancelOwingTask), wantErrs: owed, wantOwing: "node2",
+			seed: owedBy(failOwingTask), wantErrs: freezeOwed, wantOwing: "node2",
 		},
 		{
 			name: "a freeze of a tenant no task owes is admitted", command: tenantUpdate(freeze("undecided")),
 			seed: owedBy(failOwingTask),
+		},
+		{
+			name: "a freeze of a same-named tenant in another collection is admitted", seed: owedBy(failOwingTask),
+			command: tenantUpdateOf("Other", freeze("shard1")),
+		},
+		{
+			name: "a freeze is refused while a task prepares, before it decides the tenant's swap", command: tenantUpdate(freeze("undecided")),
+			seed: owedBy(keepRunning), wantErrs: taskActive,
+		},
+		{
+			name: "a freeze of a decided tenant is refused with the running task's remedy", command: tenantUpdate(freeze("shard1")),
+			seed: owedBy(keepRunning), wantErrs: taskActive,
 		},
 		{
 			name: "deactivating an owed tenant is admitted", seed: owedBy(failOwingTask),
@@ -1975,7 +2056,7 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		},
 		{
 			name: "a batch freeze with one owed tenant is refused, naming it", seed: owedBy(failOwingTask),
-			command: tenantUpdate(freeze("undecided"), freeze("shard1")), wantErrs: owed, wantOwing: `"shard1"`,
+			command: tenantUpdate(freeze("undecided"), freeze("shard1")), wantErrs: freezeOwed, wantOwing: `"shard1"`,
 		},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,
@@ -1994,10 +2075,10 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			}
 
 			command := tc.command(t)
-			collection, shard, task, err := s.taskOrMovementCollection(command)
+			p, err := s.decodeProposal(command)
 			require.NoError(t, err)
 
-			err = s.admitPropose(command, collection, shard, task)
+			err = s.admitPropose(command, p)
 			if len(tc.wantErrs) == 0 {
 				require.NoError(t, err)
 				return
@@ -2008,6 +2089,28 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			require.Contains(t, err.Error(), exclusionCollection,
 				"the refusal must name the collection the operator has to wait on")
 			require.Contains(t, err.Error(), tc.wantOwing)
+		})
+	}
+}
+
+func TestDecodeProposal_OnlyAFreezeLocksItsCollection(t *testing.T) {
+	tenant := func(status string) *cmd.Tenant { return &cmd.Tenant{Name: "shard1", Status: status} }
+	for _, tc := range []struct {
+		name    string
+		tenants []*cmd.Tenant
+		want    string
+	}{
+		{name: "a freeze locks its collection", tenants: []*cmd.Tenant{tenant(models.TenantActivityStatusFROZEN)}, want: exclusionCollection},
+		{name: "deactivating takes no lock", tenants: []*cmd.Tenant{tenant(models.TenantActivityStatusCOLD)}},
+		{name: "activating takes no lock", tenants: []*cmd.Tenant{tenant(models.TenantActivityStatusHOT)}},
+		{name: "a batch with no freeze takes no lock", tenants: []*cmd.Tenant{tenant(models.TenantActivityStatusHOT), tenant(models.TenantActivityStatusCOLD)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub, err := gproto.Marshal(&cmd.UpdateTenantsRequest{Tenants: tc.tenants})
+			require.NoError(t, err)
+			p, err := exclusionStore(t).decodeProposal(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: exclusionCollection, SubCommand: sub})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, p.collection)
 		})
 	}
 }
@@ -2109,9 +2212,9 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
 
 			// Execute's own sequence, so the check sees the task as decoded from the proposal.
-			collection, shard, task, err := s.taskOrMovementCollection(req)
+			p, err := s.decodeProposal(req)
 			require.NoError(t, err)
-			err = s.admitPropose(req, collection, shard, task)
+			err = s.admitPropose(req, p)
 			if !tc.wantRefused {
 				require.NoError(t, err)
 				return
