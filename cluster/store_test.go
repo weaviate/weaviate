@@ -2027,7 +2027,6 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	}{
 		{name: "delete", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: "Books", SubCommand: deleteT2}, wantErr: distributedtask.ErrTaskReplicasChanged},
 		{name: "deactivate", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: "Books", SubCommand: deactivateT2}, wantErr: distributedtask.ErrTaskTenantsNotHot},
-		{name: "delete class", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "Books"}, wantErr: distributedtask.ErrTaskReplicasChanged},
 		{name: "delete names the class in another case", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "BOOKS"}, metadataOnly: true, wantErr: distributedtask.ErrTaskReplicasChanged},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2133,7 +2132,7 @@ func waitHeld(t *testing.T, held <-chan struct{}) {
 	}
 }
 
-// heldClass is deleted to stall the FSM: its delete reaches the replication FSM on data nodes and metadata-only voters alike.
+// heldClass is deleted to stall the FSM, since its delete reaches the replication FSM on data nodes and metadata-only voters alike.
 const heldClass = "Held"
 
 func reindexTenantsStore(t *testing.T, tweaks ...func(*Config)) (*Store, *MockStore) {

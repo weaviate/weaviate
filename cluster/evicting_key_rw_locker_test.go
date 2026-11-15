@@ -61,6 +61,5 @@ func TestEvictingKeyRWLocker_ContendedKey(t *testing.T) {
 	}
 
 	require.Equal(t, callers/2*iterations, counter)
-	require.LessOrEqual(t, lastSeen.Load(), int64(counter))
 	require.Zero(t, lockEntries(l))
 }

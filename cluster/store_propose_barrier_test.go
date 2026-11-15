@@ -198,8 +198,8 @@ func TestProposeBarrier_ConcurrentCallersShareOneBarrier(t *testing.T) {
 		"%d concurrent first-of-term callers appended one barrier each", callers)
 }
 
-// A caller can wait on the tenant or task lock long enough for leadership to turn over, so the gate must run after it.
-// Red if the gate moves above a lock: the caller passes it on the stale memo and issues no barrier.
+// A caller can wait on the tenant or task lock long enough for leadership to turn over, so waitLeaderFSMCaughtUp must run after the lock.
+// Red if it moves above a lock, since the caller then trusts the stale memo and issues no barrier.
 func TestProposeBarrier_ReconfirmsAfterWaitingOnALock(t *testing.T) {
 	const class = "Docs"
 	addT1, err := proto.Marshal(&command.AddTenantsRequest{
