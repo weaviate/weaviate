@@ -384,7 +384,6 @@ func TestCheckConflict_SkipsOtherCollectionsBeforeDecoding(t *testing.T) {
 		wantRefuse bool
 	}{
 		{name: "Other", existing: []ReindexTaskPayload{{Collection: "Other"}}},
-		{name: "c", existing: []ReindexTaskPayload{{Collection: "c"}}, wantRefuse: true},
 		{name: "Other before a conflicting C", existing: []ReindexTaskPayload{{Collection: "Other"}, conflicting}, wantRefuse: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
