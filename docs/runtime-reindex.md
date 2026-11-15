@@ -773,9 +773,10 @@ a crash.
 The guard is intentionally blanket: any overlap rejects. Migration-
 driven flips (`FromInFlightMigration=true`) are checked by
 `CheckMigrationPropertyUpdate` instead, which admits them only while a
-run on the property is `SWAPPING`. Class-wide
-(`CheckClassMutation`) is stricter — any reindex on the class
-(regardless of property) blocks DeleteClass.
+run on the property is `SWAPPING`. DeleteClass is never blocked
+(`CheckClassMutation`): dropping the class drops every bucket at once, so
+no mismatch is left. Its apply removes the class's tasks, and the index
+drop first stops this node's reindex units on it (`DrainIndex`).
 
 ### 4.4 Reindex orchestration — `adapters/repos/db/reindex_*` & `inverted_reindex_*`
 
@@ -1143,8 +1144,7 @@ The post-completion barrier is split into two phases.
    group this node owes, in any task status, and retries a failed swap
    every tick. A success emits `RecordPostCompletionAck(group)`, which
    pays that debt. A swap that never succeeds holds the run in `SWAPPING`,
-   which cannot be cancelled, until the operator exit ships with
-   weaviate/etienne-claude-issues#592.
+   which cannot be cancelled; deleting the collection is the exit.
 4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
    scheduler runs this phase (`runCompletedCallbackPhase`) before it
    proposes finalization.

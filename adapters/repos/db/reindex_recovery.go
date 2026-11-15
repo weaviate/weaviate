@@ -107,11 +107,11 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 	return nil, nil
 }
 
-func (r *MigrationRecoveryReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,
+func (r *MigrationRecoveryReindexer) ClaimUnits(shard *Shard, tasks []*ShardReindexTaskGeneric,
 ) (claimed, skipped []*ShardReindexTaskGeneric, release func()) {
 	var releases []func()
 	for _, t := range tasks {
-		drop, entered := r.provider.enterLocalUnit(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID)
+		drop, entered := r.provider.enterLocalUnit(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID, shard.index)
 		if !entered {
 			skipped = append(skipped, t)
 			continue

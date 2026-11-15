@@ -721,6 +721,8 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 	delete(db.indices, id)
 	db.indexLock.Unlock()
 
+	db.migrationSeals.DrainIndex(index)
+
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {

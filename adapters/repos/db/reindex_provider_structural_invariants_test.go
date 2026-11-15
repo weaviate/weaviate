@@ -243,7 +243,7 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-in-swap", Version: 1}
 
-	release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
+	release, entered := p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
 	require.True(t, entered)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -258,13 +258,13 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	unseal, err := p.SealLocalTaskDrain(drained, desc)
 	require.NoError(t, err, "once the last span releases, the drain returns")
 
-	_, entered = p.enterLocalUnit(desc, "shard-1__node-0")
+	_, entered = p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
 	require.False(t, entered, "a unit may not start again while a teardown holds the task")
-	_, entered = p.enterLocalUnit(desc, "shard-2__node-0")
+	_, entered = p.enterLocalUnit(desc, "shard-2__node-0", &Index{})
 	require.False(t, entered, "the hold is task-wide: the sweep never learns which units it touched")
 
 	unseal()
-	release, entered = p.enterLocalUnit(desc, "shard-1__node-0")
+	release, entered = p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
 	require.True(t, entered, "once the teardown releases, work may start again")
 	release()
 	require.Empty(t, p.sealedTasks)

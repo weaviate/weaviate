@@ -141,9 +141,6 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 		var badReq *schema.SchemaObjectsIndexUpsertBadRequest
 		require.True(t, stderrors.As(err, &badReq), "expected 400 after resolution, got %T: %v", err, err)
 	}
-	// setupReindexClassInNs1 creates the class in ns1; its cleanup cancels the
-	// in-flight reindex on "title" then retries the delete until it lands —
-	// CheckClassMutation rejects DeleteClass while a reindex task is active.
 	setupReindexClassInNs1 := func(t *testing.T, name string) {
 		t.Helper()
 		helper.CreateClassAuth(t, &models.Class{

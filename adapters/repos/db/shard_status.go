@@ -232,7 +232,7 @@ func (s *Shard) rearmHeld() error {
 	if len(held) == 0 {
 		return nil
 	}
-	claimed, skipped, releaseClaims := s.reindexer.ClaimUnits(held)
+	claimed, skipped, releaseClaims := s.reindexer.ClaimUnits(s, held)
 	defer releaseClaims()
 	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), claimed)
 	ec := errorcompounder.New()

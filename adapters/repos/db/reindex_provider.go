@@ -98,7 +98,8 @@ type ReindexProvider struct {
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
 	// liveUnits counts this node's workers per (task, unit), guarded by [mu]. A count, not a flag: two can hold one unit.
-	liveUnits unitClaims
+	liveUnits   unitClaims
+	liveOnIndex map[*Index]int
 
 	teardownHeldOnce sync.Once
 	teardownHeld     *logrusext.Sampler
@@ -336,13 +337,63 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
+func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string, idx *Index) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.sealedUnits[desc][unitID] > 0 || len(p.sealedTasks[desc]) > 0 {
+	if p.sealedUnits[desc][unitID] > 0 || len(p.sealedTasks[desc]) > 0 || idx.closeRequestedCause() != nil {
 		return nil, false
 	}
-	return p.releaseOf(p.liveUnits.take(desc, unitID)), true
+	if p.liveOnIndex == nil {
+		p.liveOnIndex = map[*Index]int{}
+	}
+	p.liveOnIndex[idx]++
+	dropUnit, released := p.liveUnits.take(desc, unitID), false
+	return p.releaseOf(func() {
+		if released {
+			return
+		}
+		released = true
+		if p.liveOnIndex[idx]--; p.liveOnIndex[idx] <= 0 {
+			delete(p.liveOnIndex, idx)
+		}
+		dropUnit()
+	}), true
+}
+
+// DrainIndex waits out this node's reindex units on idx; none enters once its drop marks it closing.
+// Bounded, because a unit's cluster write can queue behind the drop's own apply.
+func (p *ReindexProvider) DrainIndex(idx *Index) {
+	collection := idx.Config.ClassName.String()
+	func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		for desc, handle := range p.runningHandles {
+			if payload := p.payloads[desc]; payload != nil && strings.EqualFold(payload.Collection, collection) {
+				handle.Terminate()
+			}
+		}
+	}()
+	ctx, cancel := context.WithTimeout(p.serverCtx, reindexDropDrainTimeout)
+	defer cancel()
+	ticker := time.NewTicker(localUnitDrainPollInterval)
+	defer ticker.Stop()
+	for p.liveUnitsOn(idx) > 0 {
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			p.logger.WithField("collection", collection).Errorf("reindex work on a dropped collection "+
+				"did not stop within %s; dropping it anyway", reindexDropDrainTimeout)
+			return
+		}
+	}
+}
+
+const reindexDropDrainTimeout = 30 * time.Second
+
+func (p *ReindexProvider) liveUnitsOn(idx *Index) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.liveOnIndex[idx]
 }
 
 type unitClaims map[distributedtask.TaskDescriptor]map[string]int
@@ -581,7 +632,7 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
+	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID, idx)
 	if !entered {
 		p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("taskID", task.ID).WithField("unit", unitID).WithField("shard", shardName).
@@ -1352,7 +1403,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 			retried = true
 			p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) { logger.Info(start) })
 		})
-		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
+		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID, idx)
 		if !entered {
 			func() {
 				aggMu.Lock()

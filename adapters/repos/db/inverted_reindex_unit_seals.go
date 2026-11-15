@@ -22,6 +22,7 @@ import (
 type migrationUnitSeals struct {
 	mu      sync.RWMutex
 	builder ReindexUnitSealBuilder
+	drain   func(*Index)
 }
 
 func (s *migrationUnitSeals) Install(builder ReindexUnitSealBuilder) {
@@ -54,4 +55,19 @@ func (s *migrationUnitSeals) SealUnit(desc distributedtask.TaskDescriptor, unitI
 // migration's directories.
 func (db *DB) SetReindexUnitSeal(builder ReindexUnitSealBuilder) {
 	db.migrationSeals.Install(builder)
+}
+
+func (db *DB) SetReindexIndexDrain(drain func(*Index)) {
+	db.migrationSeals.mu.Lock()
+	defer db.migrationSeals.mu.Unlock()
+	db.migrationSeals.drain = drain
+}
+
+func (s *migrationUnitSeals) DrainIndex(idx *Index) {
+	s.mu.RLock()
+	drain := s.drain
+	s.mu.RUnlock()
+	if drain != nil {
+		drain(idx)
+	}
 }

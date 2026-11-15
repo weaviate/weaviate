@@ -20,7 +20,7 @@ import "github.com/weaviate/weaviate/usecases/logrusext"
 type ShardReindexerV3 interface {
 	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric
 	AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) ([]*ShardReindexTaskGeneric, error)
-	ClaimUnits(tasks []*ShardReindexTaskGeneric) (claimed, skipped []*ShardReindexTaskGeneric, release func())
+	ClaimUnits(shard *Shard, tasks []*ShardReindexTaskGeneric) (claimed, skipped []*ShardReindexTaskGeneric, release func())
 	UnbuildableFaults() *logrusext.Sampler
 }
 
@@ -40,7 +40,7 @@ func (r *shardReindexerV3Noop) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric
 	return nil, nil
 }
 
-func (r *shardReindexerV3Noop) ClaimUnits(tasks []*ShardReindexTaskGeneric,
+func (r *shardReindexerV3Noop) ClaimUnits(_ *Shard, tasks []*ShardReindexTaskGeneric,
 ) ([]*ShardReindexTaskGeneric, []*ShardReindexTaskGeneric, func()) {
 	return tasks, nil, func() {}
 }
