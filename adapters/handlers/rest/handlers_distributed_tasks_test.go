@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // A payload the extractor rejects can still name a collection the caller cannot read.
@@ -53,4 +54,25 @@ func TestGetTasksHidesCollectionOfUnparseablePayload(t *testing.T) {
 	body, err := json.Marshal(ok.Payload)
 	require.NoError(t, err)
 	require.NotContains(t, string(body), "Hidden")
+}
+
+func TestGetTasksForbiddenNamesTheMissingPermission(t *testing.T) {
+	principal := &models.Principal{Username: "no-cluster-read"}
+	denied := autherrs.NewForbidden(principal, authorization.READ, authorization.Cluster())
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.EXPECT().
+		Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
+		Return(denied)
+	api := &operations.WeaviateAPI{}
+	setupDistributedTasksHandlers(api, authorizer, fakeTaskLister{})
+
+	resp := api.DistributedTasksDistributedTasksGetHandler.Handle(
+		distributed_tasks.DistributedTasksGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/tasks", nil)},
+		principal)
+	forbidden, isForbidden := resp.(*distributed_tasks.DistributedTasksGetForbidden)
+	require.True(t, isForbidden, "got %T", resp)
+
+	require.NotNil(t, forbidden.Payload, "the 403 must carry the ErrorResponse the spec declares")
+	require.Len(t, forbidden.Payload.Error, 1)
+	require.Equal(t, denied.Error(), forbidden.Payload.Error[0].Message)
 }
