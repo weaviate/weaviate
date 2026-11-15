@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,12 +24,10 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
@@ -92,25 +89,6 @@ func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("upsertIndex did not proceed after the qualified-class lock was released")
 	}
-}
-
-// ClusterService is nil, so a submit that got past the check would answer 503.
-func TestSubmitReindexTask_RefusesSuspendedNamespace(t *testing.T) {
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
-	nsc := namespaces.NewController(logger)
-	require.NoError(t, nsc.Create(api.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, 1))
-	require.NoError(t, nsc.ChangeState("customer1", api.NamespaceStateSuspended, namespaces.StateChange{AppliedIndex: 2}))
-
-	h := &indexesHandlers{appState: &state.State{NamespacesController: nsc, Logger: logger}}
-	principal := &models.Principal{Username: "customer1:u1", Namespace: "customer1"}
-	resp := h.submitReindexTask(context.Background(), principal, &models.Class{Class: "customer1:Movies"},
-		"customer1:Movies", "title", upsertPlan{}, nil, nil)
-
-	rec := httptest.NewRecorder()
-	resp.WriteResponse(rec, runtime.JSONProducer())
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
-	require.Contains(t, rec.Body.String(), namespaces.ErrNamespaceSuspended.Error())
 }
 
 // An invalid class name is a malformed request, not a refusal, and it is

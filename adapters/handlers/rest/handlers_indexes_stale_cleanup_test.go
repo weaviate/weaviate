@@ -38,6 +38,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -126,6 +127,13 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			sweepErr:  fmt.Errorf("%w: shards skipped mid-walk: tenant-a", db.ErrCleanupSweepTruncated),
 			wantCalls: []string{"searchable", "filterable"},
 			because:   "unvisited shards are unverified rather than known stale, and a truncation on the first index type must not stop the second",
+		},
+		{
+			name:      "a sweep a suspended namespace stopped refuses the submit",
+			mtype:     db.ReindexTypeChangeTokenization,
+			sweepErr:  fmt.Errorf("%w: %w", db.ErrCleanupSweepTruncated, namespaces.ErrNamespaceSuspended),
+			wantCode:  http.StatusUnprocessableEntity,
+			wantCalls: []string{"searchable"},
 		},
 		{
 			name:      "change-tokenization scrubs both inverted index dirs",

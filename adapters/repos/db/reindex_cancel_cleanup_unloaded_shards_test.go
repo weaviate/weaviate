@@ -28,7 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 type committedMigration struct {
@@ -101,13 +103,14 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 		// shard's disk, which is the only reason to pay for loading it.
 		staleOnUnloadedShard bool
 		cancelBeforeWalk     bool
+		suspended            bool
 		onlyLoadedShardNamed bool
 		wantUnloadedLoaded   bool
 		wantUnloadedSidecar  bool
 		// wantHotSidecar proves the walk stopped: a reached shard's stale
 		// sidecar is removed.
 		wantHotSidecar bool
-		wantErr        bool
+		wantErr        error
 	}{
 		{
 			name: "an unloaded shard with nothing to clean is not loaded",
@@ -129,7 +132,15 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			cancelBeforeWalk:     true,
 			wantUnloadedSidecar:  true,
 			wantHotSidecar:       true,
-			wantErr:              true,
+			wantErr:              context.Canceled,
+		},
+		{
+			name:                 "a suspended namespace stops the walk before any shard",
+			staleOnUnloadedShard: true,
+			suspended:            true,
+			wantUnloadedSidecar:  true,
+			wantHotSidecar:       true,
+			wantErr:              namespaces.ErrNamespaceSuspended,
 		},
 	}
 
@@ -165,6 +176,9 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 				cancel()
 				sweepCtx = cancelled
 			}
+			if tc.suspended {
+				idx.namespace, idx.namespacesExister = "alpha", existerWithState(t, api.NamespaceStateSuspended)
+			}
 
 			var tenants []string
 			if tc.onlyLoadedShardNamed {
@@ -181,9 +195,9 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			assert.Equal(t, tc.wantHotSidecar, dirExistsAt(t, hot.pathLSM(), staleSidecar),
 				"loaded shard stale sidecar")
 
-			if tc.wantErr {
-				assert.ErrorIs(t, err, context.Canceled,
-					"abandoning the walk must be reported as the cancellation it is")
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr,
+					"abandoning the walk must be reported with its cause")
 				assert.ErrorIs(t, err, ErrCleanupSweepTruncated,
 					"and tagged truncated, which is what decides the caller's severity")
 			} else {
