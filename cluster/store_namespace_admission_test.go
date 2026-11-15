@@ -21,6 +21,8 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -54,7 +56,7 @@ const (
 // TestExecuteGate_DestructiveApplyTypes pin the behaviour.
 
 // Commands gated by namespaces.RequireActive at propose time, in
-// store.admitCreateLike and store.admitShardStatus. The alias and user commands
+// store.admitCreateLike, store.admitShardStatus and store.admitTaskAdd. The alias and user commands
 // materialize nothing. The class and tenant commands do materialize a shard, and
 // Store.admitPropose says why refusing them before the append is still enough.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
@@ -68,6 +70,7 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
+	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:     {},
 }
 
 // Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
@@ -127,7 +130,6 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:          {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:                 {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:                  {},
-	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:                                       {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:                                    {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:                     {}, //nolint:staticcheck // deprecated but must stay classified for the drift check
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:                                  {},
@@ -420,6 +422,38 @@ func shardStatusCommand() gatedCommand {
 	}
 }
 
+// taskAddRequest builds a task add in the given task namespace whose payload is
+// the collection it names, read back by taskCollectionIsPayload.
+func taskAddRequest(taskNamespace, target string) *api.ApplyRequest {
+	sub, err := json.Marshal(&api.AddDistributedTaskRequest{
+		Namespace: taskNamespace, Id: "task1", UnitIds: []string{"unit1"},
+		Payload: []byte(target),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+}
+
+// taskAddCommand drives a reindex task add, the only task kind that is gated.
+func taskAddCommand() gatedCommand {
+	return gatedCommand{
+		cmdType: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+		build: func(target string) *api.ApplyRequest {
+			return taskAddRequest(db.ReindexNamespace, target)
+		},
+		seedEntity: func(_ *testing.T, ms *MockStore, _ string) {
+			ms.store.distributedTasksManager.RegisterCollectionExtractor(db.ReindexNamespace, taskCollectionIsPayload)
+		},
+		expectApplied: func(*testing.T, *MockStore, string) {},
+		landed: func(ms *MockStore, _ string) bool {
+			return len(ms.store.distributedTasksManager.LocalDistributedTasks()[db.ReindexNamespace]) == 1
+		},
+	}
+}
+
+func taskCollectionIsPayload(payload []byte) (string, bool) { return string(payload), true }
+
 func createLikeCommands() []gatedCommand {
 	return []gatedCommand{
 		{
@@ -587,7 +621,7 @@ func gatedCommands() []gatedCommand {
 	all = append(all, destructiveCommands()...)
 	all = append(all, createLikeCommands()...)
 	all = append(all, shardMaterializingCommands()...)
-	all = append(all, shardStatusCommand())
+	all = append(all, shardStatusCommand(), taskAddCommand())
 	return all
 }
 
@@ -1033,6 +1067,43 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	t.Run("an unqualified class is admitted", func(t *testing.T) {
 		assertProposeAdmits(t, statusCmd("Foo"), alphaAt(api.NamespaceStateSuspended))
 	})
+}
+
+// TestExecuteGate_RejectsTaskAddApplyType drives a task add through the
+// propose-time check. Its namespace comes off the collection the task names.
+// Only reindex tasks are gated. A drop-vector-index task is admitted.
+func TestExecuteGate_RejectsTaskAddApplyType(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		taskNamespace string
+		collection    string
+		state         api.NamespaceState
+		wantErr       error
+	}{
+		{"suspended namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateSuspended, namespaces.ErrNamespaceSuspended},
+		{"deleting namespace rejected", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateDeleting, namespaces.ErrNamespaceDeleting},
+		{"active namespace admitted", db.ReindexNamespace, "alpha:Foo", api.NamespaceStateActive, nil},
+		{"drop-vector task in a suspended namespace is not gated", db.DropVectorIndexNamespace, "alpha:Foo", api.NamespaceStateSuspended, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ms := NewMockStore(t, "Node-1", 0, func(c *Config) {
+				c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+					db.ReindexNamespace:         taskCollectionIsPayload,
+					db.DropVectorIndexNamespace: taskCollectionIsPayload,
+				}
+			})
+			seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", tc.state)
+
+			data, err := gproto.Marshal(taskAddRequest(tc.taskNamespace, tc.collection))
+			require.NoError(t, err)
+			err = admitProposeBytes(t, &ms, data)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 // TestExecuteGate_RejectsShardMaterializingApplyTypes drives the commands that
