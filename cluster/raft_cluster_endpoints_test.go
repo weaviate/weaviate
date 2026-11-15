@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -169,6 +170,7 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("ReconcileAsyncReplicationForShard", "Owed", "S3").Return(errors.New("disk full")).Maybe()
 	m.indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
 	m.replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -255,31 +257,40 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 		},
 	}
 
+	addClass := func(t *testing.T, className string, factor int64, shards map[string][]string, owedShard string) {
+		t.Helper()
+		physical := make(map[string]sharding.Physical, len(shards))
+		virtual := make([]sharding.Virtual, 0, len(shards))
+		for shard, nodes := range shards {
+			physical[shard] = sharding.Physical{Name: shard, BelongsToNodes: nodes}
+			virtual = append(virtual, sharding.Virtual{Name: shard + "_v", AssignedToPhysical: shard})
+		}
+		_, err := r.AddClass(ctx,
+			&models.Class{
+				Class:             className,
+				ReplicationConfig: &models.ReplicationConfig{Factor: factor},
+			},
+			&sharding.State{ReplicationFactor: factor, Physical: physical, Virtual: virtual},
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, err := r.DeleteClass(ctx, className)
+			require.NoError(t, err)
+		})
+		if owedShard != "" {
+			seedOwedSwap(t, r.store, owedShard, [2]string{"node-1", "node-2"}, failOwingTask)
+		}
+		logs.Reset()
+	}
+	loggedSkip := func() bool {
+		return slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
+			return e.Level == logrus.WarnLevel && e.Data["skipped_shards"] == 1 && strings.Contains(e.Message, "node-2")
+		})
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			physical := make(map[string]sharding.Physical, len(tt.shards))
-			virtual := make([]sharding.Virtual, 0, len(tt.shards))
-			for shard, nodes := range tt.shards {
-				physical[shard] = sharding.Physical{Name: shard, BelongsToNodes: nodes}
-				virtual = append(virtual, sharding.Virtual{Name: shard + "_v", AssignedToPhysical: shard})
-			}
-			_, err := r.AddClass(ctx,
-				&models.Class{
-					Class:             tt.className,
-					ReplicationConfig: &models.ReplicationConfig{Factor: tt.factor},
-				},
-				&sharding.State{ReplicationFactor: tt.factor, Physical: physical, Virtual: virtual},
-			)
-			require.NoError(t, err)
-			defer func() {
-				_, err := r.DeleteClass(ctx, tt.className)
-				require.NoError(t, err)
-			}()
-
-			if tt.owedShard != "" {
-				seedOwedSwap(t, r.store, tt.owedShard, [2]string{tt.removedNode, "node-2"}, failOwingTask)
-			}
-			logs.Reset()
+			addClass(t, tt.className, tt.factor, tt.shards, tt.owedShard)
 
 			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
 
@@ -289,10 +300,16 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 				require.ElementsMatch(t, want, got)
 			}
 			if tt.owedShard != "" {
-				require.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
-					return e.Level == logrus.WarnLevel && e.Data["skipped_shards"] == 1 && strings.Contains(e.Message, "node-2")
-				}), "the skipped shard must be logged with the node that still owes its swap")
+				require.True(t, loggedSkip(), "the skipped shard must be logged with the node that still owes its swap")
 			}
 		})
 	}
+
+	t.Run("a later shard's error is returned and the skipped shard before it is still logged", func(t *testing.T) {
+		addClass(t, "Owed", 2, map[string][]string{"S1": {"node-1", "node-2"}, "S3": {"node-1", "node-2"}}, "S1")
+
+		err := r.rebalanceCollectionShards(ctx, r.SchemaReader(), "Owed", []string{"S1", "S3"}, "node-1", 2)
+		require.ErrorContains(t, err, "disk full")
+		require.True(t, loggedSkip())
+	})
 }

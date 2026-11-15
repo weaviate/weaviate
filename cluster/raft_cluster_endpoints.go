@@ -154,32 +154,42 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 			continue
 		}
 
-		desiredRF := int(classInfo.ReplicationFactor)
-
-		var firstRefusal error
-		skipped := 0
-		for _, shardName := range shardsWithRemovedNode {
-			err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF)
-			if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
-				if skipped == 0 {
-					firstRefusal = err
-				}
-				skipped++
-				continue
-			}
-			if err != nil {
-				return err
-			}
+		if err := s.rebalanceCollectionShards(ctx, schemaReader, className, shardsWithRemovedNode, removedNode, int(classInfo.ReplicationFactor)); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+func (s *Raft) rebalanceCollectionShards(ctx context.Context, schemaReader schema.SchemaReader, className string, shards []string, removedNode string, desiredRF int) error {
+	var firstRefusal error
+	skipped := 0
+	defer func() {
 		if skipped > 0 {
 			s.log.WithFields(logrus.Fields{
 				"collection":     className,
 				"removed_node":   removedNode,
 				"skipped_shards": skipped,
-			}).Warnf("skipping replica rebalance of %d shards after node departure, first refusal: %v; rerun a scale plan for them once admitted", skipped, firstRefusal)
+			}).Warnf("skipping replica rebalance of %d shards after node departure, so they still list the removed node; "+
+				"once the refusal clears, remove the node again or apply a scale plan that removes it from them. First refusal: %v",
+				skipped, firstRefusal)
+		}
+	}()
+
+	for _, shardName := range shards {
+		err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF)
+		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+			if skipped == 0 {
+				firstRefusal = err
+			}
+			skipped++
+			continue
+		}
+		if err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
