@@ -85,6 +85,8 @@ var (
 	// proposing, meaning another state change applied in between. Callers
 	// re-read and decide again rather than retrying blindly.
 	ErrStateChangedConcurrently = errors.New("namespace state changed concurrently")
+
+	ErrSuspendBlockedByReindex = errors.New("namespace has a reindex still writing to it")
 )
 
 // reservedNames are refused at Create time. Kept as a package variable (not a

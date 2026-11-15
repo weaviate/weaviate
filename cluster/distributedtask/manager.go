@@ -426,6 +426,22 @@ func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	return false
 }
 
+// TaskWritingCollection returns a task on a collection match accepts that may still rewrite its shards.
+// A FAILED or CANCELLED task counts while a replica still owes it a swap, since that swap rewrites the shard.
+func (m *Manager) TaskWritingCollection(match func(collection string) bool) (taskID, collection string, ok bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for ns := range m.collectionExtractors {
+		for _, task := range m.tasks[ns] {
+			if (task.Status.IsActive() || len(task.SwapsOwed) > 0) && match(task.collection) {
+				return task.ID, task.collection, true
+			}
+		}
+	}
+	return "", "", false
+}
+
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
 // Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
 // the same namespace/ID is already running, or if no units are provided.

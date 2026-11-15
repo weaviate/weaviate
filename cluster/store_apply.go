@@ -136,6 +136,9 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // landing in between produces the same state.
 // admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
+	if err := st.admitSuspend(req); err != nil {
+		return err
+	}
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
@@ -238,6 +241,29 @@ func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection s
 	default:
 		return nil
 	}
+}
+
+// admitSuspend refuses a suspend while a reindex may still rewrite the namespace's shards, since a suspend promises its data is at rest.
+func (st *Store) admitSuspend(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE {
+		return nil
+	}
+	sub := &api.ChangeNamespaceStateRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("unmarshal change-namespace-state subcommand: %w", err)
+	}
+	if sub.TargetState != api.NamespaceStateSuspended {
+		return nil
+	}
+	taskID, collection, ok := st.distributedTasksManager.TaskWritingCollection(func(c string) bool {
+		return namespacing.NamespaceFromQualified(c) == sub.Name
+	})
+	if !ok {
+		return nil
+	}
+	return fmt.Errorf("%w: namespace %q: reindex task %q on collection %q; wait for it to finish, "+
+		"or cancel it with POST /v1/schema/%s/properties/{property}/index/{index}/cancel, then retry",
+		usecasesNamespaces.ErrSuspendBlockedByReindex, sub.Name, taskID, collection, collection)
 }
 
 // admitShardStatus refuses a manual shard status change outside the active
