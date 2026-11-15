@@ -774,9 +774,11 @@ The guard is intentionally blanket: any overlap rejects. Migration-
 driven flips (`FromInFlightMigration=true`) are checked by
 `CheckMigrationPropertyUpdate` instead, which admits them only while a
 run on the property is `SWAPPING`. DeleteClass is never blocked
-(`CheckClassMutation`): dropping the class drops every bucket at once, so
-no mismatch is left. Its apply removes the class's tasks, and the index
-drop first stops this node's reindex units on it (`DrainIndex`).
+(`CheckClassMutation` judges only entries proposed by an older version):
+dropping the class drops every bucket at once, so no mismatch is left.
+Its apply removes the class's tasks. The drop cancels this node's reindex
+units on the collection, waits for their disk work to return before it
+removes any file, and refuses any unit that starts after.
 
 ### 4.4 Reindex orchestration — `adapters/repos/db/reindex_*` & `inverted_reindex_*`
 
