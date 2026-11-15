@@ -219,12 +219,6 @@ type ConflictDetector interface {
 // existingTasks) — no clocks, network, schema, or RNG — so every node
 // applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
-	// CheckPropertyUpdate is called under [Manager.mu] from the
-	// schema FSM's UpdateProperty apply path. existingTasks is the
-	// namespace's tasks on className, plus any whose collection the
-	// Manager could not extract, at apply time. Return a
-	// non-nil error to reject the property update; the error
-	// propagates back to the UpdateProperty caller.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 
 	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
@@ -233,14 +227,6 @@ type SchemaMutationDetector interface {
 	// because dropping the class wipes every in-flight migration's working dirs.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
-	// CheckTenantMutation is called under [Manager.mu] from the
-	// schema FSM's DeleteTenants / UpdateTenants apply paths when a
-	// transition would make one or more tenants' shards locally
-	// unavailable (DeleteTenants, or UpdateTenants toward OFFLOADED
-	// / FROZEN / OFFLOADING / FREEZING). existingTasks is filtered as
-	// for CheckPropertyUpdate. Return a non-nil
-	// error to reject the mutation.
-	//
 	// Today's reindex tasks are class-scoped (their payload names a
 	// collection but not a specific tenant — they apply to whatever
 	// shards exist), so the conservative implementation is "block
@@ -758,7 +744,6 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
-// Collection returns the collection the namespace's extractor found in the payload, or "" if unknown.
 func (t *Task) Collection() string {
 	return t.collection
 }

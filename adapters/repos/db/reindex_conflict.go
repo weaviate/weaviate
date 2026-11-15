@@ -94,7 +94,6 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 		if !task.Status.IsActive() {
 			continue
 		}
-		// Another collection's payload takes seconds to decode at 1M tenants.
 		if c := task.Collection(); c != "" && !strings.EqualFold(c, newP.Collection) {
 			continue
 		}

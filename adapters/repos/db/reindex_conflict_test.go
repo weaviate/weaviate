@@ -364,7 +364,6 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
-// A submit decodes only the active tasks on its own collection, or whose collection is unknown.
 func TestCheckConflict_SkipsOtherCollectionsBeforeDecoding(t *testing.T) {
 	newPayload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"text"}})
 	require.NoError(t, err)
