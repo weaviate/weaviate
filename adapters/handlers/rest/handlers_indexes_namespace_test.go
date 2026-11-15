@@ -90,9 +90,7 @@ func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	}
 }
 
-// A submit into a suspended namespace is refused before the stale-state sweep,
-// which would otherwise load the namespace's shards on this node. ClusterService
-// is nil, so getting past the check answers 503 instead.
+// ClusterService is nil, so a submit that got past the check would answer 503.
 func TestSubmitReindexTask_RefusesSuspendedNamespace(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
