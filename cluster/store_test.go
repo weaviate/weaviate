@@ -2010,9 +2010,8 @@ func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical
 	return m.store
 }
 
-// A tenant change appended after a submit's admission read, but before the task, would leave the
-// task with a unit for a tenant it cannot reindex. The FSM is held on an earlier entry so the change
-// is appended but not yet applied when the task is submitted.
+// A tenant or class change appended but not yet applied when a task is submitted must not leave the task with a unit
+// for a tenant it cannot reindex.
 func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	deleteT2, err := gproto.Marshal(&cmd.DeleteTenantsRequest{Tenants: []string{"t2"}})
 	require.NoError(t, err)
@@ -2028,6 +2027,7 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	}{
 		{name: "delete", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: "Books", SubCommand: deleteT2}, wantErr: distributedtask.ErrTaskReplicasChanged},
 		{name: "deactivate", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: "Books", SubCommand: deactivateT2}, wantErr: distributedtask.ErrTaskTenantsNotHot},
+		{name: "delete class", change: &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "Books"}, wantErr: distributedtask.ErrTaskReplicasChanged},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, m := reindexTenantsStore(t)
@@ -2091,8 +2091,8 @@ func TestExecute_TenantChangeDuringSubmitRefusesTheTask(t *testing.T) {
 	}
 }
 
-// A tenant change naming a class that does not exist must not leave a lock entry behind.
-func TestExecute_TenantChangeOnUnknownClassLeavesNoLock(t *testing.T) {
+// A tenant or class change naming a class that does not exist must not leave a lock entry behind.
+func TestExecute_ChangeOnUnknownClassLeavesNoLock(t *testing.T) {
 	s, _ := reindexTenantsStore(t)
 	deleteT2, err := gproto.Marshal(&cmd.DeleteTenantsRequest{Tenants: []string{"t2"}})
 	require.NoError(t, err)
@@ -2112,6 +2112,7 @@ func TestExecute_TenantChangeOnUnknownClassLeavesNoLock(t *testing.T) {
 		class := fmt.Sprintf("Missing%d", i)
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_TENANT, Class: class, SubCommand: deleteT2})
 		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_TENANT, Class: class, SubCommand: updateT2})
+		_, _ = s.Execute(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: class})
 	}
 	require.Zero(t, size())
 }
@@ -2125,6 +2126,8 @@ func reindexTenantsStore(t *testing.T) (*Store, *MockStore) {
 	})
 	m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().DeleteReplicationsByTenants(mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	addClass, err := json.Marshal(cmd.AddClassRequest{

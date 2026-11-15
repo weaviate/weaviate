@@ -56,8 +56,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// Held until the apply returns, so a submit is checked only after earlier submits,
-	// movements and tenant changes on its collection have applied. Tenant changes take a read lock.
+	// Held until the apply returns; class and tenant changes take it shared, so a submit sees them applied.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
@@ -66,9 +65,9 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	case collection != "":
 		st.taskMovementLocks.Lock(collection)
 		defer st.taskMovementLocks.Unlock(collection)
-	case (req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT) &&
+	case (req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
+		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS) &&
 		st.schemaManager.NewSchemaReader().ClassInfo(req.Class).Exists:
-		// An unknown class gets no lock, so made-up names cannot grow the map.
 		st.taskMovementLocks.RLock(req.Class)
 		defer st.taskMovementLocks.RUnlock(req.Class)
 	}
@@ -159,7 +158,6 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 }
 
 // admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
-// It also refuses a task naming a tenant that is no longer HOT, since a deactivation leaves its replicas unchanged.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
 // A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
