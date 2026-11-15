@@ -656,6 +656,12 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
+	for _, reindexTask := range tasks {
+		if err := reindexTask.refuseUnmirroredOn(shard); err != nil {
+			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), err))
+			return
+		}
+	}
 	// Compose per-task progress into a single per-unit envelope so the
 	// operator sees a monotonic 0→1 climb across N tasks instead of N
 	// independent 0→0.99 ramps that look like regressions on the same
@@ -1217,11 +1223,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	}
 	// Swapping a sibling of a refused half would leave the migration half-applied on this shard.
 	for _, reindexTask := range unitTasks {
-		rec, ok := reindexTask.migrationRecord(shard)
-		if !ok {
-			continue
-		}
-		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
+		if err := reindexTask.refuseUnmirroredOn(shard); err != nil {
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 		}
 	}

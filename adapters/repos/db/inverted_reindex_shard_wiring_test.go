@@ -356,16 +356,18 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 	class := newTestClassWithProps(className, []string{"title"})
 	class.Properties[0].Tokenization = models.PropertyTokenizationLowercase
 
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
 	records := shard.migrationRecords.Dir()
 	require.NoError(t, os.MkdirAll(records, 0o755))
+	var unreadable []string
 	for _, version := range []uint64{7, 8} {
 		key := testMigrationSubject(version, StrategyCodeSearchableRetokenize, "title").Key
 		key.UnitID = shard.migrationUnit()
-		require.NoError(t, os.WriteFile(filepath.Join(records, key.fileName()),
+		unreadable = append(unreadable, filepath.Join(records, key.fileName()))
+		require.NoError(t, os.WriteFile(unreadable[len(unreadable)-1],
 			[]byte("a record this build cannot decode"), 0o600))
 	}
 
@@ -381,6 +383,25 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 		"the two files this load could not read belong in the not-understood counter")
 	require.Equal(t, float64(0), testutil.ToFloat64(m.MigrationRecordsWedged)-wedgedBefore,
 		"and none of them in the wedged counter")
+
+	for _, path := range unreadable {
+		require.NoError(t, os.Remove(path))
+	}
+	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+	subject.Key.UnitID = shard.migrationUnit()
+	store := NewMigrationRecordStoreForUnit(shard.pathLSM(), shard.migrationUnit(), shard.index.logger)
+	require.NoError(t, store.Load())
+	require.NoError(t, store.Put(NewMigrationRecordIterating(subject, MigrationCheckpoint{})))
+	installTestMigrationTaskSources(ctx, idx.db, nil)
+	wedgedBefore = testutil.ToFloat64(m.MigrationRecordsWedged)
+	notUnderstoodBefore = testutil.ToFloat64(m.MigrationRecordsNotUnderstood)
+
+	shard.reconcileMigrationRecords(ctx, class)
+
+	require.Equal(t, float64(1), testutil.ToFloat64(m.MigrationRecordsWedged)-wedgedBefore,
+		"a record whose task is gone and whose effect the schema shows is committed, so this load wedges it")
+	require.Equal(t, float64(0), testutil.ToFloat64(m.MigrationRecordsNotUnderstood)-notUnderstoodBefore,
+		"and it is not counted as unreadable")
 }
 
 // Pins the unit ID format independently of migrationUnit(): the store sets

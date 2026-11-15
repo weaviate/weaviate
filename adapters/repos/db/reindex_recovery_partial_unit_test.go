@@ -70,3 +70,50 @@ func TestAPartiallySeededUnitRebuildsItsNeverStartedHalf(t *testing.T) {
 	require.Len(t, cached, 2, "the cache holds both halves, so the swap phase covers them both")
 	require.Same(t, tasks[0], cached[0], "the seeded half keeps the instance its mirror is armed on")
 }
+
+func TestAUnitWhoseMigrationIsStampedUnmirroredFailsBeforeItIterates(t *testing.T) {
+	ctx := testCtx()
+	className := "StampedUnit" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title"})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+	registerIndex(idx, className)
+	require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, "seed")))
+
+	logger, _ := logrustest.NewNullLogger()
+	p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+	unitID := shard.migrationUnit()
+	payload := &ReindexTaskPayload{
+		Collection: className, MigrationType: ReindexTypeChangeTokenization,
+		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
+		UnitToShard: map[string]string{unitID: shard.Name()},
+		UnitToNode:  map[string]string{unitID: "node1"},
+	}
+	desc := distributedtask.TaskDescriptor{ID: "T_stamped", Version: 1}
+	tasks, err := p.createReindexTasks(desc, unitID, payload)
+	require.NoError(t, err)
+	for _, task := range tasks {
+		require.NoError(t, startOnShard(ctx, task, shard))
+	}
+	rec, ok := shard.migrationRecords.Get(tasks[0].migrationRecordKey())
+	require.True(t, ok)
+	stamped := rec.Subject()
+	stamped.Unmirrored = true
+	require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordIterating(stamped, MigrationCheckpoint{})))
+
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	recorder := newFakeRecorder()
+	p.processOneUnit(ctx, &distributedtask.Task{
+		Namespace: ReindexNamespace, TaskDescriptor: desc,
+		Status: distributedtask.TaskStatusStarted, Payload: raw,
+	}, payload, idx, unitID, recorder)
+
+	require.Contains(t, recorder.failed[unitID], "no double-write mirror armed")
+	for _, task := range tasks {
+		rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
+		require.True(t, ok)
+		require.Equal(t, MigrationStateIterating, rec.State(), "the unit refuses before it iterates")
+	}
+}
