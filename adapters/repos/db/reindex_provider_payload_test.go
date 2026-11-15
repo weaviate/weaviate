@@ -37,9 +37,6 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 	})
 
 	t.Run("payload missing collection is rejected", func(t *testing.T) {
-		// Sloppy ("", true) here would let DeleteTasksForCollection("")
-		// nuke every reindex task — defence in depth even though the
-		// manager already guards empty input.
 		payload, err := json.Marshal(ReindexTaskPayload{
 			MigrationType: ReindexTypeEnableRangeable,
 		})

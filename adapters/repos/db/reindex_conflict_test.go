@@ -14,6 +14,8 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -364,28 +366,41 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 	require.NoError(t, detector.CheckConflict(newPayload, existing))
 }
 
+// inIDOrder hands ReindexDetector the tasks sorted by ID instead of the Manager's map order.
+type inIDOrder struct{ ReindexDetector }
+
+func (d inIDOrder) CheckConflict(newPayload []byte, existing []*distributedtask.Task) error {
+	slices.SortFunc(existing, func(a, b *distributedtask.Task) int { return strings.Compare(a.ID, b.ID) })
+	return d.ReindexDetector.CheckConflict(newPayload, existing)
+}
+
 func TestCheckConflict_SkipsOtherCollectionsBeforeDecoding(t *testing.T) {
-	newPayload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"text"}})
+	conflicting := ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"text"}}
+	newPayload, err := json.Marshal(conflicting)
 	require.NoError(t, err)
 	for _, tc := range []struct {
-		existingCollection string
-		wantRefuse         bool
+		name       string
+		existing   []ReindexTaskPayload
+		wantRefuse bool
 	}{
-		{existingCollection: "Other"},
-		{existingCollection: "c", wantRefuse: true},
+		{name: "Other", existing: []ReindexTaskPayload{{Collection: "Other"}}},
+		{name: "c", existing: []ReindexTaskPayload{{Collection: "c"}}, wantRefuse: true},
+		{name: "Other before a conflicting C", existing: []ReindexTaskPayload{{Collection: "Other"}, conflicting}, wantRefuse: true},
 	} {
-		t.Run(tc.existingCollection, func(t *testing.T) {
-			// No migration type, so decoding this payload refuses the submit.
-			existing, err := json.Marshal(ReindexTaskPayload{Collection: tc.existingCollection})
-			require.NoError(t, err)
-			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
-				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: existing},
-			}}})
+		t.Run(tc.name, func(t *testing.T) {
+			// A payload with no migration type refuses the submit once decoded.
+			var tasks []*distributedtask.Task
+			for i, p := range tc.existing {
+				existing, err := json.Marshal(p)
+				require.NoError(t, err)
+				tasks = append(tasks, &distributedtask.Task{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: fmt.Sprintf("T%d", i), Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: existing})
+			}
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: tasks}})
 			require.NoError(t, err)
 			logger, _ := test.NewNullLogger()
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
 				Logger:            logger,
-				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
+				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: inIDOrder{}},
 			})
 			mgr.RegisterCollectionExtractor(ReindexNamespace, ExtractReindexTaskCollection)
 			require.NoError(t, mgr.Restore(snapshot))
