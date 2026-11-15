@@ -109,8 +109,6 @@ func (s *Raft) Remove(ctx context.Context, id string) error {
 	}
 
 	// The Raft peer has been removed from the cluster configuration.
-	// Now ensure that no shard replicas still reference this node and
-	// that we keep satisfying the configured replication factor where possible.
 	if err := s.rebalanceReplicasAfterNodeRemoval(ctx, id); err != nil {
 		return fmt.Errorf("rebalance replicas after removing node %q: %w", id, err)
 	}

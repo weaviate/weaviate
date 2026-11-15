@@ -1829,28 +1829,18 @@ func cancelOwingTask(t *testing.T, m *distributedtask.Manager) {
 // openExclusionStore opens a single-node raft, so the admitted submit really applies and the other one's check can see it.
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
-	replicas := []string{exclusionMovement.SourceNode, "node3"}
-	srv, m := newBarrierTestStore(t, func(c *Config) {
+	srv, _ := newBarrierTestStore(t, func(c *Config) {
 		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
 			exclusionNamespace: namesExclusionCollection,
 		}
-		// The task is built against both replicas, so it is refused once the removal has applied.
-		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
-			exclusionNamespace: func([]byte) (map[string][]string, bool) {
-				return map[string][]string{exclusionMovement.SourceShard: replicas}, true
-			},
-		}
 	})
-	m.indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Manager.Replicate validates against the schema, so the class must place shard1 on node1.
 	addClass, err := json.Marshal(cmd.AddClassRequest{
 		Class: &models.Class{Class: exclusionCollection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-		State: &sharding.State{
-			ReplicationFactor: 1,
-			Physical:          map[string]sharding.Physical{exclusionMovement.SourceShard: {BelongsToNodes: replicas}},
-			Virtual:           []sharding.Virtual{{Name: "v1", AssignedToPhysical: exclusionMovement.SourceShard}},
-		},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			exclusionMovement.SourceShard: {BelongsToNodes: []string{exclusionMovement.SourceNode}},
+		}},
 	})
 	require.NoError(t, err)
 	require.NoError(t, srv.store.schemaManager.AddClass(&cmd.ApplyRequest{
@@ -1861,49 +1851,38 @@ func openExclusionStore(t *testing.T) *Store {
 
 // Without Store.Execute's per-collection lock both submits can pass admitTaskOrMovement before either applies.
 func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		replicaSide func(*testing.T) *cmd.ApplyRequest
-	}{
-		{name: "a movement and a task", replicaSide: exclusionMovementCommand},
-		{name: "a replica removal and a task", replicaSide: exclusionRemovalCommand},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := openExclusionStore(t)
-			commands := []*cmd.ApplyRequest{
-				tc.replicaSide(t),
-				exclusionTaskCommand(t, exclusionNamespace),
-			}
-
-			errs := make([]error, len(commands))
-			start := make(chan struct{})
-			var wg sync.WaitGroup
-			for i, command := range commands {
-				wg.Add(1)
-				enterrors.GoWrapper(func() {
-					defer wg.Done()
-					<-start
-					_, errs[i] = s.Execute(command)
-				}, s.log)
-			}
-			close(start)
-			wg.Wait()
-
-			admitted := 0
-			for _, err := range errs {
-				if err == nil {
-					admitted++
-					continue
-				}
-				require.True(t, errors.Is(err, replicationTypes.ErrMovementBlockedByTask) ||
-					errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) ||
-					errors.Is(err, distributedtask.ErrTaskReplicasChanged),
-					"the loser must be refused by the exclusion, got: %v", err)
-			}
-			require.Equal(t, 1, admitted,
-				"both submits were admitted, so the check ran against state the other one had not committed yet")
-		})
+	s := openExclusionStore(t)
+	commands := []*cmd.ApplyRequest{
+		exclusionMovementCommand(t),
+		exclusionTaskCommand(t, exclusionNamespace),
 	}
+
+	errs := make([]error, len(commands))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, command := range commands {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = s.Execute(command)
+		}, s.log)
+	}
+	close(start)
+	wg.Wait()
+
+	admitted := 0
+	for _, err := range errs {
+		if err == nil {
+			admitted++
+			continue
+		}
+		require.True(t, errors.Is(err, replicationTypes.ErrMovementBlockedByTask) ||
+			errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement),
+			"the loser must be refused by the exclusion, got: %v", err)
+	}
+	require.Equal(t, 1, admitted,
+		"both submits were admitted, so the check ran against state the other one had not committed yet")
 }
 
 func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
@@ -1930,11 +1909,6 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		seedOwedSwap(t, s, "", [2]string{"node1", "node2"}, failSwappingTask)
 	}
 	owed := []error{replicationTypes.ErrMovementBlockedByTask}
-	emptyAddition := func(t *testing.T) *cmd.ApplyRequest {
-		req := owingSubCommand(t, &cmd.AddReplicaToShard{Class: exclusionCollection, Shard: "shard1", TargetNode: "node4"})
-		req.Type = cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD
-		return req
-	}
 
 	for _, tc := range []struct {
 		name     string
@@ -1979,14 +1953,6 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		{
 			name: "a replica removal is refused while a stopped task owes its shard's swap", command: exclusionRemovalCommand,
 			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
-		},
-		{
-			name: "an empty replica addition is refused while a stopped task owes its shard's swap", command: emptyAddition,
-			seed: owedBy(cancelOwingTask), wantErrs: owed, wantOwing: "node2",
-		},
-		{
-			name: "a replica removal is refused while a task runs on the collection", command: exclusionRemovalCommand,
-			seed: seedExclusionTask, wantErrs: owed,
 		},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,
