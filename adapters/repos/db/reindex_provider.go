@@ -1903,13 +1903,6 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	if len(shards) == 0 {
 		return false
 	}
-	if idx.closeCause() != nil {
-		return false
-	}
-	hosted := make(map[string]bool, len(shards))
-	for _, shardName := range shards {
-		hosted[shardName] = idx.shards.Load(shardName) != nil
-	}
 	recordReads := 0
 	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.
 	unreadable := map[string]struct{}{}
@@ -1928,7 +1921,7 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		if ctx.Err() != nil {
 			return false
 		}
-		if !hosted[shardName] {
+		if idx.shards.Load(shardName) == nil {
 			continue
 		}
 		recordReads++
