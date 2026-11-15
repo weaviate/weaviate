@@ -28,17 +28,19 @@ func TestShouldRetainCompletedTaskDecodesEachRunOnce(t *testing.T) {
 		})
 		require.NoError(t, err)
 		return &distributedtask.Task{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: prop, Version: version},
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "reindex", Version: version},
 			Status:         distributedtask.TaskStatusFailed, Payload: payload,
 		}
 	}
 	tests := []struct {
-		name       string
-		leaveFirst bool
-		wantRetain bool
+		name            string
+		leaveFirst      bool
+		unreadableFirst bool
+		wantRetain      bool
 	}{
 		{name: "a decoded run is not decoded again", wantRetain: true},
 		{name: "a run that left the namespace is decoded again", leaveFirst: true, wantRetain: false},
+		{name: "a run unreadable on the first read is not retained and not decoded again", unreadableFirst: true, wantRetain: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -47,8 +49,12 @@ func TestShouldRetainCompletedTaskDecodesEachRunOnce(t *testing.T) {
 				older.TaskDescriptor: older, newer.TaskDescriptor: newer,
 			}
 			p := &ReindexProvider{}
+			readable := older.Payload
+			if tt.unreadableFirst {
+				older.Payload = []byte("unreadable")
+			}
 			for _, task := range tasks {
-				require.True(t, p.ShouldRetainCompletedTask(task, tasks))
+				require.Equal(t, !(tt.unreadableFirst && task == older), p.ShouldRetainCompletedTask(task, tasks))
 			}
 			if tt.leaveFirst {
 				delete(tasks, older.TaskDescriptor)
@@ -56,6 +62,9 @@ func TestShouldRetainCompletedTaskDecodesEachRunOnce(t *testing.T) {
 				tasks[older.TaskDescriptor] = older
 			}
 			older.Payload = []byte("unreadable")
+			if tt.unreadableFirst {
+				older.Payload = readable
+			}
 			require.Equal(t, tt.wantRetain, p.ShouldRetainCompletedTask(older, tasks))
 		})
 	}
