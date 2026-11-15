@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -90,7 +91,8 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, srv.AddDistributedTask(ctx, ns, "T1", map[string]string{}, []string{"u1"}))
 	require.ErrorContains(t, srv.AddDistributedTask(ctx, ns, "T2", map[string]string{}, []string{"u1"}), "conflicts with task T1")
-	_, err = srv.DeleteClass(ctx, "C")
+	// Unmarked, as older binaries propose it.
+	_, err = srv.Execute(ctx, &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 	require.ErrorContains(t, err, "task in flight on C")
 	lastIndex := srv.store.raft.Load().LastIndex()
 	require.NoError(t, srv.Close(ctx))
@@ -107,6 +109,10 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	tasks, err := srv.store.distributedTasksManager.ListDistributedTasks(ctx)
 	require.NoError(t, err)
 	require.Len(t, tasks[ns], 1, "the replayed conflicting task must stay refused")
+
+	_, err = srv.DeleteClass(ctx, "C")
+	require.NoError(t, err, "this binary's DELETE_CLASS goes through an in-flight task")
+	require.Empty(t, srv.SchemaReader().ClassEqual("C"))
 	require.NoError(t, srv.Close(ctx))
 }
 

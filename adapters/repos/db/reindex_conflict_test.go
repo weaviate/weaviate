@@ -12,11 +12,9 @@
 package db
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -682,80 +680,85 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 	require.Contains(t, err.Error(), "unparseable")
 }
 
-func TestCheckClassMutation_NeverBlocksDeleteClass(t *testing.T) {
-	payload, _ := json.Marshal(ReindexTaskPayload{
+// TestCheckClassMutation_* pin the class-wide guard
+// (DeleteClass family; https://github.com/weaviate/0-weaviate-issues/issues/219). Stricter than
+// CheckPropertyUpdate — any in-flight reindex on the class is a
+// conflict, regardless of which property the migration targets.
+
+func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
+	detector := ReindexDetector{}
+	require.NoError(t, detector.CheckClassMutation("C", nil))
+
+	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
 		Collection:    "C",
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
-	for _, tc := range []struct {
-		name    string
-		status  distributedtask.TaskStatus
-		payload []byte
-	}{
-		{name: "started", status: distributedtask.TaskStatusStarted, payload: payload},
-		{name: "preparing", status: distributedtask.TaskStatusPreparing, payload: payload},
-		{name: "swapping", status: distributedtask.TaskStatusSwapping, payload: payload},
-		{name: "unknown status", status: unknownFutureStatus, payload: payload},
-		{name: "finished", status: distributedtask.TaskStatusFinished, payload: payload},
-		{name: "unparseable payload", status: distributedtask.TaskStatusStarted, payload: []byte("garbage")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+	tasks := []*distributedtask.Task{{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_finished", Version: 1},
+		Status:         distributedtask.TaskStatusFinished,
+		Payload:        terminalPayload,
+	}}
+	require.NoError(t, detector.CheckClassMutation("C", tasks),
+		"FINISHED tasks must not block DeleteClass")
+}
+
+func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
+	detector := ReindexDetector{}
+
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		// Migration is on "name" but DeleteClass is class-wide, so
+		// any property in flight blocks the mutation.
+		Properties: []string{"name"},
+	})
+
+	for _, status := range blockingStatuses {
+		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
-				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
-				Status:         tc.status,
-				Payload:        tc.payload,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
+				Status:         status,
+				Payload:        payload,
 			}}
-			require.NoError(t, ReindexDetector{}.CheckClassMutation("C", tasks))
+			err := detector.CheckClassMutation("C", tasks)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "T_class")
+			require.Contains(t, err.Error(), "bucket↔schema inversion")
 		})
 	}
 }
 
-func TestDeleteClass_ClearsAStuckReindex(t *testing.T) {
-	payloadOn := func(collection string) []byte {
-		b, err := json.Marshal(ReindexTaskPayload{
-			Collection:    collection,
-			MigrationType: ReindexTypeChangeTokenization,
-			Properties:    []string{"name"},
-		})
-		require.NoError(t, err)
-		return b
-	}
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
-		t.Run(string(status), func(t *testing.T) {
-			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
-				{
-					Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "stuck", Version: 1},
-					Status: status, Payload: payloadOn("C"),
-					SwapDecidedGroups: map[string]time.Time{"g1": time.Unix(1, 0)},
-				},
-				{
-					Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "other", Version: 1},
-					Status: status, Payload: payloadOn("D"),
-				},
-			}}})
-			require.NoError(t, err)
-			logger, _ := test.NewNullLogger()
-			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
-				Logger:                  logger,
-				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
-			})
-			mgr.RegisterCollectionExtractor(ReindexNamespace, ExtractReindexTaskCollection)
-			require.NoError(t, mgr.Restore(snapshot))
+func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
+	detector := ReindexDetector{}
 
-			require.NoError(t, mgr.CheckClassMutation("c"))
-			removed := mgr.DeleteTasksForCollection("c")
-			require.Equal(t, []distributedtask.TaskDescriptor{{ID: "stuck", Version: 1}}, removed)
-			left, err := mgr.ListDistributedTasks(context.Background())
-			require.NoError(t, err)
-			require.Len(t, left[ReindexNamespace], 1)
-			require.Equal(t, "other", left[ReindexNamespace][0].ID)
-		})
-	}
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "A",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+
+	tasks := []*distributedtask.Task{{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        payload,
+	}}
+
+	require.NoError(t, detector.CheckClassMutation("B", tasks),
+		"in-flight reindex on class A must not block DeleteClass on class B")
+}
+
+func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
+	detector := ReindexDetector{}
+	tasks := []*distributedtask.Task{{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        []byte("garbage"),
+	}}
+	err := detector.CheckClassMutation("C", tasks)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "T_garbage")
+	require.Contains(t, err.Error(), "unparseable")
 }
 
 // TestCheckTenantMutation_* pin the tenant-level guard
@@ -901,6 +904,12 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 				return detector.CheckPropertyUpdate("C", "name", tasks)
 			},
 			cancelAdvice: "cancel it via the reindex REST API before retrying",
+		},
+		"class mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return detector.CheckClassMutation("C", tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
 		},
 		"tenant mutation": {
 			call: func(tasks []*distributedtask.Task) error {

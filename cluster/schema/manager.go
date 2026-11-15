@@ -63,9 +63,7 @@ type MutationGuard interface {
 	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
 	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
-	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
-	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
-	// class blocks the mutation.
+	// CheckClassMutation gates DeleteClass entries proposed by older binaries.
 	CheckClassMutation(className string) error
 
 	// CheckTenantMutation gates tenant transitions that make shards
@@ -747,7 +745,9 @@ func removedDroppedVectorConfigs(prev, next *models.Class) []string {
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
 	// Cross-FSM mutation guard — see [MutationGuard.CheckClassMutation].
-	if s.mutationGuard != nil {
+	var req command.DeleteClassRequest
+	cancelsInFlightTasks := json.Unmarshal(cmd.SubCommand, &req) == nil && req.CancelsInFlightTasks
+	if s.mutationGuard != nil && !cancelsInFlightTasks {
 		if err := s.mutationGuard.CheckClassMutation(cmd.Class); err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}

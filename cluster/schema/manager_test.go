@@ -889,9 +889,8 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 
 // TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
 // guard wiring on the DeleteClass apply path
-// (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). DeleteClass mid-reindex destroys
-// every property's bucket state at once; the guard rejection must
-// fire BEFORE any class-deletion side effect.
+// (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). Unmarked entries come from
+// older binaries and must keep their refusal, before any side effect.
 func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	mkRequest := func(class string) *cmd.ApplyRequest {
 		return &cmd.ApplyRequest{
@@ -920,6 +919,22 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 		require.Contains(t, err.Error(), "reindex task on class C is in flight")
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("a marked entry skips the guard and cascades", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("reindex task on class C is in flight")}
+		sm := newSM(guard)
+		deleter := &fakeCascadeDeleter{}
+		sm.SetDistributedTaskManager(deleter)
+		addClass(t, sm, "C")
+		sub, err := json.Marshal(cmd.DeleteClassRequest{CancelsInFlightTasks: true})
+		require.NoError(t, err)
+		req := mkRequest("C")
+		req.SubCommand = sub
+
+		require.NoError(t, sm.DeleteClass(req, true, false))
+		require.Equal(t, 0, guard.called)
+		require.Equal(t, []string{"C"}, deleter.collectionCalls)
 	})
 
 	t.Run("no guard registered → DeleteClass proceeds", func(t *testing.T) {

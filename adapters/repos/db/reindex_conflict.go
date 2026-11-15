@@ -275,7 +275,52 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 	return nil
 }
 
-func (ReindexDetector) CheckClassMutation(string, []*distributedtask.Task) error {
+// CheckClassMutation implements
+// [distributedtask.SchemaMutationDetector] for class-wide
+// DeleteClass entries proposed by binaries older than this one. Stricter than
+// CheckPropertyUpdate — any reindex task on the class (regardless of
+// which property) is a conflict, because dropping the class destroys
+// every property's bucket state at once including the in-flight
+// migration's working dirs and canonical bucket pointers.
+//
+// Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
+// in-flight payloads are treated as a hard reject (we cannot prove
+// non-conflict).
+func (ReindexDetector) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+	for _, task := range existingTasks {
+		// Same in-flight semantics as CheckConflict.
+		if !task.Status.IsActive() {
+			continue
+		}
+
+		var existP ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			return fmt.Errorf(
+				"in-flight reindex task %q has an unparseable payload; "+
+					"cannot verify whether DeleteClass on %s would "+
+					"conflict: %w",
+				task.ID, className, err)
+		}
+		if existP.Collection == "" || existP.MigrationType == "" {
+			return fmt.Errorf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType (payload may have been written by an "+
+					"older binary); cannot verify whether DeleteClass on "+
+					"%s would conflict",
+				task.ID, className)
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		return fmt.Errorf(
+			"reindex task %q (%s) is in flight on %s (status=%s); "+
+				"deleting this class would destroy the migration's "+
+				"working state and produce a bucket↔schema inversion "+
+				"on every replica — %s",
+			task.ID, existP.MigrationType, existP.Collection, task.Status,
+			MutationRemedy(task.Status,
+				"cancel the reindex via the REST API before deleting the class"))
+	}
 	return nil
 }
 
