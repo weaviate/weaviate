@@ -226,7 +226,7 @@ func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, string
 	}
 }
 
-// admitTaskOrMovement refuses a replicate, an add-replica or a delete-replica command while a task runs on the collection or a stopped one owes the shard's swap, and a task while a movement runs: a reindex rewrites the files a movement copies, removing an owing replica leaves a debt no node can pay, and an empty addition holds old data no debt names.
+// admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
 func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection, shard string) error {
 	switch cmdType {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
