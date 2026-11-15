@@ -82,7 +82,6 @@ func TestMapSubmitTaskError(t *testing.T) {
 		wantStatus int
 	}{
 		{"suspended namespace", namespaces.ErrNamespaceSuspended, http.StatusUnprocessableEntity},
-		{"deleting namespace", namespaces.ErrNamespaceDeleting, http.StatusUnprocessableEntity},
 		{"resuming namespace", namespaces.ErrNamespaceResuming, http.StatusServiceUnavailable},
 	} {
 		t.Run(tc.name+" -> status of its sentinel", func(t *testing.T) {

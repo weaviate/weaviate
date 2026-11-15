@@ -203,7 +203,7 @@ func (i *Index) cleanStalePartialReindexState(
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
-		// Per shard, not once per walk, so a suspend applied mid-walk stops the next load.
+		// Checked per shard, so a namespace suspended mid-walk stops the walk at the next shard.
 		if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
 			return fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
 		}
