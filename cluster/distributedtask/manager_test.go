@@ -1390,10 +1390,6 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 		"post-restore the missing-acks predicate must keep gating MarkTaskFinalized")
 }
 
-// fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
-// dispatch test pin every branch with a scripted verdict. Records
-// arguments so we can assert the dispatch contract
-// (only the matching-namespace detector consulted, etc.).
 type fakeSchemaMutationDetector struct {
 	called        int
 	lastClassName string
@@ -1424,11 +1420,6 @@ func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenan
 	return f.rejectWith
 }
 
-// TestManager_CheckPropertyUpdate_DispatchToDetectors pins the cross-
-// FSM dispatch: the schema FSM's UpdateProperty apply consults this
-// method, which fans out to every registered
-// [SchemaMutationDetector].
-//
 // Motivating bug: https://github.com/weaviate/0-weaviate-issues/issues/218. Symmetric to the existing
 // TestManager_AddTask_ConflictDetector pattern.
 func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
@@ -1477,9 +1468,6 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	})
 }
 
-// TestManager_CheckClassMutation_DispatchToDetectors pins the dispatch
-// for the class-wide guard. Symmetric to the CheckPropertyUpdate
-// dispatch suite — same nil-safety, same propagate-rejection.
 func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
