@@ -124,6 +124,21 @@ func TestNamespaces_SuspendRefusesDestructiveSchemaOps(t *testing.T) {
 		assert.Equal(t, qualifiedST, got.Payload.Class)
 	})
 
+	t.Run("a reindex submit is refused", func(t *testing.T) {
+		_, _, err := helper.Client(t).Schema.SchemaObjectsIndexUpsert(
+			schemaCli.NewSchemaObjectsIndexUpsertParams().
+				WithClassName(qualifiedST).
+				WithPropertyName("title").
+				WithIndexName("searchable").
+				WithBody(&models.IndexUpsertRequest{Tokenization: "lowercase"}),
+			helper.CreateAuth(adminKey),
+		)
+		var refused *schemaCli.SchemaObjectsIndexUpsertUnprocessableEntity
+		require.ErrorAs(t, err, &refused, "got %T: %v", err, err)
+		require.NotEmpty(t, refused.Payload.Error)
+		assert.Contains(t, refused.Payload.Error[0].Message, refusalText)
+	})
+
 	// Fails if the gate refuses whenever any namespace is suspended, rather
 	// than the one the command names.
 	t.Run("a delete in the other namespace still succeeds", func(t *testing.T) {

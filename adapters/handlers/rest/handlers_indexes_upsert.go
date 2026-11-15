@@ -921,7 +921,6 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 // their state is unverified rather than known stale, and a healthy node
 // produces that from a tenant leaving the shard map mid-walk. Refusing the
 // submit on it would turn ordinary tenant movement into a 500.
-// A sweep the namespace state stopped still refuses: the leader would anyway.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
 	collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
@@ -956,9 +955,6 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"migration_type": migrationType,
 			"index_type":     it,
 		})
-		if cerrors.NamespaceErrRendersUnprocessable(err) || errors.Is(err, usecasesNamespaces.ErrNamespaceResuming) {
-			return h.mapSubmitTaskError(principal, collection, "", err)
-		}
 		if errors.Is(err, db.ErrCleanupSweepTruncated) {
 			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
 			continue
