@@ -2546,8 +2546,12 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 // ShardReplicaOwnershipForMT returns shard ownership for the named tenants
 // (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
 // tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
-// A tenant in paid (migrated on every replica) is left out, whatever its status, unless all are.
-func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string, paid map[string]struct{}) (map[string][]string, error) {
+// A tenant earlier runs to target migrated on every replica is left out, whatever its status, unless all are.
+func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTaskPayload, property string,
+	tenantNames []string, tasks []*distributedtask.Task,
+) (map[string][]string, error) {
+	className := target.Collection
+	_, paid, _ := ReindexMigratedTenants(ReindexRuns(tasks), property, target)
 	result := make(map[string][]string)
 	notHot := 0
 	tenantSet := make(map[string]struct{}, len(tenantNames))
@@ -2614,7 +2618,7 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
 	"once any freeze or unfreeze in progress finishes, set them to HOT")
 
-// TenantsNotHotError carries a count the caller shows only to a principal who may read tenants.
+// TenantsNotHotError counts the target tenants that still need work and are not HOT.
 type TenantsNotHotError struct{ Count int }
 
 func (e *TenantsNotHotError) Error() string { return ErrTenantsNotHot.Error() }

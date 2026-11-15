@@ -14,8 +14,10 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -737,6 +739,7 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 		statuses map[string]string
 		tenants  []string
 		plan     upsertPlan
+		tasks    []*distributedtask.Task
 		reader   bool
 		wantCode int
 		wantErr  string
@@ -755,11 +758,12 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 			wantErr:  db.ErrTenantsNotHot.Error(),
 		},
 		{
-			name:     "collection-wide with a COLD tenant, to a tenant reader",
-			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
-			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			name:     "a resubmit after a partial run, to a tenant reader, counts only tenants still needing work",
+			statuses: map[string]string{"a": models.TenantActivityStatusCOLD, "b": models.TenantActivityStatusCOLD, "c": models.TenantActivityStatusHOT},
+			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField},
+			tasks:    []*distributedtask.Task{partlyMigratedRun(t, "p", db.ReindexTypeChangeTokenization, models.PropertyTokenizationField, "a", "b", "c")},
 			reader:   true,
-			wantErr:  db.ErrTenantsNotHot.Error() + " (tenants not HOT: 1)",
+			wantErr:  db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 1)",
 		},
 		{
 			name:     "collection-wide with a FROZEN tenant",
@@ -797,7 +801,7 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 				Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
 			}
 
-			resp := h.submitReindexTask(context.Background(), nil, class, "C", "p", tc.plan, tc.tenants, nil)
+			resp := h.submitReindexTask(context.Background(), nil, class, "C", "p", tc.plan, tc.tenants, tc.tasks)
 
 			code, body := statusOf(t, resp)
 			if tc.wantErr == "" {
@@ -814,9 +818,9 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 // Pins that the resubmit skip and the partial status agree on which tenants already serve the target.
 func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	hot := models.TenantActivityStatusHOT
-	plan := upsertPlan{
-		migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField,
-		bucketStrategy: "mapcollection",
+	target := &db.ReindexTaskPayload{
+		Collection: "C", MigrationType: db.ReindexTypeChangeTokenization,
+		TargetTokenization: models.PropertyTokenizationField, BucketStrategy: "mapcollection",
 	}
 	start := time.Now()
 	run := func(version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, tok string, held string, decided ...string) *distributedtask.Task {
@@ -887,7 +891,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			database := dbWithTenants(t, map[string]string{"a": hot, "b": hot, "c": hot})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), "C", nil, paidTenants("C", "title", plan, tc.tasks))
+			got, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", nil, tc.tasks)
 			require.NoError(t, err)
 			require.Equal(t, map[string][]string{"node1": tc.want}, got)
 
@@ -1011,7 +1015,9 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			require.Empty(t, plan.conflict)
 			require.Equal(t, tc.mt, plan.migrationType)
 			database := dbWithTenants(t, map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusHOT})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), "C", nil, paidTenants("C", "p", plan, tasks))
+			got, err := database.ShardReplicaOwnershipForMT(context.Background(), &db.ReindexTaskPayload{
+				Collection: "C", MigrationType: plan.migrationType, TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+			}, "p", nil, tasks)
 			require.NoError(t, err)
 			require.Equal(t, map[string][]string{"node1": {"a", "b"}}, got)
 		})
@@ -1029,21 +1035,21 @@ func TestResubmitAfterPartialRunChecksHotOnlyForNeededTenants(t *testing.T) {
 		want       []string
 		wantNotHot int
 	}{
-		{"a finished tenant is COLD", map[string]string{"a": cold, "b": hot, "c": hot}, []string{"a"}, []string{"b", "c"}, 0},
-		{"a finished tenant is FROZEN", map[string]string{"a": frozen, "b": hot, "c": hot}, []string{"a"}, []string{"b", "c"}, 0},
-		{"a finished tenant is OFFLOADED", map[string]string{"a": offloaded, "b": hot, "c": hot}, []string{"a"}, []string{"b", "c"}, 0},
+		{"finished tenants are COLD, FROZEN and OFFLOADED", map[string]string{"a": cold, "b": frozen, "c": offloaded, "d": hot}, []string{"a", "b", "c"}, []string{"d"}, 0},
 		{"two needed tenants are COLD and FROZEN", map[string]string{"a": frozen, "b": cold, "c": frozen}, []string{"a"}, nil, 2},
 		{"every tenant finished, one FROZEN", map[string]string{"a": frozen, "b": hot}, []string{"a", "b"}, nil, 1},
-		{"every tenant finished, all HOT", map[string]string{"a": hot, "b": hot}, []string{"a", "b"}, []string{"a", "b"}, 0},
 	}
+	changeTok, field := db.ReindexTypeChangeTokenization, models.PropertyTokenizationField
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			paid := map[string]struct{}{}
+			run := partlyMigratedRun(t, "p", changeTok, field, slices.Sorted(maps.Keys(tc.statuses))...)
+			run.SwapDecidedGroups = map[string]time.Time{}
 			for _, g := range tc.finished {
-				paid[g] = struct{}{}
+				run.SwapDecidedGroups[g] = time.Time{}
 			}
+			target := &db.ReindexTaskPayload{Collection: "C", MigrationType: changeTok, TargetTokenization: field}
 
-			got, err := dbWithTenants(t, tc.statuses).ShardReplicaOwnershipForMT(context.Background(), "C", nil, paid)
+			got, err := dbWithTenants(t, tc.statuses).ShardReplicaOwnershipForMT(context.Background(), target, "p", nil, []*distributedtask.Task{run})
 
 			if tc.wantNotHot > 0 {
 				var notHot *db.TenantsNotHotError

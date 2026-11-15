@@ -702,12 +702,11 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	// One unit per shard per replica: each replica has its own local copy.
 	var shardOwnership map[string][]string
 	var err error
-	var paid map[string]struct{}
-	if isMT && semantic {
-		paid = paidTenants(collection, propertyName, plan, reindexTasks)
-	}
 	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, collection, tenants, paid)
+		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &db.ReindexTaskPayload{
+			Collection: collection, MigrationType: plan.migrationType,
+			TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+		}, propertyName, tenants, reindexTasks)
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
@@ -715,7 +714,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	if errors.As(err, &notHot) {
 		msg := err.Error()
 		if h.mayReadTenants(ctx, principal, collection) {
-			msg = fmt.Sprintf("%s (tenants not HOT: %d)", msg, notHot.Count)
+			msg = fmt.Sprintf("%s (tenants still needing work that are not HOT: %d)", msg, notHot.Count)
 		}
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, msg))
 	}
@@ -778,14 +777,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: reindexStartedStatus,
 	})
-}
-
-func paidTenants(collection, propertyName string, plan upsertPlan, reindexTasks []*distributedtask.Task) map[string]struct{} {
-	_, paid, _ := db.ReindexMigratedTenants(db.ReindexRuns(reindexTasks), propertyName, &db.ReindexTaskPayload{
-		Collection: collection, MigrationType: plan.migrationType,
-		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
-	})
-	return paid
 }
 
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is

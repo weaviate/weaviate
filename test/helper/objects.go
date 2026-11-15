@@ -656,6 +656,39 @@ func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+// SetTenantsStatus waits until every tenant reports status; COLD and HOT also accept their INACTIVE and ACTIVE aliases.
+func SetTenantsStatus(t *testing.T, class string, names []string, status string) {
+	t.Helper()
+	updates := make([]*models.Tenant, len(names))
+	for i, name := range names {
+		updates[i] = &models.Tenant{Name: name, ActivityStatus: status}
+	}
+	UpdateTenants(t, class, updates)
+
+	wanted := map[string]bool{status: true}
+	switch status {
+	case models.TenantActivityStatusCOLD:
+		wanted[models.TenantActivityStatusINACTIVE] = true
+	case models.TenantActivityStatusHOT:
+		wanted[models.TenantActivityStatusACTIVE] = true
+	}
+	require.Eventually(t, func() bool {
+		got, err := GetTenants(t, class)
+		if err != nil {
+			return false
+		}
+		pending := len(names)
+		for _, tenant := range got.Payload {
+			for _, name := range names {
+				if tenant.Name == name && wanted[tenant.ActivityStatus] {
+					pending--
+				}
+			}
+		}
+		return pending == 0
+	}, 2*time.Minute, 200*time.Millisecond, "tenants %v should report activity status %q", names, status)
+}
+
 func UpdateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant, authInfo runtime.ClientAuthInfoWriter) {
 	t.Helper()
 	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
