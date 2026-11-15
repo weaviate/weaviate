@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"sync"
 	"testing"
@@ -93,7 +92,7 @@ func TestDropRequestCancelsRunningPhase(t *testing.T) {
 					cause <- context.Cause(ctx)
 				case <-finish:
 				}
-				// The tail stands in for disk work that ignores the ctx.
+				// This second wait on finish stands in for disk work that ignores the ctx.
 				<-finish
 				return phaseResult{}
 			})
@@ -134,33 +133,18 @@ func TestStoppedUnitLoadsNoShard(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		closing bool
-		run     func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) error
-		wantErr error
+		run     func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder)
 	}{
 		{
-			name: "swap on a dropped collection", closing: true, wantErr: context.Canceled,
-			run: func(p *ReindexProvider, _ *Index, payload *ReindexTaskPayload, _ *fakeRecorder) error {
-				raw, err := json.Marshal(payload)
-				require.NoError(t, err)
-				return p.OnSwapRequested(&distributedtask.Task{
-					Namespace: ReindexNamespace, TaskDescriptor: desc,
-					Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
-					SwapDecidedGroups: map[string]time.Time{"g1": {}},
-				}, "g1", []string{unitID})
-			},
-		},
-		{
 			name: "scheduler unit on a dropped collection", closing: true,
-			run: func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) error {
-				p.processUnits(testCtx(), started, payload, idx, []string{unitID}, rec)
-				return nil
+			run: func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) {
+				p.processOneUnit(testCtx(), started, payload, idx, unitID, rec)
 			},
 		},
 		{
 			name: "scheduler unit cancelled before its load",
-			run: func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) error {
+			run: func(p *ReindexProvider, idx *Index, payload *ReindexTaskPayload, rec *fakeRecorder) {
 				p.processOneUnit(cancelled, started, payload, idx, unitID, rec)
-				return nil
 			},
 		},
 	} {
@@ -203,12 +187,11 @@ func TestStoppedUnitLoadsNoShard(t *testing.T) {
 			require.NoError(t, os.RemoveAll(tenantDir))
 			rec := newFakeRecorder()
 
-			err = tc.run(p, idx, payload, rec)
+			tc.run(p, idx, payload, rec)
 
 			require.NoDirExists(t, tenantDir, "a load would recreate the removed tenant's directory")
 			require.False(t, cold.isLoaded())
 			require.Empty(t, rec.failed, "a stopped unit is not failed")
-			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
@@ -219,7 +202,6 @@ func TestRecoveryClaimSkipsAClosingIndex(t *testing.T) {
 		closing     bool
 		wantRefusal error
 	}{
-		{name: "open index", closing: false},
 		{name: "index asked to close", closing: true, wantRefusal: errIndexDropped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

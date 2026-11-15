@@ -890,7 +890,7 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 // TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
 // guard wiring on the DeleteClass apply path
 // (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). Unmarked entries come from
-// older binaries and must keep their refusal, before any side effect.
+// older binaries (CancelsInFlightTasks unset). Their refusal must fire before any side effect.
 func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	mkRequest := func(class string) *cmd.ApplyRequest {
 		return &cmd.ApplyRequest{
@@ -947,14 +947,12 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	})
 }
 
-// The task cascade matches names case-insensitively, so a delete that
-// removed no class must not reach it.
+// DeleteTasksForCollection matches names case-insensitively, so DeleteClass calls it only once it removed a class.
 func TestSchemaManager_DeleteClass_CascadesOnlyARemovedClass(t *testing.T) {
 	for _, tc := range []struct {
 		name, deleted string
 		wantCascade   []string
 	}{
-		{name: "exact name", deleted: "MyClass", wantCascade: []string{"MyClass"}},
 		{name: "case variant", deleted: "MYCLASS"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

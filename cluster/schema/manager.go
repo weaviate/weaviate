@@ -63,7 +63,7 @@ type MutationGuard interface {
 	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
 	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
-	// CheckClassMutation gates DeleteClass entries proposed by older binaries.
+	// CheckClassMutation gates DeleteClass entries without CancelsInFlightTasks, which only older binaries propose.
 	CheckClassMutation(className string) error
 
 	// CheckTenantMutation gates tenant transitions that make shards

@@ -91,7 +91,7 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, srv.AddDistributedTask(ctx, ns, "T1", map[string]string{}, []string{"u1"}))
 	require.ErrorContains(t, srv.AddDistributedTask(ctx, ns, "T2", map[string]string{}, []string{"u1"}), "conflicts with task T1")
-	// Unmarked, as older binaries propose it.
+	// Execute leaves CancelsInFlightTasks unset, as older binaries do.
 	_, err = srv.Execute(ctx, &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 	require.ErrorContains(t, err, "task in flight on C")
 	lastIndex := srv.store.raft.Load().LastIndex()

@@ -15,7 +15,7 @@ import "github.com/weaviate/weaviate/usecases/logrusext"
 
 // ShardReindexerV3 recovers a loading shard's migrations. RecoverMigrations returns the tasks to re-arm.
 // AbandonUnarmed stamps Unmirrored those that failed, and its error holds the shard READONLY with the tasks it returns.
-// ClaimUnits keeps a teardown off each claimed task's unit until release runs, and returns in skipped the tasks it refused, with the first reason.
+// ClaimUnits keeps teardowns off claimed units until release. refusal says why the first task in skipped was refused.
 // UnbuildableFaults samples the lines about records no task can be built from; nil means unsampled.
 type ShardReindexerV3 interface {
 	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric

@@ -352,8 +352,8 @@ func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, un
 	return p.releaseOf(p.liveUnits.take(desc, unitID)), nil
 }
 
-// enterIndex admits a unit as a reader of idx, so a drop or shutdown of idx waits for it to release. It refuses
-// once idx is asked to close. Never call it under p.mu or hold it across a cluster write, which a drop's apply would wait on.
+// enterIndex admits a unit as a reader of idx, so a drop or shutdown of idx waits for its release, and refuses once
+// idx is asked to close. Never call it under p.mu or hold it across a cluster write, which can queue behind the drop.
 func enterIndex(idx *Index) (func(), error) {
 	if err := idx.enterRead(); err != nil {
 		return nil, err
@@ -659,7 +659,7 @@ func (p *ReindexProvider) processOneUnit(
 		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
 
-	// Cluster writes stay outside the index admission.
+	// runUnitTasks holds enterIndex, so failUnit and the completion write run only after it returns.
 	var writes progressWrites
 	failure, completed := p.runUnitTasks(ctx, task, payload, idx, unitID, shard, recorder, &writes, logger)
 	writes.wait()
@@ -790,7 +790,7 @@ func (p *ReindexProvider) logUnitNotStarted(taskID, unitID, shardName string, ca
 	})
 }
 
-// progressWrites runs one progress write at a time off the reindex loop, and drops a value that arrives meanwhile.
+// progressWrites runs each progress write on its own goroutine, one at a time, and drops a value sent while one runs.
 type progressWrites struct {
 	busy atomic.Bool
 	wg   sync.WaitGroup
