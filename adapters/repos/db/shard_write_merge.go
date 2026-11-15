@@ -144,7 +144,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
-	if err := s.flushGeoQueues(); err != nil {
+	if err := s.flushGeoQueues(status); err != nil {
 		return err
 	}
 
