@@ -65,6 +65,123 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
 
+## v2.0: streaming en memoria (pre-registro, 2026-11-16)
+
+**Estado: pre-registrado, sin datos.** Escrito y commiteado antes de compilar nada del experimento. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### Qué se valida
+
+El mantenimiento, antes de llevarlo a disco: si un índice que crece por inserciones queda cerca del build en lote del mismo corpus. Las inserciones llevan asignación aproximada, aristas de salida buscadas en el propio índice y un split simple.
+
+Las dos hipótesis:
+
+- **H1:** no hacen falta aristas inversas.
+- **H2:** no hace falta reparar las aristas de un posting que se parte.
+
+**Decisiones provisionales del encargo,** que se revisan con los resultados:
+
+- split simple propio, no el de HFresh;
+- mapa vector→posting sobre docIDs crudos;
+- sin deletes.
+
+### Representación
+
+**Aristas por docID, mapa docID→posting de 4 B por vector, y sidecar indexado por docID.** Un split o un movimiento de vector cambia el mapa y ninguna arista. El coste por endpoint de esta representación es lo que mide aparte el microbenchmark de fase 2 (`disk-design.md`).
+
+**En memoria, cada posting guarda sus propios códigos,** contiguos para el scan, además del sidecar por docID. Son los códigos dos veces, como en el diseño de disco.
+
+**La búsqueda es la misma función que la del índice en lote.** El store de postings gana un modo por docID, con una lista por posting que puede crecer y partirse. La búsqueda recibe de él docIDs donde antes recibía slots. Que las dos representaciones puntúan los mismos endpoints con las mismas estimaciones ya lo comprueba `TestEndpointKeysReplay`.
+
+### Protocolo
+
+- **Dataset:** dbpedia-openai 1M (990 000 × 1536d, cosine), con 5 000 queries como en v1.2.
+- **Orden de inserción:** barajado, con semilla fija.
+- **Celda:**
+  1. build en lote con los defaults de hoy sobre el primer 50 % del orden: S=236, P=256, R=64, código completo y ef de centroides 8;
+  2. después, el 50 % restante por el camino incremental;
+  3. checkpoints al 60, 70, 80, 90 y 100 %, y el 50 % de partida como base.
+- **Referencia:** el build en lote del 100 %, con los mismos defaults.
+- **Variante extra, solo para la celda principal:** el orden natural de las filas, como prueba de deriva. Es la misma celda con el lote sobre la primera mitad de las filas y la segunda insertada en orden.
+
+### El camino incremental
+
+1. **Asignación.** El vector va al posting del centroide más cercano según el grafo de centroides, con el ef de centroides por defecto (8); no es una asignación exacta.
+   - Cada insert calcula también, por fuerza bruta, el centroide vivo más cercano. Se reporta la tasa de asignaciones que no van a él, sin usarla para nada.
+2. **Aristas de salida.** Antes de insertarlo, el índice busca el propio vector con k=16 y ef=320. Es el ef al que la curva de dbpedia llega a 0.99 con rescoreLimit 64.
+   - De esos 16 más cercanos, los que caen fuera de su posting son sus aristas, el más cercano primero.
+   - *Lectura mía de «los 16 vecinos más cercanos fuera de su posting»:* es la regla del constructor en lote (de los 16 más cercanos, los de fuera del posting propio). Así la comparación no mide grado. Se reporta el grado medio de los insertados frente al del lote.
+3. **Escritura.** Un insert escribe el código en el sidecar, añade el miembro a su posting (docID, código y aristas) y escribe la entrada del mapa.
+   - El insert no está completo hasta que están escritas las tres cosas, y ninguna búsqueda corre durante un insert: el harness es secuencial.
+   - Un vector solo pasa a vivo, y entra en la verdad de terreno y en el check de cobertura, cuando su insert acaba.
+4. **Split.** Cuando un posting pasa del umbral T después de un insert:
+   - 2-means sobre los vectores exactos de sus miembros: la bisección del particionado en lote (`bisect`, el 2-means balanceado de `kmeans.FitBalanced`);
+   - las dos medias son dos centroides nuevos en el grafo de centroides, y el viejo se borra como lápida;
+   - cada miembro va a la más cercana de las dos, y el mapa se actualiza;
+   - las aristas no se tocan.
+   - Solo se parte el posting que recibió el insert. Un hijo que siga por encima de T se parte en su siguiente insert.
+   - *Mío:* las lápidas del grafo de centroides se limpian en cada checkpoint, antes de medir. Si la limpieza no funciona sobre ese grafo, se dice y se mide con las lápidas.
+5. **Sin reassign de vecinos tras el split.** HFresh sí lo hace; queda para después.
+
+**El umbral T.** El tamaño medio final de posting tiene que quedar dentro de ±15 % del de la referencia en lote, 236: de 200.6 a 271.4. Si no, la comparación mediría S y no mantenimiento.
+
+- **Calibración (mía).** Se corre la asignación y el split solos, sin aristas, sin búsquedas y sin medir recall, sobre el mismo orden. Los valores son T ∈ {280, 320, 360, 400, 472}.
+- **Elección:** el T cuyo tamaño medio final quede más cerca de 236, si está dentro de la banda. Si ninguno lo está, se reporta y no corre ninguna celda.
+- **La calibración no mira ninguna métrica de búsqueda.** El T elegido y el tamaño medio final se reportan.
+
+### Celdas
+
+| celda | aristas inversas | reparación tras split |
+|---|---|---|
+| 1. principal | no | no |
+| 2. control H1 | sí | no |
+| 3. control H2 | no | sí |
+| 4. las dos, si sale barato | sí | sí |
+| 5. principal en orden natural | no | no |
+
+- **Aristas inversas (H1).** Se miran los 16 vecinos encontrados del vector nuevo v que viven fuera de su posting. Para cada uno, u, si v está más cerca de u que la peor arista de u, v sustituye a esa arista.
+  - La lista de u sigue ordenada, el más cercano primero, y su grado no cambia.
+  - Un vector sin aristas no gana ninguna.
+- **Reparación (H2).** Cuando un posting se parte, cada miembro de los dos hijos recalcula sus aristas con la regla del insert: k=17 excluyéndose a sí mismo, y ef=320.
+- **«Barato», mío:** la celda 4 corre si el tiempo de inserción de la celda H2 no pasa de 3 veces el de la principal.
+
+### Métricas
+
+**Por checkpoint, sin cronometrar:**
+
+- **Recall@10 a igual ef,** en la malla de 10 a 1024 con rescoreLimit 64, lotes de 4 y margen 0.06. Se mide contra la verdad de terreno del conjunto vivo, sacada del top-100 exacto del dataset, con fuerza bruta para la query cuyo top-100 tenga menos de 10 vivos.
+- **Cargas a 0.95 y a 0.99,** interpoladas en la malla, del pase instrumentado.
+- **Tamaño de posting:** medio, p50, p95 y máximo, y el número de postings.
+- **Recall de arista de 2 000 insertados,** muestreados uniformemente entre los insertados hasta ese checkpoint, con semilla fija.
+  - Se mide frente a su vecindario exacto en el conjunto vivo: de sus 16 vecinos vivos más cercanos, los que están fuera de su posting actual.
+  - Lo mismo para 2 000 vectores del lote inicial, como referencia.
+  - Se reporta también el grado medio.
+- **Check de cobertura completo:**
+  - cada vector vivo está en exactamente un posting, y el mapa lo dice;
+  - ningún posting tiene un vector que no esté vivo;
+  - los postings retirados están vacíos y fuera del grafo.
+- **La tasa acumulada de asignaciones no-nearest.**
+- **µs por insert,** por fase, como indicativos.
+
+**Al final, solo para la celda principal y la referencia: la frontera cronometrada, en el mismo proceso.**
+
+- 1 y 8 threads, tres pasadas por punto y segunda ronda.
+- Tres curvas, en este orden:
+  1. la referencia como es, por slot;
+  2. la referencia convertida a docID (*mío*: separa mantenimiento de representación);
+  3. la principal al 100 %.
+
+### Criterio
+
+| pre-registro | umbral |
+|---|---|
+| H1 y H2 se sostienen | al 100 %, la celda principal queda a 0.005 de recall o menos del lote en cada ef de la malla (el criterio es el peor ef), y sus cargas a 0.95 suben un 15 % o menos |
+| si se sostienen | el mantenimiento se diseña sin aristas inversas ni reparación |
+| si no | las celdas de control dicen cuánto recupera cada mecanismo: déficit de recall y cargas de H1 y de H2 frente a la principal |
+| stop-and-report | cualquier fallo de cobertura en un checkpoint, o recall de arista de los insertados por debajo de 0.90 en cualquiera: la celda para ahí y se reporta su estado |
+| orden natural | se reporta con las mismas métricas; no decide |
+
+**Sin commits mientras corra la parte cronometrada.**
+
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
 **Estado: pre-registrado y medido la noche del 13 al 14. Los resultados están abajo, en «Resultados de la noche», «El ef de centroides: resultados» y «Una arista por posting de destino: resultados».** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
