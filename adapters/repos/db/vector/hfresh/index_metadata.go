@@ -357,3 +357,108 @@ func (s *BucketStore) Load() (uint64, error) {
 
 	return binary.LittleEndian.Uint64(v), nil
 }
+
+// repairOrphanPostings moves the live vectors of every posting left without a
+// centroid into a new posting that has one. A crash that persists the store
+// and the centroid commit log unevenly leaves such postings unreachable.
+func (h *HFresh) repairOrphanPostings() {
+	dims, quantizer := h.loadQuantizer()
+	if quantizer == nil {
+		return
+	}
+
+	var orphans []uint64
+	for postingID, metadata := range h.PostingMap.Iter() {
+		if metadata.Count() > 0 && !h.Centroids.Exists(postingID) {
+			orphans = append(orphans, postingID)
+		}
+	}
+
+	for _, postingID := range orphans {
+		newID, moved, err := h.repairOrphanPosting(h.ctx, postingID, dims, quantizer)
+		if err != nil {
+			// the posting stays orphaned and is retried on the next startup
+			h.logger.WithField("postingID", postingID).
+				Errorf("failed to repair posting without centroid, its vectors stay unreachable: %v", err)
+			continue
+		}
+		if moved > 0 {
+			h.logger.WithField("postingID", postingID).
+				WithField("newPostingID", newID).
+				WithField("vectors", moved).
+				Warn("repaired posting without centroid")
+		}
+	}
+}
+
+func (h *HFresh) repairOrphanPosting(ctx context.Context, postingID uint64, dims uint32,
+	quantizer *compressionhelpers.BinaryRotationalQuantizer,
+) (uint64, int, error) {
+	p, err := h.PostingStore.Get(ctx, postingID)
+	if err != nil {
+		if errors.Is(err, ErrPostingNotFound) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	live, err := p.GarbageCollect(h.VersionMap)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(live) == 0 {
+		return 0, 0, nil
+	}
+
+	vectors, err := h.postingVectors(ctx, live, dims)
+	if err != nil {
+		return 0, 0, err
+	}
+	mean := make([]float32, dims)
+	for _, vec := range vectors {
+		for i, x := range vec {
+			mean[i] += x
+		}
+	}
+	for i := range mean {
+		mean[i] /= float32(len(vectors))
+	}
+
+	// the orphan's ID may hold a deleted centroid, so the vectors move to a
+	// new posting; the orphan is only emptied once they are reachable there
+	newID, err := h.nextPostingID()
+	if err != nil {
+		return 0, 0, err
+	}
+	err = h.PostingStore.Put(ctx, newID, live)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = h.setPostingVectorIDs(ctx, newID, live)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = h.Centroids.Insert(newID, &Centroid{
+		Uncompressed: mean,
+		Compressed:   quantizer.CompressedBytes(quantizer.Encode(mean)),
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	err = h.setPostingVectorIDs(ctx, postingID, Posting{})
+	if err != nil {
+		return 0, 0, err
+	}
+	err = h.PostingStore.Put(ctx, postingID, Posting{})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if len(live) > int(h.maxPostingSize) {
+		err = h.taskQueue.EnqueueSplit(newID)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	return newID, len(live), nil
+}
