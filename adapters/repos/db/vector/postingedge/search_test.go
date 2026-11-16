@@ -787,6 +787,11 @@ func TestScanCodesAtTheFullWidthSearchLikeSharedCodes(t *testing.T) {
 	apart.ScanCodeBits = 256
 	sharedIndex := buildTestIndex(t, vectors, provider, shared)
 	apartIndex := buildTestIndex(t, vectors, provider, apart)
+	// The two graphs are built apart and are not the same graph, so they are
+	// searched with an ef that reaches every centroid.
+	for _, index := range []*Index{sharedIndex, apartIndex} {
+		require.NoError(t, index.setCentroidEF(len(index.state.Load().centroids.vectors)))
+	}
 
 	sharedState, apartState := sharedIndex.state.Load(), apartIndex.state.Load()
 	require.Nil(t, sharedState.scanQuantizer)

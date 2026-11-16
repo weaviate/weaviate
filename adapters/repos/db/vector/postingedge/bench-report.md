@@ -6,7 +6,7 @@
 
 ## Resumen, al cierre del 2026-11-13
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino).*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), y el cambio del ef de centroides a 8 del 16.*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -28,6 +28,7 @@
 
 - código completo y S=236 vectores por posting, fijado;
 - ef 20, lotes de 4 postings por ronda y una entrada;
+- ef de centroides 8 (antes 64): no pierde recall a 1M ni a 10M, y a 10M da de un 15 a un 22 % más de QPS a 0.95 (v1.6, cierre del 16);
 - margen de source automático (0.06 en cosine);
 - rescoreLimit 64 a 1536d; a 768d va acoplado, 200 (400 para 0.99);
 - P=256 y R=64. A 10M hacen falta P=320 y R=256 para un recall de arista de 0.94.
@@ -49,7 +50,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Palancas, por lo medido:**
 
-1. **El ef de centroides (v1.6).** Bajarlo de 64 a 8 no pierde recall a 10M, y da de un 15 a un 22 % más de QPS a 0.95 y de un 6 a un 8 % a 0.99. El tiempo de centroides baja a un tercio. Es una propuesta y el default no cambia: faltan valores por debajo de 8, y 1M y dbpedia. Con el kernel, el ratio queda en 1.67x–1.68x a 0.95 frente al build de HNSW de esa noche (informativo).
+1. **El ef de centroides (v1.6), ya default.** Bajarlo de 64 a 8 no pierde recall a 10M, ni a 1M en wiki-dpr y dbpedia (check del 16). Da de un 15 a un 22 % más de QPS a 0.95 y de un 6 a un 8 % a 0.99, porque el tiempo de centroides baja a un tercio. Con el kernel, el ratio queda en 1.67x–1.68x a 0.95 frente al build de HNSW de esa noche (informativo).
 2. **El kernel de #13880 (v1.6).** Posting-edge gana lo estimado contra el mismo build: un 16 % a 0.95 y un 26 % a 0.99. El ratio baja menos de lo estimado, de 2.10x–2.14x a 2.01x–2.08x, porque el tercer build de HNSW es más rápido. El gate queda fuera de la banda, por encima.
 3. **El número de distancias.** Ni el cap ni una arista por posting de destino lo recortan a igual recall a 0.99: lo que quitan vuelve como cargas. A 0.95, una por posting recorta un 9 % de las distancias y un 3.7 % de la query. A 0.99 las sube un 7 %. El cap las sube en los dos puntos.
 4. **Contabilidad por endpoint:** el 15 % del tiempo a 0.95. Es ilustrativo.
@@ -246,8 +247,39 @@ Cronometrado contra la curva principal del mismo proceso. La deriva de la celda 
 - **Más que lo esperado** (un 10 % a 0.95 y un 3 % a 0.99 si el tiempo de centroides bajaba a la mitad), porque baja a un tercio: de 220 a 70 µs a 0.95.
 - **La query instrumentada baja un 15.5 % a 0.95** (de 988 a 835 µs) y un 5 % a 0.99 (de 3 184 a 3 014).
 - **El resto del trabajo no cambia:** 12.7 cargas en los dos casos a 0.95, y un 1.9 % más de endpoints.
-- **Va como propuesta, según el pre-registro:** ef de centroides 8 en lugar de 64. Gana a 0.95 mucho más que la deriva entre rondas (2 %), sin perder recall. El default no cambia. Antes de cambiarlo faltaría lo que no se midió: valores por debajo de 8, y 1M y dbpedia, donde hay diez veces menos centroides.
+- **Va como propuesta, según el pre-registro:** ef de centroides 8 en lugar de 64. Gana a 0.95 mucho más que la deriva entre rondas (2 %), sin perder recall. El default no cambia. Antes de cambiarlo faltaría lo que no se midió: valores por debajo de 8, y 1M y dbpedia, donde hay diez veces menos centroides. *(El 16 se midió eso, sin cronometrar, y el default pasó a 8: ver «El ef de centroides: cierre a 1M».)*
 - **El ratio de la última columna es informativo:** no está pre-registrado, y a 0.99 lleva el build de HNSW de esta noche, que es peor allí.
+
+### El ef de centroides: cierre a 1M (2026-11-16)
+
+*Encargo del 16: el check de cierre de la propuesta, sin cronometrar.*
+
+- **Valores:** ef 8, y 4, en dbpedia-openai 1M y en wiki-dpr 1M.
+- **Puntos:** los de 0.95 y 0.99 de cada uno, con su build por defecto. Son los primeros ef de su curva que llegan a cada nivel.
+- **Regla:** si ninguno pierde más de 0.0005 en ningún punto, el default pasa a 8. Si alguno pierde, queda como knob documentado.
+
+**No pierde en ninguno.** El default pasa de 64 a 8 (`config.go`, `centroidEF`).
+
+| dataset | puntos (rescoreLimit) | ef de centroides | recall | pérdida frente a 64 | entrada = centroide más cercano | centroides, µs | total, µs |
+|---|---|---|---|---|---|---|---|
+| dbpedia 1M, 5 000 queries | ef=20 / ef=320 (64) | 64 | 0.9502 / 0.9908 | — | 99.98 % | 211 / 249 | 792 / 3 418 |
+| | | 8 | 0.9506 / 0.9908 | 0.0000 | 97.2 % | 64 / 77 | 647 / 3 228 |
+| | | 4 | 0.9510 / 0.9908 | 0.0000 | 92.5 % | 51 / 62 | 638 / 3 215 |
+| wiki-dpr 1M, 1 000 queries | ef=40 / ef=160 (200) | 64 | 0.9664 / 0.9904 | — | 100 % | 155 / 172 | 1 117 / 2 421 |
+| | | 8 | 0.9666 / 0.9904 | 0.0000 | 95.4 % | 48 / 56 | 942 / 2 198 |
+| | | 4 | 0.9666 / 0.9904 | 0.0000 | 88.6 % | 39 / 45 | 942 / 2 178 |
+| wiki-dpr 10M (v1.6), 1 000 queries | ef=20 / ef=160 (200) | 8 | 0.9548 / 0.9910 | 0.0000 | 91.5 % | 70 / 79 | 857 / 3 231 |
+
+- **Ninguna pérdida en los tres datasets, ni con 4.** El recall sube o queda igual aunque la entrada falle hasta en una de cada nueve queries. Las aristas corrigen una entrada cercana.
+- **Los tiempos son del pase instrumentado, con 1 thread y sin cronometrar,** solo como indicación. A 0.95 la query baja un 18 % en dbpedia y un 16 % en wiki-dpr 1M; a 0.99, un 6 y un 9 %. A 10M, cronometrado, fueron de un 15 a un 22 % más de QPS a 0.95.
+- **4 no pasa a default.** El encargo lo pedía como sonda. Con 4 la entrada falla en el 11 % de las queries de wiki-dpr 1M, y a 0.95 no ahorra nada más que 8 en esa query.
+- **Un test asumía el 64:** `TestScanCodesAtTheFullWidthSearchLikeSharedCodes` compara dos builds y daba por hecho que el grafo de centroides se recorría entero. Ahora sube el ef de los dos grafos hasta el número de centroides, y lo dice. El grafo de centroides no es determinista (se construye con inserciones en paralelo), y con ef 8 dos builds pueden entrar por postings distintos.
+
+Datos en `testdata/bench/v1.6/`:
+
+- `{dbpedia,wikidpr}-1m-centroidef.json`: el build y los puntos con 64;
+- `{dbpedia,wikidpr}-1m-centroidef-centroidef{64,8,4}.json`: cada valor;
+- la cadena, en `scripts/run_v16_centroidef_1m.sh`.
 
 ### Redundancia de aristas (de día, sin cronometrar)
 

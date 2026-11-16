@@ -65,8 +65,14 @@ const (
 	DefaultTrainingLimit = enthnsw.DefaultRQTrainingLimit
 
 	// centroidEF is the ef of the centroid graph search. Only the few
-	// nearest centroids are ever requested.
-	centroidEF = 64
+	// nearest centroids are ever requested, and the graph's search takes at
+	// least as many as requested. 8 lost no recall against 64 at the 0.95
+	// and 0.99 points of wiki-dpr 10M, wiki-dpr 1M and dbpedia-openai 1M,
+	// although the entry is the nearest centroid for only 91 to 97 % of the
+	// queries: the edges correct a near miss. At 10M it cut the centroid
+	// search to a third and raised QPS at 0.95 by 15 to 22 %
+	// (bench-report.md, v1.6).
+	centroidEF = 8
 	// docIDBytes is the size of one doc id in a posting entry.
 	docIDBytes = 8
 )
