@@ -56,6 +56,15 @@ func NamespaceErrRendersUnprocessable(err error) bool {
 	return ok && status == http.StatusUnprocessableEntity
 }
 
+// PublicNamespaceErr swaps a namespace lifecycle error for its neutral text
+// (see namespaces.PublicMessage) and passes any other error through.
+func PublicNamespaceErr(err error) error {
+	if msg, ok := namespaces.PublicMessage(err); ok {
+		return errors.New(msg)
+	}
+	return err
+}
+
 // ErrPayloadFromSingleErr builds a single-message ErrorResponse with the
 // principal's own namespace prefix stripped from err. Pass nil for global
 // callers to leave the message unchanged. A nil err is tolerated and yields

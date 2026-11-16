@@ -100,7 +100,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsCreateUnprocessableEntity().
-				WithPayload(restrictionViolationFromErr(principal, err))
+				WithPayload(restrictionViolationFromErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
@@ -176,7 +176,8 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 			return schema.NewSchemaObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaObjectsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(principal, err))
+			return schema.NewSchemaObjectsDeleteBadRequest().
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
@@ -491,12 +492,15 @@ func shardStatusErrResponder(principal *models.Principal, err error) middleware.
 	case errors.Is(err, schemaUC.ErrNotFound):
 		return schema.NewSchemaObjectsShardsUpdateNotFound().
 			WithPayload(errPayloadFromSingleErr(principal, err))
-	case errors.Is(err, schemaUC.ErrValidation), cerrors.NamespaceErrRendersUnprocessable(err):
+	case errors.Is(err, schemaUC.ErrValidation):
 		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 	default:
 		return schema.NewSchemaObjectsShardsUpdateInternalServerError().
-			WithPayload(errPayloadFromSingleErr(principal, err))
+			WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 	}
 }
 
@@ -538,7 +542,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
@@ -561,7 +565,7 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
@@ -584,7 +588,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(errPayloadFromSingleErr(principal, cerrors.PublicNamespaceErr(err)))
 		}
 	}
 
