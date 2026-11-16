@@ -398,6 +398,18 @@ func backupPrincipalRemovals(removed, stored []authorization.Policy) []authoriza
 	return extras
 }
 
+// loggedPermissions appends extras to requested, so a role-change log line
+// names every row the write stores or removes.
+func (h *authZHandlers) loggedPermissions(requested []*models.Permission, extras []authorization.Policy) []*models.Permission {
+	if len(extras) == 0 {
+		return requested
+	}
+	// PoliciesToPermission always returns a nil error. It skips any policy it
+	// cannot convert.
+	perms, _ := conv.PoliciesToPermission(h.logger, true, extras...)
+	return slices.Concat(requested, perms)
+}
+
 // logUnstorableInput names who sent a value the policy file cannot store, since
 // the handlers refuse it before Authorize writes an audit line. It cuts the value
 // to maxTargetLength bytes, so a long request cannot make a long log line.
@@ -469,7 +481,9 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	// Derived rows are authorized below like requested rows.
+	// Derived rows are authorized below like requested rows. They are appended
+	// after the requested rows.
+	requestedRows := len(rolePolicies)
 	if !conv.AcceptsBackupPrincipals(params.HTTPRequest) {
 		rolePolicies = withBackupPrincipalGrants(rolePolicies)
 	}
@@ -504,7 +518,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    roleName,
-		"permissions": params.Body.Permissions,
+		"permissions": h.loggedPermissions(params.Body.Permissions, rolePolicies[requestedRows:]),
 	}).Info("role created")
 
 	return authz.NewCreateRoleCreated()
@@ -543,7 +557,9 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	// Derived rows are authorized below like requested rows.
+	// Derived rows are authorized below like requested rows. They are appended
+	// after the requested rows.
+	requestedRows := len(rolePolicies)
 	if !conv.AcceptsBackupPrincipals(params.HTTPRequest) {
 		rolePolicies = withBackupPrincipalGrants(rolePolicies)
 	}
@@ -591,7 +607,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    roleName,
-		"permissions": params.Body.Permissions,
+		"permissions": h.loggedPermissions(params.Body.Permissions, rolePolicies[requestedRows:]),
 	}).Info("permissions added")
 
 	return authz.NewAddPermissionsOK()
@@ -662,10 +678,11 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsNotFound()
 	}
 
+	var extras []authorization.Policy
 	if !conv.AcceptsBackupPrincipals(params.HTTPRequest) {
 		// The extras come from the role as read here. A write that lands between
 		// this read and the remove is not re-checked.
-		extras := backupPrincipalRemovals(policies, role[roleName])
+		extras = backupPrincipalRemovals(policies, role[roleName])
 		if len(extras) > 0 {
 			if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, extras, roleName); err != nil {
 				return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -685,7 +702,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    roleName,
-		"permissions": params.Body.Permissions,
+		"permissions": h.loggedPermissions(params.Body.Permissions, extras),
 	}).Info("permissions removed")
 
 	return authz.NewRemovePermissionsOK()

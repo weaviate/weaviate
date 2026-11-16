@@ -404,8 +404,32 @@ func countCalls(calls []string, want string) int {
 	return n
 }
 
+// backupRoleName is the role the write helpers create or change.
+const backupRoleName = "backup-role"
+
+func createBackupRole(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder {
+	return h.createRole(authz.CreateRoleParams{
+		HTTPRequest: withHeader(header),
+		Body:        &models.Role{Name: authorization.String(backupRoleName), Permissions: perms},
+	}, backupsCaller)
+}
+
+func addBackupPermissions(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder {
+	return h.addPermissions(authz.AddPermissionsParams{
+		HTTPRequest: withHeader(header), ID: backupRoleName,
+		Body: authz.AddPermissionsBody{Permissions: perms},
+	}, backupsCaller)
+}
+
+func removeBackupPermissions(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder {
+	return h.removePermissions(authz.RemovePermissionsParams{
+		HTTPRequest: withHeader(header), ID: backupRoleName,
+		Body: authz.RemovePermissionsBody{Permissions: perms},
+	}, backupsCaller)
+}
+
 func TestLegacyBackupPrincipalWrites(t *testing.T) {
-	const roleName = "backup-role"
+	const roleName = backupRoleName
 	manageMovies := backupsCollection(authorization.ManageBackups, "Movies")
 	manageBooks := backupsCollection(authorization.ManageBackups, "Books")
 	readBooks := backupsCollection(authorization.ReadBackups, "Books")
@@ -418,25 +442,7 @@ func TestLegacyBackupPrincipalWrites(t *testing.T) {
 	readWildcards := wildcards(readBooks)
 	allowAll := func() *backupsAuthorizer { return &backupsAuthorizer{} }
 	updateAll := authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL) + " " + authorization.Roles(roleName)[0]
-
-	create := func(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder {
-		return h.createRole(authz.CreateRoleParams{
-			HTTPRequest: withHeader(header),
-			Body:        &models.Role{Name: authorization.String(roleName), Permissions: perms},
-		}, backupsCaller)
-	}
-	add := func(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder {
-		return h.addPermissions(authz.AddPermissionsParams{
-			HTTPRequest: withHeader(header), ID: roleName,
-			Body: authz.AddPermissionsBody{Permissions: perms},
-		}, backupsCaller)
-	}
-	remove := func(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder {
-		return h.removePermissions(authz.RemovePermissionsParams{
-			HTTPRequest: withHeader(header), ID: roleName,
-			Body: authz.RemovePermissionsBody{Permissions: perms},
-		}, backupsCaller)
-	}
+	create, add, remove := createBackupRole, addBackupPermissions, removeBackupPermissions
 
 	for _, legacy := range legacyHeaders {
 		t.Run(legacy.name+": create derives both wildcards per verb", func(t *testing.T) {
@@ -597,6 +603,122 @@ func TestLegacyBackupPrincipalWrites(t *testing.T) {
 			manageUsers, backupsPermission(authorization.ManageBackups, authorization.AllBackupRoles)))
 		assert.ElementsMatch(t, manageWildcards, writes.removed)
 	})
+}
+
+func TestRoleChangeLogPermissions(t *testing.T) {
+	manageMovies := backupsCollection(authorization.ManageBackups, "Movies")
+	readBooks := backupsCollection(authorization.ReadBackups, "Books")
+	readSchema := &models.Permission{Action: authorization.String(authorization.ReadCollections), Collections: authorization.AllCollections}
+	manageWildcards := conv.BackupPrincipalGrants(toPolicies(t, manageMovies)[0])
+	create, add, remove := createBackupRole, addBackupPermissions, removeBackupPermissions
+
+	unmigrated := toPolicies(t, manageMovies, readSchema)
+	migrated := append(toPolicies(t, manageMovies, readSchema), manageWildcards...)
+
+	tests := []struct {
+		name   string
+		action string
+		write  func(h *authZHandlers, header string, perms ...*models.Permission) middleware.Responder
+		stored []authorization.Policy
+		// An empty header runs the case once per legacyHeaders value. Any other
+		// value is sent as given.
+		header  string
+		request []*models.Permission
+		// wantExtras are the backupsGrants names logged after the request.
+		wantExtras []string
+	}{
+		{
+			name: "legacy create logs the derived wildcards", action: "create_role", write: create,
+			request:    []*models.Permission{readBooks, readSchema},
+			wantExtras: []string{"read_backups user=*", "read_backups role=*"},
+		},
+		{
+			name: "legacy create deriving nothing logs the request", action: "create_role", write: create,
+			request: []*models.Permission{readSchema},
+		},
+		{
+			name: "create logs the request", action: "create_role", write: create, header: "true",
+			request: []*models.Permission{manageMovies},
+		},
+		{
+			name: "legacy add logs the derived wildcards", action: "add_permissions", write: add,
+			stored:     toPolicies(t, readSchema),
+			request:    []*models.Permission{manageMovies},
+			wantExtras: []string{"manage_backups user=*", "manage_backups role=*"},
+		},
+		{
+			name: "legacy add deriving nothing logs the request", action: "add_permissions", write: add,
+			stored:  toPolicies(t, manageMovies),
+			request: []*models.Permission{readSchema},
+		},
+		{
+			name: "add logs the request", action: "add_permissions", write: add, header: "true",
+			stored:  toPolicies(t, readSchema),
+			request: []*models.Permission{manageMovies},
+		},
+		{
+			name: "legacy remove logs the appended wildcards", action: "remove_permissions", write: remove,
+			stored:     migrated,
+			request:    []*models.Permission{manageMovies},
+			wantExtras: []string{"manage_backups user=*", "manage_backups role=*"},
+		},
+		{
+			name: "legacy remove appending nothing logs the request", action: "remove_permissions", write: remove,
+			stored:  unmigrated,
+			request: []*models.Permission{manageMovies},
+		},
+		{
+			name: "remove logs the request", action: "remove_permissions", write: remove, header: "true",
+			stored:  migrated,
+			request: []*models.Permission{manageMovies},
+		},
+	}
+	for _, tt := range tests {
+		headers := legacyHeaders
+		if tt.header != "" {
+			headers = []struct{ name, header string }{{name: "header " + tt.header, header: tt.header}}
+		}
+		for _, hd := range headers {
+			t.Run(hd.name+": "+tt.name, func(t *testing.T) {
+				var stored map[string][]authorization.Policy
+				if tt.stored != nil {
+					stored = map[string][]authorization.Policy{backupRoleName: tt.stored}
+				}
+				h, writes := writeHandler(t, &backupsAuthorizer{}, stored)
+				logger, hook := test.NewNullLogger()
+				h.logger = logger
+
+				tt.write(h, hd.header, tt.request...)
+
+				var logged []*models.Permission
+				for _, e := range hook.AllEntries() {
+					if e.Data["action"] == tt.action {
+						logged = e.Data["permissions"].([]*models.Permission)
+					}
+				}
+				var sent []authorization.Policy
+				switch tt.action {
+				case "create_role":
+					sent = writes.created[backupRoleName]
+				case "add_permissions":
+					sent = writes.updated[backupRoleName]
+				case "remove_permissions":
+					sent = writes.removed
+				}
+				requested := toPolicies(t, tt.request...)
+				require.GreaterOrEqual(t, len(sent), len(requested))
+				require.Equal(t, requested, sent[:len(requested)])
+				sentExtras := sent[len(requested):]
+
+				require.Len(t, logged, len(tt.request)+len(sentExtras))
+				for i, p := range tt.request {
+					assert.Same(t, p, logged[i], "logged permission %d is not the requested one", i)
+				}
+				assert.ElementsMatch(t, sentExtras, toPolicies(t, logged[len(tt.request):]...))
+				assert.ElementsMatch(t, tt.wantExtras, backupsGrants(logged[len(tt.request):]))
+			})
+		}
+	}
 }
 
 func TestBuiltInBackupPrincipalReadsGateAssignAndVisibility(t *testing.T) {
