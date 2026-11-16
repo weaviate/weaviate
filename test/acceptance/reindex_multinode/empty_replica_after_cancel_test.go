@@ -31,8 +31,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// A replica added with no source after a cancel, to a tenant the run already
-// swapped, must serve the migrated index before and after the schema changes.
+// Pins an empty replica added after a cancel serving the migrated index across later schema changes.
 func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t, "REPLICA_MOVEMENT_ENABLED", "true")
@@ -41,8 +40,7 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 
 	const className, tenant = "EmptyReplicaAfterCancel", "t1"
 	restURI := compose.GetWeaviate().URI()
-	// Replication factor 1, because a replica can be removed only down to the
-	// factor and the new one must answer alone.
+	// Factor 1: replicas can be removed only down to the factor, and the new one must answer alone.
 	createMTCollection(t, restURI, className, 1, textProps("text"), map[string]interface{}{
 		"asyncEnabled": true,
 		"asyncConfig":  map[string]any{"frequency": 5000, "frequencyWhilePropagating": 1000, "propagationDelay": 1000},
@@ -95,8 +93,7 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 		}
 		require.NoError(t, err)
 	}
-	// moveToNewReplica adds an empty replica of t1 on a node that never held one and then removes
-	// the old one, so the new replica answers every query. It returns the new replica's node.
+	// moveToNewReplica swaps t1 onto an empty replica on a fresh node and returns that node.
 	held := replicasOfTenant(restURI)
 	require.Len(t, held, 1)
 	moveToNewReplica := func() int {
@@ -107,8 +104,7 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 		name, uri := fmt.Sprintf("weaviate-%d", node), restURIOf(compose, node+1)
 		held = append(held, name)
 		scale(models.ReplicationScalePlanShardScaleActionsAnon{AddNodes: map[string]string{name: ""}})
-		// Ask the new replica itself, because a node that has not applied the add
-		// answers node_name reads from the old owner.
+		// Ask the new replica itself; a node that has not applied the add reads from the old owner.
 		require.Eventually(t, func() bool {
 			var nodes models.NodesStatusResponse
 			if !httpGetJSON(fmt.Sprintf("http://%s/v1/nodes/%s?output=verbose", uri, className), &nodes) {

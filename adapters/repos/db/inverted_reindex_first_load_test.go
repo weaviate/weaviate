@@ -46,8 +46,7 @@ type firstLoadKind struct {
 	bm25   string
 	// BM25 answers from either searchable format, so the bucket says which one was built.
 	searchableStrategy string
-	// Filterable writes take the searchable overlay's tokenization, so no query sees a
-	// missing filterable record; its key is checked instead.
+	// No query sees a missing filterable record, so its key is checked instead.
 	records []MigrationStrategyCode
 }
 
@@ -272,8 +271,7 @@ func TestShardJoiningAfterASwapServesTheTargetIndex(t *testing.T) {
 	}
 }
 
-// v1 is the run whose swap the shard's group took before it stopped. Each schema change a run
-// makes sets the property's BucketGeneration to that run's version.
+// Pins which unfinished runs are kept, by each property's BucketGeneration against the run's version.
 func TestFirstLoadRuns(t *testing.T) {
 	cancelled, failed := distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed
 	finished := distributedtask.TaskStatusFinished
@@ -388,8 +386,7 @@ func TestFirstLoadRuns(t *testing.T) {
 	}
 }
 
-// An empty replica that first loaded while v2 had moved title to field reloads after v3 moved it
-// back to word, the tokenization v1 started from.
+// Pins an empty replica loaded under v2 reloading after v3 moves title back to v1's tokenization.
 func TestFirstLoadReloadAfterTheSchemaReturnedWritesNoRecord(t *testing.T) {
 	ctx := testCtx()
 	className := "FirstLoadReload_" + uuid.NewString()[:8]
