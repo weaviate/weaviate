@@ -43,9 +43,10 @@ var (
 	benchStreamInsertEF    = flag.Int("bench.streaminsertef", 320, "with -bench.stream: the ef of the search for a new vector's edges")
 	benchStreamCheckpoints = flag.String("bench.streamcheckpoints", "60,70,80,90,100", "with -bench.stream: the shares of "+
 		"the train set, in percent, measured after the batch half")
-	benchStreamSample        = flag.Int("bench.streamsample", 2000, "with -bench.stream: vectors sampled for the edge recall")
-	benchStreamMinEdgeRecall = flag.Float64("bench.streamminedgerecall", 0.90, "with a -bench.stream cell: the edge recall of "+
-		"the inserted vectors below which the cell stops at a checkpoint (the pre-registered 0.90; lower only for a smoke)")
+	benchStreamSample        = flag.Int("bench.streamsample", 2000, "with -bench.stream: vectors sampled for each edge recall")
+	benchStreamMinEdgeRecall = flag.Float64("bench.streamminedgerecall", 0.90, "with a -bench.stream cell: the edge recall "+
+		"at insertion below which the cell stops at a checkpoint, the guard of the edge builder (the pre-registered 0.90 "+
+		"of the amendment; lower only for a smoke)")
 	benchStreamReference = flag.Bool("bench.streamreference", false, "with a -bench.stream cell: build the batch "+
 		"reference over the whole train set first, measure it, and time its frontier and the cell's at the end with "+
 		"the plan of -bench.sweep")
@@ -68,13 +69,16 @@ type streamCheckpoint struct {
 	SizeP50  int     `json:"sizeP50"`
 	SizeP95  int     `json:"sizeP95"`
 	SizeMax  int     `json:"sizeMax"`
-	// The edge recall and mean degree of a sample of the inserted vectors,
-	// and of one of the vectors of the batch half.
-	InsertedEdgeRecall float64 `json:"insertedEdgeRecall,omitempty"`
-	InsertedDegree     float64 `json:"insertedDegree,omitempty"`
-	BatchEdgeRecall    float64 `json:"batchEdgeRecall"`
-	BatchDegree        float64 `json:"batchDegree"`
-	Coverage           string  `json:"coverage"`
+	// The edges of a sample of the inserts of the stretch since the last
+	// checkpoint, counted when each insert wrote them against the live
+	// vectors of that moment: the guard of the edge builder.
+	AtInsert edgeCounts `json:"atInsert"`
+	// The edges of a sample of the inserted vectors and of one of the
+	// vectors of the batch half, counted now against the live vectors now:
+	// how stale they are.
+	Inserted edgeCounts `json:"inserted"`
+	Batch    edgeCounts `json:"batch"`
+	Coverage string     `json:"coverage"`
 	// TruthFallbacks counts the queries whose shipped top neighbors held too
 	// few live ones, and whose ground truth was brute-forced.
 	TruthFallbacks int          `json:"truthFallbacks"`
@@ -221,8 +225,8 @@ func TestStream(t *testing.T) {
 	rng := rand.New(rand.NewPCG(2, 2))
 	batchSample := sampleOf(rng, order[:half], *benchStreamSample)
 
-	measure := func(percent, upto int, insertSec float64) {
-		cp := streamCheckpoint{Percent: percent, Live: s.liveCount, Stats: s.stats, InsertSec: insertSec}
+	measure := func(percent, upto int, insertSec float64, atInsert edgeCounts) {
+		cp := streamCheckpoint{Percent: percent, Live: s.liveCount, Stats: s.stats, InsertSec: insertSec, AtInsert: atInsert}
 		if err := s.cleanCentroidGraph(); err != nil {
 			t.Logf("checkpoint %d%%: cleaning the centroid graph failed, measured with its tombstones: %v", percent, err)
 		}
@@ -249,11 +253,11 @@ func TestStream(t *testing.T) {
 		runPostingEdgePlan(t, s.ix, data, gridUC, grid, cpResult, fmt.Sprintf("%s-cp%d.json", base, percent))
 		cp.Points = cpResult.Points
 
-		cp.BatchEdgeRecall, cp.BatchDegree, err = s.edgeRecall(ctx, logger, batchSample)
+		cp.Batch, err = s.edgeRecall(ctx, logger, batchSample)
 		require.NoError(t, err)
 		if upto > half {
 			inserted := sampleOf(rand.New(rand.NewPCG(3, uint64(percent))), order[half:upto], *benchStreamSample)
-			cp.InsertedEdgeRecall, cp.InsertedDegree, err = s.edgeRecall(ctx, logger, inserted)
+			cp.Inserted, err = s.edgeRecall(ctx, logger, inserted)
 			require.NoError(t, err)
 		}
 		result.Checkpoints = append(result.Checkpoints, cp)
@@ -262,30 +266,52 @@ func TestStream(t *testing.T) {
 		if s.stats.Inserted > 0 {
 			perInsert = float64(insertSec) * 1e6 / float64(s.stats.Inserted)
 		}
-		t.Logf("checkpoint %d%%: %d live in %d postings (mean %.1f, p50 %d, p95 %d, max %d) | edge recall inserted %.4f (degree %.2f), "+
-			"batch %.4f (degree %.2f) | splits %d (failed %d), non-nearest %.4f, inverse edges %d, repaired %d | %.0f us per insert",
-			percent, cp.Live, cp.Postings, cp.SizeMean, cp.SizeP50, cp.SizeP95, cp.SizeMax, cp.InsertedEdgeRecall, cp.InsertedDegree,
-			cp.BatchEdgeRecall, cp.BatchDegree, s.stats.Splits, s.stats.SplitsFailed,
+		t.Logf("checkpoint %d%%: %d live in %d postings (mean %.1f, p50 %d, p95 %d, max %d) | edge recall at insert %.4f "+
+			"(postings %.4f, %d sampled), now: inserted %.4f (postings %.4f, degree %.2f), batch %.4f (postings %.4f, degree %.2f) "+
+			"| splits %d (failed %d), non-nearest %.4f, inverse edges %d, repaired %d | %.0f us per insert",
+			percent, cp.Live, cp.Postings, cp.SizeMean, cp.SizeP50, cp.SizeP95, cp.SizeMax,
+			cp.AtInsert.recall(), cp.AtInsert.postingRecall(), cp.AtInsert.Vectors,
+			cp.Inserted.recall(), cp.Inserted.postingRecall(), cp.Inserted.degree(),
+			cp.Batch.recall(), cp.Batch.postingRecall(), cp.Batch.degree(), s.stats.Splits, s.stats.SplitsFailed,
 			float64(s.stats.NonNearest)/float64(max(s.stats.Inserted, 1)), s.stats.InverseEdges, s.stats.Repaired, perInsert)
-		if upto > half && cp.InsertedEdgeRecall < *benchStreamMinEdgeRecall {
-			result.Stopped = fmt.Sprintf("edge recall of the inserted %.4f at %d%%", cp.InsertedEdgeRecall, percent)
+		if atInsert.Vectors > 0 && atInsert.recall() < *benchStreamMinEdgeRecall {
+			result.Stopped = fmt.Sprintf("edge recall at insert %.4f in the stretch to %d%%", atInsert.recall(), percent)
 			write()
 			t.Fatalf("stop and report: %s", result.Stopped)
 		}
 	}
 
-	measure(50, half, 0)
+	measure(50, half, 0, edgeCounts{})
 	inserted, insertTime := half, time.Duration(0)
-	for _, percent := range parseInts(t, *benchStreamCheckpoints) {
+	for i, percent := range parseInts(t, *benchStreamCheckpoints) {
 		upto := n * percent / 100
+		// The guard counts a sample of the stretch's inserts as each is
+		// written; what it takes is kept out of the insert time.
+		sampled := map[uint64]bool{}
+		for _, id := range sampleOf(rand.New(rand.NewPCG(4, uint64(i))), order[inserted:upto], *benchStreamSample) {
+			sampled[id] = true
+		}
+		var atInsert edgeCounts
+		var guardTime time.Duration
+		s.onWrite = func(docID uint64, p uint32, edges []uint32) error {
+			if !sampled[docID] {
+				return nil
+			}
+			clock := time.Now()
+			c, err := s.edgeRecallAtInsert(ctx, logger, docID, p, edges)
+			atInsert.add(c)
+			guardTime += time.Since(clock)
+			return err
+		}
 		require.NoError(t, s.ix.UpdateUserConfig(insertUC, func() {}))
 		begin := time.Now()
 		for _, id := range order[inserted:upto] {
 			require.NoError(t, s.insert(ctx, id, data.train[id]))
 		}
-		insertTime += time.Since(begin)
+		insertTime += time.Since(begin) - guardTime
+		s.onWrite = nil
 		inserted = upto
-		measure(percent, upto, insertTime.Seconds())
+		measure(percent, upto, insertTime.Seconds(), atInsert)
 	}
 
 	if reference == nil {

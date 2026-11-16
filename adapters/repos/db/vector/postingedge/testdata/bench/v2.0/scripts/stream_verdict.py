@@ -14,8 +14,10 @@ Pre-registration (bench-report.md, "v2.0"):
   100 %, the principal cell is within 0.005 of the batch reference's recall at
   every ef of the grid (the worst ef decides), and its loads at 0.95 are at
   most 15 % above the reference's;
-- stop-and-report: a coverage failure, or the inserted vectors' edge recall
-  below 0.90, at any checkpoint;
+- stop-and-report: a coverage failure at any checkpoint, or, by the
+  amendment, the edge recall at insertion below 0.90 in any stretch (the
+  guard of the edge builder); the edge recall against the current corpus and
+  at posting level are reported, not stops;
 - the threshold keeps the final mean posting size within 15 % of 236.
 """
 import json
@@ -64,6 +66,14 @@ def fmt(x, spec='%.1f'):
     return '—' if x is None else spec % x
 
 
+def counts(c, degree):
+    """Edge recall / posting-level recall of edgeCounts, and the mean degree."""
+    if not c or not c.get('vectors'):
+        return '—'
+    out = '%.4f / %.4f' % (c['captured'] / max(c['wanted'], 1), c['postingsCaptured'] / max(c['postingsWanted'], 1))
+    return out + (' (%.2f)' % (c['edges'] / c['vectors']) if degree else '')
+
+
 def main(d):
     calib = load(d, 'dbpedia-1m-stream-calibration.json')
     if calib:
@@ -91,17 +101,16 @@ def main(d):
         print('### %s (umbral %d, ef de inserción %d, orden %s)\n' % (name, doc['threshold'], doc['insertEF'], doc['order']))
         if doc.get('stopped'):
             print('**Stop-and-report:** %s\n' % doc['stopped'])
-        print('| checkpoint | vivos | postings | tamaño medio (p50 / p95 / máx) | recall de arista insertados (grado) | lote (grado) | cobertura | cargas a 0.95 | a 0.99 | ef para 0.99 | no-nearest | splits | µs por insert |')
-        print('|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+        print('| checkpoint | vivos | postings | tamaño medio (p50 / p95 / máx) | al insertar: arista / posting | insertados ahora: arista / posting (grado) | lote ahora: arista / posting (grado) | cobertura | cargas a 0.95 | a 0.99 | ef para 0.99 | no-nearest | splits | µs por insert |')
+        print('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
         for cp in doc['checkpoints']:
             pts = curve(cp['points'])
             ef99 = next((p['ef'] for p in pts if p['recall'] >= 0.99), None)
             st = cp['stats']
             ins = st['inserted']
-            print('| %d %% | %d | %d | %.1f (%d / %d / %d) | %s (%s) | %.4f (%.2f) | %s | %s | %s | %s | %s | %d | %s |' % (
+            print('| %d %% | %d | %d | %.1f (%d / %d / %d) | %s | %s | %s | %s | %s | %s | %s | %s | %d | %s |' % (
                 cp['percent'], cp['live'], cp['postings'], cp['sizeMean'], cp['sizeP50'], cp['sizeP95'], cp['sizeMax'],
-                fmt(cp.get('insertedEdgeRecall') or None, '%.4f'), fmt(cp.get('insertedDegree') or None, '%.2f'),
-                cp['batchEdgeRecall'], cp['batchDegree'], cp['coverage'],
+                counts(cp.get('atInsert'), False), counts(cp.get('inserted'), True), counts(cp.get('batch'), True), cp['coverage'],
                 fmt(at(pts, 0.95, 'loadsMean')), fmt(at(pts, 0.99, 'loadsMean')), fmt(ef99, '%d'),
                 fmt(st['nonNearest'] / ins if ins else None, '%.4f'), st['splits'],
                 fmt(cp['insertSec'] * 1e6 / ins if ins else None, '%.0f')))
@@ -111,7 +120,7 @@ def main(d):
             print('\nFases por insert, µs (indicativo): asignación %.0f, centroide exacto %.0f, búsqueda de aristas %.0f, escritura %.0f, inversas %.0f, split %.0f, reparación %.0f.\n' % tuple(
                 st[f] / 1e3 / ins for f in ('assignNs', 'nearestCheckNs', 'edgeSearchNs', 'writeNs', 'inverseNs', 'splitNs', 'repairNs')))
             pts = curve(last['points'])
-            print('Al 100 %%, frente a la referencia en lote (recall a igual ef):\n')
+            print('Al 100 %, frente a la referencia en lote (recall a igual ef):\n')
             print('| ef | referencia | %s | diferencia |' % key)
             print('|---|---|---|---|')
             worst = 0
@@ -163,8 +172,9 @@ def main(d):
         return
     _, doc, worst, loads = principal
     stops = [k for k, v in cells.items() if v[1].get('stopped')]
-    edge_low = [(k, cp['percent'], cp['insertedEdgeRecall']) for k, v in cells.items() for cp in v[1]['checkpoints']
-                if cp.get('insertedEdgeRecall') and cp['insertedEdgeRecall'] < MIN_EDGE_RECALL]
+    edge_low = [(k, cp['percent'], cp['atInsert']['captured'] / max(cp['atInsert']['wanted'], 1))
+                for k, v in cells.items() for cp in v[1]['checkpoints']
+                if cp.get('atInsert', {}).get('vectors') and cp['atInsert']['captured'] / max(cp['atInsert']['wanted'], 1) < MIN_EDGE_RECALL]
     holds = worst >= -MAX_DEFICIT and loads is not None and loads <= MAX_LOADS
     print('- **Celda principal al 100 %%:** peor diferencia de recall a igual ef %+.4f (umbral −%.3f); cargas a 0.95 %+.1f %% (umbral +%d %%).' % (
         worst, MAX_DEFICIT, 100 * loads, 100 * MAX_LOADS))
@@ -172,7 +182,7 @@ def main(d):
     if stops:
         print('- **Stop-and-report en:** %s.' % ', '.join(stops))
     if edge_low:
-        print('- **Recall de arista de los insertados bajo 0.90:** %s.' % ', '.join('%s al %d %% (%.4f)' % e for e in edge_low))
+        print('- **Guardia del constructor, recall de arista al insertar bajo 0.90:** %s.' % ', '.join('%s en el tramo al %d %% (%.4f)' % e for e in edge_low))
     for key in ('h1', 'h2', 'both'):
         if key in cells and len(cells[key]) == 4:
             _, _, w, l = cells[key]

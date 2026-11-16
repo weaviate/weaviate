@@ -4,7 +4,9 @@
 #
 #  1. Calibration of the split threshold: assignment and split alone, for
 #     every threshold, and the threshold whose final mean posting size is
-#     nearest 236, within +-15 %. None within: stop.
+#     nearest 236, within +-15 %. None within: stop. A calibration already
+#     done for every threshold is not repeated (the amendment of the
+#     pre-registration, 2026-11-16).
 #  2. The principal cell, with the batch reference and, at the end, the timed
 #     frontiers of the reference, the reference keyed by doc id and the cell.
 #     It runs alone.
@@ -14,8 +16,9 @@
 #     times the principal's.
 #
 # usage: WORK=<dir> caffeinate -s -i run_v20_stream.sh
-#   WORK holds postingedge-v20.test, built before the run:
-#   go test -tags postingedgebench -c -o $WORK/postingedge-v20.test ./adapters/repos/db/vector/postingedge/
+#   WORK holds postingedge-v20b.test, built before the run, with the guard of
+#   the amendment:
+#   go test -tags postingedgebench -c -o $WORK/postingedge-v20b.test ./adapters/repos/db/vector/postingedge/
 #
 # Nothing is committed to the repository while it runs.
 set -u
@@ -23,7 +26,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$(cd "$HERE/.." && pwd)" # testdata/bench/v2.0
 source "$HERE/../../v1.6/scripts/v16_queue.sh"
 WORK="${WORK:-$HERE}"
-PE="$WORK/postingedge-v20.test"
+PE="$WORK/postingedge-v20b.test"
 D="$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin"
 [ -x "$PE" ] || { echo "== no binary at $PE"; exit 1; }
 cd "$HERE/../../../.." || exit 1 # the package directory
@@ -42,10 +45,20 @@ stream() { # stream <label> <flags...>
 }
 
 date "+== %Y-%m-%d %H:%M waiting for no other benchmark"
-while others || pgrep -f 'postingedge-p2\.test' > /dev/null; do sleep 60; done
+while others || pgrep -f 'postingedge-(p2|v20)\.test' > /dev/null; do sleep 60; done
 power_state
 
-stream dbpedia-1m-stream-calibration -bench.stream calibrate
+THRESHOLDS=280,320,360,400,472
+DONE=$(python3 -I -c 'import json, sys
+try:
+    print(len(json.load(open(sys.argv[1]))))
+except (OSError, ValueError):
+    print(0)' "$OUT/dbpedia-1m-stream-calibration.json")
+if [ "$DONE" = "$(echo $THRESHOLDS | tr ',' '\n' | wc -l | tr -d ' ')" ]; then
+  echo "== the calibration is done for every threshold: not repeated"
+else
+  stream dbpedia-1m-stream-calibration -bench.stream calibrate -bench.streamthresholds "$THRESHOLDS"
+fi
 T=$(python3 -I - "$OUT/dbpedia-1m-stream-calibration.json" <<'EOF'
 import json, sys
 rows = json.load(open(sys.argv[1]))

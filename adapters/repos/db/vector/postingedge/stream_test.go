@@ -15,7 +15,6 @@ import (
 	"context"
 	"math"
 	"slices"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -110,6 +109,10 @@ type streamIndex struct {
 	stats    streamStats
 	sums     []float64
 	l2       distancer.Provider
+	// onWrite, when set, is called once an insert has written its vector,
+	// with its posting and edges, and before anything else changes: no
+	// inverse edge, no split. It is outside the times of the insert.
+	onWrite func(docID uint64, p uint32, edges []uint32) error
 }
 
 // newStreamIndex takes over a built index: its state is converted to the
@@ -266,12 +269,19 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	code := st.quantizer.Encode(vector)
 	words := st.side.codeWords
 	copy(st.side.codes[int(docID)*words:(int(docID)+1)*words], code)
-	st.postings.lists[p].append(docID, code, s.outside(neighbors, p))
+	edges := s.outside(neighbors, p)
+	st.postings.lists[p].append(docID, code, edges)
 	st.side.postingOf[docID] = p
 	s.live[docID] = true
 	s.liveCount++
 	s.stats.Inserted++
 	s.stats.WriteTime += time.Since(clock)
+
+	if s.onWrite != nil {
+		if err := s.onWrite(docID, p, edges); err != nil {
+			return err
+		}
+	}
 
 	if s.cfg.inverse {
 		clock = time.Now()
@@ -560,51 +570,152 @@ func (s *streamIndex) postingSizes() []int {
 	return sizes
 }
 
-// edgeRecall is the share of the true edges of the given vectors that their
-// edges hold, over all of them: the true edges of a vector are, of its
-// neighbors nearest among the live vectors, those outside its posting, as
-// the batch diagnostic counts them (sampleEdgeTruth). degree is their mean
-// number of edges.
-func (s *streamIndex) edgeRecall(ctx context.Context, logger logrus.FieldLogger, docIDs []uint64) (recall, degree float64, err error) {
+// edgeCounts are the edge recall counts of some vectors against their true
+// edges: of the neighbors nearest a vector among the live vectors, those
+// outside its posting, as the batch diagnostic counts them
+// (sampleEdgeTruth). At posting level, the true target postings are those
+// the true edges lead to, and the edges cover the ones their own endpoints
+// lead to.
+type edgeCounts struct {
+	Vectors          int `json:"vectors"`
+	Edges            int `json:"edges"`
+	Wanted           int `json:"wanted"`
+	Captured         int `json:"captured"`
+	PostingsWanted   int `json:"postingsWanted"`
+	PostingsCaptured int `json:"postingsCaptured"`
+}
+
+func (c edgeCounts) recall() float64 {
+	return float64(c.Captured) / float64(max(c.Wanted, 1))
+}
+
+func (c edgeCounts) postingRecall() float64 {
+	return float64(c.PostingsCaptured) / float64(max(c.PostingsWanted, 1))
+}
+
+func (c edgeCounts) degree() float64 {
+	return float64(c.Edges) / float64(max(c.Vectors, 1))
+}
+
+func (c *edgeCounts) add(o edgeCounts) {
+	c.Vectors += o.Vectors
+	c.Edges += o.Edges
+	c.Wanted += o.Wanted
+	c.Captured += o.Captured
+	c.PostingsWanted += o.PostingsWanted
+	c.PostingsCaptured += o.PostingsCaptured
+}
+
+// countEdges counts one vector in posting p with the given edges against its
+// nearest live neighbors, with the posting map as it is.
+func (s *streamIndex) countEdges(p uint32, edges []uint32, nearest []scored) edgeCounts {
+	postingOf := s.st.side.postingOf
+	c := edgeCounts{Vectors: 1, Edges: len(edges)}
+	covered := map[uint32]bool{}
+	for _, endpoint := range edges {
+		covered[postingOf[endpoint]] = true
+	}
+	targets := map[uint32]bool{}
+	for _, nb := range nearest {
+		target := postingOf[nb.id]
+		if target == p {
+			continue
+		}
+		c.Wanted++
+		if slices.Contains(edges, uint32(nb.id)) {
+			c.Captured++
+		}
+		targets[target] = true
+	}
+	for target := range targets {
+		c.PostingsWanted++
+		if covered[target] {
+			c.PostingsCaptured++
+		}
+	}
+	return c
+}
+
+// nearestLive returns the neighbors nearest a vector among the live vectors,
+// itself left out, nearest first, by brute force.
+func (s *streamIndex) nearestLive(docID uint64, nearest *topK) ([]scored, error) {
+	from := s.vectorOf(docID)
+	nearest.reset(s.neighbors)
+	for candidate, isLive := range s.live {
+		if !isLive || uint64(candidate) == docID {
+			continue
+		}
+		dist, err := s.ix.provider.SingleDist(from, s.vectorOf(uint64(candidate)))
+		if err != nil {
+			return nil, err
+		}
+		nearest.push(uint64(candidate), dist)
+	}
+	return nearest.sorted(), nil
+}
+
+// edgeRecall counts the given live vectors as they are now: their edges,
+// their postings and their true edges among the live vectors.
+func (s *streamIndex) edgeRecall(ctx context.Context, logger logrus.FieldLogger, docIDs []uint64) (edgeCounts, error) {
 	st := s.st
-	var captured, wanted, edges atomic.Int64
-	err = parallelChunks(ctx, logger, len(docIDs), 1, func(_, start, end int) error {
+	counts := make([]edgeCounts, parallelWorkers())
+	err := parallelChunks(ctx, logger, len(docIDs), 1, func(worker, start, end int) error {
 		var nearest topK
 		for _, docID := range docIDs[start:end] {
 			if !s.live[docID] {
 				return errors.Errorf("doc %d is not live", docID)
 			}
-			from := s.vectorOf(docID)
-			nearest.reset(s.neighbors)
-			for candidate, isLive := range s.live {
-				if !isLive || uint64(candidate) == docID {
-					continue
-				}
-				dist, err := s.ix.provider.SingleDist(from, s.vectorOf(uint64(candidate)))
-				if err != nil {
-					return err
-				}
-				nearest.push(uint64(candidate), dist)
+			found, err := s.nearestLive(docID, &nearest)
+			if err != nil {
+				return err
 			}
 			p := st.side.postingOf[docID]
 			l := &st.postings.lists[p]
-			own := l.edgesOf(l.member(docID))
-			edges.Add(int64(len(own)))
-			for _, nb := range nearest.sorted() {
-				if st.side.postingOf[nb.id] == p {
-					continue
-				}
-				wanted.Add(1)
-				if slices.Contains(own, uint32(nb.id)) {
-					captured.Add(1)
-				}
+			counts[worker].add(s.countEdges(p, l.edgesOf(l.member(docID)), found))
+		}
+		return nil
+	})
+	var total edgeCounts
+	for _, c := range counts {
+		total.add(c)
+	}
+	return total, err
+}
+
+// edgeRecallAtInsert counts a vector the moment its insert has written it,
+// against the live vectors of that moment: the guard of the edge builder. Its
+// brute force runs in parallel.
+func (s *streamIndex) edgeRecallAtInsert(ctx context.Context, logger logrus.FieldLogger, docID uint64, p uint32,
+	edges []uint32,
+) (edgeCounts, error) {
+	from := s.vectorOf(docID)
+	nearest := make([]topK, parallelWorkers())
+	err := parallelChunks(ctx, logger, len(s.live), 4096, func(worker, start, end int) error {
+		top := &nearest[worker]
+		if top.limit == 0 {
+			top.reset(s.neighbors)
+		}
+		for candidate := start; candidate < end; candidate++ {
+			if !s.live[candidate] || uint64(candidate) == docID {
+				continue
 			}
+			dist, err := s.ix.provider.SingleDist(from, s.vectorOf(uint64(candidate)))
+			if err != nil {
+				return err
+			}
+			top.push(uint64(candidate), dist)
 		}
 		return nil
 	})
 	if err != nil {
-		return 0, 0, err
+		return edgeCounts{}, err
 	}
-	return float64(captured.Load()) / float64(max(wanted.Load(), 1)),
-		float64(edges.Load()) / float64(max(len(docIDs), 1)), nil
+	var merged topK
+	merged.reset(s.neighbors)
+	for i := range nearest {
+		for _, e := range nearest[i].items {
+			merged.push(e.id, e.dist)
+		}
+	}
+	return s.countEdges(p, edges, merged.sorted()), nil
 }

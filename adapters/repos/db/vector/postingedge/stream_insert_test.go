@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -321,8 +322,60 @@ func TestStreamCheckCoverage(t *testing.T) {
 	}
 }
 
-// edgeRecall counts as the batch diagnostic does: an independent count, by
-// sorting every live vector, gives the same.
+// independentCounts counts one vector in posting p with the given edges, as
+// edgeCounts does, by sorting every candidate of live: an independent count.
+func independentCounts(t *testing.T, all [][]float32, postingOf []uint32, live func(uint64) bool, neighbors int,
+	docID uint64, p uint32, edges []uint32,
+) edgeCounts {
+	provider := distancer.NewL2SquaredProvider()
+	type cand struct {
+		id   uint64
+		dist float32
+	}
+	var cands []cand
+	for other := range uint64(len(all)) {
+		if other == docID || !live(other) {
+			continue
+		}
+		dist, err := provider.SingleDist(all[docID], all[other])
+		require.NoError(t, err)
+		cands = append(cands, cand{id: other, dist: dist})
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].dist != cands[j].dist {
+			return cands[i].dist < cands[j].dist
+		}
+		return cands[i].id < cands[j].id
+	})
+	c := edgeCounts{Vectors: 1, Edges: len(edges)}
+	var targets, covered []uint32
+	for _, endpoint := range edges {
+		covered = append(covered, postingOf[endpoint])
+	}
+	for _, cand := range cands[:min(neighbors, len(cands))] {
+		target := postingOf[cand.id]
+		if target == p {
+			continue
+		}
+		c.Wanted++
+		if slices.Contains(edges, uint32(cand.id)) {
+			c.Captured++
+		}
+		if !slices.Contains(targets, target) {
+			targets = append(targets, target)
+		}
+	}
+	for _, target := range targets {
+		c.PostingsWanted++
+		if slices.Contains(covered, target) {
+			c.PostingsCaptured++
+		}
+	}
+	return c
+}
+
+// edgeRecall counts as the batch diagnostic does, at vector and at posting
+// level: an independent count, by sorting every live vector, gives the same.
 func TestStreamEdgeRecall(t *testing.T) {
 	ctx := context.Background()
 	all := clusteredVectors(1600, 16, 20, 31)
@@ -333,54 +386,74 @@ func TestStreamEdgeRecall(t *testing.T) {
 	for id := uint64(1200); id < 1600; id++ {
 		require.NoError(t, s.insert(ctx, id, all[id]))
 	}
-	provider := distancer.NewL2SquaredProvider()
 	rng := rand.New(rand.NewPCG(3, 4))
 	sample := make([]uint64, 50)
 	for i := range sample {
 		sample[i] = uint64(rng.IntN(1600))
 	}
 
-	captured, wanted, edges := 0, 0, 0
+	var want edgeCounts
 	for _, docID := range sample {
-		type cand struct {
-			id   uint64
-			dist float32
-		}
-		var cands []cand
-		for other := uint64(0); other < 1600; other++ {
-			if other == docID {
-				continue
-			}
-			dist, err := provider.SingleDist(all[docID], all[other])
-			require.NoError(t, err)
-			cands = append(cands, cand{id: other, dist: dist})
-		}
-		sort.SliceStable(cands, func(i, j int) bool {
-			if cands[i].dist != cands[j].dist {
-				return cands[i].dist < cands[j].dist
-			}
-			return cands[i].id < cands[j].id
-		})
 		p := s.st.side.postingOf[docID]
 		l := s.st.postings.lists[p]
-		own := l.edgesOf(l.member(docID))
-		edges += len(own)
-		for _, c := range cands[:s.neighbors] {
-			if s.st.side.postingOf[c.id] == p {
-				continue
-			}
-			wanted++
-			if slices.Contains(own, uint32(c.id)) {
-				captured++
-			}
-		}
+		want.add(independentCounts(t, all, s.st.side.postingOf, func(uint64) bool { return true }, s.neighbors,
+			docID, p, l.edgesOf(l.member(docID))))
 	}
-	recall, degree, err := s.edgeRecall(ctx, testLogger(), sample)
+	got, err := s.edgeRecall(ctx, testLogger(), sample)
 	require.NoError(t, err)
-	assert.InDelta(t, float64(captured)/float64(wanted), recall, 1e-12)
-	assert.InDelta(t, float64(edges)/float64(len(sample)), degree, 1e-12)
-	require.Positive(t, wanted, "the sample has true edges to find")
-	require.Positive(t, captured, "and its edges find some of them")
+	assert.Equal(t, want, got)
+	require.Positive(t, got.Wanted, "the sample has true edges to find")
+	require.Positive(t, got.Captured, "and its edges find some of them")
+	require.Positive(t, got.PostingsWanted)
+	assert.InDelta(t, float64(want.PostingsCaptured)/float64(want.PostingsWanted), got.postingRecall(), 1e-12)
+	assert.InDelta(t, float64(want.Captured)/float64(want.Wanted), got.recall(), 1e-12)
+	assert.LessOrEqual(t, got.degree(), float64(s.neighbors), "no vector keeps more edges than the neighbors it considers")
+}
+
+// The guard of the edge builder is called once per insert, right after the
+// vector is written and before anything else changes, and counts it against
+// the live vectors of that moment as an independent count does.
+func TestStreamEdgeRecallAtInsert(t *testing.T) {
+	const batch, total = 1200, 1800
+	ctx := context.Background()
+	// One blob, where the index stays navigable through the splits. In tight
+	// clusters of two postings each, the halves of a split have no edge to
+	// each other and no path through other postings: neither the inserts'
+	// search nor the repair's can reach the other half.
+	all := clusteredVectors(total, 16, 1, 61)
+	for _, cfg := range []streamConfig{{threshold: 60}, {threshold: 60, inverse: true, repair: true}} {
+		t.Run(fmt.Sprintf("inverse %v repair %v", cfg.inverse, cfg.repair), func(t *testing.T) {
+			s := newStreamTestIndex(t, all, batch, smallConfig(), cfg)
+			uc := smallConfig()
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+
+			var calls int
+			var got, want edgeCounts
+			var current uint64
+			s.onWrite = func(docID uint64, p uint32, edges []uint32) error {
+				calls++
+				require.Equal(t, current, docID)
+				require.Equal(t, p, s.st.side.postingOf[docID], "the hook sees the map written")
+				l := s.st.postings.lists[p]
+				require.True(t, slices.Equal(edges, l.edgesOf(l.member(docID))), "and the edges")
+				require.False(t, s.retired[p], "before any split")
+				c, err := s.edgeRecallAtInsert(ctx, testLogger(), docID, p, edges)
+				require.NoError(t, err)
+				got.add(c)
+				want.add(independentCounts(t, all, s.st.side.postingOf, func(id uint64) bool { return id < docID }, s.neighbors,
+					docID, p, edges))
+				return nil
+			}
+			for current = batch; current < total; current++ {
+				require.NoError(t, s.insert(ctx, current, all[current]))
+			}
+			assert.Equal(t, total-batch, calls)
+			assert.Equal(t, want, got)
+			assert.Positive(t, s.stats.Splits)
+			assert.Greater(t, got.recall(), 0.9, "the search that makes the edges finds them")
+		})
+	}
 }
 
 // The repair is what lets the members of a split posting reach each other by
