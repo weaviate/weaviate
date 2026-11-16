@@ -56,7 +56,7 @@ type invertedWrite struct {
 
 	// unreadable is the error from reading or analyzing the deleted object. apply returns it and changes no index.
 	unreadable error
-	// mirrorErr is analyzeMirror's error. apply returns it after the main index changes, as base did.
+	// mirrorErr is analyzeMirror's error. apply returns it after the main index changes and the mirror delete.
 	mirrorErr error
 }
 
@@ -101,8 +101,13 @@ func (w *invertedWrite) analyze() error {
 		w.nilAdd, w.nilDel = nextNil, prevNil
 	}
 
-	if w.mirrorAdd, w.mirrorErr = w.s.analyzeMirror(w.st, w.next); w.mirrorErr == nil {
-		w.mirrorDel, w.mirrorErr = w.s.analyzeMirror(w.st, w.prev)
+	var delErr, addErr error
+	w.mirrorDel, delErr = w.s.analyzeMirror(w.st, w.prev)
+	w.mirrorAdd, addErr = w.s.analyzeMirror(w.st, w.next)
+	if delErr != nil {
+		w.mirrorErr = fmt.Errorf("migration double-write delete: %w", delErr)
+	} else if addErr != nil {
+		w.mirrorErr = fmt.Errorf("migration double-write: %w", addErr)
 	}
 	return nil
 }
@@ -266,13 +271,11 @@ func (w *invertedWrite) apply() error {
 		}
 	}
 
-	if w.mirrorErr != nil && w.next == nil {
-		return fmt.Errorf("migration double-write delete: %w", w.mirrorErr)
-	} else if w.mirrorErr != nil {
-		return fmt.Errorf("migration double-write: %w", w.mirrorErr)
-	}
 	if err := s.fireMirror(w.st, status.oldDocID, w.mirrorDel, false); err != nil {
 		return fmt.Errorf("migration double-write delete: %w", err)
+	}
+	if w.mirrorErr != nil {
+		return w.mirrorErr
 	}
 	if err := s.fireMirror(w.st, status.docID, w.mirrorAdd, true); err != nil {
 		return fmt.Errorf("migration double-write: %w", err)

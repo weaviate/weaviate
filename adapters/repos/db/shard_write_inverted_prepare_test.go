@@ -22,6 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -38,6 +41,17 @@ func runAsync(shard *Shard, fn func() error) <-chan error {
 	done := make(chan error, 1)
 	enterrors.GoWrapper(func() { done <- fn() }, shard.index.logger)
 	return done
+}
+
+func awaitDone(t *testing.T, done <-chan error, format string, args ...any) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(interleaveDeadline):
+		t.Fatalf(format, args...)
+		return nil
+	}
 }
 
 func isDone(done <-chan error) (bool, error) {
@@ -238,12 +252,7 @@ func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 				"reference batch": "not found",
 			}[tt.name])
 			done := runAsync(shard, func() error { return shard.store.ShutdownBucket(ctx, tt.pinned) })
-			select {
-			case err := <-done:
-				require.NoError(t, err)
-			case <-time.After(interleaveDeadline):
-				t.Fatalf("shutting down %q hangs on a pin the failed %s never released", tt.pinned, tt.name)
-			}
+			require.NoError(t, awaitDone(t, done, "shutting down %q hangs on a pin the failed %s never released", tt.pinned, tt.name))
 		})
 	}
 }
@@ -289,19 +298,118 @@ func TestDeleteReleasesPinsBeforeVectorIndexWork(t *testing.T) {
 			case <-stall.entered:
 			case err := <-deleted:
 				t.Fatalf("the delete finished without reaching the vector index: %v", err)
+			case <-time.After(interleaveDeadline):
+				t.Fatalf("the %s never reached the vector index", w.name)
 			}
 			shutdown := runAsync(shard, func() error {
 				return shard.store.ShutdownBucket(ctx, helpers.BucketFromPropNameLSM("title"))
 			})
-			select {
-			case err := <-shutdown:
-				require.NoError(t, err)
-			case <-time.After(interleaveDeadline):
-				unblock.Do(func() { close(stall.unblock) })
-				t.Fatalf("ShutdownBucket waits on pins the %s holds through its vector-index delete", w.name)
-			}
+			require.NoError(t, awaitDone(t, shutdown, "ShutdownBucket waits on pins the %s holds through its vector-index delete", w.name))
 			unblock.Do(func() { close(stall.unblock) })
-			require.NoError(t, <-deleted)
+			require.NoError(t, awaitDone(t, deleted, "the %s never finished", w.name))
+		})
+	}
+}
+
+// WriteWALs takes the flushLock ReplaceBuckets holds on the replacement while draining the old bucket's pins.
+func TestDeleteReleasesPinsBeforeWriteWALs(t *testing.T) {
+	ctx := testCtx()
+	className := "DeleteWALReplace_" + uuid.NewString()[:8]
+	shd, _ := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer func() {
+		if !t.Failed() {
+			shard.Shutdown(ctx)
+		}
+	}()
+	obj := createTestObjectWithText(className, "alpha")
+	require.NoError(t, shard.PutObject(ctx, obj))
+	title := helpers.BucketFromPropNameLSM("title")
+	replacement := title + "_replacement"
+	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, replacement, shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...))
+
+	// The mirror delete runs last in apply, with title pinned, so the replace starts and swaps the name there.
+	replaced := make(chan error, 1)
+	var once sync.Once
+	mirrorDelete := func(*Shard, uint64, *inverted.Property) error {
+		once.Do(func() {
+			old := shard.store.Bucket(title)
+			enterrors.GoWrapper(func() { replaced <- shard.store.ReplaceBuckets(ctx, title, replacement) }, shard.index.logger)
+			for deadline := time.Now().Add(interleaveDeadline); shard.store.Bucket(title) == old && time.Now().Before(deadline); {
+				time.Sleep(time.Millisecond)
+			}
+		})
+		return nil
+	}
+	noop := func(*Shard, uint64, *inverted.Property) error { return nil }
+	shard.registerDoubleWriteWithScope([]string{"title"}, nil,
+		func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
+			return noop, mirrorDelete
+		})
+
+	deleted := runAsync(shard, func() error { return shard.DeleteObject(ctx, obj.ID(), time.Time{}) })
+	require.NoError(t, awaitDone(t, deleted, "the delete deadlocks in WriteWALs against ReplaceBuckets"))
+	require.NoError(t, awaitDone(t, replaced, "ReplaceBuckets never finished"))
+}
+
+// A failed mirror analysis still lets the main index change and the previous value's mirror delete run.
+func TestMirrorAnalysisErrorKeepsMainChangesAndMirrorDelete(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		prev      string
+		next      interface{} // nil deletes
+		mirrorDel string      // value the mirror must still delete; empty for none
+	}{
+		{"delete of an object the overlay rejects", "", nil, ""},
+		{"update to a value the overlay rejects", "abc", 123.0, "abc"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "MirrorAnalysisError_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"title", "plain"})
+			class.Properties[1].IndexFilterable, class.Properties[1].IndexSearchable = boolPtr(false), boolPtr(false)
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			obj := createTestObjectWithText(className, "alpha")
+			var prev interface{} = 123.0
+			if tc.prev != "" {
+				prev = tc.prev
+			}
+			obj.Object.Properties.(map[string]interface{})["plain"] = prev
+			require.NoError(t, shard.PutObject(ctx, obj))
+			stored, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+			require.NoError(t, err)
+
+			var mirrorDeleted []string
+			record := func(_ *Shard, _ uint64, p *inverted.Property) error {
+				for _, item := range p.Items {
+					mirrorDeleted = append(mirrorDeleted, string(item.Data))
+				}
+				return nil
+			}
+			noop := func(*Shard, uint64, *inverted.Property) error { return nil }
+			shard.registerDoubleWriteWithScope([]string{"plain"},
+				map[string]inverted.PropertyOverlay{"plain": {ForceFilterable: true}},
+				func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
+					return noop, record
+				})
+
+			if tc.next == nil {
+				err = shard.DeleteObject(ctx, obj.ID(), time.Time{})
+			} else {
+				next := createTestObjectWithText(className, "beta")
+				next.Object.ID = obj.ID()
+				next.Object.Properties.(map[string]interface{})["plain"] = tc.next
+				err = shard.PutObject(ctx, next)
+			}
+			require.ErrorContains(t, err, "migration double-write")
+			require.False(t, filterableHas(t, shard, "title", "alpha", stored.DocID), "the main index change must still run")
+			if tc.mirrorDel != "" {
+				require.Contains(t, mirrorDeleted, tc.mirrorDel, "the mirror delete of the previous value must still run")
+			}
 		})
 	}
 }

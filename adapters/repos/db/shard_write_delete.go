@@ -119,7 +119,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	if err != nil {
 		return false, fmt.Errorf("delete object from bucket: %w", err)
 	}
-	// ShutdownBucket, the runtime swap and ReplaceBuckets wait on these pins, so drop them before WriteWALs and vector-index work.
+	// Bucket.Shutdown waits for these pins, so release them before WriteWALs and the vector-index deletes.
 	w.release()
 
 	if err = s.store.WriteWALs(); err != nil {

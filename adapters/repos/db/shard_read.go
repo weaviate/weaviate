@@ -1114,7 +1114,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}
-	// Bucket teardowns wait on these pins, so drop them before the vector-index deletes.
+	// Bucket.Shutdown waits for these pins, so release them before the vector-index deletes.
 	w.release()
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
