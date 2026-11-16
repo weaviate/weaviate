@@ -1044,30 +1044,41 @@ func TestReactiveFiring_WakeIsCoalesced(t *testing.T) {
 	// the test would time out.
 }
 
-// A task submitted right after a tick starts only once the minimum gap passes.
+// A task submitted right after a tick, woken or periodic, starts only once the minimum gap passes.
 func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
-	defer leaktest.Check(t)()
+	for _, periodicFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("periodic first tick=%v", periodicFirst), func(t *testing.T) {
+			defer leaktest.Check(t)()
 
-	h := newTestHarness(t).init(t)
-	h.manager.SetSchedulerNotifier(h.scheduler)
+			h := newTestHarness(t).init(t)
+			if !periodicFirst {
+				h.manager.SetSchedulerNotifier(h.scheduler)
+			}
+			h.startScheduler(t)
+			defer h.Close()
 
-	h.startScheduler(t)
-	defer h.Close()
+			addTaskWithUnits(t, h, h.tasksNamespace, "first", 10, []string{"su-1"})
+			if periodicFirst {
+				require.NoError(t, h.clock.BlockUntilContext(context.Background(), 1))
+				h.clock.Advance(h.schedulerTickInterval)
+			}
+			require.Equal(t, "first", recvWithTimeout(t, h.provider.startedCh).ID)
+			h.manager.SetSchedulerNotifier(h.scheduler)
 
-	addTaskWithUnits(t, h, h.tasksNamespace, "first", 10, []string{"su-1"})
-	require.Equal(t, "first", recvWithTimeout(t, h.provider.startedCh).ID)
-
-	addTaskWithUnits(t, h, h.tasksNamespace, "second", 11, []string{"su-2"})
-	select {
-	case task := <-h.provider.startedCh:
-		t.Fatalf("%s started before the gap passed", task.ID)
-	case <-time.After(200 * time.Millisecond):
+			addTaskWithUnits(t, h, h.tasksNamespace, "second", 11, []string{"su-2"})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			// The loop's ticker plus the gap's timer.
+			require.NoError(t, h.clock.BlockUntilContext(ctx, 2), "the woken tick did not wait for the gap")
+			select {
+			case task := <-h.provider.startedCh:
+				t.Fatalf("%s started before the gap passed", task.ID)
+			default:
+			}
+			h.clock.Advance(minWakeSpacing)
+			require.Equal(t, "second", recvWithTimeout(t, h.provider.startedCh).ID)
+		})
 	}
-
-	// The loop's ticker plus the gap's timer.
-	require.NoError(t, h.clock.BlockUntilContext(context.Background(), 2))
-	h.clock.Advance(minWakeSpacing)
-	require.Equal(t, "second", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
 // TestReactiveFiring_NilNotifierIsSafe verifies that the Manager can be

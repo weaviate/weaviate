@@ -893,9 +893,11 @@ func TestSchemaManager_UpdateProperty_LateCutoverWrite(t *testing.T) {
 		name       string
 		refusal    error
 		tok        string
+		filterable *bool
 		wantRefuse bool
 	}{
 		{name: "run finished, property at target", refusal: distributedtask.ErrCutoverRunFinished, tok: "field"},
+		{name: "run finished, at target, differs outside the mask", refusal: distributedtask.ErrCutoverRunFinished, tok: "field", filterable: new(bool)},
 		{name: "run finished, property elsewhere", refusal: distributedtask.ErrCutoverRunFinished, tok: "whitespace", wantRefuse: true},
 		{name: "run failed, property at target", refusal: errors.New("no reindex run is completing"), tok: "field", wantRefuse: true},
 	} {
@@ -907,7 +909,7 @@ func TestSchemaManager_UpdateProperty_LateCutoverWrite(t *testing.T) {
 			}}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
 
 			sub, err := json.Marshal(&cmd.UpdatePropertyRequest{
-				Property:              &models.Property{Name: "name", DataType: []string{"text"}, Tokenization: tc.tok},
+				Property:              &models.Property{Name: "name", DataType: []string{"text"}, Tokenization: tc.tok, IndexFilterable: tc.filterable},
 				FieldsToUpdate:        []string{cmd.PropertyFieldTokenization},
 				FromInFlightMigration: true,
 				MigrationRun:          &cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1},
