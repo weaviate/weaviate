@@ -54,7 +54,7 @@ func TestShouldRetainCompletedTaskDecodesEachRunOnce(t *testing.T) {
 				older.Payload = []byte("unreadable")
 			}
 			for _, task := range tasks {
-				require.Equal(t, !(tt.unreadableFirst && task == older), p.ShouldRetainCompletedTask(task, tasks))
+				require.Equal(t, !tt.unreadableFirst || task != older, p.ShouldRetainCompletedTask(task, tasks))
 			}
 			if tt.leaveFirst {
 				delete(tasks, older.TaskDescriptor)
