@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -164,6 +165,9 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		return filepath.Join(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID+".hnsw.commitlog.d")
 	}
 	wholeStore := func(_ *Config, storeDir string) string { return storeDir }
+	centroidVectorsBucket := func(_ *Config, storeDir string) string {
+		return filepath.Join(storeDir, helpers.VectorsCompressedBucketLSM)
+	}
 	postingsBucket := func(cfg *Config, storeDir string) string {
 		return filepath.Join(storeDir, postingsBucketName(cfg.ID))
 	}
@@ -252,6 +256,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 				require.NoError(t, err)
 				require.Greater(t, id, highestPostingID, "a freed centroid slot may still be cleaned up or tombstoned")
 			},
+		},
+		{
+			name:      "split, centroid vectors bucket behind commit log",
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			rollback:  centroidVectorsBucket,
+			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
 		},
 		{
 			name:      "split, postings bucket behind shared bucket",
