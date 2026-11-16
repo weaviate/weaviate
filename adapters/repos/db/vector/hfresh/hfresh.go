@@ -67,9 +67,11 @@ type HFresh struct {
 	rescoreLimit     uint32
 	store            *lsmkv.Store
 
-	// bootstrapThreshold is the number of vectors the single posting may
-	// hold before the centroid index is built, derived from
-	// Config.SinglePostingMaxSize once the dimensions are known.
+	// singlePostingMaxSize is the size in bytes up to which the index keeps a
+	// single posting; 0 builds the centroid index up front.
+	singlePostingMaxSize uint64
+	// bootstrapThreshold is singlePostingMaxSize as a vector count, set once
+	// the dimensions are known.
 	bootstrapThreshold uint32
 
 	// needsNormalization is precomputed at construction from the configured
@@ -175,6 +177,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rescoreLimit:       uint32(uc.RQ.RescoreLimit),
 		rootPath:           cfg.RootPath,
 		needsNormalization: cfg.DistanceProvider.Type() == "cosine-dot",
+
+		singlePostingMaxSize: singlePostingMaxSizeFromEnv(logger),
 	}
 
 	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
@@ -220,7 +224,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	}
 	// after the restore, so a single posting written under another threshold
 	// moves into the graph instead of being shadowed by an empty one
-	if cfg.SinglePostingMaxSize == 0 {
+	if h.singlePostingMaxSize == 0 {
 		err = h.leaveSinglePostingMode(h.ctx)
 		if err != nil {
 			return nil, err

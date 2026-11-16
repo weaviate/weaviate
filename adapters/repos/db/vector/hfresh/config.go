@@ -37,9 +37,9 @@ const (
 
 const singlePostingMaxSizeEnv = "EXPERIMENTAL_HFRESH_SINGLE_POSTING_MAX_SIZE"
 
-// SinglePostingMaxSizeFromEnv reads the size, such as 10MiB, up to which an
+// singlePostingMaxSizeFromEnv reads the size, such as 10MiB, up to which an
 // index stays in one posting. Unset, zero or invalid leaves the feature off.
-func SinglePostingMaxSizeFromEnv(logger logrus.FieldLogger) uint64 {
+func singlePostingMaxSizeFromEnv(logger logrus.FieldLogger) uint64 {
 	v := os.Getenv(singlePostingMaxSizeEnv)
 	if v == "" {
 		return 0
@@ -68,7 +68,6 @@ type Config struct {
 	MaxDistanceRatio             float32                                 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
 	Store                        StoreConfig                             `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                    CentroidConfig                          `json:"centroids"`                           // Configuration for the centroid index
-	SinglePostingMaxSize         uint64                                  `json:"singlePostingMaxSize,omitempty"`      // Bytes kept in one posting before the centroid index is built; 0 builds it up front
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
 	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
 	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
@@ -201,7 +200,7 @@ func (h *HFresh) setMaxPostingSize(dims uint32) error {
 		return errors.New("unable to set max posting size")
 	}
 	h.maxPostingSize = max(h.computeMaxPostingSize(int(dims)), maxPostingSizeFloor)
-	h.bootstrapThreshold = uint32(min(float64(h.config.SinglePostingMaxSize)/postingEntryBytes(int(dims)), math.MaxUint32))
+	h.bootstrapThreshold = uint32(min(float64(h.singlePostingMaxSize)/postingEntryBytes(int(dims)), math.MaxUint32))
 	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
 
 	if h.minPostingSize >= h.maxPostingSize {

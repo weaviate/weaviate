@@ -379,7 +379,8 @@ func TestSinglePostingMode(t *testing.T) {
 	})
 
 	t.Run("stays in one posting below the threshold", func(t *testing.T) {
-		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
 		vectors := insert(t, &tf, singlePostingThreshold)
 		tf.Index.waitForMaintenance(t)
 
@@ -420,7 +421,8 @@ func TestSinglePostingMode(t *testing.T) {
 	})
 
 	t.Run("filtered search finds pre-threshold vectors before the first split", func(t *testing.T) {
-		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
 		// hold the bootstrap split so the transition window stays open
 		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
 		defer tf.Index.taskQueue.splitQueue.Resume()
@@ -453,7 +455,8 @@ func TestSinglePostingMode(t *testing.T) {
 	})
 
 	t.Run("concurrent inserts across the threshold all reach the posting map", func(t *testing.T) {
-		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
 		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
 		defer tf.Index.taskQueue.splitQueue.Resume()
 
@@ -485,7 +488,8 @@ func TestSinglePostingMode(t *testing.T) {
 	})
 
 	t.Run("builds the centroid index and splits past the threshold", func(t *testing.T) {
-		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
 		vectors := insert(t, &tf, singlePostingThreshold+1)
 		require.True(t, tf.Index.Centroids.Built())
 

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -128,12 +129,10 @@ func withDistanceProvider(provider distancer.Provider) testIndexOption {
 	}
 }
 
-// withBootstrapThreshold keeps the index in single-posting mode until the
-// first posting exceeds n vectors.
-func withBootstrapThreshold(n uint32) testIndexOption {
-	return func(cfg *Config) {
-		cfg.SinglePostingMaxSize = singlePostingSize(n)
-	}
+// setSinglePostingLimit keeps indexes created by the test in single-posting
+// mode until their posting exceeds n vectors; 0 builds the graph up front.
+func setSinglePostingLimit(t testing.TB, n uint32) {
+	t.Setenv(singlePostingMaxSizeEnv, strconv.FormatUint(singlePostingSize(n), 10))
 }
 
 // singlePostingSize is the byte budget that holds n vectors of

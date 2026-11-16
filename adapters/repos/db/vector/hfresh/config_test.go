@@ -153,9 +153,9 @@ func TestSinglePostingThresholdFromSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := HFresh{
-				logger:           logrus.New(),
-				config:           &Config{SinglePostingMaxSize: tt.size},
-				maxPostingSizeKB: ent.DefaultMaxPostingSizeKB,
+				logger:               logrus.New(),
+				singlePostingMaxSize: tt.size,
+				maxPostingSizeKB:     ent.DefaultMaxPostingSizeKB,
 			}
 			require.NoError(t, h.setMaxPostingSize(tt.dims))
 			require.Equal(t, tt.expected, h.bootstrapThreshold)
@@ -182,7 +182,7 @@ func TestSinglePostingMaxSizeFromEnv(t *testing.T) {
 			if tt.value != nil {
 				t.Setenv("EXPERIMENTAL_HFRESH_SINGLE_POSTING_MAX_SIZE", *tt.value)
 			}
-			require.Equal(t, tt.expected, SinglePostingMaxSizeFromEnv(logrus.New()))
+			require.Equal(t, tt.expected, singlePostingMaxSizeFromEnv(logrus.New()))
 		})
 	}
 }

@@ -327,7 +327,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			MultiVectorForIDThunk:        hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SinglePostingMaxSize:         hfresh.SinglePostingMaxSizeFromEnv(logger),
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                            logger,
