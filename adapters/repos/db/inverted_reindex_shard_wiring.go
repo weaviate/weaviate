@@ -39,8 +39,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// serveDecidedIndexes flips in, before ready, every decided index the reconcile pass did not rename. It reads
-// only records, schema and directories, so every load with the same fault gives the same answer.
+// serveDecidedIndexes flips in, before ready, every decided index the reconcile pass did not rename.
 func (s *Shard) serveDecidedIndexes(ctx context.Context, class *models.Class) error {
 	all := s.migrationRecords.Records()
 	local, readable := s.migrations().LocalTasks()
@@ -87,8 +86,7 @@ func (s *Shard) serveDecidedIndexes(ctx context.Context, class *models.Class) er
 	return nil
 }
 
-// stagedOwed names rec's properties whose new data only the staged directory holds. Superseded properties and
-// those whose index the schema removed are owed nothing.
+// stagedOwed names rec's properties whose new data only the staged directory holds.
 func (s *Shard) stagedOwed(rec MigrationRecord, all []MigrationRecord, class *models.Class, overrides bool,
 ) ([]string, error) {
 	subject := rec.Subject()
@@ -123,8 +121,7 @@ func (s *Shard) stagedOwed(rec MigrationRecord, all []MigrationRecord, class *mo
 	return owed, nil
 }
 
-// unservable is the one place that decides what a load does when a decided index cannot serve its new
-// data. Serving the old data instead, or none, returns wrong results, so the shard does not load.
+// unservable decides what a load does when a decided index cannot serve its new data; old data returns wrong results.
 func unservable(subject MigrationSubject, prop, why string) error {
 	return fmt.Errorf("task %s, property %q (%s): %s; the shard does not load until this is repaired",
 		subject.TaskID, prop, subject.Key, why)

@@ -124,7 +124,6 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		// trusting the schema flag verbatim.
 		isRangeableLocallyReady = func(string) bool { return true }
 	}
-	// One allocation holds both. A Searcher serves one docIDs call at a time.
 	s := &struct {
 		Searcher
 		pins queryPins

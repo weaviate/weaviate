@@ -547,8 +547,7 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	return s.PutAll([]MigrationRecord{rec})
 }
 
-// PutAll writes every record, or none when a check refuses one. A failed rename or directory
-// sync can leave a subset published, which memory adopts; so can a crash before that sync.
+// PutAll writes every record, or none when a check refuses one. A failed rename, sync or crash can publish a subset.
 func (s *MigrationRecordStore) PutAll(recs []MigrationRecord) error {
 	data := make([][]byte, len(recs))
 	for i, rec := range recs {

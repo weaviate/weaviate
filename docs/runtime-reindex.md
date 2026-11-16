@@ -405,7 +405,7 @@ preceding a transition on the per-task field. Annotations
         │   PHASE B — SWAP per local shard:                             │
         │    2. DECISIONS: one PutAll of the unit's flip decisions      │
         │    3. ATOMIC SWAP: every bucket + overlay in one section      │
-        │    + post-atomic inline tidy (Shutdown + rename old → backup) │
+        │    + post-atomic inline tidy (Shutdown + discard old dir)     │
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(group, success) — pays the debt     │
         │                                                                │
@@ -484,7 +484,7 @@ What does NOT go through RAFT (local-only):
 - **DECISIONS** (one `PutAll` of the unit's flip decisions).
 - **ATOMIC SWAP** (`Shard.SwapBucketsAndSetOverlay`: every bucket of the
   unit and the property overlay in one in-memory critical section).
-- **Post-atomic inline tidy** (Shutdown old main, rename old → backup).
+- **Post-atomic inline tidy** (Shutdown old main, discard its directory).
 - **`OnMigrationComplete`** per-strategy hook (in-memory shard-local
   state mutations).
 
@@ -500,9 +500,12 @@ Two different scopes of atomicity carry weight here:
 
 - **Per-node atomic** — in the swap's Phase 2a, every bucket of the
   shard's unit and the property overlay flip in one critical section,
-  so no query on this node sees some buckets swapped and others not, or
-  a tokenization that disagrees with the bucket it reads. This is the
-  meaning of "ATOMIC SWAP" in the diagram.
+  so the shard never holds some of the unit's buckets swapped and others
+  not. Every pin returns the tokenization that matches the bucket it
+  pins. A query that pins two buckets at different moments, such as a
+  BM25 search with a filter on the property, can read one from before
+  the flip and one from after. This is the meaning of "ATOMIC SWAP" in
+  the diagram.
 - **Cluster-wide convergence (NOT instantaneous synchronization)** —
   the system guarantees that either every node converges to the new
   bucket+schema state, or the migration fails cleanly and every node
@@ -790,8 +793,9 @@ run on the property is `SWAPPING`. Class-wide
   `ShardReindexTaskGeneric`. For semantic migrations it stops at
   `markReindexed` (barrier); for format-only it runs the full
   lifecycle including the swap.
-- `OnGroupCompleted` (semantic only) → the swap phase, per local
-  shard. PREP, then the ATOMIC SWAP, which sets the overlay with the flip. See §6.
+- `OnGroupCompleted` (semantic only) → PREP, per local shard. See §6.
+- `OnSwapRequested` (semantic only) → the ATOMIC SWAP per local shard,
+  which sets the overlay with the flip. See §6.3.
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
   via RAFT. It does not touch the property overlay: an entry describes
   this shard's buckets, and no task status changes those (§10).
@@ -1216,8 +1220,8 @@ produce a noisy apply failure).
 
 ### 6.4 The three-phase swap
 
-`OnGroupCompleted` runs a strict prep / atomic / defer split per local
-shard. The contract is summarized at the top of
+The swap runs a strict prep / atomic / defer split per local shard:
+`OnGroupCompleted` runs PREP, and `OnSwapRequested` runs the rest. The contract is summarized at the top of
 [`inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go);
 in short:
 
@@ -1388,8 +1392,7 @@ After a successful swap on each node:
 - `bucketsByName[mainName]` → the ingest bucket instance.
 - That bucket's `dir` still points at
   `property_<p>_<index>__<ingestSuffix>_<N>/`; no filesystem rename.
-- The old main has been `Shutdown` and its dir renamed to
-  `…__<backupSuffix>_<N>/`.
+- The old main has been `Shutdown` and its directory discarded.
 
 `Store.FinalizeBucketSwap` would rename ingest → canonical, but as its
 godoc spells out, **it MUST only be called during startup, before the
@@ -1428,12 +1431,11 @@ Each migration takes its own gen-suffixed sidecars:
 T_(N+1) on prop=text:
   reindex dir : property_text_searchable__retokenize_reindex_<N+1>
   ingest dir  : property_text_searchable__retokenize_ingest_<N+1>
-  backup dir  : property_text_searchable__retokenize_backup_<N+1>
 ```
 
 No path collision with the gen-N state still on disk. `T_(N+1)`'s
 swap replaces the gen-N pointer with its own; the old gen-N
-bucket is shut down and renamed to the later migration's backup dir.
+bucket is shut down and its directory discarded.
 `N` and `N+1` here label two successive submissions, whose generations
 rise but need not be consecutive (§9.3).
 
@@ -1543,7 +1545,8 @@ hands it to the analyzer's `WithSchemaOverlay`. The query path reads the
 tokenization half only, through `Shard.PinTokenizationAndBucket`: every
 `Searcher`, `BM25Searcher` and aggregator the shard builds takes it as
 its `inverted.TokenizationBucketPinner`, which returns the tokenization
-and pins the bucket it reads under one lock, once per property and query.
+and pins the bucket it reads under one lock. A filter pins each bucket once
+per `docIDs` call, and BM25 pins each property once per search.
 
 An entry is a fact about this shard's buckets, never about a task and
 never about the schema. It claims only what is physically true here: a

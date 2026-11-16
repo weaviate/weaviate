@@ -9,12 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Runtime reindex phase contract. The swap phase flips the unit's buckets and overlay in one critical section, so no
-// query reads a mixed pair (https://github.com/weaviate/0-weaviate-issues/issues/216); serveDeferredPromotions moves
-// one bucket with no overlay. Retiring a
-// displaced bucket shuts it down inline, since Shutdown alone frees its path from
-// GlobalBucketRegistry. The rename onto the canonical name waits for the next
-// startup: renaming a live bucket's dir corrupts its segment registry.
+// Runtime reindex phase contract. The swap phase flips all of the unit's buckets and sets the overlay in one
+// critical section, so every pin returns a tokenization that matches its bucket
+// (https://github.com/weaviate/0-weaviate-issues/issues/216). serveDeferredPromotions moves one bucket with no
+// overlay. Retiring a displaced bucket shuts it down inline, since Shutdown alone frees its path from
+// GlobalBucketRegistry. The rename onto the canonical name waits for the next startup: renaming a live
+// bucket's dir corrupts its segment registry.
 
 package db
 

@@ -53,7 +53,6 @@ func (p *queryPins) pin(pinner TokenizationBucketPinner, prop, bucketName, schem
 	return tokenization, bucket
 }
 
-// bucketFor returns the first bucket pinned for prop; BM25 pins one per property.
 func (p *queryPins) bucketFor(prop string) *lsmkv.Bucket {
 	p.mu.Lock()
 	defer p.mu.Unlock()

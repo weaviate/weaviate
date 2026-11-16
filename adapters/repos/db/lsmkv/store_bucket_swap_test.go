@@ -216,8 +216,7 @@ func TestStore_SwapBucketPointer_StoreClosed(t *testing.T) {
 // The test simulates the same-process back-to-back retokenize sequence:
 //  1. Create main + ingest sidecar.
 //  2. Swap ingest into main slot (in-memory only; on-disk dir is unchanged).
-//  3. Shut down the old main bucket and rename its dir to backup (mirrors
-//     settleSwap in inverted_reindex_task_generic.go).
+//  3. Shut down the old main bucket and rename its dir to backup.
 //  4. Simulate the next cycle's pre-cleanup: rm-rf the ingest dir on disk
 //     (mirrors cleanStaleSidecarDirs).
 //  5. CreateOrLoadBucket for a NEW ingest bucket at the same name must

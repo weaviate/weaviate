@@ -1272,7 +1272,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // units. Used by the SWAP path to keep the per-replica user-observable
 // cutover window bounded by max(per-shard swap) rather than
 // Σ(per-shard swap) — without parallelism, each shard's inline
-// post-pointer-flip work (oldBucket.Shutdown drain, dir rename, trim)
+// post-pointer-flip work (oldBucket.Shutdown drain, displaced-dir discard, trim)
 // serializes the NEXT shard's pointer flip, which makes the partial-
 // results window grow linearly in shard count and is the regression
 // surfaced by TestLiveQueriesDuringChangeTokenization on container
