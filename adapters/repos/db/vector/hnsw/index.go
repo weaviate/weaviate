@@ -886,6 +886,34 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 	return exists && !h.hasTombstone(docID)
 }
 
+// MaxNodeID returns the highest ID holding a node or a tombstone, and false
+// when there is none.
+func (h *hnsw) MaxNodeID() (uint64, bool) {
+	var maxID uint64
+	var found bool
+
+	h.RLock()
+	h.shardedNodeLocks.RLockAll()
+	for i := len(h.nodes) - 1; i >= 0; i-- {
+		if h.nodes[i] != nil {
+			maxID, found = uint64(i), true
+			break
+		}
+	}
+	h.shardedNodeLocks.RUnlockAll()
+	h.RUnlock()
+
+	h.tombstoneLock.RLock()
+	for id := range h.tombstones {
+		if !found || id > maxID {
+			maxID, found = id, true
+		}
+	}
+	h.tombstoneLock.RUnlock()
+
+	return maxID, found
+}
+
 // ContainsNode reports whether id holds a node, tombstoned or not.
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
