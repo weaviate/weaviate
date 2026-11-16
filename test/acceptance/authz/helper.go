@@ -23,9 +23,11 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/authz"
 	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
@@ -47,6 +49,53 @@ const (
 )
 
 const NumBuildInRoles = 5
+
+// withBackupPrincipalsHeader sets conv.AcceptBackupPrincipalsHeader to value on
+// the outgoing request.
+func withBackupPrincipalsHeader(value string) authz.ClientOption {
+	return func(op *runtime.ClientOperation) {
+		params := op.Params
+		op.Params = runtime.ClientRequestWriterFunc(func(r runtime.ClientRequest, reg strfmt.Registry) error {
+			if err := params.WriteToRequest(r, reg); err != nil {
+				return err
+			}
+			return r.SetHeaderParam(conv.AcceptBackupPrincipalsHeader, value)
+		})
+	}
+}
+
+// createRoleCapable is helper.CreateRole for a client that reads and writes
+// users and roles backup grants.
+func createRoleCapable(t *testing.T, key string, role *models.Role) {
+	t.Helper()
+	resp, err := helper.Client(t).Authz.CreateRole(
+		authz.NewCreateRoleParams().WithBody(role),
+		helper.CreateAuth(key), withBackupPrincipalsHeader("true"))
+	helper.AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+// addPermissionsCapable is helper.AddPermissions for a capable client.
+func addPermissionsCapable(t *testing.T, key, role string, permissions ...*models.Permission) {
+	t.Helper()
+	resp, err := helper.Client(t).Authz.AddPermissions(
+		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{Permissions: permissions}),
+		helper.CreateAuth(key), withBackupPrincipalsHeader("true"))
+	helper.AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+// getRoleCapable is helper.GetRoleByName for a capable client.
+func getRoleCapable(t *testing.T, key, role string) *models.Role {
+	t.Helper()
+	resp, err := helper.Client(t).Authz.GetRole(
+		authz.NewGetRoleParams().WithID(role),
+		helper.CreateAuth(key), withBackupPrincipalsHeader("true"))
+	helper.AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp.Payload)
+	return resp.Payload
+}
 
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
 	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)

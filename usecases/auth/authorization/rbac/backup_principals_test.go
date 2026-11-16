@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -199,6 +201,71 @@ func TestAuthorizeBackupPrincipals(t *testing.T) {
 		for _, r := range []string{"backups/users/*", "backups/users/customer1:bob", "backups/roles/*"} {
 			err := m.Authorize(context.Background(), caller, authorization.CREATE, r)
 			assert.ErrorAs(t, err, new(authzErrors.Forbidden), r)
+		}
+	})
+}
+
+func TestViewerBackupPrincipalWildcards(t *testing.T) {
+	const viewer, group = "viewer-user", "auditors"
+	backupResources := [][]string{authorization.Backups(), authorization.BackupUsers(), authorization.BackupRoles()}
+	ctx := context.Background()
+
+	newManager := func(t *testing.T, conf rbacconf.Config, namespacesEnabled bool) *Manager {
+		t.Helper()
+		logger, _ := test.NewNullLogger()
+		m, err := New(filepath.Join(t.TempDir(), "policy.csv"), conf, config.Authentication{
+			APIKey: config.StaticAPIKey{Enabled: true, Users: []string{viewer}},
+			OIDC:   config.OIDC{Enabled: true},
+		}, namespacesEnabled, activeNamespaces(), logger)
+		require.NoError(t, err)
+		return m
+	}
+	viewerManager := func(t *testing.T, namespacesEnabled bool) (*Manager, *models.Principal) {
+		m := newManager(t, rbacconf.Config{Enabled: true, ViewerUsers: []string{viewer}}, namespacesEnabled)
+		return m, &models.Principal{Username: viewer, UserType: models.UserTypeInputDb, IsGlobalOperator: namespacesEnabled}
+	}
+
+	t.Run("namespaces off, viewer reads every backup wildcard", func(t *testing.T) {
+		m, caller := viewerManager(t, false)
+		for _, r := range backupResources {
+			assert.NoError(t, m.AuthorizeSilent(ctx, caller, authorization.READ, r...), r)
+			assert.ErrorAs(t, m.AuthorizeSilent(ctx, caller, authorization.CREATE, r...), new(authzErrors.Forbidden), r)
+		}
+		assert.NoError(t, m.AuthorizeSilent(ctx, caller, authorization.READ, slices.Concat(backupResources...)...), "the list probe")
+	})
+
+	t.Run("displayed viewer backups grants are enforced", func(t *testing.T) {
+		m, caller := viewerManager(t, false)
+		checked := 0
+		for _, p := range authorization.BuiltInPermissionsFor(false)[authorization.Viewer] {
+			if p.Backups == nil || *p.Action != authorization.ReadBackups {
+				continue
+			}
+			policies, err := conv.PermissionToPolicies(p)
+			require.NoError(t, err)
+			assert.NoError(t, m.AuthorizeSilent(ctx, caller, authorization.READ, policies[0].Resource), policies[0].Resource)
+			checked++
+		}
+		assert.Equal(t, 3, checked, "collections, users and roles")
+	})
+
+	t.Run("read-only reads every backup wildcard", func(t *testing.T) {
+		for _, mode := range metadataReaderModes {
+			t.Run(mode.name, func(t *testing.T) {
+				m := newManager(t, rbacconf.Config{Enabled: true, ReadOnlyGroups: []string{group}}, mode.namespacesEnabled)
+				caller := &models.Principal{Username: "auditor", UserType: models.UserTypeInputOidc, Groups: []string{group}, IsGlobalOperator: mode.namespacesEnabled}
+				for _, r := range backupResources {
+					assert.NoError(t, m.AuthorizeSilent(ctx, caller, authorization.READ, r...), r)
+				}
+			})
+		}
+	})
+
+	t.Run("namespaces on, viewer reads none", func(t *testing.T) {
+		m, caller := viewerManager(t, true)
+		require.NoError(t, m.AuthorizeSilent(ctx, caller, authorization.READ, authorization.CollectionsMetadata()...), "the viewer grant applies")
+		for _, r := range backupResources {
+			assert.ErrorAs(t, m.AuthorizeSilent(ctx, caller, authorization.READ, r...), new(authzErrors.Forbidden), r)
 		}
 	})
 }

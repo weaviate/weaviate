@@ -697,6 +697,14 @@ func viewerPermissions() []*models.Permission {
 			Namespaces:  AllNamespaces,
 		})
 	}
+	// Every role shown with this list is enforced by one wildcard read row, and
+	// that row already grants these reads. Listing them keeps two things in step
+	// with enforcement: the display, and the assign and visibility checks that
+	// read this list.
+	for _, target := range []*models.PermissionBackups{AllBackupUsers, AllBackupRoles} {
+		action := ReadBackups
+		perms = append(perms, &models.Permission{Action: &action, Backups: target})
+	}
 
 	return perms
 }

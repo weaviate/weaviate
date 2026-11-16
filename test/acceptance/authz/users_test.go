@@ -146,7 +146,9 @@ func TestAuthzRolesForUsers(t *testing.T) {
 		t.Run("holding one verb of a manage permission is not enough", func(t *testing.T) {
 			backupManager := "backup-manager"
 			helper.DeleteRole(t, adminKey, backupManager)
-			helper.CreateRole(t, adminKey, &models.Role{
+			// A legacy create would derive the users and roles wildcards. The viewer
+			// lacks the manage verbs on each of them too.
+			createRoleCapable(t, adminKey, &models.Role{
 				Name: &backupManager,
 				Permissions: []*models.Permission{
 					helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection("*").Permission(),

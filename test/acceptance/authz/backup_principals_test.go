@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -74,7 +75,8 @@ func TestAuthZBackupPrincipalsJourney(t *testing.T) {
 		Name:        String(customRole),
 		Permissions: []*models.Permission{{Action: String(authorization.ReadCollections), Collections: &models.PermissionCollections{Collection: String(par.Class)}}},
 	})
-	helper.CreateRole(t, adminKey, &models.Role{
+	// A legacy create would derive the users and roles wildcards.
+	createRoleCapable(t, adminKey, &models.Role{
 		Name:        String(operatorRole),
 		Permissions: []*models.Permission{helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(par.Class).Permission()},
 	})
@@ -142,7 +144,7 @@ func TestAuthZBackupPrincipalsJourney(t *testing.T) {
 
 	t.Run("the grants read back with user or role set and no collection", func(t *testing.T) {
 		var gotUser, gotRole bool
-		for _, p := range helper.GetRoleByName(t, adminKey, operatorRole).Permissions {
+		for _, p := range getRoleCapable(t, adminKey, operatorRole).Permissions {
 			if p.Backups == nil || *p.Action != authorization.ManageBackups {
 				continue
 			}
@@ -185,6 +187,58 @@ func TestAuthZBackupPrincipalsJourney(t *testing.T) {
 			helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithUser("*").Permission(),
 			helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithRole("*").Permission(),
 		)
+	})
+
+	t.Run("a request without the header reads no users or roles grants", func(t *testing.T) {
+		requireCollectionOnly := func(t *testing.T, role *models.Role) {
+			t.Helper()
+			var collections int
+			for _, p := range role.Permissions {
+				if p.Backups == nil {
+					continue
+				}
+				require.NotNil(t, p.Backups.Collection, "%s: %+v", *p.Action, *p.Backups)
+				collections++
+			}
+			require.Equal(t, 1, collections)
+		}
+		requireCollectionOnly(t, helper.GetRoleByName(t, adminKey, operatorRole))
+
+		resp, err := helper.Client(t).Authz.GetRole(
+			authz.NewGetRoleParams().WithID(operatorRole), admin, withBackupPrincipalsHeader("false"))
+		require.NoError(t, err)
+		requireCollectionOnly(t, resp.Payload)
+	})
+
+	t.Run("legacy writes derive and drop the wildcards", func(t *testing.T) {
+		const legacyRole = "legacy-backup-operator"
+		collectionsGrant := helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(par.Class).Permission()
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(legacyRole),
+			// The read grant keeps the role alive once the backups rows are gone.
+			Permissions: []*models.Permission{
+				collectionsGrant,
+				{Action: String(authorization.ReadCollections), Collections: &models.PermissionCollections{Collection: String(par.Class)}},
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, legacyRole)
+		wildcards := func() (users, roles bool) {
+			for _, p := range getRoleCapable(t, adminKey, legacyRole).Permissions {
+				if p.Backups == nil || *p.Action != authorization.ManageBackups {
+					continue
+				}
+				users = users || (p.Backups.User != nil && *p.Backups.User == "*")
+				roles = roles || (p.Backups.Role != nil && *p.Backups.Role == "*")
+			}
+			return users, roles
+		}
+
+		users, roles := wildcards()
+		require.True(t, users && roles, "a legacy create stores both wildcards")
+
+		helper.RemovePermissions(t, adminKey, legacyRole, collectionsGrant)
+		users, roles = wildcards()
+		require.False(t, users || roles, "a legacy remove of the last collections grant drops both")
 	})
 
 	t.Run("the caller restores users", func(t *testing.T) {

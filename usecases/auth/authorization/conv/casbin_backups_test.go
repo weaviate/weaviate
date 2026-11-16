@@ -12,6 +12,8 @@
 package conv
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -79,7 +81,7 @@ func TestBackupPrincipalPermissions(t *testing.T) {
 			require.Len(t, policies, 1)
 			assert.Equal(t, tt.wantPolicy, *policies[0])
 
-			back, err := PoliciesToPermission(logrus.New(), *policies[0])
+			back, err := PoliciesToPermission(logrus.New(), true, *policies[0])
 			require.NoError(t, err)
 			require.Len(t, back, 1)
 			assert.Equal(t, perm, back[0])
@@ -150,4 +152,65 @@ func TestBackupPrincipalGrants(t *testing.T) {
 			assert.Nil(t, BackupPrincipalGrants(source), source.Resource)
 		}
 	})
+}
+
+func TestPoliciesToPermissionBackupPrincipals(t *testing.T) {
+	manage, readCollections := authorization.ManageBackups, authorization.ReadCollections
+	collectionsGrant := &models.Permission{Action: &manage, Backups: &models.PermissionBackups{Collection: authorization.String("Movies")}}
+	usersGrant := &models.Permission{Action: &manage, Backups: authorization.AllBackupUsers}
+	rolesGrant := &models.Permission{Action: &manage, Backups: &models.PermissionBackups{Role: authorization.String("editor")}}
+	other := &models.Permission{Action: &readCollections, Collections: &models.PermissionCollections{Collection: authorization.String("Movies")}}
+
+	ptrs, err := PermissionToPolicies(collectionsGrant, usersGrant, rolesGrant, other)
+	require.NoError(t, err)
+	policies := make([]authorization.Policy, len(ptrs))
+	for i, p := range ptrs {
+		policies[i] = *p
+	}
+
+	t.Run("the legacy view omits users and roles grants and keeps the rest", func(t *testing.T) {
+		got, err := PoliciesToPermission(logrus.New(), false, policies...)
+		require.NoError(t, err)
+		assert.Equal(t, []*models.Permission{collectionsGrant, other}, got)
+	})
+
+	t.Run("the capable view returns every grant in union shape", func(t *testing.T) {
+		got, err := PoliciesToPermission(logrus.New(), true, policies...)
+		require.NoError(t, err)
+		assert.Equal(t, []*models.Permission{collectionsGrant, usersGrant, rolesGrant, other}, got)
+	})
+}
+
+func TestAcceptsBackupPrincipals(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     []string // each is added as one header value, in order
+		nilRequest bool
+		want       bool
+	}{
+		{name: "absent header is legacy"},
+		{name: "true is capable", values: []string{"true"}, want: true},
+		{name: "True is capable", values: []string{"True"}, want: true},
+		{name: "TRUE is capable", values: []string{"TRUE"}, want: true},
+		{name: "false is legacy", values: []string{"false"}},
+		{name: "empty is legacy", values: []string{""}},
+		{name: "yes is legacy", values: []string{"yes"}},
+		{name: "1 is legacy", values: []string{"1"}},
+		{name: "t is legacy", values: []string{"t"}},
+		{name: "banana is legacy", values: []string{"banana"}},
+		{name: "only the first value counts", values: []string{"false", "true"}},
+		{name: "nil request is legacy", nilRequest: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var r *http.Request
+			if !tt.nilRequest {
+				r = httptest.NewRequest(http.MethodGet, "/v1/authz/roles", nil)
+				for _, v := range tt.values {
+					r.Header.Add(AcceptBackupPrincipalsHeader, v)
+				}
+			}
+			assert.Equal(t, tt.want, AcceptsBackupPrincipals(r))
+		})
+	}
 }

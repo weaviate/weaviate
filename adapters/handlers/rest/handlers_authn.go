@@ -44,7 +44,7 @@ func setupAuthnHandlers(api *operations.WeaviateAPI, controller authorization.Co
 	api.UsersGetOwnInfoHandler = users.GetOwnInfoHandlerFunc(h.getOwnInfo)
 }
 
-func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
+func (h *authNHandlers) getOwnInfo(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 	if principal == nil {
 		return users.NewGetOwnInfoUnauthorized()
 	}
@@ -65,8 +65,9 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 				existingRoles[roleName] = policies
 			}
 		}
+		capable := authzConv.AcceptsBackupPrincipals(params.HTTPRequest)
 		for roleName, policies := range existingRoles {
-			perms, err := authzConv.PoliciesToPermission(h.logger, policies...)
+			perms, err := authzConv.PoliciesToPermission(h.logger, capable, policies...)
 			if err != nil {
 				return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}

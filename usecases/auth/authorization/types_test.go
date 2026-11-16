@@ -146,7 +146,7 @@ func TestBackupPrincipals(t *testing.T) {
 		})
 	}
 
-	t.Run("admin and root manage both wildcards, metadata reader reads them, viewer and read-only hold neither", func(t *testing.T) {
+	t.Run("admin and root manage both wildcards, metadata reader, read-only and the namespaces-off viewer read them", func(t *testing.T) {
 		// Compare targets by value, not pointer: a permission built from a new
 		// struct must match the same as one reusing the package-level pointer.
 		actionsOn := func(perms []*models.Permission, target *models.PermissionBackups) []string {
@@ -160,15 +160,16 @@ func TestBackupPrincipals(t *testing.T) {
 		}
 		for _, namespacesEnabled := range []bool{false, true} {
 			builtIn := BuiltInPermissionsFor(namespacesEnabled)
-			var adminActions []string
+			var adminActions, viewerActions []string
 			if !namespacesEnabled {
 				adminActions = []string{ManageBackups}
+				viewerActions = []string{ReadBackups}
 			}
 			for role, want := range map[string][]string{
 				Admin:          adminActions,
 				Root:           {ManageBackups},
-				Viewer:         nil,
-				ReadOnly:       nil,
+				Viewer:         viewerActions,
+				ReadOnly:       {ReadBackups},
 				MetadataReader: {ReadBackups},
 			} {
 				assert.Equal(t, want, actionsOn(builtIn[role], AllBackupUsers), "%s users, namespaces=%v", role, namespacesEnabled)

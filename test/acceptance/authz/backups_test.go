@@ -119,7 +119,8 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	})
 
 	t.Run("manage backups of clsA.Class collection", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(clsA.Class).Permission())
+		// A legacy add would derive the users and roles wildcards.
+		addPermissionsCapable(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(clsA.Class).Permission())
 	})
 
 	t.Run("successfully create a backup with sufficient permissions", func(t *testing.T) {

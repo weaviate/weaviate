@@ -873,12 +873,14 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		manageBackups := func() *models.Permission {
 			return helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection("*").Permission()
 		}
+		// A legacy add would also derive the users and roles wildcards. The viewer
+		// lacks the manage verbs on each of them too.
 		addManageBackups := func() error {
 			_, err := helper.Client(t).Authz.AddPermissions(
 				authz.NewAddPermissionsParams().WithID(newRole).WithBody(authz.AddPermissionsBody{
 					Permissions: []*models.Permission{manageBackups()},
 				}),
-				limitedAuth,
+				limitedAuth, withBackupPrincipalsHeader("true"),
 			)
 			return err
 		}
