@@ -2567,6 +2567,60 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 	}
 }
 
+func TestManager_ForgetSwapsOwedByNonMembers(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		status      TaskStatus
+		owed        []string
+		members     []string
+		wantOwed    map[string][]string
+		wantDropped int
+	}{
+		{
+			name: "a stopped run forgets the departed node and keeps the member's debt", status: TaskStatusFailed,
+			owed: []string{"n1", "n2"}, members: []string{"n2"}, wantOwed: map[string][]string{"g": {"n2"}}, wantDropped: 1,
+		},
+		{
+			// The reindex retainer keeps a record while len(SwapsOwed) > 0.
+			name: "the last debt leaves no entry, so the retainer releases the record", status: TaskStatusCancelled,
+			owed: []string{"n1"}, members: []string{"n2"}, wantOwed: map[string][]string{}, wantDropped: 1,
+		},
+		{
+			name: "a member's debt stays", status: TaskStatusFinished,
+			owed: []string{"n1"}, members: []string{"n1", "n2"}, wantOwed: map[string][]string{"g": {"n1"}},
+		},
+		{
+			name: "an active run is left alone", status: TaskStatusSwapping,
+			owed: []string{"n1"}, wantOwed: map[string][]string{"g": {"n1"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			m := NewManager(ManagerParameters{Logger: logger})
+			task := withUnits(&Task{
+				Namespace: "ns", TaskDescriptor: TaskDescriptor{ID: "T", Version: 1}, Status: tc.status,
+				NeedsPreparationBarrier: true, SwapsOwed: map[string][]string{"g": tc.owed},
+			}, map[string]*Unit{"u": {ID: "u", GroupID: "g"}})
+			m.tasks["ns"] = map[string]*Task{"T": task}
+			held := tc.owed
+			heldCopy := slices.Clone(held)
+
+			require.Equal(t, tc.wantDropped, m.ForgetSwapsOwedByNonMembers(tc.members))
+
+			require.Equal(t, tc.wantOwed, task.SwapsOwed)
+			require.Equal(t, heldCopy, held, "a snapshot clone shares the old slice, so it must be replaced, not edited")
+			snap, err := m.Snapshot()
+			require.NoError(t, err)
+			restored := NewManager(ManagerParameters{Logger: logger})
+			require.NoError(t, restored.Restore(snap))
+			require.Len(t, restored.tasks["ns"]["T"].SwapsOwed, len(tc.wantOwed))
+			for g, nodes := range tc.wantOwed {
+				require.Equal(t, nodes, restored.tasks["ns"]["T"].SwapsOwed[g])
+			}
+		})
+	}
+}
+
 // Pins that a log a released binary (v1.38.x, v1.39.0-14) wrote replays to that binary's verdict.
 func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 	const ns, id = "ns", "T"

@@ -397,6 +397,30 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 	}
 }
 
+// ForgetSwapsOwedByNonMembers drops, from every stopped run, the swap debts of nodes outside members: a node that left the cluster can never pay, and its debt would block the shard forever. Active runs keep theirs for their own barrier. It returns how many debts it dropped.
+func (m *Manager) ForgetSwapsOwedByNonMembers(members []string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	dropped := 0
+	for _, tasks := range m.tasks {
+		for _, task := range tasks {
+			if task.Status.IsActive() {
+				continue
+			}
+			for group, owing := range task.SwapsOwed {
+				for _, node := range owing {
+					if !slices.Contains(members, node) {
+						task.paySwap(group, node)
+						dropped++
+					}
+				}
+			}
+		}
+	}
+	return dropped
+}
+
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
 	extractor := m.collectionExtractor(namespace)
 	if extractor == nil {

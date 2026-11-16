@@ -190,13 +190,17 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 	require.True(t, tryNTimesWithWait(40, 200*time.Millisecond, r.store.IsLeader))
 
 	tests := []struct {
-		name        string
-		className   string
-		factor      int64
-		shards      map[string][]string
-		owedShard   string
+		name      string
+		className string
+		factor    int64
+		shards    map[string][]string
+		owedShard string
+		// owedBy is the node that swapped, then the node that still owes.
+		owedBy      [2]string
 		removedNode string
-		want        map[string][]string
+		// leaves: the removed node joins RAFT first and leaves through Raft.Remove.
+		leaves bool
+		want   map[string][]string
 	}{
 		{
 			name:        "a shard a stopped task still owes is skipped, the class's other shards still move",
@@ -204,8 +208,20 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 			factor:      2,
 			shards:      map[string][]string{"S1": {"node-1", "node-2"}, "S2": {"node-1", "node-2"}},
 			owedShard:   "S1",
+			owedBy:      [2]string{"node-1", "node-2"},
 			removedNode: "node-1",
 			want:        map[string][]string{"S1": {"node-1", "node-2"}, "S2": {"node-2", "node-3"}},
+		},
+		{
+			name:        "a shard at its replication factor that only the departed node owed is rebalanced and movable",
+			className:   "Owed",
+			factor:      2,
+			shards:      map[string][]string{"S1": {"node-2", "node-3"}},
+			owedShard:   "S1",
+			owedBy:      [2]string{"node-3", "node-2"},
+			removedNode: "node-2",
+			leaves:      true,
+			want:        map[string][]string{"S1": {"node-1", "node-3"}},
 		},
 		{
 			// Several shards: a candidate picked without regard for the home
@@ -257,7 +273,7 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 		},
 	}
 
-	addClass := func(t *testing.T, className string, factor int64, shards map[string][]string, owedShard string) {
+	addClass := func(t *testing.T, className string, factor int64, shards map[string][]string, owedShard string, owedBy [2]string) {
 		t.Helper()
 		physical := make(map[string]sharding.Physical, len(shards))
 		virtual := make([]sharding.Virtual, 0, len(shards))
@@ -278,7 +294,7 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 			require.NoError(t, err)
 		})
 		if owedShard != "" {
-			seedOwedSwap(t, r.store, owedShard, [2]string{"node-1", "node-2"}, failOwingTask)
+			seedOwedSwap(t, r.store, owedShard, owedBy, failOwingTask)
 		}
 		logs.Reset()
 	}
@@ -290,23 +306,34 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			addClass(t, tt.className, tt.factor, tt.shards, tt.owedShard)
+			if tt.leaves {
+				// Join before seeding: every configuration entry forgets the debts of non-members.
+				require.NoError(t, r.store.Join(tt.removedNode, fmt.Sprintf("127.0.0.1:%d", utils.MustGetFreeTCPPort()), false))
+			}
+			addClass(t, tt.className, tt.factor, tt.shards, tt.owedShard, tt.owedBy)
 
-			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
+			if tt.leaves {
+				require.NoError(t, r.Remove(ctx, tt.removedNode))
+			} else {
+				require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
+			}
 
 			for shard, want := range tt.want {
 				got, err := r.SchemaReader().ShardReplicas(tt.className, shard)
 				require.NoError(t, err)
 				require.ElementsMatch(t, want, got)
 			}
-			if tt.owedShard != "" {
+			if tt.leaves {
+				// The scale-plan pre-check makes this same call per shard.
+				require.NoError(t, r.store.admitTaskOrMovement(cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, tt.className, tt.owedShard))
+			} else if tt.owedShard != "" {
 				require.True(t, loggedSkip(), "the skipped shard must be logged with the node that still owes its swap")
 			}
 		})
 	}
 
 	t.Run("a later shard's error is returned and the skipped shard before it is still logged", func(t *testing.T) {
-		addClass(t, "Owed", 2, map[string][]string{"S1": {"node-1", "node-2"}, "S3": {"node-1", "node-2"}}, "S1")
+		addClass(t, "Owed", 2, map[string][]string{"S1": {"node-1", "node-2"}, "S3": {"node-1", "node-2"}}, "S1", [2]string{"node-1", "node-2"})
 
 		err := r.rebalanceCollectionShards(ctx, r.SchemaReader(), "Owed", []string{"S1", "S3"}, "node-1", 2)
 		require.ErrorContains(t, err, "disk full")

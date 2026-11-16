@@ -238,7 +238,7 @@ func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection, 
 		}
 		if taskID, nodes, owed := st.distributedTasksManager.TaskOwingSwap(collection, shard); owed {
 			return fmt.Errorf("%w: task %q still owes the swap of shard %q of collection %q on nodes %v; "+
-				"bring those nodes back and set the shard READY so the swap lands, or delete the tenant or collection",
+				"bring those nodes back and set the shard READY so the swap lands, remove them from the cluster, or delete the tenant or collection",
 				replicationTypes.ErrMovementBlockedByTask, taskID, shard, collection, nodes)
 		}
 		return nil
@@ -373,11 +373,20 @@ func (st *Store) admitDestructive(req *api.ApplyRequest) error {
 // StoreConfiguration is invoked once a log entry containing a configuration
 // change is committed. It takes the index at which the configuration was
 // written and the configuration value.
-
-// We implemented this to keep `lastAppliedIndex` metric to correct value
-// to also handle `LogConfiguration` type of Raft command.
-func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
+// It also forgets the swap debts of nodes that left; raft calls it in log order, replay included, so every node forgets alike.
+func (st *Store) StoreConfiguration(index uint64, configuration raft.Configuration) {
 	st.metrics.raftLastAppliedIndex.Set(float64(index))
+
+	members := make([]string, len(configuration.Servers))
+	for i, server := range configuration.Servers {
+		members[i] = string(server.ID)
+	}
+	if dropped := st.distributedTasksManager.ForgetSwapsOwedByNonMembers(members); dropped > 0 {
+		st.log.WithFields(logrus.Fields{
+			"index":         index,
+			"dropped_debts": dropped,
+		}).Info("forgot reindex swap debts of nodes that left the cluster")
+	}
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
