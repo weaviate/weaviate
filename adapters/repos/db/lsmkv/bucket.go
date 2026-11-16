@@ -96,7 +96,7 @@ type Bucket struct {
 	flushLock sync.RWMutex
 
 	// lifetimeLock pins this bucket for a whole read or write (RLock via
-	// Store.AcquireBucketForRead or AcquireBucketsForWrite); Shutdown takes Lock() first, draining all
+	// Store.AcquireBucketForRead or AcquireBucketsForWrite). Shutdown takes Lock() first, draining all
 	// pins before freeing mmap'd segments (no drain timeout — timeout-then-free
 	// would SEGFAULT a reader). Order: lifetimeLock OUTER, flushLock INNER.
 	lifetimeLock sync.RWMutex

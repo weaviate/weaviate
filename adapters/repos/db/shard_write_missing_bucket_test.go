@@ -100,7 +100,7 @@ func TestFailedWriteChangesNothing(t *testing.T) {
 	t.Setenv(entcfg.EnvNestedFilteringPreview, "true")
 	type row struct {
 		write   missingBucketWrite
-		missing string // empty: every bucket is present
+		missing string // empty means every bucket is present
 	}
 	var rows []row
 	for _, w := range missingBucketWrites {
