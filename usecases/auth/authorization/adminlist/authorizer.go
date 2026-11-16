@@ -75,8 +75,9 @@ func (a *Authorizer) AuthorizeSilent(ctx context.Context, principal *models.Prin
 }
 
 func (a *Authorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.Authorize(ctx, principal, verb, resources...); err != nil {
-		return nil, err
+	// Authorize grants all or nothing and fails only to refuse.
+	if a.Authorize(ctx, principal, verb, resources...) != nil {
+		return []string{}, nil
 	}
 
 	return resources, nil

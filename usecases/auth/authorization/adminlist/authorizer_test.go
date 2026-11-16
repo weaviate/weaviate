@@ -447,3 +447,25 @@ func Test_AdminList_Authorizer(t *testing.T) {
 		})
 	})
 }
+
+func Test_AdminList_FilterAuthorizedResources(t *testing.T) {
+	resources := []string{"schema/collections/A/shards/#", "schema/collections/B/shards/#"}
+	cfg := Config{ReadOnlyUsers: []string{"reader"}}
+	tests := []struct {
+		name string
+		user string
+		verb string
+		want []string
+	}{
+		{name: "read-only user reading gets every resource", user: "reader", verb: "R", want: resources},
+		{name: "read-only user writing gets none", user: "reader", verb: "U", want: []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := New(cfg).FilterAuthorizedResources(context.Background(),
+				&models.Principal{Username: tt.user}, tt.verb, resources...)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
