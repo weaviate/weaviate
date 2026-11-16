@@ -88,7 +88,7 @@ func (s *Shard) serveDecidedIndexes(ctx context.Context, class *models.Class) er
 }
 
 // stagedOwed names rec's properties whose new data only the staged directory holds. Superseded properties and
-// those whose index the schema removed or defers are owed nothing.
+// those whose index the schema removed are owed nothing.
 func (s *Shard) stagedOwed(rec MigrationRecord, all []MigrationRecord, class *models.Class, overrides bool,
 ) ([]string, error) {
 	subject := rec.Subject()
@@ -96,8 +96,7 @@ func (s *Shard) stagedOwed(rec MigrationRecord, all []MigrationRecord, class *mo
 	var owed []string
 	for _, prop := range subject.Properties() {
 		swept, _ := migrationCanonicalSweptBySchema(class, subject, prop, overrides)
-		if swept || migrationPropertySuperseded(all, subject, prop) ||
-			slices.Contains(s.migrationRecords.DeferredPromotions(subject.Key), prop) {
+		if swept || migrationPropertySuperseded(all, subject, prop) {
 			continue
 		}
 		if !decided {

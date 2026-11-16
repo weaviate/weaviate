@@ -159,11 +159,34 @@ func TestALoadServesEveryDecidedIndex(t *testing.T) {
 			name: "a unit run holds the seal during the load",
 			prepare: func(t *testing.T, f *tokenizationChange, _ int) {
 				f.decideBoth(t)
-				f.idx.db.SetReindexUnitSeal(func() ReindexUnitSeal {
-					return func(distributedtask.TaskDescriptor, string) (func(), bool) { return nil, false }
-				})
+				f.holdSeal()
 			},
 			loads: []load{{found: 3}, {found: 3}},
+		},
+		{
+			name: "a crash after a rename, before its record, while a unit run holds the seal",
+			prepare: func(t *testing.T, f *tokenizationChange, half int) {
+				f.decideBoth(t)
+				rec, ok := f.tasks[half].migrationRecord(f.shard)
+				require.True(t, ok)
+				started := rec.(MigrationRecordSwapped).WithPromotionAt(tokChangeProp, migrationPromotionStarted)
+				require.NoError(t, f.shard.migrationRecords.Put(started))
+				f.holdSeal()
+			},
+			loads: []load{{before: renameOntoCanonical, found: 3}, {found: 3}},
+		},
+		{
+			name: "a decided half whose rebuilt data was empty, while a unit run holds the seal",
+			prepare: func(t *testing.T, f *tokenizationChange, half int) {
+				f.decideBoth(t)
+				rec, ok := f.tasks[half].migrationRecord(f.shard)
+				require.True(t, ok)
+				empty := rec.(MigrationRecordSwapped).WithStagedEmpty([]string{tokChangeProp})
+				require.NoError(t, f.shard.migrationRecords.Put(empty))
+				f.holdSeal()
+			},
+			// An empty rebuild has no directory to flip in; the counts depend on the canonical data the fixture keeps.
+			loads: []load{{before: removeStagedDir, found: -1}, {found: -1}},
 		},
 	}
 	for _, tc := range tests {
@@ -191,7 +214,9 @@ func TestALoadServesEveryDecidedIndex(t *testing.T) {
 						require.NoError(t, err, "load %d", i+1)
 						assert.Equal(t, tokWord, queryTokenization(f.shard, tokChangeProp,
 							f.class.Properties[0].Tokenization), "load %d", i+1)
-						f.assertFound(t, l.found, i+1)
+						if l.found >= 0 {
+							f.assertFound(t, l.found, i+1)
+						}
 					}
 				})
 			}
@@ -282,6 +307,21 @@ func chmodStaged(mode os.FileMode) func(*testing.T, *tokenizationChange, int) {
 		require.NoError(t, os.Chmod(staged, mode))
 		t.Cleanup(func() { os.Chmod(staged, 0o700) })
 	}
+}
+
+func (f *tokenizationChange) holdSeal() {
+	f.idx.db.SetReindexUnitSeal(func() ReindexUnitSeal {
+		return func(distributedtask.TaskDescriptor, string) (func(), bool) { return nil, false }
+	})
+}
+
+func renameOntoCanonical(t *testing.T, f *tokenizationChange, half int) {
+	rec, ok := f.tasks[half].migrationRecord(f.shard)
+	require.True(t, ok)
+	dirs := rec.Subject().Props[tokChangeProp]
+	canonical := filepath.Join(f.shard.pathLSM(), dirs.Canonical)
+	require.NoError(t, os.RemoveAll(canonical))
+	require.NoError(t, os.Rename(filepath.Join(f.shard.pathLSM(), dirs.Staged), canonical))
 }
 
 func removeStagedDir(t *testing.T, f *tokenizationChange, half int) {
