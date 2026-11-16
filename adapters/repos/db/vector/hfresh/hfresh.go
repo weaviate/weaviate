@@ -74,7 +74,6 @@ type HFresh struct {
 	Centroids     *HNSWIndex          // Provides access to the centroids.
 	PostingStore  *PostingStore       // Used for managing persistence of postings.
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
-	minPostingID  uint64              // New posting IDs start here, above every ID the centroid graph used.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
 	PostingMap    *PostingMap         // Maps postings to vector IDs.
 	PostingSizes  *PostingSizes       // Tracks posting sizes.
@@ -170,10 +169,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	// cleanup may already have freed IDs since the graph loaded
-	if maxID, found := h.Centroids.hnsw.RestoredMaxNodeID(); found {
-		h.minPostingID = maxID + 1
-	}
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
@@ -192,21 +187,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	h.taskQueue.Register()
 
 	return &h, nil
-}
-
-// nextPostingID never returns an ID the centroid graph used before this
-// startup: a store rolled back behind the commit log restarts the sequence
-// below them, and a freed slot may still be tombstoned or awaiting cleanup.
-func (h *HFresh) nextPostingID() (uint64, error) {
-	for {
-		id, err := h.IDs.Next()
-		if err != nil {
-			return 0, err
-		}
-		if id >= h.minPostingID {
-			return id, nil
-		}
-	}
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {

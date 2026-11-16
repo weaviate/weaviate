@@ -132,7 +132,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 
 	newPostingIDs := make([]uint64, 2)
 	for i := range 2 {
-		newPostingID, err := h.nextPostingID()
+		newPostingID, err := h.IDs.Next()
 		if err != nil {
 			return errors.Wrap(err, "failed to allocate new posting ID during split operation")
 		}
