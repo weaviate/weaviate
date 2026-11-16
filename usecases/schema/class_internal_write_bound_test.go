@@ -55,6 +55,33 @@ func TestInternalCutoverWritesBounded(t *testing.T) {
 	}
 }
 
+// The REST class update keeps the caller's context: only internal writes get the bound.
+func TestRESTClassUpdateKeepsCallerContext(t *testing.T) {
+	h, fake := newTestHandler(t, nil)
+	h.config.Raft.ConsistencyWaitTimeout = time.Hour
+	initial := &models.Class{Class: "C", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	fake.On("ReadOnlyClass", mock.Anything).Return(initial)
+	fake.On("QueryReadOnlyClasses", mock.Anything).Return(nil, nil)
+	rec := &deadlineRecordingSchemaManager{fakeSchemaManager: fake}
+	h.schemaManager = rec
+
+	updated := &models.Class{Class: "C", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	require.NoError(t, h.UpdateClass(context.Background(), nil, "C", updated))
+	require.True(t, rec.called)
+	require.False(t, rec.hadDeadline)
+}
+
+type deadlineRecordingSchemaManager struct {
+	*fakeSchemaManager
+	called, hadDeadline bool
+}
+
+func (r *deadlineRecordingSchemaManager) UpdateClass(ctx context.Context, _ *models.Class, _ *sharding.State) (uint64, error) {
+	r.called = true
+	_, r.hadDeadline = ctx.Deadline()
+	return 0, nil
+}
+
 // untilCancelledSchemaManager models a leader that never answers.
 type untilCancelledSchemaManager struct{ *fakeSchemaManager }
 
