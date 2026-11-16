@@ -215,37 +215,10 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	// Cluster on the full-precision vectors rather than their 1-bit
 	// reconstructions: the centroids this split produces become the new
 	// postings' routing representatives, and sign-only reconstructions bound
-	// their quality. All reads go through a single bucket view and a pooled
-	// slice — the split holds the posting lock, so per-vector view churn
-	// would extend the time appends to this posting stay blocked.
-	view, releaseView, err := h.objectsBucketView()
+	// their quality.
+	data, err := h.postingVectors(ctx, posting, dims)
 	if err != nil {
 		return nil, err
-	}
-	defer releaseView()
-
-	// The pooled container is required, not just an optimization: the
-	// production thunk writes the vector ID into the container's Buff8,
-	// which only the pool initializes.
-	slice := h.tempVectors.Get(int(dims))
-	defer h.tempVectors.Put(slice)
-
-	data := make([][]float32, len(posting))
-	for i, v := range posting {
-		// A fetch failure (e.g. a vector deleted between garbage collection
-		// and this read) aborts the split rather than degrading it; doSplit
-		// retries the collect+split sequence so the deleted entry gets
-		// filtered on the next attempt.
-		vec, err := h.fetchNormalizedVector(ctx, v.ID(), slice, view)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to fetch vector %d for split", v.ID())
-		}
-		if len(vec) == 0 {
-			return nil, errors.Errorf("empty vector %d for split", v.ID())
-		}
-		// vec aliases the pooled slice and the next fetch overwrites it;
-		// clustering needs every vector at once, so copy it out.
-		data[i] = slices.Clone(vec)
 	}
 
 	idsAssignments, err := enc.FitBalanced(data)
@@ -267,6 +240,44 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	}
 
 	return results, nil
+}
+
+// postingVectors returns an owned full-precision vector for every entry of
+// posting. All reads go through a single bucket view and a pooled slice: a
+// split holds the posting lock, so per-vector view churn would extend the
+// time appends to this posting stay blocked.
+func (h *HFresh) postingVectors(ctx context.Context, posting Posting, dims uint32) ([][]float32, error) {
+	view, releaseView, err := h.objectsBucketView()
+	if err != nil {
+		return nil, err
+	}
+	defer releaseView()
+
+	// The pooled container is required, not just an optimization: the
+	// production thunk writes the vector ID into the container's Buff8,
+	// which only the pool initializes.
+	slice := h.tempVectors.Get(int(dims))
+	defer h.tempVectors.Put(slice)
+
+	data := make([][]float32, len(posting))
+	for i, v := range posting {
+		// A fetch failure (e.g. a vector deleted between garbage collection
+		// and this read) aborts the split rather than degrading it; doSplit
+		// retries the collect+split sequence so the deleted entry gets
+		// filtered on the next attempt.
+		vec, err := h.fetchNormalizedVector(ctx, v.ID(), slice, view)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to fetch vector %d", v.ID())
+		}
+		if len(vec) == 0 {
+			return nil, errors.Errorf("empty vector %d", v.ID())
+		}
+		// vec aliases the pooled slice and the next fetch overwrites it;
+		// clustering needs every vector at once, so copy it out.
+		data[i] = slices.Clone(vec)
+	}
+
+	return data, nil
 }
 
 type SplitResult struct {
