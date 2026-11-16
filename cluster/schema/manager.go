@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -892,6 +893,9 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name)
 		case req.MigrationRun != nil:
 			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
+			if errors.Is(err, distributedtask.ErrCutoverRunFinished) && s.propertyHolds(cmd.Class, req) {
+				return nil
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -930,6 +934,21 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// propertyHolds reports whether applying req would leave the property unchanged.
+func (s *SchemaManager) propertyHolds(class string, req command.UpdatePropertyRequest) bool {
+	cls, _ := s.schema.ReadOnlyClass(class)
+	if cls == nil {
+		return false
+	}
+	current := findProp(cls, req.Property.Name)
+	if current == nil {
+		return false
+	}
+	scratch := *current
+	merged := MergePropsMasked([]*models.Property{&scratch}, []*models.Property{req.Property}, req.FieldsToUpdate)
+	return reflect.DeepEqual(merged[0], current)
 }
 
 func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool) error {

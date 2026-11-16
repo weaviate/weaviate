@@ -887,6 +887,49 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 	})
 }
 
+// A lagging node's cutover write can reach the log after another node's identical write
+// finished the run.
+func TestSchemaManager_UpdateProperty_LateCutoverWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		refusal    error
+		tok        string
+		wantRefuse bool
+	}{
+		{name: "run finished, property at target", refusal: distributedtask.ErrCutoverRunFinished, tok: "field"},
+		{name: "run finished, property elsewhere", refusal: distributedtask.ErrCutoverRunFinished, tok: "whitespace", wantRefuse: true},
+		{name: "run failed, property at target", refusal: errors.New("no reindex run is completing"), tok: "field", wantRefuse: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sm := NewSchemaManager("test-node", nil, fakes.NewMockParser(), prometheus.NewPedanticRegistry(), logrus.New())
+			sm.SetMutationGuard(&recordingMutationGuard{rejectMigrationWith: tc.refusal})
+			require.NoError(t, sm.schema.addClass(&models.Class{Class: "C", Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}, Tokenization: "field"},
+			}}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+			sub, err := json.Marshal(&cmd.UpdatePropertyRequest{
+				Property:              &models.Property{Name: "name", DataType: []string{"text"}, Tokenization: tc.tok},
+				FieldsToUpdate:        []string{cmd.PropertyFieldTokenization},
+				FromInFlightMigration: true,
+				MigrationRun:          &cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1},
+			})
+			require.NoError(t, err)
+			err = sm.UpdateProperty(&cmd.ApplyRequest{
+				Type: cmd.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: "C", Version: 2, SubCommand: sub,
+			}, true, false)
+
+			cls, version := sm.schema.ReadOnlyClass("C")
+			require.Equal(t, uint64(1), version)
+			require.Equal(t, "field", cls.Properties[0].Tokenization)
+			if tc.wantRefuse {
+				require.ErrorIs(t, err, ErrBadRequest)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
 // guard wiring on the DeleteClass apply path
 // (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). DeleteClass mid-reindex destroys
