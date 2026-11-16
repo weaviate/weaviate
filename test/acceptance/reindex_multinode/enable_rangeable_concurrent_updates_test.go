@@ -102,8 +102,7 @@ func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) 
 			// queries are served from the rangeable index only (the
 			// filterable bucket-walk fallback applies only while the rangeable
 			// bucket is still being built), so a short count over the sentinel
-			// band after FINISHED means lost index entries (filterable ones on a
-			// replica whose rangeable index is not ready).
+			// band after FINISHED means lost index entries.
 			Name:              propName,
 			DataType:          []string{"int"},
 			IndexFilterable:   &trueVal,
@@ -317,8 +316,7 @@ func patchDateInt(restURI, className, id string, value int) error {
 // assertMoversDurableInObjectStore spot-checks that sampled movers hold a
 // dateInt >= sentinelBase in the objects (source-of-truth) store, proving the
 // storm's writes are durable there before the index count is asserted.
-// It reads about 16 of the movers, all through one node at the default
-// consistency level, so it cannot show that every replica holds every update.
+// It samples ~16 movers via one node, so it cannot show every replica holds every update.
 func assertMoversDurableInObjectStore(t *testing.T, restURI, className string, movers []int, sentinelBase int) {
 	t.Helper()
 	const sampleStride = 97 // coprime-ish stride so the sample spreads across the keyspace

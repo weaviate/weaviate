@@ -167,8 +167,7 @@ func TestSwapTeardownWaitsForPinnedWrites(t *testing.T) {
 	}
 }
 
-// Each write path releases its bucket pins when it fails after taking them: put, merge
-// and both deletes via prepareInvertedWrite, the reference batch via pinRefBuckets.
+// Every write path (put, merge, both deletes, reference batch) releases its bucket pins when it fails.
 func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 	enableHashtree := func(t *testing.T, shard *Shard) {
 		ht, err := hashtree.NewHashTree(defaultHashtreeHeightSingleTenant)
@@ -226,7 +225,7 @@ func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 			class.Properties = append(class.Properties, &models.Property{Name: "ref", DataType: []string{className}})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
 			shard := shd.(*Shard)
-			// A leaked pin would hang Shutdown too; only the code under test can release it.
+			// A leaked pin would hang Shutdown.
 			defer func() {
 				if !t.Failed() {
 					shard.Shutdown(ctx)
