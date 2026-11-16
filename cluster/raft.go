@@ -97,10 +97,9 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
-// LocalTaskLister lists this node's own task copy for the scheduler, instead
-// of fetching the leader's full list every tick. It fails while this node
-// knows no leader, so a quorum loss skips the tick instead of spending the
-// completion callbacks' retries on proposals that cannot commit.
+// LocalTaskLister lists this node's own task copy for the scheduler. It fails while this
+// node knows no leader, so a quorum loss skips the tick. A known but unreachable leader is
+// left to the bound on each forwarded write.
 func (s *Raft) LocalTaskLister() distributedtask.TaskLister { return localTaskLister{s} }
 
 type localTaskLister struct{ s *Raft }
