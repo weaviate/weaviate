@@ -143,10 +143,12 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 		sidecarOnly bool // the staged copy survives with what the mirror wrote
 		frozenLoad  bool // an unreadable sibling record refuses every write at boot 1
 		intact      bool // no directory is lost, so the load keeps the checkpoint and cutoff
+		iterated    bool // the record says the iteration finished, so nothing would re-cover a lost directory
 	}{
 		{name: "iterating, every directory present: no restart", intact: true},
 		{name: "iterating, restart write fails at load, lifted in the same boot"},
 		{name: "iterating, only the sidecar lost, frozen load", sidecarOnly: true, frozenLoad: true},
+		{name: "iterated, every directory lost, frozen load", iterated: true, frozenLoad: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const propName, docs = filterableToRangeablePropName, 25
@@ -172,6 +174,9 @@ func TestAMigrationWhoseDirectoriesAreLostIsRebuiltInFull(t *testing.T) {
 			subject := rec.Subject()
 			planted := MigrationRecord(NewMigrationRecordIterating(subject,
 				MigrationCheckpoint{LastProcessedKey: bytes.Repeat([]byte{0xff}, 16), UpdatedAt: time.Now()}))
+			if tc.iterated {
+				planted = NewMigrationRecordIterated(subject)
+			}
 			require.NoError(t, shard.migrationRecords.Put(planted))
 			lsm, records := shard.pathLSM(), shard.migrationRecords.Dir()
 			require.NoError(t, shard.Shutdown(ctx))
