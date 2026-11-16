@@ -75,6 +75,69 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
 
+## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
+
+**Estado: pre-registrado, sin datos.** Escrito y commiteado a las 21:06, antes de compilar nada de esta ronda. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### Qué se mide
+
+En v2.0 el coste de un insert es su búsqueda de aristas: con ef 320 son de 53 a 60 cargas de posting, más que una query a 0.99. En disco esas cargas son lo que un insert lee. v2.1 mide cuánto se puede bajar ese ef sin que el índice mantenido deje de quedar como el lote.
+
+### Protocolo
+
+- **El de la celda H1 de v2.0, sin más cambio que el ef de inserción:** dbpedia-openai 1M en el orden barajado de v2.0, lote sobre el 50 %, y el otro 50 % insertado con aristas inversas, k=16, T=360, ef de centroides 8 y split sin reparación.
+- **Celdas:** ef de inserción 160, 80, 40 y 20.
+- **Ancla:** la H1 de ef 320 de v2.0, ya medida y repetida. No se vuelve a correr.
+- **Un checkpoint con búsqueda, al 100 %,** además del 50 % de partida: recall a igual ef en la malla de 10 a 1024, cargas y endpoints a 0.95 y a 0.99, recall de arista contra el corpus actual, grado y cobertura.
+- **Referencia:** el lote del 100 % de v2.0 (`v2.0/dbpedia-1m-stream-principal-reference.json`). No se reconstruye.
+- **Sin cronometrar.** Son conteos, así que las cuatro celdas corren en paralelo, cada una en su proceso. Los µs por insert se guardan como indicativos, con esa contención.
+
+### Lo que el binario añade (mío)
+
+- **El trabajo de la búsqueda de cada insert.** Son los `SearchStats` de la propia búsqueda del insert, que v2.0 no guardaba:
+  - cargas de posting, rondas, vectores escaneados, endpoints puntuados y candidatos rescoreados, sumados sobre todos los inserts;
+  - el histograma de cargas por insert, para el p50 y el p95.
+- **Puntos de guardia sin búsqueda, al 60, 70, 80 y 90 %.** En cada uno se evalúan la guardia del constructor y la cobertura, y se guardan los conteos acumulados. No se mide recall de búsqueda ni se limpia el grafo de centroides.
+  - Así una celda se corta en el primer tramo que baje de 0.90, y no al final.
+  - Los tramos y las semillas de la muestra son los de la H1 de v2.0: los mismos 2 000 inserts por tramo.
+  - *La diferencia con la H1 original:* aquella limpiaba las lápidas del grafo de centroides en cada checkpoint, y aquí se limpian solo al 100 %, como en su repetición. Las dos corridas de H1 dan el tamaño de esa diferencia.
+
+### El ancla no tiene el conteo directo (mío)
+
+Las dos corridas de H1 con ef 320 no guardaron el trabajo de la búsqueda del insert. Para el ancla vale la aproximación de v2.0: el trabajo de las queries de cada checkpoint a ese mismo ef, que son 53.5 cargas al 50 % y 59.4 y 59.3 al 100 %.
+
+En las cuatro celdas se reportan las dos cosas: el conteo directo, y esa aproximación con las queries a un ef igual al de inserción. Los cuatro ef están en la malla. Su cociente dice cuánto vale la aproximación para el ancla.
+
+### Criterio
+
+| pre-registro | umbral |
+|---|---|
+| una celda cumple | al 100 %: recall a igual ef a 0.005 o menos del lote en cada ef de la malla de búsqueda; cargas a 0.95 un 15 % o menos por encima del lote; y cargas a 0.99 un 10 % o menos por encima del lote |
+| el ef elegido | el menor ef de inserción que cumple |
+| guardia del constructor | recall de arista al insertar por debajo de 0.90 en un tramo: esa celda se corta ahí y se reporta. Las demás siguen |
+| cobertura | sigue siendo stop, por celda |
+
+*Mío, para lo que la regla no dice:*
+
+- **Si ninguna de las cuatro cumple,** el elegido es 320. El ancla cumple las tres condiciones en sus dos corridas; en cargas a 0.99 queda un 5.7 y un 8.5 % por debajo del lote.
+- **Si cumple la de 20,** el elegido es 20, y se dice que no hay medida por debajo. La búsqueda usa el mayor entre el ef y k, así que por debajo de 16 no hay nada que barrer.
+- **Si no es monótono** (cumple un ef y no cumple uno mayor), la regla se aplica como está escrita, y se dice.
+- **Una celda cortada por la guardia no cumple.**
+- **Suelo de ruido:** el de v2.0 al 100 %, de las dos corridas de H1. Es hasta 0.0009 de recall, un 0.5 % en cargas a 0.95 y un 3.0 % en cargas a 0.99. Una celda que cumpla o falle una condición por menos que ese suelo se marca como no distinguible del ruido.
+
+### Lo que se reporta, por celda
+
+- **Las cargas de posting por insert,** que son el coste en disco: media, p50 y p95, acumuladas y por tramo. Con ellas, las rondas, los vectores escaneados, los endpoints puntuados y los candidatos rescoreados por insert.
+- **El recall de arista al insertar,** por tramo, a nivel de vector y de posting.
+- **El grado medio** de los insertados y de los vectores del lote, al 100 %.
+- **Las escrituras de aristas inversas por insert:** media y p95, y los postings distintos donde caen.
+- **Cargas y endpoints puntuados a igual recall,** a 0.95 y a 0.99, frente al lote y frente al ancla.
+- Además: recall de arista contra el corpus actual, splits, tamaño de posting, asignaciones no-nearest y µs por insert, indicativos.
+
+### Lo que no entra (decisión del usuario)
+
+**La celda 6 no entra en el barrido.** Su aporte está mezclado con un grado un 53 % mayor. Queda abierta, junto con la variante fiel al lote (hermanos con la regla del lote), sin medir ahora.
+
 ## v2.0: streaming en memoria (pre-registro, 2026-11-16)
 
 **Estado: pre-registrado y medido el mismo día.** El pre-registro se escribió y se commiteó antes de compilar nada del experimento, y cada enmienda y cada celda añadida, antes de sus datos. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Los resultados están abajo, en «Resultados (2026-11-16)».
