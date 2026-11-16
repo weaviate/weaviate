@@ -158,6 +158,31 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 	return nil
 }
 
+// CheckVectorConfigRemovalAtPropose consults every registered detector that
+// implements [VectorConfigRemovalProposeGate]. Called on the leader before an
+// UpdateClass is appended; a non-nil error refuses the propose.
+func (m *Manager) CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string) error {
+	if len(removedVectors) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for namespace, detector := range m.schemaMutationDetectors {
+		gate, ok := detector.(VectorConfigRemovalProposeGate)
+		if !ok {
+			continue
+		}
+		var existing []*Task
+		for _, t := range m.tasks[namespace] {
+			existing = append(existing, t)
+		}
+		if err := gate.CheckVectorConfigRemovalAtPropose(className, removedVectors, shards, existing); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
 // CheckClassMutation / CheckTenantMutation. Walks every registered
 // [SchemaMutationDetector], hands it the namespace-scoped task list,

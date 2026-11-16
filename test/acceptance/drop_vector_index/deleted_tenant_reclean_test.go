@@ -108,7 +108,19 @@ func testDeletedColdTenantFinalizesWithoutReclean() func(t *testing.T) {
 		})
 
 		t.Run("deleting the cold tenant finalizes without re-cleaning", func(t *testing.T) {
+			withoutDropped := helper.GetClass(t, className)
+			delete(withoutDropped.VectorConfig, dropped)
+
 			require.NoError(t, helper.DeleteTenants(t, className, []string{coldTenant}))
+
+			// A class update must not remove the entry on the recorded coverage
+			// alone. It is refused unless the verify-only round got there
+			// first; the check below fails if this update did the removal.
+			_, err := helper.Client(t).Schema.SchemaObjectsUpdate(
+				clschema.NewSchemaObjectsUpdateParams().WithClassName(className).WithObjectClass(withoutDropped), nil)
+			if err != nil {
+				require.Contains(t, errorResponseText(err), "cannot remove dropped vector")
+			}
 
 			eventuallyTargetVectorRemoved(t, className, dropped)
 

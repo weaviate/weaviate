@@ -199,13 +199,9 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 
 	epoch, cleaned, verifyOnly := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
 	if verifyOnly {
-		// The chain covers every shard that still exists, and what it owed went
-		// away with a deleted tenant. Re-cleaning here would rewrite every
-		// segment of shards that are already stripped, so nothing is left to
-		// strip — but a restart may have put cleanup rows back on a shard
-		// whose unit completed, and only the node holding it can see them. A
-		// verify-only round lets every node confirm it is drained, then
-		// finalizes like any other round.
+		// Every current shard is covered and what the chain still owed was
+		// deleted, so nothing is left to strip. A verify-only round lets each
+		// node confirm it is drained, then finalizes like any other round.
 		shardOwnership = oneShardPerNode(shardOwnership)
 		e.logInfo(collection, fmt.Sprintf(
 			"drop-vector enqueue: every remaining shard is covered and the uncleaned ones were deleted; "+

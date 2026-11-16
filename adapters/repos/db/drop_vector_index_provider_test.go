@@ -757,8 +757,7 @@ func TestStartTask_QuarantineAppearsMidDrain_UnitFailed(t *testing.T) {
 // TestStartTask_VerifyOnly pins the round that finalizes a drop whose remaining
 // work vanished with a deleted tenant: its unit arms nothing, and it completes
 // only once every shard of the drop that is loaded on the node has drained the
-// epoch's op. Rows a restart put back on an already-stripped shard are the only
-// cover its unstripped bytes have, so the round must wait for them.
+// epoch's op.
 func TestStartTask_VerifyOnly(t *testing.T) {
 	tests := []struct {
 		name string
@@ -770,11 +769,6 @@ func TestStartTask_VerifyOnly(t *testing.T) {
 		wantMinPolls   int
 		cancelMidDrain bool
 	}{
-		{
-			name:          "every loaded shard is drained",
-			inherited:     &fakeEditOpBucket{},
-			wantCompleted: true,
-		},
 		{
 			name:          "re-pended rows on an inherited shard hold the unit until they drain",
 			inherited:     &fakeEditOpBucket{pendingSeq: [][]string{{"seg1"}, {"seg1"}, {}}},
@@ -1814,6 +1808,72 @@ func deferringDropTaskCovering(id, collection string, shards, deferred []string,
 	}
 	task.Payload = enc
 	return task
+}
+
+// TestCheckVectorConfigRemovalAtPropose pins where the leader-side check
+// differs from the apply-time gate: the deletion-resolved proof alone does not
+// let a removal be proposed, and everything else is judged the same.
+func TestCheckVectorConfigRemovalAtPropose(t *testing.T) {
+	tests := []struct {
+		name         string
+		tasks        []*distributedtask.Task
+		shards       []string
+		wantApplyErr bool
+		wantErr      bool
+	}{
+		{
+			name:    "deferred tenant deleted, no round finalizing",
+			tasks:   []*distributedtask.Task{deferringDropTaskCovering("t1", "C", []string{"s1", "s2"}, []string{"s3"}, "v1")},
+			shards:  []string{"s1", "s2"},
+			wantErr: true,
+		},
+		{
+			name: "deferred tenant deleted, verify-only round finalizing",
+			tasks: []*distributedtask.Task{
+				deferringDropTaskCovering("t1", "C", []string{"s1", "s2"}, []string{"s3"}, "v1"),
+				swappingDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"),
+			},
+			shards: []string{"s1", "s2"},
+		},
+		{
+			name:   "finalizing round covers every shard",
+			tasks:  []*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")},
+			shards: []string{"s1", "s2"},
+		},
+		{
+			name:         "finalizing round misses a shard",
+			tasks:        []*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")},
+			shards:       []string{"s1", "s2"},
+			wantApplyErr: true,
+			wantErr:      true,
+		},
+		{
+			name:         "a round is still stripping",
+			tasks:        []*distributedtask.Task{activeDropTask("t1", "C", "v1")},
+			shards:       []string{"s1"},
+			wantApplyErr: true,
+			wantErr:      true,
+		},
+		{
+			name:  "no tenants left",
+			tasks: []*distributedtask.Task{deferringDropTaskCovering("t1", "C", []string{"s1"}, []string{"s3"}, "v1")},
+		},
+		{
+			name:         "no record of the drop",
+			shards:       []string{"s1"},
+			wantApplyErr: true,
+			wantErr:      true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewDropVectorIndexDetector(logrus.New())
+			applyErr := p.CheckVectorConfigRemoval("C", []string{"v1"}, tt.shards, tt.tasks)
+			require.Equal(t, tt.wantApplyErr, applyErr != nil, "apply-time gate: %v", applyErr)
+			err := p.CheckVectorConfigRemovalAtPropose("C", []string{"v1"}, tt.shards, tt.tasks)
+			require.Equal(t, tt.wantErr, err != nil, "propose-time gate: %v", err)
+		})
+	}
 }
 
 // TestCheckVectorConfigRemoval_DeletionResolvedVoucher pins the one case where

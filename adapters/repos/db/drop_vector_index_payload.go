@@ -90,19 +90,14 @@ type DropVectorIndexTaskPayload struct {
 	// complement of CleanedShards here.
 	DeferredShards []string `json:"deferredShards,omitempty"`
 
-	// VerifyOnly marks a round that strips nothing. The enqueuer submits one
-	// when the epoch already spans every current shard and the work it still
-	// owed vanished with a deleted tenant: the round carries one unit per node,
-	// and a unit arms no op — it completes once every shard of the drop that is
-	// loaded on its node has no pending or quarantined rows left for the
-	// epoch's op. A restart can put such rows back on a shard whose unit
-	// already completed, and they are the only cover the unstripped bytes have,
-	// so the marker must not fall before they drain.
+	// VerifyOnly marks a round that strips nothing. Each node's unit waits
+	// until the node's loaded shards of the drop hold no pending or quarantined
+	// rows for the epoch's op, which a restart can put back on a shard whose
+	// unit already completed.
 	//
-	// A node that predates the field runs the round as a normal one: it arms
-	// and re-cleans its unit's shard and checks none of its other shards, so
-	// on that node the drop finalizes unverified, as it did before the field
-	// existed.
+	// A node that does not read this field re-cleans its unit's shard instead.
+	// At most its own completion callback checks its other loaded shards, so a
+	// peer can still remove the marker over rows pending there.
 	VerifyOnly bool `json:"verifyOnly,omitempty"`
 }
 
@@ -425,8 +420,7 @@ func resolvedByDeletion(tasks []*distributedtask.Task, collection string, target
 }
 
 // epochHasForeignOp reports whether some record of the epoch ran under an op
-// other than the epoch's own. Rounds enqueued by a version that minted an op
-// per round leave such records, and rows still pending under their ops are
+// other than the epoch's own. Rows still pending under such an op are
 // invisible to anything that looks the op up by epoch.
 func epochHasForeignOp(tasks []*distributedtask.Task, collection string, targets []string, epoch string) bool {
 	for _, task := range tasks {

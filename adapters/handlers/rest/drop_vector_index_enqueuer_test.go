@@ -969,9 +969,8 @@ func requireVerifyOnlyRound(t *testing.T, cluster *fakeClusterDropClient, epoch 
 // pins the tenant-deletion path: round one cleaned the hot tenants and
 // recorded owing the cold one; deleting that tenant leaves the recorded
 // coverage spanning every shard that still exists, so the drop finalizes
-// through a verify-only round — one unit per node — instead of minting a fresh
-// epoch and re-stripping shards already clean. The marker is never removed
-// directly: only the nodes can tell whether their shards are still drained.
+// through a verify-only round with one unit per node, instead of minting a
+// fresh epoch and re-stripping shards already clean.
 func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t *testing.T) {
 	hot := func(nodes ...string) sharding.Physical {
 		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
@@ -1009,9 +1008,8 @@ func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t 
 
 // TestEnqueueDropVectorIndex_DeletedDeferredTenant_ForeignOpReclans pins the
 // limit of the verify-only round: it looks for leftover cleanup rows under the
-// epoch's op, so when a round of the epoch ran under an op of its own — as
-// rounds enqueued by an older version did — those rows cannot be checked and
-// the drop re-cleans under a fresh epoch instead.
+// epoch's op, so when a round of the epoch ran under an op of its own, those
+// rows cannot be checked and the drop re-cleans under a fresh epoch instead.
 func TestEnqueueDropVectorIndex_DeletedDeferredTenant_ForeignOpReclans(t *testing.T) {
 	hot := sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"n1"}}
 	fin := distributedtask.TaskStatusFinished
