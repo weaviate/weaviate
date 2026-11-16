@@ -282,7 +282,19 @@ func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error)
 
 // QueryClassVersions returns the current version of the requested classes.
 func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) {
-	ctx := context.Background()
+	return s.queryClassVersions(context.Background(), classes...)
+}
+
+func (s *Raft) QueryClassVersionsWithContext(ctx context.Context, classes ...string) (map[string]uint64, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.store.cfg.ConsistencyWaitTimeout)
+		defer cancel()
+	}
+	return s.queryClassVersions(ctx, classes...)
+}
+
+func (s *Raft) queryClassVersions(ctx context.Context, classes ...string) (map[string]uint64, error) {
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
 			sentry.WithTransactionName("raft.query.class_versions"),

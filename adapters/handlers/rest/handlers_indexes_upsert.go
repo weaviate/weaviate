@@ -77,11 +77,6 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 	propLock.Lock()
 	defer propLock.Unlock()
 
-	class, prop, resp := h.readClassProperty(principal, collection, params.PropertyName)
-	if resp != nil {
-		return resp
-	}
-
 	body := params.Body
 	if body == nil {
 		body = &models.IndexUpsertRequest{}
@@ -91,6 +86,10 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 	// blockmax derivation, active-task check, and conflict/cap gate all see
 	// the same snapshot.
 	reindexTasks, resp := h.listReindexTasks(ctx, principal)
+	if resp != nil {
+		return resp
+	}
+	class, prop, resp := h.readClassPropertyAfterLeader(ctx, principal, collection, params.PropertyName)
 	if resp != nil {
 		return resp
 	}
@@ -160,12 +159,11 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 	propLock.Lock()
 	defer propLock.Unlock()
 
-	class, prop, resp := h.readClassProperty(principal, collection, params.PropertyName)
+	reindexTasks, resp := h.listReindexTasks(ctx, principal)
 	if resp != nil {
 		return resp
 	}
-
-	reindexTasks, resp := h.listReindexTasks(ctx, principal)
+	class, prop, resp := h.readClassPropertyAfterLeader(ctx, principal, collection, params.PropertyName)
 	if resp != nil {
 		return resp
 	}
@@ -272,6 +270,27 @@ func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *mo
 		return "", authzResponder(principal, err)
 	}
 	return collection, nil
+}
+
+// Waiting for the leader's class version makes the class at least as new as the task list read before it.
+func (h *indexesHandlers) readClassPropertyAfterLeader(ctx context.Context, principal *models.Principal,
+	collection, propertyName string,
+) (*models.Class, *models.Property, middleware.Responder) {
+	versions, err := h.taskLister.QueryClassVersionsWithContext(ctx, collection)
+	if err != nil {
+		h.appState.Logger.Errorf("submit: failing closed — cannot read the class version from the leader: %v", err)
+		return nil, nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"cannot verify reindex preconditions: reading the collection's schema version from the leader failed; retry"))
+	}
+	version, ok := versions[collection]
+	if !ok {
+		return nil, nil, jsonResponder(http.StatusNotFound, errorResponse(principal, fmt.Sprintf("collection %q not found", collection)))
+	}
+	if err := h.appState.SchemaManager.WaitForUpdate(ctx, version); err != nil {
+		return nil, nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"this node's schema has not caught up with the cluster leader; retry shortly"))
+	}
+	return h.readClassProperty(principal, collection, propertyName)
 }
 
 // readClassProperty returns a 404 responder for an unknown collection or

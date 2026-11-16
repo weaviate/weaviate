@@ -1012,11 +1012,12 @@ func TestPartialRunRefusalsCountTenantsOnlyForTenantReaders(t *testing.T) {
 	indexes := func(t *testing.T, authz authorization.Authorizer) *indexesHandlers {
 		reader := schemaUC.NewMockSchemaReader(t)
 		reader.EXPECT().ReadOnlyClass("C").Return(class)
+		reader.EXPECT().WaitForUpdate(mock.Anything, uint64(1)).Return(nil)
 		return &indexesHandlers{appState: &state.State{
 			Authorizer: authz, SchemaManager: &schemaUC.Manager{SchemaReader: reader},
 			ReindexSubmitLocks: state.NewReindexSubmitLocks(), Logger: logrus.New(),
 			ServerConfig: &config.WeaviateConfig{Config: config.Config{RuntimeReindexEnabled: true}},
-		}, taskLister: fakeReindexTaskLister{tasks: tasks}}
+		}, taskLister: fakeReindexTaskLister{tasks: tasks, classVersions: map[string]uint64{"C": 1}}}
 	}
 	for _, tc := range []struct {
 		name     string

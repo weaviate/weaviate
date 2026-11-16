@@ -35,11 +35,16 @@ import (
 )
 
 type fakeReindexTaskLister struct {
-	tasks map[string][]*distributedtask.Task
+	tasks         map[string][]*distributedtask.Task
+	classVersions map[string]uint64
 }
 
 func (f fakeReindexTaskLister) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return f.tasks, nil
+}
+
+func (f fakeReindexTaskLister) QueryClassVersionsWithContext(context.Context, ...string) (map[string]uint64, error) {
+	return f.classVersions, nil
 }
 
 // recordingLockProvider records the (collection, property) keys passed to

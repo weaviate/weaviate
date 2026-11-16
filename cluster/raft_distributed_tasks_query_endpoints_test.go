@@ -37,36 +37,44 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 		{name: "caller without deadline", consistencyWait: 100 * time.Millisecond, wantCode: codes.DeadlineExceeded},
 		{name: "caller without deadline cancels first", consistencyWait: time.Hour, callerCancel: 100 * time.Millisecond, wantCode: codes.Canceled},
 	}
+	calls := map[string]func(*Raft, context.Context) error{
+		"list tasks": func(s *Raft, ctx context.Context) error { _, err := s.ListDistributedTasks(ctx); return err },
+		"class versions": func(s *Raft, ctx context.Context) error {
+			_, err := s.QueryClassVersionsWithContext(ctx, "C")
+			return err
+		},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := NewMockStore(t, "node-1", 0)
-			m.store.cfg.ConsistencyWaitTimeout = tt.consistencyWait
-			followerTransport := attachFollowerRaft(t, m.store)
+		for callName, call := range calls {
+			t.Run(tt.name+"/"+callName, func(t *testing.T) {
+				m := NewMockStore(t, "node-1", 0)
+				m.store.cfg.ConsistencyWaitTimeout = tt.consistencyWait
+				followerTransport := attachFollowerRaft(t, m.store)
 
-			// Send a heartbeat naming a leader at 127.0.0.1:1. The RPC client below
-			// dials a freed port, so that leader never answers.
-			leaderAddr, leaderTransport := raft.NewInmemTransport("127.0.0.1:1")
-			leaderTransport.Connect(followerTransport.LocalAddr(), followerTransport)
-			require.NoError(t, leaderTransport.AppendEntries("node-1", followerTransport.LocalAddr(),
-				&raft.AppendEntriesRequest{RPCHeader: raft.RPCHeader{
-					ProtocolVersion: raft.ProtocolVersionMax, ID: []byte("leader"), Addr: []byte(leaderAddr),
-				}, Term: 1},
-				&raft.AppendEntriesResponse{}))
-			require.Equal(t, string(leaderAddr), m.store.Leader())
+				// Send a heartbeat naming a leader at 127.0.0.1:1. The RPC client below
+				// dials a freed port, so that leader never answers.
+				leaderAddr, leaderTransport := raft.NewInmemTransport("127.0.0.1:1")
+				leaderTransport.Connect(followerTransport.LocalAddr(), followerTransport)
+				require.NoError(t, leaderTransport.AppendEntries("node-1", followerTransport.LocalAddr(),
+					&raft.AppendEntriesRequest{RPCHeader: raft.RPCHeader{
+						ProtocolVersion: raft.ProtocolVersionMax, ID: []byte("leader"), Addr: []byte(leaderAddr),
+					}, Term: 1},
+					&raft.AppendEntriesResponse{}))
+				require.Equal(t, string(leaderAddr), m.store.Leader())
 
-			cl := rpc.NewClient(resolver.NewRpc(false, utils.MustGetFreeTCPPort()), 1<<20, false, m.logger)
-			t.Cleanup(cl.Close)
-			srv := NewRaft(mocks.NewMockNodeSelector(), m.store, cl)
+				cl := rpc.NewClient(resolver.NewRpc(false, utils.MustGetFreeTCPPort()), 1<<20, false, m.logger)
+				t.Cleanup(cl.Close)
+				srv := NewRaft(mocks.NewMockNodeSelector(), m.store, cl)
 
-			ctx := context.Background()
-			if tt.callerCancel > 0 {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithCancel(ctx)
-				defer cancel()
-				time.AfterFunc(tt.callerCancel, cancel)
-			}
-			_, err := srv.ListDistributedTasks(ctx)
-			require.Equal(t, tt.wantCode, status.Code(err))
-		})
+				ctx := context.Background()
+				if tt.callerCancel > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithCancel(ctx)
+					defer cancel()
+					time.AfterFunc(tt.callerCancel, cancel)
+				}
+				require.Equal(t, tt.wantCode, status.Code(call(srv, ctx)))
+			})
+		}
 	}
 }

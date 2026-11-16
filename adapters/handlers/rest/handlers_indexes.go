@@ -104,7 +104,12 @@ type indexesHandlers struct {
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
 	// would put the leader-routed methods back within reach.
 	taskSource localTaskLister
-	taskLister distributedtask.TaskLister
+	taskLister leaderTaskLister
+}
+
+type leaderTaskLister interface {
+	distributedtask.TaskLister
+	QueryClassVersionsWithContext(ctx context.Context, classes ...string) (map[string]uint64, error)
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
@@ -140,7 +145,7 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 // the class advance from the same log, so a class read taken after a task
 // read is never the older of the two. Swapping that order is the one edit
 // this cannot take. A task read that decides a mutation stays on the
-// leader-routed ListDistributedTasks, which this interface omits.
+// leader-routed ListDistributedTasks (class read: readClassPropertyAfterLeader).
 type localTaskLister interface {
 	LocalDistributedTasks() map[string][]*distributedtask.Task
 }
