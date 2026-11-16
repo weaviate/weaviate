@@ -329,8 +329,13 @@ func (i *IndexMetadataStore) GetMuveraData() (*compression.MuveraData, error) {
 
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.IndexMetadata.GetDimensions()
-	if err != nil || dims == 0 {
+	if err != nil {
 		return err
+	}
+	if dims == 0 {
+		// nothing was inserted yet, but the built flag still decides whether
+		// the centroid graph must exist
+		return h.restoreCentroids()
 	}
 
 	if err := h.restoreDimensions(dims); err != nil {
