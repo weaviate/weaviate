@@ -405,13 +405,17 @@ func (h *HFresh) repairOrphanPosting(ctx context.Context, postingID uint64) (int
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
+	if len(p) == 0 {
+		// keep its membership: it is all that names the lost vectors
+		return 0, nil
+	}
 	live, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {
 		return 0, err
 	}
 
 	if len(live) == 0 {
-		// nothing left to move: stop finding this posting at every startup
+		// every copy is stale or deleted: stop finding it at every startup
 		err = h.setPostingVectorIDs(ctx, postingID, Posting{})
 		if err != nil {
 			return 0, err
