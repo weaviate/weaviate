@@ -151,7 +151,22 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	idStore := NewBucketStore(bucket)
+	// a store rolled back behind the commit log restarts the sequence below
+	// IDs the centroid graph holds; cleanup may have freed some since load
+	if maxID, found := h.Centroids.hnsw.RestoredMaxNodeID(); found {
+		upperBound, err := idStore.Load()
+		if err != nil {
+			return nil, err
+		}
+		if upperBound < maxID {
+			err = idStore.Store(maxID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
 	}
