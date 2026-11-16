@@ -497,7 +497,8 @@ type ClassDescriptor struct {
 	// aliases
 	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
-	StagingDir              string             `json:"-"` // the uploader reads every shard's files from it, so a class with shards must set it
+	StagingDir              string             `json:"-"` // holds one flat dir per shard, which the uploader reads, so a class with shards must set it
+	StagingNameMax          int                `json:"-"` // the byte length StagedFilePath cuts this class's staged names to, set from StagedNameMax
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }

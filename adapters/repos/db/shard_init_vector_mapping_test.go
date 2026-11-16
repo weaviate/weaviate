@@ -862,9 +862,9 @@ func TestInitShardVectors_QueueOutlivesItsIndex(t *testing.T) {
 // running scheduler.
 func backupAndRestoreInPlace(t *testing.T, ctx context.Context, shard *Shard, idx *Index, class *models.Class) *Shard {
 	t.Helper()
-	stagingRoot := t.TempDir()
+	shardStaging := backup.ShardStaging{Dir: filepath.Join(t.TempDir(), "shard"), NameMax: 255}
 	sd := backup.ShardDescriptor{}
-	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, shardStaging, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	shardName := shard.Name()
@@ -873,7 +873,7 @@ func backupAndRestoreInPlace(t *testing.T, ctx context.Context, shard *Shard, id
 	require.NoError(t, os.RemoveAll(shardDir))
 	rootPath := idx.Config.RootPath
 	for _, relPath := range files {
-		copyFileForTest(t, filepath.Join(stagingRoot, relPath), filepath.Join(rootPath, relPath))
+		copyFileForTest(t, backup.StagedFilePath(shardStaging, relPath), filepath.Join(rootPath, relPath))
 	}
 	for relPath, data := range map[string][]byte{
 		sd.DocIDCounterPath:      sd.DocIDCounter,

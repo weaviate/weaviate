@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -279,14 +280,25 @@ func (h panicOnSubmitHook) Fire(e *logrus.Entry) error {
 }
 
 // classDescriptorWithShards returns desc carrying n copies of its shard, so one
-// class can put several shard jobs into the pool at once.
-func classDescriptorWithShards(desc backup.ClassDescriptor, n int) backup.ClassDescriptor {
+// class can put several shard jobs into the pool at once. It stages each copy's
+// files in that copy's own dir, where the uploader reads them.
+func classDescriptorWithShards(t *testing.T, desc backup.ClassDescriptor, n int) backup.ClassDescriptor {
+	t.Helper()
 	shard := *desc.Shards[0]
+	src := backup.NewShardStaging(desc.StagingDir, shard.Name, desc.StagingNameMax)
 	desc.Shards = make([]*backup.ShardDescriptor, n)
 	for i := range desc.Shards {
 		s := shard
 		s.Name = shard.Name + "-" + string(rune('a'+i))
 		desc.Shards[i] = &s
+
+		dst := backup.NewShardStaging(desc.StagingDir, s.Name, desc.StagingNameMax)
+		require.NoError(t, os.MkdirAll(dst.Dir, 0o755))
+		for _, relPath := range s.Files {
+			data, err := os.ReadFile(backup.StagedFilePath(src, relPath))
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(backup.StagedFilePath(dst, relPath), data, 0o644))
+		}
 	}
 	return desc
 }
@@ -401,7 +413,7 @@ func TestUploaderAllClassDescriptors(t *testing.T) {
 			sourcePath := t.TempDir()
 			descs := genClassDescriptions(t, sourcePath, names...)
 			for i, n := range tc.shards {
-				descs[i] = classDescriptorWithShards(descs[i], n)
+				descs[i] = classDescriptorWithShards(t, descs[i], n)
 			}
 			p := newUploadProbe(t.TempDir(), descs...)
 
@@ -443,6 +455,29 @@ func TestUploaderAllClassDescriptors(t *testing.T) {
 			}, probeTimeout, time.Millisecond, "every class must be released")
 		})
 	}
+}
+
+// TestUploadReadsFlatStaging pins that the uploader reads each shard of a class
+// from that shard's own staging dir.
+func TestUploadReadsFlatStaging(t *testing.T) {
+	stagingDir := t.TempDir()
+	desc := genClassDescriptions(t, stagingDir, "Class-A")[0]
+	template := *desc.Shards[0]
+	desc.Shards = nil
+	for _, name := range []string{"shard-a", "shard-b"} {
+		relPath := "class-a/" + name + "/lsm/objects/segment-1.db"
+		shardStaging := backup.NewShardStaging(stagingDir, name, desc.StagingNameMax)
+		require.NoError(t, os.Mkdir(shardStaging.Dir, 0o755))
+		require.NoError(t, os.WriteFile(backup.StagedFilePath(shardStaging, relPath), []byte(name), 0o644))
+		s := template
+		s.Name, s.Files = name, []string{relPath}
+		desc.Shards = append(desc.Shards, &s)
+	}
+	p := newUploadProbe(t.TempDir(), desc)
+
+	got, err := runUpload(t, context.Background(), p, 2)
+	require.NoError(t, err)
+	assert.Equal(t, backup.Success, got.Status)
 }
 
 func TestUploaderShardSizeIncludesIncrementalSkippedBytes(t *testing.T) {
@@ -530,7 +565,7 @@ func TestUploaderAllFailures(t *testing.T) {
 			sourcePath := t.TempDir()
 			descs := genClassDescriptions(t, sourcePath, names...)
 			for i := range descs {
-				descs[i] = classDescriptorWithShards(descs[i], 2)
+				descs[i] = classDescriptorWithShards(t, descs[i], 2)
 			}
 			if tc.descError != nil {
 				descs[1] = backup.ClassDescriptor{Name: failing, Error: tc.descError}
@@ -786,7 +821,7 @@ func TestUploaderAllDoesNotPublishSuccessOnPanic(t *testing.T) {
 				// a nil shard descriptor panics where the job evaluates shard.Name for
 				// cdesc.ShardFileSource, which runs before compress installs its own
 				// recovery around the consumer goroutine
-				p.descs[0] = classDescriptorWithShards(p.descs[0], 2)
+				p.descs[0] = classDescriptorWithShards(t, p.descs[0], 2)
 				p.descs[0].Shards[0] = nil
 			},
 			poolSize:        1,
