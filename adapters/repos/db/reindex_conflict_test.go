@@ -15,8 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
-	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -368,49 +366,14 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 	require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)))
 }
 
-// inIDOrder hands ReindexDetector the tasks sorted by ID instead of the Manager's map order.
-type inIDOrder struct{ ReindexDetector }
-
-func (d inIDOrder) CheckConflict(newPayload []byte, existing []*distributedtask.Task) error {
-	slices.SortFunc(existing, func(a, b *distributedtask.Task) int { return strings.Compare(a.ID, b.ID) })
-	return d.ReindexDetector.CheckConflict(newPayload, existing)
-}
-
-func TestCheckConflict_SkipsOtherCollectionsBeforeDecoding(t *testing.T) {
-	conflicting := ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"text"}}
-	newPayload, err := json.Marshal(conflicting)
+func TestCheckConflict_KeepsCheckingAfterAnotherCollectionsTask(t *testing.T) {
+	onOther, err := json.Marshal(ReindexTaskPayload{Collection: "Other", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"text"}})
 	require.NoError(t, err)
-	for _, tc := range []struct {
-		name       string
-		existing   []ReindexTaskPayload
-		wantRefuse bool
-	}{
-		{name: "Other", existing: []ReindexTaskPayload{{Collection: "Other"}}},
-		{name: "Other before a conflicting C", existing: []ReindexTaskPayload{{Collection: "Other"}, conflicting}, wantRefuse: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			// A payload with no migration type refuses the submit once decoded.
-			var tasks []*distributedtask.Task
-			for i, p := range tc.existing {
-				existing, err := json.Marshal(p)
-				require.NoError(t, err)
-				tasks = append(tasks, &distributedtask.Task{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: fmt.Sprintf("T%d", i), Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: existing})
-			}
-			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: tasks}})
-			require.NoError(t, err)
-			logger, _ := test.NewNullLogger()
-			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
-				Logger:            logger,
-				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: inIDOrder{}},
-				HeaderDecoders:    map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
-			})
-			require.NoError(t, mgr.Restore(snapshot))
-			sub, err := json.Marshal(&api.AddDistributedTaskRequest{Namespace: ReindexNamespace, Id: "T2", Payload: newPayload, UnitIds: []string{"u"}})
-			require.NoError(t, err)
-			err = mgr.AddTask(&api.ApplyRequest{SubCommand: sub}, 2)
-			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
-		})
-	}
+	other := &distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "other", Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: onOther}
+	onC := reindexTaskOnC(t, "onC", distributedtask.TaskStatusStarted, "text")
+
+	err = ReindexDetector{}.CheckConflict(onC.Payload, loadTasks(t, ReindexNamespace, other, onC))
+	require.ErrorContains(t, err, `reindex task "onC" conflicts`)
 }
 
 // TestCheckConflict_CaseInsensitiveCollection pins that the collection
@@ -552,7 +515,6 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
 				Logger:                  logger,
 				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
-				HeaderDecoders:          map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
 			})
 			require.NoError(t, mgr.Restore(snapshot))
 			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
@@ -1010,8 +972,8 @@ func loadTasks(t *testing.T, namespace string, tasks ...*distributedtask.Task) [
 	logger, _ := test.NewNullLogger()
 	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
 		Logger: logger,
-		HeaderDecoders: map[string]distributedtask.HeaderDecoder{
-			ReindexNamespace: DecodeReindexTaskHeader, DropVectorIndexNamespace: DecodeDropVectorIndexTaskHeader,
+		ConflictDetectors: map[string]distributedtask.ConflictDetector{
+			ReindexNamespace: ReindexDetector{}, DropVectorIndexNamespace: NewDropVectorIndexDetector(logger),
 		},
 	})
 	require.NoError(t, mgr.Restore(snapshot))
@@ -1063,18 +1025,12 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 		{"class mutation", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
 			return errText(d.CheckClassMutation("C", ts))
 		}, "is in flight"},
-		{"property update on another property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckPropertyUpdate("C", "other", ts))
-		}, ""},
 		{"property update on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
 			return errText(d.CheckPropertyUpdate("C", "name", ts))
 		}, "is in flight"},
 		{"property update after a partial run", partial, func(ts []*distributedtask.Task) string {
 			return errText(d.CheckPropertyUpdate("C", "name", ts))
 		}, "are migrated"},
-		{"submit on another property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckConflict(submitOn("other"), ts))
-		}, ""},
 		{"submit on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
 			return errText(d.CheckConflict(submitOn("name"), ts))
 		}, "conflicts"},
@@ -1099,7 +1055,7 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 	}
 }
 
-// Pins that refusing a tenant mutation costs the size of the event, not of the in-flight task's payload.
+// Pins that a tenant-mutation refusal stays under 1 MiB while the in-flight task's payload is over 2 MB, so it cannot decode the payload.
 func TestCheckTenantMutation_AllocatesIndependentlyOfPayloadSize(t *testing.T) {
 	const tenants = 10_000
 	payload := ReindexTaskPayload{

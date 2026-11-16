@@ -35,13 +35,16 @@ type testHeader string
 
 func (h testHeader) Collection() string { return string(h) }
 
-func decodeWith(extract func([]byte) (string, bool)) HeaderDecoder {
-	return func(payload []byte) (TaskHeader, error) {
-		if collection, ok := extract(payload); ok {
-			return testHeader(collection), nil
-		}
-		return nil, errors.New("unreadable payload")
+// decodeWith is a detector that only supplies headers, refusing nothing.
+type decodeWith func([]byte) (string, bool)
+
+func (d decodeWith) CheckConflict([]byte, []*Task) error { return nil }
+
+func (d decodeWith) DecodeHeader(payload []byte) (TaskHeader, error) {
+	if collection, ok := d(payload); ok {
+		return testHeader(collection), nil
 	}
+	return nil, errors.New("unreadable payload")
 }
 
 // fakeConflictDetector lets the manager-side conflict-hook test pin
@@ -1538,7 +1541,7 @@ func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 			h := newTestHarness(t)
 			detector := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}}
 			h.schemaMutationDetectors = map[string]SchemaMutationDetector{"reindex": detector}
-			h.headerDecoders = map[string]HeaderDecoder{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
+			h.conflictDetectors = map[string]ConflictDetector{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
 			h.init(t)
 			for collection, id := range idOf {
 				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -1564,7 +1567,6 @@ type fakeRemovalGate struct {
 	gateCalled    int
 	lastRemoved   []string
 	lastShards    []string
-	lastTaskCount int
 	gateReject    error
 	proposeCalled int
 	proposeReject error
@@ -1575,7 +1577,6 @@ func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, sh
 	f.lastClassName = className
 	f.lastRemoved = removed
 	f.lastShards = shards
-	f.lastTaskCount = len(existing)
 	f.lastTasks = existing
 	return f.gateReject
 }
@@ -1584,7 +1585,7 @@ func (f *fakeRemovalGate) CheckVectorConfigRemovalAtPropose(className string, re
 	f.proposeCalled++
 	f.lastRemoved = removed
 	f.lastShards = shards
-	f.lastTaskCount = len(existing)
+	f.lastTasks = existing
 	return f.proposeReject
 }
 
@@ -1630,7 +1631,7 @@ func TestManager_CheckVectorConfigRemovalAtPropose_DispatchToGates(t *testing.T)
 			require.Zero(t, gate.gateCalled)
 			if tt.wantCalled > 0 {
 				require.Equal(t, []string{"s1"}, gate.lastShards)
-				require.Equal(t, 1, gate.lastTaskCount)
+				require.Len(t, gate.lastTasks, 1)
 			}
 		})
 	}
@@ -1671,7 +1672,7 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 		require.Equal(t, 1, gate.gateCalled)
 		require.Equal(t, []string{"v1"}, gate.lastRemoved)
 		require.Equal(t, []string{"s1"}, gate.lastShards, "gate must receive the shard set")
-		require.Equal(t, 1, gate.lastTaskCount, "gate must receive the FSM-stored task list")
+		require.Len(t, gate.lastTasks, 1, "gate must receive the FSM-stored task list")
 	})
 
 	t.Run("gate returns error → CheckVectorConfigRemoval propagates", func(t *testing.T) {
@@ -1814,7 +1815,7 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 // case-twin record past DELETE_CLASS.
 func TestManager_DeleteTasksForCollection_CaseInsensitive(t *testing.T) {
 	h := newTestHarness(t)
-	h.headerDecoders = map[string]HeaderDecoder{"ns": decodeWith(func(payload []byte) (string, bool) {
+	h.conflictDetectors = map[string]ConflictDetector{"ns": decodeWith(func(payload []byte) (string, bool) {
 		return string(payload), true
 	})}
 	h.init(t)
@@ -1860,7 +1861,7 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	t.Run("removes only tasks whose payload matches the collection", func(t *testing.T) {
 		h := newTestHarness(t)
 		decodes := 0
-		h.headerDecoders = map[string]HeaderDecoder{"scoped": decodeWith(func(payload []byte) (string, bool) {
+		h.conflictDetectors = map[string]ConflictDetector{"scoped": decodeWith(func(payload []byte) (string, bool) {
 			decodes++
 			return collectionExtractor(payload)
 		})}
@@ -1922,7 +1923,7 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		h := newTestHarness(t)
 		// Guard against a sloppy decoder emitting an empty collection
 		// accidentally matching every task on DeleteTasksForCollection("").
-		h.headerDecoders = map[string]HeaderDecoder{"scoped": decodeWith(func([]byte) (string, bool) {
+		h.conflictDetectors = map[string]ConflictDetector{"scoped": decodeWith(func([]byte) (string, bool) {
 			return "", true
 		})}
 		h.init(t)
@@ -1965,7 +1966,7 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 			h := newTestHarness(t)
 			extracts := 0
 			decode := decodeWith(func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
-			h.headerDecoders = map[string]HeaderDecoder{"ns": decode, "ns2": decode}
+			h.conflictDetectors = map[string]ConflictDetector{"ns": decode, "ns2": decode}
 			h.init(t)
 			fixtureInStatus(t, h, tc.status)
 			tasks := 1
@@ -2602,7 +2603,7 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHarness(t)
-			h.headerDecoders = map[string]HeaderDecoder{"ns": decodeWith(func(payload []byte) (string, bool) { return string(payload), true })}
+			h.conflictDetectors = map[string]ConflictDetector{"ns": decodeWith(func(payload []byte) (string, bool) { return string(payload), true })}
 			h.init(t)
 			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace: "ns", Id: "T", Payload: []byte(tc.collection), SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),

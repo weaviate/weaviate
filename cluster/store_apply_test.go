@@ -543,7 +543,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
 	t.Helper()
 	ms := NewMockStore(t, "Node-1", 0, func(c *Config) {
-		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+		c.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
 			"test-namespace": decodeCollection(func(payload []byte) (string, bool) {
 				var p struct {
 					Collection string `json:"collection"`

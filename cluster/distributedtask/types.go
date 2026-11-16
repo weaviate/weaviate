@@ -39,22 +39,23 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
+// CollectionExtractor feeds only the task-list REST handler until the task header replaces it there too.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// TaskHeader is what the Manager derives from a task's payload once, when it stores the task, so the RAFT apply's checks never decode it.
 type TaskHeader interface {
 	Collection() string
 }
 
-// HeaderDecoder must be a pure function of the payload: every node runs it in the RAFT apply.
-type HeaderDecoder func(payload []byte) (TaskHeader, error)
+// HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. The Manager decodes each task's header once, when it stores the task; DecodeHeader must be a pure function of the payload.
+type HeaderDecoder interface {
+	DecodeHeader(payload []byte) (TaskHeader, error)
+}
 
 // ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
 type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
-// Same determinism contract as [CollectionExtractor].
 type TargetVectorExtractor func(payload []byte) (collection string, targets []string, ok bool)
 
 // CompletedTaskRetainer is an optional interface a [Provider] implements to
@@ -257,10 +258,6 @@ type CutoverOutcome interface {
 // registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
 // function of its arguments.
 type VectorConfigRemovalGate interface {
-	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
-	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
-	// from the FSM state being applied; existingTasks is the namespace-scoped
-	// list at apply time.
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 

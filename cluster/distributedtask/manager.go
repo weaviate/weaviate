@@ -236,14 +236,24 @@ type ManagerParameters struct {
 	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
-	HeaderDecoders          map[string]HeaderDecoder
 	ReadOnlyClass           func(collection string) *models.Class
 }
 
 func NewManager(params ManagerParameters) *Manager {
+	headerDecoders := map[string]HeaderDecoder{}
+	for namespace, detector := range params.ConflictDetectors {
+		if decoder, ok := detector.(HeaderDecoder); ok {
+			headerDecoders[namespace] = decoder
+		}
+	}
+	for namespace, detector := range params.SchemaMutationDetectors {
+		if decoder, ok := detector.(HeaderDecoder); ok {
+			headerDecoders[namespace] = decoder
+		}
+	}
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
-		headerDecoders:         params.HeaderDecoders,
+		headerDecoders:         headerDecoders,
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
 		conflictDetectors:       params.ConflictDetectors,
@@ -254,14 +264,14 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
-// headerFor is the only place the Manager derives anything from a payload.
 func (m *Manager) headerFor(namespace string, payload []byte) TaskHeader {
-	decode := m.headerDecoders[namespace]
-	if decode == nil {
+	decoder := m.headerDecoders[namespace]
+	if decoder == nil {
 		return nil
 	}
-	header, err := decode(payload)
+	header, err := decoder.DecodeHeader(payload)
 	if err != nil {
+		m.logger.WithField("namespace", namespace).Warnf("task payload has no readable header, so checks treat it as unparseable: %v", err)
 		return nil
 	}
 	return header

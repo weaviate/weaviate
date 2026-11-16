@@ -644,7 +644,6 @@ type testHarness struct {
 
 	conflictDetectors       map[string]ConflictDetector
 	schemaMutationDetectors map[string]SchemaMutationDetector
-	headerDecoders          map[string]HeaderDecoder
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -696,7 +695,6 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		Logger:                  h.logger,
 		ConflictDetectors:       h.conflictDetectors,
 		SchemaMutationDetectors: h.schemaMutationDetectors,
-		HeaderDecoders:          h.headerDecoders,
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{

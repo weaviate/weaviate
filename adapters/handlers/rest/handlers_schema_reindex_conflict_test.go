@@ -39,8 +39,8 @@ func loadReindexTasks(t *testing.T, tasks ...*distributedtask.Task) []*distribut
 	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: tasks}})
 	require.NoError(t, err)
 	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
-		Logger:         logrus.New(),
-		HeaderDecoders: map[string]distributedtask.HeaderDecoder{db.ReindexNamespace: db.DecodeReindexTaskHeader},
+		Logger:            logrus.New(),
+		ConflictDetectors: map[string]distributedtask.ConflictDetector{db.ReindexNamespace: db.ReindexDetector{}},
 	})
 	require.NoError(t, mgr.Restore(snapshot))
 	byID := map[string]*distributedtask.Task{}
@@ -164,7 +164,7 @@ func remedyOf(t *testing.T, refusal string) string {
 	return refusal[i:]
 }
 
-// Pins: the pre-flight and the FSM guard reach the same verdict for
+// Pins: the pre-flight and the reindex detector reach the same verdict for
 // every structural payload class. The two arms that never look at the
 // mutated collection — a payload that does not decode, and one that
 // decodes without a Collection — are the ones this side used to skip,
@@ -208,8 +208,8 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 		{
 			// Decodes cleanly and names another collection, so every
 			// later arm would wave it through — but half a payload is
-			// not enough to prove the task is unrelated, so both guards
-			// refuse on every collection.
+			// not enough to prove the task is unrelated, so the pre-flight
+			// and the detector refuse on every collection.
 			name:        "decodes without a migration type, names another collection",
 			raw:         `{"collection":"Other","properties":["title"]}`,
 			wantBlocked: true,

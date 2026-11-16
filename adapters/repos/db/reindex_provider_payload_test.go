@@ -21,8 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Pins the DELETE_CLASS cascade extractor for the reindex namespace
-// (weaviate/0-weaviate-issues#231).
 func TestExtractReindexTaskCollection(t *testing.T) {
 	t.Run("well-formed payload returns class name", func(t *testing.T) {
 		payload, err := json.Marshal(ReindexTaskPayload{

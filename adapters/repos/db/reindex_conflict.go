@@ -113,10 +113,6 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 				"in-flight reindex task %q has empty Collection or MigrationType",
 				task.ID)
 		}
-		if !strings.EqualFold(existP.Class, newP.Collection) {
-			continue
-		}
-
 		if reason := typesConflictReason(newP.MigrationType, newP.Properties,
 			existP.MigrationType, existP.Properties); reason != "" {
 			return fmt.Errorf("reindex task %q conflicts: %s", task.ID, reason)

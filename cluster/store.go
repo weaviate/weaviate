@@ -195,7 +195,6 @@ type Config struct {
 	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
-	DistributedTaskHeaderDecoders          map[string]distributedtask.HeaderDecoder
 	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
 	// whose units no longer match the current replicas of the shards they name.
 	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
@@ -427,7 +426,6 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		Logger:                  cfg.Logger,
 		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
-		HeaderDecoders:          cfg.DistributedTaskHeaderDecoders,
 		ReadOnlyClass: func(collection string) *models.Class {
 			return schemaReader.ReadOnlyVersionedClass(collection).Class
 		},

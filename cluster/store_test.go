@@ -1565,7 +1565,7 @@ type MockStore struct {
 	replicationFSM *schema.MockreplicationFSM
 }
 
-// tweaks edit the config before NewFSM reads it, e.g. to set DistributedTaskHeaderDecoders.
+// tweaks edit the config before NewFSM reads it, e.g. to set DistributedTaskConflictDetectors.
 func NewMockStore(t *testing.T, nodeID string, raftPort int, tweaks ...func(*Config)) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
@@ -1718,7 +1718,7 @@ var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
 func exclusionStore(t *testing.T) *Store {
 	t.Helper()
 	return NewMockStore(t, "node1", 0, func(c *Config) {
-		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+		c.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
 			exclusionNamespace: decodeCollection(namesExclusionCollection),
 		}
 	}).store
@@ -1730,13 +1730,16 @@ type collectionHeader string
 
 func (h collectionHeader) Collection() string { return string(h) }
 
-func decodeCollection(extract func([]byte) (string, bool)) distributedtask.HeaderDecoder {
-	return func(payload []byte) (distributedtask.TaskHeader, error) {
-		if collection, ok := extract(payload); ok {
-			return collectionHeader(collection), nil
-		}
-		return nil, errors.New("unreadable payload")
+// decodeCollection is a detector that only supplies headers, refusing nothing.
+type decodeCollection func([]byte) (string, bool)
+
+func (d decodeCollection) CheckConflict([]byte, []*distributedtask.Task) error { return nil }
+
+func (d decodeCollection) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
+	if collection, ok := d(payload); ok {
+		return collectionHeader(collection), nil
 	}
+	return nil, errors.New("unreadable payload")
 }
 
 func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
@@ -1770,7 +1773,7 @@ func seedExclusionMovement(t *testing.T, s *Store) {
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
 	srv, _ := newBarrierTestStore(t, func(c *Config) {
-		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+		c.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
 			exclusionNamespace: decodeCollection(namesExclusionCollection),
 		}
 	})
@@ -1992,7 +1995,7 @@ type replicasPayload struct {
 func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical) *Store {
 	t.Helper()
 	m := NewMockStore(t, "node1", 0, func(c *Config) {
-		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+		c.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
 			exclusionNamespace: decodeCollection(func(payload []byte) (string, bool) {
 				var p replicasPayload
 				err := json.Unmarshal(payload, &p)

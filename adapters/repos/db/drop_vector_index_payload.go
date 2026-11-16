@@ -508,6 +508,7 @@ func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targe
 	return p.Collection, p.Targets, true
 }
 
+// ExtractDropVectorIndexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
 func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok bool) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
@@ -516,11 +517,13 @@ func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok
 	return p.Collection, true
 }
 
+var _ distributedtask.HeaderDecoder = (*DropVectorIndexDetector)(nil)
+
 type dropVectorIndexTaskHeader string
 
 func (h dropVectorIndexTaskHeader) Collection() string { return string(h) }
 
-func DecodeDropVectorIndexTaskHeader(payload []byte) (distributedtask.TaskHeader, error) {
+func (*DropVectorIndexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
 		return nil, err
