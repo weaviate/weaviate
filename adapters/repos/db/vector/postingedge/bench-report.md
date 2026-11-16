@@ -177,10 +177,38 @@ Las dos hipótesis:
 | H1 y H2 se sostienen | al 100 %, la celda principal queda a 0.005 de recall o menos del lote en cada ef de la malla (el criterio es el peor ef), y sus cargas a 0.95 suben un 15 % o menos |
 | si se sostienen | el mantenimiento se diseña sin aristas inversas ni reparación |
 | si no | las celdas de control dicen cuánto recupera cada mecanismo: déficit de recall y cargas de H1 y de H2 frente a la principal |
-| stop-and-report | cualquier fallo de cobertura en un checkpoint, o recall de arista de los insertados por debajo de 0.90 en cualquiera: la celda para ahí y se reporta su estado |
+| stop-and-report | cualquier fallo de cobertura en un checkpoint, o recall de arista de los insertados por debajo de 0.90 en cualquiera: la celda para ahí y se reporta su estado. *La segunda condición la sustituye la enmienda de abajo.* |
 | orden natural | se reporta con las mismas métricas; no decide |
 
 **Sin commits mientras corra la parte cronometrada.**
+
+### Enmienda (2026-11-16, después del smoke de 60k y antes de ningún dato de 1M)
+
+*Encargo del usuario, escrito tal cual con su motivo.*
+
+**Cuándo llega.** Llega después del smoke de 60k, que no predice 1M. A 1M solo había corrido parte de la calibración de T, que mide tamaños de posting y ninguna búsqueda. La calibración no se repite. La cadena se para antes de las celdas y se relanza con la regla nueva.
+
+**El motivo.** El stop sobre el recall de arista a nivel de vector confunde dos cosas:
+
+- un constructor roto;
+- la obsolescencia de aristas que H1 predice y declara irrelevante.
+
+En el smoke, el recall de arista de los insertados contra el corpus del checkpoint cae de 0.90 al 60 % a 0.68 al 100 %, y el de los vectores del lote de 1.00 a 0.43. Sus vecindarios exactos se llenan de vectores que llegaron después, y en la celda principal nadie les da aristas hacia ellos. Eso es obsolescencia, no un constructor roto.
+
+**La regla nueva:**
+
+- **Stop, como guardia del constructor:** el recall de arista en el momento de insertar, contra el corpus de ese momento, por debajo de 0.90. Mide si la búsqueda que crea las aristas funciona.
+  - *Cómo lo mido (mío):* 2 000 inserts muestreados uniformemente en cada tramo entre checkpoints, con semilla fija. Para cada uno, justo después de escribir sus aristas y antes de cualquier split o arista inversa:
+    - sus 16 vecinos exactos entre los vectores vivos de ese momento, él excluido;
+    - de ellos, los que están fuera de su posting en ese momento.
+  - El recall se suma sobre la muestra del tramo. La celda para si el de cualquier tramo baja de 0.90.
+- **Métricas reportadas, no stop:**
+  - **Recall de arista contra el corpus actual,** para los insertados y para los vectores del lote: la obsolescencia. Es la métrica de antes, ya sin stop.
+  - **Recall de arista a nivel de posting.** De los postings donde viven los 16 vecinos exactos de fuera del propio posting, qué fracción cubren los postings de destino de sus aristas. Es la métrica alineada con H1.
+    - Se cuenta sobre conjuntos de postings y con el mapa del checkpoint, sumado sobre la muestra.
+    - Se mide para las mismas dos muestras, y también en el momento de insertar (*mío*, informativo).
+- **El criterio principal no cambia:** recall de búsqueda a igual ef a 0.005 o menos del lote, y cargas a 0.95 un 15 % o menos por encima.
+- **La cobertura sigue siendo stop.**
 
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
