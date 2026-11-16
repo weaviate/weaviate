@@ -233,6 +233,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			rollback:  commitLog,
 			reachable: func([]uint64) []uint64 { return idRange(0, 100) },
 		},
+		{
+			name:      "first posting, store behind commit log",
+			setup:     func(*testing.T, *HFresh) {},
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 0, 100); return nil },
+			rollback:  wholeStore,
+			reachable: func([]uint64) []uint64 { return nil },
+		},
 	}
 
 	for _, c := range cases {
