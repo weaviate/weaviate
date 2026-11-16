@@ -235,8 +235,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// This avoids eagerly tokenizing the query for all possible tokenizations
 	// when only a subset is actually used by the searched properties.
 	type propInfo struct {
-		name string
-		prop *models.Property
+		name                  string
+		prop                  *models.Property
 		effectiveTokenization string
 		tokKey                string
 		propMean              float64
