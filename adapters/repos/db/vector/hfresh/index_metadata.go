@@ -359,8 +359,8 @@ func (s *BucketStore) Load() (uint64, error) {
 }
 
 // repairOrphanPostings moves the live vectors of every posting left without a
-// centroid into a new posting that has one. A crash that persists the store
-// and the centroid commit log unevenly leaves such postings unreachable.
+// usable centroid into a new posting that has one. A crash that persists the
+// store and the centroid commit log unevenly leaves such postings unreachable.
 func (h *HFresh) repairOrphanPostings() {
 	dims, quantizer := h.loadQuantizer()
 	if quantizer == nil {
@@ -369,7 +369,10 @@ func (h *HFresh) repairOrphanPostings() {
 
 	var orphans []uint64
 	for postingID, metadata := range h.PostingMap.Iter() {
-		if metadata.Count() > 0 && !h.Centroids.Exists(postingID) {
+		if metadata.Count() == 0 {
+			continue
+		}
+		if !h.Centroids.Exists(postingID) || h.Centroids.VectorMissing(postingID) {
 			orphans = append(orphans, postingID)
 		}
 	}
@@ -441,6 +444,12 @@ func (h *HFresh) repairOrphanPosting(ctx context.Context, postingID uint64, dims
 		Uncompressed: mean,
 		Compressed:   quantizer.CompressedBytes(quantizer.Encode(mean)),
 	})
+	if err != nil {
+		return 0, 0, err
+	}
+	// a centroid without its vector would be tombstoned by the first search
+	// reaching it; delete it here instead
+	err = h.Centroids.MarkAsDeleted(postingID)
 	if err != nil {
 		return 0, 0, err
 	}
