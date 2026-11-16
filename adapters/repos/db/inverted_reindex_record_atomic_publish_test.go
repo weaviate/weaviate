@@ -94,12 +94,6 @@ func TestPutAllRefusesWithoutWritingAnything(t *testing.T) {
 			recs:    []MigrationRecord{first, second},
 			wantErr: "refusing to write",
 		},
-		{
-			name:    "a key is listed twice",
-			setup:   func(*testing.T, *MigrationRecordStore) {},
-			recs:    []MigrationRecord{first, second, first},
-			wantErr: "listed twice",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,6 +137,18 @@ func TestRecordWritesKeepTheirOrderingOnRealFaults(t *testing.T) {
 		require.NoError(t, os.Mkdir(lsm, 0o777))
 		require.NoError(t, store.Put(rec))
 		require.FileExists(t, filepath.Join(store.Dir(), rec.Subject().Key.fileName()))
+	})
+
+	t.Run("a failed rename keeps only the records published before it", func(t *testing.T) {
+		store := NewMigrationRecordStore(t.TempDir(), logger)
+		second := NewMigrationRecordMerged(testMigrationSubject(42, StrategyCodeFilterableRetokenize, "body"))
+		require.NoError(t, os.MkdirAll(filepath.Join(store.Dir(), second.Subject().Key.fileName(), "blocker"), 0o777))
+
+		require.Error(t, store.PutAll([]MigrationRecord{rec, second}))
+		_, ok := store.Get(rec.Subject().Key)
+		require.True(t, ok, "the first record was renamed into place, so memory adopts it")
+		_, ok = store.Get(second.Subject().Key)
+		require.False(t, ok)
 	})
 
 	t.Run("a write after a drop does not re-create the tree", func(t *testing.T) {

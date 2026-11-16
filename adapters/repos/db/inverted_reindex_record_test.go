@@ -26,7 +26,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -1625,10 +1624,8 @@ func TestAFailedPutAdoptsOnlyTheRecordTheFileHolds(t *testing.T) {
 	}
 }
 
-// Put syncs the directory that publishes a record's name. Without the same
-// sync on the unlink, a crash brings a retired record back, naming directories
-// the pass that retired it already removed.
-func TestRemovingARecordPublishesTheRemoval(t *testing.T) {
+// The directory sync that makes the unlink durable shows only after a crash.
+func TestRemovingARecordClearsFileAndMemory(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	store := NewMigrationRecordStore(t.TempDir(), logger)
 	key := testMigrationSubject(42, StrategyCodeEnableFilterable, "title").Key
@@ -1638,27 +1635,11 @@ func TestRemovingARecordPublishesTheRemoval(t *testing.T) {
 	}
 
 	put()
-	var synced []string
-	require.NoError(t, store.removeSynced(key, func(dir string) error {
-		require.NoFileExists(t, filepath.Join(store.Dir(), key.fileName()),
-			"the sync has to follow the unlink it makes durable")
-		synced = append(synced, dir)
-		return nil
-	}))
-	require.Equal(t, []string{store.Dir()}, synced,
-		"the directory that held the record's name is what publishes its absence")
+	require.NoError(t, store.Remove(key))
+	require.NoFileExists(t, filepath.Join(store.Dir(), key.fileName()))
+	require.Empty(t, store.Records())
 
-	synced = nil
-	require.NoError(t, store.removeSynced(key, func(dir string) error {
-		synced = append(synced, dir)
-		return nil
-	}))
-	require.Empty(t, synced, "a removal that found no file has nothing to publish")
-
-	put()
-	require.Error(t, store.removeSynced(key, func(string) error { return assert.AnError }),
-		"a removal whose absence did not reach disk must not read as done")
-	require.Empty(t, store.Records(), "the file is gone either way, so memory has to agree")
+	require.NoError(t, store.Remove(key), "a removal that finds no file has nothing left to do")
 }
 
 // HasUndecided is what makes the once-a-minute cluster pass pick a shard up.

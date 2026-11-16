@@ -275,7 +275,7 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 			logger, hook := test.NewNullLogger()
 			decided, err := task.decideSwap(ctx, shard, logger)
 			require.NoError(t, err)
-			require.NoError(t, flipUnit(ctx, shard, []*unitSwap{decided}, nil))
+			require.NoError(t, flipUnit(ctx, shard, []*taskSwap{decided}, nil))
 			tc.breakRecords(t, shard, task)
 			require.NoError(t, task.settleSwap(ctx, logger, shard, decided.subject, decided.props, decided.displaced))
 

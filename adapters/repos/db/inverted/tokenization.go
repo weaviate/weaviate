@@ -13,8 +13,6 @@ package inverted
 
 import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
-// TokenizationBucketPinner returns one consistent (tokenization, bucket)
-// snapshot of a property, pinned until release runs exactly once (bucket may
-// be nil; release is still required). A retokenization's flip moves both, and
-// a query that read one from before it and one from after would find nothing.
+// TokenizationBucketPinner returns a property's tokenization and pins its bucket as one snapshot,
+// until release runs exactly once (bucket may be nil): a retokenization's flip moves both.
 type TokenizationBucketPinner func(propName, bucketName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket, release func())

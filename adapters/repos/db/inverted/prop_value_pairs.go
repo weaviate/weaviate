@@ -57,8 +57,8 @@ type propValuePair struct {
 	// zero keys, so the two states can't be confused.
 	containsKeys entsInverted.SortedKeys
 
-	textPair     bool
-	pinnedBucket *lsmkv.Bucket
+	readsPinnedBucket bool
+	pinnedBucket      *lsmkv.Bucket
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -387,7 +387,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	}
 
 	b := pv.pinnedBucket
-	if !pv.textPair {
+	if !pv.readsPinnedBucket {
 		b = s.store.Bucket(pv.getBucketName())
 	}
 	if b == nil {
@@ -476,7 +476,7 @@ func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit 
 	}
 
 	b := pv.pinnedBucket
-	if !pv.textPair {
+	if !pv.readsPinnedBucket {
 		bucketName := pv.getBucketName()
 		if bucketName == "" {
 			return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)

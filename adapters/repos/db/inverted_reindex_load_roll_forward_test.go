@@ -77,8 +77,7 @@ func TestALoadFinishesAHalfWrittenSwapDecision(t *testing.T) {
 	}
 }
 
-// A load that cannot write records cannot finish a half-written decision, and
-// the provider must not flip the decided half alone before the swap phase can.
+// A load that cannot write records leaves the decision half-written; nothing may flip one half alone.
 func TestARehydrateFlipsNothingWhileItsUnitIsHalfDecided(t *testing.T) {
 	f := newTokenizationChange(t)
 	f.decide(t, f.tasks[0])

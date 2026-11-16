@@ -829,11 +829,9 @@ func (s *Store) SwapBucketPointers(ctx context.Context, swaps []BucketSwap) (dis
 	return displaced, err
 }
 
-// OpenStore is a [Store] that cannot close while it is in use.
 type OpenStore struct{ s *Store }
 
-// WhileOpen runs fn while the store cannot close, or fails if it is closed.
-// A caller that takes its own lock inside fn orders it after the close guard.
+// WhileOpen runs fn while the store cannot close; locks fn takes order after the close guard.
 func (s *Store) WhileOpen(fn func(OpenStore) error) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -848,14 +846,7 @@ func (o OpenStore) SwapBucketPointers(swaps []BucketSwap) ([]*Bucket, error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	named := make(map[string]bool, 2*len(swaps))
 	for _, swap := range swaps {
-		for _, name := range []string{swap.Target, swap.Source} {
-			if named[name] {
-				return nil, fmt.Errorf("bucket %q is named by more than one swap in store %q", name, s.dir)
-			}
-			named[name] = true
-		}
 		if _, ok := s.bucketsByName[swap.Target]; !ok {
 			return nil, fmt.Errorf("target bucket %q not found in store %q", swap.Target, s.dir)
 		}

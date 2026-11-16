@@ -9,9 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Runtime reindex phase contract. A swap flips every bucket of the shard's unit and the overlay in one
-// in-memory critical section, so no query reads a mixed pair
-// (https://github.com/weaviate/0-weaviate-issues/issues/216). Retiring a
+// Runtime reindex phase contract. The swap phase flips every bucket of the shard's unit and the overlay
+// in one in-memory critical section, so no query reads a mixed pair; serveDeferredPromotions moves one
+// bucket with no overlay (https://github.com/weaviate/0-weaviate-issues/issues/216). Retiring a
 // displaced bucket shuts it down inline, since Shutdown alone frees its path from
 // GlobalBucketRegistry. The rename onto the canonical name waits for the next
 // startup: renaming a live bucket's dir corrupts its segment registry.
@@ -305,7 +305,7 @@ func (t *ShardReindexTaskGeneric) swapLogger(retries *logrusext.Sampler) logrus.
 	return logger
 }
 
-type unitSwap struct {
+type taskSwap struct {
 	task       *ShardReindexTaskGeneric
 	logger     logrus.FieldLogger
 	props      []string
@@ -315,10 +315,9 @@ type unitSwap struct {
 	displaced  map[string]*lsmkv.Bucket
 }
 
-// decideSwap runs every step before the flip; no reader sees them, so they may do I/O.
 func (t *ShardReindexTaskGeneric) decideSwap(ctx context.Context, shard ShardLike,
 	logger logrus.FieldLogger,
-) (*unitSwap, error) {
+) (*taskSwap, error) {
 	entry, err := t.enterDTMPhase(ctx, shard, logger, "RunSwapOnShard")
 	if err != nil {
 		return nil, err
@@ -332,7 +331,7 @@ func (t *ShardReindexTaskGeneric) decideSwap(ctx context.Context, shard ShardLik
 	if len(props) == 0 {
 		return nil, fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
 	}
-	u := &unitSwap{task: t, logger: logger, props: props, displaced: map[string]*lsmkv.Bucket{}}
+	u := &taskSwap{task: t, logger: logger, props: props, displaced: map[string]*lsmkv.Bucket{}}
 	logger = logger.WithField("property_count", len(props)).WithField("props", migrationReportedNames(props))
 
 	swapPending, err := t.swapStillToRun(logger, concreteShard, entry.rec, props)
@@ -402,19 +401,19 @@ func swapUnitOnShard(ctx context.Context, shard ShardLike, tasks []*ShardReindex
 		return errs
 	}
 
-	units := make([]*unitSwap, len(tasks))
+	swaps := make([]*taskSwap, len(tasks))
 	for i, task := range tasks {
 		u, err := task.decideSwap(ctx, shard, loggers[i])
 		if err != nil {
 			errs[i] = err
 			return failAll(fmt.Errorf("not swapped, because the swap of %s failed: %w", task.Name(), err))
 		}
-		units[i] = u
+		swaps[i] = u
 	}
-	if err := flipUnit(ctx, shard, units, overlay); err != nil {
+	if err := flipUnit(ctx, shard, swaps, overlay); err != nil {
 		return failAll(err)
 	}
-	for i, u := range units {
+	for i, u := range swaps {
 		if u.settleOnly {
 			errs[i] = u.task.finalizeMigrationAfterRecovery(ctx, u.logger, shard, u.props)
 			continue
@@ -425,22 +424,22 @@ func swapUnitOnShard(ctx context.Context, shard ShardLike, tasks []*ShardReindex
 }
 
 // Buckets are checked before the records: a decision over a missing bucket wedges the next load.
-func flipUnit(ctx context.Context, shard ShardLike, units []*unitSwap,
+func flipUnit(ctx context.Context, shard ShardLike, swaps []*taskSwap,
 	overlay map[string]inverted.PropertyOverlay,
 ) error {
 	store := shard.Store()
 	type owner struct {
-		u    *unitSwap
+		u    *taskSwap
 		prop string
 	}
 	var (
 		pairs     []lsmkv.BucketSwap
 		owners    []owner
 		decisions []MigrationRecord
-		armed     = map[string]inverted.PropertyOverlay{}
+		overlays  = map[string]inverted.PropertyOverlay{}
 		flipping  bool
 	)
-	for _, u := range units {
+	for _, u := range swaps {
 		if u.settleOnly {
 			continue
 		}
@@ -451,7 +450,7 @@ func flipUnit(ctx context.Context, shard ShardLike, units []*unitSwap,
 		for _, propName := range u.props {
 			// Armed even when already flipped, so a resumed swap re-establishes the overlay.
 			if o, ok := overlay[propName]; ok {
-				armed[propName] = o
+				overlays[propName] = o
 			}
 			if u.task.canonicalServesStaged(store, propName) {
 				continue
@@ -482,7 +481,7 @@ func flipUnit(ctx context.Context, shard ShardLike, units []*unitSwap,
 			return fmt.Errorf("recording the flip decision: %w", err)
 		}
 	}
-	displaced, err := concrete.SwapBucketsAndSetOverlay(armed, pairs)
+	displaced, err := concrete.SwapBucketsAndSetOverlay(overlays, pairs)
 	if err != nil {
 		return err
 	}
@@ -968,7 +967,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if swapPending, err = t.swapStillToRun(logger, shard, rec, props); err != nil {
 			return zerotime, err
 		}
-		// A task does not know its unit's other buckets; its caller flips them together.
+		// A task does not know its unit's other buckets, so finishDecidedSwaps flips the unit's decided swaps together.
 		if swapPending {
 			return zerotime, nil
 		}

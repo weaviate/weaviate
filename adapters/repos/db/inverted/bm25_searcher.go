@@ -237,10 +237,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	type propInfo struct {
 		name string
 		prop *models.Property
-		// effectiveTokenization is the one the pinner returned with the
-		// property's bucket. Computed once at prop discovery and used
-		// everywhere downstream to avoid recomputing the same value across
-		// the BM25 pipeline.
+		// effectiveTokenization is the pinner's, taken once at prop discovery.
 		effectiveTokenization string
 		tokKey                string
 		propMean              float64
@@ -283,8 +280,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			return queryTerms{}, queryStats{}, pins, err
 		}
 
-		// Resolve by the user-supplied name, not prop.Name: a dotted input
-		// would otherwise silently search the parent prop's bucket.
+		// The user-supplied name, not prop.Name: a dotted input must not search the parent's bucket.
 		effectiveTok, bucket, release := b.pinner(property, helpers.BucketSearchableFromPropNameLSM(property), prop.Tokenization)
 		// Record even when bucket==nil so the release still runs.
 		pins.add(property, bucket, release)

@@ -971,7 +971,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		pair := probe
 		pair.value = []byte(term)
 		pair.Class = class
-		pair.textPair = true
+		pair.readsPinnedBucket = true
 		pair.pinnedBucket = bucket
 		propValuePairs = append(propValuePairs, &pair)
 	}
@@ -1354,7 +1354,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil || batchType != containsBatchTextField {
 		return pv, err
 	}
-	pv.textPair = true
+	pv.readsPinnedBucket = true
 	_, pv.pinnedBucket = s.pinFilterBucket(property, helpers.BucketFromPropNameLSM(property.Name))
 	return pv, nil
 }

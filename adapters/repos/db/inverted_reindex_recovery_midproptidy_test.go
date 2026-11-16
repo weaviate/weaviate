@@ -43,6 +43,10 @@ func TestRecoveryConvergence_CrashBetweenDecisionAndFlip(t *testing.T) {
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	decided, err := task.decideSwap(ctx, shard, task.logger)
 	require.NoError(t, err)
+	for _, propName := range propNames {
+		dir, ok := decided.decision.(MigrationRecordSwapped).DisplacedDir(propName)
+		require.Truef(t, ok && dir != "", "the decision names %q's displaced directory", propName)
+	}
 	require.NoError(t, task.putMigrationRecord(shard, decided.decision))
 
 	shardName := shard.Name()

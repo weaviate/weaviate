@@ -91,7 +91,7 @@ func (sc swapWindowScenario) run(t *testing.T) *lsmkv.Bucket {
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	decided, err := task.decideSwap(ctx, shard, task.logger)
 	require.NoError(t, err)
-	require.NoError(t, flipUnit(ctx, shard, []*unitSwap{decided}, nil))
+	require.NoError(t, flipUnit(ctx, shard, []*taskSwap{decided}, nil))
 	sc.inject(t, ctx, shard, objs)
 	require.NoError(t, task.settleSwap(ctx, task.logger, shard, decided.subject, decided.props, decided.displaced))
 

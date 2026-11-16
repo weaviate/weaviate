@@ -764,9 +764,8 @@ func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOve
 	return o
 }
 
-// SwapBucketsAndSetOverlay is ONE critical section. A query may hold one pin while it waits for
-// propertyOverlayMu to pin the next, so neither the store's close nor the caller's shutdown of the
-// displaced buckets, which drain pins, may run while that lock is held.
+// SwapBucketsAndSetOverlay is ONE critical section. A query may hold a pin while it waits for
+// propertyOverlayMu, so nothing that drains pins may run while that lock is held.
 func (s *Shard) SwapBucketsAndSetOverlay(overlay map[string]inverted.PropertyOverlay, swaps []lsmkv.BucketSwap,
 ) (displaced []*lsmkv.Bucket, err error) {
 	err = s.store.WhileOpen(func(store lsmkv.OpenStore) error {

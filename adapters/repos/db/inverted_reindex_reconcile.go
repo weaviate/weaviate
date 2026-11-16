@@ -309,7 +309,6 @@ func (r *migrationReconciler) siblingFlipDecided(subject MigrationSubject) bool 
 	return !subject.Unmirrored && slices.ContainsFunc(r.unitSiblings(subject), MigrationRecord.FlipDecided)
 }
 
-// unitSiblings are the other halves of subject's unit that share a property with it.
 func (r *migrationReconciler) unitSiblings(subject MigrationSubject) []MigrationRecord {
 	var out []MigrationRecord
 	for _, rec := range r.store.Records() {
@@ -327,8 +326,7 @@ func (r *migrationReconciler) unitSiblings(subject MigrationSubject) []Migration
 	return out
 }
 
-// A half promoted without its sibling restores an overlay that disagrees with
-// the sibling's bucket, so promotion waits until every half is decided.
+// A half promoted alone restores an overlay its sibling's bucket disagrees with.
 func (r *migrationReconciler) unitDecided(ctx context.Context, subject MigrationSubject, someUnreadable bool) (bool, error) {
 	for _, sibling := range r.unitSiblings(subject) {
 		if merged, ok := sibling.(MigrationRecordMerged); ok {

@@ -402,9 +402,9 @@ preceding a transition on the per-task field. Annotations
                                            │  scheduler fires per-node
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  Provider.OnSwapRequested (per-node, semantic only, barrier)  │
-        │   PHASE B — OVERLAY + SWAP per local shard:                   │
-        │    2. OVERLAY SET: per-shard tokenization resolver            │
-        │    3. ATOMIC SWAP: SwapBucketPointer per prop (microseconds)  │
+        │   PHASE B — SWAP per local shard:                             │
+        │    2. DECISIONS: one PutAll of the unit's flip decisions      │
+        │    3. ATOMIC SWAP: every bucket + overlay in one section      │
         │    + post-atomic inline tidy (Shutdown + rename old → backup) │
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(group, success) — pays the debt     │
@@ -481,8 +481,9 @@ What goes through RAFT (cluster-wide commits):
 What does NOT go through RAFT (local-only):
 
 - **PREP** (FlushAndSwitch, Prepend, Shutdown the reindex bucket).
-- **OVERLAY SET** (install per-shard tokenization resolver).
-- **ATOMIC SWAP** (`SwapBucketPointer` per prop, in microseconds).
+- **DECISIONS** (one `PutAll` of the unit's flip decisions).
+- **ATOMIC SWAP** (`Shard.SwapBucketsAndSetOverlay`: every bucket of the
+  unit and the property overlay in one in-memory critical section).
 - **Post-atomic inline tidy** (Shutdown old main, rename old → backup).
 - **`OnMigrationComplete`** per-strategy hook (in-memory shard-local
   state mutations).
@@ -877,10 +878,9 @@ manager, and progress tracker.
 The strategy interface itself documents the per-method contract; see
 [`inverted_reindex_strategy.go`](../adapters/repos/db/inverted_reindex_strategy.go).
 Of particular note is `OnMigrationComplete`'s phase contract — it
-fires in Phase 2c, AFTER the per-prop `SwapBucketPointer` tight loop
-and AFTER the inline `oldMain.Shutdown` + `oldMain → backup` rename
-loop, but still INSIDE the per-shard property-overlay window on a
-semantic migration.
+fires in Phase 2c, AFTER the unit's one-section flip and AFTER the
+inline `oldMain.Shutdown` + displaced-directory discard, but still
+INSIDE the per-shard property-overlay window on a semantic migration.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
@@ -931,8 +931,12 @@ sees the old path and post-rename writes fail with `ENOENT`. See §9
 for the full history.
 
 The atomic-phase contract in the orchestrator file states this rule:
-the flip is one in-memory call (`Shard.SwapBucketsAndSetOverlay`), and
-every disk-I/O or compaction-wait op runs before or after it.
+the swap phase's flip is one in-memory call
+(`Shard.SwapBucketsAndSetOverlay`), and every disk-I/O or
+compaction-wait op runs before or after it. The one per-property flip
+left is `serveDeferredPromotions`, which re-serves a promotion a load
+deferred for an enable-* migration; it moves one bucket and sets no
+overlay.
 
 ## 5. Migration strategies — quick map
 
@@ -1209,24 +1213,25 @@ in short:
   `FlushAndSwitch` reindex bucket, `Shutdown` it, `PrependSegmentsFromBucket`
   per property, `removeReindexBucketsDirs`, sentinel writes. Disk-I/O-
   heavy. Schema = OLD, bucket = OLD throughout — safe with live queries.
-- **Phase 2a — ATOMIC SWAP (microseconds, inside overlay window):**
-  the flip decisions of every task in the shard's unit are recorded with
-  one `PutAll`, then `Shard.SwapBucketsAndSetOverlay` moves every bucket
-  of the unit (both halves of a tokenization change) and sets the
-  property overlay in one critical section. No query sees a property
-  whose tokenization and buckets disagree.
+- **Decisions (disk I/O, before the overlay window):** the flip
+  decisions of every task in the shard's unit are recorded with one
+  `PutAll`, after checking every bucket to flip is open.
+- **Phase 2a — ATOMIC SWAP (microseconds, opens the overlay window):**
+  `Shard.SwapBucketsAndSetOverlay` moves every bucket of the unit (both
+  halves of a tokenization change) and sets the property overlay in one
+  critical section. No query sees a property whose tokenization and
+  buckets disagree.
 - **Phase 2b — POST-ATOMIC INLINE TIDY (slow but correctness-safe):**
-  `oldMainBucket.Shutdown(ctx)` + `os.Rename(oldMainDir, backupDir)`
-  per property, then `markSwapped` + `markTidied`. After every prop
-  has flipped in 2a, the mixed-state subwindow is closed; queries
-  during 2b see all-new buckets with the overlay still active. The
+  `oldMainBucket.Shutdown(ctx)` and a discard of the displaced
+  directory per property; queries during 2b see all-new buckets with
+  the overlay still active. The
   `oldMain.Shutdown` is REQUIRED inline (not deferred) because
   `Bucket.Shutdown` is the only call that removes the bucket's path
   from `GlobalBucketRegistry`; deferring leaks the path entry
   process-wide.
 - **Phase 2c — POST-ATOMIC INLINE FINALIZE:**
-  `OnMigrationComplete` + `trimOlderGenerationsLocked`. Outside the
-  mixed-state subwindow. Strategy-specific hook for in-memory
+  `OnMigrationComplete` + `trimOlderGenerationsLocked`. After the flip.
+  Strategy-specific hook for in-memory
   shard-local query-path state mutations (e.g. `setRangeableLocallyReady`)
   or for non-semantic RAFT calls.
 - **Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup):**
@@ -1524,11 +1529,10 @@ installs a per-shard map of `inverted.PropertyOverlay` values, each
 saying which index flags to treat as on and which tokenization to use.
 The write path reads the whole value: `Shard.writePathAnalyzerOverlay`
 hands it to the analyzer's `WithSchemaOverlay`. The query path reads the
-tokenization half only, via
-`inverted.ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)`;
-the searcher's `tokResolver` is `Shard.TokenizationFor`, attached via
-`WithTokenizationResolver` wherever the shard builds a `Searcher` or
-`BM25Searcher`.
+tokenization half only, through `Shard.PinTokenizationAndBucket`: every
+`Searcher`, `BM25Searcher` and aggregator the shard builds takes it as
+its `inverted.TokenizationBucketPinner`, which returns the tokenization
+and pins the bucket it reads under one lock, once per property and query.
 
 An entry is a fact about this shard's buckets, never about a task and
 never about the schema. It claims only what is physically true here: a
@@ -1810,9 +1814,9 @@ collection, or run its swap and schema flip again. Before rolling back:
 
 **Inverted analyzer / overlay**
 
-- [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationResolver`, `ResolveTokenization`.
+- [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationBucketPinner`.
 - [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `BeyondLiveSchema`, `Property.OverlayForcedOnly`.
-- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `SwapBucketsAndSetOverlay`, `retirePropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
+- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `SwapBucketsAndSetOverlay`, `retirePropertyOverlay`, `SnapshotPropertyOverlay`, `PinTokenizationAndBucket`.
 - [`adapters/repos/db/shard_write_inverted.go`](../adapters/repos/db/shard_write_inverted.go) — `writePathAnalyzerOverlay`, the write path's read of the overlay.
 
 **DTM**

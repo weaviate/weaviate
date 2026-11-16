@@ -144,12 +144,9 @@ func (f *tokenizationChange) tokenization() string {
 	return queryTokenization(f.shard, tokChangeProp, models.PropertyTokenizationField)
 }
 
-// allFound is what counts returns while tokenization and buckets agree.
 var allFound = [7]int{3, 3, 3, 3, 3, 3, 3}
 
-// counts asks every query entry point for the stored value: Equal, Like, BM25,
-// BM25 with an Equal filter, the vector search allow list, the batch delete
-// match and an Equal-filtered aggregation.
+// counts asks every filter, BM25 and aggregation entry point for the stored value.
 func (f *tokenizationChange) counts(t *testing.T) [7]int {
 	t.Helper()
 	search := func(filter *filters.LocalFilter, keyword *searchparams.KeywordRanking) int {
@@ -252,8 +249,7 @@ func TestChangeTokenizationFiltersWhileASwapTearsDown(t *testing.T) {
 	}
 }
 
-// A forced drop drains a query's pin while the query waits to pin its next
-// bucket, so a flip must not hold that query back while it waits on the drop.
+// A forced drop drains a query's pin, so a flip waiting on the drop must not hold the query's next pin.
 func TestAFlipDuringADropLetsQueriesPin(t *testing.T) {
 	f := newTokenizationChange(t)
 	store := f.shard.Store()

@@ -141,7 +141,7 @@ func (s *MigrationRecordStore) Dir() string { return s.dir }
 
 // Two levels, not MkdirAll: a write racing a collection DELETE, which renames
 // the class directory away, would otherwise re-materialize the deleted tree.
-// Synced once per process: nothing removes these under a live store, and a drop fails the stat.
+// Synced once per store: nothing removes these under a live store, and a drop fails the stat.
 func (s *MigrationRecordStore) mkdir() error {
 	if s.dirsSynced != nil {
 		if info, err := os.Stat(s.dir); err == nil && os.SameFile(s.dirsSynced, info) {
@@ -547,21 +547,14 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	return s.PutAll([]MigrationRecord{rec})
 }
 
-// PutAll writes every record or, when a check refuses one, none. Until the one
-// directory sync, the renames reach disk in no set order, so a crash can leave
-// any subset published.
+// PutAll writes every record, or none when a check refuses one. A failed rename or directory
+// sync can leave a subset published, which memory adopts; so can a crash before that sync.
 func (s *MigrationRecordStore) PutAll(recs []MigrationRecord) error {
 	data := make([][]byte, len(recs))
 	for i, rec := range recs {
-		key := rec.Subject().Key
-		for _, earlier := range recs[:i] {
-			if earlier.Subject().Key == key {
-				return fmt.Errorf("migration record %q is listed twice", key)
-			}
-		}
 		encoded, err := encodeMigrationRecord(rec)
 		if err != nil {
-			return fmt.Errorf("encode migration record %q: %w", key, err)
+			return fmt.Errorf("encode migration record %q: %w", rec.Subject().Key, err)
 		}
 		data[i] = encoded
 	}
@@ -637,11 +630,6 @@ func (s *MigrationRecordStore) adoptIfPublished(rec MigrationRecord, data []byte
 }
 
 func (s *MigrationRecordStore) Remove(key MigrationRecordKey) error {
-	return s.removeSynced(key, diskio.Fsync)
-}
-
-// The sync is a parameter so a test can assert the unlink reached disk.
-func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(string) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -667,7 +655,7 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 	// The unlink survives a crash only once the directory holding it is synced.
 	// Without this a retired record comes back on the next load, naming
 	// directories the pass that retired it already removed.
-	if err := sync(s.dir); err != nil {
+	if err := diskio.Fsync(s.dir); err != nil {
 		return fmt.Errorf("publish the removal of migration record %q: %w", key, err)
 	}
 	return nil

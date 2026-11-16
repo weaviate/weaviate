@@ -1293,7 +1293,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // surfaced by TestLiveQueriesDuringChangeTokenization on container
 // disk. Per-shard state in runPhase is structurally disjoint:
 //   - separate per-shard LSM store / bucket pointers (Shard.store).
-//   - separate per-shard tokenization overlay (Shard.TokenizationFor).
+//   - separate per-shard tokenization overlay (Shard.PinTokenizationAndBucket).
 //
 // Provider-level shared state (p.payloads, p.runningHandles,
 // p.reindexTasks) is already mutex-protected via p.mu in
@@ -2455,7 +2455,7 @@ func propertyOverlayFor(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGe
 	return out
 }
 
-// A load that held a promotion back leaves decided swaps still staged for the unit to flip.
+// A load that held a promotion back, other than one serveDeferredPromotions serves, leaves decided swaps staged.
 func finishDecidedSwaps(ctx context.Context, shard ShardLike, payload *ReindexTaskPayload,
 	tasks []*ShardReindexTaskGeneric,
 ) error {

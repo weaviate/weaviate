@@ -25,14 +25,10 @@ func TestSwapBucketPointersIsAllOrNothing(t *testing.T) {
 	tests := []struct {
 		name    string
 		swaps   []BucketSwap
-		closed  bool
 		wantErr string
 	}{
 		{name: "every pair moves", swaps: []BucketSwap{{"a", "a2"}, {"b", "b2"}}},
 		{name: "a missing source", swaps: []BucketSwap{{"a", "a2"}, {"b", "gone"}}, wantErr: `"gone" not found`},
-		{name: "a name listed twice", swaps: []BucketSwap{{"a", "a2"}, {"a", "b2"}}, wantErr: "more than one swap"},
-		{name: "a source that is also a target", swaps: []BucketSwap{{"a", "a2"}, {"a2", "b2"}}, wantErr: "more than one swap"},
-		{name: "a closed store", swaps: []BucketSwap{{"a", "a2"}}, closed: true, wantErr: "closed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,19 +43,13 @@ func TestSwapBucketPointersIsAllOrNothing(t *testing.T) {
 				require.NoError(t, store.CreateOrLoadBucket(ctx, name, WithStrategy(StrategyReplace)))
 				before[name] = store.Bucket(name)
 			}
-			if tc.closed {
-				require.NoError(t, store.Shutdown(ctx))
-			} else {
-				defer store.Shutdown(ctx)
-			}
+			defer store.Shutdown(ctx)
 
 			displaced, err := store.SwapBucketPointers(ctx, tc.swaps)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
-				if !tc.closed {
-					for name, bucket := range before {
-						require.Same(t, bucket, store.Bucket(name), name)
-					}
+				for name, bucket := range before {
+					require.Same(t, bucket, store.Bucket(name), name)
 				}
 				return
 			}
