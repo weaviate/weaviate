@@ -244,7 +244,7 @@ func TestShard_RecalculateDimensions_TornMigrationLeftovers(t *testing.T) {
 
 	idx := shard.index
 	require.NoError(t, shard.Shutdown(ctx))
-	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 	require.NoError(t, err)
 	defer reloaded.Shutdown(ctx)
 	assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)), "writes after the recalculation must survive a restart")
@@ -334,7 +334,7 @@ func TestShard_RecalculateDimensions_FailedSwitch(t *testing.T) {
 			require.Len(t, tracked["\x03\x00\x00\x00"], 7)
 
 			require.NoError(t, shard.Shutdown(ctx))
-			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 			require.NoError(t, err, "the shard must load again")
 			defer reloaded.Shutdown(ctx)
 			assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)), "writes after the failed switch must survive a restart")
@@ -420,7 +420,7 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			repair()
 			require.NoError(t, shard.Shutdown(ctx))
 			idx.Config.DimensionsReindex = nil
-			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 			require.NoError(t, err, "the shard must load again")
 			defer reloaded.Shutdown(ctx)
 			assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)), "the bucket in place must be recovered")
@@ -497,7 +497,7 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 				tt.prepare(t, shard, tt.reindex)
 			}
 			idx.Config.DimensionsReindex = tt.reindex
-			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 			require.NoError(t, err)
 			defer reloaded.Shutdown(ctx)
 			rows := dimensionsBucketRows(t, reloaded.(*Shard))
@@ -526,11 +526,11 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 
 func TestShard_ReindexDimensionsOnLoad_MapBucket(t *testing.T) {
 	ctx := testCtx()
-	shard, idx, class, _ := dimsMigrationShard(t, ctx, 10)
+	shard, idx, _, _ := dimsMigrationShard(t, ctx, 10)
 	require.NoError(t, shard.Shutdown(ctx))
 
 	idx.Config.DimensionsReindex = &startupRebuild{enabled: true}
-	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 	require.NoError(t, err)
 	defer reloaded.Shutdown(ctx)
 
@@ -871,7 +871,7 @@ func TestStartupRebuildOnLoad_CorruptObjectsSegment(t *testing.T) {
 			tracked := dimensionsBucketRows(t, shard)
 			require.NoError(t, shard.Shutdown(ctx))
 			// loaded once more, so the segment's sidecars are written before it is corrupted
-			loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			loaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 			require.NoError(t, err)
 			require.NoError(t, loaded.Shutdown(ctx))
 
@@ -886,7 +886,7 @@ func TestStartupRebuildOnLoad_CorruptObjectsSegment(t *testing.T) {
 			require.NoError(t, f.Close())
 
 			rebuild := tt.enable(idx)
-			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 			require.NoError(t, err, "the shard must load")
 			defer reloaded.Shutdown(ctx)
 			if tt.reindex {

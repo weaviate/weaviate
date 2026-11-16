@@ -18,7 +18,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// A shard detached from its index falls back to safe defaults rather than failing.
 type shardMigrations struct {
 	shard *Shard
 }
@@ -54,21 +53,15 @@ func (m shardMigrations) RetireSuperseded(ctx context.Context) {
 
 func (m shardMigrations) liveReconciler() *migrationReconciler {
 	className := m.shard.index.Config.ClassName.String()
-	return m.shard.migrationReconciler(func() *models.Class {
+	return m.shard.migrationReconciler(m.LocalTasks, func() *models.Class {
 		return m.shard.index.getSchema.ReadOnlyClass(className)
 	})
 }
 
 func (m shardMigrations) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) {
-	if m.shard.index == nil || m.shard.index.db == nil {
-		return nil, false
-	}
 	return m.shard.index.db.migrationCluster.LocalTasks(m.shard.name)
 }
 
 func (m shardMigrations) SealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
-	if m.shard.index == nil || m.shard.index.db == nil {
-		return func() {}, true
-	}
 	return m.shard.index.db.migrationSeals.SealUnit(desc, unitID)
 }

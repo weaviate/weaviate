@@ -236,8 +236,6 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				migrator.AddClass(context.Background(), notIndexedClass))
 		})
 
-		schemaGetter.schema = schema
-
 		t.Run("import products", func(t *testing.T) {
 			for i, schema := range products {
 				t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {

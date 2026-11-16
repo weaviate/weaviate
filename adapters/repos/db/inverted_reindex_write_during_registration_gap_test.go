@@ -37,7 +37,7 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 		require.NoError(t, shard.store.ShutdownBucket(ctx, ingest))
 		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), ingest)))
 
-		shard.reconcileMigrationRecords(ctx, class)
+		shard.reconcileMigrationRecords(ctx, shardLoadView{class: class}, shard.migrationRecords.Load())
 		require.NoError(t, startOnShard(ctx, task, shard))
 	}
 

@@ -606,8 +606,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 		idx.backupProtectedShards.Store(shardName, struct{}{})
 
-		class := &models.Class{Class: className}
-		err := idx.initLocalShardWithForcedLoading(ctx, class, shardName, true, false, callerUserRequest)
+		err := idx.initLocalShardWithForcedLoading(ctx, shardName, true, false, callerUserRequest)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "protected for backup")
 	})

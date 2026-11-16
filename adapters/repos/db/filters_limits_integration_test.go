@@ -90,12 +90,12 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 			},
 		}
 
+		schemaGetter.schema = schema
+
 		require.Nil(t,
 			migrator.AddClass(context.Background(), productClass))
 		require.Nil(t,
 			migrator.AddClass(context.Background(), companyClass))
-
-		schemaGetter.schema = schema
 	})
 
 	data := chainedFilterCompanies(100)
@@ -208,12 +208,12 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			},
 		}
 
+		schemaGetter.schema = schema
+
 		require.Nil(t,
 			migrator.AddClass(context.Background(), productClass))
 		require.Nil(t,
 			migrator.AddClass(context.Background(), companyClass))
-
-		schemaGetter.schema = schema
 	})
 
 	data := chainedFilterCompanies(100)
@@ -354,12 +354,12 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 			},
 		}
 
+		schemaGetter.schema = schema
+
 		require.Nil(t,
 			migrator.AddClass(context.Background(), productClass))
 		require.Nil(t,
 			migrator.AddClass(context.Background(), companyClass))
-
-		schemaGetter.schema = schema
 	})
 
 	data := chainedFilterCompanies(100)

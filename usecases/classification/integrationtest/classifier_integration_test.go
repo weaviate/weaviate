@@ -88,12 +88,12 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 	t.Run("preparations", func(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {
+			sg.schema = testSchema()
+
 			for _, c := range testSchema().Objects.Classes {
 				require.Nil(t,
 					migrator.AddClass(context.Background(), c))
 			}
-
-			sg.schema = testSchema()
 		})
 
 		t.Run("importing the training data", func(t *testing.T) {
@@ -237,12 +237,12 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	t.Run("preparations", func(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {
+			sg.schema = testSchemaForZeroShot()
+
 			for _, c := range testSchemaForZeroShot().Objects.Classes {
 				require.Nil(t,
 					migrator.AddClass(context.Background(), c))
 			}
-
-			sg.schema = testSchemaForZeroShot()
 		})
 
 		t.Run("importing the training data", func(t *testing.T) {

@@ -87,12 +87,12 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 	t.Run("apply schema", func(t *testing.T) {
 		for i := range nodes {
+			nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
+				class(), secondClassWithRef())
 			err := nodes[i].migrator.AddClass(context.Background(), class())
 			require.Nil(t, err)
 			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef())
 			require.Nil(t, err)
-			nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
-				class(), secondClassWithRef())
 		}
 	})
 
@@ -817,9 +817,9 @@ func TestDistributedVectorDistance(t *testing.T) {
 			}
 
 			for i := range nodes {
-				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection))
 				nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 					collection)
+				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection))
 			}
 
 			uid := strfmt.UUID(uuid.New().String())

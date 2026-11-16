@@ -96,7 +96,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, shardLoadFallback{class: class}, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)

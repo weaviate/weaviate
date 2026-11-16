@@ -131,8 +131,8 @@ func (h *shardMetricsHarness) addClass(t *testing.T, className string) string {
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 	}
-	require.NoError(t, h.migrator.AddClass(context.Background(), class))
 	h.schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.NoError(t, h.migrator.AddClass(context.Background(), class))
 
 	var shardName string
 	h.repo.GetIndex(schema.ClassName(className)).shards.Range(func(name string, _ ShardLike) error {
@@ -592,9 +592,9 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 			},
 		}
 
+		schemaGetter.schema = sch
 		err = migrator.AddClass(context.Background(), class)
 		require.NoError(t, err)
-		schemaGetter.schema = sch
 
 		// After creating class, shard should be in unloaded state
 		// (NewUnloadedshard() was called)

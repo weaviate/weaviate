@@ -144,11 +144,11 @@ func newAddPropertyLazyFixture(t *testing.T, className string, shardState *shard
 	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState, opts...)
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
-	require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
 	// Serve a distinct class object from getClass() so that only the code path
 	// that re-reads the schema at load sees a property added after AddClass.
 	schemaClass := newClassWithWarmProp(className)
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{schemaClass}}}
+	require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
 
 	index := repo.GetIndex(schema.ClassName(className))
 	require.NotNil(t, index)
@@ -595,10 +595,12 @@ func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			repo, migrator, _, hook := newLazyLoadRepoWithConfig(t, singleShardState(), tc.lazyLoad, tc.warmupMinObjects)
+			repo, migrator, schemaGetter, hook := newLazyLoadRepoWithConfig(t, singleShardState(), tc.lazyLoad, tc.warmupMinObjects)
 			t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
-			require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp("WarmupLogging")))
+			class := newClassWithWarmProp("WarmupLogging")
+			schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+			require.NoError(t, migrator.AddClass(ctx, class))
 
 			// Warnings on the same action carry no background_warmup field.
 			var logged []interface{}

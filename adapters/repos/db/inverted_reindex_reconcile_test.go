@@ -169,8 +169,8 @@ func (f *reconcileFixture) warned(want string) bool {
 
 func (f *reconcileFixture) reconcile() *migrationReconciler {
 	f.t.Helper()
+	require.NoError(f.t, f.store.Load())
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(f.t, r.Load())
 	r.Reconcile(context.Background())
 	f.requireMigrationDirsTrackRecords()
 	return r
@@ -871,8 +871,9 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(lsmPath, migrationsDir, migrationRecordsDirName), nil, 0o600))
 
 	f := newReconcileFixtureAt(t, lsmPath)
+	require.Error(t, f.store.Load())
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.Error(t, r.Load())
+	r.freezeNotice()
 
 	require.Len(t, f.logs.AllEntries(), 1)
 	notice := f.logs.AllEntries()[0]
@@ -1731,8 +1732,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
+	require.NoError(t, f.store.Load())
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(t, r.Load())
 	r.Reconcile(ctx)
 
 	_, present := f.state(subject.Key)

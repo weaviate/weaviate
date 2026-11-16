@@ -230,7 +230,7 @@ func TestRecountPropertyLengthsOnLoad_CancelledFailsLoad(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	putRecountTestObjects(t, repo)
 	shard := recountTestShard(t, repo)
-	idx, name, class := shard.index, shard.name, shard.class
+	idx, name := shard.index, shard.name
 	recountPath := filepath.Join(shard.path(), propLengthsRecountFile)
 	require.NoError(t, shard.Shutdown(testCtx()))
 	idx.shards.LoadAndDelete(name)
@@ -243,7 +243,7 @@ func TestRecountPropertyLengthsOnLoad_CancelledFailsLoad(t *testing.T) {
 		}
 	}}
 	idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
-	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+	loaded, err := idx.initShard(ctx, name, nil, true, true)
 	if loaded != nil {
 		defer loaded.Shutdown(testCtx())
 	}
@@ -273,7 +273,7 @@ func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	require.Equal(t, []int{5 + 100, 2 + 1}, []int{sum, count}, "a failed recount must keep the previous lengths")
 
 	require.NoError(t, os.RemoveAll(recountFileOf(trackerPath)))
-	loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
+	loaded, err := idx.initShard(testCtx(), name, nil, true, true)
 	require.NoError(t, err)
 	defer loaded.Shutdown(testCtx())
 	requireTally(t, loaded.(*Shard), 5, 2, "the shard must be recounted as it loads")
@@ -298,7 +298,7 @@ func TestRecountPropertyLengthsBeforeLoad_UnreadableTrackerOfEmptyShard(t *testi
 	sum, count := diskTally(t, trackerPath)
 	require.Equal(t, []int{0, 0}, []int{sum, count})
 
-	loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
+	loaded, err := idx.initShard(testCtx(), name, nil, true, true)
 	require.NoError(t, err)
 	require.NoError(t, loaded.Shutdown(testCtx()))
 }
@@ -310,7 +310,7 @@ func TestRecountPropertyLengthsOnLoad_BeforeAsyncReplication(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	putRecountTestObjects(t, repo)
 	shard := recountTestShard(t, repo)
-	idx, name, class := shard.index, shard.name, shard.class
+	idx, name := shard.index, shard.name
 	recountPath := filepath.Join(shard.path(), propLengthsRecountFile)
 	stale := filepath.Join(shard.pathHashTree(), "stale.tmp")
 	require.NoError(t, shard.Shutdown(testCtx()))
@@ -329,7 +329,7 @@ func TestRecountPropertyLengthsOnLoad_BeforeAsyncReplication(t *testing.T) {
 		}
 	}}
 	idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
-	loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
+	loaded, err := idx.initShard(testCtx(), name, nil, true, true)
 	require.NoError(t, err)
 	defer loaded.Shutdown(testCtx())
 	require.Equal(t, len(recountTestNames), counted)

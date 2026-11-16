@@ -174,7 +174,7 @@ func (db *DB) ReopenShard(ctx context.Context, className, shardName string) erro
 	if index == nil {
 		return fmt.Errorf("index for class %q not found locally", className)
 	}
-	return index.initLocalShardWithForcedLoading(ctx, index.getClass(), shardName, true, false, callerResume)
+	return index.initLocalShardWithForcedLoading(ctx, shardName, true, false, callerResume)
 }
 
 // namespaceState binds this index's own namespace to the shared state lookup.

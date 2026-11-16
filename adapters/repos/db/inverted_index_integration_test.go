@@ -297,11 +297,11 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 
 		migrator := NewMigrator(repo, repo.logger, "node1")
+		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 		err := migrator.AddClass(context.Background(), class)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass)
 		require.Nil(t, err)
-		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
 
 	t.Run("insert test objects", func(t *testing.T) {
@@ -585,11 +585,11 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 
 		migrator := NewMigrator(repo, repo.logger, "node1")
+		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 		err := migrator.AddClass(context.Background(), class)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass)
 		require.Nil(t, err)
-		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
 
 	t.Run("insert test objects", func(t *testing.T) {
@@ -955,11 +955,11 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 
 		migrator := NewMigrator(repo, repo.logger, "node1")
+		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 		err := migrator.AddClass(context.Background(), class)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass)
 		require.Nil(t, err)
-		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
 
 	t.Run("insert test objects", func(t *testing.T) {
@@ -1407,14 +1407,14 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	class := createClassWithEverything(false, false)
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
-	err := migrator.AddClass(context.Background(), class)
-	require.Nil(t, err)
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+	err := migrator.AddClass(context.Background(), class)
+	require.Nil(t, err)
 
 	LengthFilter := &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -1462,8 +1462,8 @@ func createDescriptionCounterClass(t *testing.T, ctx context.Context, migrator *
 			},
 		},
 	}
-	require.Nil(t, migrator.AddClass(ctx, class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.Nil(t, migrator.AddClass(ctx, class))
 }
 
 // filterMatchesID runs a single-clause filter search against className and
@@ -1612,8 +1612,8 @@ func Test_AbsentZeroTokenTransitionsKeepLenAndIsNullCurrent(t *testing.T) {
 			},
 		},
 	}
-	require.Nil(t, migrator.AddClass(ctx, class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.Nil(t, migrator.AddClass(ctx, class))
 
 	isNull := func(t *testing.T, id strfmt.UUID, want bool) bool {
 		t.Helper()

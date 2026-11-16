@@ -18,36 +18,46 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/models"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // Reading the task list takes the task manager's lock, which RAFT applies wait on.
 func TestAnEmptyRecordStoreSkipsTheTaskListRead(t *testing.T) {
-	tests := []struct {
-		name string
-		ask  func(s *Shard)
-	}{
-		{"restore overlays on load", func(s *Shard) { s.restoreMigratedOverlays(&models.Class{Class: "Books"}, nil) }},
-		{"migrated index stands", func(s *Shard) { s.migratedIndexStands("title", "filterable") }},
+	logger, _ := test.NewNullLogger()
+	reads := 0
+	db := &DB{logger: logger}
+	db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) {
+		reads++
+		return nil, true
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			reads := 0
-			db := &DB{logger: logger}
-			db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) {
-				reads++
-				return nil, true
-			}
-			s := &Shard{
-				name:             "shard",
-				index:            &Index{db: db, logger: logger},
-				migrationRecords: NewMigrationRecordStore(t.TempDir(), logger),
-			}
-
-			tt.ask(s)
-
-			require.Zero(t, reads)
-		})
+	s := &Shard{
+		name:             "shard",
+		index:            &Index{db: db, logger: logger},
+		migrationRecords: NewMigrationRecordStore(t.TempDir(), logger),
 	}
+
+	s.migratedIndexStands("title", "filterable")
+
+	require.Zero(t, reads)
+}
+
+func TestALoadWithNoMigrationRecordsSkipsTheTaskListRead(t *testing.T) {
+	ctx := testCtx()
+	shd, idx := testShardWithSettings(t, ctx, newEnableSearchableTestClass("NoRecords", []string{"title"}),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	name := shd.Name()
+	require.NoError(t, shd.Shutdown(ctx))
+	idx.shards.LoadAndDelete(name)
+	reads := 0
+	idx.db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) {
+		reads++
+		return nil, true
+	}
+
+	s, release, err := idx.getOrInitShard(ctx, name)
+	require.NoError(t, err)
+	release()
+	defer s.Shutdown(ctx)
+
+	require.Zero(t, reads)
 }

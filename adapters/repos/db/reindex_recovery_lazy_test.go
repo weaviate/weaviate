@@ -121,7 +121,7 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordSwapped(subject,
 		subject.Properties(), map[string]string{"title": dirs.Canonical})))
 
-	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+	loaded, err := idx.initShard(ctx, name, nil, true, true)
 	require.NoError(t, err)
 	defer loaded.Shutdown(context.Background())
 
@@ -181,7 +181,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			corrupt := filepath.Join(lsm, subjects[0].Props["title"].Staged, "segment-1.db")
 			require.NoError(t, os.WriteFile(corrupt, []byte("not a segment"), 0o600))
 
-			loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+			loaded, err := idx.initShard(ctx, name, nil, true, true)
 			require.NoError(t, err, "the shard loads despite the fault")
 			shard := loaded.(*Shard)
 			defer shard.Shutdown(context.Background())
@@ -1009,7 +1009,7 @@ func TestACancelledShardLoadStillArmsTheMirror(t *testing.T) {
 	// The client disconnects once every other load step is done.
 	fx.idx.logger.(*logrus.Logger).AddHook(cancelOnLog{prefix: "Completed loading shard", cancel: cancel})
 
-	shard, err := NewShard(ctx, nil, fx.name, fx.idx, fx.class, fx.idx.centralJobQueue, fx.idx.scheduler,
+	shard, err := NewShard(ctx, nil, fx.name, fx.idx, shardLoadFallback{}, fx.idx.centralJobQueue, fx.idx.scheduler,
 		fx.idx.indexCheckpoints, fx.idx.shardReindexer, false, fx.idx.bitmapBufPool, monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
@@ -1128,7 +1128,7 @@ func (fx *doubleFaultFixture) addHalf(t *testing.T, code MigrationStrategyCode, 
 
 func (fx *doubleFaultFixture) load(t *testing.T) *Shard {
 	t.Helper()
-	loaded, err := fx.idx.initShard(fx.ctx, fx.name, fx.class, nil, true, true)
+	loaded, err := fx.idx.initShard(fx.ctx, fx.name, nil, true, true)
 	require.NoError(t, err)
 	fx.idx.shards.Store(fx.name, loaded)
 	return loaded.(*Shard)

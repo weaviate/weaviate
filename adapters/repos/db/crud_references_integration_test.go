@@ -157,6 +157,9 @@ func TestNestedReferences(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = refSchema
+
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -165,9 +168,6 @@ func TestNestedReferences(t *testing.T) {
 			})
 		}
 	})
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = refSchema
 
 	t.Run("importing some thing objects with references", func(t *testing.T) {
 		objects := []models.Object{
@@ -641,6 +641,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
+	schemaGetter.schema = sch
+
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -649,8 +651,6 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			})
 		}
 	})
-
-	schemaGetter.schema = sch
 	targetID := strfmt.UUID("a4a92239-e748-4e55-bbbd-f606926619a7")
 	target2ID := strfmt.UUID("325084e7-4faa-43a5-b2b1-56e207be169a")
 	sourceID := strfmt.UUID("0826c61b-85c1-44ac-aebb-cfd07ace6a57")

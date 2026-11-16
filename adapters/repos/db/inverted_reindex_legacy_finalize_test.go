@@ -104,7 +104,7 @@ func TestFinalizeLegacyMigrations(t *testing.T) {
 				class.Properties[0].IndexFilterable = boolPtr(false)
 			}
 
-			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			reloaded, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 			require.NoError(t, err)
 			shard = reloaded.(*Shard)
 			t.Cleanup(func() { shard.Shutdown(context.Background()) })

@@ -93,15 +93,15 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
-
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
 			Objects: &models.Schema{
 				Classes: []*models.Class{thingclass},
 			},
 		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), thingclass))
 	})
 
 	thingID := strfmt.UUID("9f119c4f-80da-4ae5-bfd1-e4b63054125f")

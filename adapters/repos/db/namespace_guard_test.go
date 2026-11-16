@@ -588,7 +588,7 @@ func TestGuardLoadPath(t *testing.T) {
 				idx.shards.Store("t1", &LazyLoadShard{})
 			}
 
-			err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
+			err := idx.initLocalShardWithForcedLoading(ctx, "t1", true, false, callerUserRequest)
 			require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 		})
 	}
@@ -598,7 +598,7 @@ func TestGuardLoadPath(t *testing.T) {
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
 		idx := indexForGuardTest(t, class, e)
 
-		err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
+		err := idx.initLocalShardWithForcedLoading(ctx, "t1", true, false, callerUserRequest)
 		require.ErrorIs(t, err, errNamespaceUnknownLocally)
 	})
 

@@ -81,8 +81,11 @@ func TestUpdateIndexTenants(t *testing.T) {
 					Enabled: true,
 				},
 			}
-			if tt.getClass {
-				mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
+			// The shard loads its class from the schema at init, so the lookup
+			// is always served; getClass marks the cases where it is required.
+			readClass := mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
+			if !tt.getClass {
+				readClass.Maybe()
 			}
 			logger := logrus.New()
 			scheduler := queue.NewScheduler(queue.SchedulerOptions{
@@ -118,7 +121,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
-			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+			shard, err := NewShard(context.Background(), nil, "shard1", index, shardLoadFallback{class: class}, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 				monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
@@ -601,7 +604,7 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
-				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false, callerUserRequest)
+				err := index.initLocalShardWithForcedLoading(ctx, shardName, tt.mustLoad, false, callerUserRequest)
 				require.NoError(t, err)
 			}
 
@@ -1071,7 +1074,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	// the no-live-reindex stub so the gate is satisfied.
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, shardLoadFallback{class: class}, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)

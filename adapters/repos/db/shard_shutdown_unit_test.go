@@ -173,7 +173,7 @@ func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
 	counterPath := path.Join(shardPath, "indexcount")
 	versionPath := path.Join(shardPath, "version")
 	loadShard := func() (*Shard, error) {
-		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
+		return NewShard(ctx, nil, s.Name(), index, shardLoadFallback{},
 			index.centralJobQueue, index.scheduler, index.indexCheckpoints,
 			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	}
@@ -334,7 +334,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 				require.NoError(t, os.WriteFile(p, record, 0o644))
 			}
 
-			s, err := NewShard(ctx, nil, s.Name(), index, class,
+			s, err := NewShard(ctx, nil, s.Name(), index, shardLoadFallback{},
 				index.centralJobQueue, index.scheduler, index.indexCheckpoints,
 				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 			require.NoError(t, err)

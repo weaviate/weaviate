@@ -197,9 +197,9 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	}
 
 	migrator := NewMigrator(repo, logger, "node1")
+	schemaGetter.schema = sch
 	err = migrator.AddClass(context.Background(), class)
 	require.NoError(t, err)
-	schemaGetter.schema = sch
 
 	// import objects
 	for i := 0; i < 10; i++ {

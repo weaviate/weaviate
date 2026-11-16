@@ -75,7 +75,7 @@ func tornGuardReload(t *testing.T, ctx context.Context, shard *Shard, idx *Index
 	}, testMigrationUnitFor(idx, shardName))
 	idx.shardReindexer = &testShardReindexer{task: task}
 
-	shd, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	shd, err := idx.initShard(ctx, shardName, nil, true, true)
 	require.NoError(t, err, "shard re-init must succeed")
 	idx.shards.Store(shardName, shd)
 	return shd.(*Shard), task

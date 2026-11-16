@@ -75,15 +75,14 @@ func TestClassifications(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: classificationTestSchema()}}
+
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {
 			err := migrator.AddClass(context.Background(), class)
 			require.Nil(t, err)
 		}
 	})
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: classificationTestSchema()}}
 
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {

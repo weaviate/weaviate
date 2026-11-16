@@ -146,6 +146,8 @@ func Test_MergingObjects(t *testing.T) {
 		},
 	}
 
+	schemaGetter.schema = sch
+
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -154,8 +156,6 @@ func Test_MergingObjects(t *testing.T) {
 			})
 		}
 	})
-
-	schemaGetter.schema = sch
 
 	target1 := strfmt.UUID("897be7cc-1ae1-4b40-89d9-d3ea98037638")
 	target2 := strfmt.UUID("5cc94aba-93e4-408a-ab19-3d803216a04e")
@@ -531,6 +531,8 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 		},
 	}
 
+	schemaGetter.schema = sch
+
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -539,8 +541,6 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 			})
 		}
 	})
-
-	schemaGetter.schema = sch
 
 	t.Run("add initial object", func(t *testing.T) {
 		id := 0
@@ -821,6 +821,8 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 		},
 	}
 
+	schemaGetter.schema = sch
+
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -829,8 +831,6 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 			})
 		}
 	})
-
-	schemaGetter.schema = sch
 
 	t.Run("add initial object", func(t *testing.T) {
 		id := 0

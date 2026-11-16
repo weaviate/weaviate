@@ -96,15 +96,15 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	defer repo.Shutdown(testCtx())
 
 	t.Run("creating the thing class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
-
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
 			Objects: &models.Schema{
 				Classes: []*models.Class{thingclass},
 			},
 		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), thingclass))
 	})
 
 	var things []*models.Object
@@ -230,15 +230,15 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
 			Objects: &models.Schema{
 				Classes: []*models.Class{class},
 			},
 		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
 	})
 
 	firstID := strfmt.UUID("114c8f57-f244-4419-b5c1-cb2f635b76d0")

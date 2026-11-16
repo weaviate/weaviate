@@ -44,14 +44,14 @@ func TestFilterNullStateError(t *testing.T) {
 	class := createClassWithEverything(false, false)
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
-	err := migrator.AddClass(context.Background(), class)
-	require.Nil(t, err)
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+	err := migrator.AddClass(context.Background(), class)
+	require.Nil(t, err)
 
 	nilFilter := &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -84,14 +84,14 @@ func TestNullArrayClass(t *testing.T) {
 		t.Run("add nil object via "+name, func(t *testing.T) {
 			migrator, repo, schemaGetter := createRepo(t)
 			defer repo.Shutdown(context.Background())
-			err := migrator.AddClass(context.Background(), arrayClass)
-			require.Nil(t, err)
 			// update schema getter so it's in sync with class
 			schemaGetter.schema = schema.Schema{
 				Objects: &models.Schema{
 					Classes: []*models.Class{arrayClass},
 				},
 			}
+			err := migrator.AddClass(context.Background(), arrayClass)
+			require.Nil(t, err)
 
 			ObjectUuid1 := uuid.New()
 			arrayObjNil := &models.Object{
@@ -174,10 +174,10 @@ func TestMissingPropertyIndexedUnderEachFlag(t *testing.T) {
 			class := createClassWithEverything(tc.indexNullState, tc.indexPropertyLength)
 			migrator, repo, schemaGetter := createRepo(t)
 			defer repo.Shutdown(ctx)
-			require.NoError(t, migrator.AddClass(ctx, class))
 			schemaGetter.schema = schema.Schema{
 				Objects: &models.Schema{Classes: []*models.Class{class}},
 			}
+			require.NoError(t, migrator.AddClass(ctx, class))
 
 			put := func(id strfmt.UUID, props map[string]interface{}) {
 				t.Helper()

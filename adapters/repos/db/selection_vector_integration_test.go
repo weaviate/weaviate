@@ -85,8 +85,8 @@ func TestVectorSelectionPagination(t *testing.T) {
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 	}
-	require.Nil(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.Nil(t, migrator.AddClass(context.Background(), class))
 
 	// Spread vectors along a line so the nearest-neighbour order is well-defined.
 	for i := 0; i < total; i++ {
@@ -215,8 +215,8 @@ func TestVectorSelectionMultiShardGlobalDiversity(t *testing.T) {
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 	}
-	require.Nil(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.Nil(t, migrator.AddClass(context.Background(), class))
 
 	require.Greater(t, len(shardState.AllPhysicalShards()), 1, "test requires more than one shard")
 

@@ -72,6 +72,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = parkingGaragesSchema()
+
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -80,9 +83,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			})
 		}
 	})
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = parkingGaragesSchema()
 
 	t.Run("importing with various combinations of props", func(t *testing.T) {
 		objects := []models.Object{

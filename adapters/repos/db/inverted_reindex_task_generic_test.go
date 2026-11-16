@@ -271,7 +271,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	shd2, err := idx.initShard(ctx, shardName, nil, true, true)
 	require.NoError(t, err)
 	shard2 := shd2.(*Shard)
 	idx.shards.Store(shardName, shd2)

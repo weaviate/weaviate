@@ -121,7 +121,7 @@ func openShardFromDisk(t *testing.T, ctx context.Context, idx *Index,
 	class *models.Class, name string,
 ) *Shard {
 	t.Helper()
-	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+	loaded, err := idx.initShard(ctx, name, nil, true, true)
 	require.NoError(t, err)
 	idx.shards.Store(name, loaded)
 	return loaded.(*Shard)

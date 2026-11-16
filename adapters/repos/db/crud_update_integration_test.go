@@ -88,11 +88,11 @@ func TestUpdateJourney(t *testing.T) {
 		},
 	}
 
+	schemaGetter.schema = schema
 	t.Run("add schema", func(t *testing.T) {
 		err := migrator.AddClass(context.Background(), updateTestClass())
 		require.Nil(t, err)
 	})
-	schemaGetter.schema = schema
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {

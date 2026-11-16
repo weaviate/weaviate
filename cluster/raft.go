@@ -88,7 +88,8 @@ func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask
 // lives in that same FSM at the same applied index, so a caller that reads
 // tasks and then a schema flag gets a flag at least as new as the tasks. It
 // can trail the leader: use [Raft.ListDistributedTasks] when a decision needs
-// the cluster's latest state.
+// the cluster's latest state. A snapshot restore keeps that order (schema first), so read tasks, here or via
+// [Raft.LocalTaskStatuses], before the class; skip the read when nothing pairs them, as it takes a lock applies wait on.
 func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }

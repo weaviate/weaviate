@@ -54,15 +54,9 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 	return !enables
 }
 
-func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *logrusext.Sampler) {
-	if s.migrationRecords == nil || class == nil {
-		return
-	}
+func (s *Shard) restoreMigratedOverlays(view shardLoadView, unbuildableFaults *logrusext.Sampler) {
+	class, tasks, readable := view.class, view.tasks, view.readable
 	all := s.migrationRecords.Records()
-	if len(all) == 0 {
-		return
-	}
-	tasks, readable := s.migrations().LocalTasks()
 	records := slices.SortedFunc(slices.Values(all), func(a, b MigrationRecord) int {
 		return cmp.Compare(a.Subject().Key.TaskVersion, b.Subject().Key.TaskVersion)
 	})

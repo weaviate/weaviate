@@ -286,7 +286,8 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	rangeable := true
 	migratedClass.Properties[0].IndexRangeFilters = &rangeable
 
-	shdB2, err := idxB.initShard(ctxB, shardName, migratedClass, nil, true, true)
+	idxB.getSchema.(*fakeSchemaGetter).schema.Objects.Classes[0] = migratedClass
+	shdB2, err := idxB.initShard(ctxB, shardName, nil, true, true)
 	require.NoError(t, err)
 	shardB2 := shdB2.(*Shard)
 	idxB.shards.Store(shardName, shdB2)

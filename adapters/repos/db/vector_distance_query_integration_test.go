@@ -83,14 +83,14 @@ func TestVectorDistanceQuery(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	migrator := NewMigrator(repo, logger, "node1")
 
-	require.Nil(t,
-		migrator.AddClass(context.Background(), class))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class))
 
 	ids := make([]strfmt.UUID, 5)
 	for i := range ids {

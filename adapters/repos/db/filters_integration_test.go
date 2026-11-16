@@ -160,13 +160,13 @@ func prepareCarTestSchemaAndData(repo *DB,
 ) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
-			require.Nil(t,
-				migrator.AddClass(context.Background(), carClass))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
 				},
 			}
+			require.Nil(t,
+				migrator.AddClass(context.Background(), carClass))
 		})
 
 		for i, fixture := range cars {
@@ -183,13 +183,13 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 ) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
-			require.Nil(t,
-				migrator.AddClass(context.Background(), carClassNoLengthIndex))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClassNoLengthIndex,
 				},
 			}
+			require.Nil(t,
+				migrator.AddClass(context.Background(), carClassNoLengthIndex))
 		})
 
 		for i, fixture := range cars {
@@ -1126,8 +1126,8 @@ func newGeoTestRepo(t *testing.T, className string) (*DB, *Migrator) {
 			},
 		},
 	}
-	require.NoError(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+	require.NoError(t, migrator.AddClass(context.Background(), class))
 
 	return repo, migrator
 }
@@ -1538,13 +1538,13 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	}
 
 	t.Run("creating the class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,
 			},
 		}
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
 	})
 
 	t.Run("importing the objects", func(t *testing.T) {
@@ -1931,13 +1931,13 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	}
 
 	t.Run("creating the class and add objects", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,
 			},
 		}
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,

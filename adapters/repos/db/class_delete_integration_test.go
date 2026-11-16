@@ -52,8 +52,8 @@ func newTestRepo(t *testing.T, lazyLoadShards bool, classes ...*models.Class) (*
 func createClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fakeSchemaGetter, name string) {
 	t.Helper()
 	class := makeTestClass(name)
-	require.Nil(t, migrator.AddClass(ctx, class))
 	sg.schema.Objects.Classes = append(sg.schema.Objects.Classes, class)
+	require.Nil(t, migrator.AddClass(ctx, class))
 }
 
 func deleteClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fakeSchemaGetter, name string) {

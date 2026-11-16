@@ -328,18 +328,18 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaRea
 		require.Nil(t, err)
 		migrator := NewMigrator(repo, logger, "node1")
 
-		t.Run("creating the class", func(t *testing.T) {
-			for _, class := range classes {
-				require.Nil(t, migrator.AddClass(context.Background(), class))
-			}
-		})
-
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
 			Objects: &models.Schema{
 				Classes: classes,
 			},
 		}
+
+		t.Run("creating the class", func(t *testing.T) {
+			for _, class := range classes {
+				require.Nil(t, migrator.AddClass(context.Background(), class))
+			}
+		})
 	}
 }
 

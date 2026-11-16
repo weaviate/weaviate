@@ -96,10 +96,10 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
 	migrator := NewMigrator(repo, logger, "node1")
-	require.Nil(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{class}},
 	}
+	require.Nil(t, migrator.AddClass(context.Background(), class))
 
 	idx = repo.GetIndex(schema.ClassName(class.Class))
 	shard, err = idx.shardResolver.ResolveShardByObjectID(context.Background(), strfmt.UUID("981c09f9-67f3-4e6e-a988-c53eaefbd58e"), "")

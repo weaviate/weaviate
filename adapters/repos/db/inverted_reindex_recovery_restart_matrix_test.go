@@ -103,7 +103,7 @@ func (f *migrationRestartFixture) restart(t *testing.T, ctx context.Context) {
 	t.Helper()
 	require.NoError(t, f.shard.Shutdown(ctx))
 
-	reloaded, err := f.idx.initShard(ctx, f.shardName, f.class, nil, true, true)
+	reloaded, err := f.idx.initShard(ctx, f.shardName, nil, true, true)
 	require.NoError(t, err, "the shard must load again")
 	f.idx.shards.Store(f.shardName, reloaded)
 	f.shard = reloaded.(*Shard)

@@ -100,9 +100,9 @@ func Benchmark_Migration(b *testing.B) {
 				},
 			}
 
-			migrator.AddClass(context.Background(), class)
-
 			schemaGetter.schema = schema
+
+			migrator.AddClass(context.Background(), class)
 
 			repo.config.TrackVectorDimensions = false
 
@@ -190,10 +190,10 @@ func Test_Migration(t *testing.T) {
 		},
 	}
 
+	schemaGetter.schema = schema
+
 	require.Nil(t,
 		migrator.AddClass(context.Background(), class))
-
-	schemaGetter.schema = schema
 
 	repo.config.TrackVectorDimensions = false
 
@@ -305,9 +305,9 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class))
-
 		schemaGetter.schema = schema
+
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 	})
 
 	t.Run("import objects with d=128", func(t *testing.T) {
@@ -560,9 +560,9 @@ func Test_DisableDimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class))
-
 		schemaGetter.schema = schema
+
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 	})
 
 	t.Run("import objects with d=128", func(t *testing.T) {

@@ -147,20 +147,13 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	l.shardOpts.promMetrics.StartLoadingShard()
 
-	// Re-read the class so schema changes made while the shard was cold take
-	// effect at load. Fall back to the captured snapshot if it was dropped.
-	class := l.shardOpts.index.getClass()
-	if class == nil {
-		class = l.shardOpts.class
-	}
-
 	// NewShard writes the segment sidecars a cold count reads and recovers the
 	// write-ahead log into segments, so the cached cold count is stale from here
 	// on — including when the load fails partway and leaves the shard cold.
 	l.unloadedCount = nil
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
+		shardLoadFallback{class: l.shardOpts.class}, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
 	if err != nil {

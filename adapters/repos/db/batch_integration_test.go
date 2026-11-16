@@ -217,11 +217,11 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class))
-
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
+
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 	})
 
 	t.Run("batch import", func(t *testing.T) {
@@ -725,11 +725,11 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class))
-
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
+
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 	}
 }
 

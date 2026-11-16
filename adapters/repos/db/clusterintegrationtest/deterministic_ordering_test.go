@@ -60,10 +60,10 @@ func TestDeterministicOrderingForEqualDistances(t *testing.T) {
 	// Apply schema
 	class := deterministicOrderingClass()
 	for i := range nodes {
-		err := nodes[i].migrator.AddClass(context.Background(), class)
-		require.NoError(t, err)
 		nodes[i].schemaManager.schema.Objects.Classes = append(
 			nodes[i].schemaManager.schema.Objects.Classes, class)
+		err := nodes[i].migrator.AddClass(context.Background(), class)
+		require.NoError(t, err)
 	}
 
 	// Create objects with IDENTICAL vectors - this guarantees equal distances
@@ -178,10 +178,10 @@ func TestDeterministicOrderingMixedDistances(t *testing.T) {
 
 	class := deterministicOrderingClass()
 	for i := range nodes {
-		err := nodes[i].migrator.AddClass(context.Background(), class)
-		require.NoError(t, err)
 		nodes[i].schemaManager.schema.Objects.Classes = append(
 			nodes[i].schemaManager.schema.Objects.Classes, class)
+		err := nodes[i].migrator.AddClass(context.Background(), class)
+		require.NoError(t, err)
 	}
 
 	// Create objects with intentional distance groupings:
@@ -291,10 +291,10 @@ func TestDeterministicOrderingMatchesBruteForce(t *testing.T) {
 
 	class := deterministicOrderingClass()
 	for i := range nodes {
-		err := nodes[i].migrator.AddClass(context.Background(), class)
-		require.NoError(t, err)
 		nodes[i].schemaManager.schema.Objects.Classes = append(
 			nodes[i].schemaManager.schema.Objects.Classes, class)
+		err := nodes[i].migrator.AddClass(context.Background(), class)
+		require.NoError(t, err)
 	}
 
 	// Create objects with identical vectors (guarantees equal distances)

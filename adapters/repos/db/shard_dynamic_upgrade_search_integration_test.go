@@ -155,7 +155,7 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 			require.Len(t, before, limit)
 
 			require.NoError(t, shd.Shutdown(ctx))
-			reloaded, err := idx.initShard(ctx, shd.Name(), class, nil, false, true)
+			reloaded, err := idx.initShard(ctx, shd.Name(), nil, false, true)
 			require.NoError(t, err)
 			t.Cleanup(func() { reloaded.Shutdown(context.Background()) })
 

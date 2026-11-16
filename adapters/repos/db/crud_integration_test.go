@@ -125,6 +125,13 @@ func TestCRUD(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{actionclass, thingclass},
+		},
+	}
+
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), thingclass))
@@ -134,13 +141,6 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), actionclass))
 	})
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{actionclass, thingclass},
-		},
-	}
 
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
@@ -1358,14 +1358,14 @@ func Test_PutObject_MultiTenant(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
-	err = migrator.AddClass(context.Background(), testClass)
-	require.Nil(t, err)
-
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{testClass},
 		},
 	}
+
+	err = migrator.AddClass(context.Background(), testClass)
+	require.Nil(t, err)
 
 	ok, err := repo.Exists(context.Background(), "TestClass", "5b9e2d04-0b2d-4e4b-bd5e-84e2f70a8b49", &additional.ReplicationProperties{
 		ConsistencyLevel: "ONE",
@@ -1441,17 +1441,17 @@ func TestCRUD_Query(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
-	t.Run("creating the thing class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
-	})
-
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{thingclass},
 		},
 	}
+
+	t.Run("creating the thing class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), thingclass))
+	})
 
 	t.Run("scroll through all objects", func(t *testing.T) {
 		// prepare
@@ -1711,22 +1711,6 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 		}
 	})
 
-	t.Run("create required schema", func(t *testing.T) {
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					DataType: []string{string(schema.DataTypeInt)},
-					Name:     "int_prop",
-				},
-			},
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-	})
-
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
@@ -1743,6 +1727,22 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}},
 		},
 	}
+
+	t.Run("create required schema", func(t *testing.T) {
+		class := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					DataType: []string{string(schema.DataTypeInt)},
+					Name:     "int_prop",
+				},
+			},
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
+	})
 
 	t.Run("import individual objects without vector", func(t *testing.T) {
 		for i := 0; i < individual; i++ {
@@ -1891,17 +1891,17 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
-	t.Run("create required schema", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-	})
-
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+
+	t.Run("create required schema", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
+	})
 
 	searchVector := []float32{-0.10190568, -0.06259751, 0.05616188, -0.19249836, 0.09714927, -0.1902525, -0.064424865, -0.0387358, 0.17581701, 0.4476738, 0.29261824, 0.12026761, -0.19975126, 0.023600178, 0.17348698, 0.12701738, -0.36018127, -0.12051587, -0.17620522, 0.060741074, -0.064512916, 0.18640806, -0.1529852, 0.08211839, -0.02558465, -0.11369845, 0.0924098, -0.10544433, -0.14728987, -0.041860342, -0.08533595, 0.25886244, 0.2963937, 0.26010615, 0.2111097, 0.029396622, 0.01429563, 0.06410264, -0.119665794, 0.33583277, -0.05802661, 0.023306102, 0.14435922, -0.003951336, -0.13870825, 0.07140894, 0.10469943, -0.059021875, -0.065911904, 0.024216041, -0.26282874, 0.04896568, -0.08291928, -0.12793182, -0.077824734, 0.08843151, 0.31247458, -0.066301286, 0.006904921, -0.08277095, 0.13936226, -0.64392364, -0.19566211, 0.047227614, 0.086121306, -0.20725192, -0.096485816, -0.16436341, -0.06559169, -0.019639932, -0.012729637, 0.08901619, 0.0015896161, -0.24789932, 0.35496348, -0.16272856, -0.01648429, 0.11247674, 0.08099968, 0.13339259, 0.055829972, -0.34662855, 0.068509, 0.13880715, 0.3201848, -0.055557363, 0.22142135, -0.12867308, 0.0037871755, 0.24888979, -0.007443307, 0.08906625, -0.02022331, 0.11510742, -0.2385861, 0.16177008, -0.16214795, -0.28715602, 0.016784908, 0.19386634, -0.07731616, -0.100485384, 0.4100712, 0.061834496, -0.2325293, -0.026056025, -0.11632323, -0.17040555, -0.081960455, -0.0061040106, -0.05949373, 0.044952348, -0.079565264, 0.024430245, -0.09375341, -0.30249637, 0.115205586, -0.13083287, -0.04264671, -0.089810364, 0.16227561, 0.07318055, -0.10496504, 0.00063501706, -0.04936106, -0.0022282854, 1.0893154, 0.1698662, -0.019563455, -0.011128426, 0.04477475, -0.15656771, -0.056911886, -0.5759019, -0.1881429, 0.17088258, 0.24124439, 0.111288875, -0.0015475494, -0.021278847, -0.08362156, 0.09997524, -0.094385885, -0.1674031, 0.061180864, 0.28517494, -0.016217072, 0.025866214, -0.22854298, -0.17924422, -0.037767246, 0.12252907, -0.31698978, -0.038031228, 0.055408552, 0.1743545, -0.040576655, 0.1293942, -0.56650764, -0.10306195, -0.19548112, -0.245544, -0.018241389, -0.039024632, -0.31659162, 0.1565075, 0.08412337, 0.13177724, -0.13766576, -0.15355161, -0.16960397, -0.012436442, 0.04828157, 0.12566057, -0.35308784, -0.37520224, -0.1265899, -0.13991497, 0.14402144, 0.117542416, -0.20750546, -0.5849919, -0.010469457, -0.19677396, 0.011365964, 0.00666846, -0.083470255, 0.24928358, 0.07026387, 0.19082819, 0.24557637, 0.014292963, 0.14846677, 0.031625308, -0.20398879, 0.19507346, -0.18119761, -0.045725327, -0.042455163, -0.099733196, -0.33636123, -0.28447086, 0.30274838, -0.01603988, -0.0529655, 0.15784146, 0.08746072, -0.1703993, 0.2414512, 0.060322937, -0.00812057, 0.031162385, -0.1764905, 0.22107981, -0.016657066, 0.31948856, 0.07282925, -0.036991462, 0.01266936, -0.009106514, -0.038732465, 0.20973183, 0.033236098, -0.10673938, -0.06880061, 0.115524575, -0.39688373, 0.08749971, -0.21816005, -0.22100002, -0.3716853, -0.14720486, 0.24316181, 0.29673144, 0.020808747, 0.07658521, 0.16310681, 0.38785335, 0.0992224, 0.14177811, 0.025954131, -0.08690783, 0.19653428, 0.09584941, 0.040072605, -0.00038361162, -0.094546966, 0.1910902, 0.13217318, 0.060072783, -0.0655816, 0.2777626, 0.1799169, 0.20187178, -0.0996889, -0.01932122, -0.13133621, 0.057482753, -0.36892185, -0.032093313, 0.14607865, 0.12033318, -0.041683596, -0.2048406, -0.041777443, -0.14975598, -0.2526341, 0.12659752, 0.010567178, -0.297333, -0.27522174, 0.06923473, 0.043150593, -0.017045585, -0.2400216, 0.11413547, -0.40081662, -0.0018820907, 0.13800722, 0.085972115, -0.01519989, -0.10491216, 0.09170084, 0.063085504, 0.046743374, -0.014466267, 0.09880224, 0.027706565, 0.09951337, 0.17317492, -0.025654864, 0.14658073, 0.042377427, -0.08402882, -0.12423425, 0.32714987, -0.1527207, 0.106094465, 0.017378228, -0.06302387}
 	searchObject := strfmt.UUID("fe687bf4-f10f-4c23-948d-0746ea2927b3")
@@ -2044,17 +2044,17 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
-	t.Run("create required schema", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-	})
-
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+
+	t.Run("create required schema", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
+	})
 
 	searchVector := []float32{-0.10190568, -0.06259751, 0.05616188, -0.19249836, 0.09714927, -0.1902525, -0.064424865, -0.0387358, 0.17581701, 0.4476738, 0.29261824, 0.12026761, -0.19975126, 0.023600178, 0.17348698, 0.12701738, -0.36018127, -0.12051587, -0.17620522, 0.060741074, -0.064512916, 0.18640806, -0.1529852, 0.08211839, -0.02558465, -0.11369845, 0.0924098, -0.10544433, -0.14728987, -0.041860342, -0.08533595, 0.25886244, 0.2963937, 0.26010615, 0.2111097, 0.029396622, 0.01429563, 0.06410264, -0.119665794, 0.33583277, -0.05802661, 0.023306102, 0.14435922, -0.003951336, -0.13870825, 0.07140894, 0.10469943, -0.059021875, -0.065911904, 0.024216041, -0.26282874, 0.04896568, -0.08291928, -0.12793182, -0.077824734, 0.08843151, 0.31247458, -0.066301286, 0.006904921, -0.08277095, 0.13936226, -0.64392364, -0.19566211, 0.047227614, 0.086121306, -0.20725192, -0.096485816, -0.16436341, -0.06559169, -0.019639932, -0.012729637, 0.08901619, 0.0015896161, -0.24789932, 0.35496348, -0.16272856, -0.01648429, 0.11247674, 0.08099968, 0.13339259, 0.055829972, -0.34662855, 0.068509, 0.13880715, 0.3201848, -0.055557363, 0.22142135, -0.12867308, 0.0037871755, 0.24888979, -0.007443307, 0.08906625, -0.02022331, 0.11510742, -0.2385861, 0.16177008, -0.16214795, -0.28715602, 0.016784908, 0.19386634, -0.07731616, -0.100485384, 0.4100712, 0.061834496, -0.2325293, -0.026056025, -0.11632323, -0.17040555, -0.081960455, -0.0061040106, -0.05949373, 0.044952348, -0.079565264, 0.024430245, -0.09375341, -0.30249637, 0.115205586, -0.13083287, -0.04264671, -0.089810364, 0.16227561, 0.07318055, -0.10496504, 0.00063501706, -0.04936106, -0.0022282854, 1.0893154, 0.1698662, -0.019563455, -0.011128426, 0.04477475, -0.15656771, -0.056911886, -0.5759019, -0.1881429, 0.17088258, 0.24124439, 0.111288875, -0.0015475494, -0.021278847, -0.08362156, 0.09997524, -0.094385885, -0.1674031, 0.061180864, 0.28517494, -0.016217072, 0.025866214, -0.22854298, -0.17924422, -0.037767246, 0.12252907, -0.31698978, -0.038031228, 0.055408552, 0.1743545, -0.040576655, 0.1293942, -0.56650764, -0.10306195, -0.19548112, -0.245544, -0.018241389, -0.039024632, -0.31659162, 0.1565075, 0.08412337, 0.13177724, -0.13766576, -0.15355161, -0.16960397, -0.012436442, 0.04828157, 0.12566057, -0.35308784, -0.37520224, -0.1265899, -0.13991497, 0.14402144, 0.117542416, -0.20750546, -0.5849919, -0.010469457, -0.19677396, 0.011365964, 0.00666846, -0.083470255, 0.24928358, 0.07026387, 0.19082819, 0.24557637, 0.014292963, 0.14846677, 0.031625308, -0.20398879, 0.19507346, -0.18119761, -0.045725327, -0.042455163, -0.099733196, -0.33636123, -0.28447086, 0.30274838, -0.01603988, -0.0529655, 0.15784146, 0.08746072, -0.1703993, 0.2414512, 0.060322937, -0.00812057, 0.031162385, -0.1764905, 0.22107981, -0.016657066, 0.31948856, 0.07282925, -0.036991462, 0.01266936, -0.009106514, -0.038732465, 0.20973183, 0.033236098, -0.10673938, -0.06880061, 0.115524575, -0.39688373, 0.08749971, -0.21816005, -0.22100002, -0.3716853, -0.14720486, 0.24316181, 0.29673144, 0.020808747, 0.07658521, 0.16310681, 0.38785335, 0.0992224, 0.14177811, 0.025954131, -0.08690783, 0.19653428, 0.09584941, 0.040072605, -0.00038361162, -0.094546966, 0.1910902, 0.13217318, 0.060072783, -0.0655816, 0.2777626, 0.1799169, 0.20187178, -0.0996889, -0.01932122, -0.13133621, 0.057482753, -0.36892185, -0.032093313, 0.14607865, 0.12033318, -0.041683596, -0.2048406, -0.041777443, -0.14975598, -0.2526341, 0.12659752, 0.010567178, -0.297333, -0.27522174, 0.06923473, 0.043150593, -0.017045585, -0.2400216, 0.11413547, -0.40081662, -0.0018820907, 0.13800722, 0.085972115, -0.01519989, -0.10491216, 0.09170084, 0.063085504, 0.046743374, -0.014466267, 0.09880224, 0.027706565, 0.09951337, 0.17317492, -0.025654864, 0.14658073, 0.042377427, -0.08402882, -0.12423425, 0.32714987, -0.1527207, 0.106094465, 0.017378228, -0.06302387}
 	searchObject := strfmt.UUID("fe687bf4-f10f-4c23-948d-0746ea2927b3")
@@ -2197,15 +2197,15 @@ func Test_PutPatchRestart(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(ctx))
 	migrator := NewMigrator(repo, logger, "node1")
 
-	require.Nil(t,
-		migrator.AddClass(ctx, testClass))
-
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{testClass},
 		},
 	}
+
+	require.Nil(t,
+		migrator.AddClass(ctx, testClass))
 
 	testID := strfmt.UUID("93c31577-922e-4184-87a5-5ac6db12f73c")
 	testVec := []float32{0.1, 0.2, 0.1, 0.3}
@@ -2357,18 +2357,18 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
-	require.Nil(t,
-		migrator.AddClass(context.Background(), class))
-	require.Nil(t,
-		migrator.AddClass(context.Background(), classRef))
-	require.Nil(t,
-		migrator.AddClass(context.Background(), classWithRefs))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class, classRef, classWithRefs},
 		},
 	}
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), classRef))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), classWithRefs))
 
 	t.Run("empty arrays", func(t *testing.T) {
 		objID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
@@ -2508,16 +2508,16 @@ func TestOverwriteObjects(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
-	t.Run("create the class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-	})
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+	t.Run("create the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
+	})
 
 	now := time.Now()
 	later := now.Add(time.Hour) // time-traveling ;)
@@ -2698,16 +2698,16 @@ func TestIndexDigestObjects(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
-	t.Run("create the class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-	})
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+	t.Run("create the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
+	})
 
 	now := time.Now()
 	later := now.Add(time.Hour) // time-traveling ;)
@@ -2842,13 +2842,13 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
-	require.Nil(t, migrator.AddClass(context.Background(), class))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
+	require.Nil(t, migrator.AddClass(context.Background(), class))
 
 	obj1ID := strfmt.UUID("ae48fda2-866a-4c90-94fc-fce40d5f3767")
 	objNilID := strfmt.UUID("b71ffac9-6534-4368-9718-5410ca89ce16")

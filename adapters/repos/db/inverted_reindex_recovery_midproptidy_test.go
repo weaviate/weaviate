@@ -135,7 +135,7 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := idx.initShard(ctx, shardName, nil, true, true)
 			require.NoErrorf(t, err, "mid-prop-swap shard re-init (haltAfter=%d)", haltAfter)
 			shard2 := shd2.(*Shard)
 			defer shard2.Shutdown(ctx)

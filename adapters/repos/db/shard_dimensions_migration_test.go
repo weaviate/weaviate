@@ -76,7 +76,7 @@ func reloadDimsMigrationShard(t *testing.T, ctx context.Context, idx *Index, sha
 	// a shard that is shut down already reports so
 	_ = shard.Shutdown(ctx)
 
-	shd, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	shd, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 	require.NoError(t, err)
 	idx.shards.Store(shard.Name(), shd)
 	return shd.(*Shard)
@@ -151,7 +151,7 @@ func TestShard_RecoversInterruptedDimensionsMigration(t *testing.T) {
 
 func TestShard_DimensionsBucketLoadWaitsForUnloadedScan(t *testing.T) {
 	ctx := testCtx()
-	shard, idx, class, _ := dimsMigrationShard(t, ctx, 1)
+	shard, idx, _, _ := dimsMigrationShard(t, ctx, 1)
 	require.NoError(t, shard.Shutdown(ctx))
 
 	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, idx.path(), shard.Name())
@@ -159,7 +159,7 @@ func TestShard_DimensionsBucketLoadWaitsForUnloadedScan(t *testing.T) {
 
 	loaded := make(chan error, 1)
 	go func() {
-		shd, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+		shd, err := idx.initShard(ctx, shard.Name(), nil, true, true)
 		if err == nil {
 			idx.shards.Store(shard.Name(), shd)
 			t.Cleanup(func() { _ = shd.Shutdown(context.Background()) })

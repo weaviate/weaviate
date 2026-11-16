@@ -137,8 +137,8 @@ func TestDB_PrepareDimensionsAtStartup(t *testing.T) {
 
 			// objects written without their dimensions tracked
 			repo := startDimensionsTestRepo(t, dir, state, getter, nil)
-			require.NoError(t, NewMigrator(repo, repo.logger, "node1").AddClass(ctx, class))
 			getter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+			require.NoError(t, NewMigrator(repo, repo.logger, "node1").AddClass(ctx, class))
 			repo.config.TrackVectorDimensions = false
 			for i := range objects {
 				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())

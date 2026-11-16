@@ -849,7 +849,7 @@ func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {
 
 	// Register an unloaded lazy shard under a fresh name (disableLazyLoad=false).
 	const lazyName = "lazy-cold-shard"
-	sl, err := idx.initShard(ctx, lazyName, &models.Class{Class: class}, nil, false, false)
+	sl, err := idx.initShard(ctx, lazyName, nil, false, false)
 	require.NoError(t, err)
 	lazy, ok := sl.(*LazyLoadShard)
 	require.True(t, ok, "expected a *LazyLoadShard")
@@ -870,7 +870,7 @@ func TestRepairEndpointsDoNotForceLoadUnloadedShard(t *testing.T) {
 	setShardReplicas(t, idx, "node1", "node2")
 
 	const lazyName = "lazy-cold-shard-repair"
-	sl, err := idx.initShard(ctx, lazyName, &models.Class{Class: class}, nil, false, false)
+	sl, err := idx.initShard(ctx, lazyName, nil, false, false)
 	require.NoError(t, err)
 	lazy, ok := sl.(*LazyLoadShard)
 	require.True(t, ok, "expected a *LazyLoadShard")

@@ -148,8 +148,8 @@ func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarne
 func (h *statusGaugeHarness) addClass(t *testing.T, class *models.Class) *Index {
 	t.Helper()
 
-	require.NoError(t, h.migrator.AddClass(context.Background(), class))
 	h.schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.NoError(t, h.migrator.AddClass(context.Background(), class))
 
 	idx := h.repo.GetIndex(schema.ClassName(class.Class))
 	require.NotNil(t, idx)

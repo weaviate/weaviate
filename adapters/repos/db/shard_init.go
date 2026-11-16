@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -35,7 +36,7 @@ import (
 )
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	shardName string, index *Index, fallback shardLoadFallback, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 	registration monitoring.ShardRegistration,
@@ -51,10 +52,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
-	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
-		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
-	}
-
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
 	if err != nil {
 		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
@@ -67,7 +64,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s := &Shard{
 		index:       index,
-		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
 		metrics:     metrics,
@@ -138,6 +134,20 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer index.metrics.ShardStartup(start)
 
+	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), index.logger)
+	s.migrationRecords.SweepTempFiles()
+	recordsErr := s.migrationRecords.Load()
+	view, err := index.readShardLoadView(shardName, s.migrationRecords, fallback)
+	if err != nil {
+		return nil, err
+	}
+	class := view.class
+	s.class = class
+
+	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
+	}
+
 	_, err = os.Stat(s.path())
 	exists := err == nil
 
@@ -157,11 +167,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Ahead of initNonVector because reconciliation renames directories: a bucket
 	// opened at a name it is about to move would serve the wrong data.
 	s.finalizeLegacyMigrations(class)
-	recovered := s.reconcileMigrationRecords(ctx, class)
-	s.restoreMigratedOverlays(class, reindexer.UnbuildableFaults())
+	recovered := s.reconcileMigrationRecords(ctx, view, recordsErr)
+	s.restoreMigratedOverlays(view, reindexer.UnbuildableFaults())
 
 	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-		index.path(), shardName, class, s.migratedIndexStands); err != nil {
+		index.path(), shardName, class, func(propName, indexType string) bool {
+			return migratedIndexStandsIn(s.migrationRecords.Records(), view.tasks, view.readable, propName, indexType)
+		}); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
@@ -205,6 +217,34 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.holdReadOnlyForUnarmed(unarmed, err)
 	}
 	return s, nil
+}
+
+type shardLoadFallback struct {
+	class *models.Class
+}
+
+type shardLoadView struct {
+	tasks    []distributedtask.TaskStatusEntry
+	readable bool
+	class    *models.Class
+}
+
+// Tasks before class (see cluster.Raft.LocalDistributedTasks); with no records nothing pairs them, so no task read.
+func (i *Index) readShardLoadView(shardName string, records *MigrationRecordStore,
+	fallback shardLoadFallback,
+) (shardLoadView, error) {
+	var view shardLoadView
+	if len(records.Records()) > 0 {
+		view.tasks, view.readable = i.db.migrationCluster.LocalTasks(shardName)
+	}
+	if view.class = i.getClass(); view.class != nil {
+		return view, nil
+	}
+	if fallback.class == nil {
+		return shardLoadView{}, fmt.Errorf("init local shard %q: class %s not found in schema",
+			shardName, i.Config.ClassName)
+	}
+	return shardLoadView{class: fallback.class}, nil
 }
 
 // cleanupPartialInit is called when the shard was only partially initialized.

@@ -80,9 +80,9 @@ func TestRefFilters(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
+				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
-				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
 		}
 	})
@@ -521,9 +521,9 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range cityCountryAirportSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
+				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
-				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
 		}
 	})

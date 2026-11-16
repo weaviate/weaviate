@@ -162,7 +162,16 @@ func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
 
 	target := NewMockStore(t, "dtm-target-node", utils.MustGetFreeTCPPort())
 	target.store.init()
-	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	// A shard load reads tasks before the class; that only holds if the schema is installed first.
+	parsed := false
+	target.parser.On("ParseClass", mock.Anything).Return(nil).Run(func(mock.Arguments) {
+		parsed = true
+		tasks, err := target.store.distributedTasksManager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		for _, task := range tasks["test-namespace"] {
+			require.NotEqual(t, "drop-a", task.ID, "the snapshot's tasks install after its schema")
+		}
+	})
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
 	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
@@ -175,6 +184,7 @@ func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
 		})
 
 	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+	require.True(t, parsed, "the snapshot installed a schema")
 
 	tasks, err := target.store.distributedTasksManager.ListDistributedTasks(context.Background())
 	require.NoError(t, err)

@@ -113,12 +113,12 @@ func TestNodesAPI_Journey(t *testing.T) {
 		},
 	}
 
-	require.Nil(t,
-		migrator.AddClass(context.Background(), class))
-
 	schemaGetter.schema.Objects = &models.Schema{
 		Classes: []*models.Class{class},
 	}
+
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class))
 
 	batch := objects.BatchObjects{
 		objects.BatchObject{

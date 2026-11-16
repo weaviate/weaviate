@@ -163,8 +163,8 @@ func TestARefusedWedgeKeepsTheWorkersMirror(t *testing.T) {
 				cancel()
 			}
 
-			r := shard.migrationReconciler(func() *models.Class { return class })
-			r.deps.LocalTasks = func() ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
+			r := shard.migrationReconciler(func() ([]distributedtask.TaskStatusEntry, bool) { return nil, true },
+				func() *models.Class { return class })
 			r.deps.SealUnit = func(distributedtask.TaskDescriptor, string) (func(), bool) { return nil, false }
 			r.ReconcileWithClusterTasks(context.Background(), nil)
 

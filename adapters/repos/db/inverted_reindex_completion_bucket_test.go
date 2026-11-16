@@ -84,7 +84,8 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 					tc.enable(prop)
 				}
 			}
-			reloaded, err := idx.initShard(ctx, shardName, postClass, nil, true, true)
+			idx.getSchema.(*fakeSchemaGetter).schema.Objects.Classes[0] = postClass
+			reloaded, err := idx.initShard(ctx, shardName, nil, true, true)
 			require.NoError(t, err)
 			promoted := reloaded.(*Shard)
 			defer promoted.Shutdown(ctx)

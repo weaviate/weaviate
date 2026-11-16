@@ -24,7 +24,6 @@ import (
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -200,7 +199,7 @@ func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
 	require.NoError(t, os.Chmod(usageTmp, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(usageTmp, 0o700) })
 
-	_, err := NewShard(ctx, nil, shardName, index, &models.Class{Class: className},
+	_, err := NewShard(ctx, nil, shardName, index, shardLoadFallback{},
 		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
 		index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	require.Error(t, err)

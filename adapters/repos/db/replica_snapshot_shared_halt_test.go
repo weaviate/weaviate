@@ -276,7 +276,7 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, shardLoadFallback{class: class}, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 				require.NoError(t, os.WriteFile(path, data, 0o644))
 			}
-			restored, err := idx.initShard(ctx, shard.name, idx.getClass(), nil, true, true)
+			restored, err := idx.initShard(ctx, shard.name, nil, true, true)
 			require.NoError(t, err)
 			idx.shards.Store(shard.name, restored)
 			target := underlyingShard(t, restored)

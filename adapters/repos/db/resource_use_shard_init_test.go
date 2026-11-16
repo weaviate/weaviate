@@ -51,8 +51,8 @@ func newResourcePressureFixture(t *testing.T) *resourcePressureFixture {
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
 	class := newClassWithWarmProp(className)
-	require.NoError(t, migrator.AddClass(ctx, class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	require.NoError(t, migrator.AddClass(ctx, class))
 
 	index := repo.GetIndex(schema.ClassName(className))
 	require.NotNil(t, index)
@@ -484,10 +484,10 @@ func TestNewCollection_InheritsResourcePressure(t *testing.T) {
 
 	const className = "CollectionAddedUnderPressure"
 	class := newClassWithWarmProp(className)
-	require.NoError(t, f.migrator.AddClass(ctx, class))
 	f.schemaGetter.schema = schema.Schema{Objects: &models.Schema{
 		Classes: []*models.Class{f.class, class},
 	}}
+	require.NoError(t, f.migrator.AddClass(ctx, class))
 
 	index := f.repo.GetIndex(schema.ClassName(className))
 	require.NotNil(t, index)
@@ -521,6 +521,10 @@ func TestNewCollection_InheritsResourcePressureBeforeReconcile(t *testing.T) {
 
 	const className = "CollectionBuiltUnderPressure"
 	class := newClassWithWarmProp(className)
+
+	f.schemaGetter.schema = schema.Schema{Objects: &models.Schema{
+		Classes: []*models.Class{f.class, class},
+	}}
 
 	added := make(chan error, 1)
 	f.repo.resourceScanState.transition.Lock()

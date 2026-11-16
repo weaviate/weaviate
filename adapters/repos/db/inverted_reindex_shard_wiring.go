@@ -16,20 +16,22 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) []*ShardReindexTaskGeneric {
-	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
-	s.migrationRecords.SweepTempFiles()
-
-	reconciler := s.migrationReconciler(func() *models.Class { return class })
+func (s *Shard) reconcileMigrationRecords(ctx context.Context, view shardLoadView, loadErr error,
+) []*ShardReindexTaskGeneric {
+	reconciler := s.migrationReconciler(
+		func() ([]distributedtask.TaskStatusEntry, bool) { return view.tasks, view.readable },
+		func() *models.Class { return view.class })
 	var recovered []*ShardReindexTaskGeneric
-	if err := reconciler.Load(); err != nil {
-		s.index.logger.WithField("shard", s.ID()).Errorf("reconcile migration records: %v", err)
+	if loadErr != nil {
+		reconciler.freezeNotice()
+		s.index.logger.WithField("shard", s.ID()).Errorf("reconcile migration records: load migration records: %v", loadErr)
 	} else {
 		recovered = s.reindexer.RecoverMigrations(s)
 		reconciler.Reconcile(ctx)
@@ -127,12 +129,14 @@ func migrationUnitOf(index *Index, shardName string) string {
 	return MigrationUnitID(shardName, index.getSchema.NodeName())
 }
 
-func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
+func (s *Shard) migrationReconciler(localTasks func() ([]distributedtask.TaskStatusEntry, bool),
+	class func() *models.Class,
+) *migrationReconciler {
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(),
 		s.index.logger.WithField("shard", s.ID()),
 		migrationReconcileDeps{
 			Shard:      s.name,
-			LocalTasks: s.migrations().LocalTasks,
+			LocalTasks: localTasks,
 			SealUnit:   s.migrations().SealUnit,
 			Class:      class,
 			Mirror:     s,

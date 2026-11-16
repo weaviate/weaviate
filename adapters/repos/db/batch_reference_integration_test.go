@@ -114,6 +114,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		},
 	}
 
+	schemaGetter.schema = s
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range s.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
@@ -122,7 +123,6 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			})
 		}
 	})
-	schemaGetter.schema = s
 
 	target1 := strfmt.UUID("7b395e5c-cf4d-4297-b8cc-1d849a057de3")
 	target2 := strfmt.UUID("8f9f54f3-a7db-415e-881a-0e6fb79a7ec7")

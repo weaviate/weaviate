@@ -349,7 +349,7 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			require.NoError(t, task.RunSwapOnShard(ctx, shard))
 			boot := func(reindexer ShardReindexerV3) *Shard {
 				idx.shardReindexer = reindexer
-				reloaded, err := idx.initShard(ctx, name, class, nil, true, true)
+				reloaded, err := idx.initShard(ctx, name, nil, true, true)
 				require.NoError(t, err)
 				idx.shards.Store(name, reloaded)
 				return reloaded.(*Shard)

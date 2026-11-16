@@ -155,16 +155,6 @@ func (r *migrationReconciler) freezeNotice() {
 
 func (r *migrationReconciler) WedgedCount() int { return len(r.wedgedKeys) }
 
-func (r *migrationReconciler) Load() error {
-	if err := r.store.Load(); err != nil {
-		// The load's own fault is recorded as unreadable, so the freeze this
-		// return causes is announced on this path too.
-		r.freezeNotice()
-		return fmt.Errorf("load migration records: %w", err)
-	}
-	return nil
-}
-
 func (r *migrationReconciler) Reconcile(ctx context.Context) {
 	someRecordsUnreadable := len(r.store.Unreadable()) > 0
 	if someRecordsUnreadable {
@@ -561,7 +551,8 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	}
 
 	// Above clearForPromotion, not just above the rename: clearing deletes the canonical and displaced dirs.
-	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop, r.overridesSchema(rec)); swept {
+	overrides := r.overridesSchema(rec)
+	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop, overrides); swept {
 		return rec, false, why, nil
 	}
 

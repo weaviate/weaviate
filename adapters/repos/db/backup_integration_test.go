@@ -341,16 +341,15 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	migrator := NewMigrator(db, logger, "node1")
 
-	for _, class := range classes {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
-	}
-
-	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: classes,
 		},
+	}
+
+	for _, class := range classes {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
 	}
 
 	return db

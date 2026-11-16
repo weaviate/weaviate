@@ -103,8 +103,8 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 	})
 
 	migrator := NewMigrator(repo, logger, "node0")
-	require.NoError(t, migrator.AddClass(context.Background(), class))
 	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+	require.NoError(t, migrator.AddClass(context.Background(), class))
 
 	return &testRepo{DB: repo, t: t}
 }

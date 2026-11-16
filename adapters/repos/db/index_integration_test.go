@@ -241,7 +241,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	// A cold shard materializes its directory at load, not on add-property;
 	// force-load it before comparing on-disk files.
-	require.NoError(t, index.initLocalShardWithForcedLoading(context.TODO(), index.getClass(),
+	require.NoError(t, index.initLocalShardWithForcedLoading(context.TODO(),
 		shardName, true, false, callerUserRequest))
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
@@ -663,6 +663,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		}).Maybe()
 	router := routerTypes.NewMockRouter(t)
 	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
 		shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)

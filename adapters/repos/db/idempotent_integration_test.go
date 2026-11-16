@@ -261,6 +261,11 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("run update index", func(t *testing.T) {
+			// The new index loads its class from the schema, so the schema must
+			// already carry it before the migrator runs (as production does).
+			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{existingClass, missingClass}},
+			}
 			// UpdateIndex should be able to run an arbitrary number
 			// of times without any changes to the internal DB state
 			for i := 0; i < iterations; i++ {

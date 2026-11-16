@@ -656,7 +656,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 				defer i.shardLoadLimiter.Release()
 
-				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+				newShard, err := NewShard(ctx, promMetrics, shardName, i, shardLoadFallback{}, i.centralJobQueue, i.scheduler,
 					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
 				if err != nil {
@@ -910,9 +910,13 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
 // within shardCreateLocks to prevent parallel create/init of the same shard
-func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
+func (i *Index) initShard(ctx context.Context, shardName string,
 	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
+	class := i.getClass()
+	if class == nil {
+		return nil, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, i.Config.ClassName)
+	}
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
@@ -923,7 +927,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		}
 		defer i.shardLoadLimiter.Release()
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+		shard, err := NewShard(ctx, promMetrics, shardName, i, shardLoadFallback{}, i.centralJobQueue, i.scheduler,
 			i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
 			monitoring.ShardRegistrationEager)
 		if err != nil {
@@ -3320,7 +3324,7 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false, callerUserRequest)
+	return i.initLocalShardWithForcedLoading(ctx, shardName, false, false, callerUserRequest)
 }
 
 // LoadLocalShardForMovement loads a shard on behalf of a replica movement.
@@ -3330,7 +3334,7 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 // refused at IncomingStartChangeCapture and waits for the namespace, while one
 // past that drains its source through getLoadedShard and finishes.
 func (i *Index) LoadLocalShardForMovement(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerMovement)
+	return i.initLocalShardWithForcedLoading(ctx, shardName, true, false, callerMovement)
 }
 
 // LoadLocalShardForNewReplica loads a shard for the apply that records this node
@@ -3379,7 +3383,7 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 // shard on first touch; with lazy loading off it opens regardless, because
 // nothing else would.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
+	err := i.initLocalShardWithForcedLoading(ctx, shardName,
 		!i.Config.EnableLazyLoadShards, false, callerReload)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		return nil
@@ -3395,7 +3399,7 @@ func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) e
 func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
 	mustLoad, implicitShardLoading bool, caller shardLoadCaller, change string,
 ) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading, caller)
+	err := i.initLocalShardWithForcedLoading(ctx, shardName, mustLoad, implicitShardLoading, caller)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
@@ -3412,7 +3416,7 @@ func (i *Index) DropLocalShard(name string) error {
 	return i.dropShards([]string{name})
 }
 
-func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool, caller shardLoadCaller) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, shardName string, mustLoad bool, implicitShardLoading bool, caller shardLoadCaller) error {
 	if err := i.enterRead(); err != nil {
 		return err
 	}
@@ -3461,7 +3465,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
 
-	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
+	shard, err := i.initShard(ctx, shardName, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {
 		return err
 	}
@@ -3629,12 +3633,6 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, nil
 		}
 
-		className := i.Config.ClassName.String()
-		class := i.getSchema.ReadOnlyClass(className)
-		if class == nil {
-			return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
-		}
-
 		i.shardCreateLocks.Lock(shardName)
 		defer i.shardCreateLocks.Unlock(shardName)
 
@@ -3649,7 +3647,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			if _, protected := i.backupProtectedShards.Load(shardName); protected {
 				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
 			}
-			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+			shard, err = i.initShard(ctx, shardName, i.metrics.baseMetrics, true, false)
 			if err != nil {
 				return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
 			}
