@@ -358,11 +358,11 @@ func (s *BucketStore) Load() (uint64, error) {
 	return binary.LittleEndian.Uint64(v), nil
 }
 
-// repairOrphanPostings moves the live vectors of every posting left without a
-// usable centroid into a new posting that has one. A crash that persists the
-// store and the centroid commit log unevenly leaves such postings unreachable.
+// repairOrphanPostings queues a reassignment for every live vector of a
+// posting left without a usable centroid. A crash that persists the store and
+// the centroid commit log unevenly leaves such postings unreachable.
 func (h *HFresh) repairOrphanPostings() {
-	dims, quantizer := h.loadQuantizer()
+	_, quantizer := h.loadQuantizer()
 	if quantizer == nil {
 		return
 	}
@@ -378,96 +378,53 @@ func (h *HFresh) repairOrphanPostings() {
 	}
 
 	for _, postingID := range orphans {
-		newID, moved, err := h.repairOrphanPosting(h.ctx, postingID, dims, quantizer)
+		queued, err := h.repairOrphanPosting(h.ctx, postingID)
 		if err != nil {
 			// the posting stays orphaned and is retried on the next startup
 			h.logger.WithField("postingID", postingID).
 				Errorf("failed to repair posting without centroid, its vectors stay unreachable: %v", err)
 			continue
 		}
-		if moved > 0 {
+		if queued > 0 {
 			h.logger.WithField("postingID", postingID).
-				WithField("newPostingID", newID).
-				WithField("vectors", moved).
-				Warn("repaired posting without centroid")
+				WithField("vectors", queued).
+				Warn("reassigning the vectors of a posting without centroid")
 		}
 	}
 }
 
-func (h *HFresh) repairOrphanPosting(ctx context.Context, postingID uint64, dims uint32,
-	quantizer *compressionhelpers.BinaryRotationalQuantizer,
-) (uint64, int, error) {
-	p, err := h.PostingStore.Get(ctx, postingID)
+func (h *HFresh) repairOrphanPosting(ctx context.Context, postingID uint64) (int, error) {
+	// a centroid without its vector would be tombstoned by the first search
+	// reaching it, and must not draw the reassigned vectors back
+	err := h.Centroids.MarkAsDeleted(postingID)
 	if err != nil {
-		if errors.Is(err, ErrPostingNotFound) {
-			return 0, 0, nil
-		}
-		return 0, 0, err
+		return 0, err
+	}
+
+	p, err := h.PostingStore.Get(ctx, postingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return 0, err
 	}
 	live, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
+
 	if len(live) == 0 {
-		return 0, 0, nil
-	}
-
-	vectors, err := h.postingVectors(ctx, live, dims)
-	if err != nil {
-		return 0, 0, err
-	}
-	mean := make([]float32, dims)
-	for _, vec := range vectors {
-		for i, x := range vec {
-			mean[i] += x
-		}
-	}
-	for i := range mean {
-		mean[i] /= float32(len(vectors))
-	}
-
-	// the orphan's ID may hold a deleted centroid, so the vectors move to a
-	// new posting; the orphan is only emptied once they are reachable there
-	newID, err := h.nextPostingID()
-	if err != nil {
-		return 0, 0, err
-	}
-	err = h.PostingStore.Put(ctx, newID, live)
-	if err != nil {
-		return 0, 0, err
-	}
-	err = h.setPostingVectorIDs(ctx, newID, live)
-	if err != nil {
-		return 0, 0, err
-	}
-	err = h.Centroids.Insert(newID, &Centroid{
-		Uncompressed: mean,
-		Compressed:   quantizer.CompressedBytes(quantizer.Encode(mean)),
-	})
-	if err != nil {
-		return 0, 0, err
-	}
-	// a centroid without its vector would be tombstoned by the first search
-	// reaching it; delete it here instead
-	err = h.Centroids.MarkAsDeleted(postingID)
-	if err != nil {
-		return 0, 0, err
-	}
-	err = h.setPostingVectorIDs(ctx, postingID, Posting{})
-	if err != nil {
-		return 0, 0, err
-	}
-	err = h.PostingStore.Put(ctx, postingID, Posting{})
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if len(live) > int(h.maxPostingSize) {
-		err = h.taskQueue.EnqueueSplit(newID)
+		// nothing left to move: stop finding this posting at every startup
+		err = h.setPostingVectorIDs(ctx, postingID, Posting{})
 		if err != nil {
-			return 0, 0, err
+			return 0, err
+		}
+		return 0, h.PostingStore.Put(ctx, postingID, Posting{})
+	}
+
+	for _, v := range live {
+		err = h.taskQueue.EnqueueReassign(postingID, v.ID())
+		if err != nil {
+			return 0, err
 		}
 	}
 
-	return newID, len(live), nil
+	return len(live), nil
 }
