@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,13 +58,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
-	collection, shard, task, err := st.taskOrMovementCollection(req)
+	p, err := st.decodeProposal(req)
 	if err != nil {
 		return 0, err
 	}
-	if collection != "" {
-		st.taskMovementLocks.Lock(collection)
-		defer st.taskMovementLocks.Unlock(collection)
+	if p.collection != "" {
+		st.taskMovementLocks.Lock(p.collection)
+		defer st.taskMovementLocks.Unlock(p.collection)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -86,7 +87,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req, collection, shard, task); err != nil {
+	if err := st.admitPropose(req, p); err != nil {
 		return 0, err
 	}
 
@@ -134,8 +135,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
-func (st *Store) admitPropose(req *api.ApplyRequest, collection, shard string, task *api.AddDistributedTaskRequest) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name.
+func (st *Store) admitPropose(req *api.ApplyRequest, p proposal) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
@@ -145,10 +146,35 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection, shard string, t
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	if err := st.admitTaskOrMovement(req.Type, collection, shard); err != nil {
+	if err := st.admitTaskOrMovement(req.Type, p.collection, p.shard); err != nil {
 		return err
 	}
-	return st.admitTaskReplicas(task, collection)
+	if err := st.admitFreeze(p.collection, p.frozen); err != nil {
+		return err
+	}
+	return st.admitTaskReplicas(p.task, p.collection)
+}
+
+// admitFreeze refuses freezing a tenant whose swap a task still owes, since unfreezing can place it on nodes other than the ones TaskOwingSwap names. It also refuses while a task runs on the collection, since that task could decide a swap and stop before the freeze applies.
+func (st *Store) admitFreeze(collection string, frozen []string) error {
+	if len(frozen) == 0 {
+		return nil
+	}
+	if err := st.distributedTasksManager.CheckTenantMutation(collection, frozen); err != nil {
+		return fmt.Errorf("%w: %w", schema.ErrBadRequest, err)
+	}
+	var owed []string
+	for _, tenant := range frozen {
+		if taskID, nodes, ok := st.distributedTasksManager.TaskOwingSwap(collection, tenant); ok {
+			owed = append(owed, fmt.Sprintf("%q (task %q, nodes %v)", tenant, taskID, nodes))
+		}
+	}
+	if len(owed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: cannot freeze tenants %s of collection %q while they still owe a reindex swap; "+
+		"bring those nodes back and set the shard READY so the swap lands, or delete the tenant",
+		schema.ErrBadRequest, strings.Join(owed, ", "), collection)
 }
 
 // admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
@@ -197,25 +223,47 @@ func sameNodes(a, b []string) bool {
 	return slices.Equal(notEmpty(a), notEmpty(b))
 }
 
-// taskOrMovementCollection also returns the shard a replicate copies and the decoded task of a task add, so admitPropose need not decode either again.
-func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, string, *api.AddDistributedTaskRequest, error) {
+type proposal struct {
+	collection string
+	shard      string
+	task       *api.AddDistributedTaskRequest
+	frozen     []string
+}
+
+func (st *Store) decodeProposal(req *api.ApplyRequest) (proposal, error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		sub := &api.ReplicationReplicateShardRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
+			return proposal{}, fmt.Errorf("unmarshal replicate subcommand: %w", err)
 		}
-		return sub.SourceCollection, sub.SourceShard, nil, nil
+		return proposal{collection: sub.SourceCollection, shard: sub.SourceShard}, nil
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		sub := &api.AddDistributedTaskRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
+			return proposal{}, fmt.Errorf("unmarshal add-task subcommand: %w", err)
 		}
-		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), "", sub, nil
+		return proposal{collection: st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), task: sub}, nil
+
+	case api.ApplyRequest_TYPE_UPDATE_TENANT:
+		sub := &api.UpdateTenantsRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return proposal{}, fmt.Errorf("unmarshal update-tenants subcommand: %w", err)
+		}
+		var frozen []string
+		for _, tenant := range sub.Tenants {
+			if tenant.Status == models.TenantActivityStatusFROZEN {
+				frozen = append(frozen, tenant.Name)
+			}
+		}
+		if len(frozen) == 0 {
+			return proposal{}, nil
+		}
+		return proposal{collection: req.Class, frozen: frozen}, nil
 
 	default:
-		return "", "", nil, nil
+		return proposal{}, nil
 	}
 }
 
