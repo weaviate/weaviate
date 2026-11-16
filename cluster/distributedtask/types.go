@@ -39,12 +39,15 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
-// CollectionExtractor returns the schema-collection a task's payload is
-// bound to ("", false for non-scoped / unparseable). Register via
-// [Manager.RegisterCollectionExtractor] to opt a namespace into
-// [Manager.DeleteTasksForCollection] — closes
-// weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
+
+// TaskHeader is what the Manager derives from a task's payload once, when it stores the task, so the RAFT apply's checks never decode it.
+type TaskHeader interface {
+	Collection() string
+}
+
+// HeaderDecoder must be a pure function of the payload: every node runs it in the RAFT apply.
+type HeaderDecoder func(payload []byte) (TaskHeader, error)
 
 // ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
 type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
@@ -582,7 +585,7 @@ type Task struct {
 
 	groupCount int
 
-	collection string
+	header TaskHeader
 
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 
@@ -757,8 +760,21 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
+// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire rather than from a Manager.
+func (t *Task) Header() TaskHeader {
+	return t.header
+}
+
+func (t *Task) collection() string {
+	if t.header == nil {
+		return ""
+	}
+	return t.header.Collection()
+}
+
 func (t *Task) OnKnownOtherCollection(collection string) bool {
-	return t.collection != "" && !strings.EqualFold(t.collection, collection)
+	own := t.collection()
+	return own != "" && !strings.EqualFold(own, collection)
 }
 
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).

@@ -189,24 +189,15 @@ type Config struct {
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
 
-	// DistributedTaskCollectionExtractors are registered on the
-	// distributed-task Manager at FSM construction time, BEFORE RAFT
-	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay
-	// (schemaOnly) apply too. Late post-construction registration would
-	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
-	// and weaviate/0-weaviate-issues#231.
-	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
-	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
-	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
 	// DistributedTaskConflictDetectors and DistributedTaskSchemaMutationDetectors
 	// reach the Manager when NewFSM runs, before RAFT replay, like the
 	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
+	DistributedTaskHeaderDecoders          map[string]distributedtask.HeaderDecoder
 	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
 	// whose units no longer match the current replicas of the shards they name.
-	// A namespace without a collection extractor is never checked.
 	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
@@ -436,6 +427,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		Logger:                  cfg.Logger,
 		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
+		HeaderDecoders:          cfg.DistributedTaskHeaderDecoders,
 		ReadOnlyClass: func(collection string) *models.Class {
 			return schemaReader.ReadOnlyVersionedClass(collection).Class
 		},
@@ -444,14 +436,6 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
-	// Register collection extractors BEFORE RAFT.Apply replay can fire.
-	// The DELETE_CLASS cascade lives in updateSchema (runs even on
-	// schemaOnly replay), but with no extractor registered for the
-	// reindex namespace the cascade is a no-op and the resurrected task
-	// records survive. weaviate/0-weaviate-issues#231.
-	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
-		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
-	}
 	for namespace, extractor := range cfg.DistributedTaskTargetVectorExtractors {
 		distributedTasksManager.RegisterTargetVectorExtractor(namespace, extractor)
 	}

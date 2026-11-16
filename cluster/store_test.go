@@ -1565,7 +1565,7 @@ type MockStore struct {
 	replicationFSM *schema.MockreplicationFSM
 }
 
-// tweaks edit the config before NewFSM reads it, e.g. to register DistributedTaskCollectionExtractors.
+// tweaks edit the config before NewFSM reads it, e.g. to set DistributedTaskHeaderDecoders.
 func NewMockStore(t *testing.T, nodeID string, raftPort int, tweaks ...func(*Config)) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
@@ -1718,13 +1718,26 @@ var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
 func exclusionStore(t *testing.T) *Store {
 	t.Helper()
 	return NewMockStore(t, "node1", 0, func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: namesExclusionCollection,
+		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+			exclusionNamespace: decodeCollection(namesExclusionCollection),
 		}
 	}).store
 }
 
 func namesExclusionCollection([]byte) (string, bool) { return exclusionCollection, true }
+
+type collectionHeader string
+
+func (h collectionHeader) Collection() string { return string(h) }
+
+func decodeCollection(extract func([]byte) (string, bool)) distributedtask.HeaderDecoder {
+	return func(payload []byte) (distributedtask.TaskHeader, error) {
+		if collection, ok := extract(payload); ok {
+			return collectionHeader(collection), nil
+		}
+		return nil, errors.New("unreadable payload")
+	}
+}
 
 func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
 	t.Helper()
@@ -1757,8 +1770,8 @@ func seedExclusionMovement(t *testing.T, s *Store) {
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
 	srv, _ := newBarrierTestStore(t, func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: namesExclusionCollection,
+		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+			exclusionNamespace: decodeCollection(namesExclusionCollection),
 		}
 	})
 
@@ -1979,12 +1992,12 @@ type replicasPayload struct {
 func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical) *Store {
 	t.Helper()
 	m := NewMockStore(t, "node1", 0, func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: func(payload []byte) (string, bool) {
+		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+			exclusionNamespace: decodeCollection(func(payload []byte) (string, bool) {
 				var p replicasPayload
 				err := json.Unmarshal(payload, &p)
 				return p.Collection, err == nil
-			},
+			}),
 		}
 		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
 			exclusionNamespace: func(payload []byte) (map[string][]string, bool) {
