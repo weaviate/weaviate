@@ -56,6 +56,9 @@ type propValuePair struct {
 	// same — and newBatchedContainsPair guarantees a batched leaf never holds
 	// zero keys, so the two states can't be confused.
 	containsKeys entsInverted.SortedKeys
+
+	textPair     bool
+	pinnedBucket *lsmkv.Bucket
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -383,8 +386,10 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			entsInverted.ErrInternal, pv.prop)
 	}
 
-	bucketName := pv.getBucketName()
-	b := s.store.Bucket(bucketName)
+	b := pv.pinnedBucket
+	if !pv.textPair {
+		b = s.store.Bucket(pv.getBucketName())
+	}
 	if b == nil {
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
@@ -470,12 +475,14 @@ func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit 
 		return nil, errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 	}
 
-	bucketName := pv.getBucketName()
-	if bucketName == "" {
-		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+	b := pv.pinnedBucket
+	if !pv.textPair {
+		bucketName := pv.getBucketName()
+		if bucketName == "" {
+			return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		}
+		b = s.store.Bucket(bucketName)
 	}
-
-	b := s.store.Bucket(bucketName)
 
 	// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
 	if b == nil && pv.operator != filters.OperatorWithinGeoRange {

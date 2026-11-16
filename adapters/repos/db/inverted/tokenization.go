@@ -19,9 +19,12 @@ import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 // mixing pre-/post-swap state during a retokenization.
 type SearchableBucketPinningResolver func(propName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket, release func())
 
+// TokenizationBucketPinner is [SearchableBucketPinningResolver] for any bucket of the property.
+type TokenizationBucketPinner func(propName, bucketName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket, release func())
+
 // TokenizationResolver returns the active query-time tokenization for a
 // property given the schema-stored value. Used by query paths
-// (BM25Searcher, Searcher, aggregators) to consult a per-shard
+// (BM25Searcher, aggregators) to consult a per-shard
 // tokenization overlay before falling back to the schema-stored
 // value on the property.
 //

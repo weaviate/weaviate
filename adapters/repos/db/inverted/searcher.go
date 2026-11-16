@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -64,13 +65,9 @@ type Searcher struct {
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
 	nestedBitmapOps     *invnested.BitmapOps
-	// tokResolver, when non-nil, overrides prop.Tokenization on query
-	// input analysis. Used by the per-shard tokenization overlay to
-	// keep query tokenization aligned with the bucket content during
-	// the FINALIZING window of a change-tokenization migration. Nil =
-	// use prop.Tokenization directly (tests and callers with no
-	// in-flight migration).
-	tokResolver TokenizationResolver
+
+	pinTokenizationAndBucket TokenizationBucketPinner
+	pins                     *filterPins
 	// batchedContainsEnabled gates the batched flat Contains resolution.
 	// Runtime-overridable; nil (the default) means disabled, so the
 	// feature is opt-in and callers that don't wire it keep the
@@ -78,20 +75,55 @@ type Searcher struct {
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
-// WithTokenizationResolver attaches a [TokenizationResolver] used by query
-// input analysis to consult a per-shard tokenization overlay before
-// falling back to the schema-stored `prop.Tokenization`. Returns the
-// receiver for fluent chaining at construction sites.
-//
-// Production callers wire `Shard.TokenizationFor` here so a
-// change-tokenization migration's FINALIZING-window overlay routes
-// query input to the post-swap tokenization. See [TokenizationResolver]
-// for the misalignment this closes.
-//
-// Pass nil (the default) to use the schema-stored value directly.
-func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
-	s.tokResolver = r
+// WithTokenizationBucketPinner replaces the default: schema tokenization, store bucket.
+func (s *Searcher) WithTokenizationBucketPinner(p TokenizationBucketPinner) *Searcher {
+	s.pinTokenizationAndBucket = p
 	return s
+}
+
+type filterPins struct {
+	mu     sync.Mutex
+	pinned []filterPin
+}
+
+type filterPin struct {
+	prop, bucketName string
+	tokenization     string
+	bucket           *lsmkv.Bucket
+	release          func()
+}
+
+func (s *Searcher) forCall() *Searcher {
+	call := &struct {
+		Searcher
+		pins filterPins
+	}{Searcher: *s}
+	call.Searcher.pins = &call.pins
+	return &call.Searcher
+}
+
+func (s *Searcher) pinFilterBucket(prop *models.Property, bucketName string) (string, *lsmkv.Bucket) {
+	s.pins.mu.Lock()
+	defer s.pins.mu.Unlock()
+	for _, pin := range s.pins.pinned {
+		if pin.prop == prop.Name && pin.bucketName == bucketName {
+			return pin.tokenization, pin.bucket
+		}
+	}
+	tokenization, bucket, release := s.pinTokenizationAndBucket(prop.Name, bucketName, prop.Tokenization)
+	s.pins.pinned = append(s.pins.pinned, filterPin{
+		prop: prop.Name, bucketName: bucketName, tokenization: tokenization, bucket: bucket, release: release,
+	})
+	return tokenization, bucket
+}
+
+func (p *filterPins) releaseAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, pin := range p.pinned {
+		pin.release()
+	}
+	p.pinned = nil
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
@@ -139,7 +171,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		// trusting the schema flag verbatim.
 		isRangeableLocallyReady = func(string) bool { return true }
 	}
-	return &Searcher{
+	s := &Searcher{
 		logger:                  logger,
 		store:                   store,
 		getClass:                getClass,
@@ -153,6 +185,15 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		nestedCrossRefLimit:     nestedCrossRefLimit,
 		bitmapFactory:           bitmapFactory,
 		nestedBitmapOps:         invnested.NewBitmapOps(bitmapFactory.BufPool()),
+	}
+	s.pinTokenizationAndBucket = pinWithSchemaTokenization(store)
+	return s
+}
+
+func pinWithSchemaTokenization(store *lsmkv.Store) TokenizationBucketPinner {
+	return func(_, bucketName, schemaTokenization string) (string, *lsmkv.Bucket, func()) {
+		bucket, release := store.AcquireBucketForRead(bucketName)
+		return schemaTokenization, bucket, release
 	}
 }
 
@@ -303,6 +344,9 @@ func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilte
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
+	s = s.forCall()
+	defer s.pins.releaseAll()
+
 	pv, err := s.extractPropValuePair(ctx, filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -886,16 +930,24 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
+	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
+	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
+
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
+		return nil, missingFilterIndexError(prop)
+	}
+	probe := propValuePair{
+		prop: prop.Name, operator: operator, hasFilterableIndex: hasFilterableIndex,
+		hasSearchableIndex: hasSearchableIndex, hasRangeableIndex: hasRangeableIndex,
+	}
+
 	var terms []string
+	var bucket *lsmkv.Bucket
 	switch propType {
 	case schema.DataTypeText:
-		// effectiveTok consults the per-shard tokenization overlay (set
-		// during the FINALIZING window of a change-tokenization
-		// migration) before falling back to the schema-stored value.
-		// Both the LIKE wildcard path and the standard analyze path
-		// tokenize query input against effectiveTok so the resulting
-		// terms match the bucket content on this shard.
-		effectiveTok := ResolveTokenization(s.tokResolver, prop.Name, prop.Tokenization)
+		var effectiveTok string
+		effectiveTok, bucket = s.pinFilterBucket(prop, probe.getBucketName())
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
@@ -924,25 +976,14 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
 	}
 
-	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
-	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
-
-	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, missingFilterIndexError(prop)
-	}
-
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		propValuePairs = append(propValuePairs, &propValuePair{
-			value:              []byte(term),
-			prop:               prop.Name,
-			operator:           operator,
-			hasFilterableIndex: hasFilterableIndex,
-			hasSearchableIndex: hasSearchableIndex,
-			hasRangeableIndex:  hasRangeableIndex,
-			Class:              class,
-		})
+		pair := probe
+		pair.value = []byte(term)
+		pair.Class = class
+		pair.textPair = true
+		pair.pinnedBucket = bucket
+		propValuePairs = append(propValuePairs, &pair)
 	}
 
 	if len(propValuePairs) > 1 {
@@ -1112,7 +1153,14 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 		return nil, containsNotBatchable, containsDeclineNoFilterableIndex
 	}
 
-	b := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+	bucketName := helpers.BucketFromPropNameLSM(property.Name)
+	var tokenization string
+	var b *lsmkv.Bucket
+	if s.onTokenizableProp(property) {
+		tokenization, b = s.pinFilterBucket(property, bucketName)
+	} else {
+		b = s.store.Bucket(bucketName)
+	}
 	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
 		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
 	}
@@ -1132,7 +1180,7 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 		// input, never zero, never more than one), so FIELD is provably a
 		// 1-value-to-1-key tokenization; any other tokenization can turn one
 		// value into zero or several tokens and must desugar.
-		if ResolveTokenization(s.tokResolver, property.Name, property.Tokenization) != models.PropertyTokenizationField {
+		if tokenization != models.PropertyTokenizationField {
 			return nil, containsNotBatchable, containsDeclineTokenizationNotField
 		}
 		if s.isFallbackToSearchable() {
@@ -1312,7 +1360,13 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	pv, err := newBatchedContainsPair(property, operator, class, keys)
+	if err != nil || batchType != containsBatchTextField {
+		return pv, err
+	}
+	pv.textPair = true
+	_, pv.pinnedBucket = s.pinFilterBucket(property, helpers.BucketFromPropNameLSM(property.Name))
+	return pv, nil
 }
 
 // extractContainsOperands turns a Contains filter's values into one Equal

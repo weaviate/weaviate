@@ -297,7 +297,7 @@ func (s *Shard) resolveAndCollectUUIDs(ctx context.Context, filter *filters.Loca
 	searcher := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.version, s.isFallbackToSearchable,
 		s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		WithTokenizationResolver(s.TokenizationFor).
+		WithTokenizationBucketPinner(s.PinTokenizationAndBucket).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled)
 
 	allowList, err := searcher.DocIDs(ctx, filter, additional.Properties{},

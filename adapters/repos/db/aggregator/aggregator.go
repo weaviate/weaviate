@@ -64,7 +64,7 @@ type Aggregator struct {
 	bitmapFactory           *roaringset.BitmapFactory
 	modules                 *modules.Provider
 	defaultLimit            int64
-	// tokResolver, when non-nil, is propagated to inverted.Searcher /
+	// tokResolver, when non-nil, is propagated to the
 	// inverted.BM25Searcher built by this aggregator so query input
 	// gets analyzed under the per-shard tokenization overlay during
 	// the FINALIZING window of a change-tokenization migration. Nil
@@ -75,6 +75,8 @@ type Aggregator struct {
 	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
 	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
 	bucketPinResolver inverted.SearchableBucketPinningResolver
+
+	filterBucketPinner inverted.TokenizationBucketPinner
 	// batchedContainsEnabled is propagated to the inverted.Searcher built
 	// by this aggregator. Nil (the default) means the batched Contains
 	// resolution stays off.
@@ -86,6 +88,11 @@ func (a *Aggregator) WithSearchableBucketPinningResolver(
 	r inverted.SearchableBucketPinningResolver,
 ) *Aggregator {
 	a.bucketPinResolver = r
+	return a
+}
+
+func (a *Aggregator) WithTokenizationBucketPinner(p inverted.TokenizationBucketPinner) *Aggregator {
+	a.filterBucketPinner = p
 	return a
 }
 

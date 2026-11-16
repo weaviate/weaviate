@@ -782,12 +782,14 @@ func (s *Shard) SwapBucketsAndSetOverlay(ctx context.Context,
 	return displaced, nil
 }
 
-// PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its bucket under one RLock. Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	return s.PinTokenizationAndBucket(propName, helpers.BucketSearchableFromPropNameLSM(propName), liveTokenization)
+}
 
+// Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
+func (s *Shard) PinTokenizationAndBucket(propName, bucketName, liveTokenization string,
+) (string, *lsmkv.Bucket, func()) {
 	if propName == "" {
 		bucket, release := s.store.AcquireBucketForRead(bucketName)
 		return liveTokenization, bucket, release
