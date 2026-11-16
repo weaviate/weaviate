@@ -957,6 +957,19 @@ func withOpID(t *testing.T, task *distributedtask.Task, opID string) *distribute
 	return task
 }
 
+// underEpochOps rewrites each record to run under its epoch's op, as rounds
+// enqueued by this version do. A record under another op makes the enqueuer
+// re-clean whatever else the records say.
+func underEpochOps(t *testing.T, tasks []*distributedtask.Task) []*distributedtask.Task {
+	t.Helper()
+	for _, task := range tasks {
+		var p db.DropVectorIndexTaskPayload
+		require.NoError(t, json.Unmarshal(task.Payload, &p))
+		withOpID(t, task, p.DropEpochID)
+	}
+	return tasks
+}
+
 // requireVerifyOnlyRound asserts the enqueuer submitted a round of the epoch
 // that strips nothing and claims every current shard as cleaned.
 func requireVerifyOnlyRound(t *testing.T, cluster *fakeClusterDropClient, epoch string, shards []string) db.DropVectorIndexTaskPayload {
@@ -1050,6 +1063,7 @@ func TestEnqueuerRemovalGateConsistency(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			underEpochOps(t, tt.tasks)
 			physical := make(map[string]sharding.Physical, len(tt.shards))
 			for _, shard := range tt.shards {
 				physical[shard] = hot
@@ -1064,14 +1078,19 @@ func TestEnqueuerRemovalGateConsistency(t *testing.T) {
 			finalizer := &fakeEnqueuerFinalizer{}
 			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
 			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-			require.Equal(t, tt.wantFinalize, len(finalizer.calls) > 0)
+			require.Empty(t, finalizer.calls, "the marker is never removed directly while a shard exists")
 
 			logger, _ := test.NewNullLogger()
 			err := db.NewDropVectorIndexDetector(logger).
 				CheckVectorConfigRemoval("C", []string{"v1"}, tt.shards, tt.tasks)
 			if tt.wantFinalize {
+				requireVerifyOnlyRound(t, cluster, "E1", tt.shards)
 				require.NoError(t, err, "the gate must accept every removal the enqueuer proposes")
 				return
+			}
+			if cluster.gotTaskID != "" {
+				require.False(t, decodeEnqueuedPayload(t, cluster).VerifyOnly,
+					"an unstripped shard must be re-cleaned, not verified")
 			}
 			require.Error(t, err, "the gate must refuse a removal the enqueuer does not propose")
 		})
@@ -1295,6 +1314,7 @@ func TestEnqueueDropVectorIndex_DeletedUnitTenant(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			underEpochOps(t, tt.tasks)
 			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 				db.DropVectorIndexNamespace: tt.tasks,
 			}}
@@ -1315,19 +1335,20 @@ func TestEnqueueDropVectorIndex_DeletedUnitTenant(t *testing.T) {
 			gateErr := db.NewDropVectorIndexDetector(logger).
 				CheckVectorConfigRemoval("C", []string{"v1"}, shardNames, tt.tasks)
 
+			require.Empty(t, finalizer.calls, "the marker is never removed directly while a shard exists")
 			if tt.wantFinalize {
-				require.Empty(t, cluster.gotTaskID, "every surviving shard is stripped: no round may be enqueued")
-				require.Equal(t, [][]string{{"v1"}}, finalizer.calls)
+				p := requireVerifyOnlyRound(t, cluster, "E1", shardNames)
+				require.Equal(t, map[string]string{"s1__n1": "s1"}, p.UnitToShard, "one unit per node")
 				require.NoError(t, gateErr, "the removal gate must accept the removal the enqueuer proposes")
 				return
 			}
-			require.Empty(t, finalizer.calls, "a surviving shard is unstripped: the marker must stay")
 			require.Error(t, gateErr, "the removal gate must hold the marker too")
 			if tt.wantUnits == nil {
 				require.Empty(t, cluster.gotTaskID, "no active shard is left to strip")
 				return
 			}
 			p := decodeEnqueuedPayload(t, cluster)
+			require.False(t, p.VerifyOnly, "an unstripped shard must be re-cleaned, not verified")
 			if tt.wantFresh {
 				require.NotEqual(t, "E1", p.DropEpochID, "a chain that owed nothing starts a fresh epoch")
 			} else {
