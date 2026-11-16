@@ -13,12 +13,14 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -107,8 +109,6 @@ func (s *Raft) Remove(ctx context.Context, id string) error {
 	}
 
 	// The Raft peer has been removed from the cluster configuration.
-	// Now ensure that no shard replicas still reference this node and
-	// that we keep satisfying the configured replication factor where possible.
 	if err := s.rebalanceReplicasAfterNodeRemoval(ctx, id); err != nil {
 		return fmt.Errorf("rebalance replicas after removing node %q: %w", id, err)
 	}
@@ -152,15 +152,42 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 			continue
 		}
 
-		desiredRF := int(classInfo.ReplicationFactor)
-
-		for _, shardName := range shardsWithRemovedNode {
-			if err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF); err != nil {
-				return err
-			}
+		if err := s.rebalanceCollectionShards(ctx, schemaReader, className, shardsWithRemovedNode, removedNode, int(classInfo.ReplicationFactor)); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+func (s *Raft) rebalanceCollectionShards(ctx context.Context, schemaReader schema.SchemaReader, className string, shards []string, removedNode string, desiredRF int) error {
+	var firstRefusal error
+	skipped := 0
+	defer func() {
+		if skipped > 0 {
+			s.log.WithFields(logrus.Fields{
+				"collection":     className,
+				"removed_node":   removedNode,
+				"skipped_shards": skipped,
+			}).Warnf("skipping replica rebalance of %d shards after node departure, so they still list the removed node; "+
+				"once the refusal clears, remove the node again or apply a scale plan that removes it from them. First refusal: %v",
+				skipped, firstRefusal)
+		}
+	}()
+
+	for _, shardName := range shards {
+		err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF)
+		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+			if skipped == 0 {
+				firstRefusal = err
+			}
+			skipped++
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

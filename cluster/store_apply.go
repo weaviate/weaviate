@@ -134,7 +134,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+// admitPropose also refuses a replicate, an add-replica or a delete-replica command while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is one of those three or a task whose namespace registered a collection extractor.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection, shard string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
@@ -207,6 +207,13 @@ func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, string
 		}
 		return sub.SourceCollection, sub.SourceShard, nil, nil
 
+	case api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:
+		var sub struct{ Class, Shard string }
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return "", "", nil, fmt.Errorf("unmarshal %s subcommand: %w", req.Type, err)
+		}
+		return sub.Class, sub.Shard, nil, nil
+
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		sub := &api.AddDistributedTaskRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
@@ -222,7 +229,9 @@ func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, string
 // admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
 func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection, shard string) error {
 	switch cmdType {
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+		api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:
 		if st.distributedTasksManager.HasActiveTaskForCollection(collection) {
 			return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
 				replicationTypes.ErrMovementBlockedByTask, collection)

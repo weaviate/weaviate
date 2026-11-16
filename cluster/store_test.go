@@ -1733,6 +1733,13 @@ func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
 }
 
+func exclusionRemovalCommand(t *testing.T) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(&cmd.DeleteReplicaFromShard{Class: exclusionCollection, Shard: "shard1", TargetNode: "node3"})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, Class: exclusionCollection, SubCommand: sub}
+}
+
 func exclusionTaskCommand(t *testing.T, namespace string) *cmd.ApplyRequest {
 	t.Helper()
 	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
@@ -1942,6 +1949,10 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 				owedBy(failOwingTask)(t, s)
 				paySwap(t, s, "shard1", "node2")
 			},
+		},
+		{
+			name: "a replica removal is refused while a stopped task owes its shard's swap", command: exclusionRemovalCommand,
+			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
 		},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,

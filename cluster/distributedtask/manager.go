@@ -426,7 +426,7 @@ func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	return false
 }
 
-// TaskOwingSwap finds a task in any status that owes shard's swap: copying or moving that replica would leave a debt no node can pay, or old data no debt names.
+// TaskOwingSwap finds a task in any status that owes shard's swap: copying, moving, removing or adding a replica would leave a debt no node can pay, or old data no debt names.
 func (m *Manager) TaskOwingSwap(collection, shard string) (taskID string, nodes []string, owed bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
