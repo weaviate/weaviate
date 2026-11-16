@@ -341,6 +341,8 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 
 			reachable := c.reachable(deleted)
 			phase(func(h *HFresh) {
+				// the startup repair works through the task queues
+				waitIdle(t, h)
 				requireReachable(h, reachable)
 				if c.check != nil {
 					c.check(t, h)
