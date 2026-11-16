@@ -160,7 +160,7 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
-		postingID, err := h.IDs.Next()
+		postingID, err := h.nextPostingID()
 		if err != nil {
 			return nil, err
 		}

@@ -172,6 +172,20 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	return &h, nil
 }
 
+// nextPostingID skips IDs the centroid graph already holds: a store rolled
+// back behind the commit log restarts the sequence below them.
+func (h *HFresh) nextPostingID() (uint64, error) {
+	for {
+		id, err := h.IDs.Next()
+		if err != nil {
+			return 0, err
+		}
+		if !h.Centroids.Known(id) {
+			return id, nil
+		}
+	}
+}
+
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
 	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
 		return err
