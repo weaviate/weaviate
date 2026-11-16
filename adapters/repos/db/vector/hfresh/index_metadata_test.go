@@ -13,11 +13,15 @@ package hfresh
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
 
 func TestQuantizationDataSurvivesRestart(t *testing.T) {
@@ -113,4 +117,111 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 	data, err = mustBucket(t, index.IndexMetadata.bucket).Get(unrelatedKey)
 	require.NoError(t, err)
 	require.Equal(t, unrelatedValue, data)
+}
+
+// partialFlushCase rolls one directory back to a snapshot taken before mutate
+// ran, as a process crash leaves it when that side's buffered writes never
+// reached the file while the other side's did.
+type partialFlushCase struct {
+	name     string
+	setup    func(t *testing.T, h *HFresh)
+	mutate   func(t *testing.T, h *HFresh) (deleted []uint64)
+	rollback func(cfg *Config, storeDir string) string
+	// reachable lists the vectors that must be found after the restart
+	reachable func(deleted []uint64) []uint64
+}
+
+func TestRecoveryAfterPartialFlush(t *testing.T) {
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(1400, 0, 8)
+	idRange := func(from, to int) []uint64 {
+		ids := make([]uint64, 0, to-from)
+		for id := from; id < to; id++ {
+			ids = append(ids, uint64(id))
+		}
+		return ids
+	}
+	add := func(t *testing.T, h *HFresh, from, to int) {
+		for id := from; id < to; id++ {
+			require.NoError(t, h.Add(t.Context(), uint64(id), vectors[id]))
+		}
+	}
+	commitLog := func(cfg *Config, _ string) string {
+		return filepath.Join(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID+".hnsw.commitlog.d")
+	}
+
+	cases := []partialFlushCase{
+		{
+			name:      "split, commit log behind store",
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			rollback:  commitLog,
+			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			storeDir := t.TempDir()
+			store := testinghelpers.NewDummyStoreFromFolder(storeDir, t)
+			cfg, uc := makeHFreshConfig(t)
+			uc.MaxPostingSizeKB = ent.MaxPostingSizeKBFloor
+			t.Cleanup(func() { cfg.Scheduler.Close(context.Background()) })
+			cfg.VectorForIDThunk = func(_ context.Context, id uint64) ([]float32, error) {
+				return vectors[id], nil
+			}
+
+			// each phase ends with a clean shutdown of the index and the store
+			phase := func(run func(h *HFresh)) {
+				h := makeHFreshWithConfig(t, store, cfg, uc)
+				run(h)
+				require.Eventually(t, func() bool { return h.taskQueue.Size() == 0 },
+					30*time.Second, 10*time.Millisecond)
+				require.NoError(t, h.Shutdown(t.Context()))
+				require.NoError(t, store.Shutdown(t.Context()))
+				store = testinghelpers.NewDummyStoreFromFolder(storeDir, t)
+			}
+			requireReachable := func(h *HFresh, ids []uint64) {
+				var missing []uint64
+				for _, id := range ids {
+					found, _, err := h.SearchByVector(t.Context(), vectors[id], 1, nil)
+					require.NoError(t, err)
+					if len(found) == 0 || found[0] != id {
+						missing = append(missing, id)
+					}
+				}
+				require.Empty(t, missing, "%d of %d vectors are unreachable", len(missing), len(ids))
+			}
+
+			phase(func(h *HFresh) { c.setup(t, h) })
+
+			dir := c.rollback(cfg, storeDir)
+			snapshot := filepath.Join(t.TempDir(), "snapshot")
+			_, err := os.Stat(dir)
+			hadDir := err == nil
+			if hadDir {
+				require.NoError(t, os.CopyFS(snapshot, os.DirFS(dir)))
+			}
+
+			var deleted []uint64
+			phase(func(h *HFresh) { deleted = c.mutate(t, h) })
+
+			require.NoError(t, store.Shutdown(t.Context()))
+			require.NoError(t, os.RemoveAll(dir))
+			if hadDir {
+				require.NoError(t, os.CopyFS(dir, os.DirFS(snapshot)))
+			}
+			store = testinghelpers.NewDummyStoreFromFolder(storeDir, t)
+
+			reachable := c.reachable(deleted)
+			phase(func(h *HFresh) { requireReachable(h, reachable) })
+
+			// the recovered index must keep accepting writes and splitting
+			phase(func(h *HFresh) {
+				add(t, h, 800, 1400)
+				require.Eventually(t, func() bool { return h.taskQueue.Size() == 0 },
+					30*time.Second, 10*time.Millisecond)
+				requireReachable(h, append(reachable, idRange(800, 1400)...))
+			})
+		})
+	}
 }
