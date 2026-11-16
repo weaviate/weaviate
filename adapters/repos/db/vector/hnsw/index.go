@@ -886,6 +886,17 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 	return exists && !h.hasTombstone(docID)
 }
 
+// ContainsNode reports whether id holds a node, tombstoned or not.
+func (h *hnsw) ContainsNode(id uint64) bool {
+	h.RLock()
+	h.shardedNodeLocks.RLock(id)
+	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
+	h.shardedNodeLocks.RUnlock(id)
+	h.RUnlock()
+
+	return exists
+}
+
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 	if h.Multivector() && !h.muvera.Load() {
 		h.iterateMulti(fn)
