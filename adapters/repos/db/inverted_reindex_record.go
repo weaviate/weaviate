@@ -466,8 +466,7 @@ func validateCanonicalNamesOwnBucket(e migrationRecordEnvelope) error {
 	return nil
 }
 
-// [TestEveryStrategyReadsTheMainBucketThisNames] pins this against each strategy's
-// SourceBucketName. No default arm, so the linter refuses a code that names no bucket.
+// No default arm, so the linter refuses a code that names no bucket.
 func sourceBucketNameFor(code MigrationStrategyCode, prop string) string {
 	switch code {
 	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,

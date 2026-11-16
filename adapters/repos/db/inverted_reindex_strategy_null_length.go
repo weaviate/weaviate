@@ -74,7 +74,6 @@ func (s *NullLengthStrategy) SourceIndexType() PropertyIndexType {
 	return IndexTypePropNull
 }
 
-// key is prop's entry in this strategy's bucket; ok is false where it has none.
 func (s *NullLengthStrategy) key(shard ShardLike, prop inverted.Property) (key []byte, ok bool, err error) {
 	e := nullLengthEntryOf(shard.Index().invertedIndexConfig, prop)
 	switch {

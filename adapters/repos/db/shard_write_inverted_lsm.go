@@ -59,7 +59,6 @@ func (s *Shard) addToNullLengthIndexes(docID uint64, prop inverted.Property) err
 	return nil
 }
 
-// One object's entry for one property in the null-state and property-length indexes.
 type nullLengthEntry struct {
 	isNull, addNull bool
 	length          int
