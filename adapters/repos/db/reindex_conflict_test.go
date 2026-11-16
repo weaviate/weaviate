@@ -1049,6 +1049,19 @@ func TestReindexDetector_AddMissingGroups(t *testing.T) {
 }
 
 // Every node must keep the same unit whatever order it meets the two tenants in.
+func TestClaimUnitIDKeepsTheSmallerTenant(t *testing.T) {
+	x := &distributedtask.Unit{ID: MigrationUnitID("x", "y__z"), GroupID: "x"}
+	xy := &distributedtask.Unit{ID: MigrationUnitID("x__y", "z"), GroupID: "x__y"}
+	for _, order := range [][]*distributedtask.Unit{{x, xy}, {xy, x}} {
+		added := map[string]*distributedtask.Unit{}
+		for _, u := range order {
+			claimUnitID(added, u)
+		}
+		require.Equal(t, map[string]*distributedtask.Unit{"x__y__z": x}, added)
+	}
+}
+
+// Map order varies per call, so only repeated calls catch AddMissingGroups bypassing claimUnitID.
 func TestAddMissingGroupsKeepsTheSmallerTenantOnASharedUnitID(t *testing.T) {
 	state := &sharding.State{Physical: map[string]sharding.Physical{
 		"x":    {Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"y__z"}},
