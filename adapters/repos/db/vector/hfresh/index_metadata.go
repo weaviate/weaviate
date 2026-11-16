@@ -329,6 +329,15 @@ func NewBucketStore(bucket bucketRef) *BucketStore {
 	}
 }
 
+// NewDurableBucketStore writes each stored bound to its file before returning:
+// the commit log can record an ID before the store's next flush. The postings
+// bucket goes first so the versions in the shared bucket never get ahead of it.
+func NewDurableBucketStore(shared, postings bucketRef) *BucketStore {
+	s := NewBucketStore(shared)
+	s.flushOnStore = []bucketRef{postings, shared}
+	return s
+}
+
 func (s *BucketStore) Store(upperBound uint64) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], upperBound)

@@ -150,11 +150,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	idStore := NewBucketStore(bucket)
-	// the commit log can record an ID before the store's next flush, so each
-	// reserved range reaches the file first; postings go before the versions
-	// in the shared bucket
-	idStore.flushOnStore = []bucketRef{newBucketRef(store, postingsBucketName(cfg.ID)), bucket}
+	idStore := NewDurableBucketStore(bucket, newBucketRef(store, postingsBucketName(cfg.ID)))
 	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
