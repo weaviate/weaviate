@@ -119,7 +119,7 @@ func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 }
 
 func (s *Raft) CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
-	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL, &cmd.CancelDistributedTaskRequest{
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL, &cmd.CancelDistributedTaskRequest{
 		Namespace:             namespace,
 		Id:                    taskID,
 		Version:               taskVersion,
