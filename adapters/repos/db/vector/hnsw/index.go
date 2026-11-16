@@ -135,11 +135,6 @@ type hnsw struct {
 
 	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
 
-	// highest node or tombstone ID after the commit log replay, captured
-	// before tombstone cleanup can remove it
-	restoredMaxNodeID      uint64
-	restoredMaxNodeIDFound bool
-
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
 
@@ -476,8 +471,6 @@ func New(cfg Config, uc ent.UserConfig,
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}
-
-	index.restoredMaxNodeID, index.restoredMaxNodeIDFound = index.MaxNodeID()
 
 	// TODO common_cycle_manager move to poststartup?
 	id := strings.Join([]string{
@@ -891,12 +884,6 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 	h.RUnlock()
 
 	return exists && !h.hasTombstone(docID)
-}
-
-// RestoredMaxNodeID returns what MaxNodeID returned once the commit log was
-// replayed, before tombstone cleanup could free any ID.
-func (h *hnsw) RestoredMaxNodeID() (uint64, bool) {
-	return h.restoredMaxNodeID, h.restoredMaxNodeIDFound
 }
 
 // MaxNodeID returns the highest ID holding a node or a tombstone, and false
