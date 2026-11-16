@@ -58,8 +58,11 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *
 	if s.migrationRecords == nil || class == nil {
 		return
 	}
-	tasks, readable := s.migrations().LocalTasks()
 	all := s.migrationRecords.Records()
+	if len(all) == 0 {
+		return
+	}
+	tasks, readable := s.migrations().LocalTasks()
 	records := slices.SortedFunc(slices.Values(all), func(a, b MigrationRecord) int {
 		return cmp.Compare(a.Subject().Key.TaskVersion, b.Subject().Key.TaskVersion)
 	})
@@ -128,8 +131,12 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 	if s.migrationRecords == nil {
 		return false
 	}
+	records := s.migrationRecords.Records()
+	if len(records) == 0 {
+		return false
+	}
 	tasks, readable := s.migrations().LocalTasks()
-	return migratedIndexStandsIn(s.migrationRecords.Records(), tasks, readable, propName, indexType)
+	return migratedIndexStandsIn(records, tasks, readable, propName, indexType)
 }
 
 func migratedIndexStandsIn(records []MigrationRecord, tasks []distributedtask.TaskStatusEntry, readable bool,
