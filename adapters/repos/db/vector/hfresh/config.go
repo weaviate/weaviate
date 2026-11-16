@@ -14,8 +14,8 @@ package hfresh
 import (
 	"math"
 	"os"
-	"strconv"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -35,25 +35,21 @@ const (
 	minPostingSizeFloor uint32 = 3   // Minimum vectors for split threshold
 )
 
-const (
-	singlePostingMaxSizeEnv = "HFRESH_SINGLE_POSTING_MAX_SIZE"
-	// DefaultSinglePostingMaxSize keeps an index in one posting up to 10MiB.
-	DefaultSinglePostingMaxSize uint64 = 10 * 1024 * 1024
-)
+const singlePostingMaxSizeEnv = "EXPERIMENTAL_HFRESH_SINGLE_POSTING_MAX_SIZE"
 
-// SinglePostingMaxSizeFromEnv reads HFRESH_SINGLE_POSTING_MAX_SIZE, in bytes;
-// 0 builds the centroid graph up front.
+// SinglePostingMaxSizeFromEnv reads the size, such as 10MiB, up to which an
+// index stays in one posting. Unset, zero or invalid leaves the feature off.
 func SinglePostingMaxSizeFromEnv(logger logrus.FieldLogger) uint64 {
 	v := os.Getenv(singlePostingMaxSizeEnv)
 	if v == "" {
-		return DefaultSinglePostingMaxSize
+		return 0
 	}
 
-	size, err := strconv.ParseUint(v, 10, 64)
+	size, err := humanize.ParseBytes(v)
 	if err != nil {
-		logger.WithField("value", v).Warnf("invalid %s, using the default of %d bytes: %v",
-			singlePostingMaxSizeEnv, DefaultSinglePostingMaxSize, err)
-		return DefaultSinglePostingMaxSize
+		logger.WithField("value", v).Warnf("invalid %s, single-posting mode stays disabled: %v",
+			singlePostingMaxSizeEnv, err)
+		return 0
 	}
 	return size
 }
