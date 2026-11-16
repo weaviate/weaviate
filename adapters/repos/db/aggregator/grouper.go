@@ -194,6 +194,13 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 		}
 	case []interface{}:
 		for i := range val {
+			// the filtered path decodes a reference as a map, which is no valid map key
+			if ref, ok := val[i].(map[string]interface{}); ok {
+				if beacon, ok := ref["beacon"].(string); ok {
+					g.addItem(beacon, docID)
+					continue
+				}
+			}
 			g.addItem(val[i], docID)
 		}
 	case models.MultipleRef:
