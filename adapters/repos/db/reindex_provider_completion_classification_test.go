@@ -20,9 +20,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // Pins OnTaskCompleted's permanent-vs-transient error classification
@@ -46,6 +50,7 @@ func newClassificationProvider(cls *models.Class) *ReindexProvider {
 		schemaManager: &schema.Manager{SchemaReader: classReaderStub{class: cls}},
 		payloads:      make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:  make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		endedTasks:    make(map[distributedtask.TaskDescriptor]struct{}),
 	}
 }
 
@@ -59,6 +64,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			logger:       logger,
 			payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 			reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+			endedTasks:   make(map[distributedtask.TaskDescriptor]struct{}),
 		}
 		task := &distributedtask.Task{
 			Namespace:      "reindex",
@@ -81,7 +87,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Properties:         []string{"title"},
 			TargetTokenization: models.PropertyTokenizationWord,
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.Error(t, err)
 		require.ErrorIs(t, err, distributedtask.ErrTaskCompletionPermanent)
 	})
@@ -96,7 +102,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Properties:         []string{"title"},
 			TargetTokenization: models.PropertyTokenizationWord,
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.Error(t, err)
 		require.NotErrorIs(t, err, distributedtask.ErrTaskCompletionPermanent)
 	})
@@ -109,7 +115,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Collection:    "Docs",
 			Properties:    []string{"title"},
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.NoError(t, err)
 	})
 
@@ -134,7 +140,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 					Collection:    "Docs",
 					Properties:    []string{"price"},
 				}
-				require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+				require.NoError(t, p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger))
 			})
 		}
 	})
@@ -177,6 +183,30 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		}
 	})
 
+	t.Run("change-algorithm finishes once the property is stamped, even if the class flag cannot flip", func(t *testing.T) {
+		// The class flip is refused, here by a replication minimum raised after the class was created.
+		trueVal := true
+		cls := &models.Class{
+			Class: "Docs", InvertedIndexConfig: &models.InvertedIndexConfig{},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			Properties: []*models.Property{{
+				Name: "title", DataType: []string{"text"}, IndexSearchable: &trueVal, SearchableBlockmax: &trueVal,
+			}},
+		}
+		reader := classReaderStub{class: cls}
+		handler, err := schema.NewHandler(reader, nil, nil, nil, nil, logger, nil, nil,
+			config.Config{Replication: replication.GlobalConfig{MinimumFactor: 3}},
+			nil, nil, nil, nil, nil, nil, schema.Parser{}, nil, nil, nil, namespacing.Disabled)
+		require.NoError(t, err)
+		p := newClassificationProvider(cls)
+		p.schemaManager = &schema.Manager{SchemaReader: reader, Handler: handler}
+		payload := &ReindexTaskPayload{
+			MigrationType: ReindexTypeChangeAlgorithm, Collection: "Docs", Properties: []string{"title"},
+		}
+		require.NoError(t, p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger),
+			"a failed run would lock the migrated property behind a run that cannot finish")
+	})
+
 	t.Run("enable-searchable tolerates a missing property", func(t *testing.T) {
 		p := newClassificationProvider(&models.Class{Class: "Docs"})
 		payload := &ReindexTaskPayload{
@@ -185,7 +215,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Properties:         []string{"title"},
 			TargetTokenization: models.PropertyTokenizationWord,
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.NoError(t, err)
 	})
 }
