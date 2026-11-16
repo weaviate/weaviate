@@ -96,6 +96,8 @@ var (
 
 	ErrTaskReplicasChanged = errors.New("task built against replicas that have since changed")
 
+	ErrTaskTenantsNotHot = errors.New("task names tenants that are not HOT")
+
 	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
 )
 
@@ -107,6 +109,11 @@ func NewBlockedByReplicaMovementError(collection string) error {
 func NewReplicasChangedError(collection string) error {
 	return wrapPermanent(ErrTaskReplicasChanged,
 		fmt.Sprintf("the shards or replicas of collection %q changed while the task was submitted; resubmit it against the current state", collection))
+}
+
+func NewTenantsNotHotError(collection string) error {
+	return wrapPermanent(ErrTaskTenantsNotHot,
+		fmt.Sprintf("some target tenants of collection %q are not HOT; activate them and resubmit", collection))
 }
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
@@ -143,6 +150,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskConflict, "task-conflict"},
 	{ErrTaskBlockedByReplicaMovement, "task-blocked-by-movement"},
 	{ErrTaskReplicasChanged, "task-replicas-changed"},
+	{ErrTaskTenantsNotHot, "task-tenants-not-hot"},
 	{ErrNothingLeftToCancel, "nothing-left-to-cancel"},
 }
 
