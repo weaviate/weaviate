@@ -152,7 +152,11 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 		return nil, nil
 	}
 
-	oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+	swap := store.SwapBucketPointer
+	if _, enables := migrationEnablesIndexType(t.migrationType); enables {
+		swap = store.InstallOrSwapBucketPointer
+	}
+	oldMainBucket, err := swap(ctx, mainName, ingestName)
 	if err != nil {
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 	}
@@ -345,9 +349,6 @@ func (t *ShardReindexTaskGeneric) runSwapOnShard(ctx context.Context, shard Shar
 		logger.WithField("property_count", len(props)).
 			WithField("props", migrationReportedNames(props)).
 			Info("RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
-		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-			return err
-		}
 		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
 			return fmt.Errorf("ensure buckets loaded: %w", err)
 		}
@@ -549,7 +550,6 @@ func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context
 	if len(closed) == 0 {
 		return nil
 	}
-	t.strategy.PreReindexHook(concrete, closed)
 	for _, propName := range closed {
 		name := t.strategy.SourceBucketName(propName)
 		if concrete.store.Bucket(name) == nil {
@@ -816,7 +816,8 @@ func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, s
 			continue
 		}
 		// A removed index opens no canonical bucket, so nothing reads one.
-		if shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
+		_, enables := migrationEnablesIndexType(t.migrationType)
+		if !enables && shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
 			continue
 		}
 		displaced, err := t.processOneSwapProp(ctx, shard.store, 0, propName)
@@ -870,9 +871,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if swapPending {
 			var concrete *Shard
 			if concrete, err = unwrapShard(ctx, shard); err != nil {
-				return zerotime, err
-			}
-			if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
 				return zerotime, err
 			}
 			if err = t.ensureReindexBucketsLoadedForSwap(ctx, logger, concrete, props); err != nil {
@@ -1711,13 +1709,6 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) []string {
 		return propNames
 	}
 
-	// When selection is enabled and an explicit list of properties is given,
-	// the selected list IS the authoritative reindex target. Existing
-	// strategies (e.g. repair-searchable, change-tokenization) target
-	// properties whose source bucket already exists; new from-scratch
-	// strategies (enable-filterable, enable-searchable) target properties
-	// whose source bucket does not exist yet and will be created in
-	// PreReindexHook. Both cases reduce to "use the selected list".
 	if selected, ok := t.selectedProps(collectionName); ok {
 		return selected
 	}

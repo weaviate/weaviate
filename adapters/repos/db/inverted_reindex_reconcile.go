@@ -526,8 +526,6 @@ func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 	return true, ""
 }
 
-// Directory presence can't prove a rename ran (canonical is pre-created
-// empty either way), so the record brackets it with a start/finish write.
 func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	prop string, dirs promotionDirs,
 ) (updated MigrationRecordSwapped, promoted bool, deferred string, err error) {

@@ -15,6 +15,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -88,6 +89,28 @@ func TestStore_SwapBucketPointer_TargetNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target bucket")
 	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestStore_InstallOrSwapBucketPointer(t *testing.T) {
+	for _, targetExists := range []bool{false, true} {
+		t.Run(fmt.Sprintf("target exists=%v", targetExists), func(t *testing.T) {
+			ctx := context.Background()
+			store := newTestStore(t)
+			defer store.Shutdown(ctx)
+			if targetExists {
+				require.NoError(t, store.CreateOrLoadBucket(ctx, "target", WithStrategy(StrategyReplace)))
+			}
+			want := store.Bucket("target")
+			require.NoError(t, store.CreateOrLoadBucket(ctx, "source", WithStrategy(StrategyReplace)))
+			source := store.Bucket("source")
+
+			old, err := store.InstallOrSwapBucketPointer(ctx, "target", "source")
+			require.NoError(t, err)
+			assert.Equal(t, want, old)
+			assert.Same(t, source, store.Bucket("target"))
+			assert.Nil(t, store.Bucket("source"))
+		})
+	}
 }
 
 func TestStore_SwapBucketPointer_SourceNotFound(t *testing.T) {

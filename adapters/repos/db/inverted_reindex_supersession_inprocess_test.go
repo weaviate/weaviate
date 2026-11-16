@@ -25,7 +25,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -241,8 +243,8 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
 			className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
-			props := []string{"title", "body"}
-			class := newEnableFilterableTestClass(className, props...)
+			props := []string{"title"}
+			class := newTestClassWithProps(className, props)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
@@ -253,15 +255,20 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
+			bucketStrategy := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(props[0])).Strategy()
+			newTask := func(generation int) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+				return newSearchableRetokenizeTaskAtGeneration(t, idx, className, props[0],
+					models.PropertyTokenizationField, bucketStrategy, generation, shard.migrationUnit())
+			}
 			generation := 1
 			if tc.backToBack {
-				predecessor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, generation, shard.migrationUnit(), props...)
+				predecessor, _ := newTask(generation)
 				require.NoError(t, predecessor.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, predecessor.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, predecessor.RunSwapOnShard(ctx, shard))
 				generation++
 			}
-			task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, generation, shard.migrationUnit(), props...)
+			task, strategy := newTask(generation)
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
