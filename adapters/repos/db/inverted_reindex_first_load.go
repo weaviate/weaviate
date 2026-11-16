@@ -40,9 +40,9 @@ func (db *DB) SetMigrationBarrierRunSource(source MigrationBarrierRunSource) {
 
 var errFirstLoadRecord = errors.New("write promoted migration records for an empty shard")
 
-// writeFirstLoadRecords writes the promoted records of each run that already swapped this
-// shard's group, since only an owed swap still reaches it and finds them done. It writes
-// while the objects bucket holds no file, so a retry after a failed write still writes.
+// writeFirstLoadRecords writes the promoted records the swapped peers hold, while the objects bucket holds
+// no file, so the next load retries a failed write. A record the store cannot read refuses every write, so
+// every load fails until an operator repairs or removes that record, rather than serve the replaced index.
 func (s *Shard) writeFirstLoadRecords(class *models.Class) error {
 	unit := s.migrationUnit()
 	if unit == "" || s.index.db == nil || s.index.db.migrationBarrierRuns == nil {
