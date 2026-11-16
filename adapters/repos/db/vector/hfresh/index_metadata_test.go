@@ -162,6 +162,9 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		return filepath.Join(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID+".hnsw.commitlog.d")
 	}
 	wholeStore := func(_ *Config, storeDir string) string { return storeDir }
+	postingsBucket := func(cfg *Config, storeDir string) string {
+		return filepath.Join(storeDir, postingsBucketName(cfg.ID))
+	}
 	// shrinkAndMerge deletes most of the smallest posting and merges it
 	shrinkAndMerge := func(t *testing.T, h *HFresh) []uint64 {
 		livePostings := func() (live int, smallest uint64) {
@@ -225,6 +228,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			reachable: func(deleted []uint64) []uint64 {
 				return slices.DeleteFunc(idRange(0, 800), func(id uint64) bool { return slices.Contains(deleted, id) })
 			},
+		},
+		{
+			name:      "split, postings bucket behind shared bucket",
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			rollback:  postingsBucket,
+			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
 		},
 		{
 			name:      "first posting, commit log behind store",
