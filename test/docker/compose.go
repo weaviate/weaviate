@@ -1128,7 +1128,7 @@ func (d *Compose) With3NodeCluster() *Compose {
 
 func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string) ([]*DockerContainer, error) {
 	if size == 0 || size > 3 {
-		return nil, nil
+		return nil, fmt.Errorf("weaviate cluster of %d nodes not supported, 1 to 3", size)
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v

@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -397,6 +398,7 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 }
 
 func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	ctx = sharding.WithTimedOutPeers(ctx) // a peer that timed out on status is skipped for queue size
 	shardsStatus, legacyStatus, err := e.migrator.GetShardsStorageStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
@@ -408,11 +410,15 @@ func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant str
 
 	resp := make(models.ShardStatusList, 0, len(shardsStatus))
 	for shardName, status := range shardsStatus {
+		queueSize, ok := shardsQueueSize[shardName]
+		if !ok {
+			continue // tenant deleted after the status lookup
+		}
 		resp = append(resp, &models.ShardStatusGetResponse{
 			Name:            shardName,
 			Status:          legacyStatus[shardName],
 			PerNodeStatus:   status,
-			VectorQueueSize: shardsQueueSize[shardName],
+			VectorQueueSize: queueSize,
 		})
 	}
 

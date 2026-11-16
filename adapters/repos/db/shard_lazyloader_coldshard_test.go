@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -657,12 +658,48 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
 	}
 
-	// a loaded shard still reports its own status
+	// a loaded shard still reports its own status, and once unloaded is not loaded again
 	for name, shard := range cold {
 		require.NoError(t, shard.Load(ctx))
 		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
 		require.NoError(t, err)
 		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+
+		// a vector-index drop holds the lazy mutex of a loaded shard for the whole drop
+		shard.mutex.Lock()
+		var (
+			listed   map[string]string
+			incoming string
+			size     int64
+			errs     [3]error
+		)
+		done := make(chan struct{})
+		logger, _ := test.NewNullLogger()
+		enterrors.GoWrapper(func() {
+			defer close(done)
+			_, listed, errs[0] = f.migrator.GetShardsStorageStatus(ctx, className, "")
+			incoming, errs[1] = f.index.IncomingGetShardStatus(ctx, name)
+			size, errs[2] = f.index.IncomingGetShardQueueSize(ctx, name)
+		}, logger)
+		waited := false
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			waited = true
+		}
+		shard.mutex.Unlock()
+		<-done
+		require.False(t, waited, "a status read waited on the mutex of a loaded lazy shard")
+		require.NoError(t, errors.Join(errs[:]...))
+		require.Equal(t, storagestate.StatusReady.String(), listed[name])
+		require.Equal(t, storagestate.StatusReady.String(), incoming)
+		require.Zero(t, size)
+
+		require.NoError(t, shard.Shutdown(ctx))
+		_, statuses, err = f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		require.False(t, shard.isLoaded(), "unloaded shard %q must not be loaded again", name)
 		break
 	}
 }

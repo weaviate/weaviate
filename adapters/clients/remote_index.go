@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -572,9 +573,14 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	return batchDeleteResults
 }
 
+// shardStatusTimeout bounds a status or queue-size read. The read is tried once, since the caller asks the next replica.
+const shardStatusTimeout = 2 * time.Second
+
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, shardStatusTimeout)
+	defer cancel()
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName),
 		"", nil)
@@ -586,13 +592,13 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			body, err := io.ReadAll(res.Body)
+			return shouldRetry(code), stderrors.Join(fmt.Errorf("status code: %v body: (%s)", code, body), err)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -610,12 +616,14 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, MAX_RETRIES, try)
+	return size, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, shardStatusTimeout)
+	defer cancel()
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
 		"", nil)
@@ -627,13 +635,13 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			body, err := io.ReadAll(res.Body)
+			return shouldRetry(code), stderrors.Join(fmt.Errorf("status code: %v body: (%s)", code, body), err)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -651,7 +659,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, MAX_RETRIES, try)
+	return status, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
