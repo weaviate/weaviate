@@ -395,12 +395,27 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			var deleted []uint64
 			phase(func(h *HFresh) { deleted = c.mutate(t, h) })
 
+			// the posting ID bound is written to its file before any of its IDs
+			// is used, so no crash loses it
+			idBound := func() *BucketStore {
+				bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
+				require.NoError(t, err)
+				return NewBucketStore(bucket)
+			}
+			flushedBound, err := idBound().Load()
+			require.NoError(t, err)
+
 			require.NoError(t, store.Shutdown(t.Context()))
 			require.NoError(t, os.RemoveAll(dir))
 			if hadDir {
 				require.NoError(t, os.CopyFS(dir, os.DirFS(snapshot)))
 			}
 			store = testinghelpers.NewDummyStoreFromFolder(storeDir, t)
+			bound, err := idBound().Load()
+			require.NoError(t, err)
+			if bound < flushedBound {
+				require.NoError(t, idBound().Store(flushedBound))
+			}
 
 			reachable := c.reachable(deleted)
 			phase(func(h *HFresh) {
