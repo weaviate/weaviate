@@ -241,6 +241,85 @@ No hay búsqueda en el índice. Lo demás es igual que la celda principal: sin a
 - en la celda 5, las distancias exactas por split;
 - en H2, las búsquedas por split, una por miembro.
 
+### Celda 6: aristas inversas más reparación por hermanos (pre-registro, 2026-11-16)
+
+*Encargo del usuario, pre-registrada antes de ningún dato de la celda 5 ni de esta. La celda 5 sigue en cola. De la cadena de v2.0 se conocen a esta hora (16:45) la celda principal completa y checkpoints intermedios de los controles: H1 hasta el 80 %, H2 hasta el 70 % y el orden natural hasta el 90 %. Corre detrás de la celda 5, sola, en su propio script (`scripts/run_v20_cell6.sh`).*
+
+**Mecanismo.** El de H1 más el de la celda 5, sin búsquedas de reparación:
+
+- **en cada insert,** las aristas inversas de H1: el vector nuevo sustituye la peor arista de cada vecino encontrado fuera de su posting del que esté más cerca;
+- **en cada split,** la reparación por hermanos de la celda 5: cada miembro se queda con las 16 más cercanas entre sus aristas actuales y la mitad hermana, por distancia exacta.
+
+Lo demás es igual que la celda principal: T=360, orden barajado, y los mismos checkpoints, métricas y stops.
+
+*Lecturas mías:*
+
+- **El orden dentro de un insert** es el de cada mecanismo en su celda: escritura, aristas inversas y, si el posting pasa de T, split con reparación por hermanos. La mezcla por hermanos parte de las listas como estén, con las aristas inversas que ya tengan.
+- **La regla de la arista inversa no cambia:** sustituye a la peor arista y el grado de esa lista queda igual. Las listas que los hermanos han llenado son más largas, así que una arista inversa compite contra más aristas. Se reporta cuántas se escriben, frente a H1.
+
+**Criterio:**
+
+| pre-registro | umbral |
+|---|---|
+| frente al lote | el principal, sin cambios: al 100 %, recall a igual ef a 0.005 o menos del lote en cada ef de la malla, y cargas a 0.95 un 15 % o menos por encima |
+| frente a H1 sola: los hermanos aportan | si supera a H1 más allá de las definiciones de igualdad de la celda 5: más de 0.001 de recall por encima en algún ef de la malla, o cargas a 0.95 más de un 2 % por debajo |
+| si no las supera | los hermanos no hacen falta cuando hay aristas inversas, y se documenta así |
+| stops | cobertura, y la guardia del constructor (recall de arista al insertar bajo 0.90) |
+
+*Mío:* la regla mira un solo lado. Se reportan la mejor y la peor diferencia de recall frente a H1, y las cargas. Si aporta por un lado y pierde por otro más allá de los mismos umbrales (más de 0.001 por debajo en algún ef, o más de un 2 % más de cargas), se dice y el veredicto se da como mixto.
+
+**Lo que se reporta:**
+
+- **Grado medio** de los insertados y de los vectores del lote, por checkpoint, frente a H1 y a la celda 5.
+- **Trabajo a igual recall, al 100 %:** cargas y endpoints puntuados a 0.95 y a 0.99, frente a H1, la celda 5 y la referencia en lote.
+- **Coste en conteos que no dependen de la máquina:**
+  - **por insert:**
+    - una búsqueda con k=16 y ef=320, como en todas las celdas;
+    - las listas de vecinos que lee la comprobación de la arista inversa, y sus distancias exactas;
+    - las escrituras de aristas inversas, media y p95;
+  - **por split:**
+    - las distancias exactas de la reparación por hermanos;
+    - las listas de aristas que cambian.
+    - El 2-means es el mismo en todas las celdas y no se cuenta.
+- **µs por insert y por split,** indicativos.
+
+### Escrituras de aristas inversas por insert, para H1 (encargo, 2026-11-16)
+
+En disco, cada arista inversa es una escritura a la lista de otro vector. Cuántas hace cada insert, media y p95, decide dónde viven las aristas.
+
+*Cómo lo mido (mío):*
+
+- **La corrida de H1 de la cadena solo guarda el total.** De él sale la media, no el p95. El binario de la celda 6 guarda el histograma de escrituras por insert.
+- **H1 se repite con ese binario,** detrás de la celda 6, sola y sin cronometrar, con un único checkpoint al 100 %. De esa repetición salen la media y el p95 de H1. Los de la celda 6 salen de su propia corrida.
+- **La repetición se comprueba contra la corrida original:** media de escrituras, número de splits y recall al 100 %. Los builds no son idénticos bit a bit entre corridas, así que tienen que coincidir de cerca, no exactamente.
+
+### Suelo de ruido entre corridas (2026-11-16, antes de ningún dato de las celdas 5 y 6)
+
+El checkpoint del 50 % es el mismo build en lote, medido en tres corridas (principal, H1 y H2). Su recall no es idéntico:
+
+| ef | recall en las tres corridas | diferencia máxima |
+|---|---|---|
+| 10 | 0.9335, 0.9328, 0.9326 | 0.0009 |
+| 20 | 0.9585, 0.9578, 0.9578 | 0.0007 |
+| 40 | 0.9722, 0.9719, 0.9721 | 0.0003 |
+| 80 | 0.9823, 0.9820, 0.9822 | 0.0004 |
+| 160 a 1024 | iguales a cuatro decimales | 0.0000 |
+
+Las cargas difieren menos de un 0.5 % en todos los ef. La diferencia de recall está en los ef bajos, donde manda la entrada por el grafo de centroides, que no se construye idéntico entre corridas.
+
+**Consecuencia (mía) para las comparaciones entre celdas, la 5 contra H2 y la 6 contra H1.** Su umbral es 0.001, al nivel de este ruido en ef 10 y 20.
+
+- Las reglas se aplican como están escritas.
+- Junto a cada veredicto se da la diferencia en cada ef y el suelo de ruido.
+- **El suelo al 100 % se mide con la repetición de H1:** la diferencia entre las dos corridas de H1 en cada ef.
+- Un veredicto que dependa solo de una diferencia menor que ese suelo se marca como no distinguible del ruido.
+
+### Nota sobre la celda 4, «las dos» (2026-11-16, decisión del usuario)
+
+La regla de «barato» compara el tiempo de inserción de H2 con el de la principal. La principal corrió sola y H2 corre en paralelo con H1 y con el orden natural, así que la contención penaliza a H2 en la comparación. El orden natural hace el mismo trabajo que la principal y, en paralelo, tarda un 26 % más en el tramo del 50 al 60 % (472 s frente a 376 s).
+
+La regla se sigue como está escrita. Si se salta la celda 4, no se lanza a mano, y se anota en los resultados con este motivo.
+
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
 **Estado: pre-registrado y medido la noche del 13 al 14. Los resultados están abajo, en «Resultados de la noche», «El ef de centroides: resultados» y «Una arista por posting de destino: resultados».** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
