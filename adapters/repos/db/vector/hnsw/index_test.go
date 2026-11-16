@@ -16,6 +16,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -332,6 +333,45 @@ func TestHnswIndexMaxNodeID(t *testing.T) {
 	require.NoError(t, index.addTombstone(9))
 	maxID, _ = index.MaxNodeID()
 	require.Equal(t, uint64(9), maxID)
+}
+
+func TestHnswIndexRestoredMaxNodeIDSurvivesCleanup(t *testing.T) {
+	vectors := [][]float32{{1, 0}, {0, 1}, {1, 1}, {1, 2}}
+	rootPath := t.TempDir()
+	store := testinghelpers.NewDummyStoreFromFolder(rootPath, t)
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.RootPath = rootPath
+	cfg.VectorForIDThunk = func(_ context.Context, id uint64) ([]float32, error) {
+		return vectors[id], nil
+	}
+	logger, _ := test.NewNullLogger()
+	cfg.MakeCommitLoggerThunk = func() (CommitLogger, error) {
+		return NewCommitLogger(rootPath, cfg.ID, logger, cyclemanager.NewCallbackGroupNoop())
+	}
+	uc := ent.UserConfig{MaxConnections: 30, EFConstruction: 60, EF: 36}
+	open := func() *hnsw {
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		return index
+	}
+
+	index := open()
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(context.Background(), uint64(i), vec))
+	}
+	require.NoError(t, index.Delete(3))
+	require.NoError(t, index.Flush())
+	require.NoError(t, index.Shutdown(context.Background()))
+
+	index = open()
+	defer index.Shutdown(context.Background())
+	require.NoError(t, index.CleanUpTombstonedNodes(func() bool { return false }))
+
+	maxID, _ := index.MaxNodeID()
+	require.Equal(t, uint64(2), maxID, "cleanup frees the deleted node")
+	restored, found := index.RestoredMaxNodeID()
+	require.True(t, found)
+	require.Equal(t, uint64(3), restored)
 }
 
 func TestHnswIndexIterate(t *testing.T) {
