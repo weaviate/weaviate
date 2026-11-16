@@ -506,9 +506,9 @@ func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sc
 }
 
 // LocalDistributedTasks reads the task map this node has applied, with no
-// leader round-trip. It serves the index-status read and the scheduler, whose
-// proposals the FSM re-checks; submit and cancel admission want the
-// leader-routed [Raft.ListDistributedTasks] instead.
+// leader round-trip. [Raft.LocalDistributedTasks] exposes it to the
+// index-status read and the scheduler; submit and cancel want the leader-routed
+// [Raft.ListDistributedTasks] instead.
 func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }

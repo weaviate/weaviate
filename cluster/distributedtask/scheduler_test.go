@@ -1044,8 +1044,7 @@ func TestReactiveFiring_WakeIsCoalesced(t *testing.T) {
 	// the test would time out.
 }
 
-// Pins the minimum gap between a tick and the next woken one: a second
-// task submitted right after the first starts only once the gap passes.
+// A task submitted right after a tick starts only once the minimum gap passes.
 func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -1101,9 +1100,7 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
-// flappyTasksLister fails failsLeft calls, then proxies to inner. Covers
-// the post-restart "RAFT not ready at Start() time, ready on next tick"
-// scenario the deferred bootstrap must handle.
+// flappyTasksLister fails failsLeft calls, as RAFT does before it is ready, then proxies to inner.
 type flappyTasksLister struct {
 	mu        sync.Mutex
 	failsLeft int
@@ -2018,9 +2015,7 @@ func (exitedHandle) Done() <-chan struct{} {
 	return done
 }
 
-// The metric is a state: a namespace whose last task is gone stops
-// reporting altogether, or its last value would stand forever and page
-// someone about a task nobody can find.
+// A namespace whose last task is gone stops reporting, or its last value would page someone forever.
 func TestWarnOnUnrecognizedStatuses_DropsANamespaceThatStoppedReporting(t *testing.T) {
 	const namespace = "tasks-namespace"
 	h := newTestHarness(t).init(t)

@@ -1153,7 +1153,7 @@ func initReindexAndDistributedTasks(
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
-		TaskLister:         appState.ClusterService.LocalTaskLister(),
+		TaskLister:         appState.ClusterService.SchedulerTaskLister(),
 		TaskCleaner:        appState.ClusterService.Raft,
 		TaskFinalizer:      appState.ClusterService.Raft,
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks

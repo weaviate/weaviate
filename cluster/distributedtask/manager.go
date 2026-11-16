@@ -64,8 +64,8 @@ type Manager struct {
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
-	// the Scheduler runs a cycle sooner than its periodic tick (paced by a
-	// minimum gap). nil-safe so the Manager can be used in
+	// the Scheduler runs an immediate scheduling cycle instead of waiting
+	// for its next periodic tick. nil-safe so the Manager can be used in
 	// tests and during bootstrap before the Scheduler is wired up. The
 	// notifier's Wake() must be non-blocking — it is called under the
 	// Manager's write lock to ensure every successful apply produces a
@@ -1045,8 +1045,6 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	return out
 }
 
-// ListDistributedTasks returns [Manager.LocalDistributedTasks] in the
-// [TaskLister] shape.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }

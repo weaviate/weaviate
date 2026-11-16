@@ -104,7 +104,7 @@ func TestSchedulerTickSurvivesUnreachableLeader(t *testing.T) {
 	clock := clockwork.NewFakeClock()
 	provider := &tickCountingProvider{}
 	sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
-		TaskLister:       srv.LocalTaskLister(),
+		TaskLister:       srv.SchedulerTaskLister(),
 		TaskFinalizer:    srv,
 		TaskCleaner:      srv,
 		Providers:        map[string]distributedtask.Provider{"ns": provider},
@@ -118,7 +118,6 @@ func TestSchedulerTickSurvivesUnreachableLeader(t *testing.T) {
 	t.Cleanup(sched.Close)
 	require.NoError(t, clock.BlockUntilContext(context.Background(), 1))
 
-	// Each tick finalizes the SWAPPING task through the dead leader, then lists the provider's local tasks.
 	for tick := 1; tick <= 2; tick++ {
 		before := provider.calls.Load()
 		clock.Advance(time.Minute)
@@ -156,9 +155,7 @@ func heartbeatFromLeader(t *testing.T, store *Store) {
 	require.Equal(t, string(leaderAddr), store.Leader())
 }
 
-// The scheduler's lister reads this node's own copy, but refuses while no
-// leader is known so the tick is skipped as it was with the leader's list.
-func TestLocalTaskLister(t *testing.T) {
+func TestSchedulerTaskLister(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		leader bool
@@ -178,7 +175,7 @@ func TestLocalTaskLister(t *testing.T) {
 				require.Empty(t, m.store.Leader())
 			}
 
-			tasks, err := NewRaft(mocks.NewMockNodeSelector(), m.store, nil).LocalTaskLister().
+			tasks, err := NewRaft(mocks.NewMockNodeSelector(), m.store, nil).SchedulerTaskLister().
 				ListDistributedTasks(context.Background())
 			if !tt.leader {
 				require.ErrorIs(t, err, types.ErrLeaderNotFound)

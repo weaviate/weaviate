@@ -887,8 +887,7 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 	})
 }
 
-// A lagging node's cutover write can reach the log after another node's identical write
-// finished the run.
+// A lagging node's cutover write can reach the log after another node's identical one finished the run.
 func TestSchemaManager_UpdateProperty_LateCutoverWrite(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

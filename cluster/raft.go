@@ -97,14 +97,11 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
-// LocalTaskLister lists this node's own task copy for the scheduler. It fails while this
-// node knows no leader, so a quorum loss skips the tick. A known but unreachable leader is
-// left to the bound on each forwarded write.
-func (s *Raft) LocalTaskLister() distributedtask.TaskLister { return localTaskLister{s} }
+func (s *Raft) SchedulerTaskLister() distributedtask.TaskLister { return schedulerTaskLister{s} }
 
-type localTaskLister struct{ s *Raft }
+type schedulerTaskLister struct{ s *Raft }
 
-func (l localTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+func (l schedulerTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
 	if l.s.store.Leader() == "" {
 		return nil, l.s.leaderErr()
 	}

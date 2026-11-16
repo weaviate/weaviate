@@ -466,7 +466,6 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 }
 
 // A cutover write lands only while the run it names is SWAPPING, even if another run on the property is.
-// After the run finished, the refusal says so, and the schema FSM decides on the values.
 func TestCheckMigrationPropertyUpdate(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
 	require.NoError(t, err)

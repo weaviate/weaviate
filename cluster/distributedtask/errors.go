@@ -117,8 +117,6 @@ func NewReplicasChangedError(collection string) error {
 // rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
-// ErrCutoverRunFinished refuses a cutover write whose run already finished. The schema FSM
-// accepts the write as a no-op when the property already holds its values.
 var ErrCutoverRunFinished = errors.New("the run of this cutover write already finished")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
