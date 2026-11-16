@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -59,6 +60,8 @@ type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
 	shard     *Shard
 	loaded    bool
+	// loadedLockFree mirrors loaded for status reads, which must not wait on mutex behind a load.
+	loadedLockFree atomic.Bool
 	// unloadedCount caches the object count read off disk while the shard is
 	// cold, which a cold shard cannot change without loading first. nil means
 	// not read yet; Load clears it.
@@ -184,6 +187,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	l.shard = shard
 	l.loaded = true
+	l.loadedLockFree.Store(true)
 
 	return true, nil
 }
@@ -925,6 +929,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 	// Mark as unloaded so drop() knows the correct state
 	l.loaded = false
+	l.loadedLockFree.Store(false)
 	return nil
 }
 

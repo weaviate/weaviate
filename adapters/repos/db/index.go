@@ -4598,15 +4598,8 @@ func localFirst(nodes []string, localNode string) []string {
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	cold, err := i.unloadedLazyShard(shardName)
-	if err != nil {
-		return 0, err
-	}
-	if cold != nil {
-		return 0, nil
-	}
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
+	shard, cold, release, err := i.shardForStatusRead(shardName)
+	if err != nil || cold {
 		return 0, err
 	}
 	defer release()
@@ -4621,17 +4614,37 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return shardQueueSize(shard), nil
 }
 
-// unloadedLazyShard returns the shard if it is on this node but not loaded, so
-// status reads can report it without loading it. GetShard would load it.
-func (i *Index) unloadedLazyShard(shardName string) (*LazyLoadShard, error) {
+var errShardBusy = stderrors.New("shard is busy")
+
+// shardForStatusRead pins the local shard for a status or queue-size read without loading it or waiting on its
+// locks. cold reports a lazy shard that is not loaded yet, and a shard held by an activation, unload or freeze is shardBusy.
+func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool, release func(), err error) {
 	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
-		return nil, err
+		return nil, false, func() {}, err
 	}
-	lazy, ok := i.shards.Load(shardName).(*LazyLoadShard)
-	if !ok || lazy.isLoaded() {
-		return nil, nil
+	if err := i.enterRead(); err != nil {
+		return nil, false, func() {}, fmt.Errorf("local shard %q: %w", shardName, err)
 	}
-	return lazy, nil
+	defer i.exitRead()
+	// Every unload holds this lock for write, so a shard loaded under it stays loaded.
+	if !i.shardCreateLocks.TryRLock(shardName) {
+		// a 422, so the caller asks another replica
+		return nil, false, func() {}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard: %w", shardName, errShardBusy))
+	}
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard = i.shards.Load(shardName)
+	if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.loadedLockFree.Load() {
+		return nil, true, func() {}, nil
+	}
+	if shard == nil {
+		return nil, false, func() {}, nil
+	}
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, false, func() {}, recoveringAsUnprocessable(fmt.Errorf("local shard %q, no shutdown: %w", shardName, err))
+	}
+	return shard, false, release, nil
 }
 
 // shardQueueSize sums the vector and geo queues GetStatus looks at, so a shard
@@ -4746,12 +4759,13 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 // localShardStatus returns "" when the local shard can't serve reads. A cold
 // shard reports its status without being loaded.
 func (i *Index) localShardStatus(ctx context.Context, shardName string) (string, error) {
-	cold, err := i.unloadedLazyShard(shardName)
+	shard, cold, release, err := i.shardForStatusRead(shardName)
+	defer release()
 	if err != nil {
 		return "", err
 	}
-	if cold != nil {
-		return cold.GetStatus().String(), nil
+	if cold {
+		return storagestate.StatusLazyLoading.String(), nil
 	}
 	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
 	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
@@ -4760,27 +4774,21 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 			return "", nil
 		}
 	}
-	shard, release, err := i.GetShard(ctx, shardName)
-	defer release()
-	if err != nil || shard == nil {
-		return "", err
+	if shard == nil {
+		return "", nil
 	}
 	return shard.GetStatus().String(), nil
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
-	cold, err := i.unloadedLazyShard(shardName)
-	if err != nil {
-		return "", err
-	}
-	if cold != nil {
-		return cold.GetStatus().String(), nil
-	}
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, cold, release, err := i.shardForStatusRead(shardName)
 	if err != nil {
 		return "", err
 	}
 	defer release()
+	if cold {
+		return storagestate.StatusLazyLoading.String(), nil
+	}
 
 	if shard == nil {
 		return "", fmt.Errorf("local %s shard not found", shardName)

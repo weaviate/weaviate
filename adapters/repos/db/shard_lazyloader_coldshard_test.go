@@ -657,12 +657,18 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
 	}
 
-	// a loaded shard still reports its own status
+	// a loaded shard still reports its own status, and once unloaded is not loaded again
 	for name, shard := range cold {
 		require.NoError(t, shard.Load(ctx))
 		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
 		require.NoError(t, err)
 		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+
+		require.NoError(t, shard.Shutdown(ctx))
+		_, statuses, err = f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		require.False(t, shard.isLoaded(), "unloaded shard %q must not be loaded again", name)
 		break
 	}
 }
