@@ -96,7 +96,9 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		name       string
 		keepRecord bool
 		unreadable bool
-		wantDir    bool
+		// The newer run's sidecar, trimmed by the older run's swap, in place of the older run's staged dir.
+		newerSidecar bool
+		wantDir      bool
 	}{
 		{
 			name:       "a record still names the older migration's staged directory",
@@ -110,6 +112,11 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			name:       "a record that does not decode withholds the whole trim",
 			unreadable: true,
 			wantDir:    true,
+		},
+		{
+			name:         "a newer run's sidecar may exist before its record does",
+			newerSidecar: true,
+			wantDir:      true,
 		},
 	}
 
@@ -125,7 +132,11 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			defer shard.Shutdown(context.Background())
 
 			older, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), propName)
-			staged := older.ingestBucketName(propName)
+			newer, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, shard.migrationUnit(), propName)
+			staged, trimmer := older.ingestBucketName(propName), newer
+			if tt.newerSidecar {
+				staged, trimmer = newer.reindexBucketName(propName), older
+			}
 			require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), staged), 0o777))
 
 			if tt.keepRecord {
@@ -138,11 +149,10 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			}
 
 			logger, _ := test.NewNullLogger()
-			newer, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, shard.migrationUnit(), propName)
-			newer.trimOlderGenerationsLocked(logger, shard, []string{propName})
+			trimmer.trimOlderGenerationsLocked(logger, shard, []string{propName})
 
 			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), staged)),
-				"staged directory of the older migration")
+				"directory planted before the trim")
 		})
 	}
 }

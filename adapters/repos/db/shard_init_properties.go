@@ -83,6 +83,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	var geoProps []*models.Property
 
 	for _, prop := range props {
+		prop = s.withMigratedIndexes(prop)
 		propCopy := *prop // prevent loop variable capture
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
@@ -182,6 +183,9 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
 		}()
 		for _, indexType := range disabledIndexTypes(prop) {
+			if s.migratedIndexStands(prop.Name, indexType) {
+				continue
+			}
 			// The whole loop runs inside the RAFT apply, once per shard. Every
 			// shard still queued for it drops out here rather than sweeping its
 			// own directories for an apply that is already failing.

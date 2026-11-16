@@ -66,9 +66,12 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		if !ok {
 			continue
 		}
-		// Past the swap, a stamp would block the promotion that serves the new index.
-		if rec.FlipDecided() {
-			return unarmed, fmt.Errorf("migration %s is already swapped in, so only its mirror can finish it: %w",
+		if rec.Subject().Unmirrored && !rec.FlipDecided() {
+			records = append(records, rec) // its stamp already refuses the swap, so holding saves nothing
+			continue
+		}
+		if shard.migrationSwapCommitted(rec) {
+			return unarmed, fmt.Errorf("migration %s has a committed swap, so only its mirror can finish it: %w",
 				t.migrationRecordKey(), cause)
 		}
 		records = append(records, rec)
@@ -121,6 +124,10 @@ func (r *MigrationRecoveryReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric
 			drop()
 		}
 	}
+}
+
+func (r *MigrationRecoveryReindexer) UnbuildableFaults() *logrusext.Sampler {
+	return r.unbuildableFaults
 }
 
 // evictUnits drops whole units, because a cached sibling alone would swap half a migration.
