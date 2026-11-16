@@ -15,6 +15,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -145,10 +146,54 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			require.NoError(t, h.Add(t.Context(), uint64(id), vectors[id]))
 		}
 	}
+	waitIdle := func(t *testing.T, h *HFresh) {
+		require.Eventually(t, func() bool { return h.taskQueue.Size() == 0 },
+			30*time.Second, 10*time.Millisecond)
+	}
+	// addGradually lets each split run before the next batch, so no posting
+	// grows past what one split brings back under the limit
+	addGradually := func(t *testing.T, h *HFresh, from, to int) {
+		for start := from; start < to; start += 100 {
+			add(t, h, start, min(start+100, to))
+			waitIdle(t, h)
+		}
+	}
 	commitLog := func(cfg *Config, _ string) string {
 		return filepath.Join(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID+".hnsw.commitlog.d")
 	}
 	wholeStore := func(_ *Config, storeDir string) string { return storeDir }
+	// shrinkAndMerge deletes most of the smallest posting and merges it
+	shrinkAndMerge := func(t *testing.T, h *HFresh) []uint64 {
+		livePostings := func() (live int, smallest uint64) {
+			var smallestCount uint32
+			for id, md := range h.PostingMap.Iter() {
+				if md.Count() == 0 || !h.Centroids.Exists(id) {
+					continue
+				}
+				live++
+				if smallestCount == 0 || md.Count() < smallestCount {
+					smallest, smallestCount = id, md.Count()
+				}
+			}
+			return live, smallest
+		}
+		live, smallest := livePostings()
+		require.Greater(t, live, 1)
+
+		md, err := h.PostingMap.Get(t.Context(), smallest)
+		require.NoError(t, err)
+		var deleted []uint64
+		for id := range md.Iter() {
+			if len(deleted) < int(md.Count())-5 {
+				deleted = append(deleted, id)
+			}
+		}
+		require.NoError(t, h.Delete(deleted...))
+		require.NoError(t, h.doMerge(t.Context(), smallest))
+		after, _ := livePostings()
+		require.Equal(t, live-1, after, "the merge must remove a posting")
+		return deleted
+	}
 
 	cases := []partialFlushCase{
 		{
@@ -164,6 +209,22 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
 			rollback:  wholeStore,
 			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
+		},
+		{
+			name:      "merge, store behind commit log",
+			setup:     func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			mutate:    shrinkAndMerge,
+			rollback:  wholeStore,
+			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+		},
+		{
+			name:     "merge, commit log behind store",
+			setup:    func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			mutate:   shrinkAndMerge,
+			rollback: commitLog,
+			reachable: func(deleted []uint64) []uint64 {
+				return slices.DeleteFunc(idRange(0, 800), func(id uint64) bool { return slices.Contains(deleted, id) })
+			},
 		},
 	}
 
@@ -182,8 +243,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			phase := func(run func(h *HFresh)) {
 				h := makeHFreshWithConfig(t, store, cfg, uc)
 				run(h)
-				require.Eventually(t, func() bool { return h.taskQueue.Size() == 0 },
-					30*time.Second, 10*time.Millisecond)
+				waitIdle(t, h)
 				require.NoError(t, h.Shutdown(t.Context()))
 				require.NoError(t, store.Shutdown(t.Context()))
 				store = testinghelpers.NewDummyStoreFromFolder(storeDir, t)
@@ -226,8 +286,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			// the recovered index must keep accepting writes and splitting
 			phase(func(h *HFresh) {
 				add(t, h, 800, 1400)
-				require.Eventually(t, func() bool { return h.taskQueue.Size() == 0 },
-					30*time.Second, 10*time.Millisecond)
+				waitIdle(t, h)
 				requireReachable(h, append(reachable, idRange(800, 1400)...))
 			})
 		})
