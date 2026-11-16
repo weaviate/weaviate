@@ -132,28 +132,11 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 	}
 }
 
-// PreReindexHook creates empty rangeable buckets so the swap phase has a
-// "source" bucket to replace with the populated ingest bucket.
-//
-// It also pessimistically marks each migrated property as
-// "not locally ready" on this shard. The query path consults this via
-// [*Shard.IsRangeableLocallyReady] and falls back to the filterable
-// bucket walk while the rangeable bucket is empty; only OnMigrationComplete
+// PreReindexHook routes this shard's range queries to the filterable bucket until OnMigrationComplete
 // flips it back. https://github.com/weaviate/0-weaviate-issues/issues/212 (Issue C)
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
-	ctx := context.Background()
 	for _, propName := range props {
 		shard.setRangeableLocallyReady(propName, false)
-		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
-		if shard.store.Bucket(bucketName) != nil {
-			continue
-		}
-		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSetRange,
-			lsmkv.WithKeepSegmentsInMemory(shard.index.Config.keepRangeableInMemory(propName)))
-		if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
-			shard.index.logger.WithField("bucket", bucketName).
-				Errorf("PreReindexHook: failed to create rangeable bucket: %v", err)
-		}
 	}
 }
 
