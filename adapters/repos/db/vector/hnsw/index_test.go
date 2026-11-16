@@ -312,6 +312,28 @@ func testHnswIndexContainsDoc[T float32 | []float32](t *testing.T, h genericVecT
 	})
 }
 
+func TestHnswIndexMaxNodeID(t *testing.T) {
+	vectors := [][]float32{{1, 0}, {0, 1}, {1, 1}}
+	index := createEmptyHnswIndexForTests(t, func(_ context.Context, id uint64) ([]float32, error) {
+		return vectors[id], nil
+	})
+
+	_, found := index.MaxNodeID()
+	require.False(t, found)
+
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(context.Background(), uint64(i), vec))
+	}
+	maxID, found := index.MaxNodeID()
+	require.True(t, found)
+	require.Equal(t, uint64(2), maxID)
+
+	// a crash between DeleteNode and RemoveTombstone leaves a tombstone without a node
+	require.NoError(t, index.addTombstone(9))
+	maxID, _ = index.MaxNodeID()
+	require.Equal(t, uint64(9), maxID)
+}
+
 func TestHnswIndexIterate(t *testing.T) {
 	testHnswIndexIterate(t, genericVecTestHelperSingle())
 }
