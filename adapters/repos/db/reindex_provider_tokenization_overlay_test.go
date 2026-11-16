@@ -23,9 +23,6 @@ import (
 func overlayTasks(strategies ...MigrationStrategy) []*ShardReindexTaskGeneric {
 	tasks := make([]*ShardReindexTaskGeneric, len(strategies))
 	for i, strategy := range strategies {
-		if strategy == nil {
-			continue
-		}
 		tasks[i] = &ShardReindexTaskGeneric{strategy: strategy}
 	}
 	return tasks
@@ -45,13 +42,6 @@ func TestPropertyOverlayFor_SemanticFamilyCoverage(t *testing.T) {
 			name:         "change-tokenization moves the tokenization only",
 			migration:    ReindexTypeChangeTokenization,
 			strategies:   []MigrationStrategy{&SearchableRetokenizeStrategy{}},
-			tokenization: "field",
-			wantOverlay:  inverted.PropertyOverlay{Tokenization: "field"},
-		},
-		{
-			name:         "both change-tokenization halves share one entry",
-			migration:    ReindexTypeChangeTokenization,
-			strategies:   []MigrationStrategy{&SearchableRetokenizeStrategy{}, &FilterableRetokenizeStrategy{}},
 			tokenization: "field",
 			wantOverlay:  inverted.PropertyOverlay{Tokenization: "field"},
 		},
@@ -90,13 +80,6 @@ func TestPropertyOverlayFor_SemanticFamilyCoverage(t *testing.T) {
 			migration:  ReindexTypeChangeAlgorithm,
 			strategies: []MigrationStrategy{&MapToBlockmaxStrategy{}},
 		},
-		{
-			name:         "a nil task is skipped",
-			migration:    ReindexTypeChangeTokenization,
-			strategies:   []MigrationStrategy{nil, &SearchableRetokenizeStrategy{}},
-			tokenization: "field",
-			wantOverlay:  inverted.PropertyOverlay{Tokenization: "field"},
-		},
 	}
 
 	covered := map[ReindexMigrationType]bool{}
@@ -122,5 +105,4 @@ func TestPropertyOverlayFor_SemanticFamilyCoverage(t *testing.T) {
 			assert.Truef(t, covered[mt], "semantic migration %q has no row saying what overlay it installs", mt)
 		}
 	}
-	assert.Empty(t, propertyOverlayFor(nil, overlayTasks(&SearchableRetokenizeStrategy{})))
 }

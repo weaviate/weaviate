@@ -104,7 +104,7 @@ func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
 	// "prop-no-bucket" deliberately has no backing bucket at all
 
 	f := &containsBatchGateFixture{class: class}
-	f.searcher = (&Searcher{
+	f.searcher = &Searcher{
 		store:  store,
 		logger: logger,
 		// production's Searcher always has one — NewSearcher dereferences it at
@@ -116,7 +116,8 @@ func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
 		stopwordProvider:         stopwords.NewProvider(fakeStopwordDetector{}, nil),
 		batchedContainsEnabled:   runtime.NewDynamicValue(true),
 		pinTokenizationAndBucket: pinWithSchemaTokenization(store),
-	}).forCall()
+		pins:                     &filterPins{},
+	}
 	// The store's shutdown waits for these pins.
 	t.Cleanup(f.searcher.pins.releaseAll)
 	return f

@@ -39,8 +39,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// serveStagedUnits flips, before the shard is ready, the halves a load left to serve staged, under the
-// unit overlay. A failure fails the load, which must not serve a unit half renamed.
+// serveStagedUnits flips in, before ready, the halves a load left staged; a failed flip fails the load.
 func (s *Shard) serveStagedUnits(ctx context.Context) error {
 	var order []taskMigration
 	units := map[taskMigration][]*ShardReindexTaskGeneric{}

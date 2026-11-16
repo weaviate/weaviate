@@ -60,7 +60,7 @@ typical journeys it unlocks:
 The whole feature is built on top of three substrates:
 
 - The **LSM bucket-swap primitives** ([`adapters/repos/db/lsmkv/store.go`](../adapters/repos/db/lsmkv/store.go)
-  `SwapBucketPointer` + `FinalizeBucketSwap`) — the atomic in-memory
+  `SwapBucketPointers` + `FinalizeBucketSwap`) — the atomic in-memory
   pointer flip and its deferred on-disk counterpart.
 - The **Distributed Task Manager (DTM)** ([`cluster/distributedtask/`](../cluster/distributedtask/))
   — RAFT-backed task state, per-unit assignment, group barriers,
@@ -513,7 +513,7 @@ The cluster-wide convergence guarantee is enforced by two independent
 mechanisms:
 
 1. **Per-shard property overlay (the per-node bridge).** Between the
-   local `SwapBucketPointer` (bucket is now NEW) and the eventual
+   local `Shard.SwapBucketsAndSetOverlay` (bucket is now NEW) and the eventual
    cluster-wide schema flip (schema flag is now NEW), this node's
    analyzer would still describe the property the pre-migration way.
    The overlay installs the target view at the per-shard query and
@@ -791,7 +791,7 @@ run on the property is `SWAPPING`. Class-wide
   `markReindexed` (barrier); for format-only it runs the full
   lifecycle including the swap.
 - `OnGroupCompleted` (semantic only) → the swap phase, per local
-  shard. Three-phase: PREP → OVERLAY SET → ATOMIC SWAP. See §6.
+  shard. PREP, then the ATOMIC SWAP, which sets the overlay with the flip. See §6.
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
   via RAFT. It does not touch the property overlay: an entry describes
   this shard's buckets, and no task status changes those (§10).
@@ -904,14 +904,14 @@ submit, so it has no cutover to coordinate.
 
 Two primitives carry the load:
 
-**`Store.SwapBucketPointer(ctx, targetName, sourceName)`.** Atomic in-memory
-pointer flip — all future `Store.Bucket(targetName)` calls return the
-bucket currently registered as `sourceName`. The source name is
-removed from the map; the source bucket's on-disk path is released
-from `GlobalBucketRegistry`. The caller is responsible for shutting
-down the returned old bucket, persisting any crash-safety markers
-around this call, and finalizing directory renames at a later point
-(typically next restart).
+**`Store.SwapBucketPointers(ctx, swaps)`.** Atomic in-memory pointer flip
+of every pair or of none, for pairs that name no bucket twice — all
+future `Store.Bucket(target)` calls return the bucket registered as
+`source`. Each source name is removed from the map, and its on-disk path
+is released from `GlobalBucketRegistry`. The caller shuts down the
+returned displaced buckets, persists any crash-safety records before
+this call, and leaves directory renames to a later point (typically next
+restart). `SwapBucketPointer` is the one-pair form.
 
 The registry release is what makes back-to-back migrations in the same
 process work: a second migration's ingest bucket can claim the same
@@ -1019,7 +1019,15 @@ Then, per shard load:
    task until restart.
 4. The load reconciler runs over the same records. It runs after the
    stamp, because it must not promote stale staged data over the live
-   bucket.
+   bucket. The halves of one tokenization change are one unit: a
+   half-written decision is finished first (the other half's decision
+   proves it), and the halves are then promoted together. If a half is
+   stamped Unmirrored, lost its staged directory or stays undecided, no
+   half is promoted, and the original tokenization is pinned in the
+   overlay. If a promotion has already destroyed the old pair, the halves
+   that did not finish are flipped in from their staged directories
+   under the unit overlay before the shard is ready, and the shard fails
+   to load if that flip fails.
 5. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
    calls `OnAfterLsmInit` on each recovered task, re-installing the
    double-write callbacks before any post-restart write can reach the
@@ -1139,7 +1147,7 @@ The post-completion barrier is split into two phases.
    even if the task later fails or is cancelled, and the task is kept
    until every replica paid. `PREPARING → SWAPPING` happens once every
    group is decided.
-3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
+3. `OnSwapRequested` (PHASE B) runs the swap per local shard of a
    group this node owes, in any task status, and retries a failed swap
    every tick. A success emits `RecordPostCompletionAck(group)`, which
    pays that debt. A swap that never succeeds holds the run in `SWAPPING`,
@@ -1238,16 +1246,15 @@ in short:
   `FinalizeCompletedMigrations` runs the ingest → canonical dir
   rename before LSM init reloads any bucket. See §9.
 
-The PREP / OVERLAY-SET / ATOMIC-SWAP ordering is what closes the
-SWAPPING-window misalignment. Setting the overlay before prep would
-expose the very gap it closes (NEW-tokenized analyzer input against
-OLD-tokenized bucket content for hundreds of ms). Setting it between
-prep and atomic swap means the window is bounded by the in-memory
-pointer flip (microseconds).
+The overlay is set after PREP, in the same critical section as the flip
+(`Shard.SwapBucketsAndSetOverlay`). Set before PREP, it would expose the
+very gap it closes (NEW-tokenized analyzer input against OLD-tokenized
+bucket content for hundreds of ms); set in the flip's critical section,
+no query sees one without the other.
 
-Under the two-phase barrier (semantic migrations), PREP and OVERLAY
-SET + ATOMIC SWAP fire from two different scheduler callbacks
-(`OnGroupCompleted` for PREP, `OnSwapRequested` for OVERLAY+SWAP) with
+Under the two-phase barrier (semantic migrations), PREP and the ATOMIC
+SWAP fire from two different scheduler callbacks
+(`OnGroupCompleted` for PREP, `OnSwapRequested` for the swap) with
 the cluster-wide `RecordPreparationCompleteAck` barrier in between. The
 phase ordering on a single node is preserved; for the cross-node skew see
 "Cross-replica window" in §6.3.
@@ -1497,10 +1504,10 @@ Per namespace (strategy-prefix + props-suffix):
 ## 10. Per-shard property overlay
 
 The overlay value is [`inverted.PropertyOverlay`](../adapters/repos/db/inverted/analyzer.go);
-the query-side resolver is in [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go).
+the query-side pinner type is in [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go).
 
 The problem: on each replica, the bucket pointer flips to the migrated
-content at the end of `RunSwapOnShard` (Phase 2a), but the cluster-wide
+content in the swap's Phase 2a (`Shard.SwapBucketsAndSetOverlay`), but the cluster-wide
 schema flip (`OnTaskCompleted`'s RAFT commit) doesn't propagate to the
 local FSM for tens to hundreds of milliseconds afterward. In that window
 the analyzer still describes the property the pre-migration way, which
@@ -1809,7 +1816,7 @@ collection, or run its swap and schema flip again. Before rolling back:
 
 **LSM primitives**
 
-- [`adapters/repos/db/lsmkv/store.go`](../adapters/repos/db/lsmkv/store.go) — `SwapBucketPointer`, `FinalizeBucketSwap`, `updateBucketDir`. The two function godocs document the in-memory-vs-disk split.
+- [`adapters/repos/db/lsmkv/store.go`](../adapters/repos/db/lsmkv/store.go) — `SwapBucketPointers`, `SwapBucketPointer`, `FinalizeBucketSwap`, `updateBucketDir`. The two function godocs document the in-memory-vs-disk split.
 - [`adapters/repos/db/lsmkv/segment_group_prepend.go`](../adapters/repos/db/lsmkv/segment_group_prepend.go) — `SegmentGroup.PrependSegmentsFromBucket`; the wrapper the reindex path calls, `Bucket.PrependSegmentsFromBucket`, is in [`bucket.go`](../adapters/repos/db/lsmkv/bucket.go).
 
 **Inverted analyzer / overlay**

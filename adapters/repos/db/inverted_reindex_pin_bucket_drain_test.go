@@ -96,7 +96,6 @@ func runPinBucketDrainProof(t *testing.T) pinBucketDrainResult {
 		})
 	}
 
-	// The pin is held across the concurrent swap + old-bucket Shutdown, forcing the drain.
 	bm25 := inverted.NewBM25Searcher(bm25Config, shard.store,
 		idx.getSchema.ReadOnlyClass, idx.classSearcher,
 		idx.getStopwordProvider(), shard.GetPropertyLengthTracker(), logger,

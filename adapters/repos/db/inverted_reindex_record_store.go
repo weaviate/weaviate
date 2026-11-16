@@ -142,7 +142,7 @@ func (s *MigrationRecordStore) Dir() string { return s.dir }
 
 // Two levels, not MkdirAll: a write racing a collection DELETE, which renames
 // the class directory away, would otherwise re-materialize the deleted tree.
-// Synced once per store: nothing removes these under a live store, and a drop fails the stat.
+// Both levels are synced once per store, and again only after os.Stat finds s.dir dropped or replaced.
 func (s *MigrationRecordStore) mkdir() error {
 	if s.dirsSynced != nil {
 		if info, err := os.Stat(s.dir); err == nil && os.SameFile(s.dirsSynced, info) {
@@ -506,7 +506,6 @@ func (s *MigrationRecordStore) publish(records map[MigrationRecordKey]MigrationR
 	s.servesStaged = nil
 }
 
-// A load whose unit promotion stopped part way marks the halves it left for the shard to serve staged.
 func (s *MigrationRecordStore) ServeStaged(key MigrationRecordKey) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

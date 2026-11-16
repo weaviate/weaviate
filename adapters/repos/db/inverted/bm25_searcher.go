@@ -237,7 +237,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	type propInfo struct {
 		name string
 		prop *models.Property
-		// effectiveTokenization is the pinner's, taken once at prop discovery.
 		effectiveTokenization string
 		tokKey                string
 		propMean              float64

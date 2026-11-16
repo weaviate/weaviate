@@ -88,16 +88,6 @@ type filterPin struct {
 	release          func()
 }
 
-func (s *Searcher) forCall() *Searcher {
-	call := &struct {
-		Searcher
-		pins filterPins
-	}{Searcher: *s}
-	call.pins.pinned = call.pins.backing[:0]
-	call.Searcher.pins = &call.pins
-	return &call.Searcher
-}
-
 func (s *Searcher) pinFilterBucket(prop *models.Property, bucketName string) (string, *lsmkv.Bucket) {
 	s.pins.mu.Lock()
 	defer s.pins.mu.Unlock()
@@ -119,7 +109,7 @@ func (p *filterPins) releaseAll() {
 	for _, pin := range p.pinned {
 		pin.release()
 	}
-	p.pinned = nil
+	p.pinned = p.pinned[:0]
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
@@ -168,7 +158,11 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		// trusting the schema flag verbatim.
 		isRangeableLocallyReady = func(string) bool { return true }
 	}
-	return &Searcher{
+	// One allocation holds both. A Searcher serves one docIDs call at a time.
+	s := &struct {
+		Searcher
+		pins filterPins
+	}{Searcher: Searcher{
 		logger:                  logger,
 		store:                   store,
 		getClass:                getClass,
@@ -184,7 +178,10 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		nestedBitmapOps:         invnested.NewBitmapOps(bitmapFactory.BufPool()),
 
 		pinTokenizationAndBucket: pinTokenizationAndBucket,
-	}
+	}}
+	s.pins.pinned = s.pins.backing[:0]
+	s.Searcher.pins = &s.pins
+	return &s.Searcher
 }
 
 // Objects returns a list of full objects
@@ -334,7 +331,6 @@ func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilte
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
-	s = s.forCall()
 	defer s.pins.releaseAll()
 
 	pv, err := s.extractPropValuePair(ctx, filter.Root, className)

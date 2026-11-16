@@ -331,10 +331,8 @@ type unitHalf struct {
 	canonicalBefore map[string]bool
 }
 
-// promoteUnit promotes rec with every other half of its unit, so the unit
-// serves one tokenization pair. A rename cannot be undone, so the checks run
-// before anything destructive, and once something is, the halves that did not
-// finish serve their staged data until a later load renames them.
+// promoteUnit promotes rec with its unit's other halves. A rename cannot be undone, so the checks run
+// before anything destructive; after it, the halves that did not finish serve their staged data.
 func (r *migrationReconciler) promoteUnit(ctx context.Context, rec MigrationRecordSwapped) error {
 	siblings := r.unitSiblings(rec.Subject())
 	if len(siblings) == 0 { // no pair to keep together: each property settles on its own

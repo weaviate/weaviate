@@ -782,7 +782,7 @@ func (s *Shard) SwapBucketsAndSetOverlay(overlay map[string]inverted.PropertyOve
 	return displaced, err
 }
 
-// Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
+// Lock order: closeLock → propertyOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndBucket(propName, bucketName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
 	if propName == "" {

@@ -820,7 +820,7 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 
 type BucketSwap struct{ Target, Source string }
 
-// SwapBucketPointers applies every swap or none, returning the displaced buckets in order.
+// SwapBucketPointers applies all swaps or none, returning the displaced buckets in order. No bucket may be named twice.
 func (s *Store) SwapBucketPointers(ctx context.Context, swaps []BucketSwap) (displaced []*Bucket, err error) {
 	err = s.WhileOpen(func(open OpenStore) error {
 		displaced, err = open.SwapBucketPointers(swaps)
@@ -831,7 +831,7 @@ func (s *Store) SwapBucketPointers(ctx context.Context, swaps []BucketSwap) (dis
 
 type OpenStore struct{ s *Store }
 
-// WhileOpen runs fn while the store cannot close; locks fn takes order after the close guard.
+// WhileOpen runs fn holding closeLock's read lock, so the store cannot close and fn's locks come after it.
 func (s *Store) WhileOpen(fn func(OpenStore) error) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()

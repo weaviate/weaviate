@@ -1177,7 +1177,6 @@ const maxNamedUnreadableRecords = 5
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
 func (p *ReindexProvider) runShardPrepPhase(
 	ctx context.Context,
-	payload *ReindexTaskPayload,
 	unitID string,
 	shard ShardLike,
 	unitTasks []*ShardReindexTaskGeneric,
@@ -1207,16 +1206,6 @@ func (p *ReindexProvider) runShardPrepPhase(
 			}
 			ok = false
 		}
-	}
-	if !rehydrate {
-		return ok, out
-	}
-	if err := finishDecidedSwaps(ctx, shard, payload, unitTasks); err != nil {
-		logger.WithField("unit", unitID).
-			Errorf("reindex provider: shard prep — the swap decided before a restart failed: %v", err)
-		out.Errs = append(out.Errs, fmt.Sprintf("unit %s swap decided before a restart: %v", unitID, err))
-		out.Transient = out.Transient || errors.Is(err, context.Canceled)
-		ok = false
 	}
 	return ok, out
 }
@@ -1500,7 +1489,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	rehydrate bool,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
-	prepOK, prep := p.runShardPrepPhase(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
+	prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
 	out.Errs = append(out.Errs, prep.Errs...)
 	if prep.Transient {
 		out.Transient = true
@@ -1577,7 +1566,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
 	if rehydrate {
-		prepOK, prep := p.runShardPrepPhase(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
+		prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
 		out.Errs = append(out.Errs, prep.Errs...)
 		if prep.Transient {
 			out.Transient = true
@@ -2443,7 +2432,7 @@ func propertyOverlayViews(payload *ReindexTaskPayload, tasks []*ShardReindexTask
 	return views
 }
 
-// Set at the flip, not up front: that would expose it for the whole disk-I/O preamble.
+// propertyOverlayFor merges the tasks' overlays for the flip to set; set earlier, it would span the disk-I/O preamble.
 func propertyOverlayFor(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric,
 ) map[string]inverted.PropertyOverlay {
 	out := map[string]inverted.PropertyOverlay{}

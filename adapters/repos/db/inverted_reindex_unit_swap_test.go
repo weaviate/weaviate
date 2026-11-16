@@ -44,8 +44,7 @@ const (
 	tokChangeValue = "Hello World"
 )
 
-// tokenizationChange: three "Hello World" objects under field tokenization, with both halves of a
-// change to word tokenization prepared, so only the swap is left.
+// tokenizationChange: three "Hello World" objects, both halves of a field-to-word change prepared.
 type tokenizationChange struct {
 	ctx      context.Context
 	class    *models.Class
@@ -107,7 +106,6 @@ func (f *tokenizationChange) freshTasks(t *testing.T) []*ShardReindexTaskGeneric
 	return tasks
 }
 
-// swapWithOverlay swaps tasks as one unit with the overlay the swap phase sets.
 func swapWithOverlay(ctx context.Context, shard ShardLike, payload *ReindexTaskPayload,
 	tasks ...*ShardReindexTaskGeneric,
 ) error {
@@ -278,7 +276,6 @@ func TestAFlipDuringADropLetsQueriesPin(t *testing.T) {
 	require.ErrorIs(t, <-flipped, lsmkv.ErrAlreadyClosed)
 }
 
-// A load that withholds promotion leaves both decisions with the staged buckets on disk.
 func TestDecidedSwapsLeftByALoadFlipAsOneUnit(t *testing.T) {
 	for _, settleFails := range []bool{false, true} {
 		t.Run(map[bool]string{false: "the swap settles", true: "settling the swap fails"}[settleFails], func(t *testing.T) {

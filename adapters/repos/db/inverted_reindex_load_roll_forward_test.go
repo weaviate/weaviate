@@ -74,8 +74,7 @@ func TestALoadFinishesAHalfWrittenSwapDecision(t *testing.T) {
 	}
 }
 
-// Both halves are decided, so a load promotes them; a half that cannot be
-// promoted must not leave its sibling serving alone.
+// Both halves are decided; a half that cannot be promoted must not leave its sibling serving alone.
 func TestALoadPromotesAUnitWholeOrNotAtAll(t *testing.T) {
 	swapped := []MigrationState{MigrationStateSwapped, MigrationStateSwapped}
 	tests := []struct {
@@ -168,8 +167,7 @@ func removeStagedHalf(t *testing.T, f *tokenizationChange, half *ShardReindexTas
 	return func() {}
 }
 
-// blockCanonicalClear makes the load's removal of half's canonical directory
-// fail part way: a subdirectory the load cannot empty.
+// blockCanonicalClear leaves a subdirectory the load cannot empty in half's canonical directory.
 func blockCanonicalClear(t *testing.T, f *tokenizationChange, half *ShardReindexTaskGeneric) func() {
 	rec, ok := half.migrationRecord(f.shard)
 	require.True(t, ok)
@@ -224,7 +222,6 @@ func TestAUnitRunFlipsNothingWhileItsUnitIsHalfDecided(t *testing.T) {
 	assert.Equal(t, allFound, f.counts(t))
 }
 
-// runUnit runs the unit's worker the way the scheduler does after a restart.
 func (f *tokenizationChange) runUnit(t *testing.T, tasks []*ShardReindexTaskGeneric) *fakeRecorder {
 	t.Helper()
 	f.provider.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{

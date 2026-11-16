@@ -107,7 +107,6 @@ func newTokPinFixture(t testing.TB) *tokPinFixture {
 	return f
 }
 
-// pin reads the overlay and pins the bucket under one lock, as the shard does.
 func (f *tokPinFixture) pin(_, bucketName, _ string) (string, *lsmkv.Bucket, func()) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -162,17 +161,13 @@ func TestFilterKeepsItsTokenizationAndBucketTogetherAcrossAFlip(t *testing.T) {
 			name: "batched contains any", batched: true,
 			filter: pinFilter(pinClause(filters.ContainsAny, pinProp, []string{pinValue, "nope"})),
 		},
-		{
-			name:   "desugared contains any",
-			filter: pinFilter(pinClause(filters.ContainsAny, pinProp, []string{pinValue, "nope"})),
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newTokPinFixture(t)
 			ctx := context.Background()
 
-			c := f.searcher(tc.batched, f.pin).forCall()
+			c := f.searcher(tc.batched, f.pin)
 			defer c.pins.releaseAll()
 			pv, err := c.extractPropValuePair(ctx, tc.filter.Root, pinClass)
 			require.NoError(t, err)

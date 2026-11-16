@@ -202,7 +202,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 
 			// Once the fault clears, the staged copy is openable but still stale.
 			require.NoError(t, os.Remove(corrupt))
-			prepOK, prep := p.runShardPrepPhase(ctx, nil, subjects[0].Key.UnitID, shard, tasks, false, logger)
+			prepOK, prep := p.runShardPrepPhase(ctx, subjects[0].Key.UnitID, shard, tasks, false, logger)
 			require.False(t, prepOK, "a failed prepare fails the task before any replica swaps")
 			require.Len(t, prep.Errs, len(tasks), "both halves are stamped")
 			for _, e := range prep.Errs {
@@ -427,7 +427,7 @@ func TestASwapRefusesTheHealthyHalfOfAStampedMigration(t *testing.T) {
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
 	tasks := fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID)
 	require.Len(t, tasks, 2, "both halves armed")
-	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, nil, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
+	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.True(t, prepOK, "%v", prep.Errs)
 
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
@@ -1152,7 +1152,7 @@ func (fx *doubleFaultFixture) healRecords(t *testing.T) {
 func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string) {
 	t.Helper()
 	tasks := []*ShardReindexTaskGeneric{fx.task}
-	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, nil, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
+	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.False(t, prepOK)
 	require.Len(t, prep.Errs, 1)
 	require.Contains(t, prep.Errs[0], want)
@@ -1192,7 +1192,7 @@ func (fx *doubleFaultFixture) requireSwapProceeds(t *testing.T, shard *Shard) {
 	t.Helper()
 	tasks := fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID)
 	require.Len(t, tasks, 1, "the swap reuses the task whose mirror is armed")
-	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, nil, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
+	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.True(t, prepOK, "%v", prep.Errs)
 	payload := fx.subject.reindexPayload()
 	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
