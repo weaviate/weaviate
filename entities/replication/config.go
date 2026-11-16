@@ -48,7 +48,8 @@ type GlobalConfig struct {
 	AsyncReplicationRootPrefilterBatchSize *runtime.DynamicValue[int] `json:"async_replication_root_prefilter_batch_size" yaml:"async_replication_root_prefilter_batch_size"`
 	// MinimumFactor can enforce replication. For example, with MinimumFactor set
 	// to 2, users can no longer create classes with a factor of 1, therefore
-	// forcing them to have replicated classes.
+	// forcing them to have replicated classes. With NAMESPACES_ENABLED it also
+	// refuses a namespace create or update whose home_nodes is shorter than it.
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
 	// MaximumFactor caps the replication factor allowed on any class. A value

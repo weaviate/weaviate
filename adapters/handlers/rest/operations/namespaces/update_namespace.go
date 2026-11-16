@@ -47,7 +47,7 @@ func NewUpdateNamespace(ctx *middleware.Context, handler UpdateNamespaceHandler)
 
 # Update a namespace
 
-Update a namespace's `home_node`. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.
+Update a namespace's `home_nodes`. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.
 */
 type UpdateNamespace struct {
 	Context *middleware.Context
@@ -59,7 +59,7 @@ func (o *UpdateNamespace) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewUpdateNamespaceParams()
+	Params := NewUpdateNamespaceParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -80,5 +80,4 @@ func (o *UpdateNamespace) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

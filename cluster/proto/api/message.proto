@@ -191,12 +191,16 @@ message QueryResponse {
 }
 
 message AddTenantsRequest {
+  // SchemaManager.AddTenants fills an empty list of a namespaced class with the
+  // first RF entries of the namespace's HomeNodes at that log index.
   repeated string cluster_nodes = 1;
   repeated Tenant tenants = 2;
 }
 
 message UpdateTenantsRequest {
   repeated Tenant tenants = 1;
+  // SchemaManager.UpdateTenants fills an empty list of a namespaced class with
+  // the namespace's whole HomeNodes at that log index.
   repeated string cluster_nodes = 2;
   bool implicit_update_request = 3;
 }

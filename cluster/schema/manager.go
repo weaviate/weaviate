@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -99,6 +100,7 @@ type SchemaManager struct {
 	replicationFSM         replicationFSM
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
+	namespaces             usecasesNamespaces.Exister
 	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
 	// nil = unenforced); read pre-commit, never in the FSM apply path.
 	tenantLimit func() int
@@ -122,12 +124,16 @@ type SchemaManager struct {
 	orphanedClasses map[string]bool
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
+// NewSchemaManager returns a SchemaManager. AddTenants and UpdateTenants read
+// namespaces at apply, so namespaces must return each namespace as of the entry
+// being applied.
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, namespaces usecasesNamespaces.Exister, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, reg),
-		db:     db,
-		parser: parser,
-		log:    log,
+		schema:     NewSchema(nodeId, reg),
+		db:         db,
+		parser:     parser,
+		namespaces: namespaces,
+		log:        log,
 	}
 }
 
@@ -213,8 +219,7 @@ func (s *SchemaManager) HasFrozenTenants(class string) bool {
 		return false
 	}
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if entSchema.TenantIsFrozenOrFreezing(t.ActivityStatus) {
 			return true
 		}
 	}
@@ -268,6 +273,14 @@ func (s *SchemaManager) SetMetadataOnly(v bool) {
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
+}
+
+func (s *SchemaManager) classNamespace(class string) (command.Namespace, bool) {
+	name := namespacing.NamespaceFromQualified(class)
+	if name == "" {
+		return command.Namespace{}, false
+	}
+	return s.namespaces.GetNamespace(name)
 }
 
 // Wires the cascade-delete used by [SchemaManager.DeleteClass]. nil-safe;
@@ -445,6 +458,89 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		}
 	}
 
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT || req.Type == command.ApplyRequest_TYPE_UPDATE_TENANT {
+		if err := s.checkTenantNodesAreHomeNodes(req); err != nil {
+			return err
+		}
+	}
+
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+		return s.checkHomeNodesAgainstClassFactors(req)
+	}
+
+	return nil
+}
+
+// checkTenantNodesAreHomeNodes refuses a namespaced tenant add or explicit unfreeze
+// whose ClusterNodes are not HomeNodes entries in list order.
+// Handler.AddTenants and Handler.UpdateTenants read ClusterNodes from the receiving
+// node's copy of the namespace, which can lag the leader's.
+// TODO(v1.43): remove once no peer older than v1.42 sends ClusterNodes.
+func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) error {
+	ns, ok := s.classNamespace(req.Class)
+	if !ok {
+		return nil
+	}
+	nodes, err := s.placedTenantNodes(req)
+	if err != nil {
+		return err
+	}
+	next := 0
+	for _, node := range ns.HomeNodes {
+		if next < len(nodes) && nodes[next] == node {
+			next++
+		}
+	}
+	if next < len(nodes) {
+		return fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
+	}
+	return nil
+}
+
+// placedTenantNodes returns the ClusterNodes of a tenant add, or of an explicit
+// update that moves a tenant the schema has FROZEN or FREEZING to another status.
+// Apply reads an update's list only to unfreeze, and a FREEZING tenant can be FROZEN
+// by the time apply runs. An implicit activation is not checked, so its list of
+// every storage node can unfreeze a tenant outside the home nodes.
+func (s *SchemaManager) placedTenantNodes(req *command.ApplyRequest) ([]string, error) {
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT {
+		atr := &command.AddTenantsRequest{}
+		if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		return atr.ClusterNodes, nil
+	}
+	utr := &command.UpdateTenantsRequest{}
+	if err := gproto.Unmarshal(req.SubCommand, utr); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if utr.ImplicitUpdateRequest {
+		return nil, nil
+	}
+	wouldUnfreeze := make([]string, 0, len(utr.Tenants))
+	for _, t := range utr.Tenants {
+		if t != nil && t.Status != models.TenantActivityStatusFROZEN {
+			wouldUnfreeze = append(wouldUnfreeze, t.Name)
+		}
+	}
+	held, _ := s.schema.TenantsShardsStatus(req.Class, wouldUnfreeze...)
+	for _, status := range held {
+		if entSchema.TenantIsFrozenOrFreezing(status) {
+			return utr.ClusterNodes, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *SchemaManager) checkHomeNodesAgainstClassFactors(req *command.ApplyRequest) error {
+	sub := command.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	factors := s.schema.ClassFactorsInNamespace(sub.Namespace.Name)
+	if err := sub.Namespace.CheckClassFactors(factors); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
 	return nil
 }
 
@@ -1000,6 +1096,14 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
+	if len(req.ClusterNodes) == 0 {
+		if ns, ok := s.classNamespace(cmd.Class); ok {
+			// With the whole list, GetPartitions would spread one request's
+			// tenants over every home node.
+			factor := s.schema.ClassInfo(cmd.Class).ReplicationFactor
+			req.ClusterNodes = ns.HomeNodes[:min(factor, len(ns.HomeNodes))]
+		}
+	}
 
 	return s.apply(
 		applyOp{
@@ -1015,6 +1119,12 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if len(req.ClusterNodes) == 0 {
+		// metaClass.unfreeze calls GetPartitions per tenant, so each takes the first RF entries.
+		if ns, ok := s.classNamespace(cmd.Class); ok {
+			req.ClusterNodes = ns.HomeNodes
+		}
 	}
 
 	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].

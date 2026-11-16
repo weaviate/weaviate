@@ -295,7 +295,7 @@ func balancedLayout() *schemaFixture {
 func newSchemaManager() *schema.SchemaManager {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	return schema.NewSchemaManager("node-1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	return schema.NewSchemaManager("node-1", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 }
 
 // missingClassErr returns the error a real SchemaReader returns for a

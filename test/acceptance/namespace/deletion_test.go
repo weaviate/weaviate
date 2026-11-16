@@ -468,7 +468,7 @@ func TestNamespaces_DeleteSuspendedNamespace(t *testing.T) {
 	qualifiedMT := ns + ":" + mtClassName
 	qualifiedST := ns + ":" + stClassName
 
-	homeNode := helper.CreateNamespace(t, ns, adminKey).HomeNode
+	homeNode := helper.CreateNamespace(t, ns, adminKey).HomeNodes[0]
 	userKey := createNamespacedUser(t, "u1", ns, adminKey)
 
 	// Two of each, so the cascade's alias and class loops run over more than one.
