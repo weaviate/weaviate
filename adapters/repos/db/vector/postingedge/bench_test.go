@@ -240,6 +240,9 @@ type benchData struct {
 	train   [][]float32
 	queries [][]float32
 	truth   [][]uint64
+	// neighbors is the ground truth as the dataset ships it, as deep as it
+	// goes, nil if it ships none. With -bench.limit it does not hold.
+	neighbors [][]uint64
 }
 
 // memSnapshot is one reading of the process memory. RSS is what ps reports.
@@ -2287,7 +2290,10 @@ func loadBenchData(t *testing.T, dir string, limit, queries, k int, deferTrain b
 		raw, err = testinghelpers.ReadRawDataset(dir, limit, queries)
 	}
 	require.NoError(t, err)
-	data := &benchData{name: raw.Name, dims: raw.Dims, dir: dir, rows: raw.TrainRows, train: raw.Train, queries: raw.Queries}
+	data := &benchData{
+		name: raw.Name, dims: raw.Dims, dir: dir, rows: raw.TrainRows, train: raw.Train, queries: raw.Queries,
+		neighbors: raw.Neighbors,
+	}
 	if !deferTrain {
 		data.rows = len(data.train)
 	}
