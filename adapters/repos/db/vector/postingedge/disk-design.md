@@ -212,7 +212,7 @@ Lo que queda por medir:
 
 Abierto:
 
-- **El mapa en sí:** dónde vive, cuánto ocupa (4 B por vector serían 40 MB a 10M) y qué cuesta su indirección por endpoint frente al `postingOf` de hoy.
+- **El mapa en sí:** dónde vive, cuánto ocupa (4 B por vector serían 40 MB a 10M) y qué cuesta su indirección por endpoint frente al `postingOf` de hoy. *Medido el 16: de un 28 a un 31 % más por endpoint con docIDs en orden de inserción, y de un 59 a un 65 % barajados (ver «Aristas por docID: el coste en memoria»).*
 - **El sidecar:** si se sigue indexando por slot o pasa al id estable, y qué hace con los huecos que dejan los deletes.
 - **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas).
 - **Un update como delete más insert,** y qué les pasa a las aristas de los vecinos del vector movido.
@@ -317,3 +317,48 @@ Abierto:
 - la capacidad y el desalojo de la caché `otter` de versiones de posting;
 - si `Centroids.Get` puede fallar sobre un centroide ya borrado, después de la limpieza de lápidas, en `split.go:301` y `merge.go:236-241`;
 - la política de fsync del push de las colas.
+
+## Aristas por docID: el coste en memoria (microbenchmark, 2026-11-16)
+
+*La pregunta del punto 1 de "Open for phase 2": qué cuesta, por endpoint, direccionar las aristas, el sidecar y el mapa vector→posting por docID en lugar de por slot. Solo ns por endpoint; nada está integrado en el índice.*
+
+**Cómo se mide.** Se graban 1 000 búsquedas reales a 10M: wiki-dpr e5, el build por defecto de v1.4, ef=20 (0.95) y ef=160 (0.99), con rescoreLimit 200. Por cada carga se guardan los endpoints que la búsqueda tenía que puntuar. Después se reproduce su puntuación (dedup, scoring por lotes y rango de postings, como `postingSearch.load`) sobre tres ordenaciones del mismo sidecar y del mismo mapa de 4 B por vector:
+
+1. por slot, como hoy;
+2. por docID en orden de inserción (el orden de las filas del dataset);
+3. por docID barajado, el orden que deja una historia larga de updates, porque cada update da un docID nuevo.
+
+Cada reproducción comprueba que puntúa los endpoints que puntuó la búsqueda, con las mismas estimaciones. Se miden 9 rondas intercaladas, con el orden rotando de ronda en ronda, en un thread, con la máquina sin teclado desde 13 minutos antes.
+
+| ef (recall) | endpoints por query | por slot | por docID, orden de inserción | por docID, barajado |
+|---|---|---|---|---|
+| 20 (0.9535) | 7 414 | 73.3 ns (71.7–75.0) | 94.0 ns (92.5–100.5): **1.28x** | 116.6 ns (113.7–120.7): 1.59x |
+| 160 (0.9909) | 35 691 | 76.2 ns (75.3–76.8) | 100.0 ns (99.5–102.7): **1.31x** | 125.8 ns (124.7–127.5): 1.65x |
+
+**Veredicto: la representación estable cuesta, y se mide.**
+
+- **Por endpoint:** un 28 a 31 % más con los docIDs en orden de inserción, y un 59 a 65 % si ese orden se pierde. Las rondas no se solapan.
+- **Por query,** reproducido y no cronometrado de punta a punta:
+  - en orden de inserción, unos 153 µs más a 0.95 y unos 850 µs a 0.99. Sobre la query instrumentada de 10M con el ef de centroides 8 (835 y 3 014 µs), son en torno a un 18 % y un 28 %;
+  - barajado, unos 320 µs y 1.8 ms.
+- **La causa es localidad, no trabajo.** El trabajo por endpoint es idéntico en las tres ordenaciones.
+  - Con slots en orden de posting, los endpoints de un source que caen en el mismo posting están juntos en el sidecar y en el mapa.
+  - En orden de inserción solo queda lo que comparten docIDs vecinos. En wiki-dpr, los pasajes de un mismo artículo van seguidos.
+  - Barajado no queda nada.
+- **El orden de inserción depende del corpus.** Lo de wiki-dpr no generaliza: un corpus importado sin orden semántico se acerca al barajado desde el principio.
+
+**Consecuencias para el diseño:**
+
+- El argumento del mapa vector→posting se sostiene en lo que ahorra en mantenimiento: un movimiento cambia una entrada y ninguna arista. Pero en búsqueda no es gratis.
+- Opciones abiertas, sin resolver:
+  - **(a)** slots como hoy, más un mapa solo para los vectores movidos desde el último relayout;
+  - **(b)** ids internos renumerados en orden de posting en cada relayout o compactación, que reescribe las aristas una vez, más un mapa docID→id interno; entre relayouts, un movimiento solo toca el mapa;
+  - **(c)** docIDs crudos, aceptando el coste.
+  - (a) y (b) recuperan la localidad a cambio de un relayout periódico.
+- **Para v2.0:** las métricas sin cronometrar del streaming (recall, cargas, recall de arista) no dependen de la representación. Su frontera cronometrada incluye la referencia convertida a docID, para separar el coste de la representación del del mantenimiento.
+
+Datos en `testdata/bench/phase2/`:
+
+- `wikidpr-10m-endpointkeys.json`: el build;
+- `wikidpr-10m-endpointkeys-endpointkeys.json`: los ns por ronda de cada ordenación;
+- la cadena, en `scripts/run_endpoint_keys.sh`, que corre `-bench.endpointkeys`.
