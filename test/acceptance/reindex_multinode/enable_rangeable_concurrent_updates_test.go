@@ -211,7 +211,8 @@ func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) 
 		"expected zero 'panic serving' lines across all nodes during concurrent-update enable-rangeable")
 
 	// Core assertion, pre-restart: every replica serves all movers over the
-	// sentinel band. A short count is a #11688 silent rangeable write-loss.
+	// sentinel band. A short count is a silent index loss, in whichever index
+	// that replica serves range filters from.
 	assertRangeCountAllNodes(t, compose, className, propName, sentinelBase, sentinelHi, len(movers), "pre-restart")
 
 	// Durability: the loss (if any) survives a restart because it is on disk.
@@ -316,6 +317,8 @@ func patchDateInt(restURI, className, id string, value int) error {
 // assertMoversDurableInObjectStore spot-checks that sampled movers hold a
 // dateInt >= sentinelBase in the objects (source-of-truth) store, proving the
 // storm's writes are durable there before the index count is asserted.
+// It reads about 16 of the movers, all through one node at the default
+// consistency level, so it cannot show that every replica holds every update.
 func assertMoversDurableInObjectStore(t *testing.T, restURI, className string, movers []int, sentinelBase int) {
 	t.Helper()
 	const sampleStride = 97 // coprime-ish stride so the sample spreads across the keyspace
@@ -372,7 +375,8 @@ func assertRangeCountAllNodes(t *testing.T, compose *docker.DockerCompose, class
 	}, 30*time.Second, 500*time.Millisecond,
 		"%s: every replica must serve all %d updated objects over the sentinel band", phase, want)
 	if !ok {
-		t.Errorf("%s rangeable counts per node = %v, want %d on every node (silent rangeable write-loss)", phase, last, want)
+		t.Errorf("%s range-filter counts per node = %v, want %d on every node (index entries lost; "+
+			"a replica whose rangeable index is not ready serves range filters from the filterable index)", phase, last, want)
 	}
 }
 

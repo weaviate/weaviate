@@ -14,100 +14,27 @@ package db
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64) error {
-	for _, np := range nestedProps {
-		if err := s.deleteNestedFilterableIndex(np, docID); err != nil {
-			return err
+func (w *invertedWrite) nested(nestedProps []inverted.NestedProperty, slots []propSlots, docID uint64, remove bool) error {
+	write := (*lsmkv.Bucket).RoaringSetAddBatch
+	if remove {
+		write = (*lsmkv.Bucket).RoaringSetRemoveBatch
+	}
+	for i, np := range nestedProps {
+		if sl := slots[i].filterable; sl != noSlot {
+			if err := write(w.bucket(sl), nestedFilterableEntries(np, docID)); err != nil {
+				return fmt.Errorf("nested prop %q: filterable values: %w", np.Name, err)
+			}
 		}
-		// TODO: delete nested searchable index (Phase 2)
-		// TODO: delete nested rangeable index (Phase 3)
-		if err := s.deleteNestedMetaIndex(np, docID); err != nil {
-			return err
+		if sl := slots[i].nestedMeta; sl != noSlot {
+			if err := write(w.bucket(sl), nestedMetaEntries(np, docID)); err != nil {
+				return fmt.Errorf("nested prop %q: meta entries: %w", np.Name, err)
+			}
 		}
-	}
-	return nil
-}
-
-func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID uint64) error {
-	if !np.HasFilterableIndex {
-		return nil
-	}
-
-	bucket := s.store.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
-	if bucket == nil {
-		return fmt.Errorf("nested prop %q: no filterable value bucket found", np.Name)
-	}
-
-	if err := bucket.RoaringSetRemoveBatch(nestedFilterableEntries(np, docID)); err != nil {
-		return fmt.Errorf("nested prop %q: remove filterable values: %w", np.Name, err)
-	}
-	return nil
-}
-
-func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
-	if len(np.Idx) == 0 && len(np.Exists) == 0 {
-		return nil
-	}
-
-	bucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
-	if bucket == nil {
-		return fmt.Errorf("nested prop %q: no meta bucket found", np.Name)
-	}
-
-	if err := bucket.RoaringSetRemoveBatch(nestedMetaEntries(np, docID)); err != nil {
-		return fmt.Errorf("nested prop %q: remove meta entries: %w", np.Name, err)
-	}
-	return nil
-}
-
-func (s *Shard) extendNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64) error {
-	for _, np := range nestedProps {
-		if err := s.extendNestedFilterableIndex(np, docID); err != nil {
-			return err
-		}
-		// TODO: extend nested searchable index (Phase 2)
-		// TODO: extend nested rangeable index (Phase 3)
-		if err := s.extendNestedMetaIndex(np, docID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Shard) extendNestedFilterableIndex(np inverted.NestedProperty, docID uint64) error {
-	if !np.HasFilterableIndex {
-		return nil
-	}
-
-	bucket := s.store.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
-	if bucket == nil {
-		return fmt.Errorf("nested prop %q: no filterable value bucket found", np.Name)
-	}
-
-	if err := bucket.RoaringSetAddBatch(nestedFilterableEntries(np, docID)); err != nil {
-		return fmt.Errorf("nested prop %q: add filterable values: %w", np.Name, err)
-	}
-	return nil
-}
-
-func (s *Shard) extendNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
-	if len(np.Idx) == 0 && len(np.Exists) == 0 {
-		return nil
-	}
-
-	bucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
-	if bucket == nil {
-		return fmt.Errorf("nested prop %q: no meta bucket found", np.Name)
-	}
-
-	if err := bucket.RoaringSetAddBatch(nestedMetaEntries(np, docID)); err != nil {
-		return fmt.Errorf("nested prop %q: add meta entries: %w", np.Name, err)
 	}
 	return nil
 }

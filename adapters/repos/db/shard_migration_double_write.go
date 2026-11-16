@@ -279,61 +279,44 @@ func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, a doubleWriteAnalysis
 }
 
 func (s *Shard) mirrorAddToIngest(st *propValueIndexState, docID uint64, obj *storobj.Object) error {
-	for _, analysis := range st.analyses {
+	props, err := s.analyzeMirror(st, obj)
+	if err != nil {
+		return err
+	}
+	return s.fireMirror(st, docID, props, true)
+}
+
+// analyzeMirror returns, per st.analyses entry, obj's scope props under that migration's TARGET overlay.
+func (s *Shard) analyzeMirror(st *propValueIndexState, obj *storobj.Object) ([][]inverted.Property, error) {
+	if len(st.scope.props) == 0 || obj == nil {
+		return nil, nil
+	}
+	out := make([][]inverted.Property, len(st.analyses))
+	for i, analysis := range st.analyses {
 		props, err := s.analyzeForDoubleWrite(obj, analysis)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		for i := range props {
-			if err := s.fireAddToPropertyValueIndex(analysis.add, docID, &props[i]); err != nil {
+		out[i] = props
+	}
+	return out, nil
+}
+
+func (s *Shard) fireMirror(st *propValueIndexState, docID uint64, props [][]inverted.Property, add bool) error {
+	for i, analysis := range st.analyses[:len(props)] {
+		for j := range props[i] {
+			var err error
+			if add {
+				err = s.fireAddToPropertyValueIndex(analysis.add, docID, &props[i][j])
+			} else {
+				err = s.fireDeleteFromPropertyValueIndex(analysis.del, docID, &props[i][j])
+			}
+			if err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func (s *Shard) mirrorDeleteFromIngest(st *propValueIndexState, docID uint64, obj *storobj.Object) error {
-	for _, analysis := range st.analyses {
-		props, err := s.analyzeForDoubleWrite(obj, analysis)
-		if err != nil {
-			return err
-		}
-		for i := range props {
-			if err := s.fireDeleteFromPropertyValueIndex(analysis.del, docID, &props[i]); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// migrationDoubleWrite mirrors a write into the ingest bucket under TARGET
-// analysis, for scope props whose inline callback was suppressed. The ingest
-// bucket is a write-only sidecar until swap, so per-write churn is idempotent
-// and invisible to queries.
-func (s *Shard) migrationDoubleWrite(st *propValueIndexState, object, prevObject *storobj.Object,
-	status objectInsertStatus,
-) error {
-	if len(st.scope.props) == 0 {
-		return nil
-	}
-
-	if prevObject != nil {
-		if err := s.mirrorDeleteFromIngest(st, status.oldDocID, prevObject); err != nil {
-			return err
-		}
-	}
-	return s.mirrorAddToIngest(st, status.docID, object)
-}
-
-// migrationDoubleWriteDelete is migrationDoubleWrite's delete-only
-// counterpart for the pure object-delete path.
-func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *storobj.Object, docID uint64) error {
-	if len(st.scope.props) == 0 || prevObject == nil {
-		return nil
-	}
-	return s.mirrorDeleteFromIngest(st, docID, prevObject)
 }
 
 func (s *Shard) registerDoubleWriteWithScope(props []string, overlay map[string]inverted.PropertyOverlay,
@@ -356,6 +339,10 @@ func (s *Shard) registerDoubleWriteWithScope(props []string, overlay map[string]
 		})
 		return cur
 	})
+	// A write that loaded the unarmed state writes its object later in this read
+	// section; waiting it out puts that object in the backfill's flush.
+	s.asyncReplicationRWMux.Lock()
+	s.asyncReplicationRWMux.Unlock() //nolint:staticcheck // empty critical section IS the barrier
 
 	return func(disarming string) {
 		s.mutateScopeRegs(func(cur propValueIndexState) propValueIndexState {

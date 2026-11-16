@@ -1082,6 +1082,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
+	w, err := s.prepareDeleteInvertedWrite(bucket, existing, docID)
+	if err != nil {
+		return errors.Wrap(err, "delete object from bucket")
+	}
+	defer w.release()
+
 	docIDBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
 	withSecondary := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
@@ -1104,7 +1110,8 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
-	err = s.cleanupInvertedIndexOnDelete(existing, docID)
+	err = w.apply()
+	w.release()
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}

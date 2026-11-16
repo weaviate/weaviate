@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -104,6 +105,10 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		return errs
 	}
 
+	// Pinned for the whole batch: the index write runs once, after the loop.
+	buckets, refused := b.pinRefBuckets(batch, propsByName)
+	defer b.shard.store.ReleaseBucketsForWrite(buckets.pinned)
+
 	// TODO: is there any benefit in having this parallelized? if so, don't forget to lock before assigning errors
 	// If we want them to run in parallel we need to look individual objects,
 	// otherwise we have a race inside the merge functions
@@ -125,6 +130,11 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 			errLock.Lock()
 			errs[i] = err
 			errLock.Unlock()
+			continue
+		}
+
+		if err := refused[ref.From.Property.String()]; err != nil {
+			errs[i] = err
 			continue
 		}
 
@@ -167,7 +177,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		}
 	}
 
-	if err := b.writeInverted(invertedMerger.Merge()); err != nil {
+	if err := b.writeInverted(invertedMerger.Merge(), buckets.byName); err != nil {
 		for i := range errs {
 			errs[i] = errors.Wrap(err, "write inverted batch")
 		}
@@ -219,15 +229,59 @@ func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger
 	return nil
 }
 
-func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
+type refBucketPins struct {
+	pinned []*lsmkv.Bucket
+	byName map[string]*lsmkv.Bucket
+}
+
+// pinRefBuckets pins each reference property's filterable buckets, the only ones the
+// batch writes; a property with one missing is refused, so its references fail unmerged.
+func (b *referencesBatcher) pinRefBuckets(batch objects.BatchReferences,
+	propsByName map[string]*models.Property,
+) (refBucketPins, map[string]error) {
+	pins := refBucketPins{byName: map[string]*lsmkv.Bucket{}}
+	var refused map[string]error
+	seen := map[string]struct{}{}
+	for _, ref := range batch {
+		propName := ref.From.Property.String()
+		prop, ok := propsByName[propName]
+		if _, done := seen[propName]; done || !ok {
+			continue
+		}
+		seen[propName] = struct{}{}
+
+		names := make([]string, 0, 2)
+		if inverted.HasFilterableIndexMetaCount && inverted.HasAnyInvertedIndex(prop) {
+			names = append(names, helpers.BucketFromPropNameLSM(helpers.MetaCountProp(propName)))
+		}
+		if inverted.HasFilterableIndex(prop) {
+			names = append(names, helpers.BucketFromPropNameLSM(propName))
+		}
+		dst := make([]*lsmkv.Bucket, len(names))
+		if missing := b.shard.store.AcquireBucketsForWrite(names, dst); missing >= 0 {
+			if refused == nil {
+				refused = map[string]error{}
+			}
+			refused[propName] = b.shard.refuseWrite(names[missing])
+			continue
+		}
+		for i, name := range names {
+			pins.byName[name] = dst[i]
+		}
+		pins.pinned = append(pins.pinned, dst...)
+	}
+	return pins, refused
+}
+
+func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult, buckets map[string]*lsmkv.Bucket) error {
 	before := time.Now()
-	if err := b.writeInvertedAdditions(in.Additions); err != nil {
+	if err := b.writeInvertedAdditions(in.Additions, buckets); err != nil {
 		return errors.Wrap(err, "write additions")
 	}
 	b.shard.Metrics().InvertedExtend(before, len(in.Additions))
 
 	before = time.Now()
-	if err := b.writeInvertedDeletions(in.Deletions); err != nil {
+	if err := b.writeInvertedDeletions(in.Deletions, buckets); err != nil {
 		return errors.Wrap(err, "write deletions")
 	}
 	b.shard.Metrics().InvertedDeleteDelta(before)
@@ -236,13 +290,13 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) error {
+func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty, buckets map[string]*lsmkv.Bucket) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := buckets[helpers.BucketFromPropNameLSM(prop.Name)]
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -262,13 +316,13 @@ func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) 
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty) error {
+func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty, buckets map[string]*lsmkv.Bucket) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := buckets[helpers.BucketFromPropNameLSM(prop.Name)]
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}

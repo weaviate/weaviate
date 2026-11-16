@@ -166,6 +166,9 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		return nil, objectInsertStatus{}, err
 	}
 
+	var w *invertedWrite
+	defer func() { w.release() }()
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
@@ -203,6 +206,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
+		if w, err = s.prepareInvertedWrite(obj, prevObj, status); err != nil {
+			return errors.Wrap(err, "update inverted indices")
+		}
+
 		objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
@@ -227,7 +234,7 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		return obj, status, nil
 	}
 
-	if err := s.updateInvertedIndexLSM(obj, status, prevObj); err != nil {
+	if err := w.apply(); err != nil {
 		return nil, status, errors.Wrap(err, "update inverted indices")
 	}
 

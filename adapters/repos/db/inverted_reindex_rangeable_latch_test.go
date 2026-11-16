@@ -122,7 +122,7 @@ func TestShardInitLatchesOnlyOnAFaultThatCouldBeRangeable(t *testing.T) {
 			require.NoError(t, store.Load())
 			require.Len(t, store.Unreadable(), 1, "the planted file is the fault under test")
 
-			shard := &Shard{migrationRecords: store}
+			shard := &Shard{migrationRecords: store, index: &Index{logger: logger}}
 			markInFlightRangeableMigrationsNotReady(shard)
 
 			require.Equal(t, tt.want, shard.rangeableUndecidable.Load())

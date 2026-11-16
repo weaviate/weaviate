@@ -75,6 +75,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			index.Config.QuerySlowLogThreshold, index.logger),
 		unreadableRowSampler: logrusext.NewSampler(index.logger.WithField("shard", shardName),
 			1, unreadableRowLogWindow),
+		refusedWriteSampler: logrusext.NewSampler(index.logger.WithField("shard", shardName),
+			maxReportedErrors, time.Minute),
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		scheduler:        scheduler,
@@ -249,7 +251,10 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		return
 	}
 	if migrationFaultCouldHideARangeableRecord(s.migrationRecords.Unreadable()) {
-		s.rangeableUndecidable.Store(true)
+		if s.rangeableUndecidable.CompareAndSwap(false, true) {
+			s.index.logger.WithField("shard", s.name).
+				Warn("a migration record is unreadable, so range filters read the filterable index on this shard until it reloads")
+		}
 	}
 	for _, rec := range s.migrationRecords.Records() {
 		if rec.Subject().Key.StrategyCode != StrategyCodeFilterableToRangeable ||

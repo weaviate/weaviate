@@ -170,9 +170,10 @@ func TestDropVectorIndex_DimensionsPrefixIsNotEnough(t *testing.T) {
 
 	// Written straight to the bucket — these names need rows, not indexes.
 	const shortName, longName = "vec", "vec_extra"
+	dims := s.store.Bucket(helpers.DimensionsBucketLSM)
 	for docID := uint64(0); docID < 3; docID++ {
-		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, shortName, false))
-		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, longName, false))
+		require.NoError(t, s.addToDimensionBucket(dims, dropDimsDim, docID, shortName, false))
+		require.NoError(t, s.addToDimensionBucket(dims, dropDimsDim, docID, longName, false))
 	}
 
 	got, err := s.Dimensions(ctx, longName)
@@ -261,7 +262,7 @@ func TestDropVectorIndex_DimensionsClearSurvivesProcessCrash(t *testing.T) {
 
 	const rows = 1000
 	for docID := uint64(0); docID < rows; docID++ {
-		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, dropDimsDropped, false))
+		require.NoError(t, s.addToDimensionBucket(s.store.Bucket(helpers.DimensionsBucketLSM), dropDimsDim, docID, dropDimsDropped, false))
 	}
 	require.NoError(t, s.store.WriteWALs())
 	require.Equal(t, rows*dropDimsDim, dimensionsAfterCrash(t, ctx, s, dropDimsDropped),
@@ -298,7 +299,7 @@ func TestDropVectorIndex_DimensionsClearStopsWhenShardIsDropped(t *testing.T) {
 
 	const rows = 100
 	for docID := uint64(0); docID < rows; docID++ {
-		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, dropDimsDropped, false))
+		require.NoError(t, s.addToDimensionBucket(s.store.Bucket(helpers.DimensionsBucketLSM), dropDimsDim, docID, dropDimsDropped, false))
 	}
 
 	s.shutCtxCancel(errors.New("shard dropped"))

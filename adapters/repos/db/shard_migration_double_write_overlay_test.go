@@ -115,7 +115,9 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 
 			older.reset()
 			newer.reset()
-			require.NoError(t, shard.mirrorDeleteFromIngest(st, 1, obj))
+			props, err := shard.analyzeMirror(st, obj)
+			require.NoError(t, err)
+			require.NoError(t, shard.fireMirror(st, 1, props, false))
 			require.Equal(t, tc.wantOlder, older.terms(), "the older mirror's deleted terms")
 			require.Equal(t, tc.wantNewer, newer.terms(), "the newer mirror's deleted terms")
 

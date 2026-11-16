@@ -19,49 +19,38 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
-	docID uint64, st *propValueIndexState,
-) error {
-	for _, prop := range props {
-		if err := s.addToPropertyValueIndex(docID, prop, st); err != nil {
+func (w *invertedWrite) addProps(slots, nilSlots []propSlots) error {
+	s, docID := w.s, w.addDocID
+	for i, prop := range w.toAdd {
+		sl := slots[i]
+		if err := w.addToPropertyValueIndex(docID, prop, sl); err != nil {
 			return err
 		}
-
-		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
-			continue
-		}
-
-		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
+		if sl.length != noSlot {
+			if err := s.addToPropertyLengthIndex(w.bucket(sl.length), prop.Name, docID, prop.Length); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
+		if sl.null != noSlot {
+			if err := s.addToPropertyNullIndex(w.bucket(sl.null), prop.Name, docID, prop.Length == 0); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
 	}
 
-	// add nil properties to the nullstate and property length inverted index
-	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
+	for i, nilProperty := range w.nilAdd {
+		if sl := nilSlots[i]; sl.length != noSlot {
+			if err := s.addToPropertyLengthIndex(w.bucket(sl.length), nilProperty.Name, docID, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
+		if sl := nilSlots[i]; sl.null != noSlot {
+			if err := s.addToPropertyNullIndex(w.bucket(sl.null), nilProperty.Name, docID, true); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
@@ -70,13 +59,10 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 	return nil
 }
 
-func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property, st *propValueIndexState) error {
-	if property.HasFilterableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
-		if bucketValue == nil {
-			return errors.Errorf("no bucket for prop '%s' found", property.Name)
-		}
-
+func (w *invertedWrite) addToPropertyValueIndex(docID uint64, property inverted.Property, sl propSlots) error {
+	s := w.s
+	if sl.filterable != noSlot {
+		bucketValue := w.bucket(sl.filterable)
 		for _, item := range property.Items {
 			key := item.Data
 			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
@@ -85,11 +71,8 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
-	if property.HasSearchableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
-		if bucketValue == nil {
-			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
-		}
+	if sl.searchable != noSlot {
+		bucketValue := w.bucket(sl.searchable)
 		propLen := float32(0)
 
 		if bucketValue.Strategy() == lsmkv.StrategyInverted {
@@ -110,12 +93,8 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
-	if property.HasRangeableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(property.Name))
-		if bucketValue == nil {
-			return errors.Errorf("no bucket rangeable for prop '%s' found", property.Name)
-		}
-
+	if sl.rangeable != noSlot {
+		bucketValue := w.bucket(sl.rangeable)
 		for _, item := range property.Items {
 			key := item.Data
 			if err := s.addToPropertyRangeBucket(bucketValue, docID, key); err != nil {
@@ -124,10 +103,10 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
-	// Scope props are suppressed here; migrationDoubleWrite fires them under
+	// Scope props are suppressed here; apply's mirror step fires them under
 	// the TARGET analysis instead of this source-schema view.
-	if _, migrating := st.scope.props[property.Name]; !migrating {
-		if err := s.fireAddToPropertyValueIndex(st.add, docID, &property); err != nil {
+	if _, migrating := w.st.scope.props[property.Name]; !migrating {
+		if err := s.fireAddToPropertyValueIndex(w.st.add, docID, &property); err != nil {
 			return err
 		}
 	}
@@ -135,12 +114,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	return nil
 }
 
-func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
-	if bucketLength == nil {
-		return errors.Errorf("no bucket for prop '%s' length found", propName)
-	}
-
+func (s *Shard) addToPropertyLengthIndex(bucketLength *lsmkv.Bucket, propName string, docID uint64, length int) error {
 	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
@@ -151,12 +125,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 	return nil
 }
 
-func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
-	if bucketNull == nil {
-		return errors.Errorf("no bucket for prop '%s' null found", propName)
-	}
-
+func (s *Shard) addToPropertyNullIndex(bucketNull *lsmkv.Bucket, propName string, docID uint64, isNull bool) error {
 	key, err := bucketKeyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)

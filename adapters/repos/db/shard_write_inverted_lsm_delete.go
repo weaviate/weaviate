@@ -16,21 +16,16 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
-	docID uint64, st *propValueIndexState,
-) error {
-	for _, prop := range props {
-		if prop.HasFilterableIndex {
-			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
-			}
-
+func (w *invertedWrite) deleteProps(slots, nilSlots []propSlots) error {
+	s, docID, st := w.s, w.delDocID, w.st
+	for i, prop := range w.toDel {
+		sl := slots[i]
+		if sl.filterable != noSlot {
+			bucket := w.bucket(sl.filterable)
 			for _, item := range prop.Items {
 				if err := s.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
@@ -39,12 +34,8 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
-		if prop.HasSearchableIndex {
-			bucket := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket searchable for prop '%s' found", prop.Name)
-			}
-
+		if sl.searchable != noSlot {
+			bucket := w.bucket(sl.searchable)
 			for _, item := range prop.Items {
 				if err := s.deleteInvertedIndexItemWithFrequencyLSM(bucket, item,
 					docID); err != nil {
@@ -54,11 +45,8 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
-		if prop.HasRangeableIndex {
-			bucket := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(prop.Name))
-			if bucket == nil {
-				return fmt.Errorf("no bucket rangeable for prop %q found", prop.Name)
-			}
+		if sl.rangeable != noSlot {
+			bucket := w.bucket(sl.rangeable)
 			for _, item := range prop.Items {
 				if err := s.deleteFromPropertyRangeBucket(bucket, docID, item.Data); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
@@ -75,35 +63,26 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
-		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
-			continue
-		}
-
-		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.deleteFromPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
+		if sl.length != noSlot {
+			if err := s.deleteFromPropertyLengthIndex(w.bucket(sl.length), prop.Name, docID, prop.Length); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.deleteFromPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
+		if sl.null != noSlot {
+			if err := s.deleteFromPropertyNullIndex(w.bucket(sl.null), prop.Name, docID, prop.Length == 0); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
 	}
 
-	// remove nil properties from the nullstate and property length inverted index
-	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.deleteFromPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
+	for i, nilProperty := range w.nilDel {
+		if sl := nilSlots[i]; sl.length != noSlot {
+			if err := s.deleteFromPropertyLengthIndex(w.bucket(sl.length), nilProperty.Name, docID, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.deleteFromPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
+		if sl := nilSlots[i]; sl.null != noSlot {
+			if err := s.deleteFromPropertyNullIndex(w.bucket(sl.null), nilProperty.Name, docID, true); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
@@ -127,12 +106,7 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
-	if bucketLength == nil {
-		return errors.Errorf("no bucket for prop '%s' length found", propName)
-	}
-
+func (s *Shard) deleteFromPropertyLengthIndex(bucketLength *lsmkv.Bucket, propName string, docID uint64, length int) error {
 	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
@@ -143,12 +117,7 @@ func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, len
 	return nil
 }
 
-func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
-	if bucketNull == nil {
-		return errors.Errorf("no bucket for prop '%s' null found", propName)
-	}
-
+func (s *Shard) deleteFromPropertyNullIndex(bucketNull *lsmkv.Bucket, propName string, docID uint64, isNull bool) error {
 	key, err := bucketKeyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)

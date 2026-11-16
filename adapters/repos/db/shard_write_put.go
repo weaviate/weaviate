@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -294,6 +293,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		return objectInsertStatus{}, err
 	}
 
+	var w *invertedWrite
+	defer func() { w.release() }()
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
@@ -330,6 +332,11 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
+		// In the read section, so an arm waits for this write (registerDoubleWriteWithScope).
+		if w, err = s.prepareInvertedWrite(obj, prevObj, status); err != nil {
+			return errors.Wrap(err, "update inverted indices")
+		}
+
 		var objBinary []byte
 		if obj.PrecomputedDiskBinary != nil {
 			// raw path: persist source bytes verbatim, only patching our docID.
@@ -362,7 +369,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	}
 
 	before = time.Now()
-	if err := s.updateInvertedIndexLSM(obj, status, prevObj); err != nil {
+	if err := w.apply(); err != nil {
 		return objectInsertStatus{}, errors.Wrap(err, "update inverted indices")
 	}
 	s.metrics.PutObjectUpdateInverted(before)
@@ -538,121 +545,6 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
 	)
-}
-
-func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
-	status objectInsertStatus, prevObject *storobj.Object,
-) error {
-	// One snapshot for the whole write, loaded before analysis: the swap
-	// publishes the overlay before it disarms, so a disarmed snapshot means
-	// the analysis below already sees the overlay.
-	st := s.loadPropValueIndexState()
-
-	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
-	if err != nil {
-		return errors.Wrap(err, "analyze next object")
-	}
-
-	var prevProps []inverted.Property
-	var prevNilprops []inverted.NilProperty
-	var prevNestedProps []inverted.NestedProperty
-
-	if prevObject != nil {
-		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
-		if err != nil {
-			return fmt.Errorf("analyze previous object: %w", err)
-		}
-	}
-	// if object updated (with or without docID changed)
-	if status.docIDChanged || status.docIDPreserved {
-		if err := s.subtractPropLengths(prevProps); err != nil {
-			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
-		}
-	}
-
-	// Removing the old docId from the factory solves an issue,
-	// where, if using a NotEquals filter on a property,
-	// there is a possible time period where that docId has been deleted from the inverted index,
-	// but is still present in HNSW or other vector indices.
-	// For any NotEquals filter, we do an Equals filter and invert it's results.
-	if status.docIDChanged {
-		s.bitmapFactory.RemoveIds(status.oldDocID)
-	}
-
-	if err := s.SetPropertyLengths(props); err != nil {
-		return errors.Wrap(err, "store field length values for props")
-	}
-
-	var propsToAdd []inverted.Property
-	var propsToDel []inverted.Property
-	var nilpropsToAdd []inverted.NilProperty
-	var nilpropsToDel []inverted.NilProperty
-
-	// determine only changed properties to avoid unnecessary updates of inverted indexes
-	if status.docIDPreserved {
-		delta := inverted.DeltaSkipSearchable(prevProps, props, s.getSearchableBlockmaxProperties())
-
-		propsToAdd = delta.ToAdd
-		propsToDel = delta.ToDelete
-		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)
-		nilpropsToAdd = deltaNil.ToAdd
-		nilpropsToDel = deltaNil.ToDelete
-	} else {
-		propsToAdd = inverted.DedupItems(props)
-		propsToDel = inverted.DedupItems(prevProps)
-		nilpropsToAdd = nilprops
-		nilpropsToDel = prevNilprops
-	}
-
-	if prevObject != nil {
-		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
-			return fmt.Errorf("delete inverted indices props: %w", err)
-		}
-		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
-			return fmt.Errorf("delete nested inverted indices: %w", err)
-		}
-		if s.index.Config.TrackVectorDimensions {
-			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-				if err = s.removeDimensionsLSM(dims, status.oldDocID, targetVector); err != nil {
-					return fmt.Errorf("remove dimension tracking for vector %q: %w", targetVector, err)
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
-		return fmt.Errorf("put inverted indices props: %w", err)
-	}
-	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
-		return fmt.Errorf("put nested inverted indices: %w", err)
-	}
-	s.metrics.InvertedExtend(before, len(propsToAdd))
-
-	if s.index.Config.TrackVectorDimensions {
-		err = object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-			if err = s.extendDimensionTrackerLSM(dims, status.docID, targetVector); err != nil {
-				return fmt.Errorf("add dimension tracking for vector %q: %w", targetVector, err)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	// Mirrors this write into the ingest bucket under the TARGET analysis for
-	// scope props suppressed above; no-op absent a migration.
-	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
-		return fmt.Errorf("migration double-write: %w", err)
-	}
-
-	return nil
 }
 
 func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, skip bool) {

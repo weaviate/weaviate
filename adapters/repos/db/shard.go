@@ -418,6 +418,8 @@ type Shard struct {
 	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
 	// Such a row is never pruned or deleted, so every later call would warn about it again.
 	unreadableRowSampler *logrusext.Sampler
+	// While a bucket is missing every write needing it is refused, retries included.
+	refusedWriteSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
@@ -733,7 +735,12 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	if s.rangeableLocalReady == nil {
 		s.rangeableLocalReady = map[string]bool{}
 	}
+	wasReady, set := s.rangeableLocalReady[propName]
 	s.rangeableLocalReady[propName] = ready
+	if !ready && (wasReady || !set) {
+		s.index.logger.WithField("shard", s.name).WithField("property", propName).
+			Info("range filters on this property read the filterable index on this shard until its rangeable index is ready")
+	}
 }
 
 func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {

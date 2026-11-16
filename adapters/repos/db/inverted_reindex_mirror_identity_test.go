@@ -41,15 +41,16 @@ func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 			name:  "the add leg would write a target-form term into the live bucket",
 			probe: "zulu",
 			replay: func(t *testing.T, shard *Shard, st *propValueIndexState, obj *storobj.Object, docID uint64) {
-				require.NoError(t, shard.migrationDoubleWrite(st, obj, nil,
-					objectInsertStatus{docID: docID}))
+				require.NoError(t, shard.mirrorAddToIngest(st, docID, obj))
 			},
 		},
 		{
 			name:  "the delete leg would remove a posting the live bucket owns",
 			probe: oneWord,
 			replay: func(t *testing.T, shard *Shard, st *propValueIndexState, obj *storobj.Object, docID uint64) {
-				require.NoError(t, shard.migrationDoubleWriteDelete(st, obj, docID))
+				props, err := shard.analyzeMirror(st, obj)
+				require.NoError(t, err)
+				require.NoError(t, shard.fireMirror(st, docID, props, false))
 			},
 		},
 	}

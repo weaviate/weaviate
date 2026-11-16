@@ -308,18 +308,11 @@ func correctEmptySegments(segments int, dimensions int) int {
 // before the drop can arrive here after that clear, and would bring the rows
 // back for a re-created vector of the same name to inherit. The check sits at
 // the write so nothing can stall between the two.
-func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
+func (s *Shard) extendDimensionTrackerLSM(b *lsmkv.Bucket, dimLength int, docID uint64, targetVector string) error {
 	if _, ok := s.GetVectorIndex(targetVector); !ok {
 		return nil
 	}
-	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
-}
-
-// Key (target vector name and dimensionality) | Value Doc IDs
-// targetVector,128 | 1,2,4,5,17
-// targetVector,128 | 1,2,4,5,17, Tombstone 4,
-func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector string) error {
-	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
+	return s.addToDimensionBucket(b, dimLength, docID, targetVector, false)
 }
 
 // removeAllDimensionsLSM clears every dimension row targetVector owns.
@@ -371,12 +364,7 @@ func (s *Shard) removeAllDimensionsLSM(ctx context.Context, targetVector string)
 	return b.WriteWAL()
 }
 
-func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("add dimension bucket: no bucket dimensions")
-	}
-
+func (s *Shard) addToDimensionBucket(b *lsmkv.Bucket, dimLength int, docID uint64, vecName string, tombstone bool) error {
 	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
 		return fmt.Errorf("addToDimensionBucket: %w", err)
 	}

@@ -84,6 +84,12 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, nil // live local object is newer; keep it (TimeBased)
 	}
 
+	w, err := s.prepareDeleteInvertedWrite(bucket, existing, docID)
+	if err != nil {
+		return false, fmt.Errorf("delete object from bucket: %w", err)
+	}
+	defer w.release()
+
 	docIDBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
 	withSecondary := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
@@ -108,7 +114,9 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
-	err = s.cleanupInvertedIndexOnDelete(existing, docID)
+	err = w.apply()
+	// Before WriteWALs, which waits on a store shutdown that waits on these pins.
+	w.release()
 	if err != nil {
 		return false, fmt.Errorf("delete object from bucket: %w", err)
 	}
@@ -160,67 +168,16 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	return true, nil
 }
 
-func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	bucket, release, err := s.objectsBucket()
+func (s *Shard) prepareDeleteInvertedWrite(objects *lsmkv.Bucket, previous []byte, docID uint64) (*invertedWrite, error) {
+	className, err := objects.ClassName()
 	if err != nil {
-		return err
-	}
-	defer release()
-	className, err := bucket.ClassName()
-	if err != nil {
-		return fmt.Errorf("getting bucket class name: %w", err)
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 	previousObject, err := storobj.FromBinaryDisk(previous, className)
 	if err != nil {
-		return fmt.Errorf("unmarshal previous object: %w", err)
+		return nil, fmt.Errorf("unmarshal previous object: %w", err)
 	}
-
-	// Before analysis, for the reason given in updateInvertedIndexLSM.
-	st := s.loadPropValueIndexState()
-	previousProps, previousNilProps, previousNestedProps, err := s.AnalyzeObject(previousObject)
-	if err != nil {
-		return fmt.Errorf("analyze previous object: %w", err)
-	}
-
-	if err = s.subtractPropLengths(previousProps); err != nil {
-		return fmt.Errorf("subtract prop lengths: %w", err)
-	}
-
-	// Removing the old docId from the factory solves an issue,
-	// where, if using a NotEquals filter on a property,
-	// there is a possible time period where that docId has been deleted from the inverted index,
-	// but is still present in HNSW or other vector indices.
-	// For any NotEquals filter, we do an Equals filter and invert it's results.
-	s.bitmapFactory.RemoveIds(docID)
-
-	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID, st)
-	if err != nil {
-		return fmt.Errorf("put inverted indices props: %w", err)
-	}
-
-	// Mirrors the delete into the ingest bucket for scope props suppressed
-	// above; no-op absent a migration.
-	if err = s.migrationDoubleWriteDelete(st, previousObject, docID); err != nil {
-		return fmt.Errorf("migration double-write delete: %w", err)
-	}
-
-	if err = s.deleteNestedInvertedIndicesLSM(previousNestedProps, docID); err != nil {
-		return fmt.Errorf("delete nested inverted indices: %w", err)
-	}
-
-	if s.index.Config.TrackVectorDimensions {
-		err = previousObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-			if err = s.removeDimensionsLSM(dims, docID, targetVector); err != nil {
-				return fmt.Errorf("remove dimension tracking for vector %q: %w", targetVector, err)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return s.prepareInvertedWrite(nil, previousObject, objectInsertStatus{oldDocID: docID})
 }
 
 func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime, deletionEventMs int64) error {

@@ -115,6 +115,34 @@ func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
 	return b, b.lifetimeLock.RUnlock
 }
 
+// AcquireBucketsForWrite pins each named bucket into dst (len(names)), or returns
+// the index of the first missing name, with nothing left pinned. A name may repeat:
+// a registered bucket never has a drain waiting, as teardowns deregister first.
+func (s *Store) AcquireBucketsForWrite(names []string, dst []*Bucket) int {
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+	for i, name := range names {
+		b := s.bucketsByName[name]
+		if b == nil {
+			s.ReleaseBucketsForWrite(dst[:i])
+			return i
+		}
+		b.lifetimeLock.RLock()
+		dst[i] = b
+	}
+	return -1
+}
+
+// ReleaseBucketsForWrite clears dst, so a second call releases nothing.
+func (s *Store) ReleaseBucketsForWrite(dst []*Bucket) {
+	for i, b := range dst {
+		if b != nil {
+			b.lifetimeLock.RUnlock()
+			dst[i] = nil
+		}
+	}
+}
+
 // AcquireBucketConsistentViewForRead returns a consistent view of the named
 // bucket with the bucket itself pinned for the view's whole lifetime:
 // [BucketConsistentView.ReleaseView] drops the segment references and the
@@ -657,6 +685,9 @@ func flushThenMove(b *Bucket, move func() (moved bool, err error)) error {
 // Dir path of 1st bucket is temporarily suffixed with "___del", later on bucket is shutdown and
 // its files deleted.
 // 2nd bucket becomes 1st bucket
+//
+// Startup only: it drains the old bucket under the replacement's flushLock, which
+// deadlocks against a writer that pinned the old bucket and then writes the new one.
 func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
