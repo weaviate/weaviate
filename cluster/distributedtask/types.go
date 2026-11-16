@@ -273,6 +273,18 @@ type VectorConfigRemovalGate interface {
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 
+// VectorConfigRemovalProposeGate is an optional interface a
+// [VectorConfigRemovalGate] also implements to refuse a removal on the leader
+// before the entry is appended. It may be stricter than the apply-time gate:
+// a refusal here reaches no node, so tightening it never makes nodes of
+// different versions disagree on a committed entry.
+type VectorConfigRemovalProposeGate interface {
+	// CheckVectorConfigRemovalAtPropose is called under [Manager.mu] on the
+	// leader; non-nil refuses the propose. Arguments as for
+	// CheckVectorConfigRemoval, read from the leader's current state.
+	CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string, existingTasks []*Task) error
+}
+
 // RecoveryAwareProvider is an optional interface a provider implements to
 // keep the Scheduler's bootstrap pre-mark off its terminal tasks. The
 // pre-mark normally suppresses replay of callbacks that already fired

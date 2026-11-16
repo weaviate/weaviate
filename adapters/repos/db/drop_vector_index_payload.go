@@ -89,12 +89,22 @@ type DropVectorIndexTaskPayload struct {
 	// a drop on a 100k-tenant collection with most tenants cold carries the
 	// complement of CleanedShards here.
 	DeferredShards []string `json:"deferredShards,omitempty"`
+
+	// VerifyOnly marks a round that strips nothing. Each node's unit waits
+	// until the node's loaded shards of the drop hold no pending or quarantined
+	// rows for the epoch's op, which a restart can put back on a shard whose
+	// unit already completed.
+	//
+	// A node that does not read this field re-cleans its unit's shard instead.
+	// At most its own completion callback checks its other loaded shards, so a
+	// peer can still remove the marker over rows pending there.
+	VerifyOnly bool `json:"verifyOnly,omitempty"`
 }
 
 // DropVectorIndexTaskVisiblePayloadFields are the payload fields GET /v1/tasks
 // shows a caller without tenant read. Any other field could name tenants,
 // shards or nodes, so it stays hidden until it is listed here.
-var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId"}
+var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId", "verifyOnly"}
 
 // ResolvedByShardDeletion reports whether p's recorded coverage spans every
 // shard in shards while a shard p still OWED has since disappeared — i.e. the
@@ -107,7 +117,7 @@ var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dr
 // re-created name's marker), and it must keep re-cleaning.
 //
 // Deterministic over its inputs: the enqueuer and the FSM removal gate both
-// call it so the enqueuer never attempts a removal the gate would refuse.
+// call it, so they read a round the same way.
 func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(shards []string) bool {
 	if len(p.DeferredShards) == 0 {
 		return false
@@ -367,11 +377,17 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 	if len(ShardsNotCovered(shardNames, remaining)) == 0 {
 		// The chain spans every current shard while the marker still stands.
 		// Either the shards it still owed were DELETED — the work is genuinely
-		// done for the collection as it now stands, so finalize rather than
-		// re-strip shards that are already clean — or the chain owed nothing,
-		// which is closed-epoch residue (see above) and must re-clean.
+		// done for the collection as it now stands, so the caller finalizes
+		// through a verify-only round rather than re-strip shards that are
+		// already clean — or the chain owed nothing, which is closed-epoch
+		// residue (see above) and must re-clean.
+		//
+		// A verify-only round looks for leftover rows under the epoch's op
+		// only, so an epoch with a record under another op cannot be verified
+		// and re-cleans as well.
 		if resolvedByDeletion(tasks[DropVectorIndexNamespace], collection, targets,
-			newest.DropEpochID, shardNames) {
+			newest.DropEpochID, shardNames) &&
+			!epochHasForeignOp(tasks[DropVectorIndexNamespace], collection, targets, newest.DropEpochID) {
 			return newest.DropEpochID, cleaned, true
 		}
 		return uuid.NewString(), nil, false
@@ -397,6 +413,22 @@ func resolvedByDeletion(tasks []*distributedtask.Task, collection string, target
 			continue
 		}
 		if p.ResolvedByShardDeletion(shardNames) {
+			return true
+		}
+	}
+	return false
+}
+
+// epochHasForeignOp reports whether some record of the epoch ran under an op
+// other than the epoch's own. Rows still pending under such an op are
+// invisible to anything that looks the op up by epoch.
+func epochHasForeignOp(tasks []*distributedtask.Task, collection string, targets []string, epoch string) bool {
+	for _, task := range tasks {
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if SameDrop(p, collection, targets) && p.DropEpochID == epoch && p.OpID != epoch {
 			return true
 		}
 	}
