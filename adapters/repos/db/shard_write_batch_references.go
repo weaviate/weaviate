@@ -105,7 +105,6 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		return errs
 	}
 
-	// Pinned for the whole batch: the index write runs once, after the loop.
 	buckets, refused := b.pinRefBuckets(batch, propsByName)
 	defer b.shard.store.ReleaseBucketsForWrite(buckets.pinned)
 

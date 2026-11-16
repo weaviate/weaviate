@@ -88,7 +88,6 @@ func missingBucketObject(className string, id strfmt.UUID, word string, n float6
 	}}
 }
 
-// filterableHas reports whether value's posting in prop's filterable index holds docID.
 func filterableHas(t *testing.T, s *Shard, prop, value string, docID uint64) bool {
 	t.Helper()
 	bm, release, err := s.store.Bucket(helpers.BucketFromPropNameLSM(prop)).RoaringSetGet(testCtx(), []byte(value))
@@ -97,8 +96,7 @@ func filterableHas(t *testing.T, s *Shard, prop, value string, docID uint64) boo
 	return bm.Contains(docID)
 }
 
-// A write that needs a bucket this shard does not have must fail before it
-// changes anything: the stored object and every index entry stay as they were.
+// A write needing a missing bucket must fail before changing anything.
 func TestFailedWriteChangesNothing(t *testing.T) {
 	t.Setenv(entcfg.EnvNestedFilteringPreview, "true")
 	type row struct {
@@ -171,8 +169,7 @@ func TestFailedWriteChangesNothing(t *testing.T) {
 	}
 }
 
-// A reference batch refuses only the references to a property whose bucket is
-// missing, before their merge; references to other properties go ahead.
+// A reference batch refuses only references to a property with a missing bucket.
 func TestReferenceBatchRefusesOnlyThePropertyWithAMissingBucket(t *testing.T) {
 	ctx := testCtx()
 	className := "MissingRefBucket_" + uuid.NewString()[:8]

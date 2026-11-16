@@ -210,9 +210,7 @@ func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) 
 	assert.Equalf(t, 0, scanPanicLines(ctx, t, compose),
 		"expected zero 'panic serving' lines across all nodes during concurrent-update enable-rangeable")
 
-	// Core assertion, pre-restart: every replica serves all movers over the
-	// sentinel band. A short count is a silent index loss, in whichever index
-	// that replica serves range filters from.
+	// Core assertion, pre-restart: every replica serves all movers over the sentinel band.
 	assertRangeCountAllNodes(t, compose, className, propName, sentinelBase, sentinelHi, len(movers), "pre-restart")
 
 	// Durability: the loss (if any) survives a restart because it is on disk.

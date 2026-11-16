@@ -57,9 +57,7 @@ func isDone(done <-chan error) (bool, error) {
 	}
 }
 
-// A write that loaded the unarmed state before a migration armed must still
-// reach the migrated index: the arm waits for its object write, so the
-// backfill's flush, which follows the arm, includes the object.
+// A write that loaded the unarmed state before an arm must still reach the migrated index.
 func TestArmWaitsForWritesThatLoadedTheUnarmedState(t *testing.T) {
 	ctx := testCtx()
 	className := "ArmBarrier_" + uuid.NewString()[:8]
