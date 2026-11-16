@@ -1537,6 +1537,7 @@ func TestAHeldCommittedSwapWaitsAndKeepsItsDebt(t *testing.T) {
 	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
 		Logger:                  fx.logger,
 		SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
+		HeaderDecoders:          map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
 	})
 	payload := fx.subject.reindexPayload()
 	payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}

@@ -983,7 +983,7 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
 			run.SwapsOwed = map[string][]string{"b": {"n2"}}
-			require.True(t, db.ReindexDetector{}.CutoverLanded(run, func(string) *models.Class { return class }))
+			require.True(t, db.ReindexDetector{}.CutoverLanded(loadReindexTasks(t, run)[0], func(string) *models.Class { return class }))
 			run.Status = distributedtask.TaskStatusFinished
 			tasks := []*distributedtask.Task{run}
 
