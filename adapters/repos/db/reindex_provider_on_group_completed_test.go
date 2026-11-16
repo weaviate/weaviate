@@ -28,7 +28,7 @@ import (
 // recovery replay of a long-finished migration — the function must
 // return nil immediately without attempting to load the payload or
 // dispatch to RunSwapOnShard. Without this guard, the dispatch falls
-// through to runtimeSwap which errors with "reindex bucket %q not
+// through to the swap, which errors with "reindex bucket %q not
 // found" because the swap dirs were trimmed at migration completion,
 // spamming every node restart with bogus ERROR-level log entries.
 //

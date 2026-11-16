@@ -217,7 +217,7 @@ func TestStore_SwapBucketPointer_StoreClosed(t *testing.T) {
 //  1. Create main + ingest sidecar.
 //  2. Swap ingest into main slot (in-memory only; on-disk dir is unchanged).
 //  3. Shut down the old main bucket and rename its dir to backup (mirrors
-//     runtimeSwap step 3 in inverted_reindex_task_generic.go).
+//     settleSwap in inverted_reindex_task_generic.go).
 //  4. Simulate the next cycle's pre-cleanup: rm-rf the ingest dir on disk
 //     (mirrors cleanStaleSidecarDirs).
 //  5. CreateOrLoadBucket for a NEW ingest bucket at the same name must
@@ -270,7 +270,7 @@ func TestStore_SwapBucketPointer_ReleasesSourcePathFromRegistry(t *testing.T) {
 	require.NoError(t, os.RemoveAll(ingestPath))
 
 	// Step 5: a NEW ingest bucket must be loadable at the same name. This
-	// is the exact CreateOrLoadBucket call that runtimeSwap's
+	// is the exact CreateOrLoadBucket call that the swap's
 	// loadIngestBuckets makes — without the registry release in step 2 it
 	// fails with ErrBucketAlreadyRegistered.
 	require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, WithStrategy(StrategyReplace)),

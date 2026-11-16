@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -211,14 +213,16 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
-	task.processOneSwapPropFn = func(_ context.Context, _ *lsmkv.Store, _ int, _ string) (*lsmkv.Bucket, error) {
-		return nil, fmt.Errorf("injected data-work swap failure")
-	}
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	staged := task.ingestBucketName(propName)
+	require.NoError(t, shard.store.ShutdownBucket(ctx, staged))
+	require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), staged)))
 
-	err := runReindexToCompletionOrError(t, ctx, task, shard)
+	err := task.RunSwapOnShard(ctx, shard)
 	require.Error(t, err, "a data-work (swap) failure must still fail the migration - "+
 		"WARN-and-continue is scoped to the rebuild step only")
-	assert.Contains(t, err.Error(), "injected data-work swap failure")
+	assert.Contains(t, err.Error(), staged)
 	assert.False(t, wrapped.migrationCompleted, "OnMigrationComplete must not run when the data work itself failed")
 }
 

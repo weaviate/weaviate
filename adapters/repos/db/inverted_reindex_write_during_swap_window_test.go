@@ -87,22 +87,13 @@ func (sc swapWindowScenario) run(t *testing.T) *lsmkv.Bucket {
 
 	task, _ := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName, shard.migrationUnit())
 
-	injected := false
-	origSwap := task.processOneSwapPropFn
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, prop string) (*lsmkv.Bucket, error) {
-		oldMain, err := origSwap(ctx, store, propIdx, prop)
-		if err != nil {
-			return oldMain, err
-		}
-		sc.inject(t, ctx, shard, objs)
-		injected = true
-		return oldMain, nil
-	}
-
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, injected, "swap-window injection hook must have fired")
+	decided, err := task.decideSwap(ctx, shard, task.logger)
+	require.NoError(t, err)
+	require.NoError(t, flipUnit(ctx, shard, []*unitSwap{decided}, nil))
+	sc.inject(t, ctx, shard, objs)
+	require.NoError(t, task.settleSwap(ctx, task.logger, shard, decided.subject, decided.props, decided.displaced))
 
 	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
 	require.NotNil(t, bucket, "post-swap rangeable bucket must exist")

@@ -12,9 +12,6 @@
 package db
 
 import (
-	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,153 +23,43 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-const midPropSwapHaltPanicPrefix = "mid-prop-swap halt: simulated crash"
-
-func midPropSwapInstallFault(task *ShardReindexTaskGeneric, haltAfter int) {
-	prod := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
-		bucket, err := prod(ctx, store, propIdx, propName)
-		if err != nil {
-			return nil, err
-		}
-		if haltAfter > 0 && propIdx == haltAfter-1 {
-			panic(fmt.Sprintf("%s (propIdx=%d, haltAfter=%d)",
-				midPropSwapHaltPanicPrefix, propIdx, haltAfter))
-		}
-		return bucket, nil
-	}
-}
-
-func midPropSwapRunWithRecover(ctx context.Context, task *ShardReindexTaskGeneric,
-	shard *Shard, props []string,
-) (panicked bool, panicValue interface{}, swapReturned bool, swapErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			panicked = true
-			panicValue = r
-		}
-	}()
-	swapErr = task.runtimeSwap(ctx, task.logger, shard, props)
-	swapReturned = true
-	return
-}
-
-func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
+// A crash between the recorded flip decision and the flip; recovery converges every property.
+func TestRecoveryConvergence_CrashBetweenDecisionAndFlip(t *testing.T) {
 	const numObjects = 25
 	propNames := []string{"title", "subtitle", "description", "keywords"}
-
 	baseline := computeMultiPropBaseline(t, propNames, numObjects)
-	for _, propName := range propNames {
-		require.NotEmptyf(t, baseline[propName],
-			"baseline must have a non-empty fingerprint for prop %q", propName)
+
+	ctx := testCtx()
+	className := "DecidedSwap_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, propNames)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
+		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	for _, haltAfter := range []int{0, 1, 2, 3} {
-		t.Run(fmt.Sprintf("haltAfter=%d", haltAfter), func(t *testing.T) {
-			ctx := testCtx()
-			className := fmt.Sprintf("MidPropSwap_%d_%s", haltAfter, uuid.NewString()[:8])
-			class := newTestClassWithProps(className, propNames)
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	decided, err := task.decideSwap(ctx, shard, task.logger)
+	require.NoError(t, err)
+	require.NoError(t, task.putMigrationRecord(shard, decided.decision))
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
+	shardName := shard.Name()
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
 
-			for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
-				require.NoError(t, shard.PutObject(ctx, obj))
-			}
+	task2 := newTestTask(idx.logger, &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}},
+		testMigrationUnitFor(idx, shardName))
+	idx.shardReindexer = &testShardReindexer{task: task2}
+	shard2 := openShardFromDisk(t, ctx, idx, class, shardName)
+	defer shard2.Shutdown(ctx)
+	require.NoError(t, task2.RunOnShard(ctx, shard2), "recovery relaunch")
 
-			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-
-			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-			rec, ok := task.migrationRecord(shard)
-			require.True(t, ok, "the rebuild must have left a record")
-			props := rec.Subject().Properties()
-			require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
-
-			midPropSwapInstallFault(task, haltAfter)
-
-			panicked, panicValue, swapReturned, swapErr := midPropSwapRunWithRecover(
-				ctx, task, shard, props)
-
-			if haltAfter == 0 {
-				require.Falsef(t, panicked,
-					"haltAfter=0 must not panic (got panicValue=%v)", panicValue)
-				require.Truef(t, swapReturned, "haltAfter=0 must reach swap-return")
-				require.NoErrorf(t, swapErr, "haltAfter=0 must succeed")
-			} else {
-				require.Falsef(t, swapReturned,
-					"runtimeSwap returned without panicking (err=%v); the fault did not fire — test harness invalid",
-					swapErr)
-				require.Truef(t, panicked,
-					"expected panic from the injected fault; got swapErr=%v", swapErr)
-				panicStr, ok := panicValue.(string)
-				require.Truef(t, ok && strings.HasPrefix(panicStr, midPropSwapHaltPanicPrefix),
-					"recovered panic was not from the fault (want prefix %q; got %T %v)",
-					midPropSwapHaltPanicPrefix, panicValue, panicValue)
-
-				flippedCount := 0
-				for _, p := range props {
-					if shard.store.Bucket(task.ingestBucketName(p)) == nil {
-						flippedCount++
-					}
-				}
-				assert.GreaterOrEqualf(t, flippedCount, haltAfter,
-					"after the halt, expected >=%d props flipped (got %d)", haltAfter, flippedCount)
-				assert.Lessf(t, flippedCount, len(propNames),
-					"after the halt, expected <%d props flipped (got %d) — the fault did not fire",
-					len(propNames), flippedCount)
-			}
-
-			shardName := shard.Name()
-			shardLSMPath := shard.pathLSM()
-			require.NoError(t, shard.Shutdown(ctx))
-
-			simulateProcessRestartBucketCleanup(t, shardLSMPath)
-
-			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
-			idx.shardReindexer = &testShardReindexer{task: task2}
-
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-			require.NoErrorf(t, err, "mid-prop-swap shard re-init (haltAfter=%d)", haltAfter)
-			shard2 := shd2.(*Shard)
-			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
-
-			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
-				"mid-prop-swap recovery relaunch (haltAfter=%d)", haltAfter)
-
-			for _, propName := range propNames {
-				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-				bucket := shard2.store.Bucket(bucketName)
-				require.NotNilf(t, bucket,
-					"mid-prop-swap bucket %q must exist post-recovery (haltAfter=%d)",
-					propName, haltAfter)
-				require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
-					"mid-prop-swap bucket %q must be StrategyInverted post-recovery (haltAfter=%d)",
-					propName, haltAfter)
-
-				got := fingerprintInvertedBucket(t, bucket)
-				expected := baseline[propName]
-
-				assert.Equalf(t, len(expected), len(got),
-					"mid-prop-swap term count for %q diverges (haltAfter=%d)",
-					propName, haltAfter)
-				for term, expectedIDs := range expected {
-					gotIDs, ok := got[term]
-					if !ok {
-						assert.Failf(t, "mid-prop-swap missing term",
-							"term %q on prop %q present in baseline but missing post-recovery (haltAfter=%d)",
-							term, propName, haltAfter)
-						continue
-					}
-					assert.Equalf(t, expectedIDs, gotIDs,
-						"mid-prop-swap term %q on prop %q diverges (haltAfter=%d)\n  baseline (%d): %v\n  got      (%d): %v",
-						term, propName, haltAfter, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
-				}
-			}
-		})
+	for _, propName := range propNames {
+		bucket := shard2.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+		require.NotNilf(t, bucket, "bucket %q missing post-recovery", propName)
+		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(), "prop %q strategy", propName)
+		assert.Equalf(t, baseline[propName], fingerprintInvertedBucket(t, bucket), "prop %q terms", propName)
 	}
 }

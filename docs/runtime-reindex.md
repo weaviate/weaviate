@@ -497,13 +497,11 @@ Each node runs its own three-phase dance on its own local timeline.
 
 Two different scopes of atomicity carry weight here:
 
-- **Per-node atomic** — inside `RunSwapOnShard`'s Phase 2a, the per-
-  prop `SwapBucketPointer` tight loop holds the mixed-state subwindow
-  ("some props swapped, others not") to microseconds. A query landing
-  on this node during this subwindow that hits a not-yet-swapped prop
-  would tokenize input with the new value against an old-tokenized
-  bucket; the loop staying microseconds ensures the probability is
-  negligible. This is the meaning of "ATOMIC SWAP" in the diagram.
+- **Per-node atomic** — in the swap's Phase 2a, every bucket of the
+  shard's unit and the property overlay flip in one critical section,
+  so no query on this node sees some buckets swapped and others not, or
+  a tokenization that disagrees with the bucket it reads. This is the
+  meaning of "ATOMIC SWAP" in the diagram.
 - **Cluster-wide convergence (NOT instantaneous synchronization)** —
   the system guarantees that either every node converges to the new
   bucket+schema state, or the migration fails cleanly and every node
@@ -932,11 +930,9 @@ non-atomic window; a concurrent compaction reading `bucket.disk.dir`
 sees the old path and post-rename writes fail with `ENOENT`. See §9
 for the full history.
 
-The atomic-phase contract in the orchestrator file enforces this
-rule: a unit test fails if `SwapBucketPointer` is preceded by any
-disk-I/O or compaction-wait op inside Phase 2
-(`ShardReindexTaskGeneric.processOneSwapPropFn` + wall-clock budget
-assertion).
+The atomic-phase contract in the orchestrator file states this rule:
+the flip is one in-memory call (`Shard.SwapBucketsAndSetOverlay`), and
+every disk-I/O or compaction-wait op runs before or after it.
 
 ## 5. Migration strategies — quick map
 
@@ -1214,12 +1210,11 @@ in short:
   per property, `removeReindexBucketsDirs`, sentinel writes. Disk-I/O-
   heavy. Schema = OLD, bucket = OLD throughout — safe with live queries.
 - **Phase 2a — ATOMIC SWAP (microseconds, inside overlay window):**
-  per prop, `Store.SwapBucketPointer(ctx, mainName, ingestName)` followed
-  by `markSwappedProp`. Tight loop. Bounds the per-shard
-  "mixed-state" subwindow (some props swapped, others not) to a few
-  microseconds total — queries during this subwindow that hit
-  not-yet-swapped props would tokenize input with the new value
-  against an old-tokenized bucket. Must stay microseconds.
+  the flip decisions of every task in the shard's unit are recorded with
+  one `PutAll`, then `Shard.SwapBucketsAndSetOverlay` moves every bucket
+  of the unit (both halves of a tokenization change) and sets the
+  property overlay in one critical section. No query sees a property
+  whose tokenization and buckets disagree.
 - **Phase 2b — POST-ATOMIC INLINE TIDY (slow but correctness-safe):**
   `oldMainBucket.Shutdown(ctx)` + `os.Rename(oldMainDir, backupDir)`
   per property, then `markSwapped` + `markTidied`. After every prop
@@ -1372,7 +1367,7 @@ on the same property don't collide.
 
 ### 9.1 Why the rename is deferred
 
-After a successful `runtimeSwap` on each node:
+After a successful swap on each node:
 
 - `bucketsByName[mainName]` → the ingest bucket instance.
 - That bucket's `dir` still points at
@@ -1421,7 +1416,7 @@ T_(N+1) on prop=text:
 ```
 
 No path collision with the gen-N state still on disk. `T_(N+1)`'s
-`runtimeSwap` replaces the gen-N pointer with its own; the old gen-N
+swap replaces the gen-N pointer with its own; the old gen-N
 bucket is shut down and renamed to the later migration's backup dir.
 `N` and `N+1` here label two successive submissions, whose generations
 rise but need not be consecutive (§9.3).
@@ -1449,7 +1444,7 @@ counting them.
 
 ### 9.4 Trim at end of swap keeps depth bounded
 
-After `T_N` tidies, the per-shard `runtimeSwap` does an in-process
+After `T_N` tidies, the per-shard swap does an in-process
 trim that deletes every older gen's sidecar dirs (reindex / ingest /
 backup). The invariant: at any time, on disk for any
 `(prop, indexType)`, there is **at most one tidied generation plus at
@@ -1510,7 +1505,7 @@ breaks two things:
   tokenized against the OLD schema value and looked up in a
   NEW-tokenized bucket — wrong results.
 - **Writes**, on a migration that enables an index type. The
-  double-write mirror comes down when `runtimeSwap` returns and the
+  double-write mirror comes down when the swap returns and the
   ordinary write path gates on a schema flag that is still false, so a
   write accepted here is acked, durable in the objects bucket, and
   indexed nowhere. Nothing rescans afterwards, so it stays missing
@@ -1540,15 +1535,12 @@ never about the schema. It claims only what is physically true here: a
 forced flag while that bucket exists, a tokenization while the
 searchable bucket's content uses it. Lifecycle:
 
-1. **Set at swap** — `maybeWirePerPropOverlaySet` runs in Phase 2 of
-   `OnGroupCompleted`, between PREP and ATOMIC SWAP, installing a
-   per-prop `swapPropAtomic` hook on each task (plus an `onPropSwapped`
-   fallback the recovery/resume path still uses). The overlay for a prop
-   is then SET inside the swap's Phase 2a tight loop, ATOMICALLY with
-   that prop's bucket-pointer flip — one critical section via
-   `Shard.SwapBucketAndSetOverlay` — not once-for-the-whole-shard up
-   front (which opens a disk-I/O-sized `overlay=NEW`, `bucket=OLD`
-   window across `RunSwapOnShard`'s preamble). The value is the one the
+1. **Set at swap** — `propertyOverlayFor` builds one entry per property
+   across the unit's tasks, and the swap's Phase 2a sets it ATOMICALLY
+   with every bucket-pointer flip of the unit — one critical section via
+   `Shard.SwapBucketsAndSetOverlay` — not up front (which opens a
+   disk-I/O-sized `overlay=NEW`, `bucket=OLD` window across the swap's
+   preamble). The value is the one the
    task's strategy already hands the backfill scan (§11) plus, for the
    two retokenize types, the payload's target tokenization — the one
    part no strategy carries. A second swap on the same property unions
@@ -1820,7 +1812,7 @@ collection, or run its swap and schema flip again. Before rolling back:
 
 - [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationResolver`, `ResolveTokenization`.
 - [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `BeyondLiveSchema`, `Property.OverlayForcedOnly`.
-- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `SwapBucketAndSetOverlay`, `retirePropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
+- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `SwapBucketsAndSetOverlay`, `retirePropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
 - [`adapters/repos/db/shard_write_inverted.go`](../adapters/repos/db/shard_write_inverted.go) — `writePathAnalyzerOverlay`, the write path's read of the overlay.
 
 **DTM**
@@ -1949,8 +1941,7 @@ test packages.
 - DTM finalizing + ack barrier — `cluster/distributedtask/manager_test.go`,
   `scheduler_multinode_test.go`, `errors_test.go`.
 - LSM swap primitives — `lsmkv/store_bucket_swap_test.go`.
-- Atomic-phase regression guard — `inverted_reindex_task_generic_test.go`
-  (the `processOneSwapPropFn` wall-clock budget assertion).
+- One-unit swap — `inverted_reindex_unit_swap_test.go`.
 
 ## 17. Deferred simplifications
 

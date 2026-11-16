@@ -811,29 +811,55 @@ func (s *Store) renameFlushedBucket(currBucket *Bucket, bucketName, newBucketNam
 // entry which is cleaned up by the caller's subsequent Shutdown of the
 // returned bucket — that path is NOT released here.
 func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
+	displaced, err := s.SwapBucketPointers(ctx, []BucketSwap{{Target: targetName, Source: sourceName}})
+	if err != nil {
+		return nil, err
+	}
+	return displaced[0], nil
+}
+
+type BucketSwap struct{ Target, Source string }
+
+// SwapBucketPointers applies every swap or none, returning the displaced buckets in order.
+func (s *Store) SwapBucketPointers(ctx context.Context, swaps []BucketSwap) ([]*Bucket, error) {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
 	if s.closed {
-		return nil, fmt.Errorf("%w: swapping bucket %q with %q in store %q",
-			ErrAlreadyClosed, targetName, sourceName, s.dir)
+		return nil, fmt.Errorf("%w: swapping %d bucket(s) in store %q", ErrAlreadyClosed, len(swaps), s.dir)
 	}
 
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	oldBucket, ok := s.bucketsByName[targetName]
-	if !ok {
-		return nil, fmt.Errorf("target bucket %q not found in store %q", targetName, s.dir)
+	named := make(map[string]bool, 2*len(swaps))
+	for _, swap := range swaps {
+		for _, name := range []string{swap.Target, swap.Source} {
+			if named[name] {
+				return nil, fmt.Errorf("bucket %q is named by more than one swap in store %q", name, s.dir)
+			}
+			named[name] = true
+		}
+		if _, ok := s.bucketsByName[swap.Target]; !ok {
+			return nil, fmt.Errorf("target bucket %q not found in store %q", swap.Target, s.dir)
+		}
+		if _, ok := s.bucketsByName[swap.Source]; !ok {
+			return nil, fmt.Errorf("source bucket %q not found in store %q", swap.Source, s.dir)
+		}
 	}
 
-	sourceBucket, ok := s.bucketsByName[sourceName]
-	if !ok {
-		return nil, fmt.Errorf("source bucket %q not found in store %q", sourceName, s.dir)
+	displaced := make([]*Bucket, len(swaps))
+	for i, swap := range swaps {
+		displaced[i] = s.bucketsByName[swap.Target]
+		s.swapBucketPointerLocked(swap)
 	}
+	return displaced, nil
+}
 
-	s.bucketsByName[targetName] = sourceBucket
-	delete(s.bucketsByName, sourceName)
+func (s *Store) swapBucketPointerLocked(swap BucketSwap) {
+	sourceBucket := s.bucketsByName[swap.Source]
+	s.bucketsByName[swap.Target] = sourceBucket
+	delete(s.bucketsByName, swap.Source)
 
 	// Release the source bucket's on-disk path from the global registry. See
 	// the function doc above for the full rationale. The source bucket is
@@ -855,8 +881,6 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	registeredPath := sourceBucket.registeredPath
 	sourceBucket.flushLock.RUnlock()
 	GlobalBucketRegistry.Remove(registeredPath)
-
-	return oldBucket, nil
 }
 
 // FinalizeBucketSwap completes a deferred bucket swap by renaming directories

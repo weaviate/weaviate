@@ -282,7 +282,7 @@ func buildRecoveryTasks(
 
 // constrainToShard narrows a task's shard selection to exactly the
 // named shard of the named collection. After recovery this is called
-// on every reconstructed task so the per-shard runtimeSwap / disable
+// on every reconstructed task so the per-shard swap / disable
 // flow doesn't accidentally touch other shards' callbacks.
 func (t *ShardReindexTaskGeneric) constrainToShard(collection, shardName string) {
 	t.config.selectionEnabled = true

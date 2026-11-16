@@ -306,10 +306,10 @@ func TestSecondMigrationUnionsIntoAFailedTokenizationOverlay(t *testing.T) {
 		arm  func(*testing.T, *Shard, string, inverted.PropertyOverlay)
 	}{
 		{
-			name: "the live swap arms through SwapBucketAndSetOverlay",
+			name: "the live swap arms through SwapBucketsAndSetOverlay",
 			arm: func(t *testing.T, shard *Shard, prop string, o inverted.PropertyOverlay) {
-				_, err := shard.SwapBucketAndSetOverlay(prop, o,
-					func() (*lsmkv.Bucket, error) { return nil, nil })
+				_, err := shard.SwapBucketsAndSetOverlay(context.Background(),
+					map[string]inverted.PropertyOverlay{prop: o}, nil)
 				require.NoError(t, err)
 			},
 		},

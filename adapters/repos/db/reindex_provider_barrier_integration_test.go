@@ -118,7 +118,7 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	// makes per-shard. rehydrate=false matches the in-process happy path
 	// (the cached task instance still has its double-write callbacks).
 	p, _ := barrierIntegrationProvider(t)
-	ok, res := p.runShardPrepPhase(ctx, "unit-1", shard,
+	ok, res := p.runShardPrepPhase(ctx, nil, "unit-1", shard,
 		[]*ShardReindexTaskGeneric{task}, false, p.logger)
 	require.True(t, ok, "PREP must succeed: %v", res.Errs)
 	require.Empty(t, res.Errs, "PREP must not accumulate errors")
@@ -157,7 +157,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	task, strategy := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
 
 	p, _ := barrierIntegrationProvider(t)
-	ok, prepRes := p.runShardPrepPhase(ctx, "unit-1", shard,
+	ok, prepRes := p.runShardPrepPhase(ctx, nil, "unit-1", shard,
 		[]*ShardReindexTaskGeneric{task}, false, p.logger)
 	require.True(t, ok, "PREP setup must succeed: %v", prepRes.Errs)
 

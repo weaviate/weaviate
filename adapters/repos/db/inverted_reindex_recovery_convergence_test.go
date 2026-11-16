@@ -68,7 +68,7 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 // newSearchableRetokenizeTask wraps the production
 // SearchableRetokenizeStrategy in test scaffolding. Semantic
 // migration: swap is driven via RunReindexOnly/RunPrepare/RunSwap on
-// each shard, not the inline runtimeSwap used by MapToBlockmax.
+// each shard, not the inline swap used by MapToBlockmax.
 func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy, unitID string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
 	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1, unitID)

@@ -9,9 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Runtime reindex phase contract. The swap's flip loop must stay microseconds: a
-// query on a not-yet-flipped prop tokenizes new-analyzer input against the old
-// bucket (https://github.com/weaviate/0-weaviate-issues/issues/216). Retiring a
+// Runtime reindex phase contract. A swap flips every bucket of the shard's unit and the overlay in one
+// in-memory critical section, so no query reads a mixed pair
+// (https://github.com/weaviate/0-weaviate-issues/issues/216). Retiring a
 // displaced bucket shuts it down inline, since Shutdown alone frees its path from
 // GlobalBucketRegistry. The rename onto the canonical name waits for the next
 // startup: renaming a live bucket's dir corrupts its segment registry.
@@ -72,28 +72,11 @@ type ShardReindexTaskGeneric struct {
 	// because RunOnShard is called after the setter on the same goroutine.
 	progressCallback func(float32)
 
-	// processOneSwapPropFn is the dispatch function for runtimeSwap's
-	// Phase 2a per-prop body. Defaults to the [processOneSwapProp]
-	// method in [NewShardReindexTaskGeneric]; tests substitute a
-	// wrapper for fault injection or observation. No test-only branch
-	// runs in production — the field is always set.
-	processOneSwapPropFn func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
-
 	// registerDoubleWriteCallbacksFn dispatches ingest-window double-write
 	// registration; tests wrap it to probe the arm→record ordering
 	// (weaviate/weaviate#11688).
 	registerDoubleWriteCallbacksFn func(shard *Shard, props []string,
 		bucketNamer func(string) string) (func(), error)
-
-	// Only the recovery/resume path still uses this; the live Phase-2a loop
-	// routes through swapPropAtomic when wired.
-	onPropSwapped func(propName string)
-
-	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
-	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay).
-	// nil = legacy two-step flip + onPropSwapped. Returns the displaced
-	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
-	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
 
 	closingGuard indexClosingGuard
 
@@ -136,7 +119,6 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		config:               config,
 		closingGuard:         closingGuard,
 	}
-	t.processOneSwapPropFn = t.processOneSwapProp
 	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
 	t.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
 		return b.RebuildRangeableSegmentInMemory(ctx)
@@ -144,7 +126,7 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	return t
 }
 
-func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, _ int, propName string) (*lsmkv.Bucket, error) {
+func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, propName string) (*lsmkv.Bucket, error) {
 	ingestName := t.ingestBucketName(propName)
 	mainName := t.strategy.SourceBucketName(propName)
 
@@ -304,7 +286,7 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 }
 
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
-	return t.runSwapOnShard(ctx, shard, t.logger)
+	return swapUnitOnShard(ctx, shard, []*ShardReindexTaskGeneric{t}, []logrus.FieldLogger{t.logger}, nil)[0]
 }
 
 var discardLogger = func() *logrus.Logger {
@@ -323,71 +305,190 @@ func (t *ShardReindexTaskGeneric) swapLogger(retries *logrusext.Sampler) logrus.
 	return logger
 }
 
-func (t *ShardReindexTaskGeneric) runSwapOnShard(ctx context.Context, shard ShardLike, logger logrus.FieldLogger) error {
+type unitSwap struct {
+	task       *ShardReindexTaskGeneric
+	logger     logrus.FieldLogger
+	props      []string
+	settleOnly bool
+	subject    MigrationSubject
+	decision   MigrationRecord
+	displaced  map[string]*lsmkv.Bucket
+}
+
+// decideSwap runs every step before the flip; no reader sees them, so they may do I/O.
+func (t *ShardReindexTaskGeneric) decideSwap(ctx context.Context, shard ShardLike,
+	logger logrus.FieldLogger,
+) (*unitSwap, error) {
 	entry, err := t.enterDTMPhase(ctx, shard, logger, "RunSwapOnShard")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	concreteShard, logger := entry.shard, entry.logger
+	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
+		return nil, err
+	}
 
 	props := entry.rec.Subject().Properties()
 	if len(props) == 0 {
-		return fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
+		return nil, fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
 	}
+	u := &unitSwap{task: t, logger: logger, props: props, displaced: map[string]*lsmkv.Bucket{}}
+	logger = logger.WithField("property_count", len(props)).WithField("props", migrationReportedNames(props))
 
 	swapPending, err := t.swapStillToRun(logger, concreteShard, entry.rec, props)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
+	prepare := false
 	switch {
 	case swapPending:
-		logger.WithField("property_count", len(props)).
-			WithField("props", migrationReportedNames(props)).
-			Info("RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
+		logger.Info("RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
 		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-			return err
+			return nil, err
 		}
-		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
-			return fmt.Errorf("ensure buckets loaded: %w", err)
-		}
-		return t.runtimeSwap(ctx, logger, shard, props)
-
 	case entry.rec.FlipDecided():
-		logger.WithField("property_count", len(props)).
-			WithField("props", migrationReportedNames(props)).
-			Info("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
-		if err := t.requireCanonicalHoldsMigratedData(shard, entry.rec); err != nil {
-			return err
-		}
-		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, props)
-
+		logger.Info("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
+		u.settleOnly = true
+		return u, t.requireCanonicalHoldsMigratedData(shard, entry.rec)
 	case entry.rec.StagedDataComplete():
-		logger.WithField("property_count", len(props)).
-			WithField("props", migrationReportedNames(props)).
-			Info("RunSwapOnShard: resuming from merged state, in-memory atomic swap")
-		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
-			return fmt.Errorf("ensure buckets loaded: %w", err)
-		}
-		return t.runtimeSwap(ctx, logger, shard, props)
+		logger.Info("RunSwapOnShard: resuming from merged state, in-memory atomic swap")
+	default:
+		logger.Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
+		prepare = true
 	}
-
-	logger.WithField("property_count", len(props)).
-		WithField("props", migrationReportedNames(props)).
-		Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
 
 	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
-		return fmt.Errorf("ensure buckets loaded: %w", err)
+		return nil, fmt.Errorf("ensure buckets loaded: %w", err)
+	}
+	if prepare {
+		if err := t.runtimePrepare(ctx, logger, shard, props); err != nil {
+			return nil, fmt.Errorf("runtime prepare: %w", err)
+		}
 	}
 
-	if err := t.runtimePrepare(ctx, logger, shard, props); err != nil {
-		return fmt.Errorf("runtime prepare: %w", err)
+	if u.subject, err = t.migrationSubjectNow(shard); err != nil {
+		return nil, err
+	}
+	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
+	if rec, ok := t.migrationRecord(shard); ok && rec.FlipDecided() {
+		return u, nil
+	}
+	store := shard.Store()
+	displaced := make(map[string]string, len(props))
+	var stagedEmpty []string
+	for _, propName := range props {
+		if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
+			displaced[propName] = filepath.Base(bucket.GetDir())
+		}
+		if t.stagedBucketHoldsNothing(store, propName) {
+			stagedEmpty = append(stagedEmpty, propName)
+		}
+	}
+	u.decision = NewMigrationRecordSwapped(u.subject, props, displaced).WithStagedEmpty(stagedEmpty)
+	return u, nil
+}
+
+// A property's tokenization and every bucket holding its terms belong to one unit, so they flip together.
+func swapUnitOnShard(ctx context.Context, shard ShardLike, tasks []*ShardReindexTaskGeneric,
+	loggers []logrus.FieldLogger, overlay map[string]inverted.PropertyOverlay,
+) []error {
+	errs := make([]error, len(tasks))
+	failAll := func(err error) []error {
+		for i := range errs {
+			if errs[i] == nil {
+				errs[i] = err
+			}
+		}
+		return errs
 	}
 
-	if err := t.runtimeSwap(ctx, logger, shard, props); err != nil {
-		return fmt.Errorf("runtime swap: %w", err)
+	units := make([]*unitSwap, len(tasks))
+	for i, task := range tasks {
+		u, err := task.decideSwap(ctx, shard, loggers[i])
+		if err != nil {
+			errs[i] = err
+			return failAll(fmt.Errorf("not swapped, because the swap of %s failed: %w", task.Name(), err))
+		}
+		units[i] = u
+	}
+	if err := flipUnit(ctx, shard, units, overlay); err != nil {
+		return failAll(err)
+	}
+	for i, u := range units {
+		if u.settleOnly {
+			errs[i] = u.task.finalizeMigrationAfterRecovery(ctx, u.logger, shard, u.props)
+			continue
+		}
+		errs[i] = u.task.settleSwap(ctx, u.logger, shard, u.subject, u.props, u.displaced)
+	}
+	return errs
+}
+
+// Buckets are checked before the records: a decision over a missing bucket wedges the next load.
+func flipUnit(ctx context.Context, shard ShardLike, units []*unitSwap,
+	overlay map[string]inverted.PropertyOverlay,
+) error {
+	store := shard.Store()
+	type owner struct {
+		u    *unitSwap
+		prop string
+	}
+	var (
+		pairs     []lsmkv.BucketSwap
+		owners    []owner
+		decisions []MigrationRecord
+		armed     = map[string]inverted.PropertyOverlay{}
+		flipping  bool
+	)
+	for _, u := range units {
+		if u.settleOnly {
+			continue
+		}
+		flipping = true
+		if u.decision != nil {
+			decisions = append(decisions, u.decision)
+		}
+		for _, propName := range u.props {
+			// Armed even when already flipped, so a resumed swap re-establishes the overlay.
+			if o, ok := overlay[propName]; ok {
+				armed[propName] = o
+			}
+			if u.task.canonicalServesStaged(store, propName) {
+				continue
+			}
+			pair := lsmkv.BucketSwap{
+				Target: u.task.strategy.SourceBucketName(propName),
+				Source: u.task.ingestBucketName(propName),
+			}
+			for _, name := range []string{pair.Target, pair.Source} {
+				if store.Bucket(name) == nil {
+					return fmt.Errorf("bucket %q not found in store, so no bucket of this unit is swapped", name)
+				}
+			}
+			pairs = append(pairs, pair)
+			owners = append(owners, owner{u: u, prop: propName})
+		}
+	}
+	if !flipping {
+		return nil
 	}
 
+	concrete, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return err
+	}
+	if len(decisions) > 0 {
+		if err := putMigrationRecords(shard, decisions); err != nil {
+			return fmt.Errorf("recording the flip decision: %w", err)
+		}
+	}
+	displaced, err := concrete.SwapBucketsAndSetOverlay(ctx, armed, pairs)
+	if err != nil {
+		return err
+	}
+	for i, bucket := range displaced {
+		owners[i].u.displaced[owners[i].prop] = bucket
+	}
 	return nil
 }
 
@@ -435,7 +536,7 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 			WithField("props", migrationReportedNames(missingIngest)).
 			Warn("ingest buckets not in store but dirs exist; defensively loading before runtime swap")
 		// keepLevelCompaction=false, keepTombstones=false: at this
-		// point (pre-prepend, mid-runtimeSwap) the standard
+		// point (pre-prepend, before the flip) the standard
 		// post-merge ingest options apply.
 		if err := t.loadIngestBuckets(ctx, logger, shard, missingIngest, false, false); err != nil {
 			return fmt.Errorf("load ingest buckets: %w", err)
@@ -819,7 +920,7 @@ func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, s
 		if shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
 			continue
 		}
-		displaced, err := t.processOneSwapProp(ctx, shard.store, 0, propName)
+		displaced, err := t.processOneSwapProp(ctx, shard.store, propName)
 		if err != nil {
 			return err
 		}
@@ -867,20 +968,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if swapPending, err = t.swapStillToRun(logger, shard, rec, props); err != nil {
 			return zerotime, err
 		}
+		// A task does not know its unit's other buckets; its caller flips them together.
 		if swapPending {
-			var concrete *Shard
-			if concrete, err = unwrapShard(ctx, shard); err != nil {
-				return zerotime, err
-			}
-			if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-				return zerotime, err
-			}
-			if err = t.ensureReindexBucketsLoadedForSwap(ctx, logger, concrete, props); err != nil {
-				err = fmt.Errorf("ensure buckets loaded: %w", err)
-				return zerotime, err
-			}
-			err = t.runtimeSwap(ctx, logger, shard, props)
-			return zerotime, err
+			return zerotime, nil
 		}
 		if err = t.requireCanonicalHoldsMigratedData(shard, rec); err != nil {
 			return zerotime, err
@@ -888,7 +978,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
 			return zerotime, err
 		}
-		// Same ordering contract as runtimeSwap (see there for reasoning):
+		// Same ordering contract as settleSwap (see there for reasoning):
 		// this re-entry branch must recheck the rebuild too, or a retry
 		// could flip the schema without it ever succeeding.
 		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
@@ -1145,8 +1235,8 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 	return nil
 }
 
-func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
+func (t *ShardReindexTaskGeneric) settleSwap(ctx context.Context, logger logrus.FieldLogger,
+	shard ShardLike, subject MigrationSubject, props []string, oldMainBuckets map[string]*lsmkv.Bucket,
 ) error {
 	swapCompleted := false
 	defer func() {
@@ -1157,59 +1247,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			registry.DisarmMigrationMirrors(t.migrationRecordKey())
 		}
 	}()
-
-	store := shard.Store()
-
-	subject, err := t.migrationSubjectNow(shard)
-	if err != nil {
-		return err
-	}
-	if err := t.refuseUnmirrored(subject); err != nil {
-		return err
-	}
-	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
-	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
-		displaced := make(map[string]string, len(props))
-		var stagedEmpty []string
-		for _, propName := range props {
-			if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
-				displaced[propName] = filepath.Base(bucket.GetDir())
-			}
-			if t.stagedBucketHoldsNothing(store, propName) {
-				stagedEmpty = append(stagedEmpty, propName)
-			}
-		}
-		swapped := NewMigrationRecordSwapped(subject, props, displaced).WithStagedEmpty(stagedEmpty)
-		if err := t.putMigrationRecord(shard, swapped); err != nil {
-			return fmt.Errorf("recording the flip decision: %w", err)
-		}
-	}
-
-	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
-	for propIdx, propName := range props {
-		var (
-			oldMainBucket *lsmkv.Bucket
-			err           error
-		)
-		if t.swapPropAtomic != nil {
-			oldMainBucket, err = t.swapPropAtomic(ctx, store, propIdx, propName)
-			if err != nil {
-				return err
-			}
-		} else {
-			oldMainBucket, err = t.processOneSwapPropFn(ctx, store, propIdx, propName)
-			if err != nil {
-				return err
-			}
-			// Fire even on an already-swapped prop, so a resumed swap re-establishes the overlay.
-			if t.onPropSwapped != nil {
-				t.onPropSwapped(propName)
-			}
-		}
-		if oldMainBucket != nil {
-			oldMainBuckets[propName] = oldMainBucket
-		}
-	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
 	concrete, err := unwrapShard(ctx, shard)
@@ -1441,14 +1478,20 @@ func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRec
 }
 
 func (t *ShardReindexTaskGeneric) putMigrationRecord(shard ShardLike, rec MigrationRecord) error {
+	return putMigrationRecords(shard, []MigrationRecord{rec})
+}
+
+func putMigrationRecords(shard ShardLike, recs []MigrationRecord) error {
 	store := shard.migrationRecordStore()
 	if store == nil {
 		return fmt.Errorf("shard %q holds no migration record store", shard.Name())
 	}
-	if key := t.migrationRecordKey(); !key.valid() {
-		return fmt.Errorf("migration identity %s is incomplete", key)
+	for _, rec := range recs {
+		if key := rec.Subject().Key; !key.valid() {
+			return fmt.Errorf("migration identity %s is incomplete", key)
+		}
 	}
-	return store.Put(rec)
+	return store.PutAll(recs)
 }
 
 func (t *ShardReindexTaskGeneric) flushReindexBuckets(shard ShardLike, props []string, what string) error {

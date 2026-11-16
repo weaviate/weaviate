@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -47,17 +46,13 @@ func TestAtomicOverlaySwap_OldCodeIsRacy(t *testing.T) {
 	t.Logf("WITHOUT FIX (expected): %s", detail)
 }
 
-// runAtomicOverlaySwapProof drives one field→word swap with a widened
-// flip↔overlay window while a concurrent query loop reads the
-// (tokenization, bucket) pair, reporting the first non-validCount
-// observation. nonAtomic swaps in the two-step (separate flip/overlay,
-// separate-lock read) behavior instead of the atomic production path.
+// runAtomicOverlaySwapProof swaps field→word while a query loop reports the first wrong count;
+// nonAtomic flips and sets the overlay in two steps with a widened gap.
 func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, detailOut string, readsOut int64) {
 	ctx := testCtx()
-	const hookSleepMs = 50
 
 	fx := setupTwoTokenizationShard(t, ctx, "RetokWordRace")
-	shard, idx := fx.shard, fx.idx
+	shard := fx.shard
 	fieldBucket, wordBucket := fx.fieldBucket, fx.wordBucket
 	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
 	phrase, validCount := fx.phrase, fx.matchDocs
@@ -73,28 +68,12 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		"(WORD tok, FIELD bucket) — the bug's signature — must MISS")
 
 	// The "flip" redirects the FIELD prop's searchable bucket to the
-	// WORD-content bucket via the same SwapBucketPointer the migration uses.
-	task := NewRuntimeSearchableRetokenizeTask(
-		idx.logger, fieldProp, models.PropertyTokenizationWord,
-		className, lsmkv.StrategyInverted, className, 1,
-	)
-	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
-	wordBucketName := helpers.BucketSearchableFromPropNameLSM(wordProp)
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
-		_ int, _ string,
-	) (*lsmkv.Bucket, error) {
-		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
+	// WORD-content bucket, as the migration's flip does.
+	pair := lsmkv.BucketSwap{
+		Target: helpers.BucketSearchableFromPropNameLSM(fieldProp),
+		Source: helpers.BucketSearchableFromPropNameLSM(wordProp),
 	}
-
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		Collection:         className,
-		Properties:         []string{fieldProp},
-		TargetTokenization: models.PropertyTokenizationWord,
-	}
-	maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
-	require.NotNil(t, task.swapPropAtomic,
-		"overlay wiring must be active for a tokenization-changing migration")
+	wordOverlay := inverted.PropertyOverlay{Tokenization: models.PropertyTokenizationWord}
 
 	var (
 		stop       atomic.Bool
@@ -105,14 +84,19 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		totalReads atomic.Int64
 	)
 
-	// Widen the flip↔overlay window so the race is deterministically observable.
+	swap := func() (*lsmkv.Bucket, error) {
+		displaced, err := shard.SwapBucketsAndSetOverlay(ctx,
+			map[string]inverted.PropertyOverlay{fieldProp: wordOverlay}, []lsmkv.BucketSwap{pair})
+		if err != nil {
+			return nil, err
+		}
+		return displaced[0], nil
+	}
 	if nonAtomic {
 		// Two-step reproduction: flip, gap, then set the overlay as a
 		// SEPARATE step (composed test-side; production has no such branch).
-		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			propIdx int, propName string,
-		) (*lsmkv.Bucket, error) {
-			oldMainBucket, err := task.processOneSwapPropFn(ctx, store, propIdx, propName)
+		swap = func() (*lsmkv.Bucket, error) {
+			oldMainBucket, err := shard.store.SwapBucketPointer(ctx, pair.Target, pair.Source)
 			if err != nil {
 				return nil, err
 			}
@@ -122,27 +106,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 			for !sawBad.Load() && time.Now().Before(deadline) {
 				time.Sleep(time.Millisecond)
 			}
-			shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
-				Tokenization: models.PropertyTokenizationWord,
-			})
+			shard.SetPropertyOverlay(fieldProp, wordOverlay)
 			return oldMainBucket, nil
-		}
-	} else {
-		// Drives the real atomic critical section (Shard.SwapBucketAndSetOverlay),
-		// widening the flip↔overlay window INSIDE the lock to prove it covers the gap.
-		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			propIdx int, propName string,
-		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName,
-				inverted.PropertyOverlay{Tokenization: models.PropertyTokenizationWord},
-				func() (*lsmkv.Bucket, error) {
-					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, propIdx, propName)
-					if err != nil {
-						return nil, err
-					}
-					time.Sleep(hookSleepMs * time.Millisecond)
-					return oldMainBucket, nil
-				})
 		}
 	}
 
@@ -192,7 +157,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	// Head start so the loop is actively reading when the swap window opens.
 	time.Sleep(5 * time.Millisecond)
 
-	oldBucket, err := task.swapPropAtomic(ctx, shard.store, 0, fieldProp)
+	oldBucket, err := swap()
 	require.NoError(t, err)
 	require.NotNil(t, oldBucket, "swap must return the displaced old FIELD bucket")
 

@@ -27,7 +27,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -53,7 +52,7 @@ import (
 //     OnGroupCompleted swaps each local shard, then OnTaskCompleted flips
 //     the schema cluster-wide. No shard serves new data until all are
 //     ready, and a task that stops short leaves the schema as it found it.
-//     The SWAPPING-window overlays live here ([maybeWirePerPropOverlaySet]).
+//     The SWAPPING-window overlays live here ([propertyOverlayFor]).
 //
 //   - "Format-only" migrations rebuild a bucket whose schema flag is already
 //     true, so there is nothing to coordinate: each shard runs the full
@@ -685,6 +684,17 @@ func (p *ReindexProvider) processOneUnit(
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}
 
+	stopped := func(what string, runErr error) bool {
+		if runErr == nil {
+			return false
+		}
+		if errors.Is(runErr, context.Canceled) {
+			logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
+			return true
+		}
+		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("%s: %v", what, runErr))
+		return true
+	}
 	for _, reindexTask := range tasks {
 		var runErr error
 		if semantic {
@@ -692,17 +702,12 @@ func (p *ReindexProvider) processOneUnit(
 		} else {
 			runErr = reindexTask.RunOnShard(ctx, shard)
 		}
-		if runErr != nil {
-			// weaviate/0-weaviate-issues#239 Mode 1: don't FSM-flip
-			// FAILED on a shutdown signal.
-			if errors.Is(runErr, context.Canceled) {
-				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
-				return
-			}
-			p.failUnit(ctx, task, unitID, recorder,
-				fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
+		if stopped(fmt.Sprintf("reindex (%s)", reindexTask.Name()), runErr) {
 			return
 		}
+	}
+	if stopped("swap decided before a restart", finishDecidedSwaps(ctx, shard, payload, tasks)) {
+		return
 	}
 
 	logger.Info("reindex provider: unit completed")
@@ -815,7 +820,7 @@ func buildMigrationTasks(logger logrus.FieldLogger, schemaManager *schema.Manage
 		// COULD be re-tokenized (searchable + filterable). For a property
 		// that has IndexFilterable=false but IndexSearchable=true, the
 		// filterable sub-task has no source bucket to swap into and
-		// runtimeSwap would fail with "target bucket property_X not
+		// the swap would fail with "bucket property_X not
 		// found". The handler-side validator does not (yet) cover this
 		// case, so the defense lives here: only dispatch the filterable
 		// retokenize sub-task when the property actually has a filterable
@@ -1172,6 +1177,7 @@ const maxNamedUnreadableRecords = 5
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
 func (p *ReindexProvider) runShardPrepPhase(
 	ctx context.Context,
+	payload *ReindexTaskPayload,
 	unitID string,
 	shard ShardLike,
 	unitTasks []*ShardReindexTaskGeneric,
@@ -1202,6 +1208,16 @@ func (p *ReindexProvider) runShardPrepPhase(
 			ok = false
 		}
 	}
+	if !rehydrate {
+		return ok, out
+	}
+	if err := finishDecidedSwaps(ctx, shard, payload, unitTasks); err != nil {
+		logger.WithField("unit", unitID).
+			Errorf("reindex provider: shard prep — the swap decided before a restart failed: %v", err)
+		out.Errs = append(out.Errs, fmt.Sprintf("unit %s swap decided before a restart: %v", unitID, err))
+		out.Transient = out.Transient || errors.Is(err, context.Canceled)
+		ok = false
+	}
 	return ok, out
 }
 
@@ -1214,39 +1230,25 @@ func (p *ReindexProvider) runShardSwapPhase(
 	unitTasks []*ShardReindexTaskGeneric,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
-	for _, reindexTask := range unitTasks {
+	loggers := make([]logrus.FieldLogger, len(unitTasks))
+	for i, reindexTask := range unitTasks {
 		reindexTask.swapPhaseRan.Store(true)
+		loggers[i] = reindexTask.swapLogger(p.swapRetrySampler())
 	}
-	// Swapping a sibling of a refused half would leave the migration half-applied on this shard.
-	for _, reindexTask := range unitTasks {
-		rec, ok := reindexTask.migrationRecord(shard)
-		if !ok {
-			continue
-		}
-		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
-			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
-		}
-	}
-	if len(out.Errs) > 0 {
+
+	overlay := propertyOverlayFor(payload, unitTasks)
+	if _, err := unwrapShard(ctx, shard); err != nil && len(overlay) > 0 {
+		// Swapping without it leaves this shard's whole window unindexed.
+		out.OverlayUnwrapErr = err
+		out.Errs = append(out.Errs, fmt.Sprintf("unit %s overlay wiring: %v", unitID, err))
+		out.Transient = errors.Is(err, context.Canceled)
 		return out
 	}
 
 	allSwapped, newlySwapped := true, false
-
-	// Wire a per-prop hook rather than setting the overlay once up front;
-	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
-	setShard, setUnwrapErr := unwrapShard(ctx, shard)
-	if setUnwrapErr != nil && hasPropertyOverlayView(payload, unitTasks) {
-		// Swapping without it leaves this shard's whole window unindexed.
-		out.OverlayUnwrapErr = setUnwrapErr
-		out.Errs = append(out.Errs, fmt.Sprintf("unit %s overlay wiring: %v", unitID, setUnwrapErr))
-		out.Transient = errors.Is(setUnwrapErr, context.Canceled)
-		return out
-	}
-	maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
-
-	for _, reindexTask := range unitTasks {
-		if err := reindexTask.runSwapOnShard(ctx, shard, reindexTask.swapLogger(p.swapRetrySampler())); err != nil {
+	for i, err := range swapUnitOnShard(ctx, shard, unitTasks, loggers, overlay) {
+		reindexTask := unitTasks[i]
+		if err != nil {
 			p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					Errorf("reindex provider: shard swap — swap failed on this shard: %v", err)
@@ -1283,8 +1285,8 @@ func (p *ReindexProvider) runShardSwapPhase(
 //
 // When parallel=true the runPhase callbacks fire concurrently across
 // units. Used by the SWAP path to keep the per-replica user-observable
-// cutover window bounded by max(per-shard runtimeSwap) rather than
-// Σ(per-shard runtimeSwap) — without parallelism, each shard's inline
+// cutover window bounded by max(per-shard swap) rather than
+// Σ(per-shard swap) — without parallelism, each shard's inline
 // post-pointer-flip work (oldBucket.Shutdown drain, dir rename, trim)
 // serializes the NEXT shard's pointer flip, which makes the partial-
 // results window grow linearly in shard count and is the regression
@@ -1498,7 +1500,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	rehydrate bool,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
-	prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
+	prepOK, prep := p.runShardPrepPhase(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 	out.Errs = append(out.Errs, prep.Errs...)
 	if prep.Transient {
 		out.Transient = true
@@ -1575,7 +1577,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
 	if rehydrate {
-		prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
+		prepOK, prep := p.runShardPrepPhase(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		out.Errs = append(out.Errs, prep.Errs...)
 		if prep.Transient {
 			out.Transient = true
@@ -2441,41 +2443,42 @@ func propertyOverlayViews(payload *ReindexTaskPayload, tasks []*ShardReindexTask
 	return views
 }
 
-func hasPropertyOverlayView(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
+// Set at the flip, not up front: that would expose it for the whole disk-I/O preamble.
+func propertyOverlayFor(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric,
+) map[string]inverted.PropertyOverlay {
+	out := map[string]inverted.PropertyOverlay{}
 	for _, view := range propertyOverlayViews(payload, tasks) {
-		if view != nil {
-			return true
+		for propName, o := range view {
+			out[propName] = mergePropertyOverlay(out[propName], o)
 		}
 	}
-	return false
+	return out
 }
 
-// Per flip, not up front: that would expose it for the whole disk-I/O preamble.
-func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
-	if shard == nil {
-		return
-	}
-
-	for i, overlay := range propertyOverlayViews(payload, tasks) {
-		if overlay == nil {
+// A load that held a promotion back leaves decided swaps still staged for the unit to flip.
+func finishDecidedSwaps(ctx context.Context, shard ShardLike, payload *ReindexTaskPayload,
+	tasks []*ShardReindexTaskGeneric,
+) error {
+	var decided []*ShardReindexTaskGeneric
+	var loggers []logrus.FieldLogger
+	for _, task := range tasks {
+		rec, ok := task.migrationRecord(shard)
+		if !ok || !rec.FlipDecided() {
 			continue
 		}
-
-		task := tasks[i]
-		// onPropSwapped covers the recovery/resume path; the live Phase-2a
-		// loop uses swapPropAtomic (see the field docs on both).
-		task.onPropSwapped = func(propName string) {
-			shard.SetPropertyOverlay(propName, overlay[propName])
+		pending, err := task.swapStillToRun(task.logger, shard, rec, rec.Subject().Properties())
+		if err != nil {
+			return err
 		}
-		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			propIdx int, propName string,
-		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName, overlay[propName],
-				func() (*lsmkv.Bucket, error) {
-					return task.processOneSwapPropFn(ctx, store, propIdx, propName)
-				})
+		if pending {
+			decided = append(decided, task)
+			loggers = append(loggers, task.logger)
 		}
 	}
+	if len(decided) == 0 {
+		return nil
+	}
+	return errors.Join(swapUnitOnShard(ctx, shard, decided, loggers, propertyOverlayFor(payload, decided))...)
 }
 
 // On timeout nothing is held.

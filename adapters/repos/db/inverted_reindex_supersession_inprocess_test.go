@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +24,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -46,11 +44,10 @@ func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 	}
 
 	failed, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), propName)
-	failed.processOneSwapPropFn = func(context.Context, *lsmkv.Store, int, string) (*lsmkv.Bucket, error) {
-		return nil, errors.New("injected swap failure")
-	}
 	require.NoError(t, failed.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, failed.RunPrepareOnShard(ctx, shard))
+	// The successor's PreReindexHook opens the placeholder again.
+	require.NoError(t, shard.store.ShutdownBucket(ctx, failed.strategy.SourceBucketName(propName)))
 	require.Error(t, failed.RunSwapOnShard(ctx, shard))
 
 	registry := shard.migrationMirrorRegistry()
@@ -199,7 +196,7 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 		"the successor's flip must not remove the directory the predecessor names as its staged data")
 }
 
-// A resumed swap writes no record, so only runtimeSwap's own records check
+// A resumed swap writes no record, so only settleSwap's own records check
 // can save a dir another record still needs.
 func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *testing.T) {
 	plantFault := func(t *testing.T, shard *Shard, _ *ShardReindexTaskGeneric) {
@@ -230,7 +227,7 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 			name:       "a predecessor's staged dir is kept when the records cannot be read at all",
 			backToBack: true,
 			breakRecords: func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.onPropSwapped = func(string) { shard.migrationRecords = nil }
+				shard.migrationRecords = nil
 			},
 			wantKept:    true,
 			wantWarn:    []string{"could not be read"},
@@ -274,10 +271,13 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 			subject, err := task.migrationSubjectNow(shard)
 			require.NoError(t, err)
 			require.NoError(t, task.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)))
-			tc.breakRecords(t, shard, task)
 
 			logger, hook := test.NewNullLogger()
-			require.NoError(t, task.runtimeSwap(ctx, logger, shard, props))
+			decided, err := task.decideSwap(ctx, shard, logger)
+			require.NoError(t, err)
+			require.NoError(t, flipUnit(ctx, shard, []*unitSwap{decided}, nil))
+			tc.breakRecords(t, shard, task)
+			require.NoError(t, task.settleSwap(ctx, logger, shard, decided.subject, decided.props, decided.displaced))
 
 			for _, dir := range displaced {
 				require.Equal(t, tc.wantKept, dirExists(t, filepath.Join(shard.pathLSM(), dir)), dir)

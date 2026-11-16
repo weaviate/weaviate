@@ -14,8 +14,6 @@ package db
 import (
 	"context"
 	"path/filepath"
-	"strconv"
-	"sync"
 	"testing"
 	"time"
 
@@ -78,10 +76,7 @@ func newTestClass(className string) *models.Class {
 }
 
 // newTestClassWithProps builds a test class with N searchable text
-// properties. Used by regression tests that exercise the per-prop
-// loop inside runtimeSwap (the atomic-phase contract per
-// https://github.com/weaviate/0-weaviate-issues/issues/216 — see file-level godoc in
-// inverted_reindex_task_generic.go).
+// properties.
 func newTestClassWithProps(className string, propNames []string) *models.Class {
 	props := make([]*models.Property, len(propNames))
 	for i, name := range propNames {
@@ -357,108 +352,6 @@ func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 				"the flip decision must be durable once the dispatch returns")
 		})
 	}
-}
-
-func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
-	ctx := testCtx()
-	className := "TestPhase2aAtomic"
-	propNames := []string{"title", "description", "summary", "keywords"}
-	class := newTestClassWithProps(className, propNames)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-
-	// Sanity: every prop's searchable bucket should start at
-	// StrategyMapCollection so the MapToBlockmax migration picks them
-	// all up.
-	for _, p := range propNames {
-		require.Equal(t, lsmkv.StrategyMapCollection,
-			shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(p)).Strategy(),
-			"prop %q must start at MapCollection for the migration to target it", p)
-	}
-
-	// Insert some objects so the reindex pipeline has data to iterate.
-	objects := make([]*storobj.Object, 5)
-	for i := range objects {
-		objects[i] = &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:    strfmt.UUID(uuid.NewString()),
-				Class: className,
-				Properties: map[string]interface{}{
-					"title":       "doc " + strconv.Itoa(i),
-					"description": "long description " + strconv.Itoa(i),
-					"summary":     "short summary " + strconv.Itoa(i),
-					"keywords":    "kw " + strconv.Itoa(i),
-				},
-			},
-		}
-		require.NoError(t, shard.PutObject(ctx, objects[i]))
-	}
-
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-
-	var (
-		hookMu        sync.Mutex
-		hookCallTimes []time.Time
-		hookCallIdxs  []int
-	)
-	prodSwap := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
-		bucket, err := prodSwap(ctx, store, propIdx, propName)
-		if err != nil {
-			return nil, err
-		}
-		hookMu.Lock()
-		hookCallTimes = append(hookCallTimes, time.Now())
-		hookCallIdxs = append(hookCallIdxs, propIdx)
-		hookMu.Unlock()
-		return bucket, nil
-	}
-
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-
-	// Run iteration → prep → swap. The hook fires once per prop inside
-	// runtimeSwap's Phase 2a tight loop.
-	require.NoError(t, task.RunOnShard(ctx, shard))
-
-	hookMu.Lock()
-	defer hookMu.Unlock()
-
-	require.Len(t, hookCallTimes, len(propNames),
-		"the swap hook should fire exactly once per prop (%d), got %d",
-		len(propNames), len(hookCallTimes))
-
-	for i, idx := range hookCallIdxs {
-		require.Equal(t, i, idx,
-			"hook fired at unexpected loop index — Phase 2a loop is out of order or has a yield point that re-orders props")
-	}
-
-	// Phase 2a wall-clock invariant. See test godoc for threshold
-	// rationale.
-	const atomicPhaseBudget = 20 * time.Millisecond
-	totalDelta := hookCallTimes[len(hookCallTimes)-1].Sub(hookCallTimes[0])
-	require.Lessf(t, totalDelta, atomicPhaseBudget,
-		"Phase 2a wall-clock across %d props was %v — exceeded atomic-phase budget of %v. "+
-			"Likely cause: a slow op (Shutdown, Rename, RAFT, sleep) was added to the per-prop "+
-			"loop inside runtimeSwap. See phase-contract godoc at the top of "+
-			"inverted_reindex_task_generic.go for the design invariant.",
-		len(propNames), totalDelta, atomicPhaseBudget)
-
-	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
-	require.True(t, ok, "the flip decision should be recorded post-runtimeSwap")
-	require.Equal(t, MigrationStateSwapped, rec.State())
-	require.True(t, rec.FlipDecided())
-	for _, p := range propNames {
-		assert.Contains(t, rec.(MigrationRecordSwapped).Flipped(), p,
-			"prop %q should be in the recorded flip set", p)
-		displaced, hasDisplaced := rec.(MigrationRecordSwapped).DisplacedDir(p)
-		assert.True(t, hasDisplaced, "prop %q should record the directory its flip displaced", p)
-		assert.NotEmpty(t, displaced)
-	}
-	require.NoError(t, shard.Shutdown(ctx))
 }
 
 func TestBothChangeTokenizationHalvesRecordTheBucketStrategy(t *testing.T) {

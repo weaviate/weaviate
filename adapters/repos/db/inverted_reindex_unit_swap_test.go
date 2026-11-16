@@ -1,0 +1,234 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+)
+
+const (
+	tokChangeProp  = "title"
+	tokChangeValue = "Hello World"
+)
+
+// tokenizationChange: three "Hello World" objects under field tokenization, with both halves of a
+// change to word tokenization prepared, so only the swap is left.
+type tokenizationChange struct {
+	ctx      context.Context
+	class    *models.Class
+	idx      *Index
+	shard    *Shard
+	provider *ReindexProvider
+	payload  *ReindexTaskPayload
+	desc     distributedtask.TaskDescriptor
+	unit     string
+	tasks    []*ShardReindexTaskGeneric
+}
+
+func newTokenizationChange(t *testing.T) *tokenizationChange {
+	t.Helper()
+	ctx := testCtx()
+	className := "TokChange" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{tokChangeProp})
+	class.Properties[0].Tokenization = models.PropertyTokenizationField
+
+	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false)
+	shard, err := unwrapShard(ctx, hot)
+	require.NoError(t, err)
+	registerIndex(idx, className)
+
+	logger, _ := logrustest.NewNullLogger()
+	f := &tokenizationChange{
+		ctx: ctx, class: class, idx: idx, shard: shard,
+		provider: NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx),
+		desc:     distributedtask.TaskDescriptor{ID: "T_" + className, Version: 1},
+		unit:     shard.migrationUnit(),
+	}
+	t.Cleanup(func() { f.shard.Shutdown(context.Background()) })
+	f.payload = &ReindexTaskPayload{
+		Collection: className, MigrationType: ReindexTypeChangeTokenization,
+		Properties: []string{tokChangeProp}, TargetTokenization: models.PropertyTokenizationWord,
+		OriginalTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
+		UnitToShard: map[string]string{f.unit: shard.Name()},
+		UnitToNode:  map[string]string{f.unit: "node1"},
+	}
+
+	for range 3 {
+		require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, tokChangeValue)))
+	}
+	require.Equal(t, [3]int{3, 3, 3}, f.counts(t), "the fixture must find every object before the change")
+
+	f.tasks = f.freshTasks(t)
+	require.Len(t, f.tasks, 2, "a property with both indexes changes tokenization in two halves")
+	for _, task := range f.tasks {
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	}
+	return f
+}
+
+func (f *tokenizationChange) freshTasks(t *testing.T) []*ShardReindexTaskGeneric {
+	t.Helper()
+	tasks, err := f.provider.createReindexTasks(f.desc, f.unit, f.payload)
+	require.NoError(t, err)
+	return tasks
+}
+
+// swapWithOverlay swaps tasks as one unit with the overlay the swap phase sets.
+func swapWithOverlay(ctx context.Context, shard ShardLike, payload *ReindexTaskPayload,
+	tasks ...*ShardReindexTaskGeneric,
+) error {
+	loggers := make([]logrus.FieldLogger, len(tasks))
+	for i, task := range tasks {
+		loggers[i] = task.logger
+	}
+	return errors.Join(swapUnitOnShard(ctx, shard, tasks, loggers, propertyOverlayFor(payload, tasks))...)
+}
+
+func (f *tokenizationChange) swap(tasks []*ShardReindexTaskGeneric) phaseResult {
+	logger, _ := logrustest.NewNullLogger()
+	return f.provider.runShardSwapPhase(f.ctx, f.payload, f.unit, f.shard.Name(), f.shard, tasks, logger)
+}
+
+// decide leaves what a crash right after task's flip decision leaves.
+func (f *tokenizationChange) decide(t *testing.T, task *ShardReindexTaskGeneric) {
+	t.Helper()
+	rec, ok := task.migrationRecord(f.shard)
+	require.True(t, ok)
+	subject := rec.Subject()
+	displaced := map[string]string{tokChangeProp: subject.Props[tokChangeProp].Canonical}
+	require.NoError(t, task.putMigrationRecord(f.shard,
+		NewMigrationRecordSwapped(subject, []string{tokChangeProp}, displaced)))
+}
+
+func (f *tokenizationChange) reload(t *testing.T) {
+	t.Helper()
+	f.shard = reloadShardFromDisk(t, f.ctx, f.idx, f.shard, f.class)
+}
+
+func (f *tokenizationChange) tokenization() string {
+	return f.shard.TokenizationFor(tokChangeProp, models.PropertyTokenizationField)
+}
+
+// counts is Equal, Like and BM25; each is 3 only while tokenization and bucket agree.
+func (f *tokenizationChange) counts(t *testing.T) [3]int {
+	t.Helper()
+	search := func(filter *filters.LocalFilter, keyword *searchparams.KeywordRanking) int {
+		found, _, err := f.shard.ObjectSearch(f.ctx, 10, filter, keyword, nil, nil,
+			additional.Properties{}, []string{tokChangeProp})
+		require.NoError(t, err)
+		return len(found)
+	}
+	like := propEqualsFilter(f.class.Class, tokChangeProp, "Hello*")
+	like.Root.Operator = filters.OperatorLike
+	return [3]int{
+		search(propEqualsFilter(f.class.Class, tokChangeProp, tokChangeValue), nil),
+		search(like, nil),
+		search(nil, &searchparams.KeywordRanking{
+			Type: "bm25", Properties: []string{tokChangeProp}, Query: tokChangeValue,
+		}),
+	}
+}
+
+func (f *tokenizationChange) states(t *testing.T) []MigrationState {
+	t.Helper()
+	out := make([]MigrationState, 0, len(f.tasks))
+	for _, task := range f.tasks {
+		rec, ok := task.migrationRecord(f.shard)
+		require.True(t, ok)
+		out = append(out, rec.State())
+	}
+	return out
+}
+
+func TestChangeTokenizationFiltersWhileASwapTearsDown(t *testing.T) {
+	t.Run("a reader holds the displaced searchable bucket", func(t *testing.T) {
+		f := newTokenizationChange(t)
+		_, release := f.shard.Store().AcquireBucketForRead(helpers.BucketSearchableFromPropNameLSM(tokChangeProp))
+		released := false
+		defer func() {
+			if !released {
+				release()
+			}
+		}()
+
+		done := make(chan phaseResult, 1)
+		enterrors.GoWrapper(func() { done <- f.swap(f.tasks) }, f.idx.logger)
+		require.Eventually(t, func() bool { return f.tokenization() == models.PropertyTokenizationWord },
+			10*time.Second, time.Millisecond)
+
+		assert.Equal(t, [3]int{3, 3, 3}, f.counts(t), "Equal, Like and BM25 while the teardown waits")
+
+		release()
+		released = true
+		require.Empty(t, (<-done).Errs)
+	})
+
+	t.Run("the filterable staged bucket is gone", func(t *testing.T) {
+		f := newTokenizationChange(t)
+		staged := f.tasks[1].ingestBucketName(tokChangeProp)
+		require.NoError(t, f.shard.Store().ShutdownBucket(f.ctx, staged))
+		require.NoError(t, os.RemoveAll(filepath.Join(f.shard.pathLSM(), staged)))
+
+		require.NotEmpty(t, f.swap(f.tasks).Errs)
+		assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
+		assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+
+		f.reload(t)
+		assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
+		assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+	})
+}
+
+// A load that withholds promotion leaves both decisions with the staged buckets on disk.
+func TestDecidedSwapsLeftByALoadFlipAsOneUnit(t *testing.T) {
+	f := newTokenizationChange(t)
+	f.decide(t, f.tasks[0])
+	f.decide(t, f.tasks[1])
+	f.provider.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{
+		f.desc: {f.unit: f.tasks},
+	})
+
+	raw, err := json.Marshal(f.payload)
+	require.NoError(t, err)
+	rec := newFakeRecorder()
+	f.provider.processOneUnit(f.ctx, &distributedtask.Task{
+		Namespace: ReindexNamespace, TaskDescriptor: f.desc,
+		Status: distributedtask.TaskStatusStarted, Payload: raw,
+	}, f.payload, f.idx, f.unit, rec)
+
+	require.Empty(t, rec.failed)
+	assert.Equal(t, models.PropertyTokenizationWord, f.tokenization())
+	assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+}

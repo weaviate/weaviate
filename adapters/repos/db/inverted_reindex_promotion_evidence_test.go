@@ -156,7 +156,12 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 
 			swap, _ := newSearchableRetokenizeTask(t, idx, className, propName,
 				models.PropertyTokenizationField, preStrategy, cold.migrationUnit())
-			require.Error(t, swap.RunSwapOnShard(ctx, cold), "fixture: the flip cannot run, but its decision is recorded write-ahead")
+			// A bucket gone between the swap's bucket check and its flip leaves this decision.
+			rec, ok := swap.migrationRecord(cold)
+			require.True(t, ok)
+			subject := rec.Subject()
+			require.NoError(t, swap.putMigrationRecord(cold, NewMigrationRecordSwapped(subject, subject.Properties(),
+				map[string]string{propName: subject.Props[propName].Canonical})))
 
 			require.NoError(t, cold.Shutdown(ctx))
 			simulateProcessRestartBucketCleanup(t, lsmPath)

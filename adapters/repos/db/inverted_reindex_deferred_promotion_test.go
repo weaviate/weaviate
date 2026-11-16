@@ -234,11 +234,10 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			}
 			desc := distributedtask.TaskDescriptor{ID: "T511", Version: 1}
 			task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
-			maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			if tc.swap {
-				require.NoError(t, task.RunSwapOnShard(ctx, shard))
+				require.NoError(t, swapWithOverlay(ctx, shard, payload, task))
 			}
 
 			failed := &distributedtask.Task{
@@ -318,10 +317,9 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 			}
 			desc := distributedtask.TaskDescriptor{ID: "T511e", Version: 1}
 			task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
-			maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+			require.NoError(t, swapWithOverlay(ctx, shard, payload, task))
 
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 			var tasks []*distributedtask.Task
@@ -396,10 +394,9 @@ func TestBootLoadReDecidesAnEnabledIndexOnceTheTaskListIsReadable(t *testing.T) 
 			}
 			desc := distributedtask.TaskDescriptor{ID: "TBoot", Version: 1}
 			task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
-			maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+			require.NoError(t, swapWithOverlay(ctx, shard, payload, task))
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 			idx.shardReindexer = &noRecoveryTaskReindexer{}
 			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)

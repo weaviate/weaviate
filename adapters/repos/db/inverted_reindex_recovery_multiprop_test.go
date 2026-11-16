@@ -16,7 +16,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -35,8 +34,7 @@ import (
 
 // simulateProcessRestartBucketCleanup releases every bucket-dir path
 // under shardLSMPath from GlobalBucketRegistry — what the OS does at a
-// real process restart. Needed after a runtimeSwap panic leaves orphan
-// Bucket objects unreachable from any Store.
+// real process restart.
 func simulateProcessRestartBucketCleanup(t *testing.T, shardLSMPath string) {
 	t.Helper()
 	err := filepath.WalkDir(shardLSMPath, func(path string, d fs.DirEntry, walkErr error) error {
@@ -79,139 +77,6 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 		out[propName] = fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
 	}
 	return out
-}
-
-// TestRecoveryConvergence_MidPropSwap_Loop interrupts runtimeSwap's
-// Phase 2a per-prop loop after K of N props via the testHookPostPropSwap
-// hook panicking, then asserts recovery converges every prop's bucket
-// to baseline.
-func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
-	const numObjects = 25
-	propNames := []string{"title", "subtitle", "description", "keywords"}
-	const haltAfter = 2 // after props 0 and 1 swapped, panic before prop 2
-
-	baseline := computeMultiPropBaseline(t, propNames, numObjects)
-
-	ctx := testCtx()
-	className := "MidPropSwap_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, propNames)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-
-	// Drive iteration + runtimePrepare so runtimeSwap's Phase 2a is next.
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	iterated, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the rebuild must have left a record")
-	props := iterated.Subject().Properties()
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
-
-	// Panic prefix lets the recover() handler distinguish THE expected
-	// fault panic from any unrelated panic inside runtimeSwap.
-	const haltPanicPrefix = "mid-loop halt: simulated crash"
-	prodSwap := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
-		bucket, err := prodSwap(ctx, store, propIdx, propName)
-		if err != nil {
-			return nil, err
-		}
-		if propIdx == haltAfter-1 {
-			panic(haltPanicPrefix + " after prop " + uuid.NewString()[:4])
-		}
-		return bucket, nil
-	}
-
-	var (
-		panicked     bool
-		panicValue   interface{}
-		swapReturned bool
-		swapErr      error
-	)
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicked = true
-				panicValue = r
-			}
-		}()
-		swapErr = task.runtimeSwap(ctx, task.logger, shard, props)
-		swapReturned = true
-	}()
-
-	// runtimeSwap returning without panic = hook didn't fire = harness
-	// broken (would silently pass the convergence check otherwise).
-	require.Falsef(t, swapReturned, "runtimeSwap returned without panicking (err=%v)", swapErr)
-	require.Truef(t, panicked, "expected panic from hook; swapErr=%v", swapErr)
-	panicStr, ok := panicValue.(string)
-	require.Truef(t, ok && strings.HasPrefix(panicStr, haltPanicPrefix),
-		"recovered panic not from hook (want prefix %q; got %T %v)",
-		haltPanicPrefix, panicValue, panicValue)
-
-	swapped, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the flip decision must have left a record")
-	require.Equal(t, MigrationStateSwapped, swapped.State())
-
-	flippedCount := 0
-	for _, p := range props {
-		if shard.store.Bucket(task.ingestBucketName(p)) == nil {
-			flippedCount++
-		}
-	}
-	assert.GreaterOrEqualf(t, flippedCount, haltAfter, "≥%d props flipped (got %d)", haltAfter, flippedCount)
-	assert.Lessf(t, flippedCount, len(propNames), "halt didn't fire (got %d of %d)", flippedCount, len(propNames))
-
-	shardName := shard.Name()
-	shardLSMPath := shard.pathLSM()
-	require.NoError(t, shard.Shutdown(ctx))
-
-	// K already-swapped old buckets were orphaned in runtimeSwap's
-	// stack-local map when the panic unwound; their registry entries
-	// weren't released. Simulate the OS-reclaim that a real process
-	// restart would do.
-	simulateProcessRestartBucketCleanup(t, shardLSMPath)
-
-	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
-	idx.shardReindexer = &testShardReindexer{task: task2}
-
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-	require.NoError(t, err, "shard re-init")
-	shard2 := shd2.(*Shard)
-	defer shard2.Shutdown(ctx)
-	idx.shards.Store(shardName, shd2)
-
-	require.NoError(t, task2.RunOnShard(ctx, shard2), "recovery relaunch")
-
-	for _, propName := range propNames {
-		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucket := shard2.store.Bucket(bucketName)
-		require.NotNilf(t, bucket, "bucket %q missing post-recovery", propName)
-		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(), "prop %q strategy", propName)
-
-		got := fingerprintInvertedBucket(t, bucket)
-		expected := baseline[propName]
-
-		assert.Equalf(t, len(expected), len(got), "term count diverges for %q", propName)
-		for term, expectedIDs := range expected {
-			gotIDs, ok := got[term]
-			if !ok {
-				assert.Failf(t, "missing term", "term %q on prop %q missing post-recovery", term, propName)
-				continue
-			}
-			assert.Equalf(t, expectedIDs, gotIDs,
-				"mid-prop-swap term %q on prop %q diverges\n  baseline (%d): %v\n  got      (%d): %v",
-				term, propName, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
-		}
-	}
 }
 
 // TestRecoveryConvergence_CrossReplica_DivergentFlushTiming pins the

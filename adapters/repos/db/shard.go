@@ -737,18 +737,22 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 }
 
 func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	s.mergePropertyOverlayLocked(propName, o)
+}
+
+func (s *Shard) mergePropertyOverlayLocked(propName string, o inverted.PropertyOverlay) {
 	if propName == "" || o.Empty() {
 		return
 	}
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
 	if s.propertyOverlay == nil {
 		s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 	}
 	s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
 }
 
-// A tokenization change that failed after a partial swap keeps its entry on
+// A tokenization change whose swap failed after its flip keeps its entry on
 // purpose, so a second migration must fold into it rather than replace it.
 func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOverlay {
 	o.ForceFilterable = o.ForceFilterable || prev.ForceFilterable
@@ -760,32 +764,22 @@ func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOve
 	return o
 }
 
-// SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
-// critical section, so no query sees a mixed pair.
-//
-// CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
-// query may hold another prop's pin and need propertyOverlayMu next, so
-// draining here would invert lock order and deadlock. Phase-2b teardown
-// must happen strictly after this method returns.
-func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOverlay,
-	flip func() (*lsmkv.Bucket, error),
-) (*lsmkv.Bucket, error) {
+// SwapBucketsAndSetOverlay is ONE critical section. The caller shuts the displaced buckets down after
+// it returns: a query may hold one's pin while it waits for propertyOverlayMu to pin the next.
+func (s *Shard) SwapBucketsAndSetOverlay(ctx context.Context,
+	overlay map[string]inverted.PropertyOverlay, swaps []lsmkv.BucketSwap,
+) ([]*lsmkv.Bucket, error) {
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
 
-	oldMainBucket, err := flip()
+	displaced, err := s.store.SwapBucketPointers(ctx, swaps)
 	if err != nil {
 		return nil, err
 	}
-
-	if propName != "" && !o.Empty() {
-		if s.propertyOverlay == nil {
-			s.propertyOverlay = map[string]inverted.PropertyOverlay{}
-		}
-		s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
+	for propName, o := range overlay {
+		s.mergePropertyOverlayLocked(propName, o)
 	}
-
-	return oldMainBucket, nil
+	return displaced, nil
 }
 
 // PinTokenizationAndSearchableBucket resolves propName's tokenization AND

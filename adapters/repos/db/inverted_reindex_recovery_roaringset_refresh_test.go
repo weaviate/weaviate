@@ -28,7 +28,7 @@ import (
 
 // Recovery-convergence matrix for RoaringSetRefresh — the same-strategy
 // refresh of a filterable RoaringSet bucket (production code path
-// behind `repair-filterable`). Inline runtimeSwap path.
+// behind `repair-filterable`). Inline swap path.
 
 // newRoaringSetRefreshTask wraps RoaringSetRefreshStrategy.
 func newRoaringSetRefreshTask(t *testing.T, idx *Index, unitID string) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
