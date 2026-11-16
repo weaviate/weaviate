@@ -40,14 +40,16 @@ type centroidIndex struct {
 
 // newCentroidIndex builds the graph over the centroids. dir is where the hnsw
 // package keeps its files; with the no-op commit logger used here it only
-// creates an empty directory there.
+// creates an empty directory there. The graph reads the centroids through
+// the index, so a centroid appended to its vectors can be added to it.
 func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]float32,
 ) (*centroidIndex, error) {
+	index := &centroidIndex{vectors: vectors}
 	vectorForID := func(_ context.Context, id uint64) ([]float32, error) {
-		if id >= uint64(len(vectors)) {
+		if id >= uint64(len(index.vectors)) {
 			return nil, storobj.NewErrNotFoundf(id, "centroid out of range")
 		}
-		return vectors[id], nil
+		return index.vectors[id], nil
 	}
 
 	graph, err := hnsw.New(hnsw.Config{
@@ -80,7 +82,7 @@ func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]
 	}
 	graph.PostStartup(ctx)
 
-	index := &centroidIndex{vectors: vectors, graph: graph}
+	index.graph = graph
 	err = parallelChunks(ctx, cfg.Logger, len(vectors), 16, func(_, start, end int) error {
 		for id := start; id < end; id++ {
 			if err := graph.Add(ctx, uint64(id), vectors[id]); err != nil {

@@ -71,6 +71,26 @@ type postingStore struct {
 	codes     []uint64
 	edgeStart []uint32 // the edges of slot s are edges[edgeStart[s]:edgeStart[s+1]]
 	edges     []uint32 // endpoint slots, nearest first per source
+
+	// lists, when set, holds the postings of an index keyed by doc id
+	// instead of by slot, one list per posting, and the fields above are
+	// unused. Such an index addresses a vector by its doc id everywhere a
+	// slot index uses its slot: in the edges, in the sidecar and in the
+	// posting map. A vector can then move to another posting, or a posting
+	// split, without touching a single edge. Only the streaming experiment
+	// of v2.0 builds one (stream_test.go).
+	lists []postingList
+}
+
+// postingList is one posting of an index keyed by doc id: its members, their
+// codes and the edges leaving them, owned by the posting so that it can grow
+// and be split. edgeStart has one offset per member and a last one, and
+// starts at 0.
+type postingList struct {
+	docIDs    []uint64
+	codes     []uint64
+	edgeStart []uint32
+	edges     []uint32 // endpoint doc ids, nearest first per member
 }
 
 // posting is one loaded posting.
@@ -84,15 +104,31 @@ type posting struct {
 	// edgeStart[i+1]-edgeStart[0]].
 	edges     []uint32
 	edgeStart []uint32
+	// byDocID tells that the posting comes from an index keyed by doc id:
+	// its edges hold doc ids, and a member's key is its doc id.
+	byDocID bool
 }
 
-// edgesOf returns the endpoint slots of the edges leaving member i.
+// edgesOf returns the endpoint keys of the edges leaving member i: slots, or
+// doc ids in an index keyed by doc id.
 func (p *posting) edgesOf(i int) []uint32 {
 	base := p.edgeStart[0]
 	return p.edges[p.edgeStart[i]-base : p.edgeStart[i+1]-base]
 }
 
+// key returns the key of member i, the one the edges and the sidecar address
+// it by.
+func (p *posting) key(i int) uint32 {
+	if p.byDocID {
+		return uint32(p.docIDs[i])
+	}
+	return p.first + uint32(i)
+}
+
 func (s *postingStore) postings() int {
+	if s.lists != nil {
+		return len(s.lists)
+	}
 	return len(s.start) - 1
 }
 
@@ -101,6 +137,10 @@ func (s *postingStore) vectors() int {
 }
 
 func (s *postingStore) load(p uint32) posting {
+	if s.lists != nil {
+		l := &s.lists[p]
+		return posting{docIDs: l.docIDs, codes: l.codes, edges: l.edges, edgeStart: l.edgeStart, byDocID: true}
+	}
 	from, to := s.start[p], s.start[p+1]
 	return posting{
 		first:  from,

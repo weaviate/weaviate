@@ -367,7 +367,7 @@ func (s *postingSearch) load(p uint32) error {
 		// Counted in a pass of its own, outside the timed sections, so
 		// that the loop below stays as it runs without stats.
 		for i := range post.docIDs {
-			if sc.endpoints.Visited(uint64(post.first) + uint64(i)) {
+			if sc.endpoints.Visited(uint64(post.key(i))) {
 				s.stats.ScannedAgain++
 			}
 			edges := post.edgesOf(i)
