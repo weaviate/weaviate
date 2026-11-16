@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -54,6 +55,18 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 	return !enables
 }
 
+func (s *Shard) unitWithheld(rec MigrationRecordSwapped) bool {
+	if rec.Subject().OriginalTokenization == "" || s.migrationRecords.ServesStaged(rec.Subject().Key) {
+		return false
+	}
+	for prop := range rec.Subject().Props {
+		if rec.PromotionOf(prop) == migrationPromotionFinished {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *logrusext.Sampler) {
 	if s.migrationRecords == nil || class == nil {
 		return
@@ -70,6 +83,13 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *
 	defer s.reportUnbuildableOverlays(unbuildableFaults, unbuildable)
 	for _, rec := range records {
 		subject := rec.Subject()
+		// A withheld unit keeps serving its old pair, which a flipped schema no longer describes.
+		if swapped, ok := rec.(MigrationRecordSwapped); ok && s.unitWithheld(swapped) {
+			for _, prop := range subject.Properties() {
+				s.SetPropertyOverlay(prop, inverted.PropertyOverlay{Tokenization: subject.OriginalTokenization})
+			}
+			continue
+		}
 		if !migrationOverridesSchema(rec, tasks, readable) {
 			continue
 		}

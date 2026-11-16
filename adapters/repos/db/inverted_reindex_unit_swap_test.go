@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -281,22 +280,19 @@ func TestAFlipDuringADropLetsQueriesPin(t *testing.T) {
 
 // A load that withholds promotion leaves both decisions with the staged buckets on disk.
 func TestDecidedSwapsLeftByALoadFlipAsOneUnit(t *testing.T) {
-	f := newTokenizationChange(t)
-	f.decide(t, f.tasks[0])
-	f.decide(t, f.tasks[1])
-	f.provider.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{
-		f.desc: {f.unit: f.tasks},
-	})
+	for _, settleFails := range []bool{false, true} {
+		t.Run(map[bool]string{false: "the swap settles", true: "settling the swap fails"}[settleFails], func(t *testing.T) {
+			f := newTokenizationChange(t)
+			f.decide(t, f.tasks[0])
+			f.decide(t, f.tasks[1])
+			if settleFails {
+				blockCanonicalClear(t, f, f.tasks[1])
+			}
 
-	raw, err := json.Marshal(f.payload)
-	require.NoError(t, err)
-	rec := newFakeRecorder()
-	f.provider.processOneUnit(f.ctx, &distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: f.desc,
-		Status: distributedtask.TaskStatusStarted, Payload: raw,
-	}, f.payload, f.idx, f.unit, rec)
-
-	require.Empty(t, rec.failed)
-	assert.Equal(t, models.PropertyTokenizationWord, f.tokenization())
-	assert.Equal(t, allFound, f.counts(t))
+			rec := f.runUnit(t, f.tasks)
+			assert.Equal(t, settleFails, len(rec.failed) > 0, "a unit whose swap did not settle fails, so it runs again")
+			assert.Equal(t, models.PropertyTokenizationWord, f.tokenization())
+			assert.Equal(t, allFound, f.counts(t))
+		})
+	}
 }

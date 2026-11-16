@@ -117,6 +117,7 @@ type MigrationRecordStore struct {
 	wedged map[MigrationRecordKey]bool
 	// Caches what a pass deferred, since the schema may flip before the load hook serves it.
 	deferredPromotions map[MigrationRecordKey][]string
+	servesStaged       map[MigrationRecordKey]bool
 	// Set by a load that decided overrides without the task list; the periodic pass re-decides them.
 	overridesUnsure atomic.Bool
 }
@@ -502,6 +503,23 @@ func (s *MigrationRecordStore) publish(records map[MigrationRecordKey]MigrationR
 	s.unreadable = unreadable
 	s.wedged = nil
 	s.deferredPromotions = nil
+	s.servesStaged = nil
+}
+
+// A load whose unit promotion stopped part way marks the halves it left for the shard to serve staged.
+func (s *MigrationRecordStore) ServeStaged(key MigrationRecordKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.servesStaged == nil {
+		s.servesStaged = map[MigrationRecordKey]bool{}
+	}
+	s.servesStaged[key] = true
+}
+
+func (s *MigrationRecordStore) ServesStaged(key MigrationRecordKey) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.servesStaged[key]
 }
 
 // MarkWedged records that nothing this build runs can move this record on. The

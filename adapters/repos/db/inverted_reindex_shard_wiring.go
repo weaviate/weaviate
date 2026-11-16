@@ -39,6 +39,59 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
+// serveStagedUnits flips, before the shard is ready, the halves a load left to serve staged, under the
+// unit overlay. A failure fails the load, which must not serve a unit half renamed.
+func (s *Shard) serveStagedUnits(ctx context.Context) error {
+	var order []taskMigration
+	units := map[taskMigration][]*ShardReindexTaskGeneric{}
+	payloads := map[taskMigration]ReindexTaskPayload{}
+	for _, rec := range s.migrationRecords.Records() {
+		subject := rec.Subject()
+		if !s.migrationRecords.ServesStaged(subject.Key) {
+			continue
+		}
+		tasks, err := buildRecoveryTasks(subject, s.name, s.index.logger, nil)
+		if err != nil {
+			return fmt.Errorf("serve the staged data of %s: %w", subject.Key, err)
+		}
+		m := migrationOf(subject)
+		if units[m] == nil {
+			order = append(order, m)
+			payloads[m] = subject.reindexPayload()
+		}
+		units[m] = append(units[m], tasks...)
+	}
+	for _, m := range order {
+		payload := payloads[m]
+		err := finishDecidedSwaps(ctx, s, &payload, units[m])
+		if err == nil {
+			continue
+		}
+		// Past the flip the unit serves one pair; what settling left behind the next load removes.
+		if !s.servesStagedData(units[m]) {
+			return fmt.Errorf("serve the staged data of task %s: %w", m.desc.ID, err)
+		}
+		s.index.logger.WithField("shard", s.ID()).WithField("task", m.desc.ID).
+			Warnf("serving the staged data of a migration; settling it failed and the next load retries: %v", err)
+	}
+	return nil
+}
+
+func (s *Shard) servesStagedData(tasks []*ShardReindexTaskGeneric) bool {
+	for _, t := range tasks {
+		rec, ok := t.migrationRecord(s)
+		if !ok {
+			return false
+		}
+		for _, prop := range rec.Subject().Properties() {
+			if !t.canonicalServesStaged(s.store, prop) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // armRecoveredMigrations returns the tasks that failed to arm and could not be stamped Unmirrored, and why.
 func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric,
 ) ([]*ShardReindexTaskGeneric, error) {
