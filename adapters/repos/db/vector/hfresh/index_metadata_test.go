@@ -226,6 +226,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 				return slices.DeleteFunc(idRange(0, 800), func(id uint64) bool { return slices.Contains(deleted, id) })
 			},
 		},
+		{
+			name:      "first posting, commit log behind store",
+			setup:     func(*testing.T, *HFresh) {},
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 0, 100); return nil },
+			rollback:  commitLog,
+			reachable: func([]uint64) []uint64 { return idRange(0, 100) },
+		},
 	}
 
 	for _, c := range cases {
