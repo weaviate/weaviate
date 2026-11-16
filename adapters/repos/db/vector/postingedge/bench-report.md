@@ -283,6 +283,8 @@ Lo demás es igual que la celda principal: T=360, orden barajado, y los mismos c
     - El 2-means es el mismo en todas las celdas y no se cuenta.
 - **µs por insert y por split,** indicativos.
 
+*Smoke después del pre-registro (17:00):* para validar el binario y el script de veredicto corrí un smoke de 30 000 vectores con las celdas principal, H1, H2, 5 y 6, fuera del directorio de datos. Como el de 60k, no predice 1M y no cambia nada de lo escrito arriba.
+
 ### Escrituras de aristas inversas por insert, para H1 (encargo, 2026-11-16)
 
 En disco, cada arista inversa es una escritura a la lista de otro vector. Cuántas hace cada insert, media y p95, decide dónde viven las aristas.
@@ -290,6 +292,7 @@ En disco, cada arista inversa es una escritura a la lista de otro vector. Cuánt
 *Cómo lo mido (mío):*
 
 - **La corrida de H1 de la cadena solo guarda el total.** De él sale la media, no el p95. El binario de la celda 6 guarda el histograma de escrituras por insert.
+- **También cuenta los postings distintos que escribe cada insert.** Si las aristas se guardan con su posting, varias escrituras de un insert que caen en el mismo posting son una sola escritura de posting. Las dos cuentas juntas son las que comparan los dos sitios posibles para las aristas.
 - **H1 se repite con ese binario,** detrás de la celda 6, sola y sin cronometrar, con un único checkpoint al 100 %. De esa repetición salen la media y el p95 de H1. Los de la celda 6 salen de su propia corrida.
 - **La repetición se comprueba contra la corrida original:** media de escrituras, número de splits y recall al 100 %. Los builds no son idénticos bit a bit entre corridas, así que tienen que coincidir de cerca, no exactamente.
 

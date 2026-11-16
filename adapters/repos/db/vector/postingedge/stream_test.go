@@ -37,10 +37,13 @@ import (
 //   - a posting that grows past a threshold splits in two with the 2-means of
 //     the batch partition, and only the posting map changes: no edge does.
 //
-// Two mechanisms can be switched on, the controls of the experiment: inverse
-// edges, where a new vector enters the edges of a neighbor whose worst edge
-// it beats, and edge repair, where the members of a split posting search
-// their edges again.
+// Three mechanisms can be switched on, alone or together: inverse edges,
+// where a new vector enters the edges of a neighbor whose worst edge it
+// beats, edge repair, where the members of a split posting search their edges
+// again, and sibling repair, where they take their nearest neighbors in the
+// other half of the split without a search. The first two are the controls
+// of the experiment, the third its cell 5, and inverse edges with sibling
+// repair its cell 6.
 //
 // Nothing searches while an insert runs, so an insert is complete, posting
 // and map written, before any search can see the vector. checkCoverage
@@ -80,14 +83,29 @@ type streamStats struct {
 	// The posting stays as it is and tries again on its next insert.
 	SplitsFailed int `json:"splitsFailed"`
 	// InverseEdges counts the edges new vectors took in their neighbors'
-	// lists.
+	// lists: each is a write to the list of another vector.
 	InverseEdges int `json:"inverseEdges"`
+	// InverseChecks counts the neighbors' lists the inverse edges read to
+	// decide, and InverseDistances the exact distances that took: those of
+	// every edge of each list, where a stored distance of the worst edge
+	// would do.
+	InverseChecks    int `json:"inverseChecks"`
+	InverseDistances int `json:"inverseDistances"`
+	// InverseWrites counts the inserts by the inverse edges each wrote:
+	// InverseWrites[w] inserts wrote w. InversePostings counts them by the
+	// distinct postings those lists live in, which is what an insert writes
+	// where the edges are stored with their posting. Both are one longer
+	// than the neighbors of an insert, and nil without inverse edges.
+	InverseWrites   []int `json:"inverseWrites,omitempty"`
+	InversePostings []int `json:"inversePostings,omitempty"`
 	// Repaired counts the vectors whose edges a split had them search again.
 	Repaired int `json:"repaired"`
 	// SiblingEdges counts the edges the members of split postings took into
-	// the other half, and SiblingDistances the exact distances that took.
+	// the other half, SiblingDistances the exact distances that took, and
+	// SiblingLists the edge lists that changed.
 	SiblingEdges     int `json:"siblingEdges"`
 	SiblingDistances int `json:"siblingDistances"`
+	SiblingLists     int `json:"siblingLists"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	NearestTime time.Duration `json:"nearestCheckNs"` // only the report needs it
@@ -97,6 +115,14 @@ type streamStats struct {
 	SplitTime   time.Duration `json:"splitNs"`
 	RepairTime  time.Duration `json:"repairNs"`
 	SiblingTime time.Duration `json:"siblingNs"`
+}
+
+// clone returns the stats with counts of their own: what a checkpoint keeps
+// while the inserts go on.
+func (s streamStats) clone() streamStats {
+	s.InverseWrites = slices.Clone(s.InverseWrites)
+	s.InversePostings = slices.Clone(s.InversePostings)
+	return s
 }
 
 // streamIndex grows a built index by inserts.
@@ -122,6 +148,8 @@ type streamIndex struct {
 	// with its posting and edges, and before anything else changes: no
 	// inverse edge, no split. It is outside the times of the insert.
 	onWrite func(docID uint64, p uint32, edges []uint32) error
+	// written holds the postings the inverse edges of one insert wrote.
+	written []uint32
 }
 
 // newStreamIndex takes over a built index: its state is converted to the
@@ -148,6 +176,10 @@ func newStreamIndex(ix *Index, keys int, cfg streamConfig, vectorOf func(uint64)
 	s := &streamIndex{
 		ix: ix, cfg: cfg, vectorOf: vectorOf, neighbors: ix.uc.Edges,
 		live: make([]bool, keys), sums: make([]float64, batch.dims), l2: distancer.NewL2SquaredProvider(),
+	}
+	if cfg.inverse {
+		s.stats.InverseWrites = make([]int, s.neighbors+1)
+		s.stats.InversePostings = make([]int, s.neighbors+1)
 	}
 
 	lists := make([]postingList, store.postings())
@@ -344,6 +376,8 @@ func (s *streamIndex) nearestCentroid(vector []float32) (uint32, error) {
 // edge goes. A neighbor without edges takes none. dists are the exact
 // distances from the new vector to its neighbors.
 func (s *streamIndex) enterNeighbors(docID uint64, p uint32, neighbors []uint64, dists []float32) error {
+	writes := 0
+	s.written = s.written[:0]
 	for i, u := range neighbors {
 		q := s.st.side.postingOf[u]
 		if q == p {
@@ -358,6 +392,8 @@ func (s *streamIndex) enterNeighbors(docID uint64, p uint32, neighbors []uint64,
 		if len(edges) == 0 {
 			continue
 		}
+		s.stats.InverseChecks++
+		s.stats.InverseDistances += len(edges)
 		from := s.vectorOf(u)
 		edgeDists := make([]float32, len(edges))
 		for e, endpoint := range edges {
@@ -380,7 +416,13 @@ func (s *streamIndex) enterNeighbors(docID uint64, p uint32, neighbors []uint64,
 		updated = append(updated, edges[at:len(edges)-1]...)
 		l.setEdges(m, updated)
 		s.stats.InverseEdges++
+		writes++
+		if !slices.Contains(s.written, q) {
+			s.written = append(s.written, q)
+		}
 	}
+	s.stats.InverseWrites[writes]++
+	s.stats.InversePostings[len(s.written)]++
 	return nil
 }
 
@@ -531,6 +573,9 @@ func (s *streamIndex) linkSiblings(a, b uint32) error {
 				if s.st.side.postingOf[near.id] == ids[1-h] {
 					s.stats.SiblingEdges++
 				}
+			}
+			if !slices.Equal(edges, l.edgesOf(i)) {
+				s.stats.SiblingLists++
 			}
 			l.setEdges(i, edges)
 		}

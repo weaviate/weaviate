@@ -34,7 +34,8 @@ import (
 
 var (
 	benchStream = flag.String("bench.stream", "", "the streaming experiment of v2.0 (TestStream): calibrate, or a cell: "+
-		"principal, h1 (inverse edges), h2 (edge repair), both, or siblings (cell 5, sibling repair at a split)")
+		"principal, h1 (inverse edges), h2 (edge repair), both, siblings (cell 5, sibling repair at a split), or "+
+		"inverse-siblings (cell 6, inverse edges with sibling repair)")
 	benchStreamOrder = flag.String("bench.streamorder", "shuffled", "with -bench.stream: the order the train set is "+
 		"built and inserted in, shuffled (seed 1) or natural")
 	benchStreamThreshold  = flag.Int("bench.streamthreshold", 0, "with a -bench.stream cell: the size past which a posting splits")
@@ -191,6 +192,8 @@ func TestStream(t *testing.T) {
 		cfg.inverse, cfg.repair = true, true
 	case "siblings":
 		cfg.siblings = true
+	case "inverse-siblings":
+		cfg.inverse, cfg.siblings = true, true
 	default:
 		t.Fatalf("unknown -bench.stream %q", *benchStream)
 	}
@@ -228,7 +231,7 @@ func TestStream(t *testing.T) {
 	batchSample := sampleOf(rng, order[:half], *benchStreamSample)
 
 	measure := func(percent, upto int, insertSec float64, atInsert edgeCounts) {
-		cp := streamCheckpoint{Percent: percent, Live: s.liveCount, Stats: s.stats, InsertSec: insertSec, AtInsert: atInsert}
+		cp := streamCheckpoint{Percent: percent, Live: s.liveCount, Stats: s.stats.clone(), InsertSec: insertSec, AtInsert: atInsert}
 		if err := s.cleanCentroidGraph(); err != nil {
 			t.Logf("checkpoint %d%%: cleaning the centroid graph failed, measured with its tombstones: %v", percent, err)
 		}
@@ -270,12 +273,13 @@ func TestStream(t *testing.T) {
 		}
 		t.Logf("checkpoint %d%%: %d live in %d postings (mean %.1f, p50 %d, p95 %d, max %d) | edge recall at insert %.4f "+
 			"(postings %.4f, %d sampled), now: inserted %.4f (postings %.4f, degree %.2f), batch %.4f (postings %.4f, degree %.2f) "+
-			"| splits %d (failed %d), non-nearest %.4f, inverse edges %d, repaired %d | %.0f us per insert",
+			"| splits %d (failed %d), non-nearest %.4f, inverse edges %d, repaired %d, sibling edges %d | %.0f us per insert",
 			percent, cp.Live, cp.Postings, cp.SizeMean, cp.SizeP50, cp.SizeP95, cp.SizeMax,
 			cp.AtInsert.recall(), cp.AtInsert.postingRecall(), cp.AtInsert.Vectors,
 			cp.Inserted.recall(), cp.Inserted.postingRecall(), cp.Inserted.degree(),
 			cp.Batch.recall(), cp.Batch.postingRecall(), cp.Batch.degree(), s.stats.Splits, s.stats.SplitsFailed,
-			float64(s.stats.NonNearest)/float64(max(s.stats.Inserted, 1)), s.stats.InverseEdges, s.stats.Repaired, perInsert)
+			float64(s.stats.NonNearest)/float64(max(s.stats.Inserted, 1)), s.stats.InverseEdges, s.stats.Repaired,
+			s.stats.SiblingEdges, perInsert)
 		if atInsert.Vectors > 0 && atInsert.recall() < *benchStreamMinEdgeRecall {
 			result.Stopped = fmt.Sprintf("edge recall at insert %.4f in the stretch to %d%%", atInsert.recall(), percent)
 			write()

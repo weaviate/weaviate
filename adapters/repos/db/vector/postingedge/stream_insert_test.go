@@ -110,6 +110,7 @@ func TestStreamInserts(t *testing.T) {
 		{name: "edge repair", cfg: streamConfig{threshold: 60, repair: true}},
 		{name: "both", cfg: streamConfig{threshold: 60, inverse: true, repair: true}},
 		{name: "sibling repair", cfg: streamConfig{threshold: 60, siblings: true}},
+		{name: "inverse edges and sibling repair", cfg: streamConfig{threshold: 60, inverse: true, siblings: true}},
 		{name: "assignment only", cfg: streamConfig{threshold: 60, assignOnly: true}},
 	}
 	for _, tt := range tests {
@@ -173,13 +174,39 @@ func TestStreamInserts(t *testing.T) {
 			}
 			if tt.cfg.inverse {
 				assert.Positive(t, s.stats.InverseEdges)
-				if !tt.cfg.repair {
+				if !tt.cfg.repair && !tt.cfg.siblings {
 					for docID, edges := range old {
 						require.Len(t, now[docID], len(edges), "inverse edges keep the degree of doc %d", docID)
 					}
 				}
+				// Every insert is counted once, by the inverse edges it wrote
+				// and by the postings they went to.
+				for _, hist := range [][]int{s.stats.InverseWrites, s.stats.InversePostings} {
+					require.Len(t, hist, s.neighbors+1)
+					inserts := 0
+					for _, count := range hist {
+						inserts += count
+					}
+					assert.Equal(t, s.stats.Inserted, inserts)
+				}
+				writes, postings := 0, 0
+				for w, count := range s.stats.InverseWrites {
+					writes += w * count
+				}
+				for w, count := range s.stats.InversePostings {
+					postings += w * count
+				}
+				assert.Equal(t, s.stats.InverseEdges, writes)
+				assert.LessOrEqual(t, postings, writes, "an insert writes no more postings than lists")
+				assert.Positive(t, postings)
+				assert.GreaterOrEqual(t, s.stats.InverseChecks, s.stats.InverseEdges, "a list is read before it is written")
+				assert.GreaterOrEqual(t, s.stats.InverseDistances, s.stats.InverseChecks, "a list that is read has edges")
 			} else {
 				assert.Zero(t, s.stats.InverseEdges)
+				assert.Zero(t, s.stats.InverseChecks)
+				assert.Zero(t, s.stats.InverseDistances)
+				assert.Nil(t, s.stats.InverseWrites)
+				assert.Nil(t, s.stats.InversePostings)
 			}
 			if tt.cfg.repair {
 				assert.GreaterOrEqual(t, s.stats.Repaired, (tt.cfg.threshold+1)*s.stats.Splits,
@@ -189,8 +216,10 @@ func TestStreamInserts(t *testing.T) {
 			}
 			if tt.cfg.siblings {
 				assert.Positive(t, s.stats.SiblingEdges)
+				assert.Positive(t, s.stats.SiblingLists)
 			} else {
 				assert.Zero(t, s.stats.SiblingEdges)
+				assert.Zero(t, s.stats.SiblingLists)
 			}
 
 			// The new vectors are where a search finds them.
@@ -427,8 +456,12 @@ func TestStreamEdgeRecallAtInsert(t *testing.T) {
 	// each other and no path through other postings: neither the inserts'
 	// search nor the repair's can reach the other half.
 	all := clusteredVectors(total, 16, 1, 61)
-	for _, cfg := range []streamConfig{{threshold: 60}, {threshold: 60, inverse: true, repair: true}} {
-		t.Run(fmt.Sprintf("inverse %v repair %v", cfg.inverse, cfg.repair), func(t *testing.T) {
+	for _, cfg := range []streamConfig{
+		{threshold: 60},
+		{threshold: 60, inverse: true, repair: true},
+		{threshold: 60, inverse: true, siblings: true},
+	} {
+		t.Run(fmt.Sprintf("inverse %v repair %v siblings %v", cfg.inverse, cfg.repair, cfg.siblings), func(t *testing.T) {
 			s := newStreamTestIndex(t, all, batch, smallConfig(), cfg)
 			uc := smallConfig()
 			uc.Distance, uc.EF = "l2-squared", 64
@@ -484,6 +517,10 @@ func TestStreamRepairReachesTheOtherHalf(t *testing.T) {
 		{name: "search repair, one blob", all: blob, cfg: streamConfig{threshold: 60, repair: true}, across: true},
 		{name: "sibling repair, one blob", all: blob, cfg: streamConfig{threshold: 60, siblings: true}, across: true},
 		{name: "sibling repair, tight clusters", all: tight, cfg: streamConfig{threshold: 60, siblings: true}, across: true},
+		{
+			name: "inverse edges and sibling repair, tight clusters", all: tight,
+			cfg: streamConfig{threshold: 60, inverse: true, siblings: true}, across: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -526,54 +563,181 @@ func TestStreamRepairReachesTheOtherHalf(t *testing.T) {
 // The sibling repair keeps, for every member of either half, the nearest of
 // its edges before the split and of the members of the other half, by exact
 // distance: an independent count right after the first split gives the same
-// edges.
+// edges, and the same number of lists that changed. Inverse edges go into
+// lists outside the posting that splits, and change none of this. With two
+// edges a vector, some members already have both nearer than anything in the
+// other half, and their lists do not change.
 func TestStreamSiblingRepairKeepsTheNearest(t *testing.T) {
 	const batch, total = 1200, 2400
 	ctx := context.Background()
 	all := clusteredVectors(total, 24, 1, 909)
 	provider := distancer.NewL2SquaredProvider()
-	uc := smallConfig()
-	s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, siblings: true})
-	uc.Distance, uc.EF = "l2-squared", 64
-	require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
-	// The edges before the split: those of every vector before the insert
-	// that splits, and those that insert wrote for its own vector.
-	var before map[uint64][]uint32
-	s.onWrite = func(docID uint64, _ uint32, edges []uint32) error {
-		before[docID] = slices.Clone(edges)
-		return nil
+	tests := []struct {
+		name      string
+		cfg       streamConfig
+		edges     int
+		unchanged bool
+	}{
+		{name: "sibling repair", cfg: streamConfig{threshold: 60, siblings: true}, edges: DefaultEdges},
+		{name: "inverse edges and sibling repair", cfg: streamConfig{threshold: 60, inverse: true, siblings: true}, edges: DefaultEdges},
+		{name: "sibling repair, two edges", cfg: streamConfig{threshold: 60, siblings: true}, edges: 2, unchanged: true},
 	}
-	for id := uint64(batch); id < total && s.stats.Splits == 0; id++ {
-		before = edgesByDoc(s)
-		require.NoError(t, s.insert(ctx, id, all[id]))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.cfg
+			uc := smallConfig()
+			uc.Edges = tt.edges
+			s := newStreamTestIndex(t, all, batch, uc, cfg)
+			require.Equal(t, tt.edges, s.neighbors)
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+			// The edges before the split: those of every vector before the
+			// insert that splits, and those that insert wrote for its own
+			// vector.
+			var before map[uint64][]uint32
+			s.onWrite = func(docID uint64, _ uint32, edges []uint32) error {
+				before[docID] = slices.Clone(edges)
+				return nil
+			}
+			for id := uint64(batch); id < total && s.stats.Splits == 0; id++ {
+				before = edgesByDoc(s)
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.Equal(t, 1, s.stats.Splits)
+			first := uint32(len(s.st.postings.lists) - 2)
+			changed, members := 0, 0
+			for half := range uint32(2) {
+				l := s.st.postings.lists[first+half]
+				other := s.st.postings.lists[first+1-half]
+				for i, docID := range l.docIDs {
+					type cand struct {
+						id   uint64
+						dist float32
+					}
+					var cands []cand
+					for _, endpoint := range before[docID] {
+						dist, err := provider.SingleDist(all[docID], all[endpoint])
+						require.NoError(t, err)
+						cands = append(cands, cand{id: uint64(endpoint), dist: dist})
+					}
+					for _, sibling := range other.docIDs {
+						dist, err := provider.SingleDist(all[docID], all[sibling])
+						require.NoError(t, err)
+						cands = append(cands, cand{id: sibling, dist: dist})
+					}
+					sort.SliceStable(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
+					var want []uint32
+					for _, c := range cands[:min(s.neighbors, len(cands))] {
+						want = append(want, uint32(c.id))
+					}
+					assert.Equal(t, want, l.edgesOf(i), "doc %d", docID)
+					members++
+					if !slices.Equal(want, before[docID]) {
+						changed++
+					}
+				}
+			}
+			assert.Equal(t, changed, s.stats.SiblingLists)
+			assert.Positive(t, changed)
+			if tt.unchanged {
+				assert.Less(t, changed, members, "some lists stay as they were")
+			}
+		})
 	}
-	require.Equal(t, 1, s.stats.Splits)
-	first := uint32(len(s.st.postings.lists) - 2)
-	for half := range uint32(2) {
-		l := s.st.postings.lists[first+half]
-		other := s.st.postings.lists[first+1-half]
-		for i, docID := range l.docIDs {
-			type cand struct {
-				id   uint64
-				dist float32
+}
+
+// The inverse edges of an insert are counted as they are written: a neighbor
+// outside the new vector's posting, with edges, takes the new vector when it
+// is nearer than the neighbor's worst edge, and an independent count of the
+// lists that took it, and of the postings they live in, gives the same
+// histograms, insert by insert. A split, with or without the sibling repair,
+// changes no list outside the posting it splits.
+func TestStreamInverseWritesPerInsert(t *testing.T) {
+	const batch, total = 1200, 2400
+	ctx := context.Background()
+	// Tight clusters of a few postings each: some vectors have every near
+	// neighbor in their own posting and no edges, and the neighbors an insert
+	// finds outside its posting often share one.
+	all := clusteredVectors(total, 64, 20, 61)
+	provider := distancer.NewL2SquaredProvider()
+	for _, cfg := range []streamConfig{{threshold: 60, inverse: true}, {threshold: 60, inverse: true, siblings: true}} {
+		t.Run(fmt.Sprintf("siblings %v", cfg.siblings), func(t *testing.T) {
+			uc := smallConfig()
+			s := newStreamTestIndex(t, all, batch, uc, cfg)
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+
+			listOf := func(docID uint64) []uint32 {
+				l := s.st.postings.lists[s.st.side.postingOf[docID]]
+				return l.edgesOf(l.member(docID))
 			}
-			var cands []cand
-			for _, endpoint := range before[docID] {
-				dist, err := provider.SingleDist(all[docID], all[endpoint])
-				require.NoError(t, err)
-				cands = append(cands, cand{id: uint64(endpoint), dist: dist})
+			// What the insert found outside its posting, and the lists and
+			// postings of those neighbors before any inverse edge.
+			var candidates []uint32
+			var lists [][]uint32
+			var postings []uint32
+			s.onWrite = func(_ uint64, _ uint32, edges []uint32) error {
+				candidates, lists, postings = slices.Clone(edges), nil, nil
+				for _, u := range edges {
+					lists = append(lists, slices.Clone(listOf(uint64(u))))
+					postings = append(postings, s.st.side.postingOf[u])
+				}
+				return nil
 			}
-			for _, sibling := range other.docIDs {
-				dist, err := provider.SingleDist(all[docID], all[sibling])
-				require.NoError(t, err)
-				cands = append(cands, cand{id: sibling, dist: dist})
+			wantWrites, wantPostings := make([]int, s.neighbors+1), make([]int, s.neighbors+1)
+			checks, distances, empty, shared := 0, 0, 0, 0
+			for id := uint64(batch); id < total; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+				writes := 0
+				var written []uint32
+				for c, u := range candidates {
+					now := listOf(uint64(u))
+					if len(lists[c]) == 0 {
+						empty++
+						require.Empty(t, now, "doc %d has no edges and takes none", u)
+						continue
+					}
+					checks++
+					distances += len(lists[c])
+					dist, err := provider.SingleDist(all[u], all[id])
+					require.NoError(t, err)
+					worst, err := provider.SingleDist(all[u], all[lists[c][len(lists[c])-1]])
+					require.NoError(t, err)
+					require.Equal(t, dist < worst, slices.Contains(now, uint32(id)),
+						"doc %d at %f of doc %d, whose worst edge is at %f", id, dist, u, worst)
+					if dist < worst {
+						require.Len(t, now, len(lists[c]), "an inverse edge takes the place of the worst edge")
+						writes++
+						if !slices.Contains(written, postings[c]) {
+							written = append(written, postings[c])
+						}
+					} else {
+						require.True(t, slices.Equal(lists[c], now), "doc %d keeps its edges", u)
+					}
+				}
+				wantWrites[writes]++
+				wantPostings[len(written)]++
+				if len(written) < writes {
+					shared++
+				}
 			}
-			sort.SliceStable(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
-			var want []uint32
-			for _, c := range cands[:min(s.neighbors, len(cands))] {
-				want = append(want, uint32(c.id))
-			}
-			assert.Equal(t, want, l.edgesOf(i), "doc %d", docID)
-		}
+			assert.Equal(t, wantWrites, s.stats.InverseWrites)
+			assert.Equal(t, wantPostings, s.stats.InversePostings)
+			assert.Equal(t, checks, s.stats.InverseChecks)
+			assert.Equal(t, distances, s.stats.InverseDistances)
+			assert.Positive(t, s.stats.Splits)
+			// The data has what tells the counts apart: neighbors without
+			// edges, inserts that write nothing and inserts whose inverse
+			// edges share a posting.
+			assert.Positive(t, empty, "some neighbors have no edges")
+			assert.Positive(t, wantWrites[0], "some inserts write no inverse edge")
+			assert.Positive(t, shared, "some inserts write two lists of one posting")
+			// A checkpoint keeps counts of its own.
+			kept := s.stats.clone()
+			s.stats.InverseWrites[0]++
+			s.stats.InversePostings[0]++
+			assert.Equal(t, wantWrites, kept.InverseWrites)
+			assert.Equal(t, wantPostings, kept.InversePostings)
+		})
 	}
 }

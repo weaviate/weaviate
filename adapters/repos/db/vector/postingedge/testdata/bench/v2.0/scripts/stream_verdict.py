@@ -2,9 +2,10 @@
 
 usage: stream_verdict.py <the v2.0 directory>
 
-Reads dbpedia-1m-stream-{calibration,principal,h1,h2,natural,both}.json, the
-checkpoint grids -cp<percent>.json next to each cell, the batch reference
-dbpedia-1m-stream-principal-reference.json and the timed frontiers
+Reads dbpedia-1m-stream-{calibration,principal,h1,h2,natural,both,siblings,
+inverse-siblings,h1-writes}.json, the checkpoint grids -cp<percent>.json next
+to each cell, the batch reference dbpedia-1m-stream-principal-reference.json
+and the timed frontiers
 dbpedia-1m-stream-principal-timed-{reference,reference-docid,cell}.json with
 their -repeat twins. Whatever is missing is left out. Values at a recall are
 read on the ef curve as statAtRecall reads them. Prints Markdown.
@@ -18,7 +19,14 @@ Pre-registration (bench-report.md, "v2.0"):
   amendment, the edge recall at insertion below 0.90 in any stretch (the
   guard of the edge builder); the edge recall against the current corpus and
   at posting level are reported, not stops;
-- the threshold keeps the final mean posting size within 15 % of 236.
+- the threshold keeps the final mean posting size within 15 % of 236;
+- cell 5 (sibling repair) matches H2 if its recall is at most 0.001 below
+  H2's at every ef and its loads at 0.95 at most 2 % above;
+- cell 6 (inverse edges with sibling repair) adds to H1 if its recall is more
+  than 0.001 above H1's at some ef, or its loads at 0.95 more than 2 % below;
+- the noise between runs is the spread of the cells at the 50 % checkpoint,
+  the same batch build, and at 100 % the difference between the two runs of
+  H1 (h1 and h1-writes): a verdict that rests on less is marked.
 """
 import json
 import math
@@ -28,7 +36,11 @@ import sys
 
 CELLS = [('principal', 'principal'), ('h1', 'control H1 (aristas inversas)'),
          ('h2', 'control H2 (reparación)'), ('both', 'las dos'), ('natural', 'principal, orden natural'),
-         ('siblings', 'celda 5 (reparación por hermanos)')]
+         ('siblings', 'celda 5 (reparación por hermanos)'),
+         ('inverse-siblings', 'celda 6 (aristas inversas y reparación por hermanos)'),
+         ('h1-writes', 'H1, repetición con el histograma de escrituras')]
+# the cells that start from the same batch build: the shuffled half
+SAME_BATCH = ('principal', 'h1', 'h2', 'both', 'siblings', 'inverse-siblings', 'h1-writes')
 # cell 5 against H2 (pre-registration of cell 5): it matches if its recall is
 # at most this much below H2's at every ef, and its loads at 0.95 at most
 # this share above H2's
@@ -188,20 +200,150 @@ def main(d):
         print('- **Stop-and-report en:** %s.' % ', '.join(stops))
     if edge_low:
         print('- **Guardia del constructor, recall de arista al insertar bajo 0.90:** %s.' % ', '.join('%s en el tramo al %d %% (%.4f)' % e for e in edge_low))
-    for key in ('h1', 'h2', 'both', 'siblings'):
+    for key in ('h1', 'h2', 'both', 'siblings', 'inverse-siblings'):
         if key in cells and len(cells[key]) == 4:
             _, _, w, l = cells[key]
             print('- **%s:** peor diferencia %+.4f (principal %+.4f), cargas a 0.95 %+.1f %% (principal %+.1f %%).' % (
                 cells[key][0], w, worst, 100 * l, 100 * loads))
-    siblings_vs_h2(cells)
+    if 'both' not in cells:
+        print('- **La celda 4, «las dos», no corrió.**')
+    floor = noise(cells)
+    work(cells, refpts)
+    inverse_writes(cells)
+    siblings_vs_h2(cells, floor)
+    cell6_vs_h1(cells, floor)
 
+
+def final(doc):
+    """The points of the 100 % checkpoint of a cell, None before it."""
+    last = doc['checkpoints'][-1] if doc['checkpoints'] else None
+    return curve(last['points']) if last and last['percent'] == 100 else None
+
+
+def noise(cells):
+    """The noise between runs, by ef: the spread of the cells at the 50 %
+    checkpoint, and the difference between the two runs of H1 at 100 %."""
+    at50 = {}
+    for key in SAME_BATCH:
+        if key in cells and cells[key][1]['checkpoints'] and cells[key][1]['checkpoints'][0]['percent'] == 50:
+            for p in curve(cells[key][1]['checkpoints'][0]['points']):
+                at50.setdefault(p['ef'], []).append((key, p))
+    runs = sorted({k for v in at50.values() for k, _ in v}, key=SAME_BATCH.index)
+    a = final(cells['h1'][1]) if 'h1' in cells else None
+    b = final(cells['h1-writes'][1]) if 'h1-writes' in cells else None
+    at100 = {}
+    if a and b:
+        pb = {p['ef']: p for p in b}
+        at100 = {p['ef']: abs(p['recall'] - pb[p['ef']]['recall']) for p in a if p['ef'] in pb}
+    if len(runs) < 2:
+        return {}
+    print('\n### Suelo de ruido entre corridas\n')
+    print('El checkpoint del 50 %% es el mismo build en lote en %d corridas (%s).\n' % (len(runs), ', '.join(runs)))
+    print('| ef | recall al 50 %: mínimo | máximo | diferencia | cargas: diferencia relativa | H1 frente a su repetición al 100 % |')
+    print('|---|---|---|---|---|---|')
+    floor = {}
+    for ef in sorted(at50):
+        r = [p['recall'] for _, p in at50[ef]]
+        l = [p['stats']['loadsMean'] for _, p in at50[ef]]
+        floor[ef] = max(max(r) - min(r), at100.get(ef, 0))
+        print('| %d | %.4f | %.4f | %.4f | %.2f %% | %s |' % (
+            ef, min(r), max(r), max(r) - min(r), 100 * (max(l) / min(l) - 1), fmt(at100.get(ef), '%.4f')))
+    if a and b:
+        la, lb = at(a, 0.95, 'loadsMean'), at(b, 0.95, 'loadsMean')
+        if la and lb:
+            floor['loads'] = abs(la / lb - 1)
+            print('\nCargas a 0.95 de H1 al 100 %%: %.2f y %.2f en las dos corridas (%.1f %% de diferencia).' % (la, lb, 100 * floor['loads']))
+    return floor
+
+
+def work(cells, refpts):
+    """Loads and endpoints scored at equal recall, and the mean degree, at 100 %."""
+    rows = [('referencia en lote', refpts, None)] if refpts else []
+    for key, v in cells.items():
+        pts = final(v[1])
+        if pts:
+            rows.append((v[0], pts, v[1]['checkpoints'][-1]))
+    if not rows:
+        return
+    print('\n### Trabajo a igual recall y grado medio, al 100 %\n')
+    print('| celda | cargas a 0.95 | endpoints puntuados a 0.95 | cargas a 0.99 | endpoints puntuados a 0.99 | grado medio: insertados | lote |')
+    print('|---|---|---|---|---|---|---|')
+    for name, pts, cp in rows:
+        deg = lambda c: fmt(c['edges'] / c['vectors'] if c and c.get('vectors') else None, '%.2f')
+        print('| %s | %s | %s | %s | %s | %s | %s |' % (
+            name, fmt(at(pts, 0.95, 'loadsMean')), fmt(at(pts, 0.95, 'endpointsMean'), '%.0f'),
+            fmt(at(pts, 0.99, 'loadsMean')), fmt(at(pts, 0.99, 'endpointsMean'), '%.0f'),
+            deg(cp.get('inserted')) if cp else '—', deg(cp.get('batch')) if cp else '—'))
+
+
+def quantile(hist, q):
+    """The smallest value with at least the share q of the inserts at or below it."""
+    total, seen = sum(hist), 0
+    for value, count in enumerate(hist):
+        seen += count
+        if seen >= q * total:
+            return value
+    return len(hist) - 1
+
+
+def hist_line(hist):
+    total = max(sum(hist), 1)
+    mean = sum(v * c for v, c in enumerate(hist)) / total
+    top = max((v for v, c in enumerate(hist) if c), default=0)
+    return '%.2f | %d | %d | %d | %.1f %%' % (mean, quantile(hist, 0.5), quantile(hist, 0.95), top, 100 * hist[0] / total)
+
+
+def inverse_writes(cells):
+    """What the inverse edges of an insert read and write, in counts."""
+    rows = [(k, v) for k, v in cells.items() if v[1]['checkpoints'] and v[1]['checkpoints'][-1]['stats'].get('inverseEdges')]
+    if not rows:
+        return
+    print('\n### Escrituras de aristas inversas por insert\n')
+    print('Cada arista inversa es una escritura a la lista de otro vector. «Postings» cuenta los postings distintos donde viven esas listas: lo que escribe un insert si las aristas se guardan con su posting.\n')
+    print('| celda | tramo | inserts | listas con aristas leídas por insert | distancias exactas por insert | escrituras: media | p50 | p95 | máximo | inserts sin ninguna | postings distintos: media | p50 | p95 | máximo | inserts sin ninguno |')
+    print('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+    for key, v in rows:
+        cps = v[1]['checkpoints']
+        stretches = [('hasta el %d %%' % cps[-1]['percent'], None, cps[-1]['stats'])]
+        if len(cps) > 2:
+            stretches += [('%d a %d %%' % (a['percent'], b['percent']), a['stats'], b['stats']) for a, b in zip(cps, cps[1:])]
+        for label, prev, st in stretches:
+            def d(f):
+                return st.get(f, 0) - (prev.get(f, 0) if prev else 0)
+            ins = max(d('inserted'), 1)
+            if 'inverseWrites' not in st:
+                print('| %s | %s | %d | — | — | %.2f | — | — | — | — | — | — | — | — | — |' % (v[0], label, ins, d('inverseEdges') / ins))
+                continue
+            def h(f):
+                before = prev.get(f) if prev else None
+                return [c - (before[i] if before else 0) for i, c in enumerate(st[f])]
+            print('| %s | %s | %d | %.2f | %.1f | %s | %s |' % (
+                v[0], label, ins, d('inverseChecks') / ins, d('inverseDistances') / ins,
+                hist_line(h('inverseWrites')), hist_line(h('inversePostings'))))
+    a, b = cells.get('h1'), cells.get('h1-writes')
+    if a and b and final(a[1]) and final(b[1]):
+        sa, sb = a[1]['checkpoints'][-1]['stats'], b[1]['checkpoints'][-1]['stats']
+        print('\nLa repetición de H1 frente a la corrida original, al 100 %%: %.3f escrituras por insert frente a %.3f, %d splits frente a %d.' % (
+            sb['inverseEdges'] / sb['inserted'], sa['inverseEdges'] / sa['inserted'], sb['splits'], sa['splits']))
 
 def per_split(doc, fields):
     st = doc['checkpoints'][-1]['stats']
     return sum(st[f] for f in fields) / 1e3 / max(st['splits'], 1), st
 
 
-def siblings_vs_h2(cells):
+def floor_line(diffs, floor, threshold):
+    """Says whether the differences past the threshold are past the noise too."""
+    past = [(ef, d) for ef, d in diffs if abs(d) > threshold]
+    if not past or not floor:
+        return
+    inside = [(ef, d) for ef, d in past if abs(d) <= floor.get(ef, 0)]
+    print('- **Frente al suelo de ruido:** %s' % ('; '.join(
+        'ef %d: %+.4f, con un suelo de %.4f%s' % (ef, d, floor.get(ef, 0), ' (dentro)' if abs(d) <= floor.get(ef, 0) else '') for ef, d in past)) + '.')
+    if len(inside) == len(past):
+        print('- **Todas las diferencias que pasan el umbral están dentro del ruido entre corridas: el veredicto de recall no se distingue de él.**')
+
+
+def siblings_vs_h2(cells, floor):
     if 'siblings' not in cells or 'h2' not in cells or len(cells['siblings']) < 4 or len(cells['h2']) < 4:
         return
     sib, h2 = cells['siblings'][1], cells['h2'][1]
@@ -210,11 +352,12 @@ def siblings_vs_h2(cells):
     print('\n### Celda 5 frente a H2, al 100 %\n')
     print('| ef | H2 | celda 5 | diferencia |')
     print('|---|---|---|---|')
-    worst = 0
+    worst, diffs = 0, []
     for p in ps:
         if p['ef'] in ph:
             d = p['recall'] - ph[p['ef']]['recall']
             worst = min(worst, d)
+            diffs.append((p['ef'], d))
             print('| %d | %.4f | %.4f | %+.4f |' % (p['ef'], ph[p['ef']]['recall'], p['recall'], d))
     l5, lh = at(ps, 0.95, 'loadsMean'), at(curve(h2['checkpoints'][-1]['points']), 0.95, 'loadsMean')
     us5, st5 = per_split(sib, ('splitNs', 'siblingNs'))
@@ -227,6 +370,61 @@ def siblings_vs_h2(cells):
         st5['siblingDistances'] / max(st5['splits'], 1), sth['repaired'] / max(sth['splits'], 1)))
     print('- **Celda 5 %s a H2 sin búsqueda: %s.**' % ('iguala o supera' if matches else 'no iguala',
           'candidata a mecanismo de split para disco' if matches else 'no es la candidata'))
+    floor_line([(ef, d) for ef, d in diffs if d < 0], floor, MATCH_RECALL)
+
+
+def cell6_vs_h1(cells, floor):
+    if 'inverse-siblings' not in cells or 'h1' not in cells:
+        return
+    six, h1 = cells['inverse-siblings'][1], cells['h1'][1]
+    p6, p1 = final(six), final(h1)
+    if not p6 or not p1:
+        return
+    ph = {p['ef']: p for p in p1}
+    rep = final(cells['h1-writes'][1]) if 'h1-writes' in cells else None
+    pr = {p['ef']: p for p in rep} if rep else {}
+    print('\n### Celda 6 frente a H1, al 100 %\n')
+    print('| ef | H1 | H1, repetición | celda 6 | diferencia frente a H1 | frente a la repetición | suelo de ruido |')
+    print('|---|---|---|---|---|---|---|')
+    diffs = []
+    for p in p6:
+        if p['ef'] not in ph:
+            continue
+        d = p['recall'] - ph[p['ef']]['recall']
+        diffs.append((p['ef'], d))
+        r = pr.get(p['ef'])
+        print('| %d | %.4f | %s | %.4f | %+.4f | %s | %s |' % (
+            p['ef'], ph[p['ef']]['recall'], fmt(r['recall'] if r else None, '%.4f'), p['recall'], d,
+            fmt(p['recall'] - r['recall'] if r else None, '%+.4f'), fmt(floor.get(p['ef']) if floor else None, '%.4f')))
+    best, worst = max(d for _, d in diffs), min(d for _, d in diffs)
+    l6, l1 = at(p6, 0.95, 'loadsMean'), at(p1, 0.95, 'loadsMean')
+    loads = l6 / l1 - 1 if l6 and l1 else None
+    adds = best > MATCH_RECALL or (loads is not None and loads < -MATCH_LOADS)
+    loses = worst < -MATCH_RECALL or (loads is not None and loads > MATCH_LOADS)
+    print('\n- **Recall:** mejor diferencia frente a H1 %+.4f, peor %+.4f (umbral ±%.3f). **Cargas a 0.95:** %s frente a %s (%s; umbral ∓%d %%).' % (
+        best, worst, MATCH_RECALL, fmt(l6), fmt(l1), fmt(100 * loads if loads is not None else None, '%+.1f %%'), 100 * MATCH_LOADS))
+    if adds and loses:
+        verdict = 'aporta por un lado y pierde por otro: veredicto mixto'
+    elif adds:
+        verdict = 'los hermanos aportan sobre las aristas inversas'
+    else:
+        verdict = 'los hermanos no hacen falta cuando hay aristas inversas'
+    print('- **Celda 6 frente a H1: %s.**' % verdict)
+    floor_line(diffs, floor, MATCH_RECALL)
+    if floor and 'loads' in floor and loads is not None and abs(loads) > MATCH_LOADS:
+        print('- **Cargas frente al suelo de ruido:** %+.1f %%, con %.1f %% entre las dos corridas de H1%s.' % (
+            100 * loads, 100 * floor['loads'], ' (dentro)' if abs(loads) <= floor['loads'] else ''))
+    st6, st1 = six['checkpoints'][-1]['stats'], h1['checkpoints'][-1]['stats']
+    splits, ins = max(st6['splits'], 1), max(st6['inserted'], 1)
+    print('- **Trabajo por split, sin depender de la máquina:** %.0f distancias exactas, %.1f listas de aristas que cambian y %.1f aristas hacia la mitad hermana. Repartido entre los inserts: %.2f listas cambiadas por insert.' % (
+        st6['siblingDistances'] / splits, st6.get('siblingLists', 0) / splits, st6['siblingEdges'] / splits,
+        st6.get('siblingLists', 0) / ins))
+    print('- **Trabajo por insert, sin depender de la máquina:** una búsqueda (k=16, ef=%d); %.2f listas con aristas leídas y %.2f escrituras de aristas inversas (H1: %.2f escrituras).' % (
+        six['insertEF'], st6.get('inverseChecks', 0) / ins, st6['inverseEdges'] / ins, st1['inverseEdges'] / max(st1['inserted'], 1)))
+    us = lambda st, fields: sum(st[f] for f in fields) / 1e3
+    print('- **µs, indicativos (H1 corrió en paralelo con otras dos celdas, la 6 sola):** por insert, celda 6 %.0f y H1 %.0f; por split con su reparación, celda 6 %.0f.' % (
+        six['checkpoints'][-1]['insertSec'] * 1e6 / ins, h1['checkpoints'][-1]['insertSec'] * 1e6 / max(st1['inserted'], 1),
+        us(st6, ('splitNs', 'siblingNs')) / splits))
 
 
 if __name__ == '__main__':
