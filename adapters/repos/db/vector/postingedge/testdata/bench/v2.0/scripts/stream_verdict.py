@@ -140,7 +140,7 @@ def main(d):
             print('Al 100 %, frente a la referencia en lote (recall a igual ef):\n')
             print('| ef | referencia | %s | diferencia |' % key)
             print('|---|---|---|---|')
-            worst = 0
+            worst = math.inf
             for p in pts:
                 r = refAt.get(p['ef'])
                 if r is None:
