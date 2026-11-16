@@ -94,7 +94,7 @@ func TestALoadServesEveryDecidedIndex(t *testing.T) {
 				blockCanonicalClear(t, f, f.tasks[half])
 			},
 			loads: []load{
-				{before: chmodStaged(0), wantErr: "the shard does not load"},
+				{before: chmodStaged(0), wantErr: "permission denied"},
 				{before: chmodStaged(0o700), found: 3},
 				{found: 3},
 			},
