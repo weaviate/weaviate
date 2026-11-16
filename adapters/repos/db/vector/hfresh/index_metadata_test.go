@@ -295,6 +295,19 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
 		},
 		{
+			name:  "reassign, postings bucket behind shared bucket",
+			setup: func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			mutate: func(t *testing.T, h *HFresh) []uint64 {
+				// posting 0 is never a selected replica, so every vector moves
+				for id := uint64(0); id < 20; id++ {
+					require.NoError(t, h.doReassign(t.Context(), reassignOperation{VectorID: id}))
+				}
+				return nil
+			},
+			rollback:  postingsBucket,
+			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+		},
+		{
 			name:      "first posting, commit log behind store",
 			setup:     func(*testing.T, *HFresh) {},
 			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 0, 100); return nil },
