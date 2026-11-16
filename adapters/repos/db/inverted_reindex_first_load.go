@@ -85,8 +85,9 @@ type firstLoadRun struct {
 	header ReindexTaskHeader
 }
 
-// firstLoadRuns keeps the unfinished runs, except a tokenization change whose property no longer
-// has the run's original tokenization, since the task list may not hold the run that replaced it.
+// firstLoadRuns keeps each unfinished run's properties whose BucketGeneration, the version of the last run
+// that changed them, is below the run's. It voids every index type of a property, which holds only because the
+// indexes handler refuses another type while a run on it is active or partial (checkReindexConflict, reindexPartialRunConflict).
 func firstLoadRuns(runs []distributedtask.BarrierRun, class *models.Class) ([]firstLoadRun, error) {
 	var kept []firstLoadRun
 	for _, run := range runs {
@@ -94,21 +95,18 @@ func firstLoadRuns(runs []distributedtask.BarrierRun, class *models.Class) ([]fi
 		if !ok {
 			return nil, fmt.Errorf("task %s/%d carries no reindex header", run.ID, run.Version)
 		}
-		if run.Status != distributedtask.TaskStatusFinished && !tokenizationMovedOn(class, header) {
+		if run.Status == distributedtask.TaskStatusFinished {
+			continue
+		}
+		header.Properties = slices.DeleteFunc(slices.Clone(header.Properties), func(name string) bool {
+			prop, err := schema.GetPropertyByName(class, name)
+			return err == nil && prop.BucketGeneration >= int64(run.Version)
+		})
+		if len(header.Properties) > 0 {
 			kept = append(kept, firstLoadRun{desc: run.TaskDescriptor, header: header})
 		}
 	}
 	return kept, nil
-}
-
-func tokenizationMovedOn(class *models.Class, header ReindexTaskHeader) bool {
-	if !IsTokenizationChangingMigration(header.MigrationType) || header.OriginalTokenization == "" {
-		return false
-	}
-	return slices.ContainsFunc(header.Properties, func(name string) bool {
-		prop, err := schema.GetPropertyByName(class, name)
-		return err == nil && prop.Tokenization != header.OriginalTokenization
-	})
 }
 
 func firstLoadRecords(logger logrus.FieldLogger, run firstLoadRun, unit string, class *models.Class,
@@ -151,8 +149,7 @@ func dirHoldsFile(dir string) (bool, error) {
 	return holds, err
 }
 
-// promotedToBlockmax reports whether the newest promoted record on propName's searchable bucket
-// targets blockmax. Every shard's bucket then asks for blockmax before SearchableBlockmax is set.
+// promotedToBlockmax reports whether the newest promoted record on propName's searchable bucket targets blockmax.
 func (s *Shard) promotedToBlockmax(propName string) bool {
 	if s.migrationRecords == nil {
 		return false

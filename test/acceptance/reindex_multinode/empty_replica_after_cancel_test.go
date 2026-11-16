@@ -82,13 +82,6 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 		}
 		return state.ShardingState.Shards[0].Replicas
 	}
-	owners := replicasOfTenant(restURI)
-	require.Len(t, owners, 1)
-	joined := slices.IndexFunc([]string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2},
-		func(n string) bool { return !slices.Contains(owners, n) })
-	joinedName := fmt.Sprintf("weaviate-%d", joined)
-	joinedURI := func() string { return restURIOf(compose, joined+1) }
-
 	scale := func(actions models.ReplicationScalePlanShardScaleActionsAnon) {
 		helper.SetupClient(restURI)
 		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
@@ -102,34 +95,49 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 		}
 		require.NoError(t, err)
 	}
-	scale(models.ReplicationScalePlanShardScaleActionsAnon{AddNodes: map[string]string{joinedName: ""}})
-	// Ask the new replica itself, because a node that has not applied the add
-	// answers node_name reads from the old owner.
-	require.Eventually(t, func() bool {
-		var nodes models.NodesStatusResponse
-		if !httpGetJSON(fmt.Sprintf("http://%s/v1/nodes/%s?output=verbose", joinedURI(), className), &nodes) {
-			return false
-		}
-		return slices.ContainsFunc(nodes.Nodes, func(n *models.NodeStatus) bool {
-			return n.Name == joinedName && slices.ContainsFunc(n.Shards, func(s *models.NodeShardStatus) bool {
-				return s.Name == tenant
-			})
-		})
-	}, 30*time.Second, 200*time.Millisecond, "the new replica must hold a shard of t1")
-	require.Eventually(t, func() bool {
-		return !slices.ContainsFunc(ids, func(id string) bool {
-			resp, err := http.Get(fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s&node_name=%s",
-				joinedURI(), className, id, tenant, joinedName))
-			if err != nil {
-				return true
+	// moveToNewReplica adds an empty replica of t1 on a node that never held one and then removes
+	// the old one, so the new replica answers every query. It returns the new replica's node.
+	held := replicasOfTenant(restURI)
+	require.Len(t, held, 1)
+	moveToNewReplica := func() int {
+		owners := replicasOfTenant(restURI)
+		node := slices.IndexFunc([]string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2},
+			func(n string) bool { return !slices.Contains(held, n) })
+		require.GreaterOrEqual(t, node, 0)
+		name, uri := fmt.Sprintf("weaviate-%d", node), restURIOf(compose, node+1)
+		held = append(held, name)
+		scale(models.ReplicationScalePlanShardScaleActionsAnon{AddNodes: map[string]string{name: ""}})
+		// Ask the new replica itself, because a node that has not applied the add
+		// answers node_name reads from the old owner.
+		require.Eventually(t, func() bool {
+			var nodes models.NodesStatusResponse
+			if !httpGetJSON(fmt.Sprintf("http://%s/v1/nodes/%s?output=verbose", uri, className), &nodes) {
+				return false
 			}
-			resp.Body.Close()
-			return resp.StatusCode != http.StatusOK
-		})
-	}, 3*time.Minute, time.Second, "async replication must fill the new replica")
-	scale(models.ReplicationScalePlanShardScaleActionsAnon{RemoveNodes: owners})
-	require.Eventually(t, func() bool { return slices.Equal(replicasOfTenant(joinedURI()), []string{joinedName}) },
-		30*time.Second, 200*time.Millisecond, "only the new replica must be listed")
+			return slices.ContainsFunc(nodes.Nodes, func(n *models.NodeStatus) bool {
+				return n.Name == name && slices.ContainsFunc(n.Shards, func(s *models.NodeShardStatus) bool {
+					return s.Name == tenant
+				})
+			})
+		}, 30*time.Second, 200*time.Millisecond, "the new replica must hold a shard of t1")
+		require.Eventually(t, func() bool {
+			return !slices.ContainsFunc(ids, func(id string) bool {
+				resp, err := http.Get(fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s&node_name=%s",
+					uri, className, id, tenant, name))
+				if err != nil {
+					return true
+				}
+				resp.Body.Close()
+				return resp.StatusCode != http.StatusOK
+			})
+		}, 3*time.Minute, time.Second, "async replication must fill the new replica")
+		scale(models.ReplicationScalePlanShardScaleActionsAnon{RemoveNodes: owners})
+		require.Eventually(t, func() bool { return slices.Equal(replicasOfTenant(uri), []string{name}) },
+			30*time.Second, 200*time.Millisecond, "only the new replica must be listed")
+		return node
+	}
+	joined := moveToNewReplica()
+	joinedURI := func() string { return restURIOf(compose, joined+1) }
 
 	whole, err := runBM25QueryOnNodeTenant(t, joinedURI(), className, tenant, "The Hobbit")
 	require.NoError(t, err)
@@ -146,4 +154,13 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 	require.NoError(t, compose.StartNode(ctx, joined))
 	require.Eventually(t, func() bool { return migratedOn(joinedURI()) }, time.Minute, 500*time.Millisecond,
 		"the new replica must serve t1 after it restarts")
+
+	// Back to word, the tokenization the cancelled run started from, while that run is still listed.
+	back := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"word"}`)
+	reindexhelpers.AwaitReindexFinished(t, restURI, back, reindexhelpers.WithTimeout(10*time.Minute))
+	last := moveToNewReplica()
+	reindexhelpers.AwaitTokenizationVisible(t, restURIOf(compose, last+1), className, "text", "word")
+	word, err := runBM25QueryOnNodeTenant(t, restURIOf(compose, last+1), className, tenant, "Hobbit")
+	require.NoError(t, err)
+	require.Len(t, word, 1, "a replica added after the change back to word must serve word")
 }

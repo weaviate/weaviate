@@ -827,6 +827,7 @@ func clearInternalPropertyFields(props ...*models.Property) {
 	for _, prop := range props {
 		if prop != nil {
 			prop.SearchableBlockmax = nil
+			prop.BucketGeneration = 0
 		}
 	}
 }

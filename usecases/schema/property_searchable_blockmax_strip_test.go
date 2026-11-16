@@ -21,10 +21,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestCreatePaths_StripClientSetSearchableBlockmax pins that a client-set
-// SearchableBlockmax is nilled on every create path, asserted on the property that reaches schemaManager, not the
-// returned class.
-func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
+// TestCreatePaths_StripClientSetInternalFields pins that a client-set SearchableBlockmax and
+// BucketGeneration are cleared on every create path, asserted on the property that reaches
+// schemaManager, not the returned class.
+func TestCreatePaths_StripClientSetInternalFields(t *testing.T) {
 	ctx := context.Background()
 	tr := true
 
@@ -43,7 +43,7 @@ func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 		class := &models.Class{
 			Class: "StripOnCreate",
 			Properties: []*models.Property{
-				{Name: "title", DataType: []string{"text"}, SearchableBlockmax: &tr},
+				{Name: "title", DataType: []string{"text"}, SearchableBlockmax: &tr, BucketGeneration: 7},
 				{Name: "body", DataType: []string{"text"}},
 			},
 			Vectorizer:        "none",
@@ -61,6 +61,7 @@ func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 		require.NotNil(t, stored)
 		require.Nil(t, findProp(stored.Properties, "title").SearchableBlockmax,
 			"client-set searchableBlockmax must be nil in the stored class")
+		require.Zero(t, findProp(stored.Properties, "title").BucketGeneration)
 	})
 
 	t.Run("AddClassProperty strips client-set stamp", func(t *testing.T) {
@@ -79,12 +80,13 @@ func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 			storedProps = args.Get(1).([]*models.Property)
 		}).Return(nil)
 
-		newProp := &models.Property{Name: "body", DataType: []string{"text"}, SearchableBlockmax: &tr}
+		newProp := &models.Property{Name: "body", DataType: []string{"text"}, SearchableBlockmax: &tr, BucketGeneration: 7}
 		_, _, err := handler.AddClassProperty(ctx, nil, existing.Class, false, newProp)
 		require.NoError(t, err)
 
 		require.Len(t, storedProps, 1)
 		require.Nil(t, storedProps[0].SearchableBlockmax,
 			"client-set searchableBlockmax must be nil in the stored property")
+		require.Zero(t, storedProps[0].BucketGeneration)
 	})
 }

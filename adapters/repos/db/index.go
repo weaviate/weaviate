@@ -636,6 +636,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		hotShardNames = append(hotShardNames, shard.name)
 		shardName := shard.name
 		eg.Go(func() error {
+			storeUnloaded := func() {
+				i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+					i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+					i.shardReindexer, false, i.bitmapBufPool))
+				startupShards.lazy.Add(1)
+			}
 			switch {
 			case i.Config.EnableLazyLoadShards:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
@@ -644,12 +650,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				startupShards.lazy.Add(1)
 				return nil
 			default:
-				storeUnloaded := func() {
-					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
-						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
-						i.shardReindexer, false, i.bitmapBufPool))
-					startupShards.lazy.Add(1)
-				}
 				// avoid footprint of empty shards
 				if i.skipLoadingEmptyShard(shardName) {
 					storeUnloaded()

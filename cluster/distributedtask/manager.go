@@ -1023,8 +1023,7 @@ type BarrierRun struct {
 	Header TaskHeader
 }
 
-// BarrierRunsOf returns namespace's tasks on collection, matched ignoring case, that use
-// the preparation barrier and decided the swap of shard's group, oldest first.
+// BarrierRunsOf returns namespace's barrier tasks on collection (any case) that decided shard's group, oldest first.
 func (m *Manager) BarrierRunsOf(namespace, collection, shard string) []BarrierRun {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

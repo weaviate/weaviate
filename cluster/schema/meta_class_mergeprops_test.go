@@ -206,4 +206,25 @@ func TestMergePropsMasked(t *testing.T) {
 		assert.True(t, *merged[0].IndexSearchable)
 		assert.Equal(t, "word", merged[0].Tokenization, "unmasked Tokenization must survive")
 	})
+
+	t.Run("bucketGeneration never goes down", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			mask []string
+			next int64
+			want int64
+		}{
+			{name: "masked raise", mask: []string{api.PropertyFieldBucketGeneration}, next: 9, want: 9},
+			{name: "masked lower", mask: []string{api.PropertyFieldBucketGeneration}, next: 3, want: 7},
+			{name: "unmasked lower", next: 0, want: 7},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				old := []*models.Property{{Name: "title", DataType: []string{"text"}, BucketGeneration: 7}}
+				next := []*models.Property{{Name: "title", DataType: []string{"text"}, BucketGeneration: tc.next}}
+				merged := MergePropsMasked(old, next, tc.mask)
+				require.Len(t, merged, 1)
+				assert.Equal(t, tc.want, merged[0].BucketGeneration)
+			})
+		}
+	})
 }

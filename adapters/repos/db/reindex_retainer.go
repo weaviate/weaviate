@@ -152,7 +152,10 @@ func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
 	runs := make([]ReindexRun, 0, len(tasks))
 	for _, task := range tasks {
 		if h, ok := reindexHeaderOf(task); ok {
-			runs = append(runs, ReindexRun{Task: task, Payload: h.payload()})
+			runs = append(runs, ReindexRun{Task: task, Payload: ReindexTaskPayload{
+				MigrationType: h.MigrationType, Collection: h.Class, Properties: h.Properties,
+				TargetTokenization: h.TargetTokenization, BucketStrategy: h.BucketStrategy,
+			}})
 		}
 	}
 	return runs

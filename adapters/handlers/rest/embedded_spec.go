@@ -10565,7 +10565,7 @@ func init() {
       "type": "object",
       "properties": {
         "bucketGeneration": {
-          "description": "Internal RAFT-replicated counter bumped by semantic runtime-reindex migrations (e.g. change-tokenization, enable-filterable, enable-searchable). Used by the data path to resolve the property's inverted-index bucket name; a single RAFT commit flipping the schema flag AND bumping this counter atomically cuts the cluster from the old bucket to the new one. Defaults to 0. Internal use; clients should not set this.",
+          "description": "Internal RAFT-replicated version of the last semantic runtime-reindex run that changed this property, set in the same RAFT commit as the change and never lowered. A shard loading with no data leaves out the swaps of older runs on this property. Defaults to 0. Internal use; clients should not set this.",
           "type": "integer",
           "format": "int64"
         },
@@ -23721,7 +23721,7 @@ func init() {
       "type": "object",
       "properties": {
         "bucketGeneration": {
-          "description": "Internal RAFT-replicated counter bumped by semantic runtime-reindex migrations (e.g. change-tokenization, enable-filterable, enable-searchable). Used by the data path to resolve the property's inverted-index bucket name; a single RAFT commit flipping the schema flag AND bumping this counter atomically cuts the cluster from the old bucket to the new one. Defaults to 0. Internal use; clients should not set this.",
+          "description": "Internal RAFT-replicated version of the last semantic runtime-reindex run that changed this property, set in the same RAFT commit as the change and never lowered. A shard loading with no data leaves out the swaps of older runs on this property. Defaults to 0. Internal use; clients should not set this.",
           "type": "integer",
           "format": "int64"
         },

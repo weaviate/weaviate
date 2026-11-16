@@ -397,7 +397,7 @@ func propertyBucketGenSuffix(gen int64) string {
 // "__gen<N>" suffix so old and new generations can coexist on disk during
 // a migration: the reindex builds the next-generation bucket alongside
 // the active one, and the cluster-wide cutover is the RAFT commit that
-// bumps the property's BucketGeneration field.
+// sets the property's BucketGeneration to the run's version.
 func BucketFromPropNameLSMAtGen(propName string, gen int64) string {
 	return BucketFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
 }

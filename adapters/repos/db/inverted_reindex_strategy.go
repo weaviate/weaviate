@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -108,8 +109,7 @@ func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.Propert
 // in parallel on the same property — each touching different fields —
 // no longer clobber each other on RAFT apply: the FSM merges only the
 // listed fields onto the live class state, leaving the rest of the
-// property untouched. An empty `fields` falls back to the legacy
-// "replace every field" semantics for callers that don't care.
+// property untouched.
 //
 // We still re-read the class right before each per-property update.
 // The mask closes the cross-strategy clobber path, but a strategy still
@@ -136,6 +136,8 @@ func applyPerPropertySchemaUpdate(
 	fields []string,
 	mutate func(prop *models.Property) (apply bool),
 ) (missing []string, err error) {
+	fields = append(slices.Clip(fields), api.PropertyFieldBucketGeneration)
+	generation := int64(run.Version)
 	for _, propName := range propNames {
 		// Re-read the class right before each property update to minimize the
 		// staleness window where a concurrent strategy could clobber our flag.
@@ -157,7 +159,12 @@ func applyPerPropertySchemaUpdate(
 		}
 
 		updated := *prop
-		if !mutate(&updated) {
+		apply := mutate(&updated)
+		if updated.BucketGeneration < generation {
+			updated.BucketGeneration = generation
+			apply = true
+		}
+		if !apply {
 			continue
 		}
 		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, run, &updated, fields...); err != nil {

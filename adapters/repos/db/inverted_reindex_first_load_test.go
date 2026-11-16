@@ -13,12 +13,10 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -28,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -72,8 +69,7 @@ var (
 	changeTokenizationKind = firstLoadKind{
 		header: ReindexTaskHeader{
 			MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
-			OriginalTokenization: models.PropertyTokenizationWord, TargetTokenization: models.PropertyTokenizationField,
-			BucketStrategy: lsmkv.StrategyMapCollection,
+			TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
 		},
 		class: retokenizableClass, flip: toFieldTokenization, object: firstLoadText("The Hobbit"),
 		filter: firstLoadEqual("The Hobbit"), bm25: "The Hobbit", searchableStrategy: lsmkv.StrategyMapCollection,
@@ -129,7 +125,7 @@ func firstLoadKinds() []firstLoadKind {
 		{
 			header: ReindexTaskHeader{
 				MigrationType: ReindexTypeChangeTokenizationFilterable, Properties: []string{"title"},
-				OriginalTokenization: models.PropertyTokenizationWord, TargetTokenization: models.PropertyTokenizationField,
+				TargetTokenization: models.PropertyTokenizationField,
 			},
 			class: retokenizableClass, flip: toFieldTokenization, object: firstLoadText("The Hobbit"),
 			filter: firstLoadEqual("The Hobbit"),
@@ -276,100 +272,139 @@ func TestShardJoiningAfterASwapServesTheTargetIndex(t *testing.T) {
 	}
 }
 
-// A run cancelled after its swap stays listed while a lost node owes that swap.
-// The finished runs that moved the property on are cleaned up first, and a new
-// replica must still follow the schema.
-func TestFirstLoadSkipsATokenizationRunTheSchemaMovedOn(t *testing.T) {
+// v1 is the run whose swap the shard's group took before it stopped. Each schema change a run
+// makes sets the property's BucketGeneration to that run's version.
+func TestFirstLoadRuns(t *testing.T) {
+	cancelled, failed := distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed
+	finished := distributedtask.TaskStatusFinished
+	run := func(version uint64, mt ReindexMigrationType, status distributedtask.TaskStatus, props ...string,
+	) distributedtask.BarrierRun {
+		if len(props) == 0 {
+			props = []string{"title"}
+		}
+		return distributedtask.BarrierRun{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: fmt.Sprintf("run-%d", version), Version: version},
+			Status:         status,
+			Header: ReindexTaskHeader{
+				MigrationType: mt, Properties: props, TargetTokenization: models.PropertyTokenizationField,
+			},
+		}
+	}
+	for _, tc := range []struct {
+		name         string
+		tokenization string
+		generations  map[string]int64
+		runs         []distributedtask.BarrierRun
+		want         map[uint64][]string
+	}{
+		{
+			name: "word to field, then field and back to word finished", tokenization: models.PropertyTokenizationWord,
+			generations: map[string]int64{"title": 3},
+			runs: []distributedtask.BarrierRun{
+				run(1, ReindexTypeChangeTokenization, cancelled), run(2, ReindexTypeChangeTokenization, finished),
+				run(3, ReindexTypeChangeTokenization, finished),
+			},
+		},
+		{
+			name: "the same round trip of a filterable-only change", tokenization: models.PropertyTokenizationWord,
+			generations: map[string]int64{"title": 3},
+			runs: []distributedtask.BarrierRun{
+				run(1, ReindexTypeChangeTokenizationFilterable, cancelled),
+				run(2, ReindexTypeChangeTokenizationFilterable, finished),
+				run(3, ReindexTypeChangeTokenizationFilterable, finished),
+			},
+		},
+		{
+			name: "enable-searchable finished on a resubmit, then a change to field", tokenization: models.PropertyTokenizationField,
+			generations: map[string]int64{"title": 3},
+			runs: []distributedtask.BarrierRun{
+				run(1, ReindexTypeEnableSearchable, cancelled), run(2, ReindexTypeEnableSearchable, finished),
+				run(3, ReindexTypeChangeTokenization, finished),
+			},
+		},
+		{
+			name: "the runs that moved the property on are no longer listed", tokenization: models.PropertyTokenizationWhitespace,
+			generations: map[string]int64{"title": 3},
+			runs:        []distributedtask.BarrierRun{run(1, ReindexTypeChangeTokenization, cancelled)},
+		},
+		{
+			name: "a finished run of another index type", tokenization: models.PropertyTokenizationWord,
+			generations: map[string]int64{"title": 2},
+			runs: []distributedtask.BarrierRun{
+				run(1, ReindexTypeEnableSearchable, cancelled), run(2, ReindexTypeEnableFilterable, finished),
+			},
+		},
+		{
+			name: "the run's own change landed, then it failed", tokenization: models.PropertyTokenizationField,
+			generations: map[string]int64{"title": 1},
+			runs:        []distributedtask.BarrierRun{run(1, ReindexTypeChangeTokenization, failed)},
+		},
+		{
+			name: "a finished run on a property no run stamped", tokenization: models.PropertyTokenizationField,
+			runs: []distributedtask.BarrierRun{run(1, ReindexTypeChangeTokenization, finished)},
+		},
+		{
+			name: "nothing changed the property since", tokenization: models.PropertyTokenizationWord,
+			runs: []distributedtask.BarrierRun{run(1, ReindexTypeChangeTokenization, cancelled)},
+			want: map[uint64][]string{1: {"title"}},
+		},
+		{
+			name: "the same change cancelled twice", tokenization: models.PropertyTokenizationWord,
+			runs: []distributedtask.BarrierRun{
+				run(1, ReindexTypeChangeTokenization, cancelled), run(2, ReindexTypeChangeTokenization, cancelled),
+			},
+			want: map[uint64][]string{1: {"title"}, 2: {"title"}},
+		},
+		{
+			name: "a run changed another property", tokenization: models.PropertyTokenizationWord,
+			generations: map[string]int64{"body": 5},
+			runs:        []distributedtask.BarrierRun{run(1, ReindexTypeChangeTokenization, cancelled)},
+			want:        map[uint64][]string{1: {"title"}},
+		},
+		{
+			name: "a two-property run that changed one property, then failed", tokenization: models.PropertyTokenizationWord,
+			generations: map[string]int64{"title": 1},
+			runs:        []distributedtask.BarrierRun{run(1, ReindexTypeEnableRangeable, failed, "title", "body")},
+			want:        map[uint64][]string{1: {"body"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			class := newTestClassWithProps("FirstLoadRuns", []string{"title", "body"})
+			for _, prop := range class.Properties {
+				prop.Tokenization = tc.tokenization
+				prop.BucketGeneration = tc.generations[prop.Name]
+			}
+			kept, err := firstLoadRuns(tc.runs, class)
+			require.NoError(t, err)
+			got := map[uint64][]string{}
+			for _, k := range kept {
+				got[k.desc.Version] = k.header.Properties
+			}
+			if tc.want == nil {
+				tc.want = map[uint64][]string{}
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// An empty replica that first loaded while v2 had moved title to field reloads after v3 moved it
+// back to word, the tokenization v1 started from.
+func TestFirstLoadReloadAfterTheSchemaReturnedWritesNoRecord(t *testing.T) {
 	ctx := testCtx()
-	className := "FirstLoadStale_" + uuid.NewString()[:8]
+	className := "FirstLoadReload_" + uuid.NewString()[:8]
 	class := retokenizableClass(className)
+	class.Properties[0].Tokenization = models.PropertyTokenizationField
+	class.Properties[0].BucketGeneration = 2
 	idx, _ := firstLoadIndex(t, ctx, class, true)
-	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
-		HeaderDecoders: map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
-	})
-	idx.db.SetMigrationBarrierRunSource(mgr.BarrierRunsOf)
-	apply := func(op func(*api.ApplyRequest) error, sub any) {
-		raw, err := json.Marshal(sub)
-		require.NoError(t, err)
-		require.NoError(t, op(&api.ApplyRequest{SubCommand: raw}))
-	}
-	now := time.Now().UnixMilli()
-	// run adds one change of title's tokenization with one unit per group,
-	// completes and decides the given groups, and pays node2's swaps.
-	run := func(version uint64, from, to string, units map[string]string, decided ...string) string {
-		id := fmt.Sprintf("run-%d", version)
-		payload, err := json.Marshal(ReindexTaskPayload{
-			MigrationType: ReindexTypeChangeTokenization, Collection: className, Properties: []string{"title"},
-			OriginalTokenization: from, TargetTokenization: to, BucketStrategy: lsmkv.StrategyMapCollection,
-		})
-		require.NoError(t, err)
-		var specs []*api.UnitSpec
-		for unit, group := range units {
-			specs = append(specs, &api.UnitSpec{Id: unit, GroupId: group})
-		}
-		apply(func(c *api.ApplyRequest) error { return mgr.AddTask(c, version) }, &api.AddDistributedTaskRequest{
-			Namespace: ReindexNamespace, Id: id, Payload: payload, SubmittedAtUnixMillis: now,
-			UnitSpecs: specs, NeedsPreparationBarrier: true,
-		})
-		for _, group := range decided {
-			var nodes []string
-			for unit, unitGroup := range units {
-				if unitGroup == group {
-					nodes = append(nodes, unit[len(group)+2:])
-					apply(mgr.RecordUnitCompletion, &api.RecordDistributedTaskUnitCompletionRequest{
-						Namespace: ReindexNamespace, Id: id, Version: version, NodeId: nodes[len(nodes)-1], UnitId: unit,
-						FinishedAtUnixMillis: now,
-					})
-				}
-			}
-			for _, node := range nodes {
-				apply(mgr.RecordPreparationCompleteAck, &api.RecordDistributedTaskPreparationCompleteAckRequest{
-					Namespace: ReindexNamespace, Id: id, Version: version, GroupId: &group, NodeId: node, Success: true,
-					AckedAtUnixMillis: now,
-				})
-			}
-			apply(mgr.RecordPostCompletionAck, &api.RecordDistributedTaskPostCompletionAckRequest{
-				Namespace: ReindexNamespace, Id: id, Version: version, GroupId: group, NodeId: "node2", Success: true,
-				AckedAtUnixMillis: now,
-			})
-		}
-		return id
-	}
-	cancel := func(id string, version uint64) {
-		apply(mgr.CancelTask, &api.CancelDistributedTaskRequest{
-			Namespace: ReindexNamespace, Id: id, Version: version, CancelledAtUnixMillis: now,
-		})
-	}
-	finish := func(id string, version uint64) {
-		apply(mgr.MarkTaskFinalized, &api.MarkTaskFinalizedRequest{
-			Namespace: ReindexNamespace, Id: id, Version: version, FinalizedAtUnixMillis: now,
-		})
-	}
-	cleanUp := func(id string, version uint64) {
-		apply(mgr.CleanUpTask, &api.CleanUpDistributedTaskRequest{Namespace: ReindexNamespace, Id: id, Version: version})
-	}
-	word, field := models.PropertyTokenizationWord, models.PropertyTokenizationField
-	whitespace, lowercase := models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase
-	other := map[string]string{"other__node2": "other"}
-
-	// nodeN's swap of the late group is never paid, so v1 stays listed.
-	v1 := run(1, word, field, map[string]string{
-		"late__node2": lateShard, "late__nodeN": lateShard, "busy__node2": "busy",
-	}, lateShard)
-	cancel(v1, 1)
-	finish(run(2, word, field, other, "other"), 2)
-	finish(run(3, field, whitespace, other, "other"), 3)
-	cancel(run(4, whitespace, lowercase, map[string]string{"other__node2": "other", "busy__node2": "busy"}), 4)
-	cleanUp("run-2", 2)
-	cleanUp("run-3", 3)
-	listed := mgr.BarrierRunsOf(ReindexNamespace, className, lateShard)
-	require.Len(t, listed, 1, "only v1 is listed, with its group decided")
-	require.Equal(t, distributedtask.TaskStatusCancelled, listed[0].Status)
-	class.Properties[0].Tokenization = whitespace
-	require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
-
+	installRuns(t, idx, lateRun(className, 1, changeTokenizationKind.header, distributedtask.TaskStatusCancelled))
 	require.NoError(t, idx.LoadLocalShardForNewReplica(ctx, lateShard))
-	late := unwrappedShard(t, ctx, idx, lateShard)
+	require.Empty(t, unwrappedShard(t, ctx, idx, lateShard).migrationRecords.Records())
+
+	class.Properties[0].Tokenization = models.PropertyTokenizationWord
+	class.Properties[0].BucketGeneration = 3
+	require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
+	late := reloadLateShard(t, ctx, idx)
 	assert.Empty(t, late.migrationRecords.Records())
 	obj := createTestObjectWithText(className, "The Hobbit")
 	require.NoError(t, late.PutObject(ctx, obj))

@@ -798,7 +798,9 @@ func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, prope
 	return remaining
 }
 
-// buildReindexPayload assembles the RAFT task payload.
+// buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
+// recorded for RAFT-log diagnostics only — no runtime reader (see its godoc on
+// ReindexTaskPayload).
 func buildReindexPayload(class *models.Class, collection string, properties []string, plan upsertPlan,
 	tenants []string, unitToShard, unitToNode map[string]string,
 ) db.ReindexTaskPayload {
