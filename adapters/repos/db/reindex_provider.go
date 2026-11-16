@@ -706,10 +706,6 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
-	if stopped("swap decided before a restart", finishDecidedSwaps(ctx, shard, payload, tasks)) {
-		return
-	}
-
 	logger.Info("reindex provider: unit completed")
 
 	if err := recorder.RecordDistributedTaskUnitCompletion(
@@ -2444,7 +2440,7 @@ func propertyOverlayFor(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGe
 	return out
 }
 
-// A load that held a promotion back, other than one serveDeferredPromotions serves, leaves decided swaps staged.
+// finishDecidedSwaps flips in the unit's decided swaps that a load did not rename.
 func finishDecidedSwaps(ctx context.Context, shard ShardLike, payload *ReindexTaskPayload,
 	tasks []*ShardReindexTaskGeneric,
 ) error {

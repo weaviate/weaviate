@@ -175,17 +175,12 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) {
 	r.wedgedKeys = nil
 	r.RetireSuperseded(ctx)
 
-	for _, listed := range r.store.Records() {
+	for _, rec := range r.store.Records() {
 		// The pass renames and removes whole property indexes, and it runs on
 		// the RAFT apply loop, where every further apply queues behind it.
 		if err := ctx.Err(); err != nil {
 			r.logger.Errorf("stopping the migration-record pass on this shard: %v", err)
 			return
-		}
-		// A unit's promotion can advance a later record of this pass.
-		rec, ok := r.store.Get(listed.Subject().Key)
-		if !ok {
-			continue
 		}
 		if err := r.reconcileOne(ctx, rec, someRecordsUnreadable); err != nil {
 			// One migration must not keep a shard from loading. Not marked on the
@@ -306,145 +301,18 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 
 // A unit records its decisions together, so a decided sibling proves this half's; an Unmirrored half may lag live data.
 func (r *migrationReconciler) siblingFlipDecided(subject MigrationSubject) bool {
-	return !subject.Unmirrored && slices.ContainsFunc(r.unitSiblings(subject), MigrationRecord.FlipDecided)
-}
-
-func (r *migrationReconciler) unitSiblings(subject MigrationSubject) []MigrationRecord {
-	var out []MigrationRecord
-	for _, rec := range r.store.Records() {
-		other := rec.Subject()
-		if migrationOf(other) != migrationOf(subject) || other.Key.StrategyCode == subject.Key.StrategyCode {
-			continue
-		}
-		for prop := range subject.Props {
-			if _, shared := other.Props[prop]; shared {
-				out = append(out, rec)
-				break
-			}
-		}
-	}
-	return out
-}
-
-type unitHalf struct {
-	rec             MigrationRecordSwapped
-	canonicalBefore map[string]bool
-}
-
-// promoteUnit promotes rec with its unit's other halves. A rename cannot be undone, so the checks run
-// before anything destructive; after it, the halves that did not finish serve their staged data.
-func (r *migrationReconciler) promoteUnit(ctx context.Context, rec MigrationRecordSwapped) error {
-	siblings := r.unitSiblings(rec.Subject())
-	if len(siblings) == 0 { // no pair to keep together: each property settles on its own
-		return r.withSealedUnit(rec.Subject(), "its promotion", func() error {
-			return r.promoteSealed(ctx, rec)
-		})
-	}
-	unit, why := r.promotableUnit(rec, siblings)
-	if why != "" {
-		return fmt.Errorf("withholding the promotion of every half of this unit, "+
-			"so the shard keeps serving the old pair: %s", why)
-	}
-	return r.withSealedUnit(rec.Subject(), "its promotion", func() error {
-		var errs []error
-		for _, half := range unit {
-			if err := r.promoteSealed(ctx, half.rec); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		r.serveUnfinishedStaged(unit)
-		return errors.Join(errs...)
+	return !subject.Unmirrored && slices.ContainsFunc(subject.Properties(), func(prop string) bool {
+		return unitDecidedOn(r.store.Records(), subject, prop)
 	})
 }
 
-func (r *migrationReconciler) promotableUnit(rec MigrationRecordSwapped, siblings []MigrationRecord) ([]unitHalf, string) {
-	var unit []unitHalf
-	for _, member := range append([]MigrationRecord{rec}, siblings...) {
-		key := member.Subject().Key
-		if merged, ok := member.(MigrationRecordMerged); ok && !merged.Subject().Unmirrored {
-			if _, err := r.commitMerged(merged.Subject(), "the other half of its unit recorded the flip decision"); err != nil {
-				return nil, err.Error()
-			}
-		}
-		now, _ := r.store.Get(key)
-		switch typed := now.(type) {
-		case MigrationRecordPromoted:
-		case MigrationRecordSwapped:
-			half, why := r.promotableHalf(typed)
-			if why != "" {
-				return nil, why
-			}
-			unit = append(unit, half)
-		default:
-			return nil, fmt.Sprintf("%s has not recorded its flip decision", key)
-		}
-	}
-	return unit, ""
-}
-
-func (r *migrationReconciler) promotableHalf(rec MigrationRecordSwapped) (unitHalf, string) {
-	subject := rec.Subject()
-	half := unitHalf{rec: rec, canonicalBefore: map[string]bool{}}
-	if subject.Unmirrored {
-		return half, fmt.Sprintf("%s took writes with no double-write mirror armed", subject.Key)
-	}
-	all := r.store.Records()
-	for _, prop := range subject.Properties() {
-		if migrationPropertySuperseded(all, subject, prop) {
-			continue
-		}
-		dirs := subject.Props[prop]
-		if dirs.Staged == "" || dirs.Canonical == "" {
-			return half, fmt.Sprintf("%s names no staged or canonical directory for %q", subject.Key, prop)
-		}
-		canonical, err := r.dirs.Exists(dirs.Canonical)
-		if err != nil {
-			return half, err.Error()
-		}
-		half.canonicalBefore[prop] = canonical
-		switch rec.PromotionOf(prop) {
-		case migrationPromotionFinished, migrationPromotionStarted:
-			continue
-		case migrationPromotionLost:
-			return half, fmt.Sprintf("%s lost the directory %q was promoted onto", subject.Key, prop)
-		default:
-		}
-		staged, err := r.dirs.Exists(dirs.Staged)
-		if err != nil {
-			return half, err.Error()
-		}
-		if !staged && !rec.StagedWasEmpty(prop) {
-			return half, fmt.Sprintf("%s's staged directory %q is gone", subject.Key, dirs.Staged)
-		}
-	}
-	return half, ""
-}
-
-// Once a half renamed or a canonical directory was cleared, the old pair is gone.
-func (r *migrationReconciler) serveUnfinishedStaged(unit []unitHalf) {
-	var unfinished []MigrationSubject
-	destroyed := false
-	for _, half := range unit {
-		key := half.rec.Subject().Key
-		now, _ := r.store.Get(key)
-		if now != nil && now.State() == MigrationStatePromoted {
-			destroyed = true
-			continue
-		}
-		for prop, before := range half.canonicalBefore {
-			there, err := r.dirs.Exists(half.rec.Subject().Props[prop].Canonical)
-			destroyed = destroyed || (before && (err != nil || !there))
-		}
-		if len(r.store.DeferredPromotions(key)) == 0 {
-			unfinished = append(unfinished, half.rec.Subject())
-		}
-	}
-	if !destroyed {
-		return
-	}
-	for _, subject := range unfinished {
-		r.store.ServeStaged(subject.Key)
-	}
+func unitDecidedOn(all []MigrationRecord, subject MigrationSubject, prop string) bool {
+	return slices.ContainsFunc(all, func(rec MigrationRecord) bool {
+		other := rec.Subject()
+		_, shared := other.Props[prop]
+		return shared && rec.FlipDecided() && migrationOf(other) == migrationOf(subject) &&
+			other.Key.StrategyCode != subject.Key.StrategyCode
+	})
 }
 
 // Skips a superseded property the way promoteSealed does: retirement deletes
@@ -566,7 +434,9 @@ func (r *migrationReconciler) reconcileSwapped(ctx context.Context, rec Migratio
 	if someUnreadable {
 		return nil
 	}
-	return r.promoteUnit(ctx, rec)
+	return r.withSealedUnit(rec.Subject(), "its promotion", func() error {
+		return r.promoteSealed(ctx, rec)
+	})
 }
 
 func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRecordSwapped) error {

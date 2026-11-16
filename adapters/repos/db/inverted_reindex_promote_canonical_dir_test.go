@@ -161,17 +161,16 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 		wantRecordSwept  bool
 		wantState        MigrationState
 		wantRenamedTerms string
+		wantLoadErr      string
 		reason           string
 	}{
 		{
-			name:             "an index DELETE took both directories before the rename could run",
-			props:            []string{promoteRenamedProp},
-			deleteAfterLoad:  deleteBeforeAnyLoad,
-			loads:            2,
-			wantState:        MigrationStateSwapped,
-			wantRenamedTerms: "",
-			reason: "the record must not read Promoted over a canonical directory the shard load re-created: " +
-				"no promotion of this property ever started",
+			name:            "both directories were deleted by hand before the rename could run",
+			props:           []string{promoteRenamedProp},
+			deleteAfterLoad: deleteBeforeAnyLoad,
+			wantLoadErr:     "is gone",
+			wantState:       MigrationStateSwapped,
+			reason:          "no promotion of this property ever started, and its new data is gone",
 		},
 		{
 			name:             "the staged directory is there to promote",
@@ -258,6 +257,24 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 				require.NoError(t, os.RemoveAll(filepath.Join(lsmPath, renamedCanonical)))
 				require.NoError(t, os.RemoveAll(renamedStaged))
 			}
+			if tc.wantLoadErr != "" {
+				_, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+				require.ErrorContains(t, err, tc.wantLoadErr)
+				assert.Equal(t, tc.wantState, soleMigrationRecordState(t, lsmPath), tc.reason)
+				return
+			}
+			// The sibling's rename fails at the first load and runs once the blocker goes.
+			var blockers []string
+			for _, prop := range tc.props[1:] {
+				copyDirTree(t,
+					filepath.Join(donorPath, helpers.BucketSearchableFromPropNameLSM(prop)),
+					filepath.Join(lsmPath, promoteStagedDir(prop)))
+				blocker := filepath.Join(lsmPath, helpers.BucketSearchableFromPropNameLSM(prop), "blocker")
+				require.NoError(t, os.MkdirAll(blocker, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(blocker, "pinned"), nil, 0o600))
+				denyDirectoryWrites(t, blocker)
+				blockers = append(blockers, blocker)
+			}
 
 			current := openShardFromDisk(t, ctx, idx, class, shard.Name())
 			afterFirstLoad := fingerprintInvertedBucket(t, current.store.Bucket(renamedCanonical))
@@ -282,10 +299,8 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 				require.NoError(t, current.removeBucket(ctx, renamedCanonical))
 			}
 
-			for _, prop := range tc.props[1:] {
-				copyDirTree(t,
-					filepath.Join(donorPath, helpers.BucketSearchableFromPropNameLSM(prop)),
-					filepath.Join(lsmPath, promoteStagedDir(prop)))
+			for _, blocker := range blockers {
+				require.NoError(t, os.Chmod(blocker, 0o700))
 			}
 
 			for load := 2; load <= tc.loads; load++ {

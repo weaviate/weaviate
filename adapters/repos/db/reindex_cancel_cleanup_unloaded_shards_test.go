@@ -968,8 +968,10 @@ func TestIndexCleanStalePartialReindexStateReportsRecordsOfTwoUnits(t *testing.T
 			require.NoError(t, os.MkdirAll(filepath.Join(lsm, stale), 0o755))
 			main := mustMainBucket(t, propName, indexType)
 			own := MigrationUnitID(shardName, idx.getSchema.NodeName())
+			// Undecided: a decided record beside an unreadable set keeps the shard from loading at all.
 			for _, unit := range []string{own, shardName + "__node-9"} {
-				mkFlippedMigrationRecord(t, lsm, unit, StrategyCodeEnableFilterable, 1, propName, owned, main)
+				mkMigrationRecordAt(t, lsm, unit, StrategyCodeEnableFilterable, 1,
+					map[string]string{propName: owned}, map[string]string{propName: main}, MigrationStateMerged)
 			}
 
 			hook.Reset()

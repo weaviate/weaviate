@@ -317,15 +317,23 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 		require.NoError(t, os.CopyFS(canonical, os.DirFS(filepath.Join(s.pathLSM(), dirs.Staged))))
 		return want
 	}
+	stampOnly := func(t *testing.T, ctx context.Context, s *Shard, _ func(ShardReindexerV3) *Shard) int {
+		stamped, ok := migrationRecordStampedUnmirrored(s.migrationRecords.Records()[0])
+		require.True(t, ok)
+		require.NoError(t, s.migrationRecords.Put(stamped))
+		require.NoError(t, s.Shutdown(ctx))
+		return 0
+	}
 	tests := []struct {
 		name       string
 		query      string
 		unreadable bool
 		arrange    func(t *testing.T, ctx context.Context, s *Shard, boot func(ShardReindexerV3) *Shard) int
+		loadFails  bool // an unreadable record may supersede the decided one, so nothing can serve it
 	}{
-		{"unmirrored swapped record, another record unreadable", "betaword", true, unmirrored},
-		{"superseded swapped record, another record unreadable", "alpha", true, superseded},
-		{"unmirrored swapped record, every record readable", "betaword", false, unmirrored},
+		{"unmirrored swapped record, another record unreadable", "", true, stampOnly, true},
+		{"superseded swapped record, another record unreadable", "alpha", true, superseded, false},
+		{"unmirrored swapped record, every record readable", "betaword", false, unmirrored, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -359,6 +367,11 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 				require.NoError(t, os.WriteFile(bad, []byte("{"), 0o600))
 			}
 			want := tc.arrange(t, ctx, shard, boot)
+			if tc.loadFails {
+				_, err := idx.initShard(ctx, name, class, nil, true, true)
+				require.ErrorContains(t, err, "is unreadable")
+				return
+			}
 
 			frozen := boot(&testShardReindexer{task: newTask()})
 			logger, _ := logrustest.NewNullLogger()

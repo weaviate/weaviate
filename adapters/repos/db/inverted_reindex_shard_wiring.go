@@ -39,19 +39,30 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// serveStagedUnits flips in, before ready, the halves a load left staged; a failed flip fails the load.
-func (s *Shard) serveStagedUnits(ctx context.Context) error {
+// serveDecidedIndexes flips in, before ready, every decided index the reconcile pass did not rename. It reads
+// only records, schema and directories, so every load with the same fault gives the same answer.
+func (s *Shard) serveDecidedIndexes(ctx context.Context, class *models.Class) error {
+	all := s.migrationRecords.Records()
+	local, readable := s.migrations().LocalTasks()
 	var order []taskMigration
 	units := map[taskMigration][]*ShardReindexTaskGeneric{}
 	payloads := map[taskMigration]ReindexTaskPayload{}
-	for _, rec := range s.migrationRecords.Records() {
+	for _, rec := range all {
 		subject := rec.Subject()
-		if !s.migrationRecords.ServesStaged(subject.Key) {
+		owed, err := s.stagedOwed(rec, all, class, migrationOverridesSchema(rec, local, readable))
+		if err != nil {
+			return err
+		}
+		if len(owed) == 0 {
 			continue
+		}
+		if unreadable := s.migrationRecords.Unreadable(); len(unreadable) > 0 {
+			return unservable(subject, owed[0], fmt.Sprintf(
+				"migration record %q is unreadable and may supersede this one", unreadable[0].FileName))
 		}
 		tasks, err := buildRecoveryTasks(subject, s.name, s.index.logger, nil)
 		if err != nil {
-			return fmt.Errorf("serve the staged data of %s: %w", subject.Key, err)
+			return unservable(subject, owed[0], err.Error())
 		}
 		m := migrationOf(subject)
 		if units[m] == nil {
@@ -66,14 +77,58 @@ func (s *Shard) serveStagedUnits(ctx context.Context) error {
 		if err == nil {
 			continue
 		}
-		// Past the flip the unit serves one pair; what settling left behind the next load removes.
+		// Past the flip every index serves its new data, and the next load removes what settling left behind.
 		if !s.servesStagedData(units[m]) {
-			return fmt.Errorf("serve the staged data of task %s: %w", m.desc.ID, err)
+			return fmt.Errorf("serve the rebuilt data of task %s; the shard does not load: %w", m.desc.ID, err)
 		}
 		s.index.logger.WithField("shard", s.ID()).WithField("task", m.desc.ID).
-			Warnf("serving the staged data of a migration; settling it failed and the next load retries: %v", err)
+			Warnf("serving the rebuilt data of a migration; settling it failed and the next load retries: %v", err)
 	}
 	return nil
+}
+
+// stagedOwed names rec's properties whose new data only the staged directory holds. Superseded properties and
+// those whose index the schema removed or defers are owed nothing.
+func (s *Shard) stagedOwed(rec MigrationRecord, all []MigrationRecord, class *models.Class, overrides bool,
+) ([]string, error) {
+	subject := rec.Subject()
+	swapped, decided := rec.(MigrationRecordSwapped)
+	var owed []string
+	for _, prop := range subject.Properties() {
+		swept, _ := migrationCanonicalSweptBySchema(class, subject, prop, overrides)
+		if swept || migrationPropertySuperseded(all, subject, prop) ||
+			slices.Contains(s.migrationRecords.DeferredPromotions(subject.Key), prop) {
+			continue
+		}
+		if !decided {
+			if rec.State() == MigrationStateMerged && unitDecidedOn(all, subject, prop) {
+				return nil, unservable(subject, prop, "the other half of its unit is decided and this one could not follow")
+			}
+			continue
+		}
+		mark := swapped.PromotionOf(prop)
+		if mark == migrationPromotionFinished || mark == migrationPromotionLost {
+			continue
+		}
+		staged := subject.Props[prop].Staged
+		there, err := shardBucketDirs(s.pathLSM()).Exists(staged)
+		switch {
+		case err != nil:
+			return nil, unservable(subject, prop, err.Error())
+		case there:
+			owed = append(owed, prop)
+		case mark != migrationPromotionStarted && !swapped.StagedWasEmpty(prop):
+			return nil, unservable(subject, prop, fmt.Sprintf("its rebuilt data in %q is gone", staged))
+		}
+	}
+	return owed, nil
+}
+
+// unservable is the one place that decides what a load does when a decided index cannot serve its new
+// data. Serving the old data instead, or none, returns wrong results, so the shard does not load.
+func unservable(subject MigrationSubject, prop, why string) error {
+	return fmt.Errorf("task %s, property %q (%s): %s; the shard does not load until this is repaired",
+		subject.TaskID, prop, subject.Key, why)
 }
 
 func (s *Shard) servesStagedData(tasks []*ShardReindexTaskGeneric) bool {

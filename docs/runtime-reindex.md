@@ -1019,15 +1019,19 @@ Then, per shard load:
    task until restart.
 4. The load reconciler runs over the same records. It runs after the
    stamp, because it must not promote stale staged data over the live
-   bucket. The halves of one tokenization change are one unit: a
-   half-written decision is finished first (the other half's decision
-   proves it), and the halves are then promoted together. If a half is
-   stamped Unmirrored, lost its staged directory or stays undecided, no
-   half is promoted, and the original tokenization is pinned in the
-   overlay. If a promotion has already destroyed the old pair, the halves
-   that did not finish are flipped in from their staged directories
-   under the unit overlay before the shard is ready, and the shard fails
-   to load if that flip fails.
+   bucket. A recorded flip decision is final: a half-written decision is
+   finished first (the other half's decision proves it), and each decided
+   index then serves its new data on every load. The load renames its
+   staged directory onto the canonical name, or, when the rename did not
+   happen, flips it in from the staged directory before the shard is
+   ready (`Shard.serveDecidedIndexes`). An index the schema removed is
+   owed nothing. When a decided index cannot serve its new data (its
+   staged directory is gone or cannot be opened, it took writes with no
+   mirror while its old directory remains, the other half cannot follow,
+   or a record file is unreadable), the shard does not load, and the
+   error names the task, property and directory. A lazily loaded shard
+   retries on its next access; an eagerly loaded one keeps its collection
+   from loading on that node until it is loaded again.
 5. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
    calls `OnAfterLsmInit` on each recovered task, re-installing the
    double-write callbacks before any post-restart write can reach the

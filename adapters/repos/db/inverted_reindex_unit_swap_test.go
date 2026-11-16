@@ -55,6 +55,7 @@ type tokenizationChange struct {
 	desc     distributedtask.TaskDescriptor
 	unit     string
 	tasks    []*ShardReindexTaskGeneric
+	down     bool
 }
 
 func newTokenizationChange(t *testing.T) *tokenizationChange {
@@ -76,7 +77,11 @@ func newTokenizationChange(t *testing.T) *tokenizationChange {
 		desc:     distributedtask.TaskDescriptor{ID: "T_" + className, Version: 1},
 		unit:     shard.migrationUnit(),
 	}
-	t.Cleanup(func() { f.shard.Shutdown(context.Background()) })
+	t.Cleanup(func() {
+		if !f.down {
+			f.shard.Shutdown(context.Background())
+		}
+	})
 	f.payload = &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{tokChangeProp}, TargetTokenization: models.PropertyTokenizationWord,
@@ -274,22 +279,4 @@ func TestAFlipDuringADropLetsQueriesPin(t *testing.T) {
 	releaseFirstPin()
 	require.NoError(t, <-dropped)
 	require.ErrorIs(t, <-flipped, lsmkv.ErrAlreadyClosed)
-}
-
-func TestDecidedSwapsLeftByALoadFlipAsOneUnit(t *testing.T) {
-	for _, settleFails := range []bool{false, true} {
-		t.Run(map[bool]string{false: "the swap settles", true: "settling the swap fails"}[settleFails], func(t *testing.T) {
-			f := newTokenizationChange(t)
-			f.decide(t, f.tasks[0])
-			f.decide(t, f.tasks[1])
-			if settleFails {
-				blockCanonicalClear(t, f, f.tasks[1])
-			}
-
-			rec := f.runUnit(t, f.tasks)
-			assert.Equal(t, settleFails, len(rec.failed) > 0, "a unit whose swap did not settle fails, so it runs again")
-			assert.Equal(t, models.PropertyTokenizationWord, f.tokenization())
-			assert.Equal(t, allFound, f.counts(t))
-		})
-	}
 }

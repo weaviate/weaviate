@@ -95,7 +95,7 @@ func TestAShardLoadArmsAndCachesItsMigration(t *testing.T) {
 	require.False(t, rec.Subject().Unmirrored, "an armed mirror leaves nothing unmirrored")
 }
 
-// Recovery stamps an unbuildable decided flip before the load reconciler runs, so the staged copy is not promoted.
+// Recovery stamps an unbuildable decided flip, so the staged copy is not promoted and the shard does not load.
 func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.T) {
 	const name = "tenant-unbuildable"
 	ctx := testCtx()
@@ -121,11 +121,12 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordSwapped(subject,
 		subject.Properties(), map[string]string{"title": dirs.Canonical})))
 
-	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
-	require.NoError(t, err)
-	defer loaded.Shutdown(context.Background())
+	_, err := idx.initShard(ctx, name, class, nil, true, true)
+	require.ErrorContains(t, err, "the shard does not load", "a decided index whose new data is stale cannot serve")
 
-	rec, ok := loaded.(*Shard).migrationRecords.Get(subject.Key)
+	store := NewMigrationRecordStore(lsm, logger)
+	require.NoError(t, store.Load())
+	rec, ok := store.Get(subject.Key)
 	require.True(t, ok)
 	require.True(t, rec.Subject().Unmirrored)
 	require.Equal(t, MigrationStateSwapped, rec.State(), "a stale staged copy is never promoted")

@@ -967,7 +967,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if swapPending, err = t.swapStillToRun(logger, shard, rec, props); err != nil {
 			return zerotime, err
 		}
-		// A task does not know its unit's other buckets, so finishDecidedSwaps flips the unit's decided swaps together.
+		// A task does not know its unit's other buckets, so swapUnitOnShard flips the unit's decided swaps together.
 		if swapPending {
 			return zerotime, nil
 		}

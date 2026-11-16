@@ -25,8 +25,15 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func disableSearchableIndexOnProp(t *testing.T, ctx context.Context, shard *Shard, propName string) {
+// disableSearchableIndexOnProp is an index DELETE: the schema drops the index, then the shard its buckets.
+func disableSearchableIndexOnProp(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, propName string) {
 	t.Helper()
+	off := false
+	for _, prop := range class.Properties {
+		if prop.Name == propName {
+			prop.IndexSearchable = &off
+		}
+	}
 	main := helpers.BucketSearchableFromPropNameLSM(propName)
 	require.NoError(t, shard.removeBucket(ctx, main))
 	sweep := shard.migrationSweepState()
@@ -50,7 +57,7 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 		shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard))
 
-	disableSearchableIndexOnProp(t, ctx, shard, "subtitle")
+	disableSearchableIndexOnProp(t, ctx, shard, class, "subtitle")
 
 	shardName, lsmPath := shard.Name(), shard.pathLSM()
 	stagedTitle := filepath.Join(lsmPath, task.ingestBucketName("title"))
@@ -103,7 +110,7 @@ func TestRunSwapRefusesAPropertyItNeverFlipped(t *testing.T) {
 			idx, cold, preStrategy := aColdShardWithMergedStagedData(t, ctx, class, propName)
 
 			if test.disableIndex {
-				disableSearchableIndexOnProp(t, ctx, cold, propName)
+				disableSearchableIndexOnProp(t, ctx, cold, class, propName)
 			}
 
 			swap, wrapper := newSearchableRetokenizeTask(t, idx, className, propName,
@@ -152,7 +159,7 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 
 			idx, cold, preStrategy := aColdShardWithMergedStagedData(t, ctx, class, propName)
 			shardName, lsmPath := cold.Name(), cold.pathLSM()
-			disableSearchableIndexOnProp(t, ctx, cold, propName)
+			disableSearchableIndexOnProp(t, ctx, cold, class, propName)
 
 			swap, _ := newSearchableRetokenizeTask(t, idx, className, propName,
 				models.PropertyTokenizationField, preStrategy, cold.migrationUnit())

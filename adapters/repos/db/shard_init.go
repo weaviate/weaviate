@@ -170,7 +170,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
-	if err := s.serveStagedUnits(ctx); err != nil {
+	if err := s.serveDecidedIndexes(ctx, class); err != nil {
 		return nil, fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
