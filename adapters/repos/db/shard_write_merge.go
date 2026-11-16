@@ -206,6 +206,7 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
+		// Under asyncReplicationRWMux.RLock, so registerDoubleWriteWithScope's Lock waits for this write.
 		if w, err = s.prepareInvertedWrite(obj, prevObj, status); err != nil {
 			return errors.Wrap(err, "update inverted indices")
 		}

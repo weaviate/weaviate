@@ -259,8 +259,7 @@ type Index struct {
 	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
 	replicationFSMReader atomic.Pointer[replicationTypes.ReplicationFSMReader]
 	logger               logrus.FieldLogger
-	// Shared by the index's shards: a restart with a migration in flight demotes
-	// every tenant's properties at once.
+	// rangeableDemoted is per index: a restart with a migration in flight demotes every tenant's shard at once.
 	rangeableDemotedOnce sync.Once
 	rangeableDemoted     *logrusext.Sampler
 	remote               *sharding.RemoteIndex

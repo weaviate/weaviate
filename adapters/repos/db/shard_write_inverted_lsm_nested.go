@@ -19,10 +19,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (w *invertedWrite) nested(nestedProps []inverted.NestedProperty, slots []propSlots, docID uint64, remove bool) error {
-	write := (*lsmkv.Bucket).RoaringSetAddBatch
-	if remove {
-		write = (*lsmkv.Bucket).RoaringSetRemoveBatch
+func (w *invertedWrite) writeNested(nestedProps []inverted.NestedProperty, slots []propSlots, docID uint64, add bool) error {
+	write := (*lsmkv.Bucket).RoaringSetRemoveBatch
+	if add {
+		write = (*lsmkv.Bucket).RoaringSetAddBatch
 	}
 	for i, np := range nestedProps {
 		if sl := slots[i].filterable; sl != noSlot {

@@ -189,13 +189,13 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 // mirrorColocatedPropsForReindex mirrors the merged object's scope-property
 // postings into any in-flight reindex ingest bucket. The batch-ref writers
 // touch only the reference's own buckets and never funnel through
-// updateInvertedIndexLSM's migrationDoubleWrite, so without this a reindex of a
+// invertedWrite.apply's fireMirror step, so without this a reindex of a
 // co-located primitive property loses the object: mutableMergeObjectLSM bumps
 // its LastUpdateTimeUnix past the reindex watermark, the backfill scan skips it,
 // yet its target value was never mirrored (weaviate/0-weaviate-issues#318).
 //
 // Analyzes under the TARGET overlay and fires only scope props — exactly what
-// migrationDoubleWrite's add leg does on the object write path — so a
+// invertedWrite.apply's mirror add does on the object write path — so a
 // retokenizing migration mirrors target-tokenized terms (not source-tokenized)
 // into the ingest bucket (weaviate/0-weaviate-issues#298). No-op when no
 // migration scope is armed.
@@ -233,8 +233,8 @@ type refBucketPins struct {
 	byName map[string]*lsmkv.Bucket
 }
 
-// pinRefBuckets pins each reference property's filterable buckets, the only ones the
-// batch writes; a property with one missing is refused, so its references fail unmerged.
+// pinRefBuckets pins what writeInverted writes; mirrorColocatedPropsForReindex's ingest buckets stay
+// unpinned. A property missing a bucket is refused, so its references fail before any merge.
 func (b *referencesBatcher) pinRefBuckets(batch objects.BatchReferences,
 	propsByName map[string]*models.Property,
 ) (refBucketPins, map[string]error) {

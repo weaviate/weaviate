@@ -45,8 +45,8 @@ func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 // TestNestedFilteringViaShardWritePath exercises nested property filtering
 // end-to-end using the full production write and search pipelines:
 //
-//	write: repo.PutObject → putObjectLSM → updateInvertedIndexLSM
-//	            → extendNestedInvertedIndicesLSM → RoaringSetAddBatch
+//	write: repo.PutObject → putObjectLSM → invertedWrite.apply
+//	            → invertedWrite.writeNested → RoaringSetAddBatch
 //	read:  repo.Search → Searcher → extractNestedProp
 //	            → docBitmapInvertedRoaringSet → MaskAllPositions
 //
@@ -802,7 +802,7 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 	//   id200 = doc124Data  (unchanged)
 	//   id201 = doc125Data  (was doc123Data, now replaced)
 	// Filters must no longer return any doc123Data results, exercising that the
-	// delete-then-reindex path in updateInvertedIndexLSM removes old positions.
+	// delete-then-reindex path in invertedWrite.apply removes old positions.
 	t.Run("update doc123→doc125 object type", func(t *testing.T) {
 		class := &models.Class{
 			Class:             nestedClass,

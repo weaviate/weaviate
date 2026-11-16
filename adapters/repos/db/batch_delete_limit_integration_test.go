@@ -1046,7 +1046,7 @@ func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
 
 // dropObjectRow removes an object's row from the objects bucket and leaves its inverted
 // postings alone, which is the state every delete passes through between the objects
-// bucket delete and cleanupInvertedIndexOnDelete. It returns the doc id the postings still name.
+// bucket delete and invertedWrite.apply. It returns the doc id the postings still name.
 func dropObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) uint64 {
 	t.Helper()
 

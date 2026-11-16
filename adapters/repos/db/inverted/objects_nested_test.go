@@ -622,7 +622,7 @@ func TestAnalyzeNestedProp(t *testing.T) {
 
 	// When all descendant properties have every index disabled, analyzeNestedProp
 	// must return nil — no buckets are created for such a property, so returning
-	// a non-nil NestedProperty would cause extendNestedMetaIndex to hit a nil bucket.
+	// a non-nil NestedProperty would make every write of such an object refuse on the missing nested-meta bucket.
 	// Verified for both object and object[] top-level types.
 	t.Run("all indexes disabled returns nil for object", func(t *testing.T) {
 		prop := &models.Property{

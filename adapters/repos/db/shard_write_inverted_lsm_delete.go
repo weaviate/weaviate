@@ -20,10 +20,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (w *invertedWrite) deleteProps(slots, nilSlots []propSlots) error {
-	s, docID, st := w.s, w.delDocID, w.st
+func (w *invertedWrite) deleteProps() error {
+	s, docID, st := w.s, w.status.oldDocID, w.st
 	for i, prop := range w.toDel {
-		sl := slots[i]
+		sl := w.delSlots[i]
 		if sl.filterable != noSlot {
 			bucket := w.bucket(sl.filterable)
 			for _, item := range prop.Items {
@@ -76,12 +76,12 @@ func (w *invertedWrite) deleteProps(slots, nilSlots []propSlots) error {
 	}
 
 	for i, nilProperty := range w.nilDel {
-		if sl := nilSlots[i]; sl.length != noSlot {
+		if sl := w.nilDelSlots[i]; sl.length != noSlot {
 			if err := s.deleteFromPropertyLengthIndex(w.bucket(sl.length), nilProperty.Name, docID, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
-		if sl := nilSlots[i]; sl.null != noSlot {
+		if sl := w.nilDelSlots[i]; sl.null != noSlot {
 			if err := s.deleteFromPropertyNullIndex(w.bucket(sl.null), nilProperty.Name, docID, true); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}

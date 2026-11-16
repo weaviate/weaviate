@@ -302,6 +302,7 @@ func (s *Shard) analyzeMirror(st *propValueIndexState, obj *storobj.Object) ([][
 	return out, nil
 }
 
+// fireMirror: queries read no ingest bucket before the swap, so a full delete and re-add per write is safe.
 func (s *Shard) fireMirror(st *propValueIndexState, docID uint64, props [][]inverted.Property, add bool) error {
 	for i, analysis := range st.analyses[:len(props)] {
 		for j := range props[i] {
@@ -339,8 +340,9 @@ func (s *Shard) registerDoubleWriteWithScope(props []string, overlay map[string]
 		})
 		return cur
 	})
-	// A write that loaded the unarmed state writes its object later in this read
-	// section; waiting it out puts that object in the backfill's flush.
+	// Writers hold asyncReplicationRWMux.RLock from loadPropValueIndexState until their object
+	// is stored, so this waits out every writer that loaded the pre-registration state (incl. CJK
+	// tokenizer throttle waits) and the backfill's flush includes it; new writes queue behind it.
 	s.asyncReplicationRWMux.Lock()
 	s.asyncReplicationRWMux.Unlock() //nolint:staticcheck // empty critical section IS the barrier
 

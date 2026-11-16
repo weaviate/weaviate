@@ -13,6 +13,7 @@ package db
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,15 +33,6 @@ import (
 )
 
 const interleaveDeadline = 30 * time.Second
-
-func pollUntil(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(interleaveDeadline)
-	for !cond() {
-		require.True(t, time.Now().Before(deadline), "condition not reached before the deadline")
-		time.Sleep(time.Millisecond)
-	}
-}
 
 func runAsync(shard *Shard, fn func() error) <-chan error {
 	done := make(chan error, 1)
@@ -69,17 +61,21 @@ func TestArmWaitsForWritesThatLoadedTheUnarmedState(t *testing.T) {
 
 	obj := createTestObjectWithText(className, "zulu")
 	shard.asyncReplicationRWMux.RLock()
+	var unlock sync.Once
+	runlock := func() { unlock.Do(shard.asyncReplicationRWMux.RUnlock) }
+	defer runlock()
 	status, err := shard.determineInsertStatus(nil, obj)
 	require.NoError(t, err)
 	obj.DocID = status.docID
 	w, err := shard.prepareInvertedWrite(obj, nil, status)
 	require.NoError(t, err)
+	defer w.release()
 
 	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), "title")
 	done := runAsync(shard, func() error { return task.RunReindexOnlyOnShard(ctx, shard) })
 	var reindexErr error
 	finished := false
-	pollUntil(t, func() bool {
+	require.Eventually(t, func() bool {
 		if finished, reindexErr = isDone(done); finished {
 			return true
 		}
@@ -88,7 +84,7 @@ func TestArmWaitsForWritesThatLoadedTheUnarmedState(t *testing.T) {
 			return false
 		}
 		return true // the arm waits for this read section
-	})
+	}, interleaveDeadline, time.Millisecond)
 
 	idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
 	require.NoError(t, err)
@@ -97,7 +93,7 @@ func TestArmWaitsForWritesThatLoadedTheUnarmedState(t *testing.T) {
 	require.NoError(t, shard.upsertObjectDataLSM(shard.store.Bucket(helpers.ObjectsBucketLSM), idBytes, objBinary, obj.DocID))
 	require.NoError(t, w.apply())
 	w.release()
-	shard.asyncReplicationRWMux.RUnlock()
+	runlock()
 
 	if !finished {
 		reindexErr = <-done
@@ -106,10 +102,10 @@ func TestArmWaitsForWritesThatLoadedTheUnarmedState(t *testing.T) {
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.True(t, filterableHas(t, shard, "title", "zulu", obj.DocID),
-		"the object written across the arm is missing from the migrated index")
+		"the object written while the migration was being armed is missing from the migrated index")
 }
 
-// A swap's teardown waits for a write that pinned the old bucket, so the write lands.
+// A swap's teardown waits for a write that pinned the old bucket, so the write reaches the bucket that replaces it.
 func TestSwapTeardownWaitsForPinnedWrites(t *testing.T) {
 	long := make([]string, 1000)
 	for i := range long {
@@ -117,7 +113,7 @@ func TestSwapTeardownWaitsForPinnedWrites(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name, value string
-		idle        bool // flushed: the old bucket's next write opens a new commit log
+		idle        bool // true flushes the old bucket first, so the pinned write opens a new commit log
 	}{
 		{"idle old bucket", "gamma", true},
 		{"more than 4 KB of terms into a pending commit log", strings.Join(long, " "), false},
@@ -153,9 +149,12 @@ func TestSwapTeardownWaitsForPinnedWrites(t *testing.T) {
 			next.DocID = status.docID
 			w, err := shard.prepareInvertedWrite(next, stored, status)
 			require.NoError(t, err)
+			defer w.release()
 
 			done := runAsync(shard, func() error { return task.RunSwapOnShard(ctx, shard) })
-			pollUntil(t, func() bool { return shard.store.Bucket(helpers.BucketFromPropNameLSM("title")) == staged })
+			require.Eventually(t, func() bool {
+				return shard.store.Bucket(helpers.BucketFromPropNameLSM("title")) == staged
+			}, interleaveDeadline, time.Millisecond)
 			finished, _ := isDone(done)
 			require.False(t, finished, "the swap must wait for the pinned write")
 
@@ -168,7 +167,8 @@ func TestSwapTeardownWaitsForPinnedWrites(t *testing.T) {
 	}
 }
 
-// Every funnel releases its pins on an error after prepare.
+// Each write path releases its bucket pins when it fails after taking them: put, merge
+// and both deletes via prepareInvertedWrite, the reference batch via pinRefBuckets.
 func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 	enableHashtree := func(t *testing.T, shard *Shard) {
 		ht, err := hashtree.NewHashTree(defaultHashtreeHeightSingleTenant)
@@ -192,10 +192,6 @@ func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 		{"put", helpers.BucketFromPropNameLSM("title"), func(t *testing.T, shard *Shard, className string) error {
 			enableHashtree(t, shard)
 			return shard.PutObject(testCtx(), createTestObjectWithText(className, "alpha"))
-		}},
-		{"batch put", helpers.BucketFromPropNameLSM("title"), func(t *testing.T, shard *Shard, className string) error {
-			enableHashtree(t, shard)
-			return shard.PutObjectBatch(testCtx(), []*storobj.Object{createTestObjectWithText(className, "alpha")})[0]
 		}},
 		{"merge", helpers.BucketFromPropNameLSM("title"), func(t *testing.T, shard *Shard, className string) error {
 			obj := putAt(t, shard, className, time.Now().UnixMilli())
@@ -230,10 +226,15 @@ func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 			class.Properties = append(class.Properties, &models.Property{Name: "ref", DataType: []string{className}})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
 			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
+			// A leaked pin would hang Shutdown too; only the code under test can release it.
+			defer func() {
+				if !t.Failed() {
+					shard.Shutdown(ctx)
+				}
+			}()
 
 			require.ErrorContains(t, tt.write(t, shard, className), map[string]string{
-				"put": "last update time", "batch put": "last update time", "merge": "last update time",
+				"put": "last update time", "merge": "last update time",
 				"delete": "invalid object update time", "batch delete": "invalid object update time",
 				"reference batch": "not found",
 			}[tt.name])

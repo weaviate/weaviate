@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -84,6 +85,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, nil // live local object is newer; keep it (TimeBased)
 	}
 
+	// Under asyncReplicationRWMux.RLock, so registerDoubleWriteWithScope's Lock waits for this write.
 	w, err := s.prepareDeleteInvertedWrite(bucket, existing, docID)
 	if err != nil {
 		return false, fmt.Errorf("delete object from bucket: %w", err)
@@ -115,8 +117,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 
 	err = w.apply()
-	// Before WriteWALs, which waits on a store shutdown that waits on these pins.
-	w.release()
 	if err != nil {
 		return false, fmt.Errorf("delete object from bucket: %w", err)
 	}
@@ -168,7 +168,16 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	return true, nil
 }
 
+// prepareDeleteInvertedWrite refuses only on a missing bucket: an undecodable object must stay deletable.
 func (s *Shard) prepareDeleteInvertedWrite(objects *lsmkv.Bucket, previous []byte, docID uint64) (*invertedWrite, error) {
+	w, err := s.prepareDeleteOf(objects, previous, docID)
+	if err != nil && !errors.Is(err, lsmkv.ErrBucketNotFound) {
+		return &invertedWrite{s: s, unreadable: err}, nil
+	}
+	return w, err
+}
+
+func (s *Shard) prepareDeleteOf(objects *lsmkv.Bucket, previous []byte, docID uint64) (*invertedWrite, error) {
 	className, err := objects.ClassName()
 	if err != nil {
 		return nil, fmt.Errorf("getting bucket class name: %w", err)

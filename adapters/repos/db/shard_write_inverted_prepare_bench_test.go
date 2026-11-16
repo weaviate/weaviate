@@ -95,8 +95,8 @@ func BenchmarkPutObjectInvertedWrite(b *testing.B) {
 	})
 }
 
-// Run with ENABLE_TOKENIZER_KAGOME_JA=true. Analysis waits on the tokenizer
-// throttle inside the write's read section, which an arm then waits out.
+// BenchmarkCJKUpdatesInvertedWrite measures kagome_ja updates and how long registerDoubleWriteWithScope
+// waits for them (analysis waits for ApacTokenizerThrottle). Run with ENABLE_TOKENIZER_KAGOME_JA=true.
 func BenchmarkCJKUpdatesInvertedWrite(b *testing.B) {
 	text := strings.Repeat("東京都は日本の首都であり、多くの人が住んでいます。", 40)
 	update := func(shard *Shard, className string, id strfmt.UUID, n int64) error {

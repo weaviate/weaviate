@@ -332,7 +332,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		// In the read section, so an arm waits for this write (registerDoubleWriteWithScope).
+		// Under asyncReplicationRWMux.RLock, so registerDoubleWriteWithScope's Lock waits for this write.
 		if w, err = s.prepareInvertedWrite(obj, prevObj, status); err != nil {
 			return errors.Wrap(err, "update inverted indices")
 		}

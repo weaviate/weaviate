@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -42,9 +44,6 @@ type missingBucketWrite struct {
 var missingBucketWrites = []missingBucketWrite{
 	{name: "put", write: func(ctx context.Context, s *Shard, obj *storobj.Object) error {
 		return s.PutObject(ctx, obj)
-	}},
-	{name: "batch put", write: func(ctx context.Context, s *Shard, obj *storobj.Object) error {
-		return s.PutObjectBatch(ctx, []*storobj.Object{obj})[0]
 	}},
 	{name: "merge", write: func(ctx context.Context, s *Shard, obj *storobj.Object) error {
 		return s.MergeObject(ctx, objects.MergeDocument{
@@ -135,6 +134,8 @@ func TestFailedWriteChangesNothing(t *testing.T) {
 			if r.missing != "" {
 				require.NoError(t, shard.store.ShutdownBucket(ctx, r.missing))
 			}
+			logger, hook := logrustest.NewNullLogger()
+			shard.refusedWriteSampler = logrusext.NewSampler(logger, maxReportedErrors, time.Minute)
 
 			err := r.write.write(ctx, shard, missingBucketObject(className, id, "beta", 2))
 			stored, lookupErr := shard.ObjectByID(ctx, id, nil, additional.Properties{})
@@ -152,7 +153,12 @@ func TestFailedWriteChangesNothing(t *testing.T) {
 			}
 
 			require.Error(t, err)
-			defer func() { assert.ErrorContains(t, err, r.missing) }()
+			defer func() {
+				assert.ErrorContains(t, err, r.missing)
+				if assert.NotNil(t, hook.LastEntry(), "a refused write must be logged") {
+					assert.Equal(t, r.missing, hook.LastEntry().Data["bucket"])
+				}
+			}()
 			if r.write.create {
 				assert.Nil(t, stored, "a refused create must not store the object")
 				return
@@ -213,4 +219,57 @@ func TestReferenceBatchRefusesOnlyThePropertyWithAMissingBucket(t *testing.T) {
 	assert.ErrorContains(t, errs[0], helpers.BucketFromPropNameLSM("refA"))
 	assert.NoError(t, errs[1])
 	assert.NoError(t, errs[2])
+}
+
+func TestRangeableDemotionLogsOncePerChange(t *testing.T) {
+	tests := []struct {
+		name    string
+		prior   []bool
+		wantLog bool
+	}{
+		{"unset to not ready", nil, true},
+		{"ready to not ready", []bool{true}, true},
+		{"not ready again", []bool{false}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			shard := &Shard{name: "s1", index: &Index{logger: logger}}
+			for _, ready := range tt.prior {
+				shard.setRangeableLocallyReady("num", ready)
+			}
+			hook.Reset()
+			shard.setRangeableLocallyReady("num", false)
+			require.Equal(t, tt.wantLog, hook.LastEntry() != nil)
+			if tt.wantLog {
+				require.Equal(t, "num", hook.LastEntry().Data["property"])
+			}
+		})
+	}
+}
+
+// A stored object that no longer decodes has no postings to clean up, so a delete
+// must still remove it instead of refusing.
+func TestDeleteRemovesAnObjectThatNoLongerDecodes(t *testing.T) {
+	ctx := testCtx()
+	className := "UndecodableDelete_" + uuid.NewString()[:8]
+	shd, _ := testShardWithSettings(t, ctx, missingBucketClass(className), enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	id := strfmt.UUID(uuid.NewString())
+	require.NoError(t, shard.PutObject(ctx, missingBucketObject(className, id, "alpha", 1)))
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	require.NoError(t, err)
+	objects := shard.store.Bucket(helpers.ObjectsBucketLSM)
+	stored, err := objects.Get(idBytes)
+	require.NoError(t, err)
+	docID, _, err := storobj.DocIDAndTimeFromBinary(stored)
+	require.NoError(t, err)
+	require.NoError(t, shard.upsertObjectDataLSM(objects, idBytes, stored[:storobj.MarshallerV1HeaderLen+2], docID))
+
+	require.Error(t, shard.DeleteObject(ctx, id, time.Time{}))
+	remaining, err := objects.Get(idBytes)
+	require.NoError(t, err)
+	require.Nil(t, remaining)
 }

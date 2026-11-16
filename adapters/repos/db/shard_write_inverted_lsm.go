@@ -24,10 +24,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (w *invertedWrite) addProps(slots, nilSlots []propSlots) error {
-	s, docID := w.s, w.addDocID
+func (w *invertedWrite) addProps() error {
+	s, docID := w.s, w.status.docID
 	for i, prop := range w.toAdd {
-		sl := slots[i]
+		sl := w.addSlots[i]
 		if err := w.addToPropertyValueIndex(docID, prop, sl); err != nil {
 			return err
 		}
@@ -44,12 +44,12 @@ func (w *invertedWrite) addProps(slots, nilSlots []propSlots) error {
 	}
 
 	for i, nilProperty := range w.nilAdd {
-		if sl := nilSlots[i]; sl.length != noSlot {
+		if sl := w.nilAddSlots[i]; sl.length != noSlot {
 			if err := s.addToPropertyLengthIndex(w.bucket(sl.length), nilProperty.Name, docID, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
-		if sl := nilSlots[i]; sl.null != noSlot {
+		if sl := w.nilAddSlots[i]; sl.null != noSlot {
 			if err := s.addToPropertyNullIndex(w.bucket(sl.null), nilProperty.Name, docID, true); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
@@ -103,8 +103,7 @@ func (w *invertedWrite) addToPropertyValueIndex(docID uint64, property inverted.
 		}
 	}
 
-	// Scope props are suppressed here; apply's mirror step fires them under
-	// the TARGET analysis instead of this source-schema view.
+	// Scope props skip st.add; invertedWrite.apply fires them through fireMirror under the TARGET overlay.
 	if _, migrating := w.st.scope.props[property.Name]; !migrating {
 		if err := s.fireAddToPropertyValueIndex(w.st.add, docID, &property); err != nil {
 			return err

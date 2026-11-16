@@ -54,7 +54,8 @@ import (
 // The migrated property (dateInt) starts with IndexRangeFilters=false, so the
 // rangeable index only exists after the runtime migration. Once the migration
 // finishes and the rangeable index is ready, a range query over the moved band
-// is served from that index alone, so a short count is a rangeable write-loss.
+// is served from that index alone, so a short count means lost index entries; on a
+// replica whose rangeable index is not ready, those are filterable-index entries.
 //
 // The test PATCHes every mover into a sentinel band far above every initial
 // value while the migration runs, then asserts, on every replica and again
@@ -101,7 +102,8 @@ func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) 
 			// queries are served from the rangeable index only (the
 			// filterable bucket-walk fallback applies only while the rangeable
 			// bucket is still being built), so a short count over the sentinel
-			// band after FINISHED is an unambiguous rangeable write-loss.
+			// band after FINISHED means lost index entries (filterable ones on a
+			// replica whose rangeable index is not ready).
 			Name:              propName,
 			DataType:          []string{"int"},
 			IndexFilterable:   &trueVal,
