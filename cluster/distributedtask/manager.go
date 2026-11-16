@@ -142,6 +142,9 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
+			if t.OnKnownOtherCollection(className) {
+				continue
+			}
 			existing = append(existing, t)
 		}
 		if err := gate.CheckVectorConfigRemoval(className, removedVectors, shards, existing); err != nil {
@@ -297,6 +300,9 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 			continue
 		}
 		for taskID, task := range tasksByID {
+			if task.OnKnownOtherCollection(collection) {
+				continue
+			}
 			c, taskTargetVectors, ok := extractor(task.Payload)
 			// EqualFold: collection names are case-insensitive identifiers, and a
 			// byte-exact purge would be strictly weaker than the EqualFold

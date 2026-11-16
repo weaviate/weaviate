@@ -1516,25 +1516,37 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 }
 
 func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
-	checks := map[string]func(m *Manager) error{
-		"property": func(m *Manager) error { return m.CheckPropertyUpdate("foo", "name") },
-		"class":    func(m *Manager) error { return m.CheckClassMutation("foo") },
-		"tenant":   func(m *Manager) error { return m.CheckTenantMutation("foo", []string{"t1"}) },
+	idOf := map[string]string{"Foo": "same", "Bar": "other", "": "unknown"}
+	checks := map[string]func(m *Manager, d *fakeRemovalGate) error{
+		"property": func(m *Manager, _ *fakeRemovalGate) error { return m.CheckPropertyUpdate("foo", "name") },
+		"class":    func(m *Manager, _ *fakeRemovalGate) error { return m.CheckClassMutation("foo") },
+		"tenant":   func(m *Manager, _ *fakeRemovalGate) error { return m.CheckTenantMutation("foo", []string{"t1"}) },
+		"vector config removal": func(m *Manager, _ *fakeRemovalGate) error {
+			return m.CheckVectorConfigRemoval("foo", []string{"v"}, nil)
+		},
+		"target vector purge": func(m *Manager, d *fakeRemovalGate) error {
+			m.RegisterTargetVectorExtractor("reindex", func(p []byte) (string, []string, bool) {
+				d.lastTasks = append(d.lastTasks, m.tasks["reindex"][idOf[string(p)]])
+				return "", nil, false
+			})
+			_, err := m.PurgeTasksForCollectionTargetVectors("foo", []string{"v"})
+			return err
+		},
 	}
 	for name, check := range checks {
 		t.Run(name, func(t *testing.T) {
 			h := newTestHarness(t)
-			detector := &fakeSchemaMutationDetector{}
+			detector := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}}
 			h.schemaMutationDetectors = map[string]SchemaMutationDetector{"reindex": detector}
 			h.headerDecoders = map[string]HeaderDecoder{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
 			h.init(t)
-			for id, collection := range map[string]string{"same": "Foo", "other": "Bar", "unknown": ""} {
+			for collection, id := range idOf {
 				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 					Namespace: "reindex", Id: id, Payload: []byte(collection), UnitIds: []string{"u"},
 				}), 100))
 			}
 
-			require.NoError(t, check(h.manager))
+			require.NoError(t, check(h.manager, detector))
 			var ids []string
 			for _, task := range detector.lastTasks {
 				ids = append(ids, task.ID)
@@ -1562,6 +1574,7 @@ func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, sh
 	f.lastRemoved = removed
 	f.lastShards = shards
 	f.lastTaskCount = len(existing)
+	f.lastTasks = existing
 	return f.gateReject
 }
 

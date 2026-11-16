@@ -60,19 +60,17 @@ func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok st
 }
 
 func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(string) *models.Class) bool {
-	var payload ReindexTaskPayload
-	if json.Unmarshal(task.Payload, &payload) != nil {
+	h, ok := reindexHeaderOf(task)
+	if !ok {
 		return false
 	}
-	return ReindexRunLanded(readClass(payload.Collection), payload.MigrationType,
-		payload.TargetTokenization, payload.Properties)
+	return ReindexRunLanded(readClass(h.Class), h.MigrationType, h.TargetTokenization, h.Properties)
 }
 
 func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, task *distributedtask.Task) error {
 	if task != nil && task.Status == distributedtask.TaskStatusSwapping {
-		var payload ReindexTaskPayload
-		if json.Unmarshal(task.Payload, &payload) == nil &&
-			strings.EqualFold(payload.Collection, className) && slices.Contains(payload.Properties, propertyName) {
+		if h, ok := reindexHeaderOf(task); ok &&
+			strings.EqualFold(h.Class, className) && slices.Contains(h.Properties, propertyName) {
 			return nil
 		}
 	}
@@ -149,13 +147,33 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	return runs
 }
 
+// reindexHeaderRuns is ReindexRuns for the RAFT apply: each run's Payload holds only its header's fields.
+func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
+	runs := make([]ReindexRun, 0, len(tasks))
+	for _, task := range tasks {
+		if h, ok := reindexHeaderOf(task); ok {
+			runs = append(runs, ReindexRun{Task: task, Payload: ReindexTaskPayload{
+				MigrationType: h.MigrationType, Collection: h.Class, Properties: h.Properties,
+				TargetTokenization: h.TargetTokenization, BucketStrategy: h.BucketStrategy,
+			}})
+		}
+	}
+	return runs
+}
+
 func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
 	accepts func(*ReindexRun) bool, tenantCounts bool,
+) string {
+	return reindexPartialRunConflict(tasks, ReindexRuns, collection, property, accepts, tenantCounts)
+}
+
+func reindexPartialRunConflict(tasks []*distributedtask.Task, runsOf func([]*distributedtask.Task) []ReindexRun,
+	collection, property string, accepts func(*ReindexRun) bool, tenantCounts bool,
 ) string {
 	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
 		return ""
 	}
-	runs := ReindexRuns(tasks)
+	runs := runsOf(tasks)
 	for _, scope := range [][]string{{"searchable"}, {"filterable"}, {"rangeable"}} {
 		run, migrated, covered := ReindexPartialRun(runs, collection, property, scope)
 		if run == nil || (accepts != nil && accepts(run)) {

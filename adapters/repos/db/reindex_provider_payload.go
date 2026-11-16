@@ -51,6 +51,11 @@ func DecodeReindexTaskHeader(payload []byte) (distributedtask.TaskHeader, error)
 	}, nil
 }
 
+func reindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
+	h, ok := task.Header().(ReindexTaskHeader)
+	return h, ok
+}
+
 // ExtractReindexTaskReplicas lets the leader refuse a reindex task whose units no longer match the collection's replicas.
 func ExtractReindexTaskReplicas(payload []byte) (map[string][]string, bool) {
 	var p ReindexTaskPayload

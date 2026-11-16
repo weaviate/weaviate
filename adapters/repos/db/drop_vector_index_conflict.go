@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -41,6 +42,9 @@ func (p *DropVectorIndexDetector) CheckConflict(newPayload []byte, existingTasks
 	if err != nil {
 		return fmt.Errorf("unmarshal new drop-vector payload: %w", err)
 	}
+	existingTasks = slices.DeleteFunc(slices.Clone(existingTasks), func(t *distributedtask.Task) bool {
+		return t.OnKnownOtherCollection(newP.Collection)
+	})
 
 	if task, existP, overlap := FirstActiveOverlappingDrop(
 		existingTasks, "", newP.Collection, newP.Targets, p.logger); task != nil {

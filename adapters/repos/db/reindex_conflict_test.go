@@ -14,9 +14,11 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -254,7 +256,7 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, detector.CheckConflict(newPayload, existing))
+	require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)))
 }
 
 // TestCheckConflict_RejectsParallelOnSameProp pins the
@@ -289,7 +291,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 					Payload:        existPayload,
 				},
 			}
-			err := detector.CheckConflict(newPayload, existing)
+			err := detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "conflicts")
 			require.Contains(t, err.Error(), "enable-filterable")
@@ -330,7 +332,7 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 				Payload:        existPayload,
 			},
 		}
-		require.NoError(t, detector.CheckConflict(newPayload, existing),
+		require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)),
 			"status=%s must NOT block a new task — only STARTED tasks conflict", status)
 	}
 }
@@ -363,7 +365,7 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, detector.CheckConflict(newPayload, existing))
+	require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)))
 }
 
 // inIDOrder hands ReindexDetector the tasks sorted by ID instead of the Manager's map order.
@@ -440,7 +442,7 @@ func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
 		},
 	}
 
-	err := detector.CheckConflict(newPayload, existing)
+	err := detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...))
 	require.Error(t, err)
 }
 
@@ -474,7 +476,7 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 		},
 	}
 
-	err := detector.CheckConflict(newPayload, existing)
+	err := detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T1")
 	require.Contains(t, err.Error(), "unparseable")
@@ -506,7 +508,7 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 				Status:         status,
 				Payload:        terminalPayload,
 			}}
-			require.NoError(t, detector.CheckPropertyUpdate("C", "name", tasks))
+			require.NoError(t, detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...)))
 		})
 	}
 }
@@ -550,6 +552,7 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
 				Logger:                  logger,
 				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
+				HeaderDecoders:          map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
 			})
 			require.NoError(t, mgr.Restore(snapshot))
 			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
@@ -580,7 +583,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := detector.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_change_tok")
 			require.Contains(t, err.Error(), "change-tokenization")
@@ -610,8 +613,8 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, detector.CheckPropertyUpdate("C", "category", tasks))
-	require.NoError(t, detector.CheckPropertyUpdate("C", "title", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "category", loadTasks(t, ReindexNamespace, tasks...)))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "title", loadTasks(t, ReindexNamespace, tasks...)))
 }
 
 // TestCheckPropertyUpdate_DifferentCollectionAllows pins the per-
@@ -633,7 +636,7 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, detector.CheckPropertyUpdate("B", "name", tasks))
+	require.NoError(t, detector.CheckPropertyUpdate("B", "name", loadTasks(t, ReindexNamespace, tasks...)))
 }
 
 // TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
@@ -671,7 +674,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        payload,
 			}}
-			err := detector.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err, "migration type %s in flight on name must block schema mutations on name", mt)
 			require.Contains(t, err.Error(), string(mt))
 		})
@@ -700,7 +703,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 
 	for _, prop := range []string{"name", "category", "title", "description"} {
 		t.Run(prop, func(t *testing.T) {
-			err := detector.CheckPropertyUpdate("C", prop, tasks)
+			err := detector.CheckPropertyUpdate("C", prop, loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_wildcard")
 		})
@@ -721,7 +724,7 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 		Payload:        []byte("garbage"),
 	}}
 
-	err := detector.CheckPropertyUpdate("C", "name", tasks)
+	err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -746,7 +749,7 @@ func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
 		Status:         distributedtask.TaskStatusFinished,
 		Payload:        terminalPayload,
 	}}
-	require.NoError(t, detector.CheckClassMutation("C", tasks),
+	require.NoError(t, detector.CheckClassMutation("C", loadTasks(t, ReindexNamespace, tasks...)),
 		"FINISHED tasks must not block DeleteClass")
 }
 
@@ -768,7 +771,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := detector.CheckClassMutation("C", tasks)
+			err := detector.CheckClassMutation("C", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_class")
 			require.Contains(t, err.Error(), "bucket↔schema inversion")
@@ -791,7 +794,7 @@ func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, detector.CheckClassMutation("B", tasks),
+	require.NoError(t, detector.CheckClassMutation("B", loadTasks(t, ReindexNamespace, tasks...)),
 		"in-flight reindex on class A must not block DeleteClass on class B")
 }
 
@@ -802,7 +805,7 @@ func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte("garbage"),
 	}}
-	err := detector.CheckClassMutation("C", tasks)
+	err := detector.CheckClassMutation("C", loadTasks(t, ReindexNamespace, tasks...))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -832,7 +835,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := detector.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
+			err := detector.CheckTenantMutation("C", []string{"t1", "t2"}, loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_tenant")
 			require.Contains(t, err.Error(), "[t1 t2]",
@@ -855,7 +858,7 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, detector.CheckTenantMutation("B", []string{"t1"}, tasks),
+	require.NoError(t, detector.CheckTenantMutation("B", []string{"t1"}, loadTasks(t, ReindexNamespace, tasks...)),
 		"in-flight reindex on class A must not block tenant mutation on class B")
 }
 
@@ -896,7 +899,7 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        b,
 			}}
-			err := detector.CheckPropertyUpdate("C", "name", tasks)
+			err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_empty")
 		})
@@ -981,7 +984,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	} {
 		for name, guard := range guards {
 			t.Run(string(tc.status)+"/"+name, func(t *testing.T) {
-				err := guard.call(tasksIn(tc.status))
+				err := guard.call(loadTasks(t, ReindexNamespace, tasksIn(tc.status)...))
 				require.Error(t, err, "every non-terminal status blocks the mutation")
 
 				if tc.wantCancelAdvice {
@@ -994,4 +997,132 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 			})
 		}
 	}
+}
+
+// loadTasks hands back tasks the way the RAFT apply sees them: restored into a Manager, which caches their headers.
+func loadTasks(t *testing.T, namespace string, tasks ...*distributedtask.Task) []*distributedtask.Task {
+	t.Helper()
+	for _, task := range tasks {
+		task.Namespace = namespace
+	}
+	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {namespace: tasks}})
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Logger: logger,
+		HeaderDecoders: map[string]distributedtask.HeaderDecoder{
+			ReindexNamespace: DecodeReindexTaskHeader, DropVectorIndexNamespace: DecodeDropVectorIndexTaskHeader,
+		},
+	})
+	require.NoError(t, mgr.Restore(snapshot))
+	byID := map[string]*distributedtask.Task{}
+	for _, task := range mgr.LocalDistributedTasks()[namespace] {
+		byID[task.ID] = task
+	}
+	loaded := make([]*distributedtask.Task, len(tasks))
+	for i, task := range tasks {
+		loaded[i] = byID[task.ID]
+	}
+	return loaded
+}
+
+func reindexTaskOnC(t *testing.T, id string, status distributedtask.TaskStatus, prop string) *distributedtask.Task {
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{prop}, TargetTokenization: "field",
+	})
+	require.NoError(t, err)
+	return &distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1}, Status: status, Payload: payload}
+}
+
+func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
+	d := ReindexDetector{}
+	errText := func(err error) string {
+		if err == nil {
+			return ""
+		}
+		return err.Error()
+	}
+	submitOn := func(prop string) []byte {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeEnableFilterable, Properties: []string{prop}})
+		require.NoError(t, err)
+		return payload
+	}
+	partial := reindexTaskOnC(t, "partial", distributedtask.TaskStatusFailed, "name")
+	partial.SwapDecidedGroups = map[string]time.Time{"tenant-a": {}}
+	classC := &models.Class{Class: "C", Properties: []*models.Property{{Name: "name", Tokenization: "field"}}}
+
+	for _, tc := range []struct {
+		name  string
+		task  *distributedtask.Task
+		check func([]*distributedtask.Task) string
+		want  string // substring of the result; empty means allowed
+	}{
+		{"tenant mutation", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckTenantMutation("C", []string{"t1"}, ts))
+		}, "is in flight"},
+		{"class mutation", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckClassMutation("C", ts))
+		}, "is in flight"},
+		{"property update on another property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckPropertyUpdate("C", "other", ts))
+		}, ""},
+		{"property update on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckPropertyUpdate("C", "name", ts))
+		}, "is in flight"},
+		{"property update after a partial run", partial, func(ts []*distributedtask.Task) string {
+			return errText(d.CheckPropertyUpdate("C", "name", ts))
+		}, "are migrated"},
+		{"submit on another property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckConflict(submitOn("other"), ts))
+		}, ""},
+		{"submit on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckConflict(submitOn("name"), ts))
+		}, "conflicts"},
+		{"the run's own flip", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
+			return errText(d.CheckMigrationPropertyUpdate("C", "name", ts[0]))
+		}, ""},
+		{"cutover", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
+			return fmt.Sprint(d.CutoverLanded(ts[0], func(string) *models.Class { return classC }))
+		}, "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loaded := loadTasks(t, ReindexNamespace, tc.task)
+			got := tc.check(loaded)
+			if tc.want == "" {
+				require.Empty(t, got)
+			} else {
+				require.Contains(t, got, tc.want)
+			}
+			loaded[0].Payload = nil
+			require.Equal(t, got, tc.check(loaded), "the check must not read the payload")
+		})
+	}
+}
+
+// Pins that refusing a tenant mutation costs the size of the event, not of the in-flight task's payload.
+func TestCheckTenantMutation_AllocatesIndependentlyOfPayloadSize(t *testing.T) {
+	const tenants = 10_000
+	payload := ReindexTaskPayload{
+		Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"},
+		UnitToNode: map[string]string{}, UnitToShard: map[string]string{},
+	}
+	for i := range tenants {
+		tenant := fmt.Sprintf("tenant-%05d", i)
+		payload.Tenants = append(payload.Tenants, tenant)
+		for r := range 3 {
+			unit := fmt.Sprintf("%s__node-%d", tenant, r)
+			payload.UnitToNode[unit], payload.UnitToShard[unit] = fmt.Sprintf("node-%d", r), tenant
+		}
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	loaded := loadTasks(t, ReindexNamespace, &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: raw,
+	})
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	require.Error(t, ReindexDetector{}.CheckTenantMutation("C", []string{"tenant-00001"}, loaded))
+	runtime.ReadMemStats(&after)
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "payload of %d bytes", len(raw))
 }
