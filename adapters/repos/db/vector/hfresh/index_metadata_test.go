@@ -130,6 +130,8 @@ type partialFlushCase struct {
 	rollback func(cfg *Config, storeDir string) string
 	// reachable lists the vectors that must be found after the restart
 	reachable func(deleted []uint64) []uint64
+	// check runs on the restarted index, before any new write
+	check func(t *testing.T, h *HFresh)
 }
 
 func TestRecoveryAfterPartialFlush(t *testing.T) {
@@ -198,6 +200,8 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		return deleted
 	}
 
+	var highestPostingID uint64
+
 	cases := []partialFlushCase{
 		{
 			name:      "split, commit log behind store",
@@ -227,6 +231,26 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			rollback: commitLog,
 			reachable: func(deleted []uint64) []uint64 {
 				return slices.DeleteFunc(idRange(0, 800), func(id uint64) bool { return slices.Contains(deleted, id) })
+			},
+		},
+		{
+			name:  "IDs of cleaned up centroids, store behind commit log",
+			setup: func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			mutate: func(t *testing.T, h *HFresh) []uint64 {
+				add(t, h, 200, 800)
+				waitIdle(t, h)
+				require.NoError(t, h.Centroids.hnsw.CleanUpTombstonedNodes(func() bool { return false }))
+				for id := range h.PostingMap.Iter() {
+					highestPostingID = max(highestPostingID, id)
+				}
+				return nil
+			},
+			rollback:  wholeStore,
+			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
+			check: func(t *testing.T, h *HFresh) {
+				id, err := h.nextPostingID()
+				require.NoError(t, err)
+				require.Greater(t, id, highestPostingID, "a freed centroid slot may still be cleaned up or tombstoned")
 			},
 		},
 		{
@@ -305,7 +329,12 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			store = testinghelpers.NewDummyStoreFromFolder(storeDir, t)
 
 			reachable := c.reachable(deleted)
-			phase(func(h *HFresh) { requireReachable(h, reachable) })
+			phase(func(h *HFresh) {
+				requireReachable(h, reachable)
+				if c.check != nil {
+					c.check(t, h)
+				}
+			})
 
 			// the recovered index must keep accepting writes and splitting
 			phase(func(h *HFresh) {
