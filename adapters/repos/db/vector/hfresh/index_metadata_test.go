@@ -148,6 +148,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 	commitLog := func(cfg *Config, _ string) string {
 		return filepath.Join(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID+".hnsw.commitlog.d")
 	}
+	wholeStore := func(_ *Config, storeDir string) string { return storeDir }
 
 	cases := []partialFlushCase{
 		{
@@ -156,6 +157,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
 			rollback:  commitLog,
 			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+		},
+		{
+			name:      "split, store behind commit log",
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			rollback:  wholeStore,
+			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
 		},
 	}
 
