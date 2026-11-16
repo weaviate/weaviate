@@ -312,25 +312,21 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 			return errors.New(string("unknown datatype for aggregation type reference: " + prop.dataType))
 		}
 
-		// UnmarshalProperties decodes a reference list as json.Unmarshal does:
-		// []interface{} holding one map per reference
+		// UnmarshalProperties decodes an empty list as []interface{}, since it
+		// cannot tell an empty reference list from any other
 		analyzeRef := func(value interface{}) error {
-			refs, ok := value.([]interface{})
-			if !ok {
-				return fmt.Errorf("expected property type reference, received %T", value)
-			}
-			for _, ref := range refs {
-				refMap, ok := ref.(map[string]interface{})
-				if !ok {
-					return fmt.Errorf("expected reference, received %T", ref)
+			switch refs := value.(type) {
+			case models.MultipleRef:
+				for _, ref := range refs {
+					prop.refAgg.AddReference(string(ref.Beacon))
 				}
-				beacon, ok := refMap["beacon"].(string)
-				if !ok {
-					return fmt.Errorf("expected reference beacon, received %T", refMap["beacon"])
+				return nil
+			case []interface{}:
+				if len(refs) == 0 {
+					return nil
 				}
-				prop.refAgg.AddReference(beacon)
 			}
-			return nil
+			return fmt.Errorf("expected property type reference, received %T", value)
 		}
 		if err := analyzeRef(value); err != nil {
 			return err

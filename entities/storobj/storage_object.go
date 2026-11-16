@@ -1448,8 +1448,9 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 	return returnError
 }
 
-// unmarshalStoredProperties decodes every key of data as json.Unmarshal does,
-// without reflection. An object stored without properties holds null.
+// unmarshalStoredProperties decodes every key of data as json.Unmarshal does, without
+// reflection, except that a non-empty reference list comes back as models.MultipleRef.
+// An object stored without properties holds null.
 func unmarshalStoredProperties(data []byte) (map[string]interface{}, error) {
 	if string(data) == "null" {
 		return nil, nil
@@ -1479,20 +1480,33 @@ func unmarshalPropertyValue(value []byte, dataType jsonparser.ValueType) (interf
 	case jsonparser.Array:
 		return unmarshalPropertyArray(value)
 	case jsonparser.Object:
-		// json.Unmarshal decodes nested objects, geo coordinates and phone numbers,
-		// which jsonparser could walk only with their schema.
-		nestedProps := map[string]interface{}{}
-		if err := json.Unmarshal(value, &nestedProps); err != nil {
-			return nil, err
-		}
-		return nestedProps, nil
+		return unmarshalObject(value)
 	default:
 		return nil, fmt.Errorf("unknown data type %v", dataType)
 	}
 }
 
-func unmarshalPropertyArray(value []byte) ([]interface{}, error) {
-	array := make([]interface{}, 0, countArrayEntries(value[1:len(value)-1]))
+// unmarshalObject decodes nested objects, geo coordinates and phone numbers with
+// json.Unmarshal, since jsonparser could walk them only with their schema.
+func unmarshalObject(value []byte) (map[string]interface{}, error) {
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(value, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// unmarshalPropertyArray returns a non-empty array parseCrossRef accepts as
+// models.MultipleRef, and any other array as []interface{}.
+func unmarshalPropertyArray(value []byte) (interface{}, error) {
+	count, maybeRefs := countArrayEntries(value[1 : len(value)-1])
+	if maybeRefs {
+		if refs, ok := unmarshalRefs(value, count); ok {
+			return refs, nil
+		}
+	}
+
+	array := make([]interface{}, 0, count)
 	var elemErr error
 	_, err := jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, _ int, _ error) {
 		if elemErr != nil {
@@ -1504,7 +1518,7 @@ func unmarshalPropertyArray(value []byte) ([]interface{}, error) {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 			val, elemErr = parseValues(innerDataType, innerValue)
 		case jsonparser.Object:
-			val, elemErr = unmarshalArrayObject(innerValue)
+			val, elemErr = unmarshalObject(innerValue)
 		default:
 			elemErr = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
 		}
@@ -1521,15 +1535,20 @@ func unmarshalPropertyArray(value []byte) ([]interface{}, error) {
 
 // countArrayEntries counts the elements of a JSON array given without its
 // brackets. Commas inside strings, objects and nested arrays separate nothing.
-func countArrayEntries(entries []byte) int {
+// maybeRefs is false when no string in the array can decode to beacon, so the
+// array holds no reference and unmarshalRefs need not walk its first element.
+func countArrayEntries(entries []byte) (count int, maybeRefs bool) {
 	if len(entries) == 0 {
-		return 0
+		return 0, false
 	}
-	count, depth := 1, 0
+	count = 1
+	depth := 0
 	for i := 0; i < len(entries); i++ {
 		switch entries[i] {
 		case '"':
-			i = closingQuote(entries, i+1)
+			end := closingQuote(entries, i+1)
+			maybeRefs = maybeRefs || mayDecodeToBeacon(entries[i+1:end])
+			i = end
 		case '{', '[':
 			depth++
 		case '}', ']':
@@ -1540,7 +1559,16 @@ func countArrayEntries(entries []byte) int {
 			}
 		}
 	}
-	return count
+	return count, maybeRefs
+}
+
+// mayDecodeToBeacon reports whether a JSON string body can decode to beacon.
+// Only a 6-byte escape encodes a letter, so an escaped beacon takes 11 to 36 bytes.
+func mayDecodeToBeacon(body []byte) bool {
+	if len(body) == len("beacon") {
+		return string(body) == "beacon"
+	}
+	return len(body) >= 11 && len(body) <= 36 && bytes.IndexByte(body, '\\') >= 0
 }
 
 // closingQuote returns the index of the quote that ends the string whose body
@@ -1564,30 +1592,78 @@ func closingQuote(b []byte, start int) int {
 	}
 }
 
-var errNotPlainRef = errors.New("not a plain reference")
+var errNotRef = errors.New("not a reference")
 
-// unmarshalArrayObject decodes an array element as json.Unmarshal does, skipping
-// reflection for a plain reference. parseCrossRef decides whether the array holds refs.
-func unmarshalArrayObject(elem []byte) (map[string]interface{}, error) {
-	var beacon []byte
-	keys := 0
-	if jsonparser.ObjectEach(elem, func(key, value []byte, dt jsonparser.ValueType, _ int) error {
-		keys++
-		if keys > 1 || dt != jsonparser.String || string(key) != "beacon" {
-			return errNotPlainRef
+// unmarshalRefs builds the MultipleRef parseCrossRef would build from json.Unmarshal's
+// decode of value, without a map per reference. ok is false for an empty array
+// and for any array parseCrossRef refuses.
+func unmarshalRefs(value []byte, count int) (models.MultipleRef, bool) {
+	// a peek at the first element keeps ArrayEach from walking a primitive array twice
+	if count == 0 || bytes.TrimLeft(value[1:], " \t\r\n")[0] != '{' {
+		return nil, false
+	}
+
+	var refs models.MultipleRef
+	_, err := jsonparser.ArrayEachErr(value, func(elem []byte, dt jsonparser.ValueType, _ int, _ error) error {
+		ref, ok := unmarshalRef(elem, dt)
+		if !ok {
+			return errNotRef
 		}
-		beacon = value
+		if refs == nil {
+			refs = make(models.MultipleRef, 0, count)
+		}
+		refs = append(refs, ref)
 		return nil
-	}) == nil && keys == 1 {
-		if s, err := jsonparser.ParseString(beacon); err == nil {
-			return map[string]interface{}{"beacon": s}, nil
+	})
+	if err != nil {
+		return nil, false
+	}
+	return refs, true
+}
+
+// unmarshalRef accepts the elements parseCrossRef accepts, an object with a string
+// beacon and an optional classification that parseRefClassificationMeta parses.
+// It ignores any other key, and of a repeated key it keeps the last, as json.Unmarshal does.
+func unmarshalRef(elem []byte, dt jsonparser.ValueType) (*models.SingleRef, bool) {
+	if dt != jsonparser.Object {
+		return nil, false
+	}
+
+	var beacon, classification []byte
+	var beaconType, classificationType jsonparser.ValueType // NotExist until seen
+	if jsonparser.ObjectEach(elem, func(key, value []byte, vt jsonparser.ValueType, _ int) error {
+		switch string(key) {
+		case "beacon":
+			beacon, beaconType = value, vt
+		case "classification":
+			classification, classificationType = value, vt
 		}
+		return nil
+	}) != nil || beaconType != jsonparser.String {
+		return nil, false
 	}
-	out := map[string]interface{}{}
-	if err := json.Unmarshal(elem, &out); err != nil {
-		return nil, err
+
+	s, err := jsonparser.ParseString(beacon)
+	if err != nil {
+		return nil, false
 	}
-	return out, nil
+	ref := &models.SingleRef{Beacon: strfmt.URI(s)}
+
+	switch classificationType {
+	case jsonparser.NotExist:
+		return ref, true
+	case jsonparser.Object:
+		asMap, err := unmarshalObject(classification)
+		if err != nil {
+			return nil, false
+		}
+		if ref.Classification, err = parseRefClassificationMeta(asMap); err != nil {
+			return nil, false
+		}
+		return ref, true
+	default:
+		return nil, false
+	}
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
