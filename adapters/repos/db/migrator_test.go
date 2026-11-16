@@ -81,8 +81,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 					Enabled: true,
 				},
 			}
-			// The shard loads its class from the schema at init, so the lookup
-			// is always served; getClass marks the cases where it is required.
+			// Shard init always reads the class; getClass marks cases that require it.
 			readClass := mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
 			if !tt.getClass {
 				readClass.Maybe()

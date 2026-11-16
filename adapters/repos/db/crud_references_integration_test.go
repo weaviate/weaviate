@@ -157,7 +157,6 @@ func TestNestedReferences(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
-	// update schema getter so it's in sync with class
 	schemaGetter.schema = refSchema
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {

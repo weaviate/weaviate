@@ -125,7 +125,6 @@ func TestCRUD(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 
-	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{actionclass, thingclass},
