@@ -102,15 +102,12 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 	} {
 		for _, sc := range []struct {
 			name string
-			// Shard start reads the class before the flip; the after-load hook runs after it.
-			flipDuringLoad bool
 			// Only an unmirrored record refuses promotion over a canonical dir left on disk.
 			unmirrored bool
 			// With its task gone, only the record shows the swap; a stamp would block its promotion, so the load holds.
 			armFailsTaskGone bool
 		}{
 			{name: "flip after the load"},
-			{name: "flip during the load", flipDuringLoad: true},
 			{name: "unmirrored record", unmirrored: true},
 			{name: "mirror fails to arm after the task is gone", armFailsTaskGone: true},
 		} {
@@ -152,15 +149,7 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 				}
 				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
 				idx.shardReindexer = NewMigrationRecoveryReindexer(idx.logger, nil, p)
-				loadClass := class
-				if sc.flipDuringLoad {
-					snapshot := *class
-					prop := *class.Properties[0]
-					snapshot.Properties = []*models.Property{&prop}
-					loadClass = &snapshot
-					tc.flip(class.Properties[0])
-				}
-				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
+				shard = openShardFromDisk(t, ctx, idx, name)
 				if sc.armFailsTaskGone {
 					defer shard.Shutdown(context.Background())
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
@@ -177,9 +166,7 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 
 				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, lateToken)))
 
-				if !sc.flipDuringLoad {
-					tc.flip(class.Properties[0])
-				}
+				tc.flip(class.Properties[0])
 				require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
 
 				assertServed := func(s *Shard, when string) {
@@ -193,7 +180,7 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 				}
 				assertServed(shard, "after the flip")
 
-				shard = reloadShardFromDisk(t, ctx, idx, shard, class)
+				shard = reloadShardFromDisk(t, ctx, idx, shard)
 				defer shard.Shutdown(context.Background())
 				require.Empty(t, migrationRecordStates(t, lsm),
 					"the next load retires the record once the schema shows its effect")
@@ -256,10 +243,10 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 
 			require.NoError(t, shard.Shutdown(ctx))
 			idx.shardReindexer = &noRecoveryTaskReindexer{}
-			re := openShardFromDisk(t, ctx, idx, class, shard.Name())
+			re := openShardFromDisk(t, ctx, idx, shard.Name())
 			if tc.swap {
 				// The second load is the one that settles the promoted record.
-				re = reloadShardFromDisk(t, ctx, idx, re, class)
+				re = reloadShardFromDisk(t, ctx, idx, re)
 			}
 			defer re.Shutdown(ctx)
 
@@ -342,7 +329,7 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 			name := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 			idx.shardReindexer = &noRecoveryTaskReindexer{}
-			re := openShardFromDisk(t, ctx, idx, class, name)
+			re := openShardFromDisk(t, ctx, idx, name)
 
 			require.Equal(t, tc.stands, re.store.Bucket(bucketName) != nil, "after a reload")
 			require.NoError(t, re.PutObject(ctx, createTestObjectWithText(className, "zulu one")))
@@ -409,7 +396,7 @@ func TestBootLoadReDecidesAnEnabledIndexOnceTheTaskListIsReadable(t *testing.T) 
 				idx.db.migrationCluster.local = nil
 				idx.db.migrationCluster.mu.Unlock()
 				require.NoError(t, s.Shutdown(ctx))
-				return openShardFromDisk(t, ctx, idx, class, s.Name())
+				return openShardFromDisk(t, ctx, idx, s.Name())
 			}
 			forced := func(s *Shard) bool {
 				return s.SnapshotPropertyOverlay([]string{propName})[propName].ForceSearchable

@@ -101,7 +101,7 @@ func TestShardCopyOfAnEmptyStagedBucketDoesNotWedgeTheMigration(t *testing.T) {
 			simulateProcessRestartBucketCleanup(t, lsm)
 			keepOnlyListedFiles(t, idx.Config.RootPath, lsm, files)
 
-			loaded := openShardFromDisk(t, ctx, idx, class, name)
+			loaded := openShardFromDisk(t, ctx, idx, name)
 			defer loaded.Shutdown(context.Background())
 
 			assert.False(t, loaded.migrationRecords.Wedged(key), "the copied record must not be wedged")

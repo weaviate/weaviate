@@ -915,7 +915,7 @@ func (i *Index) initShard(ctx context.Context, shardName string,
 ) (ShardLike, error) {
 	class := i.getClass()
 	if class == nil {
-		return nil, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, i.Config.ClassName)
+		return nil, i.errClassNotInSchema(shardName)
 	}
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -942,6 +942,10 @@ func (i *Index) initShard(ctx context.Context, shardName string,
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil
+}
+
+func (i *Index) errClassNotInSchema(shardName string) error {
+	return fmt.Errorf("init local shard %q: class %s not found in schema", shardName, i.Config.ClassName)
 }
 
 func (i *Index) maintenanceModeEnabled() bool {

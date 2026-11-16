@@ -107,19 +107,15 @@ func copyDirTree(t *testing.T, from, to string) {
 }
 
 // One restart: reconciliation, then the bucket init that re-creates canonical dirs.
-func reloadShardFromDisk(t *testing.T, ctx context.Context, idx *Index, shard *Shard,
-	class *models.Class,
-) *Shard {
+func reloadShardFromDisk(t *testing.T, ctx context.Context, idx *Index, shard *Shard) *Shard {
 	t.Helper()
 	name := shard.Name()
 	require.NoError(t, shard.Shutdown(ctx))
 	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
-	return openShardFromDisk(t, ctx, idx, class, name)
+	return openShardFromDisk(t, ctx, idx, name)
 }
 
-func openShardFromDisk(t *testing.T, ctx context.Context, idx *Index,
-	class *models.Class, name string,
-) *Shard {
+func openShardFromDisk(t *testing.T, ctx context.Context, idx *Index, name string) *Shard {
 	t.Helper()
 	loaded, err := idx.initShard(ctx, name, nil, true, true)
 	require.NoError(t, err)
@@ -259,7 +255,7 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 				require.NoError(t, os.RemoveAll(renamedStaged))
 			}
 
-			current := openShardFromDisk(t, ctx, idx, class, shard.Name())
+			current := openShardFromDisk(t, ctx, idx, shard.Name())
 			afterFirstLoad := fingerprintInvertedBucket(t, current.store.Bucket(renamedCanonical))
 			if tc.deleteAfterLoad != deleteBeforeAnyLoad && !tc.emptyStaged {
 				require.Equal(t, donorTerms[promoteRenamedProp], afterFirstLoad,
@@ -289,7 +285,7 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 			}
 
 			for load := 2; load <= tc.loads; load++ {
-				current = reloadShardFromDisk(t, ctx, idx, current, class)
+				current = reloadShardFromDisk(t, ctx, idx, current)
 			}
 			defer current.Shutdown(ctx)
 

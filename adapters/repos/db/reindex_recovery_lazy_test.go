@@ -1040,7 +1040,6 @@ type doubleFaultFixture struct {
 	ctx        context.Context
 	name       string
 	className  string
-	class      *models.Class
 	idx        *Index
 	provider   *ReindexProvider
 	logger     logrus.FieldLogger
@@ -1072,7 +1071,7 @@ func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 	idx.shardReindexer = NewMigrationRecoveryReindexer(logger, nil, p)
 	installCaughtUpTaskList(ctx, idx.db)
 	fx := &doubleFaultFixture{
-		ctx: ctx, name: name, className: className, class: class, idx: idx, provider: p, logger: logger,
+		ctx: ctx, name: name, className: className, idx: idx, provider: p, logger: logger,
 		desc: distributedtask.TaskDescriptor{ID: "T", Version: 3},
 	}
 

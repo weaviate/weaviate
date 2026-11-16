@@ -229,7 +229,8 @@ type shardLoadView struct {
 	class    *models.Class
 }
 
-// Tasks before class (see cluster.Raft.LocalDistributedTasks); with no records nothing pairs them, so no task read.
+// readShardLoadView reads tasks before the class (see cluster.Raft.LocalDistributedTasks).
+// A shard with no migration records skips the task read and the task manager's lock.
 func (i *Index) readShardLoadView(shardName string, records *MigrationRecordStore,
 	fallback shardLoadFallback,
 ) (shardLoadView, error) {
@@ -241,8 +242,7 @@ func (i *Index) readShardLoadView(shardName string, records *MigrationRecordStor
 		return view, nil
 	}
 	if fallback.class == nil {
-		return shardLoadView{}, fmt.Errorf("init local shard %q: class %s not found in schema",
-			shardName, i.Config.ClassName)
+		return shardLoadView{}, i.errClassNotInSchema(shardName)
 	}
 	return shardLoadView{class: fallback.class}, nil
 }

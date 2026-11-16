@@ -52,7 +52,7 @@ func dimsMigrationShard(t *testing.T, ctx context.Context, objects int) (*Shard,
 	require.NoError(t, b.Shutdown(ctx))
 
 	idx.Config.TrackVectorDimensions = true
-	shard = reloadDimsMigrationShard(t, ctx, idx, shard, class)
+	shard = reloadDimsMigrationShard(t, ctx, idx, shard)
 	require.Equal(t, lsmkv.StrategyMapCollection, shard.store.Bucket(helpers.DimensionsBucketLSM).Strategy())
 
 	return shard, idx, class, putDimsMigrationObjects(t, ctx, shard, class, objects)
@@ -71,7 +71,7 @@ func putDimsMigrationObjects(t *testing.T, ctx context.Context, shard *Shard, cl
 }
 
 // reloadDimsMigrationShard leaves shutting down the returned shard to the caller.
-func reloadDimsMigrationShard(t *testing.T, ctx context.Context, idx *Index, shard *Shard, class *models.Class) *Shard {
+func reloadDimsMigrationShard(t *testing.T, ctx context.Context, idx *Index, shard *Shard) *Shard {
 	t.Helper()
 	// a shard that is shut down already reports so
 	_ = shard.Shutdown(ctx)
@@ -97,7 +97,7 @@ func TestShard_MigrateDimensionsBucketToRoaringSet(t *testing.T) {
 	requireDimensions(t, ctx, shard, 10)
 
 	t.Run("not enabled, the map bucket stays and is written to", func(t *testing.T) {
-		shard = reloadDimsMigrationShard(t, ctx, idx, shard, class)
+		shard = reloadDimsMigrationShard(t, ctx, idx, shard)
 		require.Equal(t, lsmkv.StrategyMapCollection, shard.store.Bucket(helpers.DimensionsBucketLSM).Strategy())
 		ids = append(ids, putDimsMigrationObjects(t, ctx, shard, class, 2)...)
 		requireDimensions(t, ctx, shard, 12)
@@ -106,7 +106,7 @@ func TestShard_MigrateDimensionsBucketToRoaringSet(t *testing.T) {
 	idx.Config.MigrateDimensionsToRoaringSet = true
 
 	t.Run("enabled, the bucket is migrated when the shard loads", func(t *testing.T) {
-		shard = reloadDimsMigrationShard(t, ctx, idx, shard, class)
+		shard = reloadDimsMigrationShard(t, ctx, idx, shard)
 		require.Equal(t, lsmkv.StrategyRoaringSet, shard.store.Bucket(helpers.DimensionsBucketLSM).Strategy())
 		requireDimensions(t, ctx, shard, 12)
 	})
@@ -120,7 +120,7 @@ func TestShard_MigrateDimensionsBucketToRoaringSet(t *testing.T) {
 	})
 
 	t.Run("still enabled on the next start, nothing changes", func(t *testing.T) {
-		shard = reloadDimsMigrationShard(t, ctx, idx, shard, class)
+		shard = reloadDimsMigrationShard(t, ctx, idx, shard)
 		require.Equal(t, lsmkv.StrategyRoaringSet, shard.store.Bucket(helpers.DimensionsBucketLSM).Strategy())
 		requireDimensions(t, ctx, shard, 14)
 	})
@@ -128,7 +128,7 @@ func TestShard_MigrateDimensionsBucketToRoaringSet(t *testing.T) {
 
 func TestShard_RecoversInterruptedDimensionsMigration(t *testing.T) {
 	ctx := testCtx()
-	shard, idx, class, _ := dimsMigrationShard(t, ctx, 10)
+	shard, idx, _, _ := dimsMigrationShard(t, ctx, 10)
 	require.NoError(t, shard.Shutdown(ctx))
 
 	migrated, err := shardusage.MigrateDimensionsBucketToRoaringSet(ctx, idx.logger, idx.path(), shard.Name())
@@ -140,7 +140,7 @@ func TestShard_RecoversInterruptedDimensionsMigration(t *testing.T) {
 	require.NoError(t, os.Mkdir(bucketPath+"___del", 0o700))
 
 	require.False(t, idx.Config.MigrateDimensionsToRoaringSet)
-	shard = reloadDimsMigrationShard(t, ctx, idx, shard, class)
+	shard = reloadDimsMigrationShard(t, ctx, idx, shard)
 	defer shard.Shutdown(ctx)
 
 	assert.Equal(t, lsmkv.StrategyRoaringSet, shard.store.Bucket(helpers.DimensionsBucketLSM).Strategy())

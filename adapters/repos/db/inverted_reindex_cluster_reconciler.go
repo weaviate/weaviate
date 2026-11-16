@@ -29,7 +29,6 @@ const migrationClusterReconcileInterval = time.Minute
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
 // task namespace. ok=false means "not installed", which licenses no discard.
-// Read it before the class; see cluster.Raft.LocalDistributedTasks.
 type MigrationLocalTaskSource func(shard string) ([]distributedtask.TaskStatusEntry, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.

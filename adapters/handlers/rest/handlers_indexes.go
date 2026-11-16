@@ -153,8 +153,8 @@ type classReader interface {
 }
 
 // readClassAndTasks reads the task list before the class, so the class can
-// never be the older of the two (see cluster.Raft.LocalDistributedTasks). A nil
-// lister (no cluster service) yields the class with no tasks. classes must be non-nil.
+// never be the older of the two. A nil lister means no cluster service: the
+// caller gets the class with no tasks. classes must be non-nil.
 //
 // ClassInfo runs ahead of the task read so a collection that does not exist
 // skips it: the task read clones and sorts every task in every namespace.

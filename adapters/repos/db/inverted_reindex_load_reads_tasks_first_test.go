@@ -194,14 +194,11 @@ func TestALoadReadsTheTaskMapOnceBeforeTheClass(t *testing.T) {
 	for k := int32(1); k <= reads; k++ {
 		rows = append(rows,
 			row{name: "flip", at: k, change: (*loadRaceEnv).flip},
-			row{name: "restore", at: k, change: (*loadRaceEnv).restore},
 			row{name: "restore, lazy", lazy: true, at: k, change: (*loadRaceEnv).restore},
 			row{name: "flip, merged record", merged: true, at: k, change: (*loadRaceEnv).flip},
 		)
 	}
-	rows = append(rows,
-		row{name: "flip", change: (*loadRaceEnv).flip},
-		row{name: "restore, lazy", lazy: true, change: (*loadRaceEnv).restore})
+	rows = append(rows, row{name: "restore, lazy", lazy: true, change: (*loadRaceEnv).restore})
 	for _, r := range rows {
 		t.Run(fmt.Sprintf("%s at task read %d", r.name, r.at), func(t *testing.T) {
 			e := newLoadRaceEnv(t, r.merged)
@@ -234,15 +231,18 @@ func TestALoadWhoseClassLeftTheSchema(t *testing.T) {
 		require.NotNil(t, s.store.Bucket(helpers.BucketSearchableFromPropNameLSM("title")))
 		require.True(t, s.migrationRecords.overridesUnsure.Load(), "the periodic reconciler redecides")
 	})
-	t.Run("eager load refuses before touching disk", func(t *testing.T) {
-		ctx := testCtx()
-		shd, idx := testShardWithSettings(t, ctx, newEnableSearchableTestClass("Dropped", []string{"title"}),
-			enthnsw.UserConfig{Skip: true}, false, false, false)
-		defer shd.Shutdown(ctx)
-		idx.Config.EnableLazyLoadShards = false
-		idx.getSchema = &frozenSchemaGetter{fakeSchemaGetter: idx.getSchema.(*fakeSchemaGetter), dropped: true}
+	for _, lazy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("registration refuses before touching disk, lazy=%v", lazy), func(t *testing.T) {
+			ctx := testCtx()
+			shd, idx := testShardWithSettings(t, ctx, newEnableSearchableTestClass("Dropped", []string{"title"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			defer shd.Shutdown(ctx)
+			idx.Config.EnableLazyLoadShards = lazy
+			idx.getSchema = &frozenSchemaGetter{fakeSchemaGetter: idx.getSchema.(*fakeSchemaGetter), dropped: true}
 
-		require.ErrorContains(t, idx.initLocalShard(ctx, "never-loaded"), "not found in schema")
-		require.NoDirExists(t, filepath.Join(idx.path(), "never-loaded"))
-	})
+			require.ErrorContains(t, idx.initLocalShard(ctx, "never-loaded"), "not found in schema")
+			require.Nil(t, idx.shards.Load("never-loaded"))
+			require.NoDirExists(t, filepath.Join(idx.path(), "never-loaded"))
+		})
+	}
 }

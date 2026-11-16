@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -865,18 +866,31 @@ func TestAnUnreadableRecordWithholdsEveryDestructiveArm(t *testing.T) {
 // An unreadable records directory holds no record and names no file to remove,
 // so the notice must report the store's own fault instead of a record count.
 func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T) {
-	lsmPath := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, migrationsDir), 0o777))
+	ctx := testCtx()
+	shd, idx := testShardWithSettings(t, ctx, newEnableSearchableTestClass("UnreadableRecords", []string{"title"}),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	name, lsmPath := shd.Name(), shd.(*Shard).pathLSM()
+	require.NoError(t, shd.Shutdown(ctx))
+	idx.shards.LoadAndDelete(name)
+	recordsDir := filepath.Join(lsmPath, migrationsDir, migrationRecordsDirName)
+	require.NoError(t, os.RemoveAll(recordsDir))
+	require.NoError(t, os.MkdirAll(filepath.Dir(recordsDir), 0o777))
 	// A regular file where the directory belongs: unlike a mode change it still fails for root.
-	require.NoError(t, os.WriteFile(filepath.Join(lsmPath, migrationsDir, migrationRecordsDirName), nil, 0o600))
+	require.NoError(t, os.WriteFile(recordsDir, nil, 0o600))
+	logger, logs := test.NewNullLogger()
+	idx.logger = logger
 
-	f := newReconcileFixtureAt(t, lsmPath)
-	require.Error(t, f.store.Load())
-	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	r.freezeNotice()
+	shard := openShardFromDisk(t, ctx, idx, name)
+	defer shard.Shutdown(ctx)
 
-	require.Len(t, f.logs.AllEntries(), 1)
-	notice := f.logs.AllEntries()[0]
+	var notices []*logrus.Entry
+	for _, entry := range logs.AllEntries() {
+		if strings.Contains(entry.Message, "withholding every destructive") {
+			notices = append(notices, entry)
+		}
+	}
+	require.Len(t, notices, 1)
+	notice := notices[0]
 	require.Equal(t, logrus.ErrorLevel, notice.Level)
 	require.Contains(t, notice.Message, "read migration records dir")
 	require.Contains(t, notice.Message, "not a directory", "the errno the store recorded reaches the operator")
@@ -884,6 +898,7 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 	require.NotContains(t, notice.Message, "downgrade", "no older build reads a file that is not there")
 	require.NotContains(t, notice.Message, "remove the files", "there is no file to remove")
 
+	r := shard.migrationReconciler(shard.migrations().LocalTasks, idx.getClass)
 	withheld := r.DiscardTask(context.Background(), testTask("T", 1, distributedtask.TaskStatusCancelled))
 	require.ErrorIs(t, withheld, errCleanupShardWithheld)
 	require.Contains(t, withheld.Error(), "not a directory", "terminal cleanup names the fault it withheld for")

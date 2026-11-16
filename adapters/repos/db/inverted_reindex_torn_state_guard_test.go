@@ -64,7 +64,6 @@ func tornGuardStateOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
 }
 
 func tornGuardReload(t *testing.T, ctx context.Context, shard *Shard, idx *Index,
-	class *models.Class,
 ) (*Shard, *ShardReindexTaskGeneric) {
 	t.Helper()
 	shardName := shard.Name()
@@ -94,7 +93,7 @@ func TestTornState_RebuiltDataGone_ReiteratesToBaseline(t *testing.T) {
 	require.DirExists(t, reindexDir, "fixture: the rebuild's dir must exist before we remove it")
 	require.NoError(t, os.RemoveAll(reindexDir))
 
-	shard2, task2 := tornGuardReload(t, ctx, shard, idx, class)
+	shard2, task2 := tornGuardReload(t, ctx, shard, idx)
 	defer shard2.Shutdown(ctx)
 
 	rec, ok := shard2.migrationRecords.Get(task2.migrationRecordKey())
@@ -134,7 +133,7 @@ func TestTornState_CommittedRecordKeepsItsMissingSidecarDirs(t *testing.T) {
 	require.NoDirExists(t, reindexDir,
 		"fixture: the prep must have removed the rebuild's dir; a failure here is the fixture, not the edge")
 
-	shard2, task2 := tornGuardReload(t, ctx, shard, idx, class)
+	shard2, task2 := tornGuardReload(t, ctx, shard, idx)
 	defer shard2.Shutdown(ctx)
 
 	assert.Equal(t, MigrationStateMerged, tornGuardStateOf(t, shard2, task2),
