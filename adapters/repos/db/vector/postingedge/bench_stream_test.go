@@ -14,6 +14,7 @@
 package postingedge
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
@@ -44,6 +46,9 @@ var (
 	benchStreamInsertEF    = flag.Int("bench.streaminsertef", 320, "with -bench.stream: the ef of the search for a new vector's edges")
 	benchStreamCheckpoints = flag.String("bench.streamcheckpoints", "60,70,80,90,100", "with -bench.stream: the shares of "+
 		"the train set, in percent, measured after the batch half")
+	benchStreamGuards = flag.String("bench.streamguards", "", "with a -bench.stream cell: the shares of the train set, in "+
+		"percent, where only the guard of the edge builder and the coverage are checked and the counts kept, without the "+
+		"measurements of a checkpoint (v2.1)")
 	benchStreamSample        = flag.Int("bench.streamsample", 2000, "with -bench.stream: vectors sampled for each edge recall")
 	benchStreamMinEdgeRecall = flag.Float64("bench.streamminedgerecall", 0.90, "with a -bench.stream cell: the edge recall "+
 		"at insertion below which the cell stops at a checkpoint, the guard of the edge builder (the pre-registered 0.90 "+
@@ -88,6 +93,19 @@ type streamCheckpoint struct {
 	Points         []benchPoint `json:"points"`
 }
 
+// streamGuard is what a cell keeps at a share of the train set where it only
+// checks the guard of the edge builder and the coverage: the edges of the
+// sample of the stretch's inserts, as streamCheckpoint.AtInsert, and the
+// counts so far.
+type streamGuard struct {
+	Percent   int         `json:"percent"`
+	Live      int         `json:"live"`
+	AtInsert  edgeCounts  `json:"atInsert"`
+	Coverage  string      `json:"coverage"`
+	Stats     streamStats `json:"stats"`
+	InsertSec float64     `json:"insertSec"`
+}
+
 type streamResult struct {
 	Cell        string             `json:"cell"`
 	Order       string             `json:"order"`
@@ -98,7 +116,41 @@ type streamResult struct {
 	Queries     int                `json:"queries"`
 	Config      map[string]any     `json:"config"`
 	Checkpoints []streamCheckpoint `json:"checkpoints"`
+	Guards      []streamGuard      `json:"guards,omitempty"`
 	Stopped     string             `json:"stopped,omitempty"`
+}
+
+// streamStop is a share of the train set where the inserts pause: for a
+// checkpoint, or for the guard alone.
+type streamStop struct {
+	percent    int
+	checkpoint bool
+}
+
+// streamStops merges the checkpoints and the guards of a cell, in order. A
+// share is one or the other, and the last one is a checkpoint: the stretch
+// that ends a cell is measured.
+func streamStops(checkpoints, guards []int) ([]streamStop, error) {
+	stops := make([]streamStop, 0, len(checkpoints)+len(guards))
+	for _, percent := range checkpoints {
+		stops = append(stops, streamStop{percent: percent, checkpoint: true})
+	}
+	for _, percent := range guards {
+		stops = append(stops, streamStop{percent: percent})
+	}
+	slices.SortStableFunc(stops, func(a, b streamStop) int { return cmp.Compare(a.percent, b.percent) })
+	for i, stop := range stops {
+		switch {
+		case stop.percent <= 50 || stop.percent > 100:
+			return nil, errors.Errorf("a stop at %d %% is outside the inserted half", stop.percent)
+		case i > 0 && stops[i-1].percent == stop.percent:
+			return nil, errors.Errorf("%d %% is given twice", stop.percent)
+		}
+	}
+	if len(stops) == 0 || !stops[len(stops)-1].checkpoint {
+		return nil, errors.New("the last stop of a cell is a checkpoint")
+	}
+	return stops, nil
 }
 
 // TestStream runs the streaming experiment of v2.0 (bench-report.md, "v2.0:
@@ -280,16 +332,49 @@ func TestStream(t *testing.T) {
 			cp.Batch.recall(), cp.Batch.postingRecall(), cp.Batch.degree(), s.stats.Splits, s.stats.SplitsFailed,
 			float64(s.stats.NonNearest)/float64(max(s.stats.Inserted, 1)), s.stats.InverseEdges, s.stats.Repaired,
 			s.stats.SiblingEdges, perInsert)
+		logInsertSearch(t, fmt.Sprintf("checkpoint %d%%", percent), s.stats)
 		if atInsert.Vectors > 0 && atInsert.recall() < *benchStreamMinEdgeRecall {
 			result.Stopped = fmt.Sprintf("edge recall at insert %.4f in the stretch to %d%%", atInsert.recall(), percent)
 			write()
 			t.Fatalf("stop and report: %s", result.Stopped)
 		}
 	}
+	// guard is what a stop does that is not a checkpoint: the two stops of
+	// the cell, and the counts.
+	guard := func(percent int, insertSec float64, atInsert edgeCounts) {
+		g := streamGuard{
+			Percent: percent, Live: s.liveCount, AtInsert: atInsert, Coverage: "complete",
+			Stats: s.stats.clone(), InsertSec: insertSec,
+		}
+		if err := s.checkCoverage(); err != nil {
+			g.Coverage = err.Error()
+			result.Stopped = fmt.Sprintf("coverage at %d%%: %v", percent, err)
+		} else if atInsert.Vectors > 0 && atInsert.recall() < *benchStreamMinEdgeRecall {
+			result.Stopped = fmt.Sprintf("edge recall at insert %.4f in the stretch to %d%%", atInsert.recall(), percent)
+		}
+		result.Guards = append(result.Guards, g)
+		write()
+		t.Logf("guard %d%%: %d live | edge recall at insert %.4f (postings %.4f, %d sampled) | splits %d (failed %d), "+
+			"non-nearest %.4f, inverse edges %d | %.0f us per insert",
+			percent, g.Live, atInsert.recall(), atInsert.postingRecall(), atInsert.Vectors, s.stats.Splits, s.stats.SplitsFailed,
+			float64(s.stats.NonNearest)/float64(max(s.stats.Inserted, 1)), s.stats.InverseEdges,
+			insertSec*1e6/float64(max(s.stats.Inserted, 1)))
+		logInsertSearch(t, fmt.Sprintf("guard %d%%", percent), s.stats)
+		if result.Stopped != "" {
+			t.Fatalf("stop and report: %s", result.Stopped)
+		}
+	}
 
+	var guards []int
+	if *benchStreamGuards != "" {
+		guards = parseInts(t, *benchStreamGuards)
+	}
+	stops, err := streamStops(parseInts(t, *benchStreamCheckpoints), guards)
+	require.NoError(t, err)
 	measure(50, half, 0, edgeCounts{})
 	inserted, insertTime := half, time.Duration(0)
-	for i, percent := range parseInts(t, *benchStreamCheckpoints) {
+	for i, stop := range stops {
+		percent := stop.percent
 		upto := n * percent / 100
 		// The guard counts a sample of the stretch's inserts as each is
 		// written; what it takes is kept out of the insert time.
@@ -317,7 +402,11 @@ func TestStream(t *testing.T) {
 		insertTime += time.Since(begin) - guardTime
 		s.onWrite = nil
 		inserted = upto
-		measure(percent, upto, insertTime.Seconds(), atInsert)
+		if stop.checkpoint {
+			measure(percent, upto, insertTime.Seconds(), atInsert)
+		} else {
+			guard(percent, insertTime.Seconds(), atInsert)
+		}
 	}
 
 	if reference == nil {
@@ -338,6 +427,17 @@ func TestStream(t *testing.T) {
 	require.NoError(t, err)
 	timed(reference, "reference-docid")
 	timed(s.ix, "cell")
+}
+
+// logInsertSearch logs the mean work of the edge search of an insert so far.
+func logInsertSearch(t *testing.T, at string, stats streamStats) {
+	if stats.Inserted == 0 || stats.SearchLoadsHist == nil {
+		return
+	}
+	per := 1 / float64(stats.Inserted)
+	t.Logf("%s: the search of an insert: %.1f loads, %.1f rounds, %.0f scanned, %.0f endpoints, %.1f rescored",
+		at, float64(stats.SearchLoads)*per, float64(stats.SearchRounds)*per, float64(stats.SearchScanned)*per,
+		float64(stats.SearchEndpoints)*per, float64(stats.SearchRescored)*per)
 }
 
 // calibrateStream runs the assignment and the split alone, without edges or
@@ -465,4 +565,48 @@ func bruteNeighbors(data *benchData, depth int) [][]uint64 {
 		}
 	})
 	return out
+}
+
+func TestStreamStops(t *testing.T) {
+	tests := []struct {
+		name        string
+		checkpoints []int
+		guards      []int
+		want        []streamStop
+		wantErr     string
+	}{
+		{
+			name:        "the checkpoints of v2.0",
+			checkpoints: []int{60, 70, 80, 90, 100},
+			want:        []streamStop{{60, true}, {70, true}, {80, true}, {90, true}, {100, true}},
+		},
+		{
+			name:        "one checkpoint behind the guards of v2.1",
+			checkpoints: []int{100},
+			guards:      []int{60, 70, 80, 90},
+			want:        []streamStop{{60, false}, {70, false}, {80, false}, {90, false}, {100, true}},
+		},
+		{
+			name:        "in any order",
+			checkpoints: []int{100, 70},
+			guards:      []int{90, 60},
+			want:        []streamStop{{60, false}, {70, true}, {90, false}, {100, true}},
+		},
+		{name: "a share twice", checkpoints: []int{80, 100}, guards: []int{80}, wantErr: "80 % is given twice"},
+		{name: "a guard at the end", checkpoints: []int{90}, guards: []int{100}, wantErr: "the last stop of a cell is a checkpoint"},
+		{name: "inside the batch half", checkpoints: []int{100}, guards: []int{50}, wantErr: "outside the inserted half"},
+		{name: "past the train set", checkpoints: []int{110}, wantErr: "outside the inserted half"},
+		{name: "nothing", wantErr: "the last stop of a cell is a checkpoint"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := streamStops(tt.checkpoints, tt.guards)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }

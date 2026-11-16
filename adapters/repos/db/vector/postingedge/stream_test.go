@@ -106,6 +106,21 @@ type streamStats struct {
 	SiblingEdges     int `json:"siblingEdges"`
 	SiblingDistances int `json:"siblingDistances"`
 	SiblingLists     int `json:"siblingLists"`
+	// SearchLoads, SearchRounds, SearchScanned, SearchEndpoints and
+	// SearchRescored add up the work of the edge search of every insert: the
+	// postings it loaded, its load rounds after the entry postings, the
+	// posting members and the edge endpoints it scored by code, and the
+	// candidates it compared at full precision. With postings on disk the
+	// loads are what an insert reads. The searches of a repair are not in.
+	SearchLoads     int `json:"searchLoads"`
+	SearchRounds    int `json:"searchRounds"`
+	SearchScanned   int `json:"searchScanned"`
+	SearchEndpoints int `json:"searchEndpoints"`
+	SearchRescored  int `json:"searchRescored"`
+	// SearchLoadsHist counts the inserts by the postings their edge search
+	// loaded: SearchLoadsHist[l] inserts loaded l. It is nil until an insert
+	// searches.
+	SearchLoadsHist []int `json:"searchLoadsHist,omitempty"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	NearestTime time.Duration `json:"nearestCheckNs"` // only the report needs it
@@ -122,7 +137,21 @@ type streamStats struct {
 func (s streamStats) clone() streamStats {
 	s.InverseWrites = slices.Clone(s.InverseWrites)
 	s.InversePostings = slices.Clone(s.InversePostings)
+	s.SearchLoadsHist = slices.Clone(s.SearchLoadsHist)
 	return s
+}
+
+// countSearch adds the work of the edge search of one insert.
+func (s *streamStats) countSearch(work SearchStats) {
+	s.SearchLoads += work.PostingsLoaded
+	s.SearchRounds += work.Rounds
+	s.SearchScanned += work.VectorsScanned
+	s.SearchEndpoints += work.EndpointsScored
+	s.SearchRescored += work.Rescored
+	if grow := work.PostingsLoaded + 1 - len(s.SearchLoadsHist); grow > 0 {
+		s.SearchLoadsHist = append(s.SearchLoadsHist, make([]int, grow)...)
+	}
+	s.SearchLoadsHist[work.PostingsLoaded]++
 }
 
 // streamIndex grows a built index by inserts.
@@ -299,11 +328,14 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	var dists []float32
 	if !s.cfg.assignOnly {
 		clock = time.Now()
-		neighbors, dists, err = s.ix.search(ctx, vector, s.neighbors, nil, nil)
+		var work SearchStats
+		neighbors, dists, err = s.ix.search(ctx, vector, s.neighbors, nil, &work)
 		if err != nil {
 			return errors.Wrapf(err, "search the neighbors of doc %d", docID)
 		}
-		s.stats.EdgeTime += time.Since(clock)
+		// SpreadTime is what a search spends on its stats alone.
+		s.stats.EdgeTime += time.Since(clock) - work.SpreadTime
+		s.stats.countSearch(work)
 	}
 
 	clock = time.Now()

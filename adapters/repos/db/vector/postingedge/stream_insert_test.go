@@ -741,3 +741,76 @@ func TestStreamInverseWritesPerInsert(t *testing.T) {
 		})
 	}
 }
+
+// The work an insert is charged is that of its own edge search: the same
+// search run just before it, on the index it finds, does the same work. The
+// searches of a repair are not charged to the insert, and a cell that does
+// not search charges nothing.
+func TestStreamInsertSearchWork(t *testing.T) {
+	const batch, total = 1200, 1800
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 421)
+
+	tests := []struct {
+		name string
+		cfg  streamConfig
+	}{
+		{name: "principal", cfg: streamConfig{threshold: 60}},
+		{name: "inverse edges", cfg: streamConfig{threshold: 60, inverse: true}},
+		{name: "edge repair", cfg: streamConfig{threshold: 60, repair: true}},
+		{name: "inverse edges and sibling repair", cfg: streamConfig{threshold: 60, inverse: true, siblings: true}},
+		{name: "assignment only", cfg: streamConfig{threshold: 60, assignOnly: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			s := newStreamTestIndex(t, all, batch, uc, tt.cfg)
+			uc.Distance, uc.EF = "l2-squared", 48
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+
+			var want streamStats
+			for id := uint64(batch); id < total; id++ {
+				if !tt.cfg.assignOnly {
+					_, _, work, err := s.ix.SearchByVectorWithStats(ctx, all[id], s.neighbors, nil)
+					require.NoError(t, err)
+					want.countSearch(work)
+				}
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.checkCoverage())
+
+			got := s.stats
+			assert.Equal(t, want.SearchLoads, got.SearchLoads)
+			assert.Equal(t, want.SearchRounds, got.SearchRounds)
+			assert.Equal(t, want.SearchScanned, got.SearchScanned)
+			assert.Equal(t, want.SearchEndpoints, got.SearchEndpoints)
+			assert.Equal(t, want.SearchRescored, got.SearchRescored)
+			assert.Equal(t, want.SearchLoadsHist, got.SearchLoadsHist)
+			if tt.cfg.assignOnly {
+				assert.Zero(t, got.SearchLoads)
+				assert.Nil(t, got.SearchLoadsHist)
+				return
+			}
+			if tt.cfg.repair {
+				assert.Positive(t, got.Repaired, "the repair searched, and none of it is charged")
+			}
+
+			// Every insert is counted once, by the postings its search loaded.
+			inserts, loads := 0, 0
+			for l, count := range got.SearchLoadsHist {
+				inserts += count
+				loads += l * count
+			}
+			assert.Equal(t, got.Inserted, inserts)
+			assert.Equal(t, got.SearchLoads, loads)
+			assert.GreaterOrEqual(t, got.SearchLoads, got.Inserted, "a search loads its entry posting at least")
+			assert.GreaterOrEqual(t, got.SearchScanned, got.SearchRescored, "a candidate is a scanned member")
+			assert.Positive(t, got.SearchEndpoints)
+
+			// The counts a checkpoint keeps are its own.
+			kept := s.stats.clone()
+			s.stats.SearchLoadsHist[0]++
+			assert.Equal(t, want.SearchLoadsHist, kept.SearchLoadsHist)
+		})
+	}
+}

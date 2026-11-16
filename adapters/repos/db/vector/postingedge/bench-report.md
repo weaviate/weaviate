@@ -138,6 +138,8 @@ En las cuatro celdas se reportan las dos cosas: el conteo directo, y esa aproxim
 
 **La celda 6 no entra en el barrido.** Su aporte está mezclado con un grado un 53 % mayor. Queda abierta, junto con la variante fiel al lote (hermanos con la regla del lote), sin medir ahora.
 
+*Smoke después del pre-registro (21:12):* para validar el binario, la cadena y el script de veredicto corrí dos smokes de 30 000 vectores, fuera del directorio de datos. Uno con las celdas de ef 80 y 20, y otro con la de ef 20 y el umbral de la guardia subido a 0.99, para comprobar que una celda se corta sola y la cadena sigue. No predicen 1M y no cambian nada de lo escrito arriba.
+
 ## v2.0: streaming en memoria (pre-registro, 2026-11-16)
 
 **Estado: pre-registrado y medido el mismo día.** El pre-registro se escribió y se commiteó antes de compilar nada del experimento, y cada enmienda y cada celda añadida, antes de sus datos. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Los resultados están abajo, en «Resultados (2026-11-16)».
