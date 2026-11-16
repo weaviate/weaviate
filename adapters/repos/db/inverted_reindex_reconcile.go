@@ -279,8 +279,11 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 
 	switch verdict {
 	case migrationVerdictLeave:
-		r.leftStanding(subject, why)
-		return nil
+		if !r.siblingFlipDecided(subject) {
+			r.leftStanding(subject, why)
+			return nil
+		}
+		why = "the other half of its unit recorded the flip decision"
 	case migrationVerdictDiscard:
 		return r.discard(ctx, subject, why)
 	case migrationVerdictCommit:
@@ -293,6 +296,27 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 		return err
 	}
 	return r.reconcileSwapped(ctx, swapped, someUnreadable)
+}
+
+// A unit records its decisions together, so a decided sibling proves this half's; an Unmirrored half may lag live data.
+func (r *migrationReconciler) siblingFlipDecided(subject MigrationSubject) bool {
+	if subject.Unmirrored {
+		return false
+	}
+	for _, rec := range r.store.Records() {
+		other := rec.Subject()
+		if !rec.FlipDecided() || other.TaskID != subject.TaskID ||
+			other.Key.TaskVersion != subject.Key.TaskVersion || other.Key.UnitID != subject.Key.UnitID ||
+			other.Key.StrategyCode == subject.Key.StrategyCode {
+			continue
+		}
+		for prop := range subject.Props {
+			if _, shared := other.Props[prop]; shared {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Skips a superseded property the way promoteSealed does: retirement deletes
