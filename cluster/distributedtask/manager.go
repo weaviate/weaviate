@@ -73,6 +73,7 @@ type Manager struct {
 	notifier SchedulerNotifier
 }
 
+// CheckPropertyUpdate returns the first conflict a detector reports for this update, before the FSM applies it.
 // RAFT-deterministic by construction: under m.mu (write lock to match
 // the apply paths that mutate m.tasks), every node sees the same task
 // list at the same applyIndex, and each detector is contractually a
@@ -365,6 +366,7 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 	return removed, nil
 }
 
+// DeleteTasksForCollection drops every task bound to collection, so a dropped and recreated class starts with no tasks.
 func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	if collection == "" {
 		return nil
