@@ -1,6 +1,6 @@
 # Índice posting+edges: notas para el diseño de la versión en disco
 
-**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. El resto del diseño de disco no está escrito aquí.
+**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento. El resto del diseño de disco no está escrito aquí.
 
 Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
 
@@ -214,7 +214,7 @@ Abierto:
 
 - **El mapa en sí:** dónde vive, cuánto ocupa (4 B por vector serían 40 MB a 10M) y qué cuesta su indirección por endpoint frente al `postingOf` de hoy. *Medido el 16: de un 28 a un 31 % más por endpoint con docIDs en orden de inserción, y de un 59 a un 65 % barajados (ver «Aristas por docID: el coste en memoria»).*
 - **El sidecar:** si se sigue indexando por slot o pasa al id estable, y qué hace con los huecos que dejan los deletes.
-- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas).
+- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas). *v2.0 no lo resuelve: sus «aristas inversas» son escrituras en las listas de los vecinos de un vector nuevo, no un índice de quién apunta a quién. Y v2.0 no tiene deletes.*
 - **Un update como delete más insert,** y qué les pasa a las aristas de los vecinos del vector movido.
 - **La invisibilidad transitoria de HFresh entre insert y split,** que deja vectores fuera de todo posting, como riesgo que el diseño tiene que cerrar por construcción.
 
@@ -232,6 +232,13 @@ Abierto:
 - **Cuándo se parte un posting que pasa de S,** cómo se reasignan sus miembros y cómo se actualiza el grafo de centroides.
 - **Qué recall pierde un índice que crece por inserciones** frente a uno construido de una vez, y cada cuánto hace falta rehacerlo.
 - **Si la asignación exacta sobrevive** o pasa a una asignación asistida por el grafo de centroides, con el coste de cobertura que eso tenga.
+
+*Medido el 16 en memoria (v2.0; el detalle, en «Mantenimiento: lo que deja v2.0»):*
+
+- *los vectores que ya existen tienen que ganar aristas hacia el nuevo: sin aristas inversas el índice no aguanta doblar el corpus;*
+- *el split simple (T=360 para S=236, 2-means, sin reasignar vecinos) no necesita reparar aristas si hay aristas inversas;*
+- *con aristas inversas, un índice que dobla su corpus por inserciones queda como el lote; más allá de doblarlo no está medido;*
+- *para los inserts basta la asignación asistida por el grafo de centroides con ef 8, con cobertura completa y de un 2.3 a un 2.6 % de asignaciones que no van al centroide más cercano.*
 
 ### 3. Modelo de I/O del layout
 
@@ -362,3 +369,84 @@ Datos en `testdata/bench/phase2/`:
 - `wikidpr-10m-endpointkeys.json`: el build;
 - `wikidpr-10m-endpointkeys-endpointkeys.json`: los ns por ronda de cada ordenación;
 - la cadena, en `scripts/run_endpoint_keys.sh`, que corre `-bench.endpointkeys`.
+
+## Mantenimiento: lo que deja v2.0 (2026-11-16)
+
+*Entrada para el diseño de mantenimiento, sin resolverlo. Las cifras son de `bench-report.md`, «v2.0: streaming en memoria»: dbpedia 1M, lote sobre el 50 % del corpus y el otro 50 % insertado, frente al lote del 100 %. Todo en memoria: son recall, cargas y conteos, y ningún I/O está medido. Las cuentas en bytes son derivadas, con los tamaños de este documento (208 B de id y código y 36 B de aristas por miembro, a 1536d). Lo que es lectura mía va marcado.*
+
+### Los veredictos
+
+| pregunta | veredicto | lo medido, al 100 % frente al lote |
+|---|---|---|
+| ¿Hacen falta aristas inversas? (H1) | **Sí.** | Sin ellas: −0.0341 de recall a ef 10, +77 % de cargas a 0.95 y +132 % a 0.99. Con ellas: +0.0007 en el peor ef, +2.3 % y −5.7 %. |
+| ¿Hay que reparar las aristas de un posting que se parte? (H2) | **No, si hay aristas inversas.** | La celda de aristas inversas hace 2 070 splits sin reparar ninguno y cumple el criterio. |
+| ¿Sustituye la reparación por búsqueda a las aristas inversas? | **No.** | Recupera el 60 % del recall perdido a ef 10 y queda en +29.9 % de cargas a 0.95, con 365.5 búsquedas por split. |
+| ¿Y la reparación por hermanos, sin búsqueda? | **Sola, no:** no iguala a la de búsqueda. **Sobre las aristas inversas, aporta.** | Sola: −0.0285 y +69.5 %. Con aristas inversas: +0.0067 de recall a ef 10 sobre H1, un 6 % menos de cargas a 0.95 y de un 10 a un 12 % menos a 0.99, con listas un 53 % más largas. |
+| ¿Aristas inversas más reparación por búsqueda? | sin medir | La celda no corrió. |
+
+**El mínimo que cumple es: aristas inversas en cada insert, y un split que no toca aristas.** La reparación por hermanos es una mejora opcional encima, que se paga en grado.
+
+### Lo que hace un insert
+
+| paso | medido en memoria | en disco (*lectura mía*) |
+|---|---|---|
+| asignación | grafo de centroides con ef 8; de un 2.3 a un 2.6 % no va al centroide más cercano, y el criterio se cumple igual | residente, sin I/O |
+| búsqueda de aristas, k=16 y ef=320 | de 53 a 60 cargas de posting en 13 a 15 rondas, y 64 candidatos de rescore | las mismas cargas y lecturas que una query a ese ef. Es el coste dominante de un insert |
+| escritura del miembro | una | un append al posting propio, el código en el sidecar y la entrada del mapa |
+| aristas inversas | lee las listas de 8.97 vecinos y escribe en 4.62 (p95 11), que viven en 3.28 postings distintos (p95 8) | depende de dónde vivan las aristas: la sección siguiente |
+| split, uno cada 240 inserts | 2-means, dos centroides nuevos y una lápida; con hermanos, 34 800 distancias exactas y 344 listas cambiadas | la reescritura de los dos hijos, que ya hace el `Put` de HFresh |
+
+- **Un insert carga más postings que una query a 0.99** (de 44 a 53 cargas). En HFresh un insert no lee ningún posting.
+- **El ef de inserción no se barrió.** Con 320, el recall de arista al insertar queda entre 0.964 y 0.987. Cuánto se puede bajar, y con él las cargas de un insert, es la primera medida que le falta al diseño.
+
+### Dónde viven las aristas
+
+**Los números:** un insert escribe en las listas de 4.62 vectores de media y de 11 en el p95. Esas listas están en 3.28 postings distintos de media y en 8 en el p95, todos distintos del suyo. El 10.5 % de los inserts no escribe ninguna, y el 20.5 % escribe 8 o más.
+
+**Lo que fija la búsqueda** (*lectura mía de cifras medidas*): a 0.95 una query puntúa unos 490 endpoints por posting cargado, así que sigue las aristas de decenas de sus miembros. Las aristas de un posting tienen que llegar con él, o estar ya en RAM. Un store en disco por docID, con una lectura por lista, queda descartado para la búsqueda.
+
+Quedan tres sitios. Las cuentas son por insert, a 1536d y con postings de 237 miembros (58 KB):
+
+| | (1) en el elemento del posting, reescribiendo el posting | (2) en el posting, con escrituras por elemento | (3) residentes en RAM, con un log |
+|---|---|---|---|
+| qué es | lo que propone hoy «HFresh map»: id, código y aristas en cada elemento, y `Put` del posting entero | un append por lista cambiada, y la lectura se queda con la última versión de cada miembro | las listas en memoria, como el sidecar; el posting lleva solo id y código |
+| escrituras de las aristas inversas | 3.28 postings enteros: 190 KB de media y 460 KB en el p95, frente a los 0.24 KB del append del insert | 4.62 elementos, 1.1 KB si el elemento lleva el código, o 0.3 KB si las aristas van aparte | 4.62 listas en RAM y sus entradas en el log, 0.3 KB |
+| lecturas de la comprobación | ninguna nueva: los vecinos salen de postings que la búsqueda del insert ya cargó | ninguna nueva | ninguna: residentes |
+| lo que añade a una carga | nada | las versiones viejas, hasta la siguiente reescritura: 4.62 por insert en todo el índice, frente a un miembro nuevo | nada; cada carga pesa 36 B menos por miembro |
+| lo que cuesta en RAM | nada | nada | de 36 a 55 B por vector, según el grado, sobre los 200 B del sidecar |
+| reparación por hermanos en el split | sin escrituras de más: el split ya reescribe los dos hijos | igual | 344 listas en RAM por split |
+
+- **(1) no aguanta estos números como camino síncrono:** reescribe unas 800 veces lo que escribe el insert.
+- **(2) y (3) son las candidatas.** (2) no gasta RAM y paga en lectura hasta que el posting se reescribe. (3) saca las aristas del camino de lectura y de la reescritura de postings, y cuesta RAM a la escala objetivo.
+- **La comprobación de la arista inversa necesita la distancia de la peor arista de cada vecino.** En v2.0 se recalcula entera, 10 distancias exactas por lista. *Mío, sin medir:* con la distancia guardada junto a cada arista es una comparación, y no hay que leer ningún vector exacto.
+
+### El split
+
+- **Sin reparar aristas ya cumple,** con aristas inversas. Tiene los pasos del split de HFresh menos su reasignación de vecinos: 2-means sobre los exactos, dos centroides nuevos y una lápida, y el mapa. T=360 deja el tamaño medio en 237 con S=236.
+- **La reparación por búsqueda queda descartada:**
+  - no llega al criterio, y son 1.51 búsquedas más por insert, cada una con las cargas de un insert;
+  - tiene un límite por construcción: con clusters compactos, la búsqueda no llega a la otra mitad (`TestStreamRepairReachesTheOtherHalf`).
+- **La reparación por hermanos, si se quiere su mejora, cuesta:**
+  - **grado:** de 8.9 a 13.7 aristas de media por vector, 19 B más por miembro. Es un 8 % más de bytes por carga en el layout (a), y un 23 % en el (c) con código de 256 bits;
+  - **distancias exactas:** 34 800 por split. Las de entre mitades usan los vectores de los miembros, que el 2-means ya lee. Las de las aristas actuales, de 3 000 a 5 000 por split (*estimado: el contador no las separa*), piden el vector exacto de endpoints de fuera del posting, o la distancia guardada con cada arista;
+  - **la búsqueda de cada insert:** puntúa un 11 % más de endpoints a ef 320, y sus aristas inversas escriben un 24 % más (5.73 por insert).
+- **Lo que compra:** a igual recall, un 6 % menos de cargas a 0.95 y de un 10 a un 12 % menos de cargas y de rondas a 0.99, con los mismos endpoints a 0.99 y un 4.8 % más a 0.95.
+- **Sin medir: los hermanos con la regla del lote.** Quedarse solo con los de la otra mitad que entran entre los 16 más cercanos del vector no subiría el grado. Diría cuánto de la mejora es reparación y cuánto es grado.
+
+### Señales y supuestos
+
+- **El recall de arista contra el corpus actual no sirve como señal de cuándo rehacer un índice.** Ni a nivel de vector ni de posting ordena las celdas por recall de búsqueda: la de reparación por búsqueda lo deja por encima de la de aristas inversas y busca peor.
+- **El recall de arista al insertar sí sirve como guardia del constructor:** dice si la búsqueda que crea las aristas funciona.
+- **La limpieza de lápidas del grafo de centroides funciona** tras cada tramo de splits (unas 400 lápidas cada 99 000 inserts).
+- **La representación por docID cuesta un 15 % de QPS con 8 threads,** de punta a punta y con los docIDs barajados. Es el caso malo del microbenchmark de arriba, medido ahora en la búsqueda entera.
+- **El orden natural de dbpedia no prueba la deriva:** queda como el barajado. Un corpus que llegue en orden semántico sigue sin medir.
+
+### Lo que v2.0 no mide
+
+- **Deletes y updates.** No hay ninguno.
+- **Más allá de doblar el corpus.** Un solo lote y una sola duplicación, en un dataset y a 1M.
+- **Concurrencia.** El harness es secuencial: ninguna búsqueda corre durante un insert ni durante un split.
+- **El ef de inserción,** fijo en 320.
+- **Aristas inversas con reparación por búsqueda,** y los hermanos con la regla del lote.
+- **El QPS de las celdas que cumplen.** Solo se cronometró la principal, que queda en 0.54x–0.64x de la referencia por docID a 0.95.
+- **Cualquier I/O.**

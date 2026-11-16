@@ -4,9 +4,9 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero en el v1 y el v1.1, en reposo y de noche en el v1.2
 
-## Resumen, al cierre del 2026-11-13
+## Resumen, al cierre del 2026-11-16
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), y el cambio del ef de centroides a 8 del 16.*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, y el streaming en memoria del 16 (v2.0).*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -55,9 +55,19 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 3. **El número de distancias.** Ni el cap ni una arista por posting de destino lo recortan a igual recall a 0.99: lo que quitan vuelve como cargas. A 0.95, una por posting recorta un 9 % de las distancias y un 3.7 % de la query. A 0.99 las sube un 7 %. El cap las sube en los dos puntos.
 4. **Contabilidad por endpoint:** el 15 % del tiempo a 0.95. Es ilustrativo.
 
+**Mantenimiento por inserciones (v2.0, del 16).** dbpedia 1M, con el lote sobre el 50 % y el resto insertado, frente al lote del 100 %. En memoria.
+
+- **Sin aristas inversas no aguanta.** Al doblar el corpus pierde 0.034 de recall a ef 10 y carga un 77 % más a 0.95. Con la misma representación, el QPS queda en 0.54x–0.64x a 0.95.
+- **Con aristas inversas queda como el lote:** +0.0007 de recall en el peor ef y un 2.3 % más de cargas a 0.95, con 2 070 splits sin reparar.
+  - Cada insert escribe 4.62 aristas inversas de media y 11 en el p95, en 3.28 postings distintos.
+- **Reparar el split no las sustituye:** por búsqueda recupera el 60 % de lo perdido, y por hermanos, del 10 al 16 %.
+- **Hermanos sobre aristas inversas mejoran al lote:** un 4 % menos de cargas a 0.95 y un 17 % menos a 0.99, con listas un 53 % más largas que las de H1.
+- **Un insert cuesta su búsqueda:** de 53 a 60 cargas de posting a ef 320, más que una query a 0.99. El ef de inserción no se barrió.
+- **La representación por docID cuesta un 15 % de QPS** con 8 threads, con los docIDs barajados.
+
 **Limitaciones:**
 
-- **Build en lote:** `AddBatch` solo admite vectores antes de `Build`, que corre una vez; después devuelve `ErrBuilt`.
+- **Build en lote:** `AddBatch` solo admite vectores antes de `Build`, que corre una vez; después devuelve `ErrBuilt`. El camino incremental de v2.0 vive en los tests, no en el índice.
 - **Sin deletes ni updates:** `Delete`, y volver a añadir un id, devuelven `ErrNotSupported`.
 - **Build de ~4x HNSW a 1M y ~8x a 10M:** unas 3 h 45 min frente a 27 min.
   - La asignación exacta es n·k, cuadrática en N con S fijo.
@@ -67,7 +77,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v2.0: streaming en memoria (pre-registro, 2026-11-16)
 
-**Estado: pre-registrado, sin datos.** Escrito y commiteado antes de compilar nada del experimento. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+**Estado: pre-registrado y medido el mismo día.** El pre-registro se escribió y se commiteó antes de compilar nada del experimento, y cada enmienda y cada celda añadida, antes de sus datos. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Los resultados están abajo, en «Resultados (2026-11-16)».
 
 ### Qué se valida
 
@@ -322,6 +332,353 @@ Las cargas difieren menos de un 0.5 % en todos los ef. La diferencia de recall e
 La regla de «barato» compara el tiempo de inserción de H2 con el de la principal. La principal corrió sola y H2 corre en paralelo con H1 y con el orden natural, así que la contención penaliza a H2 en la comparación. El orden natural hace el mismo trabajo que la principal y, en paralelo, tarda un 26 % más en el tramo del 50 al 60 % (472 s frente a 376 s).
 
 La regla se sigue como está escrita. Si se salta la celda 4, no se lanza a mano, y se anota en los resultados con este motivo.
+
+### Resultados (2026-11-16)
+
+*Escrito el 16 por la noche, con todas las corridas acabadas (20:41). Las tablas completas, por celda y por checkpoint, están en `v2.0/stream-verdict.md`, de `v2.0/scripts/stream_verdict.py`.*
+
+**Veredicto: por la regla pre-registrada, H1 y H2 no se sostienen. Por separado, la que cae es H1:** sin aristas inversas el índice no aguanta doblar el corpus por inserciones, y con ellas queda como el lote sin reparar ningún split.
+
+| pre-registro | resultado al 100 % |
+|---|---|
+| celda principal: recall a 0.005 o menos del lote en cada ef, y cargas a 0.95 un 15 % o menos por encima | **no cumple:** −0.0341 en el peor ef y −0.0054 en el mejor; cargas +77.0 % |
+| control H1, aristas inversas | **cumple:** peor diferencia +0.0007 y cargas +2.3 %. Repetida, +0.0006 y +1.8 % |
+| control H2, reparación por búsqueda en el split | no cumple: −0.0135 y cargas +29.9 % |
+| celda 4, las dos | no corrió: la regla de «barato» la saltó por 82 s |
+| orden natural, que no decide | como la principal: −0.0360 y cargas +80.3 % |
+| celda 5, hermanos, frente al lote | no cumple: −0.0285 y cargas +69.5 % |
+| celda 5 frente a H2 | **no iguala a H2: no es la candidata.** Queda 0.0150 por debajo a ef 10 y carga un 30.5 % más |
+| celda 6, aristas inversas más hermanos, frente al lote | **cumple:** peor diferencia +0.0009 y cargas −4.1 % |
+| celda 6 frente a H1 | **los hermanos aportan:** hasta +0.0067 de recall (ef 10) y un 6.2 % menos de cargas a 0.95, sin perder en ningún ef. No es mixto |
+| stops | ninguno, en ninguna celda |
+
+**Todas las celdas al 100 %,** frente a la referencia en lote del mismo corpus:
+
+| celda | aristas inversas | en el split | peor diferencia de recall | cargas a 0.95 | cargas a 0.99 | endpoints a 0.95 | endpoints a 0.99 | grado: insertados / lote | cumple |
+|---|---|---|---|---|---|---|---|---|---|
+| referencia en lote | | | | 10.1 | 52.8 | 4 953 | 26 634 | | |
+| principal | no | nada | −0.0341 | 17.8 (+77.0 %) | 122.5 (+132.2 %) | 8 951 | 55 312 | 9.23 / 8.57 | no |
+| principal, orden natural | no | nada | −0.0360 | 18.1 (+80.3 %) | 123.6 (+134.1 %) | 9 098 | 55 847 | 9.15 / 8.51 | no |
+| H1 | sí | nada | +0.0007 | 10.3 (+2.3 %) | 49.8 (−5.7 %) | 5 090 | 26 183 | 9.32 / 8.57 | **sí** |
+| H1, repetición | sí | nada | +0.0006 | 10.2 (+1.8 %) | 48.3 (−8.5 %) | 5 090 | 25 549 | 9.29 / 8.57 | **sí** |
+| H2 | no | búsqueda | −0.0135 | 13.1 (+29.9 %) | 91.8 (+73.8 %) | 6 723 | 45 269 | 9.81 / 9.73 | no |
+| celda 5 | no | hermanos | −0.0285 | 17.1 (+69.5 %) | 118.2 (+123.9 %) | 9 115 | 56 643 | 12.39 / 15.00 | no |
+| celda 6 | sí | hermanos | +0.0009 | 9.6 (−4.1 %) | 43.6 (−17.5 %) | 5 337 | 25 607 | 12.43 / 14.99 | **sí** |
+
+**Lo que deja para el diseño de mantenimiento** (el detalle, en `disk-design.md`, «Mantenimiento: lo que deja v2.0»):
+
+- **Las aristas inversas son necesarias, y bastan para el criterio.** H1 hace 2 070 splits sin reparar ninguno y queda como el lote.
+- **La reparación por búsqueda (H2) no las sustituye:** recupera el 60 % de lo que pierde la principal, con 1.51 búsquedas más por insert.
+- **Los hermanos solos no sirven, y sobre las aristas inversas mejoran al lote.** La celda 6 carga un 6 % menos que H1 a 0.95 y de un 10 a un 12 % menos a 0.99. Lo paga en grado: sus listas son un 53 % más largas que las de H1.
+- **Un insert de H1 escribe 4.62 aristas inversas de media y 11 en el p95,** en 3.28 postings distintos (8 en el p95).
+- **El coste de un insert es su búsqueda:** de 53 a 60 cargas de posting a ef 320, más que una query a 0.99.
+
+### Resultados: condiciones
+
+- **Umbral.** La calibración da T=360, con un tamaño medio final de 237.4 (banda: de 200.6 a 271.4). T=320 da 212.9 y T=400, 264.4, también dentro; 280 y 472 quedan fuera (186.2 y 311.7).
+- **Tamaño de posting al 100 %,** en todas las celdas: media de 237.5 a 239.0, p95 de 344 a 345 y máximo 360. La comparación no mide S.
+- **Stops: ninguno.**
+  - Cobertura completa en todos los checkpoints de cada celda.
+  - Guardia del constructor: el recall de arista al insertar no baja de 0.964 en ningún tramo de ninguna celda (umbral 0.90).
+  - Ningún split falla, y ninguna query necesita la verdad de terreno por fuerza bruta.
+- **Lápidas del grafo de centroides.** La limpieza funciona en cada checkpoint (en la principal, de 383 a 435 lápidas por tramo, las de sus splits). Todo se mide sin lápidas.
+- **Asignaciones no-nearest:** de un 2.3 a un 2.6 % de los inserts no van a su centroide vivo más cercano. Es lo que deja el ef de centroides 8.
+- **Orden de las corridas:**
+  - de 13:29 a 15:26, la principal sola, con su referencia y la frontera cronometrada (de 14:35 a 15:26);
+  - de 15:26 a 17:53, H1, H2 y el orden natural en paralelo;
+  - de 17:54 a 18:55, la celda 5 sola;
+  - de 18:55 a 19:59, la celda 6 sola;
+  - de 19:59 a 20:41, la repetición de H1 sola, con un único checkpoint al 100 %.
+- **Actividad de usuario** (`pmset -g log`), siempre sobre inserciones sin cronometrar:
+  - de 13:35 a 14:18, en la principal;
+  - de 17:11 a 17:34, en H2;
+  - de 18:29 a 18:45, en la celda 5;
+  - de 19:54 a 20:10, en el final de la celda 6 y el principio de la repetición de H1;
+  - la frontera cronometrada corrió con la pantalla apagada y sin teclado.
+
+### Resultados: recall a igual ef y cargas
+
+**Recall a igual ef al 100 %: diferencia frente al lote.** El umbral es −0.005 en cada ef.
+
+| ef | lote | principal | orden natural | H1 | H1, repetición | H2 | celda 5 | celda 6 |
+|---|---|---|---|---|---|---|---|---|
+| 10 | 0.9229 | −0.0341 | −0.0360 | +0.0008 | +0.0008 | −0.0135 | −0.0285 | +0.0075 |
+| 20 | 0.9506 | −0.0307 | −0.0320 | +0.0022 | +0.0020 | −0.0132 | −0.0259 | +0.0072 |
+| 40 | 0.9664 | −0.0257 | −0.0262 | +0.0013 | +0.0022 | −0.0105 | −0.0234 | +0.0048 |
+| 80 | 0.9782 | −0.0202 | −0.0211 | +0.0008 | +0.0014 | −0.0093 | −0.0188 | +0.0038 |
+| 160 | 0.9858 | −0.0155 | −0.0163 | +0.0009 | +0.0013 | −0.0074 | −0.0137 | +0.0025 |
+| 320 | 0.9908 | −0.0111 | −0.0113 | +0.0011 | +0.0013 | −0.0060 | −0.0099 | +0.0024 |
+| 640 | 0.9940 | −0.0070 | −0.0072 | +0.0012 | +0.0013 | −0.0037 | −0.0067 | +0.0017 |
+| 1024 | 0.9960 | −0.0054 | −0.0055 | +0.0007 | +0.0006 | −0.0031 | −0.0049 | +0.0009 |
+| peor | | −0.0341 | −0.0360 | +0.0007 | +0.0006 | −0.0135 | −0.0285 | +0.0009 |
+
+**Cargas a 0.95 por checkpoint.** El umbral al 100 % es un 15 % sobre el lote.
+
+| checkpoint | principal | orden natural | H1 | H1, repetición | H2 | celda 5 | celda 6 | lote |
+|---|---|---|---|---|---|---|---|---|
+| 50 % | 8.7 | 8.6 | 8.8 | 8.8 | 8.8 | 8.8 | 8.8 | |
+| 60 % | 11.5 | 11.1 | 9.4 | | 10.9 | 11.4 | 9.1 | |
+| 70 % | 13.3 | 13.2 | 9.6 | | 11.7 | 12.9 | 9.3 | |
+| 80 % | 14.7 | 14.6 | 10.0 | | 12.5 | 14.0 | 9.5 | |
+| 90 % | 16.6 | 16.3 | 10.0 | | 12.9 | 16.0 | 9.6 | |
+| 100 % | 17.8 | 18.1 | 10.3 | 10.2 | 13.1 | 17.1 | 9.6 | 10.1 |
+| al 100 %, frente al lote | +77.0 % | +80.3 % | +2.3 % | +1.8 % | +29.9 % | +69.5 % | −4.1 % | |
+| endpoints al 100 % | 8 951 (+80.7 %) | 9 098 (+83.7 %) | 5 090 (+2.8 %) | 5 090 (+2.8 %) | 6 723 (+35.8 %) | 9 115 (+84.0 %) | 5 337 (+7.8 %) | 4 953 |
+
+**Cargas a 0.99 por checkpoint** (informativo; el criterio es a 0.95):
+
+| checkpoint | principal | orden natural | H1 | H1, repetición | H2 | celda 5 | celda 6 | lote |
+|---|---|---|---|---|---|---|---|---|
+| 50 % | 38.7 | 34.4 | 38.8 | 38.8 | 38.8 | 38.8 | 38.8 | |
+| 60 % | 67.9 | 65.7 | 39.1 | | 61.5 | 66.0 | 37.6 | |
+| 70 % | 82.7 | 84.3 | 40.9 | | 69.2 | 79.1 | 38.3 | |
+| 80 % | 95.1 | 95.2 | 45.9 | | 75.4 | 92.0 | 41.9 | |
+| 90 % | 111.3 | 108.2 | 48.4 | | 81.5 | 109.7 | 43.0 | |
+| 100 % | 122.5 | 123.6 | 49.8 | 48.3 | 91.8 | 118.2 | 43.6 | 52.8 |
+| al 100 %, frente al lote | +132.2 % | +134.1 % | −5.7 % | −8.5 % | +73.8 % | +123.9 % | −17.5 % | |
+| endpoints al 100 % | 55 312 (+107.7 %) | 55 847 (+109.7 %) | 26 183 (−1.7 %) | 25 549 (−4.1 %) | 45 269 (+70.0 %) | 56 643 (+112.7 %) | 25 607 (−3.9 %) | 26 634 |
+
+- **La principal pierde en todos los ef,** también en el más alto: −0.0054 a ef 1024, donde el umbral es −0.005. A 0.95 puntúa un 81 % más de endpoints que el lote, y a 0.99 más del doble.
+- **La pérdida llega pronto.** Con un 20 % más de corpus (checkpoint del 60 %), las cargas a 0.99 de la principal pasan de 38.7 a 67.9. Las de H1, que al 100 % queda como el lote, pasan de 38.8 a 39.1.
+- **Con aristas inversas el índice queda como el lote, o por delante.** H1 gana recall en todos los ef (de +0.0007 a +0.0022) y carga un 2.3 % más a 0.95 y un 5.7 % menos a 0.99. La celda 6 gana más recall (de +0.0009 a +0.0075) y carga menos en los dos puntos; su detalle está más abajo.
+- **H2 recupera parte:** el 60 % del déficit de recall a ef 10 y el 61 % del exceso de cargas a 0.95 (el 44 % a 0.99). Queda fuera del umbral de recall en los ef de 10 a 320.
+- **La celda 5 recupera poco:** el 16 % del déficit de recall a ef 10 y el 10 % del exceso de cargas a 0.95. Puntúa más endpoints que la principal (9 115 frente a 8 951 a 0.95) con menos cargas, porque sus listas son más largas.
+- **El orden natural queda como el barajado:** 0.0019 por debajo a ef 10 y 0.0001 a ef 1024, con 18.1 cargas a 0.95 frente a 17.8.
+  - **Es una prueba de deriva débil en este dataset.** El recall de arista de los vectores del lote contra el corpus actual cae igual en los dos órdenes, a 0.4199 y a 0.4245. La segunda mitad de las filas cae en los vecindarios de la primera como una mitad al azar.
+  - Así que la variante no encuentra deriva, y tampoco la descarta para un corpus que llegue en orden semántico.
+
+### Resultados: las métricas de aristas
+
+**Recall de arista,** a nivel de vector y, entre paréntesis, de posting. «Al insertar» es la guardia del constructor: el peor tramo de cada celda. «Ahora» es contra el corpus del checkpoint, del 60 al 100 %.
+
+| celda | al insertar, peor tramo | insertados ahora, 60 % → 100 % | lote ahora, 60 % → 100 % | grado al 100 %: insertados / lote |
+|---|---|---|---|---|
+| principal | 0.9641 (0.9465) | 0.8905 → 0.6975 (0.7773) | 0.7809 → 0.4245 (0.5921) | 9.23 / 8.57 |
+| orden natural | 0.9653 (0.9481) | 0.8893 → 0.6876 (0.7671) | 0.7704 → 0.4199 (0.5860) | 9.15 / 8.51 |
+| H1 | 0.9846 (0.9790) | 0.9297 → 0.8245 (0.8730) | 0.8515 → 0.6715 (0.7673) | 9.32 / 8.57 |
+| H1, repetición | 0.9849 (0.9785) | 0.8264 (0.8725), solo al 100 % | 0.6700 (0.7670), solo al 100 % | 9.29 / 8.57 |
+| H2 | 0.9730 (0.9599) | 0.9073 → 0.8037 (0.8635) | 0.8383 → 0.6825 (0.7848) | 9.81 / 9.73 |
+| celda 5 | 0.9661 (0.9498) | 0.9036 → 0.7367 (0.8165) | 0.8222 → 0.5106 (0.6764) | 12.39 / 15.00 |
+| celda 6 | 0.9863 (0.9799) | 0.9428 → 0.8707 (0.9084) | 0.8996 → 0.7816 (0.8460) | 12.43 / 14.99 |
+
+- **La guardia del constructor se cumple con margen.** La búsqueda que crea las aristas encuentra más del 96 % de las que tocan en el momento de insertar. Con aristas inversas encuentra más: 0.985 frente a 0.964 en el último tramo.
+- **La obsolescencia es grande en todas las celdas.** En la principal, a los vectores del lote les queda el 42 % de sus aristas exactas contra el corpus actual, y a los insertados el 70 %.
+- **Ninguna de las dos métricas de obsolescencia ordena las celdas por recall de búsqueda.** H2 deja el recall de arista del lote por encima del de H1, a nivel de vector (0.6825 frente a 0.6715) y de posting (0.7848 frente a 0.7673), y pierde 0.0135 de recall de búsqueda donde H1 no pierde nada.
+  - La celda 5 es el otro contraejemplo: deja el recall de arista del lote en 0.5106, por encima del 0.4245 de la principal, y su recall de búsqueda queda casi igual.
+  - *Lectura mía, sin medir:* lo que H1 cambia directamente es que cada vector nuevo recibe aristas entrantes al llegar. No hay ningún conteo de aristas entrantes por vector en estas corridas.
+  - Consecuencia para disco: el recall de arista contra el corpus actual no sirve como señal de cuándo rehacer un índice.
+
+### Resultados: el split, H2 y la celda 5
+
+**La celda 5 no iguala a H2 y no es la candidata.** Queda 0.0150 por debajo de H2 a ef 10, donde el umbral es 0.001, y carga un 30.5 % más a 0.95, donde el umbral es un 2 %. Las diferencias pasan el suelo de ruido en todos los ef: la menor es 0.0018 a ef 1024, con un suelo de 0.0001.
+
+| | H2, reparación por búsqueda | celda 5, hermanos |
+|---|---|---|
+| peor diferencia de recall frente al lote | −0.0135 | −0.0285 |
+| cargas a 0.95, frente al lote | 13.1 (+29.9 %) | 17.1 (+69.5 %) |
+| trabajo por split | 365.5 búsquedas con ef 320 | 34 820 distancias exactas |
+| µs por split, indicativo | 1 496 645, en paralelo con otras dos celdas | 12 186, sola |
+| grado medio al 100 %, insertados / lote | 9.81 / 9.73 | 12.39 / 15.00 |
+
+- **El split en sí es una parte pequeña del daño.** La reparación por hermanos repone por construcción las aristas que un split rompe, las de una mitad hacia la otra (2 696 por split), y recupera entre un 10 y un 16 % de lo que pierde la principal.
+- **Lo que recupera H2 es sobre todo obsolescencia** (*lectura mía de las dos celdas juntas*). Su reparación vuelve a buscar las aristas de cada miembro contra el corpus de ese momento, así que también lo enlaza con lo que llegó después. Son 1.51 búsquedas más por insert, repartidas en los splits.
+  - La salvedad: la celda 5 no es un aislamiento limpio del split, porque sus listas crecen hasta 16 y cada carga puntúa más endpoints.
+- **La evidencia directa sobre H2 la da la celda H1:** hace 2 070 splits sin reparar ninguno y queda como el lote.
+  - Reparar el split con hermanos sí suma algo encima de las aristas inversas (la celda 6, abajo). Lo que no hace falta para cumplir el criterio es repararlo.
+- **La reparación por búsqueda tiene además un límite por construcción,** que no depende de este dataset: en los tests sintéticos de clusters compactos, donde las dos mitades no tienen aristas entre sí ni camino por otros postings, la búsqueda no llega a la otra mitad (`TestStreamRepairReachesTheOtherHalf`).
+
+### Resultados: H1 y las escrituras de aristas inversas por insert
+
+*El encargo: cuántas escrituras de aristas inversas hace cada insert de H1, media y p95. Salen de la repetición de H1, que guarda el histograma por insert. La corrida original solo guarda el total.*
+
+| por insert | H1, repetición | celda 6 |
+|---|---|---|
+| vecinos encontrados fuera del posting, cuyas listas lee | 8.97 | 9.13 |
+| **escrituras de aristas inversas: media** | **4.62** | 5.73 |
+| p50 / **p95** / máximo | 4 / **11** / 16 | 5 / 12 / 16 |
+| inserts que no escriben ninguna | 10.5 % | 7.5 % |
+| inserts que escriben 8 o más | 20.5 % | 31.6 % |
+| **postings distintos donde caen: media** | **3.28** | 3.83 |
+| p50 / **p95** / máximo | 3 / **8** / 16 | 3 / 9 / 16 |
+| inserts que escriben en un posting o en ninguno | 26.3 % | 19.6 % |
+| distancias exactas de la comprobación | 89.9 | 118.0 |
+
+- **Un insert de H1 escribe 4.62 aristas inversas de media y 11 en el p95.** Lee las listas de sus 8.97 vecinos de fuera del posting y entra en el 51 % de ellas.
+- **Esas escrituras caen en 3.28 postings distintos de media y 8 en el p95.** Son 1.4 escrituras por posting tocado, así que agruparlas por posting ahorra un 29 % de las escrituras.
+- **Crecen con el corpus.** En la corrida original pasan de 4.38 por insert en el tramo del 50 al 60 % a 4.79 en el del 90 al 100 %.
+- **La comprobación hace 10 distancias exactas por lista leída,** porque recalcula la de cada arista de la lista.
+  - *Mío, sin medir:* con la distancia de cada arista guardada en su lista, la comprobación sería una comparación contra la peor, con una distancia que la búsqueda del insert ya tiene.
+- **La repetición coincide con la original,** como pedía el pre-registro:
+  - 4.619 escrituras por insert en las dos (2 286 459 y 2 286 637 en total);
+  - 2 053 splits frente a 2 070;
+  - recall al 100 % a 0.0009 o menos en cada ef, y 10.24 y 10.29 cargas a 0.95.
+
+**El suelo de ruido al 100 %** es la diferencia entre las dos corridas de H1:
+
+| ef | 10 | 20 | 40 | 80 | 160 | 320 | 640 | 1024 |
+|---|---|---|---|---|---|---|---|---|
+| recall al 100 %: diferencia entre las dos corridas de H1 | 0.0001 | 0.0002 | 0.0009 | 0.0007 | 0.0004 | 0.0003 | 0.0002 | 0.0001 |
+| recall al 50 %: diferencia máxima entre las seis corridas barajadas | 0.0009 | 0.0007 | 0.0003 | 0.0004 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+- Las cargas difieren un 0.5 % entre las dos corridas de H1 a 0.95, y un 3.0 % a 0.99 (49.8 y 48.3).
+- En cada comparación entre celdas, el suelo de un ef es el mayor de los dos.
+
+### Resultados: la celda 6, aristas inversas más reparación por hermanos
+
+**Cumple el criterio, y frente a H1 los hermanos aportan.** Gana más de 0.001 de recall en los ef de 10 a 320, y carga un 6.2 % menos a 0.95, donde el umbral es un 2 %. No pierde en ningún ef, así que el veredicto no es mixto.
+
+| ef | H1 | H1, repetición | celda 6 | frente a H1 | frente a la repetición | suelo de ruido |
+|---|---|---|---|---|---|---|
+| 10 | 0.9238 | 0.9237 | 0.9304 | +0.0067 | +0.0067 | 0.0009 |
+| 20 | 0.9528 | 0.9526 | 0.9578 | +0.0051 | +0.0053 | 0.0007 |
+| 40 | 0.9677 | 0.9686 | 0.9712 | +0.0035 | +0.0026 | 0.0009 |
+| 80 | 0.9789 | 0.9796 | 0.9820 | +0.0031 | +0.0024 | 0.0007 |
+| 160 | 0.9867 | 0.9871 | 0.9883 | +0.0016 | +0.0013 | 0.0004 |
+| 320 | 0.9919 | 0.9922 | 0.9932 | +0.0013 | +0.0011 | 0.0003 |
+| 640 | 0.9952 | 0.9954 | 0.9957 | +0.0005 | +0.0004 | 0.0002 |
+| 1024 | 0.9966 | 0.9966 | 0.9969 | +0.0002 | +0.0003 | 0.0001 |
+
+- **Pasa el suelo de ruido** en todos los ef donde supera el umbral. La menor de esas diferencias es +0.0011 a ef 320, con un suelo de 0.0003.
+- **Queda por delante del lote:** +0.0075 de recall a ef 10, y un 4.1 % menos de cargas a 0.95 y un 17.5 % menos a 0.99.
+
+**Trabajo a igual recall y grado medio, al 100 %:**
+
+| | lote | H1 | H1, repetición | celda 5 | celda 6 | celda 6 frente a H1 / a su repetición |
+|---|---|---|---|---|---|---|
+| cargas a 0.95 | 10.1 | 10.3 | 10.2 | 17.1 | 9.6 | −6.2 % / −5.8 % |
+| rondas a 0.95 | 2.27 | 2.32 | 2.31 | 4.01 | 2.16 | −7.0 % / −6.5 % |
+| vectores escaneados a 0.95 | 2 563 | 2 603 | 2 602 | 4 320 | 2 449 | −5.9 % / −5.9 % |
+| endpoints puntuados a 0.95 | 4 953 | 5 090 | 5 090 | 9 115 | 5 337 | +4.8 % / +4.8 % |
+| cargas a 0.99 | 52.8 | 49.8 | 48.3 | 118.2 | 43.6 | −12.5 % / −9.8 % |
+| rondas a 0.99 | 12.9 | 12.2 | 11.8 | 29.3 | 10.6 | −12.7 % / −10.0 % |
+| vectores escaneados a 0.99 | 13 230 | 12 465 | 12 154 | 29 593 | 10 986 | −11.9 % / −9.6 % |
+| endpoints puntuados a 0.99 | 26 634 | 26 183 | 25 549 | 56 643 | 25 607 | −2.2 % / +0.2 % |
+| grado medio de los insertados | | 9.32 | 9.29 | 12.39 | 12.43 | |
+| grado medio de los vectores del lote | | 8.57 | 8.57 | 15.00 | 14.99 | |
+
+**Grado medio por checkpoint,** insertados / lote:
+
+| checkpoint | H1 | celda 5 | celda 6 |
+|---|---|---|---|
+| 50 % | — / 8.57 | — / 8.57 | — / 8.57 |
+| 60 % | 8.75 / 8.57 | 9.67 / 11.15 | 9.62 / 11.15 |
+| 70 % | 9.11 / 8.57 | 10.75 / 12.85 | 10.75 / 12.86 |
+| 80 % | 9.13 / 8.57 | 11.51 / 13.86 | 11.52 / 13.89 |
+| 90 % | 9.22 / 8.57 | 11.80 / 14.58 | 11.78 / 14.59 |
+| 100 % | 9.32 / 8.57 | 12.39 / 15.00 | 12.43 / 14.99 |
+
+- **Lo que gana lo gana en cargas, y lo paga en grado.** Al 100 % sus listas tienen 13.7 aristas de media, frente a 8.9 en H1: un 53 % más.
+  - A 0.95 puntúa un 4.8 % más de endpoints que H1, con un 6 % menos de cargas.
+  - A 0.99 puntúa los mismos endpoints, con un 10 a un 12 % menos de cargas y de rondas.
+- **El grado es el de la celda 5, y la celda 5 no cumple.** Las dos llenan las listas igual. Listas largas sin aristas inversas dejan el índice un 69.5 % por encima del lote en cargas.
+- **El aporte de los hermanos es parecido con aristas inversas y sin ellas.** A ef 10 suman 0.0067 sobre H1 y 0.0056 sobre la principal. En cargas a 0.95 quitan 0.64 y 0.75.
+- **Con listas más largas, las aristas inversas escriben más, no menos.** Son 5.73 por insert frente a 4.62 en H1, un 24 % más: el vector nuevo entra en el 63 % de las listas que lee, frente al 51 %.
+  - *Lectura mía:* la peor arista de una lista que los hermanos han llenado está más lejos, y un vector nuevo la desplaza más veces.
+- **No se separa cuánto del aporte es reparación y cuánto es grado** (*mío*). La regla de hermanos llena cada lista hasta 16 con miembros de la otra mitad. La regla del lote solo se quedaría con los que entran entre los 16 más cercanos del vector, contando los de su propia mitad. Esa variante, hermanos con la regla del lote, no está medida.
+
+### Resultados: coste por insert y por split
+
+*En conteos que no dependen de la máquina. Los µs son indicativos, y solo se comparan entre las celdas que corrieron solas: la principal, la 5, la 6 y la repetición de H1.*
+
+**Por insert.** Hay un split cada 240 inserts, y lo del split va repartido entre ellos:
+
+| | principal | H1, repetición | H2 | celda 5 | celda 6 |
+|---|---|---|---|---|---|
+| búsquedas con k=16 y ef=320 | 1 | 1 | 1, más 1.51 de reparación | 1 | 1 |
+| listas leídas para las aristas inversas | — | 8.97 | — | — | 9.13 |
+| distancias exactas de esa comprobación | — | 89.9 | — | — | 118.0 |
+| escrituras de aristas inversas, media / p95 | — | 4.62 / 11 | — | — | 5.73 / 12 |
+| del split: distancias exactas | — | — | — | 145 | 144 |
+| del split: listas de aristas que cambian | — | — | 1.51, las reescribe todas | sin contar | 1.43 |
+| µs por insert | 4 031 | 3 929 | 12 259, en paralelo | 3 958 | 4 270 |
+
+**La búsqueda de un insert,** medida con las queries de cada checkpoint a ef 320. *Aproximación mía:* es la misma búsqueda con k=10; la del insert no se instrumenta aparte.
+
+| a ef 320 | cargas | rondas | vectores escaneados | endpoints puntuados |
+|---|---|---|---|---|
+| las celdas barajadas, al 50 % | 53.5 | 13.1 | 13 373 | 24 610 |
+| principal, al 100 % | 54.8 | 13.5 | 13 769 | 26 497 |
+| H1, al 100 % | 59.4 | 14.6 | 14 864 | 30 961 |
+| H2, al 100 % | 56.7 | 13.9 | 14 302 | 28 976 |
+| celda 5, al 100 % | 55.2 | 13.6 | 13 895 | 28 227 |
+| celda 6, al 100 % | 60.1 | 14.8 | 15 123 | 34 615 |
+| referencia en lote, al 100 % | 57.3 | 14.1 | 14 345 | 28 767 |
+
+**Por split:**
+
+| | principal | H2 | celda 5 | celda 6 |
+|---|---|---|---|---|
+| splits | 2 067 | 2 044 | 2 061 | 2 051 |
+| búsquedas de reparación, a ef 320 | — | 365.5 | — | — |
+| distancias exactas | — | — | 34 820 | 34 762 |
+| listas de aristas que cambian | — | 365.5, todas | sin contar | 344.4 |
+| aristas que pasan a apuntar a la otra mitad | — | sin contar | 2 696 | 2 628 |
+| µs: 2-means / reparación | 5 171 / — | 7 298 / 1 489 347, en paralelo | 4 997 / 7 189 | 4 995 / 7 259 |
+
+- **El coste de un insert es su búsqueda.** Es de un 94 a un 96 % del tiempo del insert, una vez quitado el check del centroide exacto, que solo reporta y cuesta unos 900 µs.
+  - Son de 53 a 60 cargas de posting en 13 a 15 rondas. Es más que una query a 0.99, que carga de 44 a 53.
+  - **El ef de inserción, 320, quedó fijado en el pre-registro y no se barrió.** Deja el recall de arista al insertar entre 0.964 y 0.987, con el stop en 0.90. Cuánto se puede bajar no está medido.
+- **Las aristas inversas no cuestan tiempo en memoria:** 51 µs de los 3 929 de un insert, el 1.3 %. H1 sola tarda lo que la principal.
+  - A ef fijo su búsqueda carga y puntúa más que la de la principal (59.4 cargas y 30 961 endpoints, frente a 54.8 y 26 497), y encuentra más: 0.985 de recall de arista al insertar, frente a 0.964.
+- **La celda 6 cuesta un 8.7 % más por insert que H1.** Casi todo es la búsqueda, que con las listas más largas puntúa un 11 % más de endpoints a ef 320. La reparación por hermanos son 30 µs por insert.
+- **La reparación por hermanos es barata frente a la de búsqueda:** 34 800 distancias exactas por split, en 7.2 ms. La de H2 son 365.5 búsquedas a ef 320, en 1.49 s en paralelo con otras dos celdas, y cada una escanea unos 14 000 códigos y puntúa unos 29 000 endpoints.
+- **Las distancias de los hermanos son de dos clases,** que el contador no separa:
+  - entre las dos mitades, con los vectores exactos de los miembros del posting, que el 2-means ya usa;
+  - una por cada arista actual, hacia endpoints de fuera del posting.
+
+### Resultados: la frontera cronometrada de la principal
+
+*Solo la celda principal y la referencia, como estaba pre-registrado. Mide lo que cuesta no mantener las aristas, no la celda que cumple.*
+
+| recall | threads | referencia, 1ª / 2ª ronda | referencia por docID, 1ª / 2ª | principal, 1ª / 2ª | por docID / referencia, 1ª / 2ª | principal / por docID, 1ª / 2ª |
+|---|---|---|---|---|---|---|
+| 0.95 | 1 | 1 859 / 1 770 | 1 551 / 1 735 | 990 / 1 002 | 0.834x / 0.981x | 0.639x / 0.577x |
+| 0.95 | 8 | 12 295 / 12 174 | 10 389 / 10 372 | 5 605 / 6 098 | 0.845x / 0.852x | 0.540x / 0.588x |
+| 0.99 | 1 | 420 / 411 | 382 / 381 | 169 / 170 | 0.910x / 0.927x | 0.442x / 0.445x |
+| 0.99 | 8 | 2 690 / 2 678 | 2 273 / 2 266 | 883 / 977 | 0.845x / 0.846x | 0.389x / 0.431x |
+
+- **La representación por docID cuesta un 15 % de QPS con 8 threads,** a 0.95 y a 0.99, sin deriva entre rondas. Aquí los docIDs están barajados respecto a los postings, el caso malo del microbenchmark de `disk-design.md`.
+  - Con 1 thread a 0.95 no queda fijado: 0.834x en la primera ronda y 0.981x en la segunda. Esa curva tiene un punto con un 12 % de deriva entre rondas.
+- **El mantenimiento sin aristas inversas ni reparación cuesta la mitad del QPS a 0.95 y más de la mitad a 0.99,** con la misma representación: de 0.54x a 0.64x a 0.95, y de 0.39x a 0.45x a 0.99.
+  - La principal con 8 threads va un 9 % más rápida en la segunda ronda (de +6.7 a +18.3 % según el punto), así que su ratio va con las dos rondas.
+- **La frontera de H1 y la de la celda 6 no se cronometraron.** El trabajo sin cronometrar de H1 es el del lote: un 2.3 % más de cargas y un 2.8 % más de endpoints a 0.95. Lo esperable es el QPS de la referencia por docID, pero no está medido.
+  - La celda 6 carga menos y puntúa más endpoints que H1, así que en memoria no se sabe cuál de las dos va más rápida.
+
+### Resultados: la celda 4, «las dos», no corrió
+
+**La regla la saltó por 82 s.** El tiempo de inserción de H2 fue 6 068 s y el límite, tres veces el de la principal (1 995 s), 5 986 s: un 1.4 % por encima.
+
+**El motivo es la contención, no el mecanismo.** La principal corrió sola, y H2 en paralelo con H1 y con el orden natural:
+
+- **en los tramos en paralelo,** el insert de H2 cuesta de 3.2 a 4.1 veces el de la principal en el mismo tramo (12 063 µs frente a 3 794 del 50 al 60 %; 16 546 frente a 4 045 del 70 al 80 %);
+- **en el tramo del 90 al 100 %, que H2 corrió sola** (de 17:31 a 17:45; H1 y el orden natural habían acabado a las 17:16), cuesta 1.95 veces: 8 469 µs frente a 4 346;
+- **el orden natural,** que hace el mismo trabajo que la principal, costó 1.67 veces en paralelo: 6 733 µs por insert frente a 4 031.
+
+**No se lanzó a mano, por decisión del usuario.** La celda 6 no la sustituye: combina las aristas inversas con la reparación por hermanos, no con la reparación por búsqueda. Aristas inversas más reparación por búsqueda queda sin medir.
+
+### Datos y reproducción de v2.0
+
+En `testdata/bench/v2.0/`:
+
+- `dbpedia-1m-stream-calibration.json`: la calibración de T.
+- `dbpedia-1m-stream-<celda>.json`: todos los checkpoints de una celda, con sus conteos, sus tiempos por fase y su malla de ef. Las celdas son `principal`, `h1`, `h2`, `natural`, `siblings` (la 5), `inverse-siblings` (la 6) y `h1-writes` (la repetición de H1).
+  - `-cp<porcentaje>.json`: el mismo checkpoint, escrito al acabar de medirlo.
+  - Los histogramas de escrituras por insert (`inverseWrites`, `inversePostings`) solo están en `inverse-siblings` y `h1-writes`.
+- `dbpedia-1m-stream-principal-reference.json`: la referencia en lote del 100 %.
+- `dbpedia-1m-stream-principal-timed-{reference,reference-docid,cell}.json`: la frontera cronometrada, con su segunda ronda en `-repeat.json`.
+- `stream-verdict.md`: las tablas, de `scripts/stream_verdict.py`.
+- `scripts/run_v20_stream.sh` (la calibración, la principal con su referencia y su frontera, y H1, H2 y el orden natural en paralelo), `scripts/run_v20_siblings.sh` (la celda 5) y `scripts/run_v20_cell6.sh` (la celda 6 y la repetición de H1).
+
+El modo streaming vive en los tests del paquete (`stream_test.go`, y `bench_stream_test.go` con el tag `postingedgebench`), no en el índice.
+
+```bash
+# cada script espera el binario con su nombre: postingedge-v20b.test, -v20c.test y -v20d.test
+go test -tags postingedgebench -c -o <dir>/postingedge-v20b.test ./adapters/repos/db/vector/postingedge/
+WORK=<dir con postingedge-v20b.test> caffeinate -s -i v2.0/scripts/run_v20_stream.sh
+WORK=<dir con postingedge-v20c.test> caffeinate -s -i v2.0/scripts/run_v20_siblings.sh
+WORK=<dir con postingedge-v20d.test> caffeinate -s -i v2.0/scripts/run_v20_cell6.sh
+python3 v2.0/scripts/stream_verdict.py v2.0 > v2.0/stream-verdict.md
+```
 
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
