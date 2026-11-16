@@ -170,15 +170,18 @@ func (f *reconcileFixture) warned(want string) bool {
 func (f *reconcileFixture) reconcile() *migrationReconciler {
 	f.t.Helper()
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(f.t, r.Reconcile(context.Background()))
+	require.NoError(f.t, r.Load())
+	r.Reconcile(context.Background())
 	f.requireMigrationDirsTrackRecords()
 	return r
 }
 
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
+		// The shard testMigrationSubject's unit names.
+		Shard: "shard-1",
 		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
-			return migrationTaskStatuses(f.tasks), f.tasksReadable
+			return migrationTaskStatuses(f.tasks, "shard-1"), f.tasksReadable
 		},
 		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 			f.asked = append(f.asked, liveUnitKey{desc, unitID})
@@ -848,8 +851,9 @@ func TestAnUnreadableRecordWithholdsEveryDestructiveArm(t *testing.T) {
 	// pass, and both have to withhold.
 	newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).RetireSuperseded(context.Background())
 	f.reconcile()
-	require.Error(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
-		DiscardTask(context.Background(), f.tasks[0]), "terminal cleanup has to report what it withheld")
+	require.ErrorIs(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+		DiscardTask(context.Background(), f.tasks[0]), errCleanupShardWithheld,
+		"terminal cleanup has to report what it withheld")
 
 	require.True(t, f.exists("property_title__g42_ingest"), "a discard removes a directory an unreadable record may name")
 	require.True(t, f.exists("property_body__g50_ingest"), "a promotion renames over one")
@@ -868,7 +872,7 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 
 	f := newReconcileFixtureAt(t, lsmPath)
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.Error(t, r.Reconcile(context.Background()))
+	require.Error(t, r.Load())
 
 	require.Len(t, f.logs.AllEntries(), 1)
 	notice := f.logs.AllEntries()[0]
@@ -878,6 +882,10 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 	require.NotContains(t, notice.Message, "not understood", "no record was read, so none can be miscounted")
 	require.NotContains(t, notice.Message, "downgrade", "no older build reads a file that is not there")
 	require.NotContains(t, notice.Message, "remove the files", "there is no file to remove")
+
+	withheld := r.DiscardTask(context.Background(), testTask("T", 1, distributedtask.TaskStatusCancelled))
+	require.ErrorIs(t, withheld, errCleanupShardWithheld)
+	require.Contains(t, withheld.Error(), "not a directory", "terminal cleanup names the fault it withheld for")
 }
 
 // A pass that renamed nothing must not write a Promoted record, and must not
@@ -1075,9 +1083,11 @@ func TestTheReconcilerReportsOneLinePerRecordNotOnePerProperty(t *testing.T) {
 
 func TestReconcilePromotedClosure(t *testing.T) {
 	tests := []struct {
-		name       string
-		leftovers  []string
-		class      *models.Class
+		name      string
+		leftovers []string
+		class     *models.Class
+		// taskStatus is the owning task's; empty means it is gone.
+		taskStatus distributedtask.TaskStatus
 		wantRecord bool
 		wantWarn   string
 	}{
@@ -1089,6 +1099,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 		{
 			name:       "directories gone but the effect is not visible yet: keep the record",
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1096,6 +1107,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "a leftover with the effect still not visible: reclaim it and keep the record",
 			leftovers:  []string{"property_title__s42_reindex"},
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1124,6 +1136,9 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			f.class = tt.class
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			if tt.taskStatus != "" {
+				f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, tt.taskStatus)}
+			}
 			f.mkdirs(append([]string{"property_title_searchable"}, tt.leftovers...)...)
 			f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
 
@@ -1717,8 +1732,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	cancel()
 
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(t, r.Reconcile(ctx),
-		"a shard load must not fail because the activation that drove it was cancelled")
+	require.NoError(t, r.Load())
+	r.Reconcile(ctx)
 
 	_, present := f.state(subject.Key)
 	require.True(t, present, "a pass that stopped decided nothing")
@@ -1746,7 +1761,7 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"),
 		"so the rename it would have run never ran")
 
-	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing)
+	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing, true)
 	require.ErrorIs(t, outranErr, context.Canceled,
 		"and so does the sweep that re-runs a promotion the record outran")
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"))

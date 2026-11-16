@@ -26,7 +26,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -45,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -197,9 +197,6 @@ type Config struct {
 
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
-
-	// DistributedTasks is the configuration for the distributed task manager.
-	DistributedTasks config.DistributedTasksConfig
 
 	// DistributedTaskCollectionExtractors are registered on the
 	// distributed-task Manager at FSM construction time, BEFORE RAFT
@@ -467,12 +464,14 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
+	schemaReader := schemaManager.NewSchemaReader()
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
-		Clock:                   clockwork.NewRealClock(),
-		CompletedTaskTTL:        cfg.DistributedTasks.CompletedTaskTTL,
 		Logger:                  cfg.Logger,
 		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
+		ReadOnlyClass: func(collection string) *models.Class {
+			return schemaReader.ReadOnlyVersionedClass(collection).Class
+		},
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)
@@ -561,8 +560,8 @@ func (st *Store) ForceSnapshot() error {
 	return rn.Snapshot().Error()
 }
 
-func (st *Store) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
-	return st.distributedTasksManager.LocalTaskStatuses(namespace)
+func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry {
+	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
 // lastIndex returns the last index in stable storage,

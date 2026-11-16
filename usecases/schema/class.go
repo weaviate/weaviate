@@ -779,9 +779,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // variant of [UpdatePropertyInternal]. It routes the RAFT command
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
-// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update. The flag also lets the update through while
-// its namespace is not active.
+// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate. The flag
+// also lets the update through while its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -791,11 +790,11 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // applies to external mutations.
 //
 // Returns only after the local FSM has applied the update.
-func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
-	fields ...string,
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run api.MigrationRun,
+	prop *models.Property, fields ...string,
 ) error {
 	setPropertyDefaults(prop)
-	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, run, prop, fields...)
 	if err != nil {
 		return err
 	}
@@ -915,10 +914,7 @@ func setPropertyDefaults(props ...*models.Property) {
 
 // clearInternalPropertyFields nils RAFT-internal per-property fields on
 // client-provided properties so they can only be set inside the engine.
-// SearchableBlockmax comes from on-disk state or the read-repair (which only
-// touches nil stamps); a client-seeded value would be a wrong stamp nothing
-// corrects. Create paths only — UpdateProperty's DeepEqual guard already
-// blocks mutation on update.
+// SearchableBlockmax is set only by a migration's cutover; nothing corrects a client value. Create paths only.
 func clearInternalPropertyFields(props ...*models.Property) {
 	for _, prop := range props {
 		if prop != nil {
@@ -1263,6 +1259,10 @@ func rejectVectorIndexTypeNone(prev, next *models.Class) error {
 	return nil
 }
 
+// validateClassInvariants checks a class on create and on backup restore.
+// restoring skips the create/update-only vector index checks: a restored
+// class was accepted when it was first written and is persisted state, like
+// a class parsed at startup, so a limit added since must not refuse it.
 func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool, restoring bool,
@@ -1589,6 +1589,9 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
 		if parsed != nil && !restoring {
+			if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+				return err
+			}
 			var initialParsed schemaConfig.VectorIndexConfig
 			if initial != nil {
 				initialParsed, _ = h.parseLegacyVectorIndexConfig(initial)
@@ -1705,6 +1708,9 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 // startup, during RAFT log replay, or on backup restore.
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
+		if err := enthfresh.ValidateMultiVectorRequiresMuvera(uc); err != nil {
+			return err
+		}
 		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil

@@ -342,10 +342,16 @@ func TestRegexSegmentsToWildcard(t *testing.T) {
 // whose unanchored verb match a mocked authorizer cannot show.
 func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
-		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"root"}}}, false, nil, logger)
-	require.NoError(t, err)
-
+	role := func(name, action string, permission models.Permission) *models.Role {
+		permission.Action = authorization.String(action)
+		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{&permission}}
+	}
+	users := func(user string) models.Permission {
+		return models.Permission{Users: &models.PermissionUsers{Users: &user}}
+	}
+	collections := func(collection string) models.Permission {
+		return models.Permission{Collections: &models.PermissionCollections{Collection: &collection}}
+	}
 	all := "*"
 	updateUsers := func(name, users string) *models.Role {
 		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
@@ -373,9 +379,19 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		readMoviesData("eu-movies-reader", "*eu*"),
 		readMoviesData("eu-or-secret-movies-reader", "eu|secret"),
 		updateUsers("two-letter-users", ".."),
+		role("bob-reader", authorization.ReadUsers, users("bob")),
+		role("foreign-movies-reader", authorization.ReadCollections, collections("customer2:Movies")),
 	)
 	require.NoError(t, err)
-	require.NoError(t, m.CreateRolesPermissions(custom))
+
+	managers := map[bool]*rbac.Manager{}
+	for _, namespacesEnabled := range []bool{false, true} {
+		m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+			config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"root"}}}, namespacesEnabled, nil, logger)
+		require.NoError(t, err)
+		require.NoError(t, m.CreateRolesPermissions(custom))
+		managers[namespacesEnabled] = m
+	}
 
 	// A denied manage permission is reported once, under the action an admin can grant.
 	deniedManageBackups := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to manage_backups [[Domain: backups,Collection: *]]"
@@ -397,16 +413,20 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a manage permission covers itself", caller: "caller", callerRoles: []string{"backup-manager"}, targetRoles: []string{"backup-manager"}},
 		{name: "root covers the built-in admin role", caller: "root", targetRoles: []string{authorization.Admin}},
 		{name: "one role beyond the caller refuses them all", caller: "caller", callerRoles: []string{"user-updater"}, targetRoles: []string{"backup-manager", "user-updater"}, wantDenied: deniedManageBackups},
-		{name: "a global caller is checked against the stored resource", caller: "caller", callerRoles: []string{"movies-creator"}, targetRoles: []string{"movies-creator"}, namespacesEnabled: true, targetNamespace: "customer1"},
+		{name: "a global caller's bare collection grant covers it in the target's namespace", caller: "caller", callerRoles: []string{"movies-creator"}, targetRoles: []string{"movies-creator"}, namespacesEnabled: true, targetNamespace: "customer1"},
 		{name: "an alternation of users reaching past the caller's is refused", caller: "caller", callerRoles: []string{"eu-users"}, targetRoles: []string{"eu-or-admin-users"}, wantDenied: deniedAllUsers},
 		{name: "an alternation of tenants reaching past the caller's is refused", caller: "caller", callerRoles: []string{"eu-movies-reader"}, targetRoles: []string{"eu-or-secret-movies-reader"}, wantDenied: deniedAllMoviesTenants},
 		{name: "every tenant of a collection covers an alternation of its tenants", caller: "caller", callerRoles: []string{"movies-reader"}, targetRoles: []string{"eu-or-secret-movies-reader"}},
 		{name: "a confined caller with every user covers an alternation in its namespace", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"user-updater"}, targetRoles: []string{"customer1-eu-or-admin-users"}, namespacesEnabled: true},
 		{name: "a dotted name with a trailing wildcard inside the caller's pattern is covered", caller: "caller", callerRoles: []string{"eu-users"}, targetRoles: []string{"eu-west-users"}},
 		{name: "a caller pattern matching the text of a wildcard is not a wildcard", caller: "caller", callerRoles: []string{"two-letter-users"}, targetRoles: []string{"eu-or-admin-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: eu|admin]]"},
+		{name: "global caller: a bare user grant is checked in the target's namespace", namespacesEnabled: true, caller: "ops", callerRoles: []string{"bob-reader"}, targetNamespace: "customer1", targetRoles: []string{"bob-reader"}, wantDenied: "rbac: authorization, forbidden action: user 'ops' has insufficient permissions to read_users [[Domain: users, User: customer1:bob]]"},
+		{name: "a grant bound to another namespace gives the target nothing", namespacesEnabled: true, caller: "ops", callerRoles: []string{"user-updater"}, targetNamespace: "customer1", targetRoles: []string{"foreign-movies-reader"}},
+		{name: "namespaces disabled: the target namespace is ignored", caller: "ops", callerRoles: []string{"bob-reader"}, targetNamespace: "customer1", targetRoles: []string{"bob-reader"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			m := managers[tt.namespacesEnabled]
 			if len(tt.callerRoles) > 0 {
 				require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(tt.caller, authentication.AuthTypeDb), tt.callerRoles))
 				t.Cleanup(func() {

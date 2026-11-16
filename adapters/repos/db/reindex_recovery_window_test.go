@@ -90,16 +90,16 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 				plantUnreadableRecord(t, store.Dir())
 			}
 
-			recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-			require.NoError(t, err)
+			reread := NewMigrationRecordStore(lsm, logger)
+			require.NoError(t, reread.Load())
+			recovered := NewMigrationRecoveryReindexer(logger, nil, nil).recoverFromStore(reread, "shard-1")
 
 			if !tt.wantIn {
 				require.Empty(t, recovered, tt.because)
 				return
 			}
 			require.Len(t, recovered, 1, tt.because)
-			require.Len(t, recovered[0].Tasks, 1)
-			require.Equal(t, subject.Key, recovered[0].Tasks[0].migrationRecordKey())
+			require.Equal(t, subject.Key, recovered[0].migrationRecordKey())
 		})
 	}
 }
@@ -193,12 +193,12 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 				require.NoError(t, os.MkdirAll(stagedDir, 0o777))
 			}
 			require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
-			recordsBefore, dirsBefore := migrationRecordsOf(shard), lsmDirNames(t, shard.pathLSM())
+			recordsBefore, dirsBefore := shard.migrationRecords.Records(), lsmDirNames(t, shard.pathLSM())
 
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 			if tt.wantUntouched {
-				require.Equal(t, recordsBefore, migrationRecordsOf(shard),
+				require.Equal(t, recordsBefore, shard.migrationRecords.Records(),
 					"a rebuilt task would restart a migration its task list may have ended")
 				require.Equal(t, dirsBefore, lsmDirNames(t, shard.pathLSM()))
 			}

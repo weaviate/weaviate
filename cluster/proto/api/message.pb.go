@@ -2198,9 +2198,9 @@ func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
 	return 0
 }
 
-// MarkTaskFailedRequest transitions a task SWAPPING → FAILED when
-// OnTaskCompleted returns a terminal error: permanent schema-flip failure
-// or retry-exhausted transient one (weaviate/0-weaviate-issues#297).
+// MarkTaskFailedRequest ends a SWAPPING task when OnTaskCompleted returns a
+// terminal error: a permanent schema-flip failure or an exhausted retry. It
+// records FAILED, or FINISHED when the run's cutover write already landed.
 // Idempotent at the FSM layer: a later commit on a terminal task is a no-op.
 type MarkTaskFailedRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -2281,12 +2281,12 @@ func (x *MarkTaskFailedRequest) GetFailedAtUnixMillis() int64 {
 // RecordDistributedTaskPostCompletionAckRequest captures one node's
 // SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
 // OnSwapRequested for barrier tasks) — i.e. did every local unit's
-// swap/finalize phase succeed? Emitted by every node that has local
-// units, after the SWAP callback returns, before the cluster-wide
-// MarkTaskFinalized commit lands.
+// swap/finalize phase succeed? Sent after the SWAP callback returns,
+// before the cluster-wide MarkTaskFinalized commit lands. For a barrier
+// task, only a success is sent; a failed swap stays owed and retries.
 //
 // The scheduler gates MarkTaskFinalized on having an ack from every
-// node with local units in the task. If any ack reports success=false,
+// node with local units in the task. If any ack of a non-barrier task reports success=false,
 // the FSM transitions the task to FAILED instead of FINISHED, which
 // makes OnTaskCompleted skip the cluster-wide schema flip — so a
 // node that silently failed its local swap can no longer let the
@@ -2308,8 +2308,10 @@ type RecordDistributedTaskPostCompletionAckRequest struct {
 	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
 	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// A barrier task's ack names the group whose swap it pays; empty is a single-tenant run's group.
+	GroupId       string `protobuf:"bytes,8,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RecordDistributedTaskPostCompletionAckRequest) Reset() {
@@ -2391,6 +2393,13 @@ func (x *RecordDistributedTaskPostCompletionAckRequest) GetAckedAtUnixMillis() i
 	return 0
 }
 
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
 type RecordDistributedTaskPreparationCompleteAckRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Namespace         string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -2400,6 +2409,7 @@ type RecordDistributedTaskPreparationCompleteAckRequest struct {
 	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
 	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
+	GroupId           *string                `protobuf:"bytes,8,opt,name=group_id,json=groupId,proto3,oneof" json:"group_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2481,6 +2491,13 @@ func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetAckedAtUnixMilli
 		return x.AckedAtUnixMillis
 	}
 	return 0
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetGroupId() string {
+	if x != nil && x.GroupId != nil {
+		return *x.GroupId
+	}
+	return ""
 }
 
 // ForceTerminateDistributedTaskRequest transitions a task to a terminal
@@ -2920,7 +2937,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x121\n" +
-	"\x15failed_at_unix_millis\x18\x05 \x01(\x03R\x12failedAtUnixMillis\"\xf1\x01\n" +
+	"\x15failed_at_unix_millis\x18\x05 \x01(\x03R\x12failedAtUnixMillis\"\x8c\x02\n" +
 	"-RecordDistributedTaskPostCompletionAckRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2928,7 +2945,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\xf6\x01\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\x12\x19\n" +
+	"\bgroup_id\x18\b \x01(\tR\agroupId\"\xa3\x02\n" +
 	"2RecordDistributedTaskPreparationCompleteAckRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2936,7 +2954,9 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\xfd\x01\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\x12\x1e\n" +
+	"\bgroup_id\x18\b \x01(\tH\x00R\agroupId\x88\x01\x01B\v\n" +
+	"\t_group_id\"\xfd\x01\n" +
 	"$ForceTerminateDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -3050,6 +3070,7 @@ func file_api_message_proto_init() {
 		return
 	}
 	file_api_message_proto_msgTypes[18].OneofWrappers = []any{}
+	file_api_message_proto_msgTypes[30].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
