@@ -120,7 +120,7 @@ type ShardLike interface {
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error

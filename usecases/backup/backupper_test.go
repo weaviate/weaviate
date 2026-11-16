@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -223,7 +222,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -268,7 +266,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 				sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 				sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-				backend.On("SourceDataPath").Return(sourcePath)
 				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 				backend.On("Initialize", ctx, nodeHome).Return(nil)
 				backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -308,7 +305,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -361,7 +357,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		// this node has no descriptor in the base backup
 		backend.On("GetObject", any, baseHome, BackupFile).Return(nil, errNotFound)
@@ -439,7 +434,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 		// backend
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -495,21 +489,17 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 func genClassDescriptions(t *testing.T, sourcePath string, classes ...string) []backup.ClassDescriptor {
 	ret := make([]backup.ClassDescriptor, len(classes))
 	rawbytes := []byte("raw")
-	subDir := filepath.Join(sourcePath, "dir1")
-	if err := os.MkdirAll(subDir, os.ModePerm); err != nil {
-		t.Fatalf("create test subdirectory %s: %v", subDir, err)
-	}
 	files := []string{"dir1/file1", "dir1/file2", "counter.txt", "version.txt", "prop.txt"}
-	for _, p := range files {
-		p = filepath.Join(sourcePath, p)
-		if err := os.WriteFile(p, rawbytes, os.ModePerm); err != nil {
-			t.Fatalf("create test file %s: %v", p, err)
-		}
+	// A test may call this twice on one sourcePath, so the dir may exist.
+	shardStaging := backup.NewShardStaging(sourcePath, "Shard1", 255)
+	require.NoError(t, os.MkdirAll(shardStaging.Dir, os.ModePerm))
+	for _, relPath := range files[0:2] {
+		require.NoError(t, os.WriteFile(backup.StagedFilePath(shardStaging, relPath), rawbytes, os.ModePerm))
 	}
 
 	for i, cls := range classes {
 		ret[i] = backup.ClassDescriptor{
-			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			Name: cls, Schema: rawbytes, ShardingState: rawbytes, StagingDir: sourcePath, StagingNameMax: 255,
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",

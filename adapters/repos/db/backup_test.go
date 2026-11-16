@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -532,43 +534,55 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 		db:        stubDBWithNoLiveReindex(),
 	}
 
+	shardStaging := backup.NewShardStaging(stagingRoot, shardName, 255)
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, shardStaging, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
-	// Helper to get inode number.
+	entries, err := os.ReadDir(shardStaging.Dir)
+	require.NoError(t, err)
+	require.Len(t, entries, len(sd.Files))
+	for _, e := range entries {
+		assert.False(t, e.IsDir(), "the shard's staging dir must hold no subdirectory, found %s", e.Name())
+	}
+	for _, relPath := range sd.Files {
+		assert.FileExists(t, backup.StagedFilePath(shardStaging, relPath))
+	}
+
 	getIno := func(path string) uint64 {
 		t.Helper()
 		info, err := os.Stat(path)
 		require.NoError(t, err)
 		return info.Sys().(*syscall.Stat_t).Ino
 	}
+	// staged maps a file of the live shard to the path its staged copy or link sits at.
+	staged := func(src string) string {
+		t.Helper()
+		relPath, err := filepath.Rel(rootDir, src)
+		require.NoError(t, err)
+		return backup.StagedFilePath(shardStaging, relPath)
+	}
 
 	// Mutable files: different inodes (copied).
 	walSrc := filepath.Join(bucketDir, "segment-123.wal")
-	walDst := filepath.Join(stagingRoot, indexID, shardName, "lsm", "objects", "segment-123.wal")
+	walDst := staged(walSrc)
 	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied, not hard-linked")
 
 	metaSrc := filepath.Join(shardDir, "meta.db")
-	metaDst := filepath.Join(stagingRoot, indexID, shardName, "meta.db")
-	assert.NotEqual(t, getIno(metaSrc), getIno(metaDst), "meta.db should be copied, not hard-linked")
+	assert.NotEqual(t, getIno(metaSrc), getIno(staged(metaSrc)), "meta.db should be copied, not hard-linked")
 
 	clSrc := filepath.Join(clDir, "1709203456")
-	clDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203456")
-	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied, not hard-linked")
+	assert.NotEqual(t, getIno(clSrc), getIno(staged(clSrc)), "non-condensed commitlog should be copied, not hard-linked")
 
 	stateDBSrc := filepath.Join(shardDir, shardmeta.FileName)
-	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, shardmeta.FileName)
-	assert.NotEqual(t, getIno(stateDBSrc), getIno(stateDBDst), "index.db should be copied, not hard-linked")
+	assert.NotEqual(t, getIno(stateDBSrc), getIno(staged(stateDBSrc)), "index.db should be copied, not hard-linked")
 
 	// Immutable files: same inodes (hard-linked).
 	segSrc := filepath.Join(bucketDir, "segment-0001.db")
-	segDst := filepath.Join(stagingRoot, indexID, shardName, "lsm", "objects", "segment-0001.db")
-	assert.Equal(t, getIno(segSrc), getIno(segDst), "segment should be hard-linked, not copied")
+	assert.Equal(t, getIno(segSrc), getIno(staged(segSrc)), "segment should be hard-linked, not copied")
 
 	condensedSrc := filepath.Join(clDir, "1709203400.condensed")
-	condensedDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203400.condensed")
-	assert.Equal(t, getIno(condensedSrc), getIno(condensedDst), "condensed commitlog should be hard-linked, not copied")
+	assert.Equal(t, getIno(condensedSrc), getIno(staged(condensedSrc)), "condensed commitlog should be hard-linked, not copied")
 
 	// Modify source WAL after backup — staging copy should be unaffected.
 	require.NoError(t, os.WriteFile(walSrc, []byte("modified-wal-data"), 0o644))
@@ -577,26 +591,68 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	assert.Equal(t, walContent, stagedWAL, "staged WAL copy should not reflect post-backup source modifications")
 }
 
-func TestBackupFrozenShardOmitted(t *testing.T) {
-	rootDir := t.TempDir()
-	shardName := "frozen_tenant"
-	// Do NOT create shard directory — simulates a FROZEN tenant with no local files.
+func TestBackupInactiveShardWithNoLocalData(t *testing.T) {
+	tests := []struct {
+		name         string
+		makeShardDir bool
+	}{
+		// A FROZEN or OFFLOADED tenant has no shard dir.
+		{name: "missing shard dir"},
+		// ensureShardDir leaves an empty one for a tenant that was never written.
+		{name: "empty shard dir", makeShardDir: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			const shardName = "tenant1"
+			stagingRoot := filepath.Join(rootDir, "staging")
+			require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
+			idx := &Index{
+				Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
+				getSchema: &fakeSchemaGetter{},
+				db:        stubDBWithNoLiveReindex(),
+			}
+			if tt.makeShardDir {
+				require.NoError(t, os.MkdirAll(shardPath(idx.path(), shardName), 0o755))
+			}
 
+			shardStaging := backup.NewShardStaging(stagingRoot, shardName, 255)
+			var sd backup.ShardDescriptor
+			err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, shardStaging, newReindexGate(idx.db, reindexGateMaxAge))
+			require.ErrorIs(t, err, errShardNoLocalData)
+			require.NoDirExists(t, shardStaging.Dir)
+		})
+	}
+}
+
+func TestBackupInactiveShardSkipsUnchangedBase(t *testing.T) {
+	rootDir := t.TempDir()
+	className, shardName := "TestClass", "cold-tenant"
+	idx := newDescriptorTestIndex(t, rootDir, className, nil)
+	createColdShardFiles(t, rootDir, className, shardName)
+
+	segRel := filepath.Join(indexID(schema.ClassName(className)), shardName, "lsm", "objects", "segment-0001.db")
+	info, err := os.Stat(filepath.Join(rootDir, segRel))
+	require.NoError(t, err)
+	base := []backup.ShardAndID{{
+		BackupID: "base-backup",
+		ShardDesc: &backup.BaseShardDescriptor{
+			Name:          shardName,
+			BigFilesChunk: map[string]backup.BigFileInfo{segRel: {Size: info.Size(), ModifiedAt: info.ModTime()}},
+		},
+	}}
 	stagingRoot := filepath.Join(rootDir, "staging")
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
+	shardStaging := backup.NewShardStaging(stagingRoot, shardName, 255)
 
-	idx := &Index{
-		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
-		getSchema: &fakeSchemaGetter{},
-		db:        stubDBWithNoLiveReindex(),
+	var sd backup.ShardDescriptor
+	require.NoError(t, idx.backupInactiveShardWithHardlinks(shardName, &sd, base, shardStaging, newReindexGate(idx.db, reindexGateMaxAge)))
+
+	assert.NotContains(t, sd.Files, segRel)
+	assert.Equal(t, []backup.IncrementalBackupInfo{{File: segRel}}, sd.IncrementalBackupInfo.FilesPerBackup["base-backup"])
+	for _, relPath := range append([]string{segRel}, sd.Files...) {
+		assert.FileExists(t, backup.StagedFilePath(shardStaging, relPath))
 	}
-
-	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
-		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
-		require.Error(t, err)
-		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
-	})
 }
 
 // newDescriptorTestIndex creates a minimal Index wired up for testing Index.descriptor.
@@ -692,62 +748,102 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
 }
 
-func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
+func TestBackupUnloadedLazyShardStagedFlat(t *testing.T) {
 	rootDir := t.TempDir()
-	className := "TestClass"
-	ctx := context.Background()
-
+	className, name := "TestClass", "lazy-tenant"
 	shardState := NewMultiTenantShardingStateBuilder().
-		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		AddTenant(name, models.TenantActivityStatusHOT).
 		WithReplicationFactor(1).
 		Build()
-
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
-
-	// Create COLD shard files including HNSW commitlogs.
-	shardDir := filepath.Join(rootDir, indexID(schema.ClassName(className)), "cold-tenant")
-	createColdShardFiles(t, rootDir, className, "cold-tenant")
-
-	clDir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
-	require.NoError(t, os.MkdirAll(clDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203456"), []byte("commitlog"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
+	createColdShardFiles(t, rootDir, className, name)
+	lazy := NewLazyLoadShard(context.Background(), nil, name, idx, &models.Class{Class: className},
+		nil, nil, nil, nil, false, nil)
+	idx.shards.Store(name, lazy)
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
-	require.NoError(t, err)
+	require.NoError(t, idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge)))
+	require.False(t, lazy.isLoaded(), "the backup must read the unloaded shard from disk")
+
 	require.Len(t, desc.Shards, 1)
-
-	stagingDir := desc.StagingDir
-	require.DirExists(t, stagingDir)
-
-	getIno := func(path string) uint64 {
-		t.Helper()
-		info, err := os.Stat(path)
-		require.NoError(t, err)
-		return info.Sys().(*syscall.Stat_t).Ino
+	require.NotEmpty(t, desc.Shards[0].Files)
+	shardStaging := backup.NewShardStaging(desc.StagingDir, name, desc.StagingNameMax)
+	for _, relPath := range desc.Shards[0].Files {
+		assert.FileExists(t, backup.StagedFilePath(shardStaging, relPath))
 	}
+}
 
-	idxID := indexID(schema.ClassName(className))
-	bucketDir := filepath.Join(shardDir, "lsm", "objects")
+// stubFSNameMax makes fsNameMax return limit and err until t ends. It returns
+// the path fsNameMax was last called with.
+func stubFSNameMax(t *testing.T, limit int, err error) *string {
+	t.Helper()
+	orig := fsNameMax
+	t.Cleanup(func() { fsNameMax = orig })
+	var calledWith string
+	fsNameMax = func(dir string) (int, error) {
+		calledWith = dir
+		return limit, err
+	}
+	return &calledWith
+}
 
-	// Mutable files: different inodes (copied).
-	walSrc := filepath.Join(bucketDir, "segment-123.wal")
-	walDst := filepath.Join(stagingDir, idxID, "cold-tenant", "lsm", "objects", "segment-123.wal")
-	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied")
+func TestDescriptorCutsToDetectedNameMax(t *testing.T) {
+	const className, name = "TestClass", "cold-tenant"
+	// Its staged name is 144 bytes.
+	segRel := filepath.Join(indexID(className), name, "lsm",
+		"property_productDescriptionText_searchable", "segment-1730812345678901234.l0.s4.db")
+	sum := sha256.Sum256([]byte(segRel))
+	segHash := hex.EncodeToString(sum[:])
 
-	clSrc := filepath.Join(clDir, "1709203456")
-	clDst := filepath.Join(stagingDir, idxID, "cold-tenant", "main.hnsw.commitlog.d", "1709203456")
-	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied")
+	tests := []struct {
+		name        string
+		fsLimit     int
+		fsErr       error
+		wantErr     string
+		wantNameMax int
+		wantNameLen int
+	}{
+		{name: "limit read", fsLimit: 143, wantNameMax: 143, wantNameLen: 143},
+		{name: "limit shorter than the hash", fsLimit: 63, wantErr: "at most 63 bytes"},
+		{name: "limit query fails", fsErr: errors.New("statfs failed"), wantNameMax: 255, wantNameLen: 144},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(name, models.TenantActivityStatusCOLD).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+			createColdShardFiles(t, rootDir, className, name)
+			segPath := filepath.Join(rootDir, segRel)
+			require.NoError(t, os.MkdirAll(filepath.Dir(segPath), 0o755))
+			require.NoError(t, os.WriteFile(segPath, []byte("seg-data"), 0o644))
+			limitReadOn := stubFSNameMax(t, tt.fsLimit, tt.fsErr)
 
-	// Immutable files: same inodes (hard-linked).
-	segSrc := filepath.Join(bucketDir, "segment-0001.db")
-	segDst := filepath.Join(stagingDir, idxID, "cold-tenant", "lsm", "objects", "segment-0001.db")
-	assert.Equal(t, getIno(segSrc), getIno(segDst), "segment should be hard-linked")
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, desc.StagingDir, *limitReadOn)
+			assert.Equal(t, tt.wantNameMax, desc.StagingNameMax)
 
-	condensedSrc := filepath.Join(clDir, "1709203400.condensed")
-	condensedDst := filepath.Join(stagingDir, idxID, "cold-tenant", "main.hnsw.commitlog.d", "1709203400.condensed")
-	assert.Equal(t, getIno(condensedSrc), getIno(condensedDst), "condensed commitlog should be hard-linked")
+			entries, err := os.ReadDir(filepath.Join(desc.StagingDir, name))
+			require.NoError(t, err)
+			var stagedName string
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), segHash) {
+					stagedName = e.Name()
+				}
+			}
+			assert.Len(t, stagedName, tt.wantNameLen)
+			_, err = desc.ShardFileSource(name).Stat(segRel)
+			require.NoError(t, err, "the uploader must resolve the name the writer staged")
+		})
+	}
 }
 
 func TestDescriptorAllFrozenTenants(t *testing.T) {
@@ -900,7 +996,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
 			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
+			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ backup.ShardStaging, _ reindexGate) ([]string, error) {
 				sd.Name = name
 				sd.Node = "node1"
 				return files, nil
@@ -954,6 +1050,62 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 }
 
+func TestDescriptorWrapsNameTooLong(t *testing.T) {
+	const className, shardName = "TestClass", "hot-tenant"
+	nameTooLong := &os.PathError{Op: "link", Path: "staged", Err: syscall.ENAMETOOLONG}
+	tests := []struct {
+		name        string
+		fsLimit     int
+		fsErr       error
+		snapshotErr error
+		want        []string
+		wantAbsent  string
+	}{
+		{
+			name: "limit read", fsLimit: 143, snapshotErr: nameTooLong,
+			want: []string{"staged names cut to 143 bytes, the limit read on"},
+		},
+		{
+			name: "limit above 255", fsLimit: 1024, snapshotErr: nameTooLong,
+			want: []string{"staged names cut to 255 bytes, the limit read on"},
+		},
+		{
+			name: "limit query fails", fsErr: errors.New("statfs failed"), snapshotErr: nameTooLong,
+			want: []string{"staged names cut to 255 bytes because the name limit of", "could not be read"},
+		},
+		{
+			name: "other error", fsLimit: 143, snapshotErr: errors.New("out of disk"),
+			wantAbsent: "staged names cut",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusHOT).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+			mockShard := NewMockShardLike(t)
+			mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
+			mockShard.EXPECT().
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil, tt.snapshotErr)
+			idx.shards.Store(shardName, mockShard)
+			stubFSNameMax(t, tt.fsLimit, tt.fsErr)
+
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
+			require.ErrorIs(t, err, tt.snapshotErr)
+			for _, want := range tt.want {
+				assert.ErrorContains(t, err, want)
+			}
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, err.Error(), tt.wantAbsent)
+			}
+		})
+	}
+}
+
 // Asserts shardCreateLocks is released before CreateBackupSnapshot so concurrent
 // queries (via Index.getOptInitLocalShard) don't stall for the snapshot duration.
 // See weaviate/0-weaviate-issues#234.
@@ -980,7 +1132,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}, nil)
 	mockShard.EXPECT().
 		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ backup.ShardStaging, _ reindexGate) ([]string, error) {
 			sd.Name = shardName
 			sd.Node = "node1"
 			close(snapshotStarted)
@@ -995,7 +1147,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), 255, newReindexGate(idx.db, reindexGateMaxAge))
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -1073,7 +1225,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 			}, nil)
 			mockShard.EXPECT().
 				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ backup.ShardStaging, _ reindexGate) ([]string, error) {
 					if tt.snapshotErr != nil {
 						return nil, tt.snapshotErr
 					}
@@ -1094,7 +1246,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), 255, newReindexGate(idx.db, reindexGateMaxAge))
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -1106,6 +1258,47 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				"backupLock must be unlocked before the shard reference is dropped")
 		})
 	}
+}
+
+// TestBackupLoadedShardStatsStagedBase pins that a loaded shard's base files
+// are compared against the staged files, which the live tree may already differ from.
+func TestBackupLoadedShardStatsStagedBase(t *testing.T) {
+	const className, shardName = "TestClass", "test-shard"
+	snapshotFile := "objects/segment-0001.db"
+	data := []byte("seg-data")
+	modTime := time.Unix(1_700_000_000, 0)
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+	idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
+	mockShard.EXPECT().
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ *backup.ShardDescriptor, s backup.ShardStaging, _ reindexGate) ([]string, error) {
+			require.NoError(t, os.Mkdir(s.Dir, 0o755))
+			staged := backup.StagedFilePath(s, snapshotFile)
+			require.NoError(t, os.WriteFile(staged, data, 0o644))
+			require.NoError(t, os.Chtimes(staged, modTime, modTime))
+			return []string{snapshotFile}, nil
+		})
+	idx.shards.Store(shardName, mockShard)
+
+	baseDescrs := []*backup.BaseClassDescriptor{{
+		BackupID: "base-backup",
+		Shards: []backup.BaseShardDescriptor{{
+			Name:          shardName,
+			BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: int64(len(data)), ModifiedAt: modTime}},
+		}},
+	}}
+	sd, err := idx.backupShardWithHardlinks(context.Background(), shardName, baseDescrs, t.TempDir(), 255,
+		newReindexGate(idx.db, reindexGateMaxAge))
+	require.NoError(t, err)
+
+	assert.Empty(t, sd.Files)
+	assert.Equal(t, []backup.IncrementalBackupInfo{{File: snapshotFile}}, sd.IncrementalBackupInfo.FilesPerBackup["base-backup"])
 }
 
 // Asserts both locks are released on the preventShutdown error path — guards
@@ -1127,7 +1320,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), 255, newReindexGate(idx.db, reindexGateMaxAge))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 
@@ -1453,9 +1646,9 @@ type snapshotHookIndex struct {
 	onSnapshot func()
 }
 
-func (i *snapshotHookIndex) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (i *snapshotHookIndex) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	i.onSnapshot()
-	return i.VectorIndex.SnapshotMutableFiles(ctx, basePath, stagingDir)
+	return i.VectorIndex.SnapshotMutableFiles(ctx, basePath, dstFor)
 }
 
 // newResumeFailingBackupShard returns a shard whose backup snapshot fails to
@@ -1500,7 +1693,8 @@ func newResumeFailingBackupShard(t *testing.T) (*Index, *Shard) {
 func failBackupSnapshotResume(t *testing.T, index *Index, shard *Shard) error {
 	t.Helper()
 	stagingRoot := backupStagingDir(index.Config.RootPath, "backup-1", index.Config.ClassName)
-	_, err := shard.CreateBackupSnapshot(context.Background(), &backup.ShardDescriptor{}, stagingRoot,
+	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
+	_, err := shard.CreateBackupSnapshot(context.Background(), &backup.ShardDescriptor{}, backup.NewShardStaging(stagingRoot, shard.Name(), 255),
 		newReindexGate(index.db, reindexGateMaxAge))
 	require.Zero(t, shard.haltForTransferCount.Load())
 	require.True(t, shard.resumeIncomplete.Load())

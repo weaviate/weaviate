@@ -113,7 +113,9 @@ type VectorIndex interface {
 	PrepareForBackup(ctx context.Context) error
 	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
-	SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error)
+	// SnapshotMutableFiles copies each file this index owns and mutates in
+	// place to dstFor(relPath) and returns those relPaths, relative to basePath.
+	SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
@@ -853,10 +855,10 @@ func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]strin
 // rather than through this per-index method, which the shard's
 // ForEachVectorIndex would otherwise invoke once per named vector and thus
 // duplicate the copy and its sd.Files entry.
-func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SnapshotMutableFiles(ctx, basePath, stagingDir)
+	return dynamic.index.SnapshotMutableFiles(ctx, basePath, dstFor)
 }
 
 func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {

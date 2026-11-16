@@ -916,7 +916,7 @@ func (index *flat) ResumeAfterBackup(context.Context) error {
 	return nil
 }
 
-func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	fullPath := filepath.Join(index.rootPath, index.getMetadataFile())
 	if _, err := os.Stat(fullPath); err != nil {
 		// no metadata file yet — nothing to snapshot (mirrors ListFiles)
@@ -928,7 +928,7 @@ func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath, stagingDi
 		return nil, fmt.Errorf("metadata relative path: %w", err)
 	}
 
-	if err := index.snapshotMetadata(filepath.Join(stagingDir, relPath)); err != nil {
+	if err := index.snapshotMetadata(dstFor(relPath)); err != nil {
 		return nil, err
 	}
 

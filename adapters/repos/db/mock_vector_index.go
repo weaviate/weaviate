@@ -952,9 +952,9 @@ func (_c *MockVectorIndex_Shutdown_Call) RunAndReturn(run func(context.Context) 
 	return _c
 }
 
-// SnapshotMutableFiles provides a mock function with given fields: ctx, basePath, stagingDir
-func (_m *MockVectorIndex) SnapshotMutableFiles(ctx context.Context, basePath string, stagingDir string) ([]string, error) {
-	ret := _m.Called(ctx, basePath, stagingDir)
+// SnapshotMutableFiles provides a mock function with given fields: ctx, basePath, dstFor
+func (_m *MockVectorIndex) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(string) string) ([]string, error) {
+	ret := _m.Called(ctx, basePath, dstFor)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SnapshotMutableFiles")
@@ -962,19 +962,19 @@ func (_m *MockVectorIndex) SnapshotMutableFiles(ctx context.Context, basePath st
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]string, error)); ok {
-		return rf(ctx, basePath, stagingDir)
+	if rf, ok := ret.Get(0).(func(context.Context, string, func(string) string) ([]string, error)); ok {
+		return rf(ctx, basePath, dstFor)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) []string); ok {
-		r0 = rf(ctx, basePath, stagingDir)
+	if rf, ok := ret.Get(0).(func(context.Context, string, func(string) string) []string); ok {
+		r0 = rf(ctx, basePath, dstFor)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, basePath, stagingDir)
+	if rf, ok := ret.Get(1).(func(context.Context, string, func(string) string) error); ok {
+		r1 = rf(ctx, basePath, dstFor)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -990,14 +990,14 @@ type MockVectorIndex_SnapshotMutableFiles_Call struct {
 // SnapshotMutableFiles is a helper method to define mock.On call
 //   - ctx context.Context
 //   - basePath string
-//   - stagingDir string
-func (_e *MockVectorIndex_Expecter) SnapshotMutableFiles(ctx interface{}, basePath interface{}, stagingDir interface{}) *MockVectorIndex_SnapshotMutableFiles_Call {
-	return &MockVectorIndex_SnapshotMutableFiles_Call{Call: _e.mock.On("SnapshotMutableFiles", ctx, basePath, stagingDir)}
+//   - dstFor func(string) string
+func (_e *MockVectorIndex_Expecter) SnapshotMutableFiles(ctx interface{}, basePath interface{}, dstFor interface{}) *MockVectorIndex_SnapshotMutableFiles_Call {
+	return &MockVectorIndex_SnapshotMutableFiles_Call{Call: _e.mock.On("SnapshotMutableFiles", ctx, basePath, dstFor)}
 }
 
-func (_c *MockVectorIndex_SnapshotMutableFiles_Call) Run(run func(ctx context.Context, basePath string, stagingDir string)) *MockVectorIndex_SnapshotMutableFiles_Call {
+func (_c *MockVectorIndex_SnapshotMutableFiles_Call) Run(run func(ctx context.Context, basePath string, dstFor func(string) string)) *MockVectorIndex_SnapshotMutableFiles_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(func(string) string))
 	})
 	return _c
 }
@@ -1007,7 +1007,7 @@ func (_c *MockVectorIndex_SnapshotMutableFiles_Call) Return(_a0 []string, _a1 er
 	return _c
 }
 
-func (_c *MockVectorIndex_SnapshotMutableFiles_Call) RunAndReturn(run func(context.Context, string, string) ([]string, error)) *MockVectorIndex_SnapshotMutableFiles_Call {
+func (_c *MockVectorIndex_SnapshotMutableFiles_Call) RunAndReturn(run func(context.Context, string, func(string) string) ([]string, error)) *MockVectorIndex_SnapshotMutableFiles_Call {
 	_c.Call.Return(run)
 	return _c
 }
