@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -174,12 +175,17 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) {
 	r.wedgedKeys = nil
 	r.RetireSuperseded(ctx)
 
-	for _, rec := range r.store.Records() {
+	for _, listed := range r.store.Records() {
 		// The pass renames and removes whole property indexes, and it runs on
 		// the RAFT apply loop, where every further apply queues behind it.
 		if err := ctx.Err(); err != nil {
 			r.logger.Errorf("stopping the migration-record pass on this shard: %v", err)
 			return
+		}
+		// A unit's promotion can advance a later record of this pass.
+		rec, ok := r.store.Get(listed.Subject().Key)
+		if !ok {
+			continue
 		}
 		if err := r.reconcileOne(ctx, rec, someRecordsUnreadable); err != nil {
 			// One migration must not keep a shard from loading. Not marked on the
@@ -300,23 +306,43 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 
 // A unit records its decisions together, so a decided sibling proves this half's; an Unmirrored half may lag live data.
 func (r *migrationReconciler) siblingFlipDecided(subject MigrationSubject) bool {
-	if subject.Unmirrored {
-		return false
-	}
+	return !subject.Unmirrored && slices.ContainsFunc(r.unitSiblings(subject), MigrationRecord.FlipDecided)
+}
+
+// unitSiblings are the other halves of subject's unit that share a property with it.
+func (r *migrationReconciler) unitSiblings(subject MigrationSubject) []MigrationRecord {
+	var out []MigrationRecord
 	for _, rec := range r.store.Records() {
 		other := rec.Subject()
-		if !rec.FlipDecided() || other.TaskID != subject.TaskID ||
-			other.Key.TaskVersion != subject.Key.TaskVersion || other.Key.UnitID != subject.Key.UnitID ||
-			other.Key.StrategyCode == subject.Key.StrategyCode {
+		if migrationOf(other) != migrationOf(subject) || other.Key.StrategyCode == subject.Key.StrategyCode {
 			continue
 		}
 		for prop := range subject.Props {
 			if _, shared := other.Props[prop]; shared {
-				return true
+				out = append(out, rec)
+				break
 			}
 		}
 	}
-	return false
+	return out
+}
+
+// A half promoted without its sibling restores an overlay that disagrees with
+// the sibling's bucket, so promotion waits until every half is decided.
+func (r *migrationReconciler) unitDecided(ctx context.Context, subject MigrationSubject, someUnreadable bool) (bool, error) {
+	for _, sibling := range r.unitSiblings(subject) {
+		if merged, ok := sibling.(MigrationRecordMerged); ok {
+			if err := r.reconcileMerged(ctx, merged, someUnreadable); err != nil {
+				return false, fmt.Errorf("finish the decision of %s: %w", sibling.Subject().Key, err)
+			}
+		}
+		if now, ok := r.store.Get(sibling.Subject().Key); ok && !now.FlipDecided() {
+			r.logger.WithField("record", subject.Key.String()).Warnf(
+				"promotion waits: %s of the same unit has not recorded its flip decision", sibling.Subject().Key)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // Skips a superseded property the way promoteSealed does: retirement deletes
@@ -437,6 +463,9 @@ func (r *migrationReconciler) reconcileSwapped(ctx context.Context, rec Migratio
 ) error {
 	if someUnreadable {
 		return nil
+	}
+	if decided, err := r.unitDecided(ctx, rec.Subject(), someUnreadable); !decided {
+		return err
 	}
 	return r.withSealedUnit(rec.Subject(), "its promotion", func() error {
 		return r.promoteSealed(ctx, rec)

@@ -1461,6 +1461,13 @@ func (t *ShardReindexTaskGeneric) migration() taskMigration {
 	return taskMigration{desc: distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, unitID: t.unitID}
 }
 
+func migrationOf(subject MigrationSubject) taskMigration {
+	return taskMigration{
+		desc:   distributedtask.TaskDescriptor{ID: subject.TaskID, Version: subject.Key.TaskVersion},
+		unitID: subject.Key.UnitID,
+	}
+}
+
 func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	return MigrationRecordKey{
 		TaskVersion:  t.taskVersion,

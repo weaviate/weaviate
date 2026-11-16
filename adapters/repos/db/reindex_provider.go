@@ -2463,8 +2463,12 @@ func finishDecidedSwaps(ctx context.Context, shard ShardLike, payload *ReindexTa
 	var loggers []logrus.FieldLogger
 	for _, task := range tasks {
 		rec, ok := task.migrationRecord(shard)
-		if !ok || !rec.FlipDecided() {
+		if !ok {
 			continue
+		}
+		// An undecided half is the swap phase's to decide, and then the unit flips whole.
+		if !rec.FlipDecided() {
+			return nil
 		}
 		pending, err := task.swapStillToRun(task.logger, shard, rec, rec.Subject().Properties())
 		if err != nil {
