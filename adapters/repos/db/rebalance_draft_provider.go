@@ -140,7 +140,11 @@ func (p *RebalanceDraftProvider) run(ctx context.Context, task *distributedtask.
 	// fail the dir fsync. Syncing the dirs again makes the file durable
 	// without sizing again.
 	if _, err := os.Stat(filepath.Join(p.dir, name)); err == nil {
-		if err := p.syncDirs(); err != nil {
+		err := p.syncDirs()
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
 			p.recordRetryableFailure(ctx, task, logger, err)
 			return
 		}
@@ -167,12 +171,13 @@ func (p *RebalanceDraftProvider) run(ctx context.Context, task *distributedtask.
 		p.recordRetryableFailure(ctx, task, logger, err)
 		return
 	}
-	// A Terminate that arrives after the ctx check above can still be followed
-	// by this completion record. The record is true: the draft file is already
-	// durable.
 	p.recordCompletion(ctx, task, logger)
 }
 
+// run calls recordCompletion on both of its paths (draft file found, draft
+// file written), each time after that path's last ctx check. A Terminate that
+// arrives after the check can still be followed by this record. The record is
+// still true, because the draft file is already durable.
 func (p *RebalanceDraftProvider) recordCompletion(ctx context.Context, task *distributedtask.Task, logger logrus.FieldLogger) {
 	if err := p.recorder.RecordDistributedTaskUnitCompletion(ctx, task.Namespace, task.ID,
 		task.Version, p.localNode, p.localNode); err != nil {
@@ -339,9 +344,18 @@ func (p *RebalanceDraftProvider) pruneDrafts(keep distributedtask.TaskDescriptor
 	}
 }
 
+// ErrInvalidRebalanceDraftTask is returned by ReadRebalanceDraft for a task ID
+// that is empty or not a bare file name.
+var ErrInvalidRebalanceDraftTask = errors.New("invalid rebalance draft task")
+
 // ReadRebalanceDraft returns the shard sizes this node saved for draft task
 // taskID at version. When no such draft exists, the error matches os.ErrNotExist.
+// A taskID that is empty or not a bare file name is rejected before any file
+// access, with an error that matches ErrInvalidRebalanceDraftTask.
 func ReadRebalanceDraft(dataPath, taskID string, version uint64) ([]types.RebalanceShardSize, error) {
+	if taskID == "" || filepath.Base(taskID) != taskID {
+		return nil, fmt.Errorf("%w: %q is not a bare file name", ErrInvalidRebalanceDraftTask, taskID)
+	}
 	name := draftFileName(distributedtask.TaskDescriptor{ID: taskID, Version: version})
 	content, err := os.ReadFile(filepath.Join(draftDir(dataPath), name))
 	if err != nil {

@@ -261,6 +261,7 @@ func TestRebalanceDraftProvider(t *testing.T) {
 			name       string
 			setup      func(t *testing.T, p *RebalanceDraftProvider)
 			failOn     string
+			cancelOn   string
 			wantSynced []string
 			wantCalls  []draftTestCall
 			wantSizing int64
@@ -317,6 +318,23 @@ func TestRebalanceDraftProvider(t *testing.T) {
 				wantSizing: 0,
 				wantDraft:  true,
 			},
+			{
+				name:       "draft file already present and cancelled during the syncs",
+				setup:      writeExisting,
+				cancelOn:   ".dtm",
+				wantSynced: []string{".", ".dtm", draftRel},
+				wantSizing: 0,
+				wantDraft:  true,
+			},
+			{
+				name:       "draft file already present, cancelled during the syncs and sync fails",
+				setup:      writeExisting,
+				cancelOn:   ".dtm",
+				failOn:     draftRel,
+				wantSynced: []string{".", ".dtm", draftRel},
+				wantSizing: 0,
+				wantDraft:  true,
+			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				sizer := &draftTestSizer{usage: map[string]*usagetypes.CollectionUsage{"A": {}}}
@@ -324,12 +342,18 @@ func TestRebalanceDraftProvider(t *testing.T) {
 				if tc.setup != nil {
 					tc.setup(t, p)
 				}
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				p.serverCtx = ctx
 				dataPath := filepath.Dir(filepath.Dir(p.dir))
 				var synced, syncedAtCompletion []string
 				p.syncDir = func(path string) error {
 					rel, err := filepath.Rel(dataPath, path)
 					assert.NoError(t, err)
 					synced = append(synced, rel)
+					if rel == tc.cancelOn {
+						cancel()
+					}
 					if rel == tc.failOn {
 						return errors.New("fsync: input/output error")
 					}
@@ -343,7 +367,7 @@ func TestRebalanceDraftProvider(t *testing.T) {
 
 				assert.Equal(t, tc.wantCalls, rec.kinds())
 				assert.Equal(t, tc.wantSynced, synced)
-				if tc.failOn == "" {
+				if tc.failOn == "" && tc.cancelOn == "" {
 					assert.Equal(t, tc.wantSynced, syncedAtCompletion)
 				}
 				assert.Equal(t, tc.wantSizing, sizer.calls.Load())
@@ -412,6 +436,33 @@ func TestRebalanceDraftProvider(t *testing.T) {
 		assert.Equal(t, []types.RebalanceShardSize{{Collection: "A", Shard: "a1", Bytes: 100}}, shards)
 		_, err = ReadRebalanceDraft(dataPath, "plan-1", 4)
 		assert.ErrorIs(t, err, os.ErrNotExist)
+
+		for _, tc := range []struct {
+			name   string
+			taskID string
+		}{
+			{name: "an empty task ID is rejected", taskID: ""},
+			{name: "an absolute task ID is rejected", taskID: filepath.Join(dataPath, "outside")},
+			{name: "a nested task ID is rejected", taskID: filepath.Join("sub", "plan-1")},
+			{name: "a traversing task ID is rejected", taskID: filepath.Join("..", "..", "outside")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// Write a valid draft at the path a plain join of taskID would
+				// read, so the read succeeds if the ID check is skipped.
+				target := filepath.Join(draftDir(dataPath), tc.taskID+"-3.json")
+				require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+				content, err := json.Marshal(rebalanceDraft{TaskID: tc.taskID, Version: 3, Shards: []types.RebalanceShardSize{
+					{Collection: "Outside", Shard: "o1", Bytes: 1},
+				}})
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(target, content, 0o644))
+
+				shards, err := ReadRebalanceDraft(dataPath, tc.taskID, 3)
+				require.ErrorIs(t, err, ErrInvalidRebalanceDraftTask)
+				assert.NotErrorIs(t, err, os.ErrNotExist)
+				assert.Nil(t, shards)
+			})
+		}
 	})
 }
 

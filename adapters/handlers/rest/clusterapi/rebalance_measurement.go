@@ -19,6 +19,7 @@ import (
 	"os"
 	"strconv"
 
+	repodb "github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
@@ -34,7 +35,9 @@ type rebalanceMeasurement struct {
 // NewRebalanceMeasurement builds the handler for this node's rebalance
 // measurement. It calls diskUse and memoryLimit on every request. A request
 // that names a draft task and version also gets that draft's shard sizes from
-// readDraft. For a missing draft, readDraft's error matches os.ErrNotExist.
+// readDraft. For a missing draft, readDraft's error matches os.ErrNotExist. For
+// a task ID that cannot name a draft, readDraft's error matches
+// repodb.ErrInvalidRebalanceDraftTask.
 func NewRebalanceMeasurement(diskUse func() (total, free uint64),
 	readDraft func(taskID string, version uint64) ([]replicationTypes.RebalanceShardSize, error),
 	memoryLimit func() int64, diskWarningPercentage uint64, replicationWorkers int, auth auth,
@@ -74,6 +77,10 @@ func (m *rebalanceMeasurement) measurementHandler() http.HandlerFunc {
 				return
 			}
 			shards, err = m.readDraft(taskID, version)
+			if errors.Is(err, repodb.ErrInvalidRebalanceDraftTask) {
+				http.Error(w, "/replication/rebalance "+err.Error(), http.StatusBadRequest)
+				return
+			}
 			if errors.Is(err, os.ErrNotExist) {
 				http.Error(w, "/replication/rebalance "+err.Error(), http.StatusNotFound)
 				return

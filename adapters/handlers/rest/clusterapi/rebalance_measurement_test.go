@@ -13,6 +13,7 @@ package clusterapi_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	repodb "github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
@@ -107,6 +109,18 @@ func TestRebalanceMeasurementHandler(t *testing.T) {
 			expectedCode: http.StatusNotFound,
 		},
 		{
+			name:         "GET for an invalid draft task is a bad request",
+			method:       http.MethodGet,
+			query:        "?draftTask=..%2Foutside&draftVersion=7",
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "GET for an unreadable draft is an internal error",
+			method:       http.MethodGet,
+			query:        "?draftTask=plan-1&draftVersion=9",
+			expectedCode: http.StatusInternalServerError,
+		},
+		{
 			name:         "GET with a draft task and no version is a bad request",
 			method:       http.MethodGet,
 			query:        "?draftTask=plan-1",
@@ -132,6 +146,12 @@ func TestRebalanceMeasurementHandler(t *testing.T) {
 				func(taskID string, version uint64) ([]replicationTypes.RebalanceShardSize, error) {
 					if taskID == "plan-1" && version == 7 {
 						return draftShards, nil
+					}
+					if taskID == "../outside" {
+						return nil, fmt.Errorf("read draft: %w", repodb.ErrInvalidRebalanceDraftTask)
+					}
+					if version == 9 {
+						return nil, errors.New("read draft: permission denied")
 					}
 					return nil, fmt.Errorf("read draft: %w", os.ErrNotExist)
 				},
