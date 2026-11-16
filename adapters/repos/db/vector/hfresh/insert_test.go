@@ -279,7 +279,8 @@ func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
 	require.True(t, ok)
 
 	require.False(t, tf.Index.Centroids.Exists(postingID))
-	require.Equal(t, int64(0), tf.Index.taskQueue.splitQueue.Size())
+	// only the oversized children may be queued, never the split posting
+	require.False(t, tf.Index.taskQueue.splitList.Contains(postingID))
 
 	size, err := tf.Index.PostingSizes.Get(t.Context(), postingID)
 	require.NoError(t, err)
