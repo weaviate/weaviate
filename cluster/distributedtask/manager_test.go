@@ -1921,8 +1921,7 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 
 	t.Run("empty collection name is a no-op (refuses to nuke everything)", func(t *testing.T) {
 		h := newTestHarness(t)
-		// Guard against a sloppy decoder emitting an empty collection
-		// accidentally matching every task on DeleteTasksForCollection("").
+		// A decoder that reads "" must not make DeleteTasksForCollection("") match every task.
 		h.conflictDetectors = map[string]ConflictDetector{"scoped": decodeWith(func([]byte) (string, bool) {
 			return "", true
 		})}

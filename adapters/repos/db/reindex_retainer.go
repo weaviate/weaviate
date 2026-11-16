@@ -147,7 +147,7 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	return runs
 }
 
-// reindexHeaderRuns is ReindexRuns for the RAFT apply: each run's Payload holds only its header's fields.
+// reindexHeaderRuns is ReindexRuns built from cached headers for the RAFT apply, so each run's Payload holds only the header's fields.
 func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
 	runs := make([]ReindexRun, 0, len(tasks))
 	for _, task := range tasks {

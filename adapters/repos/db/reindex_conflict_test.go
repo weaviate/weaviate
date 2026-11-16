@@ -1017,11 +1017,8 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 		name  string
 		task  *distributedtask.Task
 		check func([]*distributedtask.Task) string
-		want  string // substring of the result; empty means allowed
+		want  string // substring of the result, or empty when allowed
 	}{
-		{"tenant mutation", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckTenantMutation("C", []string{"t1"}, ts))
-		}, "is in flight"},
 		{"class mutation", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
 			return errText(d.CheckClassMutation("C", ts))
 		}, "is in flight"},
@@ -1055,7 +1052,7 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 	}
 }
 
-// Pins that a tenant-mutation refusal stays under 1 MiB while the in-flight task's payload is over 2 MB, so it cannot decode the payload.
+// CheckTenantMutation allocates under 1 MiB against a payload over 2 MB, so it refuses without decoding the payload.
 func TestCheckTenantMutation_AllocatesIndependentlyOfPayloadSize(t *testing.T) {
 	const tenants = 10_000
 	payload := ReindexTaskPayload{

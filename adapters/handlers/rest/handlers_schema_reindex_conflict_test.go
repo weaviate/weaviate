@@ -164,7 +164,7 @@ func remedyOf(t *testing.T, refusal string) string {
 	return refusal[i:]
 }
 
-// Pins: the pre-flight and the reindex detector reach the same verdict for
+// The pre-flight and the reindex detector reach the same verdict for
 // every structural payload class. The two arms that never look at the
 // mutated collection — a payload that does not decode, and one that
 // decodes without a Collection — are the ones this side used to skip,
