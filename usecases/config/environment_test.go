@@ -345,6 +345,37 @@ func TestEnvironmentDistributedTasksIntervals(t *testing.T) {
 	}
 }
 
+func TestEnvironmentLSMAccessStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    []string
+		config   Config
+		expected bool
+	}{
+		{name: "not given defaults to pread", value: []string{}, expected: true},
+		{name: "empty defaults to pread", value: []string{""}, expected: true},
+		{name: "pread", value: []string{"pread"}, expected: true},
+		{name: "mmap", value: []string{"mmap"}, expected: false},
+		{name: "unknown value falls back to pread", value: []string{"MMAP"}, expected: true},
+		{
+			name:     "mmap does not override avoid_mmap from config",
+			value:    []string{"mmap"},
+			config:   Config{AvoidMmap: true},
+			expected: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_LSM_ACCESS_STRATEGY", tt.value[0])
+			}
+			conf := tt.config
+			require.NoError(t, FromEnv(&conf))
+			assert.Equal(t, tt.expected, conf.AvoidMmap)
+		})
+	}
+}
+
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 	factors := []struct {
 		name        string
