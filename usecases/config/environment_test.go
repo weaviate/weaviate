@@ -366,8 +366,12 @@ func TestEnvironmentLSMAccessStrategy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Setenv registers the restore, so the unset case is isolated from the process env
+			t.Setenv("PERSISTENCE_LSM_ACCESS_STRATEGY", "")
 			if len(tt.value) == 1 {
 				t.Setenv("PERSISTENCE_LSM_ACCESS_STRATEGY", tt.value[0])
+			} else {
+				require.NoError(t, os.Unsetenv("PERSISTENCE_LSM_ACCESS_STRATEGY"))
 			}
 			conf := tt.config
 			require.NoError(t, FromEnv(&conf))
