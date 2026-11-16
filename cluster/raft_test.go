@@ -460,8 +460,8 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	ctx := context.Background()
 
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: func([]byte) (string, bool) { return "TestCollection", true },
+		c.DistributedTaskHeaderDecoders = map[string]distributedtask.HeaderDecoder{
+			exclusionNamespace: decodeCollection(func([]byte) (string, bool) { return "TestCollection", true }),
 		}
 	})
 	m.parser.On("ParseClass", mock.Anything).Return(nil)

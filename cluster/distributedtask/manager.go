@@ -55,9 +55,7 @@ type Manager struct {
 
 	readOnlyClass func(collection string) *models.Class
 
-	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
-	// not collection-scoped and survives DeleteTasksForCollection.
-	collectionExtractors   map[string]CollectionExtractor
+	headerDecoders         map[string]HeaderDecoder
 	targetVectorExtractors map[string]TargetVectorExtractor
 
 	logger logrus.FieldLogger
@@ -210,13 +208,14 @@ type ManagerParameters struct {
 	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
+	HeaderDecoders          map[string]HeaderDecoder
 	ReadOnlyClass           func(collection string) *models.Class
 }
 
 func NewManager(params ManagerParameters) *Manager {
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
-		collectionExtractors:   make(map[string]CollectionExtractor),
+		headerDecoders:         params.HeaderDecoders,
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
 		conflictDetectors:       params.ConflictDetectors,
@@ -227,30 +226,19 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
-// RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
-// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
-// write wins, but a task keeps the collection cacheCollectionWithLock read when the task was added, so register before the first task.
-// It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
-func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
-	if namespace == "" || extractor == nil {
-		return
+// headerFor is the only place the Manager derives anything from a payload.
+func (m *Manager) headerFor(namespace string, payload []byte) TaskHeader {
+	decode := m.headerDecoders[namespace]
+	if decode == nil {
+		return nil
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.collectionExtractors[namespace] = extractor
+	header, err := decode(payload)
+	if err != nil {
+		return nil
+	}
+	return header
 }
 
-// cacheCollectionWithLock runs once per add or restore, since HasActiveTaskForCollection runs on every replica copy.
-func (m *Manager) cacheCollectionWithLock(task *Task) {
-	if extractor := m.collectionExtractors[task.Namespace]; extractor != nil {
-		if c, ok := extractor(task.Payload); ok {
-			task.collection = c
-		}
-	}
-}
-
-// RegisterTargetVectorExtractor opts a task namespace into
-// PurgeTasksForCollectionTargetVectors. Same contract as RegisterCollectionExtractor.
 func (m *Manager) RegisterTargetVectorExtractor(namespace string, extractor TargetVectorExtractor) {
 	if namespace == "" || extractor == nil {
 		return
@@ -357,7 +345,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 			// payload consumer: collection names are case-insensitive
 			// identifiers, and a byte-exact cascade would leak a case-twin
 			// record past DELETE_CLASS.
-			if !strings.EqualFold(task.collection, collection) {
+			if !strings.EqualFold(task.collection(), collection) {
 				continue
 			}
 			delete(tasksByID, taskID)
@@ -371,10 +359,10 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for namespace := range m.collectionExtractors {
+	for namespace := range m.headerDecoders {
 		for _, task := range m.tasks[namespace] {
 			if task.Status.IsActive() || !task.NeedsPreparationBarrier ||
-				!strings.EqualFold(task.collection, collection) {
+				!strings.EqualFold(task.collection(), collection) {
 				continue
 			}
 			task.forgetGroups(groups)
@@ -383,27 +371,19 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 }
 
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
-	extractor := m.collectionExtractor(namespace)
-	if extractor == nil {
-		return ""
+	if header := m.headerFor(namespace, payload); header != nil {
+		return header.Collection()
 	}
-	collection, _ := extractor(payload)
-	return collection
-}
-
-func (m *Manager) collectionExtractor(namespace string) CollectionExtractor {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.collectionExtractors[namespace]
+	return ""
 }
 
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for ns := range m.collectionExtractors {
+	for ns := range m.headerDecoders {
 		for _, task := range m.tasks[ns] {
-			if task.Status.IsActive() && strings.EqualFold(task.collection, collection) {
+			if task.Status.IsActive() && strings.EqualFold(task.collection(), collection) {
 				return true
 			}
 		}
@@ -486,7 +466,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 	newTask.IndexGroups()
 
-	m.cacheCollectionWithLock(newTask)
+	newTask.header = m.headerFor(newTask.Namespace, newTask.Payload)
 	m.setTaskWithLock(newTask)
 	m.notifySchedulerWithLock()
 
@@ -1206,7 +1186,7 @@ func (m *Manager) Restore(bytes []byte) error {
 			}
 
 			task.IndexGroups()
-			m.cacheCollectionWithLock(task)
+			task.header = m.headerFor(task.Namespace, task.Payload)
 			m.tasks[namespace][task.ID] = task
 		}
 	}

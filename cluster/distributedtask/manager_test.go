@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -29,6 +30,19 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+type testHeader string
+
+func (h testHeader) Collection() string { return string(h) }
+
+func decodeWith(extract func([]byte) (string, bool)) HeaderDecoder {
+	return func(payload []byte) (TaskHeader, error) {
+		if collection, ok := extract(payload); ok {
+			return testHeader(collection), nil
+		}
+		return nil, errors.New("unreadable payload")
+	}
+}
 
 // fakeConflictDetector lets the manager-side conflict-hook test pin
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
@@ -1512,8 +1526,8 @@ func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 			h := newTestHarness(t)
 			detector := &fakeSchemaMutationDetector{}
 			h.schemaMutationDetectors = map[string]SchemaMutationDetector{"reindex": detector}
+			h.headerDecoders = map[string]HeaderDecoder{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
 			h.init(t)
-			h.manager.RegisterCollectionExtractor("reindex", func(p []byte) (string, bool) { return string(p), len(p) > 0 })
 			for id, collection := range map[string]string{"same": "Foo", "other": "Bar", "unknown": ""} {
 				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 					Namespace: "reindex", Id: id, Payload: []byte(collection), UnitIds: []string{"u"},
@@ -1728,10 +1742,11 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 // (purge, enqueuer, conflict guard) — a byte-exact cascade would leak a
 // case-twin record past DELETE_CLASS.
 func TestManager_DeleteTasksForCollection_CaseInsensitive(t *testing.T) {
-	h := newTestHarness(t).init(t)
-	h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) {
+	h := newTestHarness(t)
+	h.headerDecoders = map[string]HeaderDecoder{"ns": decodeWith(func(payload []byte) (string, bool) {
 		return string(payload), true
-	})
+	})}
+	h.init(t)
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns",
 		Id:                    "twin",
@@ -1772,12 +1787,13 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	}
 
 	t.Run("removes only tasks whose payload matches the collection", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
+		h := newTestHarness(t)
 		decodes := 0
-		h.manager.RegisterCollectionExtractor("scoped", func(payload []byte) (string, bool) {
+		h.headerDecoders = map[string]HeaderDecoder{"scoped": decodeWith(func(payload []byte) (string, bool) {
 			decodes++
 			return collectionExtractor(payload)
-		})
+		})}
+		h.init(t)
 
 		mkTask := func(id string, payload any) {
 			t.Helper()
@@ -1832,12 +1848,13 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	})
 
 	t.Run("empty collection name is a no-op (refuses to nuke everything)", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		// Guard against a sloppy extractor emitting ("", true) accidentally
-		// matching every task on DeleteTasksForCollection("").
-		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) {
+		h := newTestHarness(t)
+		// Guard against a sloppy decoder emitting an empty collection
+		// accidentally matching every task on DeleteTasksForCollection("").
+		h.headerDecoders = map[string]HeaderDecoder{"scoped": decodeWith(func([]byte) (string, bool) {
 			return "", true
-		})
+		})}
+		h.init(t)
 
 		addRawTask(t, h, "scoped", "still-here", []byte("anything"), "u-1")
 
@@ -1847,35 +1864,6 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		all, err := h.manager.ListDistributedTasks(context.Background())
 		require.NoError(t, err)
 		assert.Len(t, all["scoped"], 1, "task must still exist after empty-name query")
-	})
-
-	t.Run("RegisterCollectionExtractor is idempotent (last write wins)", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "Foo", true })
-		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "", false })
-
-		addRawTask(t, h, "scoped", "task", []byte("payload"), "u-1")
-
-		removed := h.manager.DeleteTasksForCollection("Foo")
-		assert.Empty(t, removed, "second extractor takes effect; task must NOT be removed")
-	})
-
-	t.Run("RegisterCollectionExtractor rejects nil extractor and empty namespace", func(t *testing.T) {
-		// Without these guards, DeleteTasksForCollection would either panic
-		// on the nil function pointer or shadow legitimate "" tasks.
-		h := newTestHarness(t).init(t)
-
-		h.manager.RegisterCollectionExtractor("scoped", nil)
-		addRawTask(t, h, "scoped", "task", []byte("anything"), "u-1")
-		require.NotPanics(t, func() {
-			removed := h.manager.DeleteTasksForCollection("Foo")
-			assert.Empty(t, removed, "nil extractor must not match anything")
-		})
-
-		h.manager.RegisterCollectionExtractor("", func([]byte) (string, bool) { return "Foo", true })
-		addRawTask(t, h, "", "task-in-empty-ns", []byte("anything"), "u-2")
-		removed := h.manager.DeleteTasksForCollection("Foo")
-		assert.Empty(t, removed, "empty-namespace registration must be ignored")
 	})
 }
 
@@ -1903,12 +1891,11 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 		{"a running task restored from a snapshot", "Movies", true, TaskStatusStarted, "", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
+			h := newTestHarness(t)
 			extracts := 0
-			for _, ns := range []string{"ns", "ns2"} {
-				h.manager.RegisterCollectionExtractor(ns,
-					func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
-			}
+			decode := decodeWith(func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
+			h.headerDecoders = map[string]HeaderDecoder{"ns": decode, "ns2": decode}
+			h.init(t)
 			fixtureInStatus(t, h, tc.status)
 			tasks := 1
 			if tc.runningInNS != "" {
@@ -2543,8 +2530,9 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 		{name: "a run without per-tenant decisions is left alone", collection: "Foo", status: TaskStatusCancelled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) { return string(payload), true })
+			h := newTestHarness(t)
+			h.headerDecoders = map[string]HeaderDecoder{"ns": decodeWith(func(payload []byte) (string, bool) { return string(payload), true })}
+			h.init(t)
 			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace: "ns", Id: "T", Payload: []byte(tc.collection), SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 				UnitSpecs:               []*cmd.UnitSpec{{Id: "a-1", GroupId: "a"}, {Id: "b-1", GroupId: "b"}},

@@ -400,8 +400,8 @@ func TestCheckConflict_SkipsOtherCollectionsBeforeDecoding(t *testing.T) {
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
 				Logger:            logger,
 				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: inIDOrder{}},
+				HeaderDecoders:    map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
 			})
-			mgr.RegisterCollectionExtractor(ReindexNamespace, ExtractReindexTaskCollection)
 			require.NoError(t, mgr.Restore(snapshot))
 			sub, err := json.Marshal(&api.AddDistributedTaskRequest{Namespace: ReindexNamespace, Id: "T2", Payload: newPayload, UnitIds: []string{"u"}})
 			require.NoError(t, err)
