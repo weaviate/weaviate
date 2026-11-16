@@ -221,6 +221,48 @@ func TestReferenceBatchRefusesOnlyThePropertyWithAMissingBucket(t *testing.T) {
 	assert.NoError(t, errs[2])
 }
 
+// A reference into a non-reference property is refused with its value unchanged, indexed or not.
+func TestReferenceBatchRefusesANonReferenceProperty(t *testing.T) {
+	ctx := testCtx()
+	className := "NonRefProperty_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title", "plain"})
+	class.Properties[1].IndexFilterable, class.Properties[1].IndexSearchable = boolPtr(false), boolPtr(false)
+	class.Properties = append(class.Properties, &models.Property{Name: "ref", DataType: []string{className}})
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+	logger, hook := logrustest.NewNullLogger()
+	shard.refusedWriteSampler = logrusext.NewSampler(logger, maxReportedErrors, time.Minute)
+
+	obj := createTestObjectWithText(className, "alpha")
+	obj.Object.Properties.(map[string]interface{})["plain"] = "beta"
+	require.NoError(t, shard.PutObject(ctx, obj))
+	target := createTestObjectWithText(className, "target")
+	require.NoError(t, shard.PutObject(ctx, target))
+
+	props := []string{"title", "plain", "ref"}
+	refs := make(objects.BatchReferences, len(props))
+	for i, prop := range props {
+		refs[i] = objects.BatchReference{
+			From: crossref.NewSource(schema.ClassName(className), schema.PropertyName(prop), obj.ID()),
+			To:   crossref.New("localhost", className, target.ID()),
+		}
+	}
+	errs := shard.AddReferencesBatch(ctx, refs)
+
+	stored, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	values := stored.Properties().(map[string]interface{})
+	assert.Equal(t, "alpha", values["title"], "an indexed text property must keep its value")
+	assert.Equal(t, "beta", values["plain"], "an unindexed text property must keep its value")
+	assert.NotNil(t, values["ref"], "a reference into a reference property still works")
+	require.Len(t, errs, 3)
+	assert.ErrorContains(t, errs[0], `property "title" is not a reference property`)
+	assert.ErrorContains(t, errs[1], `property "plain" is not a reference property`)
+	assert.NoError(t, errs[2])
+	assert.Empty(t, hook.AllEntries(), "this refusal is not a missing bucket and must not use its log")
+}
+
 func TestRangeableDemotionLogsOncePerChange(t *testing.T) {
 	tests := []struct {
 		name    string

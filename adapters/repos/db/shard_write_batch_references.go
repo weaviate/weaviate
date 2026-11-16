@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -233,8 +234,8 @@ type refBucketPins struct {
 	byName map[string]*lsmkv.Bucket
 }
 
-// pinRefBuckets pins the buckets writeInverted writes and refuses each property missing one, so its references
-// fail before any merge. mirrorColocatedPropsForReindex's ingest buckets stay unpinned and are skipped when missing.
+// pinRefBuckets pins the buckets writeInverted writes. It refuses each property that misses one, or is not a
+// reference and so would have its value overwritten, before any merge. Mirror ingest buckets stay unpinned.
 func (b *referencesBatcher) pinRefBuckets(batch objects.BatchReferences,
 	propsByName map[string]*models.Property,
 ) (refBucketPins, map[string]error) {
@@ -248,6 +249,13 @@ func (b *referencesBatcher) pinRefBuckets(batch objects.BatchReferences,
 			continue
 		}
 		seen[propName] = struct{}{}
+		if refused == nil {
+			refused = map[string]error{}
+		}
+		if !schema.IsRefDataType(prop.DataType) {
+			refused[propName] = fmt.Errorf("property %q is not a reference property", propName)
+			continue
+		}
 
 		names := make([]string, 0, 2)
 		if inverted.HasFilterableIndexMetaCount && inverted.HasAnyInvertedIndex(prop) {
@@ -258,9 +266,6 @@ func (b *referencesBatcher) pinRefBuckets(batch objects.BatchReferences,
 		}
 		dst := make([]*lsmkv.Bucket, len(names))
 		if missing := b.shard.store.AcquireBucketsForWrite(names, dst); missing >= 0 {
-			if refused == nil {
-				refused = map[string]error{}
-			}
 			refused[propName] = b.shard.refuseWrite(names[missing])
 			continue
 		}
