@@ -72,4 +72,10 @@ var handleRecipes = map[db.MigrationStrategyCode]handleRecipe{
 	db.StrategyCodeRebuildSearchable: {
 		helpers.BucketSearchableFromPropNameLSM, "__rebuild_searchable_ingest", "__rebuild_searchable_reindex",
 	},
+	db.StrategyCodeNullState: {
+		helpers.BucketFromPropNameNullLSM, "__enable_nullstate_ingest", "__enable_nullstate_reindex",
+	},
+	db.StrategyCodePropertyLength: {
+		helpers.BucketFromPropNameLengthLSM, "__enable_proplength_ingest", "__enable_proplength_reindex",
+	},
 }

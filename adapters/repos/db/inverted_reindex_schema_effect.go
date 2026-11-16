@@ -114,8 +114,18 @@ func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Prope
 }
 
 // No default arm: the exhaustive linter is what catches a new strategy code that names no flag here.
-func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Property) (*bool, string) {
-	switch code {
+func migrationCanonicalIndexFlag(subject MigrationSubject, prop *models.Property) (*bool, string) {
+	switch subject.Key.StrategyCode {
+	case StrategyCodeNullState, StrategyCodePropertyLength:
+		// Held back exactly while the index its run enables is.
+		switch enabled, _ := migrationEnablesIndexType(subject.MigrationType); enabled {
+		case "searchable":
+			return prop.IndexSearchable, "indexSearchable"
+		case "rangeable":
+			return prop.IndexRangeFilters, "indexRangeFilters"
+		default:
+			return prop.IndexFilterable, "indexFilterable"
+		}
 	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,
 		StrategyCodeRebuildSearchable, StrategyCodeSearchableRetokenize:
 		return prop.IndexSearchable, "indexSearchable"
@@ -143,7 +153,7 @@ func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubje
 		if p == nil || p.Name != prop {
 			continue
 		}
-		flag, field := migrationCanonicalIndexFlag(subject.Key.StrategyCode, p)
+		flag, field := migrationCanonicalIndexFlag(subject, p)
 		if propertyIndexRemoved(flag) {
 			return true, fmt.Sprintf("property %q: the collection sets %s to false", prop, field)
 		}

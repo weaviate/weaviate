@@ -48,17 +48,24 @@ func deriveScope(regs []migrationScopeReg) (migrationDoubleWriteScope, []string)
 			next.props[prop] = struct{}{}
 
 			overlay := reg.overlay[prop]
-			if prev, ok := wanted[prop]; ok && prev != overlay && !slices.Contains(conflicts, prop) {
-				conflicts = append(conflicts, prop)
+			if prev, ok := wanted[prop]; ok {
+				if prev.Tokenization != overlay.Tokenization && !slices.Contains(conflicts, prop) {
+					conflicts = append(conflicts, prop)
+				}
+				// Each mirror reads only its own bucket's part, so differing flags share one analysis.
+				overlay = mergePropertyOverlay(prev, overlay)
 			}
 			wanted[prop] = overlay
 		}
-		for prop, overlay := range reg.overlay {
-			if next.overlay == nil {
-				next.overlay = make(map[string]inverted.PropertyOverlay, len(reg.overlay))
-			}
-			next.overlay[prop] = overlay
+	}
+	for prop, overlay := range wanted {
+		if overlay.Empty() {
+			continue
 		}
+		if next.overlay == nil {
+			next.overlay = make(map[string]inverted.PropertyOverlay, len(wanted))
+		}
+		next.overlay[prop] = overlay
 	}
 	return next, conflicts
 }
@@ -265,7 +272,7 @@ func deleteCallbacksWithID(cur []deleteCallbackEntry, id uint64) []deleteCallbac
 }
 
 func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, a doubleWriteAnalysis) ([]inverted.Property, error) {
-	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, a.overlay)
+	props, err := analyzeForMigrationWithAbsent(s, obj, a.overlay)
 	if err != nil {
 		return nil, err
 	}

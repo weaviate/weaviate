@@ -83,6 +83,9 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	var geoProps []*models.Property
 
 	for _, prop := range props {
+		overlay := s.SnapshotPropertyOverlay([]string{prop.Name})[prop.Name]
+		tracksNull := inverted.TracksNullState(prop, overlay)
+		tracksLength := inverted.TracksPropertyLength(prop, overlay)
 		prop = s.withMigratedIndexes(prop)
 		propCopy := *prop // prevent loop variable capture
 
@@ -104,19 +107,17 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		if !inverted.HasAnyInvertedIndex(prop) {
-			continue
-		}
-
-		if createsGeoIndex(prop) {
+		switch {
+		case !inverted.HasAnyInvertedIndex(prop):
+		case createsGeoIndex(prop):
 			geoProps = append(geoProps, &propCopy)
-		} else {
+		default:
 			eg.Go(func() error {
 				return initValueIndex(&propCopy)
 			})
 		}
 
-		if s.index.invertedIndexConfig.IndexNullState {
+		if s.index.invertedIndexConfig.IndexNullState && tracksNull {
 			eg.Go(func() error {
 				if err := s.createPropertyNullIndex(ctx, &propCopy, makeBucketOptions); err != nil {
 					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
@@ -125,7 +126,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			})
 		}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength {
+		if s.index.invertedIndexConfig.IndexPropertyLength && tracksLength {
 			eg.Go(func() error {
 				if err := s.createPropertyLengthIndex(ctx, &propCopy, makeBucketOptions); err != nil {
 					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
@@ -276,10 +277,11 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	}
 	committed := migrationPreservedStateFromRecords(records, faults)
 
+	swept := partialReindexMainBuckets(propName, mainBucketName)
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
 	for bucketName := range loaded {
-		if !isSidecarDirOf(bucketName, mainBucketName) {
+		if !isSidecarDirOfAny(bucketName, swept) {
 			continue
 		}
 		if committed.preservesBucket(bucketName) {
@@ -306,10 +308,25 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		WithField("preserved_sidecars", committed.bucketsOf(mainBucketName)).
 		Info("partial-reindex cleanup: sidecar buckets shut down")
 
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, committed)
+	for _, main := range swept {
+		s.cleanStaleSidecarDirsWithPreserved(main, committed)
+	}
 	logger.Info("partial-reindex cleanup: sidecar dirs cleaned")
 
 	return nil
+}
+
+// Also the run's null-state and length sidecars; their canonical buckets exist only after a swap.
+func partialReindexMainBuckets(propName, mainBucketName string) []string {
+	return []string{
+		mainBucketName,
+		helpers.BucketFromPropNameNullLSM(propName),
+		helpers.BucketFromPropNameLengthLSM(propName),
+	}
+}
+
+func isSidecarDirOfAny(name string, mainBucketNames []string) bool {
+	return slices.ContainsFunc(mainBucketNames, func(main string) bool { return isSidecarDirOf(name, main) })
 }
 
 // mainBucketForPropertyIndex returns the canonical main bucket name on

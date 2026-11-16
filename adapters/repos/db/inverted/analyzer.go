@@ -40,8 +40,9 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
-	// OverlayForcedOnly: no property-length or null-state bucket exists yet.
-	OverlayForcedOnly bool
+	// SkipNullState and SkipPropertyLength: that bucket does not exist yet.
+	SkipNullState      bool
+	SkipPropertyLength bool
 	// OverlaySearchable means the overlay set the flag, so no tracker entry exists.
 	OverlaySearchable bool
 }
@@ -49,6 +50,7 @@ type Property struct {
 type NilProperty struct {
 	Name                string
 	AddToPropertyLength bool
+	AddToNullState      bool
 }
 
 // NestedValue is a single analyzed value from a nested property.
@@ -122,10 +124,21 @@ type PropertyOverlay struct {
 	// Tokenization, when non-empty, replaces prop.Tokenization during analysis:
 	// the tokenization the migrated bucket is built with.
 	Tokenization string
+	// A migration installed that bucket for a property with no index.
+	TracksNullState      bool
+	TracksPropertyLength bool
 }
 
 func (o PropertyOverlay) Empty() bool {
 	return o == PropertyOverlay{}
+}
+
+func TracksNullState(live *models.Property, o PropertyOverlay) bool {
+	return HasAnyInvertedIndex(live) || o.TracksNullState
+}
+
+func TracksPropertyLength(live *models.Property, o PropertyOverlay) bool {
+	return HasAnyInvertedIndex(live) || o.TracksPropertyLength
 }
 
 func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay {
@@ -135,6 +148,8 @@ func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay
 	o.ForceFilterable = o.ForceFilterable && !HasFilterableIndex(live)
 	o.ForceSearchable = o.ForceSearchable && !HasSearchableIndex(live)
 	o.ForceRangeable = o.ForceRangeable && !HasRangeableIndex(live)
+	o.TracksNullState = o.TracksNullState && !HasAnyInvertedIndex(live)
+	o.TracksPropertyLength = o.TracksPropertyLength && !HasAnyInvertedIndex(live)
 	if o.Tokenization == live.Tokenization {
 		o.Tokenization = ""
 	}

@@ -48,6 +48,8 @@ const (
 	StrategyCodeEnableFilterable            MigrationStrategyCode = "enable_filterable"
 	StrategyCodeEnableSearchable            MigrationStrategyCode = "enable_searchable"
 	StrategyCodeRebuildSearchable           MigrationStrategyCode = "rebuild_searchable"
+	StrategyCodeNullState                   MigrationStrategyCode = "null_state"
+	StrategyCodePropertyLength              MigrationStrategyCode = "property_length"
 )
 
 // A valid code missing from this list reads out of a record file name as no code at all.
@@ -56,6 +58,7 @@ var migrationStrategyCodes = []MigrationStrategyCode{
 	StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
 	StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
 	StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable,
+	StrategyCodeNullState, StrategyCodePropertyLength,
 }
 
 func (c MigrationStrategyCode) valid() bool {
@@ -463,9 +466,8 @@ func validateCanonicalNamesOwnBucket(e migrationRecordEnvelope) error {
 	return nil
 }
 
-// [TestEveryStrategyReadsTheMainBucketThisNames] pins this against the eight
-// strategies' own SourceBucketName. No default arm, so the linter refuses a
-// ninth code that names no bucket; a valid key never reaches the last return.
+// [TestEveryStrategyReadsTheMainBucketThisNames] pins this against each strategy's
+// SourceBucketName. No default arm, so the linter refuses a code that names no bucket.
 func sourceBucketNameFor(code MigrationStrategyCode, prop string) string {
 	switch code {
 	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,
@@ -476,6 +478,10 @@ func sourceBucketNameFor(code MigrationStrategyCode, prop string) string {
 	case StrategyCodeFilterableRoaringsetRefresh, StrategyCodeFilterableRetokenize,
 		StrategyCodeEnableFilterable:
 		return helpers.BucketFromPropNameLSM(prop)
+	case StrategyCodeNullState:
+		return helpers.BucketFromPropNameNullLSM(prop)
+	case StrategyCodePropertyLength:
+		return helpers.BucketFromPropNameLengthLSM(prop)
 	}
 	return ""
 }

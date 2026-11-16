@@ -78,7 +78,7 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *
 		}
 		payload := subject.reindexPayload()
 		built, err := buildMigrationTasks(s.index.logger, nil, subject.Key.TaskVersion, &payload,
-			func(string, string) bool { return true })
+			func(string, string) bool { return true }, allNullLengthCompanions)
 		if err != nil {
 			unbuildable.AddWrapf(err, "%s", subject.Key)
 			continue

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Only newly conflicting properties are reported, on one bounded line: a
@@ -30,7 +31,7 @@ func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 	forced := map[string]inverted.PropertyOverlay{}
 	for i := range props {
 		props[i] = fmt.Sprintf("prop_%02d", i)
-		forced[props[i]] = inverted.PropertyOverlay{ForceSearchable: true}
+		forced[props[i]] = inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField}
 	}
 
 	tests := []struct {

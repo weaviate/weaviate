@@ -1450,6 +1450,8 @@ func TestEveryWriterEmittedSidecarNameIsAccepted(t *testing.T) {
 			&EnableFilterableStrategy{propNames: []string{prop}, generation: generation},
 			&EnableSearchableStrategy{propNames: []string{prop}, generation: generation},
 			&RebuildSearchableStrategy{propNames: []string{prop}, generation: generation},
+			&NullLengthStrategy{propNames: []string{prop}, generation: generation},
+			&NullLengthStrategy{length: true, propNames: []string{prop}, generation: generation},
 		}
 	}
 	require.Len(t, strategiesFor("title", 1), len(strategiesByCode(1)))
@@ -1507,6 +1509,8 @@ func TestEveryStrategyReadsTheMainBucketThisNames(t *testing.T) {
 		StrategyCodeEnableFilterable:            &EnableFilterableStrategy{propNames: []string{prop}},
 		StrategyCodeEnableSearchable:            &EnableSearchableStrategy{propNames: []string{prop}},
 		StrategyCodeRebuildSearchable:           &RebuildSearchableStrategy{propNames: []string{prop}},
+		StrategyCodeNullState:                   &NullLengthStrategy{propNames: []string{prop}},
+		StrategyCodePropertyLength:              &NullLengthStrategy{length: true, propNames: []string{prop}},
 	}
 	require.Len(t, byCode, len(strategiesByCode(1)), "every strategy carries a record code")
 

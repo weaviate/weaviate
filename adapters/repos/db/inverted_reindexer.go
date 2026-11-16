@@ -364,12 +364,21 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		}
 	}
 
-	// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-	if r.shard.Index().invertedIndexConfig.IndexPropertyLength &&
-		checker.isReindexable(property.Name, IndexTypePropLength) &&
-		property.Length >= 0 {
+	return r.addNullLength(checker, docID, property)
+}
 
-		key, err := bucketKeyPropertyLength(property.Length)
+func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker *reindexablePropertyChecker,
+	docID uint64, nilProperty inverted.NilProperty,
+) error {
+	return r.addNullLength(checker, docID, nilAsProperty(nilProperty))
+}
+
+func (r *ShardInvertedReindexer) addNullLength(checker *reindexablePropertyChecker,
+	docID uint64, property inverted.Property,
+) error {
+	e := nullLengthEntryOf(r.shard.Index().invertedIndexConfig, property)
+	if e.addLength && checker.isReindexable(property.Name, IndexTypePropLength) {
+		key, err := bucketKeyPropertyLength(e.length)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' length", property.Name)
 		}
@@ -382,10 +391,8 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		}
 	}
 
-	if r.shard.Index().invertedIndexConfig.IndexNullState &&
-		checker.isReindexable(property.Name, IndexTypePropNull) {
-
-		key, err := bucketKeyPropertyNull(property.Length == 0)
+	if e.addNull && checker.isReindexable(property.Name, IndexTypePropNull) {
+		key, err := bucketKeyPropertyNull(e.isNull)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' null", property.Name)
 		}
@@ -397,46 +404,6 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			return errors.Wrapf(err, "failed adding to prop '%s' null bucket", property.Name)
 		}
 	}
-
-	return nil
-}
-
-func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker *reindexablePropertyChecker,
-	docID uint64, nilProperty inverted.NilProperty,
-) error {
-	if r.shard.Index().invertedIndexConfig.IndexPropertyLength &&
-		checker.isReindexable(nilProperty.Name, IndexTypePropLength) &&
-		nilProperty.AddToPropertyLength {
-
-		key, err := bucketKeyPropertyLength(0)
-		if err != nil {
-			return errors.Wrapf(err, "failed creating key for prop '%s' length", nilProperty.Name)
-		}
-		bucketLength := r.tempBucket(nilProperty.Name, IndexTypePropLength)
-		if bucketLength == nil {
-			return fmt.Errorf("no bucket for prop '%s' length found", nilProperty.Name)
-		}
-		if err := r.shard.addToPropertySetBucket(bucketLength, docID, key); err != nil {
-			return errors.Wrapf(err, "failed adding to prop '%s' length bucket", nilProperty.Name)
-		}
-	}
-
-	if r.shard.Index().invertedIndexConfig.IndexNullState &&
-		checker.isReindexable(nilProperty.Name, IndexTypePropNull) {
-
-		key, err := bucketKeyPropertyNull(true)
-		if err != nil {
-			return errors.Wrapf(err, "failed creating key for prop '%s' null", nilProperty.Name)
-		}
-		bucketNull := r.tempBucket(nilProperty.Name, IndexTypePropNull)
-		if bucketNull == nil {
-			return fmt.Errorf("no bucket for prop '%s' null found", nilProperty.Name)
-		}
-		if err := r.shard.addToPropertySetBucket(bucketNull, docID, key); err != nil {
-			return errors.Wrapf(err, "failed adding to prop '%s' null bucket", nilProperty.Name)
-		}
-	}
-
 	return nil
 }
 

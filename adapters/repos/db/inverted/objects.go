@@ -106,12 +106,14 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 		// it produces a shallow copy with the relevant flags/tokenization
 		// overridden for the duration of this analysis call.
 		effective := a.effectiveProperty(prop)
+		overlay := a.schemaOverlay[prop.Name]
+		skipNull := !TracksNullState(prop, overlay)
+		skipLength := !TracksPropertyLength(prop, overlay)
 
-		if !HasAnyInvertedIndex(effective) {
+		if !HasAnyInvertedIndex(effective) && skipNull && skipLength {
 			continue
 		}
 
-		overlayForcedOnly := !HasAnyInvertedIndex(prop)
 		overlaySearchable := HasSearchableIndex(effective) && !HasSearchableIndex(prop)
 		firstEmitted := len(out)
 
@@ -129,11 +131,10 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			}
 		}
 
-		if overlayForcedOnly || overlaySearchable {
-			for i := firstEmitted; i < len(out); i++ {
-				out[i].OverlayForcedOnly = overlayForcedOnly
-				out[i].OverlaySearchable = overlaySearchable
-			}
+		for i := firstEmitted; i < len(out); i++ {
+			out[i].SkipNullState = skipNull
+			out[i].SkipPropertyLength = skipLength
+			out[i].OverlaySearchable = overlaySearchable
 		}
 	}
 	return out, nestedOut, nil

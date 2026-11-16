@@ -1273,6 +1273,8 @@ func strategiesByCode(generation int) map[MigrationStrategyCode]MigrationStrateg
 		StrategyCodeEnableFilterable:            &EnableFilterableStrategy{generation: generation},
 		StrategyCodeEnableSearchable:            &EnableSearchableStrategy{generation: generation},
 		StrategyCodeRebuildSearchable:           &RebuildSearchableStrategy{generation: generation},
+		StrategyCodeNullState:                   &NullLengthStrategy{generation: generation},
+		StrategyCodePropertyLength:              &NullLengthStrategy{length: true, generation: generation},
 	}
 }
 

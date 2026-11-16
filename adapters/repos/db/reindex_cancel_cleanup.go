@@ -299,8 +299,9 @@ func hasStalePartialReindexState(
 	}
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
+	swept := partialReindexMainBuckets(propName, mainBucketName)
 	for _, name := range names {
-		if !isSidecarDirOf(name, mainBucketName) {
+		if !isSidecarDirOfAny(name, swept) {
 			continue
 		}
 		if !committed.preservesBucket(name) {

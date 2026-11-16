@@ -754,6 +754,8 @@ func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOve
 	o.ForceFilterable = o.ForceFilterable || prev.ForceFilterable
 	o.ForceSearchable = o.ForceSearchable || prev.ForceSearchable
 	o.ForceRangeable = o.ForceRangeable || prev.ForceRangeable
+	o.TracksNullState = o.TracksNullState || prev.TracksNullState
+	o.TracksPropertyLength = o.TracksPropertyLength || prev.TracksPropertyLength
 	if o.Tokenization == "" {
 		o.Tokenization = prev.Tokenization
 	}
@@ -841,6 +843,10 @@ func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
 		entry.ForceRangeable = false
 	default:
 		return
+	}
+	// With no index left to stand in for, nothing keeps those buckets current.
+	if !entry.ForceFilterable && !entry.ForceSearchable && !entry.ForceRangeable {
+		entry.TracksNullState, entry.TracksPropertyLength = false, false
 	}
 	if entry.Empty() {
 		delete(s.propertyOverlay, propName)

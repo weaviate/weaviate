@@ -75,40 +75,30 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
-		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
-			continue
-		}
-
-		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.deleteFromPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.deleteFromPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		if err := s.deleteFromNullLengthIndexes(docID, prop); err != nil {
+			return err
 		}
 	}
-
-	// remove nil properties from the nullstate and property length inverted index
 	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.deleteFromPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.deleteFromPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		if err := s.deleteFromNullLengthIndexes(docID, nilAsProperty(nilProperty)); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
+func (s *Shard) deleteFromNullLengthIndexes(docID uint64, prop inverted.Property) error {
+	e := s.nullLengthEntryOf(prop)
+	if e.addLength {
+		if err := s.deleteFromPropertyLengthIndex(prop.Name, docID, e.length); err != nil {
+			return errors.Wrap(err, "delete indexed property length")
+		}
+	}
+	if e.addNull {
+		if err := s.deleteFromPropertyNullIndex(prop.Name, docID, e.isNull); err != nil {
+			return errors.Wrap(err, "delete indexed null state")
+		}
+	}
 	return nil
 }
 

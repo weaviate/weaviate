@@ -1086,7 +1086,68 @@ func TestIndexInverted(t *testing.T) {
 				assert.Equal(t, tc.filterable, out[0].HasFilterableIndex)
 				assert.Equal(t, tc.searchable, out[0].HasSearchableIndex)
 				assert.Equal(t, tc.rangeable, out[0].HasRangeableIndex)
-				assert.Equal(t, tc.forcedOnly, out[0].OverlayForcedOnly)
+				assert.Equal(t, tc.forcedOnly, out[0].SkipNullState)
+				assert.Equal(t, tc.forcedOnly, out[0].SkipPropertyLength)
+			})
+		}
+	})
+
+	// Each companion flag says its own bucket exists, so a property with no
+	// index is emitted and each step is skipped only where its flag is off.
+	t.Run("tracks a null-state or length bucket the overlay installed", func(t *testing.T) {
+		off := &models.Property{
+			Name: "prop", DataType: schema.DataTypeText.PropString(),
+			IndexFilterable: &vFalse, IndexSearchable: &vFalse,
+			Tokenization: models.PropertyTokenizationWord,
+		}
+		on := *off
+		on.IndexFilterable = &vTrue
+
+		testCases := []struct {
+			name                 string
+			live                 *models.Property
+			overlay              PropertyOverlay
+			emitted              bool
+			skipNull, skipLength bool
+			beyond               PropertyOverlay
+		}{
+			{name: "no flag", live: off},
+			{
+				name: "null only", live: off, overlay: PropertyOverlay{TracksNullState: true},
+				emitted: true, skipLength: true, beyond: PropertyOverlay{TracksNullState: true},
+			},
+			{
+				name: "length only", live: off, overlay: PropertyOverlay{TracksPropertyLength: true},
+				emitted: true, skipNull: true, beyond: PropertyOverlay{TracksPropertyLength: true},
+			},
+			{
+				name: "value forced, companions not yet", live: off, overlay: PropertyOverlay{ForceFilterable: true},
+				emitted: true, skipNull: true, skipLength: true, beyond: PropertyOverlay{ForceFilterable: true},
+			},
+			{
+				name: "live index makes both flags redundant", live: &on,
+				overlay: PropertyOverlay{TracksNullState: true, TracksPropertyLength: true},
+				emitted: true,
+			},
+		}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.beyond, tc.overlay.BeyondLiveSchema(tc.live))
+
+				analyzer := NewAnalyzer(nil, "Overlay").WithSchemaOverlay(
+					map[string]PropertyOverlay{tc.live.Name: tc.overlay})
+				out, _, err := analyzer.analyzeProps(
+					map[string]*models.Property{tc.live.Name: tc.live},
+					map[string]any{tc.live.Name: "alpha"})
+				require.NoError(t, err)
+				if !tc.emitted {
+					require.Empty(t, out)
+					return
+				}
+				require.Len(t, out, 1)
+				assert.Equal(t, tc.skipNull, out[0].SkipNullState)
+				assert.Equal(t, tc.skipLength, out[0].SkipPropertyLength)
+				assert.Equal(t, 5, out[0].Length)
 			})
 		}
 	})

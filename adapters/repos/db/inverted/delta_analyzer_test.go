@@ -2398,7 +2398,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			Length:             11,
 			HasFilterableIndex: true,
 			HasSearchableIndex: true,
-			OverlayForcedOnly:  true,
+			SkipNullState:      true,
 			OverlaySearchable:  true,
 		}
 		next := prev
@@ -2413,7 +2413,8 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		assert.NotEmpty(t, delta.ToDelete)
 		for _, props := range [][]Property{delta.ToAdd, delta.ToDelete} {
 			for _, p := range props {
-				assert.True(t, p.OverlayForcedOnly, "OverlayForcedOnly must survive the round-trip")
+				assert.True(t, p.SkipNullState, "SkipNullState must survive the round-trip")
+				assert.False(t, p.SkipPropertyLength, "SkipPropertyLength must not take SkipNullState's value")
 				assert.True(t, p.OverlaySearchable, "OverlaySearchable must survive the round-trip")
 			}
 		}

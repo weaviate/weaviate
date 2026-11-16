@@ -70,7 +70,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 					HasFilterableIndex: nextProp.HasFilterableIndex,
 					HasSearchableIndex: nextProp.HasSearchableIndex,
 					HasRangeableIndex:  nextProp.HasRangeableIndex,
-					OverlayForcedOnly:  nextProp.OverlayForcedOnly,
+					SkipNullState:      nextProp.SkipNullState,
+					SkipPropertyLength: nextProp.SkipPropertyLength,
 					OverlaySearchable:  nextProp.OverlaySearchable,
 				})
 			}
@@ -116,7 +117,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 							HasFilterableIndex: nextProp.HasFilterableIndex,
 							HasSearchableIndex: false,
 							HasRangeableIndex:  nextProp.HasRangeableIndex,
-							OverlayForcedOnly:  nextProp.OverlayForcedOnly,
+							SkipNullState:      nextProp.SkipNullState,
+							SkipPropertyLength: nextProp.SkipPropertyLength,
 							OverlaySearchable:  nextProp.OverlaySearchable,
 						})
 						out.ToDelete = append(out.ToDelete, Property{
@@ -126,7 +128,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 							HasFilterableIndex: prevProp.HasFilterableIndex,
 							HasSearchableIndex: false,
 							HasRangeableIndex:  prevProp.HasRangeableIndex,
-							OverlayForcedOnly:  prevProp.OverlayForcedOnly,
+							SkipNullState:      prevProp.SkipNullState,
+							SkipPropertyLength: prevProp.SkipPropertyLength,
 							OverlaySearchable:  prevProp.OverlaySearchable,
 						})
 
@@ -139,7 +142,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 							HasFilterableIndex: false,
 							HasSearchableIndex: true,
 							HasRangeableIndex:  false,
-							OverlayForcedOnly:  nextProp.OverlayForcedOnly,
+							SkipNullState:      nextProp.SkipNullState,
+							SkipPropertyLength: nextProp.SkipPropertyLength,
 							OverlaySearchable:  nextProp.OverlaySearchable,
 						})
 						out.ToDelete = append(out.ToDelete, Property{
@@ -149,7 +153,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 							HasFilterableIndex: false,
 							HasSearchableIndex: true,
 							HasRangeableIndex:  false,
-							OverlayForcedOnly:  prevProp.OverlayForcedOnly,
+							SkipNullState:      prevProp.SkipNullState,
+							SkipPropertyLength: prevProp.SkipPropertyLength,
 							OverlaySearchable:  prevProp.OverlaySearchable,
 						})
 					}
@@ -164,7 +169,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 					HasFilterableIndex: nextProp.HasFilterableIndex,
 					HasSearchableIndex: nextProp.HasSearchableIndex,
 					HasRangeableIndex:  nextProp.HasRangeableIndex,
-					OverlayForcedOnly:  nextProp.OverlayForcedOnly,
+					SkipNullState:      nextProp.SkipNullState,
+					SkipPropertyLength: nextProp.SkipPropertyLength,
 					OverlaySearchable:  nextProp.OverlaySearchable,
 				})
 				out.ToDelete = append(out.ToDelete, Property{
@@ -174,7 +180,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 					HasFilterableIndex: prevProp.HasFilterableIndex,
 					HasSearchableIndex: prevProp.HasSearchableIndex,
 					HasRangeableIndex:  prevProp.HasRangeableIndex,
-					OverlayForcedOnly:  prevProp.OverlayForcedOnly,
+					SkipNullState:      prevProp.SkipNullState,
+					SkipPropertyLength: prevProp.SkipPropertyLength,
 					OverlaySearchable:  prevProp.OverlaySearchable,
 				})
 			}
@@ -198,7 +205,8 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 					HasFilterableIndex: prevProp.HasFilterableIndex,
 					HasSearchableIndex: prevProp.HasSearchableIndex,
 					HasRangeableIndex:  prevProp.HasRangeableIndex,
-					OverlayForcedOnly:  prevProp.OverlayForcedOnly,
+					SkipNullState:      prevProp.SkipNullState,
+					SkipPropertyLength: prevProp.SkipPropertyLength,
 					OverlaySearchable:  prevProp.OverlaySearchable,
 				})
 			}

@@ -726,7 +726,8 @@ const maxReindexPropertiesPerTask = 1024
 func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor, unitID string,
 	payload *ReindexTaskPayload,
 ) ([]*ShardReindexTaskGeneric, error) {
-	tasks, err := buildMigrationTasks(p.logger, p.schemaManager, desc.Version, payload, p.propertyHasFilterableBucket)
+	tasks, err := buildMigrationTasks(p.logger, p.schemaManager, desc.Version, payload,
+		p.propertyHasFilterableBucket, p.nullLengthCompanions)
 	if err != nil {
 		return nil, err
 	}
@@ -736,9 +737,62 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 	return tasks, nil
 }
 
-// hasFilterableBucket is passed in because recovery shares this builder and runs before the schema loads.
+// Stable for the run: only its own schema flip gives the property an index.
+func (p *ReindexProvider) nullLengthCompanions(className, propName string) (null, length bool) {
+	if p.schemaManager == nil {
+		return false, false
+	}
+	return nullLengthCompanionsIn(p.schemaManager.ReadOnlyClass(className), propName)
+}
+
+func nullLengthCompanionsIn(class *models.Class, propName string) (null, length bool) {
+	if class == nil || class.InvertedIndexConfig == nil {
+		return false, false
+	}
+	i := slices.IndexFunc(class.Properties, func(prop *models.Property) bool {
+		return prop != nil && prop.Name == propName
+	})
+	if i < 0 || inverted.HasAnyInvertedIndex(class.Properties[i]) {
+		return false, false
+	}
+	dt := entschema.DataType(class.Properties[i].DataType[0])
+	if !hasNullLengthBuckets(dt) {
+		return false, false
+	}
+	return class.InvertedIndexConfig.IndexNullState,
+		class.InvertedIndexConfig.IndexPropertyLength && isPropertyForLength(dt)
+}
+
+// Recovery and overlay restore have no schema: they build all and keep their record's.
+func allNullLengthCompanions(string, string) (bool, bool) { return true, true }
+
+func withNullLengthTasks(logger logrus.FieldLogger, payload *ReindexTaskPayload, gen int,
+	companions func(className, propName string) (null, length bool), value *ShardReindexTaskGeneric,
+) []*ShardReindexTaskGeneric {
+	var nullProps, lengthProps []string
+	for _, propName := range payload.Properties {
+		null, length := companions(payload.Collection, propName)
+		if null {
+			nullProps = append(nullProps, propName)
+		}
+		if length {
+			lengthProps = append(lengthProps, propName)
+		}
+	}
+	tasks := []*ShardReindexTaskGeneric{value}
+	if len(nullProps) > 0 {
+		tasks = append(tasks, NewRuntimeNullLengthTask(logger, false, nullProps, payload.Collection, gen))
+	}
+	if len(lengthProps) > 0 {
+		tasks = append(tasks, NewRuntimeNullLengthTask(logger, true, lengthProps, payload.Collection, gen))
+	}
+	return tasks
+}
+
+// The hooks are passed in because recovery shares this builder and runs before the schema loads.
 func buildMigrationTasks(logger logrus.FieldLogger, schemaManager *schema.Manager, version uint64,
 	payload *ReindexTaskPayload, hasFilterableBucket func(className, propName string) bool,
+	companions func(className, propName string) (null, length bool),
 ) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
@@ -775,27 +829,25 @@ func buildMigrationTasks(logger logrus.FieldLogger, schemaManager *schema.Manage
 			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		// Repair-rangeable uses the same strategy as enable-rangeable —
-		// rangeable is rebuilt from the existing filterable bucket either
-		// way. The validator at submit time gates which one is allowed
-		// based on the property's current IndexRangeFilters state.
+	case ReindexTypeRepairRangeable:
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
+	case ReindexTypeEnableRangeable:
+		return withNullLengthTasks(logger, payload, gen, companions,
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, gen)), nil
+
 	case ReindexTypeEnableFilterable:
-		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, gen),
-		}, nil
+		return withNullLengthTasks(logger, payload, gen, companions,
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, gen)), nil
 
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
 		}
-		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
-		}, nil
+		return withNullLengthTasks(logger, payload, gen, companions,
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen)), nil
 
 	case ReindexTypeChangeTokenization:
 		if len(payload.Properties) != 1 {

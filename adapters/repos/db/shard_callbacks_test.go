@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
@@ -106,7 +107,8 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 func TestDeriveScope(t *testing.T) {
 	filterable := inverted.PropertyOverlay{ForceFilterable: true}
 	rangeable := inverted.PropertyOverlay{ForceRangeable: true}
-	searchable := inverted.PropertyOverlay{ForceSearchable: true}
+	wordSearchable := inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}
+	fieldSearchable := inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField}
 
 	tests := []struct {
 		name          string
@@ -137,24 +139,34 @@ func TestDeriveScope(t *testing.T) {
 			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
 		},
 		{
-			name: "the most recent arm's overlay wins",
+			name: "forced flags that differ combine",
 			regs: []migrationScopeReg{
 				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
 				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
 			},
-			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": rangeable},
-			wantConflicts: []string{"title"},
+			wantProps:   []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": {ForceFilterable: true, ForceRangeable: true}},
 		},
 		{
-			name: "an arm with no overlay disagrees with one that forces a flag",
+			name: "an enable run's value, null-state and length mirrors share one analysis",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": {TracksNullState: true}}},
+				{id: 3, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": {TracksPropertyLength: true}}},
+			},
+			wantProps: []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": {
+				ForceFilterable: true, TracksNullState: true, TracksPropertyLength: true,
+			}},
+		},
+		{
+			name: "an arm with no overlay adds nothing to one that forces a flag",
 			regs: []migrationScopeReg{
 				{id: 1, props: map[string]struct{}{"title": {}}},
 				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
 			},
-			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
-			wantConflicts: []string{"title"},
+			wantProps:   []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
 		},
 		{
 			name: "the arm with no overlay is the more recent one",
@@ -162,8 +174,17 @@ func TestDeriveScope(t *testing.T) {
 				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
 				{id: 2, props: map[string]struct{}{"title": {}}},
 			},
+			wantProps:   []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
+		},
+		{
+			name: "a tokenization only one arm sets disagrees",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": wordSearchable}},
+			},
 			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": wordSearchable},
 			wantConflicts: []string{"title"},
 		},
 		{
@@ -179,11 +200,13 @@ func TestDeriveScope(t *testing.T) {
 			name: "three registrations disagreeing on one property report it once",
 			regs: []migrationScopeReg{
 				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
-				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
-				{id: 3, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": searchable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": wordSearchable}},
+				{id: 3, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": fieldSearchable}},
 			},
-			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": searchable},
+			wantProps: []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": {
+				ForceFilterable: true, ForceSearchable: true, Tokenization: models.PropertyTokenizationField,
+			}},
 			wantConflicts: []string{"title"},
 		},
 	}

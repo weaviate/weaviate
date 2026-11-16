@@ -37,9 +37,6 @@ const enableFilterableReadsObjects = 20
 
 func newEnableFilterableReadsClass(className string) *models.Class {
 	class := newEnableFilterableTestClass(className)
-	// An enable run does not create null and length buckets for a property that had no index.
-	class.InvertedIndexConfig.IndexNullState = false
-	class.InvertedIndexConfig.IndexPropertyLength = false
 	for name, dt := range map[string]schema.DataType{
 		"num": schema.DataTypeInt, "fl": schema.DataTypeNumber, "dt": schema.DataTypeDate, "ok": schema.DataTypeBoolean,
 	} {
@@ -157,10 +154,9 @@ func TestRestartAfterAnEnableFilterableSwapServesAcrossTheFlip(t *testing.T) {
 	for i := 0; i < enableFilterableReadsObjects; i++ {
 		require.NoError(t, shard.PutObject(ctx, newEnableFilterableReadsObject(className, i)))
 	}
-	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), "num")
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	run := newEnableRun(t, shard, class, ReindexTypeEnableFilterable, []string{"num"}, 1)
+	run.all(t, ctx, shard)
+	task := run.tasks[0]
 
 	name := shard.Name()
 	require.NoError(t, shard.Shutdown(ctx))

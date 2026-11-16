@@ -264,7 +264,8 @@ func buildRecoveryTasks(
 	}
 	// A record for a filterable half exists only because the live path built that half.
 	hasFilterableBucket := func(string, string) bool { return true }
-	built, err := buildMigrationTasks(logger, schemaManager, subject.Key.TaskVersion, &payload, hasFilterableBucket)
+	built, err := buildMigrationTasks(logger, schemaManager, subject.Key.TaskVersion, &payload,
+		hasFilterableBucket, allNullLengthCompanions)
 	if err != nil {
 		return nil, err
 	}

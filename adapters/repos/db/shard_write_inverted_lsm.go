@@ -32,42 +32,64 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 		if err := s.addToPropertyValueIndex(docID, prop, st); err != nil {
 			return err
 		}
-
-		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
-			continue
-		}
-
-		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		if err := s.addToNullLengthIndexes(docID, prop); err != nil {
+			return err
 		}
 	}
-
-	// add nil properties to the nullstate and property length inverted index
 	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		if err := s.addToNullLengthIndexes(docID, nilAsProperty(nilProperty)); err != nil {
+			return err
 		}
 	}
-
 	return nil
+}
+
+func (s *Shard) addToNullLengthIndexes(docID uint64, prop inverted.Property) error {
+	e := s.nullLengthEntryOf(prop)
+	if e.addLength {
+		if err := s.addToPropertyLengthIndex(prop.Name, docID, e.length); err != nil {
+			return errors.Wrap(err, "add indexed property length")
+		}
+	}
+	if e.addNull {
+		if err := s.addToPropertyNullIndex(prop.Name, docID, e.isNull); err != nil {
+			return errors.Wrap(err, "add indexed null state")
+		}
+	}
+	return nil
+}
+
+// One object's entry for one property in the null-state and property-length indexes.
+type nullLengthEntry struct {
+	isNull, addNull bool
+	length          int
+	addLength       bool
+}
+
+// The one rule: writes, deletes, the runtime rebuild and mirror, and the startup reindexer read it.
+func nullLengthEntryOf(cfg schema.InvertedIndexConfig, prop inverted.Property) nullLengthEntry {
+	if isMetaCountProperty(prop) || isInternalProperty(prop) {
+		return nullLengthEntry{}
+	}
+	return nullLengthEntry{
+		isNull:    prop.Length == 0,
+		addNull:   cfg.IndexNullState && !prop.SkipNullState,
+		length:    prop.Length,
+		addLength: cfg.IndexPropertyLength && prop.Length >= 0 && !prop.SkipPropertyLength,
+	}
+}
+
+func (s *Shard) nullLengthEntryOf(prop inverted.Property) nullLengthEntry {
+	return nullLengthEntryOf(s.index.invertedIndexConfig, prop)
+}
+
+// An absent property holds what an empty one does: null, and length 0 where it has one.
+func nilAsProperty(np inverted.NilProperty) inverted.Property {
+	return inverted.Property{
+		Name:               np.Name,
+		SkipNullState:      !np.AddToNullState,
+		SkipPropertyLength: !np.AddToPropertyLength,
+	}
 }
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property, st *propValueIndexState) error {

@@ -1877,7 +1877,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				// target inverted-index flag is still false on the live
 				// schema during backfill. It is nil for retokenize / refresh
 				// strategies. See MigrationStrategy.AnalyzerOverlay.
-				props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
+				props, err := analyzeForMigrationWithAbsent(shard, obj, schemaOverlay)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break

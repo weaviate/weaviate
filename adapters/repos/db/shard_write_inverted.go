@@ -34,7 +34,19 @@ func isPropertyForLength(dt schema.DataType) bool {
 	}
 }
 
-func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (map[string]interface{}, []inverted.NilProperty, error) {
+func hasNullLengthBuckets(dt schema.DataType) bool {
+	switch dt {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash,
+		schema.DataTypeObject, schema.DataTypeObjectArray:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class,
+	overlay map[string]inverted.PropertyOverlay,
+) (map[string]interface{}, []inverted.NilProperty, error) {
 	var schemaMap map[string]interface{}
 
 	if object.Properties() == nil {
@@ -53,24 +65,19 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 	if s.index.invertedIndexConfig.IndexNullState || s.index.invertedIndexConfig.IndexPropertyLength {
 		for _, prop := range c.Properties {
 			dt := schema.DataType(prop.DataType[0])
-			switch dt {
-			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash:
-				// not added to the inverted index
+			if !hasNullLengthBuckets(dt) {
 				continue
-			case schema.DataTypeObject, schema.DataTypeObjectArray:
-				// nested types use dedicated nested buckets — no flat null/length buckets are created for them
-				continue
-			default:
 			}
-
-			// Add props as nil props if
-			// 1. They are not in the schema map ( == nil)
-			// 2. Their inverted index is enabled
-			_, ok := schemaMap[prop.Name]
-			if !ok && inverted.HasAnyInvertedIndex(prop) {
+			if _, ok := schemaMap[prop.Name]; ok {
+				continue
+			}
+			addNull := inverted.TracksNullState(prop, overlay[prop.Name])
+			addLength := isPropertyForLength(dt) && inverted.TracksPropertyLength(prop, overlay[prop.Name])
+			if addNull || addLength {
 				nilProps = append(nilProps, inverted.NilProperty{
 					Name:                prop.Name,
-					AddToPropertyLength: isPropertyForLength(dt),
+					AddToPropertyLength: addLength,
+					AddToNullState:      addNull,
 				})
 			}
 		}
@@ -95,15 +102,15 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
-	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	// A write in a swap window is analyzed the way the migrated index is built.
+	overlay := s.writePathAnalyzerOverlay(c.Properties)
+	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c, overlay)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Applies the shard's migration override where the live schema lacks it, so a
-	// write in a swap window is analyzed the way the migrated index is built.
-	if overlay := s.writePathAnalyzerOverlay(c.Properties); overlay != nil {
+	if overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
@@ -141,6 +148,20 @@ func (s *Shard) writePathAnalyzerOverlay(props []*models.Property) map[string]in
 	return out
 }
 
+// The null-state and length rebuilds record absent properties; value rebuilds write nothing without items.
+func analyzeForMigrationWithAbsent(shard ShardLike, obj *storobj.Object,
+	overlay map[string]inverted.PropertyOverlay,
+) ([]inverted.Property, error) {
+	props, nilProps, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, overlay)
+	if err != nil {
+		return nil, err
+	}
+	for _, np := range nilProps {
+		props = append(props, nilAsProperty(np))
+	}
+	return props, nil
+}
+
 // AnalyzeObjectForMigrationWithOverlay is the migration-time variant of
 // [Shard.AnalyzeObject]. Unlike AnalyzeObject it captures raw
 // (pre-tokenization) text values in Property.RawValues, which the
@@ -170,7 +191,7 @@ func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
 		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
-	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c, overlay)
 	if err != nil {
 		return nil, nil, err
 	}

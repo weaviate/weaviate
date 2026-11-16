@@ -98,25 +98,34 @@ func TestPromotionFollowsTheSchemaFlagThatOwnsTheCanonicalName(t *testing.T) {
 	strategies := []struct {
 		code  MigrationStrategyCode
 		field propertyIndexField
+		// The null-state and length buckets follow the index their run enables.
+		mt ReindexMigrationType
 	}{
-		{StrategyCodeSearchableMapToBlockmax, fieldSearchable},
-		{StrategyCodeEnableSearchable, fieldSearchable},
-		{StrategyCodeRebuildSearchable, fieldSearchable},
-		{StrategyCodeSearchableRetokenize, fieldSearchable},
-		{StrategyCodeFilterableToRangeable, fieldRangeable},
-		{StrategyCodeFilterableRoaringsetRefresh, fieldFilterable},
-		{StrategyCodeFilterableRetokenize, fieldFilterable},
-		{StrategyCodeEnableFilterable, fieldFilterable},
+		{code: StrategyCodeSearchableMapToBlockmax, field: fieldSearchable},
+		{code: StrategyCodeEnableSearchable, field: fieldSearchable},
+		{code: StrategyCodeRebuildSearchable, field: fieldSearchable},
+		{code: StrategyCodeSearchableRetokenize, field: fieldSearchable},
+		{code: StrategyCodeFilterableToRangeable, field: fieldRangeable},
+		{code: StrategyCodeFilterableRoaringsetRefresh, field: fieldFilterable},
+		{code: StrategyCodeFilterableRetokenize, field: fieldFilterable},
+		{code: StrategyCodeEnableFilterable, field: fieldFilterable},
+		{code: StrategyCodeNullState, field: fieldFilterable, mt: ReindexTypeEnableFilterable},
+		{code: StrategyCodePropertyLength, field: fieldSearchable, mt: ReindexTypeEnableSearchable},
+		{code: StrategyCodeNullState, field: fieldRangeable, mt: ReindexTypeEnableRangeable},
 	}
-	require.Len(t, strategies, len(migrationStrategyCodes),
+	codes := map[MigrationStrategyCode]bool{}
+	for _, s := range strategies {
+		codes[s.code] = true
+	}
+	require.Len(t, codes, len(migrationStrategyCodes),
 		"every strategy code has to name the flag that owns the directory it promotes onto")
 
 	for _, strategy := range strategies {
 		for _, schema := range schemas {
-			t.Run(string(strategy.code)+"/"+schema.name, func(t *testing.T) {
+			t.Run(string(strategy.code)+"/"+string(strategy.field)+"/"+schema.name, func(t *testing.T) {
 				f := newReconcileFixture(t)
 				f.class = schema.class(strategy.field)
-				subject, staged, canonical := plantPromotableSwappedRecord(f, strategy.code)
+				subject, staged, canonical := plantPromotableSwappedRecordOf(f, strategy.code, strategy.mt)
 
 				r := f.reconcile()
 
@@ -220,7 +229,17 @@ func TestTheClosureSweepFollowsTheSchemaFlagToo(t *testing.T) {
 func plantPromotableSwappedRecord(f *reconcileFixture, code MigrationStrategyCode,
 ) (subject MigrationSubject, staged, canonical string) {
 	f.t.Helper()
+	return plantPromotableSwappedRecordOf(f, code, "")
+}
+
+// mt, when set, replaces the fixture subject's migration type.
+func plantPromotableSwappedRecordOf(f *reconcileFixture, code MigrationStrategyCode, mt ReindexMigrationType,
+) (subject MigrationSubject, staged, canonical string) {
+	f.t.Helper()
 	subject = testMigrationSubject(42, code, promotionGateProp)
+	if mt != "" {
+		subject.MigrationType = mt
+	}
 	staged = subject.Props[promotionGateProp].Staged
 	canonical = subject.Props[promotionGateProp].Canonical
 	f.mkdirs(staged)

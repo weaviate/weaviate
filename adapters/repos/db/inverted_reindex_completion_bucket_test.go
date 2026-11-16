@@ -94,6 +94,16 @@ func TestTheCompletionGateRefusesAClosedBucket(t *testing.T) {
 			strategy:  &MapToBlockmaxStrategy{},
 			canonical: helpers.BucketSearchableFromPropNameLSM,
 		},
+		{
+			name: "null-state", propName: "title",
+			strategy:  &NullLengthStrategy{propNames: []string{"title"}},
+			canonical: helpers.BucketFromPropNameNullLSM,
+		},
+		{
+			name: "property-length", propName: "title",
+			strategy:  &NullLengthStrategy{length: true, propNames: []string{"title"}},
+			canonical: helpers.BucketFromPropNameLengthLSM,
+		},
 	}
 	require.Len(t, tests, len(strategiesByCode(1)),
 		"a strategy missing from this table would never have its gate behavior checked")
