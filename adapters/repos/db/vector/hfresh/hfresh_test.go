@@ -66,6 +66,9 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 // Uncomment to enable pprof and prometheus metrics when running tests
 
 func TestMain(m *testing.M) {
+	// tests opt into single-posting mode explicitly, whatever the shell exports
+	_ = os.Unsetenv(singlePostingMaxSizeEnv)
+
 	runtime.SetMutexProfileFraction(1)
 
 	go func() {
