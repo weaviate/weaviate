@@ -252,7 +252,7 @@ func (p *DropVectorIndexProvider) processUnits(
 
 	pending := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
-		if unit, ok := task.Units[unitID]; ok && unit.Status == distributedtask.UnitStatusCompleted {
+		if unit := task.Units[unitID]; unit != nil && unit.Status == distributedtask.UnitStatusCompleted {
 			continue // already done in a prior run
 		}
 		pending = append(pending, unitID)

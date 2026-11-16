@@ -89,10 +89,7 @@ type UpdatePropertyRequest struct {
 	// FromInFlightMigration, when true, signals that this request was
 	// emitted by the in-process distributed-task scheduler's own schema
 	// flip (see adapters/repos/db/reindex_provider.go's
-	// flipSemanticMigrationSchema). The schema FSM uses this to bypass
-	// the in-flight-reindex MutationGuard that otherwise blocks property
-	// mutations while a reindex on the same (collection, property) is
-	// STARTED or FINALIZING.
+	// flipSemanticMigrationSchema); the FSM then checks MutationGuard.CheckMigrationPropertyUpdate instead.
 	//
 	// Set only by the migration completion path (via
 	// [Raft.UpdatePropertyFromMigration] →
@@ -104,15 +101,23 @@ type UpdatePropertyRequest struct {
 	// against this property.
 	//
 	// Wire-format compatibility: old leaders/followers that don't know
-	// about this field unmarshal to false (legacy behavior — no bypass).
+	// about this field unmarshal to false (CheckPropertyUpdate applies).
 	// Old leaders emit commands with this field absent → new followers
 	// see false → MutationGuard applies as if the flag were not set,
 	// which is the conservative direction (reject during rolling
 	// upgrades when in doubt). The migration completion path always
 	// goes through new code on every node (the scheduler is per-node)
 	// so a mid-rolling-upgrade migration completion would still see the
-	// bypass on whichever node issues the flip.
+	// migration check on whichever node issues the flip.
 	FromInFlightMigration bool `json:"FromInFlightMigration"`
+	// MigrationRun names the run a flip completes; older binaries wrote none and replay admits those.
+	MigrationRun *MigrationRun `json:"MigrationRun,omitempty"`
+}
+
+type MigrationRun struct {
+	Namespace string `json:"namespace"`
+	ID        string `json:"id"`
+	Version   uint64 `json:"version"`
 }
 
 type DeleteClassRequest struct {

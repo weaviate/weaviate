@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,9 +59,7 @@ func TestForceTerminateTask(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
@@ -214,9 +211,7 @@ func TestRecordUnitCompletionRetry(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
@@ -334,9 +329,7 @@ func TestTaskAlreadyRunningSentinel(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
@@ -430,8 +423,6 @@ func TestCrossNamespaceConflict(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:             clockwork.NewFakeClock(),
-			CompletedTaskTTL:  24 * time.Hour,
 			Logger:            logger,
 			ConflictDetectors: map[string]ConflictDetector{ns2: ns2Detector},
 		})
@@ -530,9 +521,7 @@ func TestTaskWireCompat(t *testing.T) {
 	t.Run("FormatVersion stamped by AddTask", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		m := NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		err := m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -590,9 +579,7 @@ func TestGetDistributedTaskAccessor(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
