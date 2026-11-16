@@ -30,6 +30,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -233,6 +234,22 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 		notAsked   []string          // "node/shard"
 	}{
 		{
+			name:       "local copy held by an unload or freeze is not waited for",
+			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
+			local:      map[string]localShardKind{"s1": localLocked},
+			reachable:  []string{"node2"},
+			replies:    map[string]statusReply{"node2": {status: ready, size: 7}},
+			wantStatus: map[string]string{"s1": ready},
+		},
+		{
+			name:       "local lazy copy that a request is loading reads LAZY_LOADING",
+			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
+			local:      map[string]localShardKind{"s1": localLoadingForRead},
+			reachable:  []string{"node2"},
+			replies:    map[string]statusReply{"node2": {status: ready, size: 7}},
+			wantStatus: map[string]string{"s1": "LAZY_LOADING"},
+		},
+		{
 			name:       "unresolvable replica falls over to the next one",
 			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"down", "node2"}}},
 			reachable:  []string{"node2"},
@@ -398,4 +415,33 @@ func TestIndex_ShardsStatus_SkipPeerThatTimedOut(t *testing.T) {
 		}
 	}
 	require.LessOrEqual(t, stuckCalls, limit, "calls to the peer that timed out")
+}
+
+// A peer answers a busy shard with a 422, so the caller asks another replica instead of retrying,
+// and a lazy shard that is loading as LAZY_LOADING.
+func TestIndex_IncomingShardStatusReadsOfABusyShard(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind localShardKind
+	}{
+		{"held by an unload or freeze", localLocked},
+		{"loaded by a request", localLoadingForRead},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			index, _ := newShardStatusIndex(t, false, map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode}}},
+				map[string]localShardKind{"s1": tc.kind}, nil, &shardStatusRemoteClient{})
+			status, statusErr := index.IncomingGetShardStatus(t.Context(), "s1")
+			size, queueErr := index.IncomingGetShardQueueSize(t.Context(), "s1")
+			if tc.kind != localLocked {
+				require.NoError(t, errors.Join(statusErr, queueErr))
+				require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+				require.Zero(t, size)
+				return
+			}
+			for _, err := range []error{statusErr, queueErr} {
+				require.ErrorAs(t, err, &enterrors.ErrUnprocessable{})
+				require.ErrorContains(t, err, errShardBusy.Error())
+			}
+		})
+	}
 }
