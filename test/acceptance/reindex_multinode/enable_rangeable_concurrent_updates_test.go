@@ -59,8 +59,8 @@ import (
 //
 // The test PATCHes every mover into a sentinel band far above every initial
 // value while the migration runs, then asserts, on every replica and again
-// after a rolling restart: zero "panic serving" lines, and a range-filter count
-// over the sentinel band that equals the mover count (no lost update). A
+// after a rolling restart, that there are zero "panic serving" lines and a range-filter count
+// over the sentinel band equal to the mover count (no lost update). A
 // pre-check confirms the movers' new values are durably present in the objects
 // store, so any index shortfall is a silent index loss, not a failed write.
 func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) {
@@ -98,7 +98,7 @@ func TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic(t *testing.T) 
 		{
 			// The migrated property. IndexFilterable=true matches the reported
 			// repro and the working multi-node enable-rangeable journey. While a
-			// replica's rangeable index is ready, range queries read it; otherwise
+			// replica's rangeable index is ready, range queries read it, and otherwise
 			// they read the filterable index. Either way, a short count over the
 			// sentinel band after FINISHED means lost index entries.
 			Name:              propName,
