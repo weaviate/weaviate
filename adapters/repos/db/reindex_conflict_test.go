@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TestReindexPropsOverlap pins the property-overlap rule that
@@ -946,5 +948,118 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 				require.Contains(t, err.Error(), tc.wantReason)
 			})
 		}
+	}
+}
+
+func TestReindexDetector_AddMissingGroups(t *testing.T) {
+	hot, cold := models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD
+	tenant := func(status string, nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: status, BelongsToNodes: nodes}
+	}
+	run := func(version uint64, decided ...string) *distributedtask.Task {
+		task := &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{Version: version}, NeedsPreparationBarrier: true,
+			SwapDecidedGroups: map[string]time.Time{},
+		}
+		for _, g := range decided {
+			task.SwapDecidedGroups[g] = time.Time{}
+		}
+		return task
+	}
+	owing := run(1, "b")
+	owing.SwapsOwed = map[string][]string{"b": {"n1"}}
+	for _, tc := range []struct {
+		name     string
+		tenants  map[string]sharding.Physical
+		paidBy   []uint64
+		retained []*distributedtask.Task
+		want     []string
+		wantErr  error
+	}{
+		{
+			name:    "a tenant created before the task gets one unit per node",
+			tenants: map[string]sharding.Physical{"b": tenant(hot, "n1", "", "n2")},
+			want:    []string{"b b__n1", "b b__n2"},
+		},
+		{
+			name:     "a skipped tenant whose paying run decided it last gets none",
+			tenants:  map[string]sharding.Physical{"b": tenant(hot, "n1")},
+			paidBy:   []uint64{1},
+			retained: []*distributedtask.Task{run(1, "b")},
+		},
+		{
+			name:     "a tenant a run the submitter did not name decided last gets units",
+			tenants:  map[string]sharding.Physical{"b": tenant(hot, "n1")},
+			paidBy:   []uint64{1},
+			retained: []*distributedtask.Task{run(3, "b"), run(1, "b")},
+			want:     []string{"b b__n1"},
+		},
+		{
+			name:     "a tenant the named run still owes a swap gets units",
+			tenants:  map[string]sharding.Physical{"b": tenant(hot, "n1")},
+			paidBy:   []uint64{1},
+			retained: []*distributedtask.Task{owing},
+			want:     []string{"b b__n1"},
+		},
+		{
+			name:     "a skipped tenant no run lists as decided (deleted and re-created, or its run collected) gets units",
+			tenants:  map[string]sharding.Physical{"b": tenant(hot, "n1")},
+			paidBy:   []uint64{1},
+			retained: []*distributedtask.Task{run(1, "c")},
+			want:     []string{"b b__n1"},
+		},
+		{
+			name:    "a covered tenant gets no unit for a replica added since",
+			tenants: map[string]sharding.Physical{"a": tenant(hot, "b__c", "n3")},
+		},
+		{
+			name:    "a unit ID that collides with an existing one is not overwritten",
+			tenants: map[string]sharding.Physical{"a__b": tenant(hot, "c", "n1")},
+			want:    []string{"a__b a__b__n1"},
+		},
+		{
+			name:    "a not-HOT tenant that would get units rejects the task",
+			tenants: map[string]sharding.Physical{"b": tenant(cold, "n1")},
+			wantErr: distributedtask.ErrTaskTenantsNotHot,
+		},
+		{
+			name:     "a not-HOT tenant that is covered or still paid is admitted",
+			tenants:  map[string]sharding.Physical{"a": tenant(cold, "b__c"), "b": tenant(cold, "n1")},
+			paidBy:   []uint64{1},
+			retained: []*distributedtask.Task{run(1, "b")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Tenant "a" on node "b__c" has the same unit ID as tenant "a__b" on node "c".
+			task := &distributedtask.Task{Units: map[string]*distributedtask.Unit{
+				"a__b__c": {ID: "a__b__c", GroupID: "a", Status: distributedtask.UnitStatusPending},
+			}}
+			task.IndexGroups()
+			units, err := ReindexDetector{}.AddMissingGroups(task, tc.paidBy, tc.retained,
+				&sharding.State{Physical: tc.tenants})
+			require.ErrorIs(t, err, tc.wantErr)
+			var got []string
+			for _, u := range units {
+				require.Equal(t, distributedtask.UnitStatusPending, u.Status)
+				got = append(got, u.GroupID+" "+u.ID)
+			}
+			require.ElementsMatch(t, tc.want, got)
+		})
+	}
+}
+
+// Every node must keep the same unit whatever order it meets the two tenants in.
+func TestAddMissingGroupsKeepsTheSmallerTenantOnASharedUnitID(t *testing.T) {
+	state := &sharding.State{Physical: map[string]sharding.Physical{
+		"x":    {Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"y__z"}},
+		"x__y": {Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"z"}},
+	}}
+	for range 20 {
+		task := &distributedtask.Task{Units: map[string]*distributedtask.Unit{"o__n": {ID: "o__n", GroupID: "o"}}}
+		task.IndexGroups()
+		units, err := ReindexDetector{}.AddMissingGroups(task, nil, nil, state)
+		require.NoError(t, err)
+		require.Len(t, units, 1)
+		require.Equal(t, "x", units[0].GroupID)
 	}
 }

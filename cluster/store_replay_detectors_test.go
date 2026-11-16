@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -128,7 +129,9 @@ func TestPreparationAckDecidesItsGroup(t *testing.T) {
 			for i, g := range tc.groups {
 				specs = append(specs, distributedtask.UnitSpec{ID: string(rune('a' + i)), GroupID: g})
 			}
-			require.NoError(t, srv.AddDistributedTaskWithGroupsBarrier(ctx, ns, id, struct{}{}, specs, true))
+			require.NoError(t, srv.addGroupedTask(ctx, &command.AddDistributedTaskRequest{
+				Namespace: ns, Id: id, NeedsPreparationBarrier: true,
+			}, struct{}{}, specs))
 			task := srv.LocalDistributedTasks()[ns][0]
 			require.NoError(t, srv.RecordDistributedTaskUnitCompletion(ctx, ns, id, task.Version, "Node-1", "a"))
 			require.NoError(t, srv.RecordDistributedTaskPreparationCompleteAck(ctx, ns, id, task.Version, tc.groups[0], "Node-1", true, ""))

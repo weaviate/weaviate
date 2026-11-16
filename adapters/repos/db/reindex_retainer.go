@@ -85,8 +85,8 @@ type ReindexRun struct {
 }
 
 // ReindexMigratedTenants reads property's failed/cancelled runs since the last finished flip. migrated:
-// newest decided swap went to target; covered: held by target's runs; paid: no replica still owes it.
-func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
+// newest decided swap went to target; covered: held by target's runs; paid: migrated and the deciding run owes no replica a swap, mapped to that run's version.
+func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated map[string]struct{}, paid map[string]uint64, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun
 	for _, run := range runs {
@@ -96,7 +96,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	}
 	slices.SortFunc(onProperty, func(a, b ReindexRun) int { return cmp.Compare(b.Task.Version, a.Task.Version) })
 
-	migrated, paid, covered = map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
+	migrated, paid, covered = map[string]struct{}{}, map[string]uint64{}, map[string]struct{}{}
 	swappedSince := map[string]struct{}{}
 	for _, run := range onProperty {
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
@@ -114,7 +114,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 			if _, seen := swappedSince[group]; same && !seen {
 				migrated[group] = struct{}{}
 				if len(run.Task.SwapsOwed[group]) == 0 {
-					paid[group] = struct{}{}
+					paid[group] = run.Task.Version
 				}
 			}
 			swappedSince[group] = struct{}{}

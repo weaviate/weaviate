@@ -871,6 +871,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		tenants         []string
 		tasks           []*distributedtask.Task
 		want            []string
+		paidBy          []uint64
 		status          string
 		migrated, total int64
 	}{
@@ -904,6 +905,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 				run(2, failed, changeTok, field, "bc", "b"),
 			},
 			want:   []string{"c"},
+			paidBy: []uint64{1, 2},
 			status: "partial", migrated: 2, total: 3,
 		},
 		{
@@ -913,14 +915,16 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 				run(2, failed, changeTok, whitespace, "abc", "b"),
 			},
 			want:   []string{"b", "c"},
+			paidBy: []uint64{1},
 			status: "partial", migrated: 1, total: 3,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			database := dbWithTenants(t, map[string]string{"a": hot, "b": hot, "c": hot})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", tc.tenants, tc.tasks)
+			got, paidBy, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", tc.tenants, tc.tasks)
 			require.NoError(t, err)
 			require.Equal(t, map[string][]string{"node1": tc.want}, got)
+			require.Equal(t, tc.paidBy, paidBy, "the runs the apply checks each skip against")
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
@@ -1042,7 +1046,7 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			require.Empty(t, plan.conflict)
 			require.Equal(t, tc.mt, plan.migrationType)
 			database := dbWithTenants(t, map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusHOT})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), &db.ReindexTaskPayload{
+			got, _, err := database.ShardReplicaOwnershipForMT(context.Background(), &db.ReindexTaskPayload{
 				Collection: "C", MigrationType: plan.migrationType, TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
 			}, "p", nil, tasks)
 			require.NoError(t, err)

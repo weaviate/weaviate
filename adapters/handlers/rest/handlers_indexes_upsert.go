@@ -702,9 +702,10 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	payload := buildReindexPayload(class, collection, properties, plan, tenants)
 	// One unit per shard per replica: each replica has its own local copy.
 	var shardOwnership map[string][]string
+	var paidBy []uint64
 	var err error
 	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &payload, propertyName, tenants, reindexTasks)
+		shardOwnership, paidBy, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &payload, propertyName, tenants, reindexTasks)
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
@@ -747,7 +748,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
-			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
+			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, paidBy,
 		); err != nil {
 			return h.mapSubmitTaskError(principal, collection, taskID, err)
 		}

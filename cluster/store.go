@@ -53,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const (
@@ -438,6 +439,16 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
 		ReadOnlyClass: func(collection string) *models.Class {
 			return schemaReader.ReadOnlyVersionedClass(collection).Class
+		},
+		ReadShardingState: func(collection string, read func(*sharding.State)) (bool, error) {
+			err := schemaReader.Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+				read(state)
+				return nil
+			})
+			if errors.Is(err, schema.ErrClassNotFound) {
+				return false, nil
+			}
+			return err == nil, err
 		},
 	})
 

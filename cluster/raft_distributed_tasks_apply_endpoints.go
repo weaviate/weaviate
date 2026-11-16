@@ -53,7 +53,7 @@ func (s *Raft) AddDistributedTaskWithGroups(
 	ctx context.Context, namespace, taskID string,
 	taskPayload any, unitSpecs []distributedtask.UnitSpec,
 ) error {
-	return s.AddDistributedTaskWithGroupsBarrier(ctx, namespace, taskID, taskPayload, unitSpecs, false)
+	return s.addGroupedTask(ctx, &cmd.AddDistributedTaskRequest{Namespace: namespace, Id: taskID}, taskPayload, unitSpecs)
 }
 
 // AddDistributedTaskWithBarrier is the PREP-barrier-aware counterpart
@@ -83,31 +83,35 @@ func (s *Raft) AddDistributedTaskWithBarrier(
 	})
 }
 
-// AddDistributedTaskWithGroupsBarrier is the grouped, PREP-barrier-aware
-// counterpart to AddDistributedTaskWithGroups. See
-// AddDistributedTaskWithBarrier for the barrier semantics; this variant
-// takes UnitSpecs (with optional GroupID per unit) instead of bare
-// unit IDs.
+// AddDistributedTaskWithGroupsBarrier adds a grouped task with the PREP barrier. At apply, the namespace's
+// MissingGroupAdder adds units for every group unitSpecs lacks, except groups it judges paid by a paidBy run.
 func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 	ctx context.Context, namespace, taskID string,
-	taskPayload any, unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool,
+	taskPayload any, unitSpecs []distributedtask.UnitSpec, paidBy []uint64,
+) error {
+	return s.addGroupedTask(ctx, &cmd.AddDistributedTaskRequest{
+		Namespace:               namespace,
+		Id:                      taskID,
+		NeedsPreparationBarrier: true,
+		AddMissingGroups:        true,
+		PaidByVersions:          paidBy,
+	}, taskPayload, unitSpecs)
+}
+
+func (s *Raft) addGroupedTask(ctx context.Context, req *cmd.AddDistributedTaskRequest,
+	taskPayload any, unitSpecs []distributedtask.UnitSpec,
 ) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task payload: %w", err)
 	}
-	protoSpecs := make([]*cmd.UnitSpec, len(unitSpecs))
+	req.UnitSpecs = make([]*cmd.UnitSpec, len(unitSpecs))
 	for i, spec := range unitSpecs {
-		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
+		req.UnitSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
 	}
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
-		Namespace:               namespace,
-		Id:                      taskID,
-		Payload:                 payloadBytes,
-		SubmittedAtUnixMillis:   time.Now().UnixMilli(),
-		UnitSpecs:               protoSpecs,
-		NeedsPreparationBarrier: needsPreparationBarrier,
-	})
+	req.Payload = payloadBytes
+	req.SubmittedAtUnixMillis = time.Now().UnixMilli()
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, req)
 }
 
 func (s *Raft) CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {

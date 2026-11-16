@@ -369,7 +369,7 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logger, "n1", nil, ctx)
 
-	require.False(t, p.hasLocalPostMergeState(ctx, &ReindexTaskPayload{
+	require.False(t, p.hasLocalPostMergeState(ctx, &distributedtask.Task{}, &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    "C",
 		Properties:    []string{"title", "author", "isbn"},
@@ -425,12 +425,12 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 	ctx := context.Background()
 	p, payload := postMergeEvidenceFixture(t, ctx)
 
-	require.True(t, p.hasLocalPostMergeState(ctx, payload),
+	require.True(t, p.hasLocalPostMergeState(ctx, &distributedtask.Task{}, payload),
 		"the committed record is on disk, so a live context must find it")
 
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	require.False(t, p.hasLocalPostMergeState(cancelled, payload),
+	require.False(t, p.hasLocalPostMergeState(cancelled, &distributedtask.Task{}, payload),
 		"a shut-down node must not walk the task's shards")
 }
 
@@ -642,7 +642,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 				nil, nil, logger, "n1", nil, ctx)
 
-			got := p.hasLocalPostMergeState(ctx, &ReindexTaskPayload{
+			got := p.hasLocalPostMergeState(ctx, &distributedtask.Task{}, &ReindexTaskPayload{
 				Collection:    className,
 				MigrationType: tc.migrationType,
 				Properties:    []string{prop},

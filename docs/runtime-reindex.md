@@ -1341,8 +1341,10 @@ the rest not. `GET .../indexes` then reads `partial`, with
 `migratedTenants` / `totalTenants` counted over every run of that
 migration since the last finished flip. Submit the same migration again
 until it reads `ready`, also before changing the binary (§14). The
-resubmit skips the tenants every replica already swapped; when that is
-all of them, it reruns every tenant to land the flip. A single-tenant
+resubmit skips the tenants every replica already swapped. It still
+reruns such a tenant when a later run on another property of the
+collection has since decided that tenant's swap. When it would skip
+every tenant, it reruns every tenant to land the flip. A single-tenant
 collection whose swap was decided reads `partial` too, and its resubmit
 reruns every shard. Migrating back, or on to another target, is not
 supported yet.

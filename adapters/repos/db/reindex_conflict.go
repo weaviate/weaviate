@@ -14,10 +14,13 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // ReindexBucketEffect is the single source of truth for which buckets a
@@ -120,6 +123,52 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 		}
 	}
 	return nil
+}
+
+// AddMissingGroups returns a pending unit per replica node for each tenant in state that task lacks. It skips
+// a tenant whose newest decided swap in collectionTasks came from a paidBy run owing it no swap. It
+// returns ErrTaskTenantsNotHot when a tenant it would give a unit is not HOT.
+func (ReindexDetector) AddMissingGroups(task *distributedtask.Task, paidBy []uint64,
+	collectionTasks []*distributedtask.Task, state *sharding.State,
+) ([]*distributedtask.Unit, error) {
+	added := map[string]*distributedtask.Unit{}
+	for tenant := range state.Physical {
+		if task.HasGroup(tenant) || stillPaid(tenant, paidBy, collectionTasks) {
+			continue
+		}
+		shard := state.Physical[tenant]
+		for _, node := range shard.BelongsToNodes {
+			id := MigrationUnitID(tenant, node)
+			if node == "" || task.Units[id] != nil {
+				continue
+			}
+			if !reindexableTenantStatus(shard.Status) {
+				return nil, distributedtask.NewTenantsNotHotError(state.IndexID)
+			}
+			claimUnitID(added, &distributedtask.Unit{ID: id, GroupID: tenant, Status: distributedtask.UnitStatusPending})
+		}
+	}
+	return slices.Collect(maps.Values(added)), nil
+}
+
+func stillPaid(tenant string, paidBy []uint64, collectionTasks []*distributedtask.Task) bool {
+	if len(paidBy) == 0 {
+		return false
+	}
+	var newest *distributedtask.Task
+	for _, t := range collectionTasks {
+		if t.GroupSwapDecided(tenant) && (newest == nil || t.Version > newest.Version) {
+			newest = t
+		}
+	}
+	return newest != nil && slices.Contains(paidBy, newest.Version) && len(newest.SwapsOwed[tenant]) == 0
+}
+
+// claimUnitID keeps the smaller tenant name when two share a unit ID, so map order cannot matter.
+func claimUnitID(added map[string]*distributedtask.Unit, u *distributedtask.Unit) {
+	if prev := added[u.ID]; prev == nil || u.GroupID < prev.GroupID {
+		added[u.ID] = u
+	}
 }
 
 // typesConflictReason returns a non-empty reason if two reindex migrations

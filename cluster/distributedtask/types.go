@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TaskLister is an interface for listing distributed tasks in the cluster.
@@ -199,6 +200,13 @@ type ConflictDetector interface {
 	// to reject the new task; the error propagates back to the
 	// AddDistributedTask caller.
 	CheckConflict(newPayload []byte, existingTasks []*Task) error
+}
+
+// MissingGroupAdder lets a ConflictDetector add units when AddTask applies AddMissingGroups.
+// AddMissingGroups must be pure, since every node applies it, and must return IDs no other unit holds.
+// Its answer for an entry must not change in a later build, which replays that entry from the log.
+type MissingGroupAdder interface {
+	AddMissingGroups(task *Task, paidBy []uint64, collectionTasks []*Task, state *sharding.State) ([]*Unit, error)
 }
 
 // SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
@@ -535,7 +543,7 @@ type TaskStatusEntry struct {
 // StatusEntryFor answers for one shard (copying all decided groups would be quadratic in tenants).
 func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
 	group := shard
-	if t.hasGroup("") {
+	if t.HasGroup("") {
 		group = ""
 	}
 	var acked []string
@@ -639,6 +647,17 @@ func (t *Task) IndexGroups() {
 	t.groups, t.groupCount = groups, len(groups)
 }
 
+// addUnits indexes new units only, each with an unused ID.
+func (t *Task) addUnits(units []*Unit) {
+	for _, u := range units {
+		if len(t.groups[u.GroupID]) == 0 {
+			t.groupCount++
+		}
+		t.Units[u.ID] = u
+		t.groups[u.GroupID] = append(t.groups[u.GroupID], u.ID)
+	}
+}
+
 // shareGroups reuses held's index when it has as many units (units are only removed).
 func (t *Task) shareGroups(held *Task) {
 	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
@@ -650,7 +669,7 @@ func (t *Task) shareGroups(held *Task) {
 
 func (t *Task) forgetGroups(groups []string) {
 	for _, group := range groups {
-		if !t.hasGroup(group) {
+		if !t.HasGroup(group) {
 			continue
 		}
 		for _, id := range t.groups[group] {
@@ -663,7 +682,7 @@ func (t *Task) forgetGroups(groups []string) {
 	}
 }
 
-func (t *Task) hasGroup(group string) bool {
+func (t *Task) HasGroup(group string) bool {
 	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.Units[id] != nil })
 }
 
@@ -774,7 +793,7 @@ func (t *Task) Groups() []string {
 	all := t.groupCount == len(t.groups)
 	groups := make([]string, 0, t.groupCount)
 	for group := range t.groups {
-		if all || t.hasGroup(group) {
+		if all || t.HasGroup(group) {
 			groups = append(groups, group)
 		}
 	}
