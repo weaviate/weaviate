@@ -28,9 +28,8 @@ func TestManager_BarrierRunsOf(t *testing.T) {
 		end                  TaskStatus
 	}
 	type want struct {
-		id      string
-		status  TaskStatus
-		decided bool
+		id     string
+		status TaskStatus
 	}
 	started := run{id: "task1", version: 10, end: TaskStatusStarted}
 	for _, tc := range []struct {
@@ -39,30 +38,29 @@ func TestManager_BarrierRunsOf(t *testing.T) {
 		namespace, collection, shard string
 		want                         []want
 	}{
-		{name: "a running task that decided the group", runs: []run{started}, want: []want{{"task1", TaskStatusStarted, true}}},
+		{name: "a running task that decided the group", runs: []run{started}, want: []want{{"task1", TaskStatusStarted}}},
 		{
 			name: "a cancelled task keeps its decided group",
-			runs: []run{{id: "task1", version: 10, end: TaskStatusCancelled}}, want: []want{{"task1", TaskStatusCancelled, true}},
+			runs: []run{{id: "task1", version: 10, end: TaskStatusCancelled}}, want: []want{{"task1", TaskStatusCancelled}},
 		},
 		{
 			name: "a failed task keeps its decided group",
-			runs: []run{{id: "task1", version: 10, end: TaskStatusFailed}}, want: []want{{"task1", TaskStatusFailed, true}},
+			runs: []run{{id: "task1", version: 10, end: TaskStatusFailed}}, want: []want{{"task1", TaskStatusFailed}},
+		},
+		{
+			name: "a finished task that decided the group",
+			runs: []run{{id: "task1", version: 10, end: TaskStatusFinished}}, want: []want{{"task1", TaskStatusFinished}},
 		},
 		{
 			name: "a task without groups answers for every shard",
 			runs: []run{{id: "task1", version: 10, ungrouped: true, end: TaskStatusSwapping}}, shard: "any",
-			want: []want{{"task1", TaskStatusSwapping, true}},
+			want: []want{{"task1", TaskStatusSwapping}},
 		},
 		{name: "an undecided group", runs: []run{started}, shard: "g2"},
 		{
-			name: "a finished task counts even where it decided nothing",
-			runs: []run{{id: "task1", version: 10, end: TaskStatusFinished}}, shard: "g3",
-			want: []want{{"task1", TaskStatusFinished, false}},
-		},
-		{
 			name: "oldest first",
 			runs: []run{{id: "task2", version: 12, end: TaskStatusStarted}, started},
-			want: []want{{"task1", TaskStatusStarted, true}, {"task2", TaskStatusStarted, true}},
+			want: []want{{"task1", TaskStatusStarted}, {"task2", TaskStatusStarted}},
 		},
 		{name: "another collection", runs: []run{started}, collection: "Other"},
 		{name: "another namespace", runs: []run{started}, namespace: "ns2"},
@@ -80,8 +78,7 @@ func TestManager_BarrierRunsOf(t *testing.T) {
 			for _, w := range tc.want {
 				version := map[string]uint64{"task1": 10, "task2": 12}[w.id]
 				expected = append(expected, BarrierRun{
-					TaskDescriptor: TaskDescriptor{ID: w.id, Version: version}, Status: w.status,
-					GroupDecided: w.decided, Header: testHeader("Coll"),
+					TaskDescriptor: TaskDescriptor{ID: w.id, Version: version}, Status: w.status, Header: testHeader("Coll"),
 				})
 			}
 			require.Equal(t, expected, h.manager.BarrierRunsOf(

@@ -30,11 +30,12 @@ func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 
 // ReindexTaskHeader leaves out the per-tenant payload fields, which reach hundreds of MB at a million tenants.
 type ReindexTaskHeader struct {
-	MigrationType      ReindexMigrationType
-	Class              string
-	Properties         []string
-	TargetTokenization string
-	BucketStrategy     string
+	MigrationType        ReindexMigrationType
+	Class                string
+	Properties           []string
+	TargetTokenization   string
+	OriginalTokenization string
+	BucketStrategy       string
 }
 
 func (h ReindexTaskHeader) Collection() string { return h.Class }
@@ -42,7 +43,8 @@ func (h ReindexTaskHeader) Collection() string { return h.Class }
 func (h ReindexTaskHeader) payload() ReindexTaskPayload {
 	return ReindexTaskPayload{
 		MigrationType: h.MigrationType, Collection: h.Class, Properties: h.Properties,
-		TargetTokenization: h.TargetTokenization, BucketStrategy: h.BucketStrategy,
+		TargetTokenization: h.TargetTokenization, OriginalTokenization: h.OriginalTokenization,
+		BucketStrategy: h.BucketStrategy,
 	}
 }
 
@@ -54,7 +56,8 @@ func DecodeReindexTaskHeader(payload []byte) (distributedtask.TaskHeader, error)
 	}
 	return ReindexTaskHeader{
 		MigrationType: p.MigrationType, Class: p.Collection, Properties: p.Properties,
-		TargetTokenization: p.TargetTokenization, BucketStrategy: p.BucketStrategy,
+		TargetTokenization: p.TargetTokenization, OriginalTokenization: p.OriginalTokenization,
+		BucketStrategy: p.BucketStrategy,
 	}, nil
 }
 
@@ -137,7 +140,7 @@ type ReindexTaskPayload struct {
 	Properties         []string             `json:"properties,omitempty"`
 	TargetTokenization string               `json:"targetTokenization,omitempty"`
 	// OriginalTokenization records the schema's tokenization at task submit
-	// time. Retained for RAFT-log diagnostics; not consulted at runtime.
+	// time. A first load reads it to tell whether the schema moved on since.
 	OriginalTokenization string `json:"originalTokenization,omitempty"`
 	BucketStrategy       string `json:"bucketStrategy,omitempty"`
 

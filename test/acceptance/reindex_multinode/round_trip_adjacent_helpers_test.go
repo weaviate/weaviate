@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -29,19 +30,22 @@ import (
 // replication factor for the underlying physical shards.
 func createMTCollection(
 	t *testing.T, restURI, className string, rf int, properties []*models.Property,
+	replication ...map[string]interface{},
 ) {
 	t.Helper()
 
+	replicationConfig := map[string]interface{}{"factor": rf}
+	for _, extra := range replication {
+		maps.Copy(replicationConfig, extra)
+	}
 	class := map[string]interface{}{
 		"class":      className,
 		"vectorizer": "none",
 		"multiTenancyConfig": map[string]interface{}{
 			"enabled": true,
 		},
-		"replicationConfig": map[string]interface{}{
-			"factor": rf,
-		},
-		"properties": properties,
+		"replicationConfig": replicationConfig,
+		"properties":        properties,
 	}
 
 	body, err := json.Marshal(class)

@@ -1019,28 +1019,21 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 
 type BarrierRun struct {
 	TaskDescriptor
-	Status       TaskStatus
-	GroupDecided bool
-	Header       TaskHeader
+	Status TaskStatus
+	Header TaskHeader
 }
 
-// BarrierRunsOf returns namespace's tasks on collection (matched ignoring case)
-// that use the preparation barrier and either finished or decided the swap of
-// shard's group, oldest first.
+// BarrierRunsOf returns namespace's tasks on collection, matched ignoring case, that use
+// the preparation barrier and decided the swap of shard's group, oldest first.
 func (m *Manager) BarrierRunsOf(namespace, collection, shard string) []BarrierRun {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var runs []BarrierRun
 	for _, task := range m.tasks[namespace] {
-		if !task.NeedsPreparationBarrier || !strings.EqualFold(task.collection(), collection) {
-			continue
-		}
-		decided := task.GroupSwapDecided(task.groupOf(shard))
-		if decided || task.Status == TaskStatusFinished {
-			runs = append(runs, BarrierRun{
-				TaskDescriptor: task.TaskDescriptor, Status: task.Status, GroupDecided: decided, Header: task.header,
-			})
+		if task.NeedsPreparationBarrier && strings.EqualFold(task.collection(), collection) &&
+			task.GroupSwapDecided(task.groupOf(shard)) {
+			runs = append(runs, BarrierRun{TaskDescriptor: task.TaskDescriptor, Status: task.Status, Header: task.header})
 		}
 	}
 	slices.SortFunc(runs, func(a, b BarrierRun) int { return cmp.Compare(a.Version, b.Version) })

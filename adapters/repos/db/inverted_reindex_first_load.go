@@ -40,15 +40,15 @@ func (db *DB) SetMigrationBarrierRunSource(source MigrationBarrierRunSource) {
 
 var errFirstLoadRecord = errors.New("write promoted migration records for an empty shard")
 
-// writeFirstLoadRecords writes the promoted records of each run that already
-// swapped this shard's group, since no swap reaches a new replica. It writes
+// writeFirstLoadRecords writes the promoted records of each run that already swapped this
+// shard's group, since only an owed swap still reaches it and finds them done. It writes
 // while the objects bucket holds no file, so a retry after a failed write still writes.
 func (s *Shard) writeFirstLoadRecords(class *models.Class) error {
 	unit := s.migrationUnit()
 	if unit == "" || s.index.db == nil || s.index.db.migrationBarrierRuns == nil {
 		return nil
 	}
-	runs, err := firstLoadRuns(s.index.db.migrationBarrierRuns(ReindexNamespace, class.Class, s.name))
+	runs, err := firstLoadRuns(s.index.db.migrationBarrierRuns(ReindexNamespace, class.Class, s.name), class)
 	if err != nil || len(runs) == 0 {
 		return err
 	}
@@ -85,38 +85,30 @@ type firstLoadRun struct {
 	header ReindexTaskHeader
 }
 
-// firstLoadRuns keeps unfinished runs that decided the group, on the properties
-// no newer finished run flipped (as ReindexMigratedTenants does).
-func firstLoadRuns(runs []distributedtask.BarrierRun) ([]firstLoadRun, error) {
-	headers := make([]ReindexTaskHeader, len(runs))
-	for i, run := range runs {
+// firstLoadRuns keeps the unfinished runs, except a tokenization change whose property no longer
+// has the run's original tokenization, since the task list may not hold the run that replaced it.
+func firstLoadRuns(runs []distributedtask.BarrierRun, class *models.Class) ([]firstLoadRun, error) {
+	var kept []firstLoadRun
+	for _, run := range runs {
 		header, ok := run.Header.(ReindexTaskHeader)
 		if !ok {
 			return nil, fmt.Errorf("task %s/%d carries no reindex header", run.ID, run.Version)
 		}
-		headers[i] = header
-	}
-	var kept []firstLoadRun
-	for i, run := range runs {
-		if !run.GroupDecided || run.Status == distributedtask.TaskStatusFinished {
-			continue
-		}
-		types, _ := ReindexIndexTypes(headers[i].MigrationType)
-		header := headers[i]
-		header.Properties = slices.DeleteFunc(slices.Clone(header.Properties), func(prop string) bool {
-			for j := i + 1; j < len(runs); j++ {
-				if slices.Contains(headers[j].Properties, prop) &&
-					reindexFlipCovers(runs[j].Status, headers[j].MigrationType, types) {
-					return true
-				}
-			}
-			return false
-		})
-		if len(header.Properties) > 0 {
+		if run.Status != distributedtask.TaskStatusFinished && !tokenizationMovedOn(class, header) {
 			kept = append(kept, firstLoadRun{desc: run.TaskDescriptor, header: header})
 		}
 	}
 	return kept, nil
+}
+
+func tokenizationMovedOn(class *models.Class, header ReindexTaskHeader) bool {
+	if !IsTokenizationChangingMigration(header.MigrationType) || header.OriginalTokenization == "" {
+		return false
+	}
+	return slices.ContainsFunc(header.Properties, func(name string) bool {
+		prop, err := schema.GetPropertyByName(class, name)
+		return err == nil && prop.Tokenization != header.OriginalTokenization
+	})
 }
 
 func firstLoadRecords(logger logrus.FieldLogger, run firstLoadRun, unit string, class *models.Class,
@@ -159,9 +151,8 @@ func dirHoldsFile(dir string) (bool, error) {
 	return holds, err
 }
 
-// promotedToBlockmax reports whether the newest promoted record on propName's
-// searchable bucket builds it as blockmax. A bucket built on an empty shard has
-// no segment recording its format, so the record keeps it until the schema does.
+// promotedToBlockmax reports whether the newest promoted record on propName's searchable bucket
+// targets blockmax. Every shard's bucket then asks for blockmax before SearchableBlockmax is set.
 func (s *Shard) promotedToBlockmax(propName string) bool {
 	if s.migrationRecords == nil {
 		return false
@@ -174,22 +165,8 @@ func (s *Shard) promotedToBlockmax(propName string) bool {
 			migrationPropertySuperseded(all, subject, propName) {
 			continue
 		}
-		return migrationTargetStrategy(s.index.logger, subject) == lsmkv.StrategyInverted
+		tasks, err := buildRecoveryTasks(subject, s.name, s.index.logger, nil)
+		return err == nil && tasks[0].strategy.TargetStrategy() == lsmkv.StrategyInverted
 	}
 	return false
-}
-
-func migrationTargetStrategy(logger logrus.FieldLogger, subject MigrationSubject) string {
-	payload := subject.reindexPayload()
-	tasks, err := buildMigrationTasks(logger, nil, subject.Key.TaskVersion, &payload,
-		func(string, string) bool { return true })
-	if err != nil {
-		return ""
-	}
-	for _, task := range tasks {
-		if task.strategy.StrategyCode() == subject.Key.StrategyCode {
-			return task.strategy.TargetStrategy()
-		}
-	}
-	return ""
 }

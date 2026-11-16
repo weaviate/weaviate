@@ -665,8 +665,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
 				if stderrors.Is(err, errFirstLoadRecord) {
-					// Loading without the record would build the shard from the pre-reindex schema
-					// for good, so it stays unloaded and its next access retries the write.
+					// It stays unloaded, since a load without the record keeps the replaced schema for good.
 					if unloaded.Add(1) == 1 {
 						firstUnloaded.Store(&err)
 					}

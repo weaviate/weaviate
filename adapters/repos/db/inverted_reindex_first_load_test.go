@@ -13,10 +13,12 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -26,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -46,6 +49,9 @@ type firstLoadKind struct {
 	bm25   string
 	// BM25 answers from either searchable format, so the bucket says which one was built.
 	searchableStrategy string
+	// Filterable writes take the searchable overlay's tokenization, so no query sees a
+	// missing filterable record; its key is checked instead.
+	records []MigrationStrategyCode
 }
 
 func firstLoadText(value string) func(string) *storobj.Object {
@@ -66,10 +72,12 @@ var (
 	changeTokenizationKind = firstLoadKind{
 		header: ReindexTaskHeader{
 			MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
-			TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
+			OriginalTokenization: models.PropertyTokenizationWord, TargetTokenization: models.PropertyTokenizationField,
+			BucketStrategy: lsmkv.StrategyMapCollection,
 		},
 		class: retokenizableClass, flip: toFieldTokenization, object: firstLoadText("The Hobbit"),
-		filter: firstLoadEqual("The Hobbit"), bm25: "The Hobbit",
+		filter: firstLoadEqual("The Hobbit"), bm25: "The Hobbit", searchableStrategy: lsmkv.StrategyMapCollection,
+		records: []MigrationStrategyCode{StrategyCodeSearchableRetokenize, StrategyCodeFilterableRetokenize},
 	}
 	changeAlgorithmKind = firstLoadKind{
 		header: ReindexTaskHeader{MigrationType: ReindexTypeChangeAlgorithm, Properties: []string{"title"}},
@@ -121,7 +129,7 @@ func firstLoadKinds() []firstLoadKind {
 		{
 			header: ReindexTaskHeader{
 				MigrationType: ReindexTypeChangeTokenizationFilterable, Properties: []string{"title"},
-				TargetTokenization: models.PropertyTokenizationField,
+				OriginalTokenization: models.PropertyTokenizationWord, TargetTokenization: models.PropertyTokenizationField,
 			},
 			class: retokenizableClass, flip: toFieldTokenization, object: firstLoadText("The Hobbit"),
 			filter: firstLoadEqual("The Hobbit"),
@@ -251,6 +259,9 @@ func TestShardJoiningAfterASwapServesTheTargetIndex(t *testing.T) {
 
 			// The new replica joins and takes a write before the schema changes.
 			require.NoError(t, idx.LoadLocalShardForNewReplica(ctx, lateShard))
+			if len(r.kind.records) > 0 {
+				assertRecordKeys(t, unwrappedShard(t, ctx, idx, lateShard), 7, r.kind.records...)
+			}
 			objs := []*storobj.Object{r.kind.object(className), r.kind.object(className), r.kind.object(className)}
 			require.NoError(t, unwrappedShard(t, ctx, idx, lateShard).PutObject(ctx, objs[0]))
 			r.kind.flip(class)
@@ -265,24 +276,96 @@ func TestShardJoiningAfterASwapServesTheTargetIndex(t *testing.T) {
 	}
 }
 
-// A run cancelled after its swap, then replaced by a finished run of the same
-// change and by a finished later change, must not decide a new replica.
-func TestFirstLoadSkipsARunThatANewerFinishedRunReplaced(t *testing.T) {
+// A run cancelled after its swap stays listed while a lost node owes that swap.
+// The finished runs that moved the property on are cleaned up first, and a new
+// replica must still follow the schema.
+func TestFirstLoadSkipsATokenizationRunTheSchemaMovedOn(t *testing.T) {
 	ctx := testCtx()
 	className := "FirstLoadStale_" + uuid.NewString()[:8]
 	class := retokenizableClass(className)
 	idx, _ := firstLoadIndex(t, ctx, class, true)
-	toWhitespace := changeTokenizationKind.header
-	toWhitespace.TargetTokenization = models.PropertyTokenizationWhitespace
-	finished := func(version uint64, header ReindexTaskHeader) restoredRun {
-		run := lateRun(className, version, header, distributedtask.TaskStatusFinished)
-		run.group, run.units = "other", map[string]string{MigrationUnitID("other", "node2"): "node2"}
-		return run
+	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+		HeaderDecoders: map[string]distributedtask.HeaderDecoder{ReindexNamespace: DecodeReindexTaskHeader},
+	})
+	idx.db.SetMigrationBarrierRunSource(mgr.BarrierRunsOf)
+	apply := func(op func(*api.ApplyRequest) error, sub any) {
+		raw, err := json.Marshal(sub)
+		require.NoError(t, err)
+		require.NoError(t, op(&api.ApplyRequest{SubCommand: raw}))
 	}
-	installRuns(t, idx,
-		lateRun(className, 7, changeTokenizationKind.header, distributedtask.TaskStatusCancelled),
-		finished(9, changeTokenizationKind.header), finished(11, toWhitespace))
-	class.Properties[0].Tokenization = models.PropertyTokenizationWhitespace
+	now := time.Now().UnixMilli()
+	// run adds one change of title's tokenization with one unit per group,
+	// completes and decides the given groups, and pays node2's swaps.
+	run := func(version uint64, from, to string, units map[string]string, decided ...string) string {
+		id := fmt.Sprintf("run-%d", version)
+		payload, err := json.Marshal(ReindexTaskPayload{
+			MigrationType: ReindexTypeChangeTokenization, Collection: className, Properties: []string{"title"},
+			OriginalTokenization: from, TargetTokenization: to, BucketStrategy: lsmkv.StrategyMapCollection,
+		})
+		require.NoError(t, err)
+		var specs []*api.UnitSpec
+		for unit, group := range units {
+			specs = append(specs, &api.UnitSpec{Id: unit, GroupId: group})
+		}
+		apply(func(c *api.ApplyRequest) error { return mgr.AddTask(c, version) }, &api.AddDistributedTaskRequest{
+			Namespace: ReindexNamespace, Id: id, Payload: payload, SubmittedAtUnixMillis: now,
+			UnitSpecs: specs, NeedsPreparationBarrier: true,
+		})
+		for _, group := range decided {
+			var nodes []string
+			for unit, unitGroup := range units {
+				if unitGroup == group {
+					nodes = append(nodes, unit[len(group)+2:])
+					apply(mgr.RecordUnitCompletion, &api.RecordDistributedTaskUnitCompletionRequest{
+						Namespace: ReindexNamespace, Id: id, Version: version, NodeId: nodes[len(nodes)-1], UnitId: unit,
+						FinishedAtUnixMillis: now,
+					})
+				}
+			}
+			for _, node := range nodes {
+				apply(mgr.RecordPreparationCompleteAck, &api.RecordDistributedTaskPreparationCompleteAckRequest{
+					Namespace: ReindexNamespace, Id: id, Version: version, GroupId: &group, NodeId: node, Success: true,
+					AckedAtUnixMillis: now,
+				})
+			}
+			apply(mgr.RecordPostCompletionAck, &api.RecordDistributedTaskPostCompletionAckRequest{
+				Namespace: ReindexNamespace, Id: id, Version: version, GroupId: group, NodeId: "node2", Success: true,
+				AckedAtUnixMillis: now,
+			})
+		}
+		return id
+	}
+	cancel := func(id string, version uint64) {
+		apply(mgr.CancelTask, &api.CancelDistributedTaskRequest{
+			Namespace: ReindexNamespace, Id: id, Version: version, CancelledAtUnixMillis: now,
+		})
+	}
+	finish := func(id string, version uint64) {
+		apply(mgr.MarkTaskFinalized, &api.MarkTaskFinalizedRequest{
+			Namespace: ReindexNamespace, Id: id, Version: version, FinalizedAtUnixMillis: now,
+		})
+	}
+	cleanUp := func(id string, version uint64) {
+		apply(mgr.CleanUpTask, &api.CleanUpDistributedTaskRequest{Namespace: ReindexNamespace, Id: id, Version: version})
+	}
+	word, field := models.PropertyTokenizationWord, models.PropertyTokenizationField
+	whitespace, lowercase := models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase
+	other := map[string]string{"other__node2": "other"}
+
+	// nodeN's swap of the late group is never paid, so v1 stays listed.
+	v1 := run(1, word, field, map[string]string{
+		"late__node2": lateShard, "late__nodeN": lateShard, "busy__node2": "busy",
+	}, lateShard)
+	cancel(v1, 1)
+	finish(run(2, word, field, other, "other"), 2)
+	finish(run(3, field, whitespace, other, "other"), 3)
+	cancel(run(4, whitespace, lowercase, map[string]string{"other__node2": "other", "busy__node2": "busy"}), 4)
+	cleanUp("run-2", 2)
+	cleanUp("run-3", 3)
+	listed := mgr.BarrierRunsOf(ReindexNamespace, className, lateShard)
+	require.Len(t, listed, 1, "only v1 is listed, with its group decided")
+	require.Equal(t, distributedtask.TaskStatusCancelled, listed[0].Status)
+	class.Properties[0].Tokenization = whitespace
 	require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
 
 	require.NoError(t, idx.LoadLocalShardForNewReplica(ctx, lateShard))
@@ -354,9 +437,38 @@ func TestFirstLoadRecords(t *testing.T) {
 		for _, task := range tasks {
 			task.setMigrationIdentity(distributedtask.TaskDescriptor{ID: "run-7", Version: 7}, late.migrationUnit(), &payload)
 		}
+		obj := createTestObjectWithText(header.Class, "The Hobbit")
+		require.NoError(t, late.PutObject(ctx, obj))
 		p := &ReindexProvider{logger: idx.logger, localNode: "node1", serverCtx: ctx}
 		res := p.runShardSwapPhase(ctx, &payload, late.migrationUnit(), lateShard, late, tasks, idx.logger)
 		require.Empty(t, res.Errs, "the swap the node owes completes over the record")
+		assertFinds(t, ctx, late, header.Class, firstLoadEqual("The Hobbit"), "The Hobbit", []*storobj.Object{obj})
+		assertRecordKeys(t, late, 7, retokenizeCodes...)
+	})
+
+	t.Run("a record the shard already holds is kept", func(t *testing.T) {
+		ctx, idx := setup(t, retokenizableClass, cancelled(7, changeTokenizationKind))
+		className := idx.Config.ClassName.String()
+		header := changeTokenizationKind.header
+		header.Class = className
+		unit := MigrationUnitID(lateShard, "node1")
+		built, err := firstLoadRecords(idx.logger, firstLoadRun{
+			desc: distributedtask.TaskDescriptor{ID: "run-7", Version: 7}, header: header,
+		}, unit, retokenizableClass(className))
+		require.NoError(t, err)
+		held := built[0].Subject()
+		held.TaskID = "held"
+		lsm := shardPathLSM(idx.path(), lateShard)
+		require.NoError(t, os.MkdirAll(lsm, os.ModePerm))
+		require.NoError(t, NewMigrationRecordStoreForUnit(lsm, unit, idx.logger).Put(
+			NewMigrationRecordPromoted(held, held.Properties(), nil)))
+
+		require.NoError(t, idx.LoadLocalShardForNewReplica(ctx, lateShard))
+		late := unwrappedShard(t, ctx, idx, lateShard)
+		rec, there := late.migrationRecords.Get(held.Key)
+		require.True(t, there)
+		assert.Equal(t, "held", rec.Subject().TaskID)
+		assertRecordKeys(t, late, 7, retokenizeCodes...)
 	})
 
 	t.Run("every decided run writes its records, and the newer one retires the older on a shared index", func(t *testing.T) {
