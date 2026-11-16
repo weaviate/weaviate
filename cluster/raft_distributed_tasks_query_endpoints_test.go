@@ -42,6 +42,7 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 	write := func(ctx context.Context, srv *Raft) error {
 		return srv.MarkDistributedTaskFinalized(ctx, "ns", "t", 1)
 	}
+	bounded := 100 * time.Millisecond
 	tests := []struct {
 		name            string
 		call            func(context.Context, *Raft) error
@@ -49,9 +50,27 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 		callerCancel    time.Duration
 		wantCode        codes.Code
 	}{
-		{name: "caller without deadline", call: list, consistencyWait: 100 * time.Millisecond, wantCode: codes.DeadlineExceeded},
+		{name: "caller without deadline", call: list, consistencyWait: bounded, wantCode: codes.DeadlineExceeded},
 		{name: "caller without deadline cancels first", call: list, consistencyWait: time.Hour, callerCancel: 100 * time.Millisecond, wantCode: codes.Canceled},
 		{name: "task write, caller cancels first", call: write, consistencyWait: time.Hour, callerCancel: 100 * time.Millisecond, wantCode: codes.Canceled},
+		{name: "unit completion", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			return srv.RecordDistributedTaskUnitCompletion(ctx, "ns", "t", 1, "node-1", "u")
+		}},
+		{name: "unit progress", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			return srv.UpdateDistributedTaskUnitProgress(ctx, "ns", "t", 1, "node-1", "u", 0.5)
+		}},
+		{name: "clean up", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			return srv.CleanUpDistributedTask(ctx, "ns", "t", 1)
+		}},
+		{name: "mark failed", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			return srv.MarkDistributedTaskFailed(ctx, "ns", "t", 1, "e")
+		}},
+		{name: "post-completion ack", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			return srv.RecordDistributedTaskPostCompletionAck(ctx, "ns", "t", 1, "g", "node-1", true, "")
+		}},
+		{name: "preparation ack", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			return srv.RecordDistributedTaskPreparationCompleteAck(ctx, "ns", "t", 1, "g", "node-1", true, "")
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
