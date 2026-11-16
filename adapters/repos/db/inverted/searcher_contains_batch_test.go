@@ -116,10 +116,10 @@ func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
 		stopwordProvider:         stopwords.NewProvider(fakeStopwordDetector{}, nil),
 		batchedContainsEnabled:   runtime.NewDynamicValue(true),
 		pinTokenizationAndBucket: pinWithSchemaTokenization(store),
-		pins:                     &filterPins{},
+		pins:                     &queryPins{},
 	}
 	// The store's shutdown waits for these pins.
-	t.Cleanup(f.searcher.pins.releaseAll)
+	t.Cleanup(f.searcher.pins.release)
 	return f
 }
 

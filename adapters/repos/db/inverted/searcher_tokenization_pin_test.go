@@ -168,7 +168,7 @@ func TestFilterKeepsItsTokenizationAndBucketTogetherAcrossAFlip(t *testing.T) {
 			ctx := context.Background()
 
 			c := f.searcher(tc.batched, f.pin)
-			defer c.pins.releaseAll()
+			defer c.pins.release()
 			pv, err := c.extractPropValuePair(ctx, tc.filter.Root, pinClass)
 			require.NoError(t, err)
 			f.flip(t)

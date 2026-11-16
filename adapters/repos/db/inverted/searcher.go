@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -67,7 +66,7 @@ type Searcher struct {
 	nestedBitmapOps     *invnested.BitmapOps
 
 	pinTokenizationAndBucket TokenizationBucketPinner
-	pins                     *filterPins
+	pins                     *queryPins
 	// batchedContainsEnabled gates the batched flat Contains resolution.
 	// Runtime-overridable; nil (the default) means disabled, so the
 	// feature is opt-in and callers that don't wire it keep the
@@ -75,41 +74,8 @@ type Searcher struct {
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
-type filterPins struct {
-	mu      sync.Mutex
-	pinned  []filterPin
-	backing [2]filterPin
-}
-
-type filterPin struct {
-	prop, bucketName string
-	tokenization     string
-	bucket           *lsmkv.Bucket
-	release          func()
-}
-
 func (s *Searcher) pinFilterBucket(prop *models.Property, bucketName string) (string, *lsmkv.Bucket) {
-	s.pins.mu.Lock()
-	defer s.pins.mu.Unlock()
-	for _, pin := range s.pins.pinned {
-		if pin.prop == prop.Name && pin.bucketName == bucketName {
-			return pin.tokenization, pin.bucket
-		}
-	}
-	tokenization, bucket, release := s.pinTokenizationAndBucket(prop.Name, bucketName, prop.Tokenization)
-	s.pins.pinned = append(s.pins.pinned, filterPin{
-		prop: prop.Name, bucketName: bucketName, tokenization: tokenization, bucket: bucket, release: release,
-	})
-	return tokenization, bucket
-}
-
-func (p *filterPins) releaseAll() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, pin := range p.pinned {
-		pin.release()
-	}
-	p.pinned = p.pinned[:0]
+	return s.pins.pin(s.pinTokenizationAndBucket, prop.Name, bucketName, prop.Tokenization)
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
@@ -161,7 +127,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	// One allocation holds both. A Searcher serves one docIDs call at a time.
 	s := &struct {
 		Searcher
-		pins filterPins
+		pins queryPins
 	}{Searcher: Searcher{
 		logger:                  logger,
 		store:                   store,
@@ -179,7 +145,6 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 
 		pinTokenizationAndBucket: pinTokenizationAndBucket,
 	}}
-	s.pins.pinned = s.pins.backing[:0]
 	s.Searcher.pins = &s.pins
 	return &s.Searcher
 }
@@ -331,7 +296,7 @@ func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilte
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
-	defer s.pins.releaseAll()
+	defer s.pins.release()
 
 	pv, err := s.extractPropValuePair(ctx, filter.Root, className)
 	if err != nil {

@@ -38,7 +38,7 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *pinnedSearchableBuckets, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *queryPins, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
 	// Same pinned-bucket reuse as createTerm.
 	bucket := pins.bucketFor(propName)
 	if bucket == nil {

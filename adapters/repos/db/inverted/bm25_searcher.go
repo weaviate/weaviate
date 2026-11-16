@@ -59,41 +59,6 @@ type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
 }
 
-// pinnedSearchableBuckets carries the buckets one query pinned at prop
-// discovery, so lookup reuses the pinned pointer instead of re-fetching by
-// name. Per-query, never stored on the shared BM25Searcher.
-type pinnedSearchableBuckets struct {
-	byProp   map[string]*lsmkv.Bucket
-	releases []func()
-	released bool
-}
-
-func (p *pinnedSearchableBuckets) bucketFor(propName string) *lsmkv.Bucket {
-	return p.byProp[propName]
-}
-
-// bucket may be nil; the release is still recorded so it runs at query end.
-func (p *pinnedSearchableBuckets) add(propName string, bucket *lsmkv.Bucket, release func()) {
-	if p.byProp == nil {
-		p.byProp = map[string]*lsmkv.Bucket{}
-	}
-	p.byProp[propName] = bucket
-	if release != nil {
-		p.releases = append(p.releases, release)
-	}
-}
-
-// release is idempotent and nil-safe.
-func (p *pinnedSearchableBuckets) release() {
-	if p == nil || p.released {
-		return
-	}
-	p.released = true
-	for _, r := range p.releases {
-		r()
-	}
-}
-
 type termListRequest struct {
 	term               string
 	termId             int
@@ -201,8 +166,8 @@ type queryStats struct {
 // Pin lifetime: on SUCCESS the caller owns the pins and MUST defer
 // pins.release(); on ERROR they are released here and the caller's
 // deferred release no-ops.
-func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (queryTerms, queryStats, *pinnedSearchableBuckets, error) {
-	pins := &pinnedSearchableBuckets{}
+func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (queryTerms, queryStats, *queryPins, error) {
+	pins := &queryPins{}
 	failed := true
 	defer func() {
 		if failed {
@@ -280,9 +245,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		// The user-supplied name, not prop.Name: a dotted input must not search the parent's bucket.
-		effectiveTok, bucket, release := b.pinner(property, helpers.BucketSearchableFromPropNameLSM(property), prop.Tokenization)
-		// Record even when bucket==nil so the release still runs.
-		pins.add(property, bucket, release)
+		effectiveTok, bucket := pins.pin(b.pinner, property, helpers.BucketSearchableFromPropNameLSM(property), prop.Tokenization)
 		if bucket == nil {
 			return queryTerms{}, queryStats{}, pins, fmt.Errorf("could not find bucket for property %v", property)
 		}
@@ -522,7 +485,7 @@ func (b *BM25Searcher) wand(
 // the slow-query timing annotations. The caller keeps ownership of pins and
 // must release them after this returns.
 func (b *BM25Searcher) wandFromStats(
-	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, qterms queryTerms, qstats queryStats, pins *pinnedSearchableBuckets, start time.Time,
+	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, qterms queryTerms, qstats queryStats, pins *queryPins, start time.Time,
 ) ([]*storobj.Object, []float32, error) {
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
@@ -738,7 +701,7 @@ func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPoin
 	return ids, scores, explanations, nil
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, pins *pinnedSearchableBuckets, ctx context.Context) (*terms.Term, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, pins *queryPins, ctx context.Context) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
 	var filteredDocIDs *sroar.Bitmap
