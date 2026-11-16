@@ -426,14 +426,14 @@ func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	return false
 }
 
-// TaskOwingSwap finds a task in any status that owes group's swap: copying or moving that replica would leave a debt no node can pay, or old data no debt names.
-func (m *Manager) TaskOwingSwap(collection, group string) (taskID string, nodes []string, owed bool) {
+// TaskOwingSwap finds a task in any status that owes shard's swap: copying or moving that replica would leave a debt no node can pay, or old data no debt names.
+func (m *Manager) TaskOwingSwap(collection, shard string) (taskID string, nodes []string, owed bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	for ns := range m.collectionExtractors {
 		for _, task := range m.tasks[ns] {
-			if owing := task.SwapsOwed[group]; len(owing) > 0 && strings.EqualFold(task.collection, collection) {
+			if owing := task.SwapsOwed[task.groupOf(shard)]; len(owing) > 0 && strings.EqualFold(task.collection, collection) {
 				return task.ID, slices.Clone(owing), true
 			}
 		}

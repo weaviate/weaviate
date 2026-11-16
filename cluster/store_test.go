@@ -1763,15 +1763,21 @@ func owingSubCommand(t *testing.T, v any) *cmd.ApplyRequest {
 }
 
 // seedOwedSwap leaves a task that decided group's swap, swapped it on nodes[0] and still owes it on nodes[1].
-// A second, undecided group keeps the task PREPARING until stop ends it.
+// A second, undecided group keeps a per-tenant task PREPARING until stop ends it. Without multi-tenancy
+// group is "" and the only one, so deciding it starts the swap.
 func seedOwedSwap(t *testing.T, s *Store, group string, nodes [2]string, stop func(*testing.T, *distributedtask.Manager)) {
 	t.Helper()
 	m := s.distributedTasksManager
+	specs := []*cmd.UnitSpec{{Id: "u0", GroupId: group}, {Id: "u1", GroupId: group}}
+	unitNodes := map[string]string{"u0": nodes[0], "u1": nodes[1]}
+	if group != "" {
+		specs = append(specs, &cmd.UnitSpec{Id: "u2", GroupId: "undecided"})
+		unitNodes["u2"] = "node1"
+	}
 	require.NoError(t, m.AddTask(owingSubCommand(t, &cmd.AddDistributedTaskRequest{
-		Namespace: exclusionNamespace, Id: owingTaskID, NeedsPreparationBarrier: true,
-		UnitSpecs: []*cmd.UnitSpec{{Id: "u0", GroupId: group}, {Id: "u1", GroupId: group}, {Id: "u2", GroupId: "undecided"}},
+		Namespace: exclusionNamespace, Id: owingTaskID, NeedsPreparationBarrier: true, UnitSpecs: specs,
 	}), 1))
-	for unit, node := range map[string]string{"u0": nodes[0], "u1": nodes[1], "u2": "node1"} {
+	for unit, node := range unitNodes {
 		require.NoError(t, m.RecordUnitCompletion(owingSubCommand(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 			Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, NodeId: node, UnitId: unit,
 		})))
@@ -1796,6 +1802,13 @@ func failOwingTask(t *testing.T, m *distributedtask.Manager) {
 	t.Helper()
 	require.NoError(t, m.RecordPreparationCompleteAck(owingSubCommand(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, GroupId: new("undecided"), NodeId: "node1", Error: "disk full",
+	})))
+}
+
+func failSwappingTask(t *testing.T, m *distributedtask.Manager) {
+	t.Helper()
+	require.NoError(t, m.MarkTaskFailed(owingSubCommand(t, &cmd.MarkTaskFailedRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, Error: "cutover write failed",
 	})))
 }
 
@@ -1885,6 +1898,9 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 	owedBy := func(stop func(*testing.T, *distributedtask.Manager)) func(*testing.T, *Store) {
 		return func(t *testing.T, s *Store) { seedOwedSwap(t, s, "shard1", [2]string{"node1", "node2"}, stop) }
 	}
+	owedWithoutTenants := func(t *testing.T, s *Store) {
+		seedOwedSwap(t, s, "", [2]string{"node1", "node2"}, failSwappingTask)
+	}
 	owed := []error{replicationTypes.ErrMovementBlockedByTask}
 
 	for _, tc := range []struct {
@@ -1907,6 +1923,14 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		{
 			name: "a move is refused while a stopped task owes its shard's swap", command: movementOf("shard1", cmd.MOVE),
 			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "without multi-tenancy a copy is refused while a failed task owes the swap", command: movementOf("shard1", cmd.COPY),
+			seed: owedWithoutTenants, wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "without multi-tenancy a move is refused while a failed task owes the swap", command: movementOf("shard1", cmd.MOVE),
+			seed: owedWithoutTenants, wantErrs: owed, wantOwing: "node2",
 		},
 		{
 			name: "a copy of a shard no task owes is admitted", command: movementOf("undecided", cmd.COPY),
