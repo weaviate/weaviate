@@ -210,6 +210,37 @@ En el smoke, el recall de arista de los insertados contra el corpus del checkpoi
 - **El criterio principal no cambia:** recall de búsqueda a igual ef a 0.005 o menos del lote, y cargas a 0.95 un 15 % o menos por encima.
 - **La cobertura sigue siendo stop.**
 
+### Celda 5: reparación por hermanos en el split (pre-registro, 2026-11-16)
+
+*Encargo del usuario, pre-registrada con la cadena de v2.0 ya corriendo y antes de ningún dato de esta celda. Corre detrás de esa cadena, en su propio script (`scripts/run_v20_siblings.sh`).*
+
+**Mecanismo.** Al partir un posting, para cada vector de las dos mitades:
+
+1. por fuerza bruta exacta, sus 16 vecinos más cercanos dentro de la mitad hermana, con la lista de miembros del posting viejo;
+2. se mezclan con sus aristas de salida actuales, a las que se les calcula la distancia exacta;
+3. se queda con las 16 más cercanas, la más cercana primero.
+
+No hay búsqueda en el índice. Lo demás es igual que la celda principal: sin aristas inversas, mismo umbral T=360, mismo orden barajado y mismos checkpoints y métricas.
+
+*Lecturas mías:*
+
+- **El grado puede pasar del de la regla del lote.** Esa regla toma, de los 16 vecinos más cercanos de todo el corpus, los de fuera del posting propio. Aquí los candidatos son las aristas actuales y la mitad hermana, y se quedan hasta 16. Se reporta el grado medio frente al de las otras celdas.
+- **Sobre el motivo:** la reparación de H2 busca con la búsqueda del índice. En los tests sintéticos de clusters compactos, donde las dos mitades no tienen ninguna arista entre sí ni camino por otros postings, esa búsqueda no llega a la otra mitad. La reparación por hermanos llega por construcción.
+
+**Criterio:**
+
+| pre-registro | umbral |
+|---|---|
+| frente al lote | el de la celda principal: al 100 %, recall a igual ef a 0.005 o menos del lote en cada ef de la malla, y cargas a 0.95 un 15 % o menos por encima |
+| frente a H2: la candidata a mecanismo de split para disco | si iguala o supera a H2 sin búsqueda. *Mío, para que «iguala» tenga umbral:* en cada ef de la malla su recall no queda más de 0.001 por debajo del de H2, y sus cargas a 0.95 no pasan de las de H2 en más de un 2 % |
+| coste | µs por split (split más reparación), indicativo, frente a los de H2 |
+| stops | los de la enmienda: cobertura, y la guardia del constructor (recall de arista al insertar bajo 0.90) |
+
+**El coste se compara con una salvedad (mía).** H2 corre en paralelo con H1 y con el orden natural, y la celda 5 corre sola. Así que sus µs no se miden en las mismas condiciones. Por eso se reporta también una cuenta que no depende de la máquina:
+
+- en la celda 5, las distancias exactas por split;
+- en H2, las búsquedas por split, una por miembro.
+
 ## v1.6: el kernel de #13880 a 10M, y el ef de centroides (pre-registro, 2026-11-13)
 
 **Estado: pre-registrado y medido la noche del 13 al 14. Los resultados están abajo, en «Resultados de la noche», «El ef de centroides: resultados» y «Una arista por posting de destino: resultados».** Esta sección se escribió antes de ningún dato de esa noche. Las subsecciones marcadas «de día» se añadieron el 13 por la mañana, también antes de la noche.
