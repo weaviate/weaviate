@@ -115,5 +115,6 @@ func newBoostTestSearcher(t *testing.T) *BM25Searcher {
 		store:          store,
 		propLenTracker: tracker,
 		logger:         logger,
+		pinner:         pinWithSchemaTokenization(store),
 	}
 }

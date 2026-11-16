@@ -75,15 +75,10 @@ type Searcher struct {
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
-// WithTokenizationBucketPinner replaces the default: schema tokenization, store bucket.
-func (s *Searcher) WithTokenizationBucketPinner(p TokenizationBucketPinner) *Searcher {
-	s.pinTokenizationAndBucket = p
-	return s
-}
-
 type filterPins struct {
-	mu     sync.Mutex
-	pinned []filterPin
+	mu      sync.Mutex
+	pinned  []filterPin
+	backing [2]filterPin
 }
 
 type filterPin struct {
@@ -98,6 +93,7 @@ func (s *Searcher) forCall() *Searcher {
 		Searcher
 		pins filterPins
 	}{Searcher: *s}
+	call.pins.pinned = call.pins.backing[:0]
 	call.Searcher.pins = &call.pins
 	return &call.Searcher
 }
@@ -162,6 +158,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	isRangeableLocallyReady IsRangeableLocallyReady,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
+	pinTokenizationAndBucket TokenizationBucketPinner,
 ) *Searcher {
 	if isRangeableLocallyReady == nil {
 		// Default: always ready. Callers that don't know about the per-shard
@@ -171,7 +168,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		// trusting the schema flag verbatim.
 		isRangeableLocallyReady = func(string) bool { return true }
 	}
-	s := &Searcher{
+	return &Searcher{
 		logger:                  logger,
 		store:                   store,
 		getClass:                getClass,
@@ -185,15 +182,8 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		nestedCrossRefLimit:     nestedCrossRefLimit,
 		bitmapFactory:           bitmapFactory,
 		nestedBitmapOps:         invnested.NewBitmapOps(bitmapFactory.BufPool()),
-	}
-	s.pinTokenizationAndBucket = pinWithSchemaTokenization(store)
-	return s
-}
 
-func pinWithSchemaTokenization(store *lsmkv.Store) TokenizationBucketPinner {
-	return func(_, bucketName, schemaTokenization string) (string, *lsmkv.Bucket, func()) {
-		bucket, release := store.AcquireBucketForRead(bucketName)
-		return schemaTokenization, bucket, release
+		pinTokenizationAndBucket: pinTokenizationAndBucket,
 	}
 }
 

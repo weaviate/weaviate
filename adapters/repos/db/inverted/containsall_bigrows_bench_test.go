@@ -137,7 +137,7 @@ func newRoaringRowsFixture(tb testing.TB, rows [][]uint64, docIDCount uint64) *r
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, pinWithSchemaTokenization(store)).
 		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
 
 	return &roaringRowsFixture{searcher: searcher, store: store, rows: rows}

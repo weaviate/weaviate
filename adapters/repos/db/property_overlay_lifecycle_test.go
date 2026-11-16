@@ -330,7 +330,7 @@ func TestSecondMigrationUnionsIntoAFailedTokenizationOverlay(t *testing.T) {
 				overlayTextProp(false, true))
 
 			f.shard.SetPropertyOverlay(prop, inverted.PropertyOverlay{Tokenization: swapped})
-			require.Equal(t, swapped, f.shard.TokenizationFor(prop, live),
+			require.Equal(t, swapped, queryTokenization(f.shard, prop, live),
 				"the failed tokenization change must own the overlay, or this test proves nothing")
 
 			tc.arm(t, f.shard, prop, inverted.PropertyOverlay{ForceFilterable: true})

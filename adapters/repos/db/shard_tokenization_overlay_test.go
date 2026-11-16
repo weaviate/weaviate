@@ -12,11 +12,16 @@
 package db
 
 import (
+	"context"
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
@@ -24,37 +29,50 @@ import (
 // TestShard_TokenizationOverlay_* pin the per-shard property overlay
 // lifecycle introduced for https://github.com/weaviate/0-weaviate-issues/issues/216 (Gap B). The overlay
 // is documented on Shard's [propertyOverlay] field.
-//
-// We exercise the helper methods directly against a zero-valued Shard
-// struct because they touch only the per-shard map + mutex — no other
-// shard wiring is required.
+
+// overlayShard holds an overlay and an empty store, which is all the pin reads.
+func overlayShard(t *testing.T) *Shard {
+	dir := t.TempDir()
+	store, err := lsmkv.New(dir, dir, logrus.New(), nil, nil, cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Shutdown(context.Background()) })
+	return &Shard{store: store}
+}
+
+// queryTokenization is the tokenization a query on propName gets.
+func queryTokenization(s *Shard, propName, live string) string {
+	tok, _, release := s.PinTokenizationAndBucket(propName, "", live)
+	release()
+	return tok
+}
 
 func TestShard_TokenizationOverlay_NotSet_FallsBackToLive(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	// No overlay entries → fall back to liveTokenization.
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
-	assert.Equal(t, "field", s.TokenizationFor("path", "field"))
+	assert.Equal(t, "word", queryTokenization(s, "name", "word"))
+	assert.Equal(t, "field", queryTokenization(s, "path", "field"))
 	// Empty propName is a no-op.
-	assert.Equal(t, "word", s.TokenizationFor("", "word"))
+	assert.Equal(t, "word", queryTokenization(s, "", "word"))
 }
 
 func TestShard_TokenizationOverlay_SetAndRead(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 
 	// Overlay value wins while the live schema hasn't caught up.
-	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
+	assert.Equal(t, "field", queryTokenization(s, "name", "word"))
 
 	// Unrelated propNames are unaffected.
-	assert.Equal(t, "word", s.TokenizationFor("other", "word"))
+	assert.Equal(t, "word", queryTokenization(s, "other", "word"))
 }
 
 func TestShard_TokenizationOverlay_SetEmptyValues_NoOp(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	s.SetPropertyOverlay("", inverted.PropertyOverlay{Tokenization: "field"}) // empty propName
 	s.SetPropertyOverlay("name", inverted.PropertyOverlay{})                  // nothing to override
 	// Neither call should have populated the overlay.
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
+	assert.Equal(t, "word", queryTokenization(s, "name", "word"))
 }
 
 // Which fields go is decided by the index type whose bucket is being removed,
@@ -113,7 +131,7 @@ func TestShard_PropertyOverlay_RetireByIndexType(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &Shard{}
+			s := overlayShard(t)
 			s.SetPropertyOverlay("name", full)
 
 			s.retirePropertyOverlay(tc.propName, tc.indexType)
@@ -124,23 +142,23 @@ func TestShard_PropertyOverlay_RetireByIndexType(t *testing.T) {
 }
 
 func TestShard_PropertyOverlay_RetireDropsTheEmptiedEntry(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 
 	s.retirePropertyOverlay("name", "searchable")
 
 	assert.Nil(t, s.SnapshotPropertyOverlay([]string{"name"}))
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
+	assert.Equal(t, "word", queryTokenization(s, "name", "word"))
 }
 
 func TestShard_PropertyOverlay_RetireUnsetIsNoOp(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	s.retirePropertyOverlay("name", "filterable")
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
+	assert.Equal(t, "word", queryTokenization(s, "name", "word"))
 }
 
 func TestShard_TokenizationOverlay_SnapshotEmpty(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	// No overlay → nil snapshot regardless of how many props requested.
 	assert.Nil(t, s.SnapshotPropertyOverlay(nil))
 	assert.Nil(t, s.SnapshotPropertyOverlay([]string{}))
@@ -148,7 +166,7 @@ func TestShard_TokenizationOverlay_SnapshotEmpty(t *testing.T) {
 }
 
 func TestShard_TokenizationOverlay_SnapshotSubset(t *testing.T) {
-	s := &Shard{}
+	s := overlayShard(t)
 	s.SetPropertyOverlay("a", inverted.PropertyOverlay{Tokenization: "field"})
 	s.SetPropertyOverlay("b", inverted.PropertyOverlay{ForceFilterable: true})
 	// "c" is not in the overlay.
@@ -170,7 +188,7 @@ func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
 	// Pin the RWMutex contract: many concurrent readers + a writer must
 	// not race. Run under `go test -race` to catch any regression in the
 	// lock discipline.
-	s := &Shard{}
+	s := overlayShard(t)
 	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 
 	const goroutines = 32
@@ -183,7 +201,7 @@ func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				_ = s.TokenizationFor("name", "word")
+				_ = queryTokenization(s, "name", "word")
 				_ = s.SnapshotPropertyOverlay([]string{"name"})
 			}
 		}()

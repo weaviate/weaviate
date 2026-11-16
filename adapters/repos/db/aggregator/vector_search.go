@@ -99,8 +99,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 	if a.params.Filters != nil {
 		allow, err = inverted.NewSearcher(a.logger, a.store, a.getSchema.ReadOnlyClass, a.propIndices,
 			a.classSearcher, a.stopwordProvider, a.shardVersion, a.isFallbackToSearchable,
-			a.isRangeableLocallyReady, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
-			WithTokenizationBucketPinner(a.filterBucketPinner).
+			a.isRangeableLocallyReady, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory, a.pinner).
 			WithBatchedContainsEnabled(a.batchedContainsEnabled).
 			DocIDs(ctx, a.params.Filters, additional.Properties{},
 				a.params.ClassName)

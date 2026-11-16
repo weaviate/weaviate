@@ -122,10 +122,10 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 			// mid-swap read can observe a mixed pair.
 			bkt, release = shard.store.AcquireBucketForRead(
 				helpers.BucketSearchableFromPropNameLSM(fieldProp))
-			tok = shard.TokenizationFor(fieldProp, models.PropertyTokenizationField)
+			tok = queryTokenization(shard, fieldProp, models.PropertyTokenizationField)
 		} else {
-			tok, bkt, release = shard.PinTokenizationAndSearchableBucket(
-				fieldProp, models.PropertyTokenizationField)
+			tok, bkt, release = shard.PinTokenizationAndBucket(
+				fieldProp, helpers.BucketSearchableFromPropNameLSM(fieldProp), models.PropertyTokenizationField)
 		}
 		defer release()
 		which := "other"
@@ -170,7 +170,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 
 	// Post-swap state holds in both modes — the toggle only affects
 	// atomicity, not the end state.
-	tokPost, bktPost, releasePost := shard.PinTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
+	tokPost, bktPost, releasePost := shard.PinTokenizationAndBucket(fieldProp,
+		helpers.BucketSearchableFromPropNameLSM(fieldProp), models.PropertyTokenizationField)
 	defer releasePost()
 	require.Equal(t, models.PropertyTokenizationWord, tokPost,
 		"overlay must route the FIELD prop to WORD post-swap")

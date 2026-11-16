@@ -40,10 +40,7 @@ import (
 
 func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *pinnedSearchableBuckets, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
 	// Same pinned-bucket reuse as createTerm.
-	bucket, pinned := pins.bucketFor(propName)
-	if !pinned {
-		bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-	}
+	bucket := pins.bucketFor(propName)
 	if bucket == nil {
 		return nil, nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
 	}

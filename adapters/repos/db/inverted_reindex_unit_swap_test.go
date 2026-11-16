@@ -139,7 +139,7 @@ func (f *tokenizationChange) reload(t *testing.T) {
 }
 
 func (f *tokenizationChange) tokenization() string {
-	return f.shard.TokenizationFor(tokChangeProp, models.PropertyTokenizationField)
+	return queryTokenization(f.shard, tokChangeProp, models.PropertyTokenizationField)
 }
 
 // counts is Equal, Like and BM25; each is 3 only while tokenization and bucket agree.

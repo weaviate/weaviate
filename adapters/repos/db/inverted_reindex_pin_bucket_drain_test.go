@@ -32,7 +32,7 @@ import (
 // Pins the read-time race: a swap+Shutdown landing in the discovery→lookup
 // gap must not hand the query a post-swap bucket (wrong count) or a freed mmap (UAF).
 func TestPinBucketDrain_LookupHoldsPinAcrossSwapShutdown(t *testing.T) {
-	res := runPinBucketDrainProof(t, false /* forceRefetch */)
+	res := runPinBucketDrainProof(t)
 
 	require.False(t, res.deadlocked, "the proof must not deadlock")
 	require.Equal(t, res.validCount, res.queryCount,
@@ -56,19 +56,6 @@ func TestPinBucketDrain_LookupHoldsPinAcrossSwapShutdown(t *testing.T) {
 		res.shutdownAt.Sub(res.shutdownStartedAt))
 }
 
-// Asymmetry check: lookup forced back to re-fetch-by-name must miss (→0).
-func TestPinBucketDrain_OldRefetchYieldsWrongCount(t *testing.T) {
-	res := runPinBucketDrainProof(t, true /* forceRefetch */)
-
-	require.False(t, res.deadlocked, "the asymmetry proof must not deadlock")
-	require.NoError(t, res.queryErr, "the query must not error (it just finds nothing)")
-	require.Equal(t, 0, res.queryCount,
-		"WITHOUT FIX (re-fetch): the held query tokenized FIELD-way but re-fetched the post-swap WORD bucket, so it must MISS → 0 (valid would be %d)",
-		res.validCount)
-	t.Logf("WITHOUT FIX (expected): queryCount=%d (valid would be %d) — re-fetch landed on the post-swap WORD bucket",
-		res.queryCount, res.validCount)
-}
-
 type pinBucketDrainResult struct {
 	validCount        int
 	queryCount        int
@@ -81,8 +68,8 @@ type pinBucketDrainResult struct {
 
 // runPinBucketDrainProof drives one real BM25F query held in the
 // prop-discovery→lookup gap while a concurrent goroutine swaps the FIELD
-// prop's bucket pointer and (when !forceRefetch) shuts the old bucket down.
-func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResult {
+// prop's bucket pointer and shuts the old bucket down.
+func runPinBucketDrainProof(t *testing.T) pinBucketDrainResult {
 	ctx := testCtx()
 
 	fx := setupTwoTokenizationShard(t, ctx, "PinDrainRetok")
@@ -91,9 +78,6 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
 	phrase, matchDocs := fx.phrase, fx.matchDocs
 
-	// Drives BM25Searcher through its production resolver seams only; no
-	// test-only knobs on the searcher. Omitting the pinning resolver
-	// reproduces the old re-fetch-by-name behavior.
 	bm25Config := idx.GetInvertedIndexConfig().BM25
 	logger := idx.logger.WithFields(logrus.Fields{"class": className, "shard": shard.name})
 
@@ -112,31 +96,15 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 		})
 	}
 
+	// The pin is held across the concurrent swap + old-bucket Shutdown, forcing the drain.
 	bm25 := inverted.NewBM25Searcher(bm25Config, shard.store,
 		idx.getSchema.ReadOnlyClass, idx.classSearcher,
 		idx.getStopwordProvider(), shard.GetPropertyLengthTracker(), logger,
-		shard.versioner.Version())
-
-	if forceRefetch {
-		// No pinning resolver: lookup re-fetches by name and lands on the
-		// post-swap WORD bucket. Park in the tokenization resolver, the only
-		// seam left on this path — tok is still captured FIELD-way pre-swap.
-		bm25.WithTokenizationResolver(func(propName, schemaTok string) string {
-			tok := shard.TokenizationFor(propName, schemaTok)
+		shard.versioner.Version(), func(propName, bucketName, schemaTok string) (string, *lsmkv.Bucket, func()) {
+			tok, bkt, release := shard.PinTokenizationAndBucket(propName, bucketName, schemaTok)
 			park()
-			return tok
+			return tok, bkt, release
 		})
-	} else {
-		// The pinning resolver takes the pin (held across the concurrent
-		// swap + old-bucket Shutdown, forcing the drain) then parks.
-		bm25.WithTokenizationResolver(shard.TokenizationFor).
-			WithSearchableBucketPinningResolver(
-				func(propName, schemaTok string) (string, *lsmkv.Bucket, func()) {
-					tok, bkt, release := shard.PinTokenizationAndSearchableBucket(propName, schemaTok)
-					park()
-					return tok, bkt, release
-				})
-	}
 
 	validCount := lookupCount(ctx, models.PropertyTokenizationField, fieldBucket, className, phrase)
 	require.Equal(t, matchDocs, validCount, "(FIELD tok, FIELD bucket) baseline must equal matchDocs")
@@ -185,33 +153,29 @@ func runPinBucketDrainProof(t *testing.T, forceRefetch bool) pinBucketDrainResul
 		shutdownAtPtr     atomic.Pointer[time.Time] // nil until Shutdown returns
 		shutdownWG        sync.WaitGroup
 	)
-	if !forceRefetch {
-		shutdownWG.Add(1)
-		go func() {
-			defer shutdownWG.Done()
-			shutdownStartedAt = time.Now()
-			shutdownStarted.Store(true)
-			shutdownErr = oldBucket.Shutdown(ctx)
-			now := time.Now()
-			shutdownAtPtr.Store(&now)
-		}()
+	shutdownWG.Add(1)
+	go func() {
+		defer shutdownWG.Done()
+		shutdownStartedAt = time.Now()
+		shutdownStarted.Store(true)
+		shutdownErr = oldBucket.Shutdown(ctx)
+		now := time.Now()
+		shutdownAtPtr.Store(&now)
+	}()
 
-		// Shutdown must be parked in the drain BEFORE the query is released —
-		// a broken drain would complete here instead.
-		require.Eventually(t, shutdownStarted.Load, 5*time.Second, time.Millisecond,
-			"Shutdown goroutine must have started")
-		time.Sleep(50 * time.Millisecond)
-		require.Nil(t, shutdownAtPtr.Load(),
-			"DRAIN VIOLATED: old bucket Shutdown completed while the query still held its pin")
-	}
+	// Shutdown must be parked in the drain BEFORE the query is released —
+	// a broken drain would complete here instead.
+	require.Eventually(t, shutdownStarted.Load, 5*time.Second, time.Millisecond,
+		"Shutdown goroutine must have started")
+	time.Sleep(50 * time.Millisecond)
+	require.Nil(t, shutdownAtPtr.Load(),
+		"DRAIN VIOLATED: old bucket Shutdown completed while the query still held its pin")
 
 	close(releaseCh)
 	queryWG.Wait()
 
-	if !forceRefetch {
-		shutdownWG.Wait()
-		require.NoError(t, shutdownErr, "old bucket Shutdown must succeed")
-	}
+	shutdownWG.Wait()
+	require.NoError(t, shutdownErr, "old bucket Shutdown must succeed")
 
 	rp := releasedAt.Load()
 	res := pinBucketDrainResult{

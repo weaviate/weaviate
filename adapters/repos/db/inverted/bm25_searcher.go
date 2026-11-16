@@ -52,17 +52,7 @@ type BM25Searcher struct {
 	logger           logrus.FieldLogger
 	shardVersion     uint16
 	stopwordProvider *stopwords.Provider
-	// tokResolver, when non-nil, overrides prop.Tokenization on query
-	// input analysis. Used by the per-shard tokenization overlay to
-	// keep query tokenization aligned with the bucket content during
-	// the FINALIZING window of a change-tokenization migration. Nil =
-	// use prop.Tokenization directly (tests and callers with no
-	// in-flight migration).
-	tokResolver TokenizationResolver
-	// bucketPinResolver, when non-nil, supersedes tokResolver + GetBucket for
-	// searchable text props: one consistent (tokenization, bucket) snapshot,
-	// pinned for the whole query. See [SearchableBucketPinningResolver].
-	bucketPinResolver SearchableBucketPinningResolver
+	pinner           TokenizationBucketPinner
 }
 
 type propLengthRetriever interface {
@@ -78,12 +68,8 @@ type pinnedSearchableBuckets struct {
 	released bool
 }
 
-func (p *pinnedSearchableBuckets) bucketFor(propName string) (*lsmkv.Bucket, bool) {
-	if p == nil || p.byProp == nil {
-		return nil, false
-	}
-	b, ok := p.byProp[propName]
-	return b, ok
+func (p *pinnedSearchableBuckets) bucketFor(propName string) *lsmkv.Bucket {
+	return p.byProp[propName]
 }
 
 // bucket may be nil; the release is still recorded so it runs at query end.
@@ -119,7 +105,7 @@ type termListRequest struct {
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider, propLenTracker propLengthRetriever,
-	logger logrus.FieldLogger, shardVersion uint16,
+	logger logrus.FieldLogger, shardVersion uint16, pinner TokenizationBucketPinner,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:           config,
@@ -130,31 +116,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		logger:           logger.WithField("action", "bm25_search"),
 		shardVersion:     shardVersion,
 		stopwordProvider: stopwordProvider,
+		pinner:           pinner,
 	}
-}
-
-// WithTokenizationResolver attaches a [TokenizationResolver] used by query
-// input analysis to consult a per-shard tokenization overlay before
-// falling back to the schema-stored `prop.Tokenization`. Returns the
-// receiver for fluent chaining at construction sites.
-//
-// Production callers wire `Shard.TokenizationFor` here so a
-// change-tokenization migration's FINALIZING-window overlay routes
-// query input to the post-swap tokenization. See [TokenizationResolver]
-// for the misalignment this closes.
-//
-// Pass nil (the default) to use the schema-stored value directly.
-func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
-	b.tokResolver = r
-	return b
-}
-
-// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
-func (b *BM25Searcher) WithSearchableBucketPinningResolver(
-	r SearchableBucketPinningResolver,
-) *BM25Searcher {
-	b.bucketPinResolver = r
-	return b
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
@@ -274,12 +237,10 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	type propInfo struct {
 		name string
 		prop *models.Property
-		// effectiveTokenization is the active query-time tokenization for
-		// this property — either the schema-stored `prop.Tokenization`
-		// or the value returned by the per-shard tokenization overlay
-		// (see [TokenizationResolver]). Computed once at prop discovery
-		// and used everywhere downstream to avoid recomputing the same
-		// value across the BM25 pipeline.
+		// effectiveTokenization is the one the pinner returned with the
+		// property's bucket. Computed once at prop discovery and used
+		// everywhere downstream to avoid recomputing the same value across
+		// the BM25 pipeline.
 		effectiveTokenization string
 		tokKey                string
 		propMean              float64
@@ -322,22 +283,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			return queryTerms{}, queryStats{}, pins, err
 		}
 
-		var (
-			bucket       *lsmkv.Bucket
-			effectiveTok string
-		)
-		if b.bucketPinResolver != nil {
-			var release func()
-			// Resolve by the user-supplied name, not prop.Name: a dotted
-			// input would otherwise silently search the parent prop's bucket
-			// instead of erroring like the non-pinning path.
-			effectiveTok, bucket, release = b.bucketPinResolver(property, prop.Tokenization)
-			// Record even when bucket==nil so the release still runs.
-			pins.add(property, bucket, release)
-		} else {
-			bucket = b.GetBucket(property)
-			effectiveTok = ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
-		}
+		// Resolve by the user-supplied name, not prop.Name: a dotted input
+		// would otherwise silently search the parent prop's bucket.
+		effectiveTok, bucket, release := b.pinner(property, helpers.BucketSearchableFromPropNameLSM(property), prop.Tokenization)
+		// Record even when bucket==nil so the release still runs.
+		pins.add(property, bucket, release)
 		if bucket == nil {
 			return queryTerms{}, queryStats{}, pins, fmt.Errorf("could not find bucket for property %v", property)
 		}
@@ -815,10 +765,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			func() error {
 				// Reuse the bucket pinned at prop discovery — a by-name
 				// re-fetch could land on the post-swap bucket or a freed mmap.
-				bucket, pinned := pins.bucketFor(propName)
-				if !pinned {
-					bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-				}
+				bucket := pins.bucketFor(propName)
 				if bucket == nil {
 					return fmt.Errorf("could not find bucket for property %v", propName)
 				}
@@ -989,8 +936,4 @@ func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName strin
 		return false
 	}
 	return HasSearchableIndex(p)
-}
-
-func (b *BM25Searcher) GetBucket(propName string) *lsmkv.Bucket {
-	return b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 }

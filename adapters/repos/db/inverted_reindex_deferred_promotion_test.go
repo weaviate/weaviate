@@ -278,12 +278,12 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			_, fieldTerm := keys["zulu one"]
 			_, wordTerm := keys["zulu"]
 			if tc.swap {
-				require.Equal(t, models.PropertyTokenizationField, re.TokenizationFor(propName, models.PropertyTokenizationWord))
+				require.Equal(t, models.PropertyTokenizationField, queryTokenization(re, propName, models.PropertyTokenizationWord))
 				require.True(t, fieldTerm && !wordTerm, "a write after the reload is indexed with the migrated tokenization")
 				require.Equal(t, 1, bm25("zulu one"), "and a query is analyzed with it")
 				return
 			}
-			require.Equal(t, models.PropertyTokenizationWord, re.TokenizationFor(propName, models.PropertyTokenizationWord))
+			require.Equal(t, models.PropertyTokenizationWord, queryTokenization(re, propName, models.PropertyTokenizationWord))
 			require.True(t, wordTerm && !fieldTerm, "a tenant that never migrated keeps the schema's tokenization")
 		})
 	}

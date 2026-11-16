@@ -783,11 +783,6 @@ func (s *Shard) SwapBucketsAndSetOverlay(overlay map[string]inverted.PropertyOve
 	return displaced, err
 }
 
-func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
-) (string, *lsmkv.Bucket, func()) {
-	return s.PinTokenizationAndBucket(propName, helpers.BucketSearchableFromPropNameLSM(propName), liveTokenization)
-}
-
 // Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndBucket(propName, bucketName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
@@ -844,23 +839,6 @@ func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
 		return
 	}
 	s.propertyOverlay[propName] = entry
-}
-
-// TokenizationFor returns the active query-time tokenization for propName
-func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
-	if propName == "" {
-		return liveTokenization
-	}
-	s.propertyOverlayMu.RLock()
-	var overlay inverted.PropertyOverlay
-	if s.propertyOverlay != nil {
-		overlay = s.propertyOverlay[propName]
-	}
-	s.propertyOverlayMu.RUnlock()
-	if overlay.Tokenization == "" {
-		return liveTokenization
-	}
-	return overlay.Tokenization
 }
 
 func (s *Shard) SnapshotPropertyOverlay(propNames []string) map[string]inverted.PropertyOverlay {

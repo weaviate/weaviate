@@ -95,7 +95,7 @@ func newObjectsBucketSearcher(t *testing.T, numObjects int, deleted, corrupt []u
 	getClass := func(string) *models.Class { return &models.Class{Class: objectsByDocIDClass} }
 	searcher := NewSearcher(logger, store, getClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, pinWithSchemaTokenization(store))
 	return searcher, alive
 }
 

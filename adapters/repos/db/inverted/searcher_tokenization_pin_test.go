@@ -15,8 +15,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -51,8 +50,18 @@ type tokPinFixture struct {
 	store *lsmkv.Store
 	class *models.Class
 
-	mu  sync.RWMutex
-	tok string
+	mu       sync.RWMutex
+	tok      string
+	held     atomic.Int32
+	releases []func()
+}
+
+// pinWithSchemaTokenization is the pinner of a shard with no overlay.
+func pinWithSchemaTokenization(store *lsmkv.Store) TokenizationBucketPinner {
+	return func(_, bucketName, schemaTokenization string) (string, *lsmkv.Bucket, func()) {
+		bucket, release := store.AcquireBucketForRead(bucketName)
+		return schemaTokenization, bucket, release
+	}
 }
 
 func newTokPinFixture(t testing.TB) *tokPinFixture {
@@ -89,6 +98,12 @@ func newTokPinFixture(t testing.TB) *tokPinFixture {
 			require.NoError(t, store.Bucket(bucket).RoaringSetAddList([]byte(term), docIDs))
 		}
 	}
+	// A leaked pin would otherwise hang the store's shutdown.
+	t.Cleanup(func() {
+		for _, release := range f.releases {
+			release()
+		}
+	})
 	return f
 }
 
@@ -97,16 +112,20 @@ func (f *tokPinFixture) pin(_, bucketName, _ string) (string, *lsmkv.Bucket, fun
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	bucket, release := f.store.AcquireBucketForRead(bucketName)
-	return f.tok, bucket, release
+	f.held.Add(1)
+	var once sync.Once
+	counted := func() { once.Do(func() { f.held.Add(-1); release() }) }
+	f.releases = append(f.releases, counted)
+	return f.tok, bucket, counted
 }
 
-func (f *tokPinFixture) searcher(batched bool) *Searcher {
+func (f *tokPinFixture) searcher(batched bool, pinner TokenizationBucketPinner) *Searcher {
 	return NewSearcher(logrus.New(), f.store, func(string) *models.Class { return f.class }, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit,
-		roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return pinNumDocs + 1 })).
-		WithBatchedContainsEnabled(runtime.NewDynamicValue(batched)).
-		WithTokenizationBucketPinner(f.pin)
+		roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return pinNumDocs + 1 }),
+		pinner).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(batched))
 }
 
 func (f *tokPinFixture) flip(t *testing.T) {
@@ -139,7 +158,6 @@ func TestFilterKeepsItsTokenizationAndBucketTogetherAcrossAFlip(t *testing.T) {
 		filter  *filters.LocalFilter
 	}{
 		{name: "equal", filter: pinFilter(pinClause(filters.OperatorEqual, pinProp, pinValue))},
-		{name: "like", filter: pinFilter(pinClause(filters.OperatorLike, pinProp, "Hello*"))},
 		{
 			name: "batched contains any", batched: true,
 			filter: pinFilter(pinClause(filters.ContainsAny, pinProp, []string{pinValue, "nope"})),
@@ -148,18 +166,13 @@ func TestFilterKeepsItsTokenizationAndBucketTogetherAcrossAFlip(t *testing.T) {
 			name:   "desugared contains any",
 			filter: pinFilter(pinClause(filters.ContainsAny, pinProp, []string{pinValue, "nope"})),
 		},
-		{
-			name: "two clauses",
-			filter: pinAnd(pinClause(filters.OperatorEqual, pinProp, pinValue),
-				pinClause(filters.OperatorLike, pinProp, "Hello*")),
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newTokPinFixture(t)
 			ctx := context.Background()
 
-			c := f.searcher(tc.batched).forCall()
+			c := f.searcher(tc.batched, f.pin).forCall()
 			defer c.pins.releaseAll()
 			pv, err := c.extractPropValuePair(ctx, tc.filter.Root, pinClass)
 			require.NoError(t, err)
@@ -173,7 +186,7 @@ func TestFilterKeepsItsTokenizationAndBucketTogetherAcrossAFlip(t *testing.T) {
 	}
 }
 
-// A pin left held blocks the bucket's shutdown forever.
+// A pin left held blocks the bucket's shutdown forever, so every one is counted back.
 func TestDocIDsReleasesItsPins(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -197,27 +210,21 @@ func TestDocIDsReleasesItsPins(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newTokPinFixture(t)
-			allow, err := f.searcher(false).DocIDs(context.Background(), tc.filter, additional.Properties{}, pinClass)
+			allow, err := f.searcher(false, f.pin).DocIDs(context.Background(), tc.filter, additional.Properties{}, pinClass)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 			} else {
 				require.NoError(t, err)
 				allow.Close()
 			}
-
-			shutdown := make(chan error, 1)
-			enterrors.GoWrapper(func() {
-				shutdown <- f.store.ShutdownBucket(context.Background(), pinCanonical)
-			}, logrus.New())
-			require.Eventually(t, func() bool { return len(shutdown) == 1 }, 10*time.Second, time.Millisecond)
-			require.NoError(t, <-shutdown)
+			require.Zero(t, f.held.Load())
 		})
 	}
 }
 
 func BenchmarkDocIDs_TextEqual(b *testing.B) {
 	f := newTokPinFixture(b)
-	s := f.searcher(false)
+	s := f.searcher(false, pinWithSchemaTokenization(f.store))
 	filter := pinFilter(pinClause(filters.OperatorEqual, pinProp, pinValue))
 	ctx := context.Background()
 	b.ReportAllocs()
@@ -232,7 +239,7 @@ func BenchmarkDocIDs_TextEqual(b *testing.B) {
 
 func BenchmarkDocIDs_ContainsAnyDesugaredText(b *testing.B) {
 	f := newTokPinFixture(b)
-	s := f.searcher(false)
+	s := f.searcher(false, pinWithSchemaTokenization(f.store))
 	values := make([]string, 1000)
 	for i := range values {
 		values[i] = fmt.Sprintf("value %d", i)

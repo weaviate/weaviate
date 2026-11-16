@@ -64,36 +64,11 @@ type Aggregator struct {
 	bitmapFactory           *roaringset.BitmapFactory
 	modules                 *modules.Provider
 	defaultLimit            int64
-	// tokResolver, when non-nil, is propagated to the
-	// inverted.BM25Searcher built by this aggregator so query input
-	// gets analyzed under the per-shard tokenization overlay during
-	// the FINALIZING window of a change-tokenization migration. Nil
-	// means "no overlay configured" — query input is tokenized against
-	// prop.Tokenization directly (tests and callers with no in-flight
-	// migration).
-	tokResolver inverted.TokenizationResolver
-	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
-	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
-	bucketPinResolver inverted.SearchableBucketPinningResolver
-
-	filterBucketPinner inverted.TokenizationBucketPinner
+	pinner                  inverted.TokenizationBucketPinner
 	// batchedContainsEnabled is propagated to the inverted.Searcher built
 	// by this aggregator. Nil (the default) means the batched Contains
 	// resolution stays off.
 	batchedContainsEnabled *runtime.DynamicValue[bool]
-}
-
-// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
-func (a *Aggregator) WithSearchableBucketPinningResolver(
-	r inverted.SearchableBucketPinningResolver,
-) *Aggregator {
-	a.bucketPinResolver = r
-	return a
-}
-
-func (a *Aggregator) WithTokenizationBucketPinner(p inverted.TokenizationBucketPinner) *Aggregator {
-	a.filterBucketPinner = p
-	return a
 }
 
 // WithBatchedContainsEnabled: nil (the default) keeps the batched Contains
@@ -114,7 +89,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider, defaultLimit int64,
-	tokResolver inverted.TokenizationResolver,
+	pinner inverted.TokenizationBucketPinner,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                  logger,
@@ -134,7 +109,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		bitmapFactory:           bitmapFactory,
 		modules:                 modules,
 		defaultLimit:            defaultLimit,
-		tokResolver:             tokResolver,
+		pinner:                  pinner,
 	}
 }
 

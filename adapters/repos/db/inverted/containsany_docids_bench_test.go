@@ -193,7 +193,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, pinWithSchemaTokenization(store)).
 		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
 
 	return &containsFixture{searcher: searcher, store: store, numDocs: numDocs}
