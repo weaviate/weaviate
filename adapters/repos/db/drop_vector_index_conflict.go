@@ -203,9 +203,13 @@ func (p *DropVectorIndexDetector) completedDropVoucher(className, targetVector s
 // satisfy the deleted-shard half. Terminal-with-partial-work rounds count too:
 // a round that failed after completing its units still recorded what it owed.
 //
-// Mirrors the enqueuer, which finalizes on the same proof
-// (EpochAndInheritedCoverage); the two must agree or the enqueuer would
-// propose removals this apply refuses.
+// Mirrors the enqueuer, which reads the same proof
+// (EpochAndInheritedCoverage) to decide the drop is done; the two must agree.
+//
+// The enqueuer does not remove the marker on this proof itself; it submits a
+// verify-only round so each node first confirms its shards are drained. This
+// voucher cannot see that, so a class update that removes the entry on it
+// skips the check.
 func (p *DropVectorIndexDetector) deletionResolvedDropVoucher(className, targetVector string,
 	shards []string, existingTasks []*distributedtask.Task,
 ) bool {

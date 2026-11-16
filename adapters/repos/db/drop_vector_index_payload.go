@@ -89,12 +89,25 @@ type DropVectorIndexTaskPayload struct {
 	// a drop on a 100k-tenant collection with most tenants cold carries the
 	// complement of CleanedShards here.
 	DeferredShards []string `json:"deferredShards,omitempty"`
+
+	// VerifyOnly marks a round that strips nothing. The enqueuer submits one
+	// when the epoch already spans every current shard and the work it still
+	// owed vanished with a deleted tenant: the round carries one unit per node,
+	// and a unit arms no op — it completes once every shard of the drop that is
+	// loaded on its node has no pending or quarantined rows left for the
+	// epoch's op. A restart can put such rows back on a shard whose unit
+	// already completed, and they are the only cover the unstripped bytes have,
+	// so the marker must not fall before they drain.
+	//
+	// A node that predates the field runs the round as a normal one: it arms
+	// its unit's shard and re-cleans it, which is wasteful but safe.
+	VerifyOnly bool `json:"verifyOnly,omitempty"`
 }
 
 // DropVectorIndexTaskVisiblePayloadFields are the payload fields GET /v1/tasks
 // shows a caller without tenant read. Any other field could name tenants,
 // shards or nodes, so it stays hidden until it is listed here.
-var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId"}
+var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId", "verifyOnly"}
 
 // ResolvedByShardDeletion reports whether p's recorded coverage spans every
 // shard in shards while a shard p still OWED has since disappeared — i.e. the
@@ -107,7 +120,7 @@ var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dr
 // re-created name's marker), and it must keep re-cleaning.
 //
 // Deterministic over its inputs: the enqueuer and the FSM removal gate both
-// call it so the enqueuer never attempts a removal the gate would refuse.
+// call it, so they read a round the same way.
 func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(shards []string) bool {
 	if len(p.DeferredShards) == 0 {
 		return false
@@ -367,8 +380,9 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 	if len(ShardsNotCovered(shardNames, remaining)) == 0 {
 		// The chain spans every current shard while the marker still stands.
 		// Either the shards it still owed were DELETED — the work is genuinely
-		// done for the collection as it now stands, so finalize rather than
-		// re-strip shards that are already clean — or the chain owed nothing,
+		// done for the collection as it now stands, so the caller finalizes
+		// through a verify-only round rather than re-strip shards that are
+		// already clean — or the chain owed nothing,
 		// which is closed-epoch residue (see above) and must re-clean.
 		if resolvedByDeletion(tasks[DropVectorIndexNamespace], collection, targets,
 			newest.DropEpochID, shardNames) {

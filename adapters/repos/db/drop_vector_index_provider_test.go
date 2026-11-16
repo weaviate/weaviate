@@ -754,6 +754,121 @@ func TestStartTask_QuarantineAppearsMidDrain_UnitFailed(t *testing.T) {
 	require.Empty(t, rec.completed)
 }
 
+// TestStartTask_VerifyOnly pins the round that finalizes a drop whose remaining
+// work vanished with a deleted tenant: its unit arms nothing, and it completes
+// only once every shard of the drop that is loaded on the node has drained the
+// epoch's op. Rows a restart put back on an already-stripped shard are the only
+// cover its unstripped bytes have, so the round must wait for them.
+func TestStartTask_VerifyOnly(t *testing.T) {
+	tests := []struct {
+		name string
+		// inherited is the bucket of a shard the node holds but has no unit on.
+		inherited      *fakeEditOpBucket
+		wantCompleted  bool
+		wantFailure    string
+		wantRequeued   bool
+		wantMinPolls   int
+		cancelMidDrain bool
+	}{
+		{
+			name:          "every loaded shard is drained",
+			inherited:     &fakeEditOpBucket{},
+			wantCompleted: true,
+		},
+		{
+			name:          "re-pended rows on an inherited shard hold the unit until they drain",
+			inherited:     &fakeEditOpBucket{pendingSeq: [][]string{{"seg1"}, {"seg1"}, {}}},
+			wantCompleted: true,
+			wantMinPolls:  3,
+		},
+		{
+			name:           "rows that never drain keep the unit open",
+			inherited:      &fakeEditOpBucket{pendingSeq: [][]string{{"seg1"}}, polled: make(chan struct{}, 1)},
+			cancelMidDrain: true,
+		},
+		{
+			name:          "quarantined rows get one fresh retry budget",
+			inherited:     &fakeEditOpBucket{quarantinedSeq: [][]string{{"seg1"}, {}}},
+			wantCompleted: true,
+			wantRequeued:  true,
+		},
+		{
+			name:         "rows quarantined again fail the unit",
+			inherited:    &fakeEditOpBucket{quarantined: []string{"seg1"}},
+			wantFailure:  "quarantined",
+			wantRequeued: true,
+		},
+		{
+			name:        "persistent read errors fail the unit",
+			inherited:   &fakeEditOpBucket{pendingErr: errors.New("sidecar closed")},
+			wantFailure: "sidecar closed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			own := &fakeEditOpBucket{}
+			// "unloaded" has no bucket: it cannot be checked and is skipped.
+			shards := &fakeShards{buckets: map[string]editOpBucket{"shard1": own, "inherited": tt.inherited}}
+			rec := newFakeRecorder()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			p := newTestDropProviderCtx(shards, &fakeFinalizer{}, rec, ctx)
+
+			payload := &DropVectorIndexTaskPayload{
+				Collection:    "Collection",
+				Targets:       []string{"v1"},
+				OpID:          "op1",
+				DropEpochID:   "op1",
+				UnitToNode:    map[string]string{"u1": "node1"},
+				UnitToShard:   map[string]string{"u1": "shard1"},
+				CleanedShards: []string{"shard1", "inherited", "unloaded"},
+				VerifyOnly:    true,
+			}
+			enc, err := payload.encode()
+			require.NoError(t, err)
+			task := &distributedtask.Task{
+				Namespace:      DropVectorIndexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+				Payload:        enc,
+				Status:         distributedtask.TaskStatusStarted,
+				Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Status: distributedtask.UnitStatusPending}},
+			}
+
+			h, err := p.StartTask(task)
+			require.NoError(t, err)
+			if tt.cancelMidDrain {
+				select {
+				case <-tt.inherited.polled:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the inherited shard was never checked")
+				}
+				require.Empty(t, rec.completed, "the unit must not complete while rows are pending")
+				cancel()
+			}
+			waitDone(t, h)
+
+			require.NotContains(t, own.registered, "op1", "a verify-only unit must not arm its shard")
+			if tt.wantRequeued {
+				require.Contains(t, tt.inherited.registered, "op1")
+			} else {
+				require.NotContains(t, tt.inherited.registered, "op1")
+			}
+			if tt.wantCompleted {
+				require.Equal(t, []string{"u1"}, rec.completed)
+				require.Empty(t, rec.failed)
+			} else {
+				require.Empty(t, rec.completed)
+			}
+			if tt.wantFailure != "" {
+				require.Contains(t, rec.failed["u1"], tt.wantFailure)
+			} else {
+				require.Empty(t, rec.failed)
+			}
+			require.GreaterOrEqual(t, tt.inherited.callIdx, tt.wantMinPolls)
+		})
+	}
+}
+
 // TestStartTask_QuarantineReadErrorPersistent_UnitFailed pins that a
 // quarantine-read failure shares the poll's blip tolerance: persistent errors
 // fail the unit after maxConsecutivePollErrors.

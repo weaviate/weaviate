@@ -941,11 +941,25 @@ func deferringEpochTask(t *testing.T, collection, id, epoch string, version uint
 	return task
 }
 
+// requireVerifyOnlyRound asserts the enqueuer submitted a round of the epoch
+// that strips nothing and claims every current shard as cleaned.
+func requireVerifyOnlyRound(t *testing.T, cluster *fakeClusterDropClient, epoch string, shards []string) db.DropVectorIndexTaskPayload {
+	t.Helper()
+	require.NotEmpty(t, cluster.gotTaskID, "a verify-only round must be submitted")
+	p := decodeEnqueuedPayload(t, cluster)
+	require.True(t, p.VerifyOnly, "the round must not re-clean stripped shards")
+	require.Equal(t, epoch, p.DropEpochID)
+	require.ElementsMatch(t, shards, p.CleanedShards)
+	return p
+}
+
 // TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean
 // pins the tenant-deletion path: round one cleaned the hot tenants and
 // recorded owing the cold one; deleting that tenant leaves the recorded
-// coverage spanning every shard that still exists, so the drop finalizes on it
-// instead of minting a fresh epoch and re-stripping shards already clean.
+// coverage spanning every shard that still exists, so the drop finalizes
+// through a verify-only round — one unit per node — instead of minting a fresh
+// epoch and re-stripping shards already clean. The marker is never removed
+// directly: only the nodes can tell whether their shards are still drained.
 func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t *testing.T) {
 	hot := func(nodes ...string) sharding.Physical {
 		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
@@ -958,17 +972,27 @@ func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t 
 	}}
 	// s3 deleted since round one.
 	state := &fakeShardingState{
-		state:     shardingState(true, map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")}),
+		state: shardingState(true, map[string]sharding.Physical{
+			"s1": hot("n1", "n2"), "s2": hot("n2", "n3"),
+		}),
 		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
 	}
 	finalizer := &fakeEnqueuerFinalizer{}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-	require.Empty(t, cluster.gotTaskID,
-		"no cleanup round may be enqueued: every remaining shard is already clean")
-	require.Equal(t, [][]string{{"v1"}}, finalizer.calls,
-		"the marker must be removed on the recorded coverage")
+	require.Empty(t, finalizer.calls, "the marker must not be removed before every node verified its shards")
+	p := requireVerifyOnlyRound(t, cluster, "E1", []string{"s1", "s2"})
+	require.Equal(t, map[string]string{"s1__n1": "s1", "s1__n2": "s1", "s2__n3": "s2"}, p.UnitToShard,
+		"one unit per node that holds an active shard")
+	require.Empty(t, p.DeferredShards)
+
+	logger, _ := test.NewNullLogger()
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	require.NoError(t, db.NewDropVectorIndexDetector(logger).
+		CheckConflict(raw, cluster.tasks[db.DropVectorIndexNamespace]),
+		"the add-task guard must accept the round's cleaned-shards claim")
 }
 
 // TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead is the
@@ -995,6 +1019,7 @@ func TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead(t *testi
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 	require.Empty(t, finalizer.calls, "a chain that owed nothing must never finalize a standing marker")
 	p := decodeEnqueuedPayload(t, cluster)
+	require.False(t, p.VerifyOnly)
 	require.NotEqual(t, "E1", p.DropEpochID, "closed-epoch residue starts a fresh epoch")
 	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2"}, p.UnitToShard)
 }

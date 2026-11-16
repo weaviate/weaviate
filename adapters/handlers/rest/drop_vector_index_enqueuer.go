@@ -39,7 +39,8 @@ type dropVectorIndexEnqueuer struct {
 	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
 	// finalizer removes dropped VectorConfig entries directly — the escape
 	// for MT collections with ZERO tenants, where no cleanup task can ever
-	// exist to drive the finalize. Installed post-construction
+	// exist to drive the finalize. Nothing else may use it: a collection with
+	// shards finalizes through a round, which checks each node is drained. Installed post-construction
 	// (SetVectorConfigFinalizer): the schema manager does not exist yet when the
 	// enqueuer is built. Nil-safe.
 	finalizer dropVectorFinalizer
@@ -196,38 +197,36 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		return nil
 	}
 
-	epoch, cleaned, finalizeNow := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
-	if finalizeNow {
+	epoch, cleaned, verifyOnly := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
+	if verifyOnly {
 		// The chain covers every shard that still exists, and what it owed went
 		// away with a deleted tenant. Re-cleaning here would rewrite every
-		// segment of shards that are already stripped, so remove the entries on
-		// the recorded coverage instead. The FSM removal gate accepts the same
-		// proof (ResolvedByShardDeletion), so this cannot propose a removal the
-		// apply would refuse.
-		if e.finalizer == nil {
-			return fmt.Errorf("drop-vector enqueue: collection %q has a complete cleanup chain but no finalizer is wired; cannot remove the dropped vector entries", collection)
-		}
-		if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
-			return fmt.Errorf("drop-vector enqueue: finalize collection %q on recorded coverage: %w", collection, err)
-		}
+		// segment of shards that are already stripped, so nothing is left to
+		// strip — but a restart may have put cleanup rows back on a shard
+		// whose unit completed, and only the node holding it can see them. A
+		// verify-only round lets every node confirm it is drained, then
+		// finalizes like any other round.
+		shardOwnership = oneShardPerNode(shardOwnership)
 		e.logInfo(collection, fmt.Sprintf(
 			"drop-vector enqueue: every remaining shard is covered and the uncleaned ones were deleted; "+
-				"removed dropped vector entries %v without re-cleaning", targets))
-		return nil
-	}
-	shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
-	shardOwnership, deferredShards := capShardOwnership(shardOwnership, maxShardsPerDropRound)
-	if deferredShards > 0 {
-		e.logInfo(collection, fmt.Sprintf(
-			"drop-vector enqueue: round capped at %d shards, %d deferred to follow-up rounds (coverage chains via cleaned shards)",
-			maxShardsPerDropRound, deferredShards))
-	}
-	if len(shardOwnership) == 0 {
-		// Inherited coverage is always incomplete (a complete chain mints a
-		// fresh epoch with no inheritance), so an emptied ownership map means
-		// every ACTIVE shard is cleaned and the remainder is inactive.
-		e.logInfo(collection, "drop-vector enqueue: all active shards already cleaned; the marker stays until the remaining shards' tenants are activated")
-		return nil
+				"submitting a verify-only round on %d node(s) to finalize %v without re-cleaning",
+			len(shardOwnership), targets))
+	} else {
+		var deferredShards int
+		shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
+		shardOwnership, deferredShards = capShardOwnership(shardOwnership, maxShardsPerDropRound)
+		if deferredShards > 0 {
+			e.logInfo(collection, fmt.Sprintf(
+				"drop-vector enqueue: round capped at %d shards, %d deferred to follow-up rounds (coverage chains via cleaned shards)",
+				maxShardsPerDropRound, deferredShards))
+		}
+		if len(shardOwnership) == 0 {
+			// Inherited coverage is always incomplete (a complete chain mints a
+			// fresh epoch with no inheritance), so an emptied ownership map means
+			// every ACTIVE shard is cleaned and the remainder is inactive.
+			e.logInfo(collection, "drop-vector enqueue: all active shards already cleaned; the marker stays until the remaining shards' tenants are activated")
+			return nil
+		}
 	}
 
 	// Known limitation (matches the reindex model): a unit is emitted per
@@ -257,6 +256,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		DropEpochID:    epoch,
 		CleanedShards:  cleaned,
 		DeferredShards: deferredShardNames(state, unitToShard, cleaned),
+		VerifyOnly:     verifyOnly,
 	}
 
 	// Fresh task ID per submission so a re-trigger after a FAILED run is a new
@@ -280,6 +280,20 @@ var maxShardsPerDropRound = 1000 // var: tests shrink it to pin batching
 // task's SWAPPING→FINISHED ack window (normally well under a second); var so
 // tests can shrink it.
 var dropVectorNudgeDelay = 3 * time.Second
+
+// oneShardPerNode keeps each node's first shard only. A verify-only round
+// needs a unit on every node that holds an active shard, and the unit checks
+// all of the node's shards, so one per node is enough however many tenants the
+// collection has.
+func oneShardPerNode(ownership map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(ownership))
+	for node, shards := range ownership {
+		if len(shards) > 0 {
+			out[node] = shards[:1]
+		}
+	}
+	return out
+}
 
 // capShardOwnership deterministically (sorted shard names) keeps at most max
 // DISTINCT shards of the node→shards ownership map, reporting how many shards
