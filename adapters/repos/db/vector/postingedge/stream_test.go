@@ -57,6 +57,10 @@ type streamConfig struct {
 	// repair has the members of a split posting search their edges again
 	// (H2).
 	repair bool
+	// siblings has the members of either half of a split take their nearest
+	// neighbors in the other half, by brute force over the old posting's
+	// members, without a search (cell 5).
+	siblings bool
 	// assignOnly assigns and splits and does nothing else: no search and no
 	// edges. It is how the threshold is calibrated.
 	assignOnly bool
@@ -80,6 +84,10 @@ type streamStats struct {
 	InverseEdges int `json:"inverseEdges"`
 	// Repaired counts the vectors whose edges a split had them search again.
 	Repaired int `json:"repaired"`
+	// SiblingEdges counts the edges the members of split postings took into
+	// the other half, and SiblingDistances the exact distances that took.
+	SiblingEdges     int `json:"siblingEdges"`
+	SiblingDistances int `json:"siblingDistances"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	NearestTime time.Duration `json:"nearestCheckNs"` // only the report needs it
@@ -88,6 +96,7 @@ type streamStats struct {
 	InverseTime time.Duration `json:"inverseNs"`
 	SplitTime   time.Duration `json:"splitNs"`
 	RepairTime  time.Duration `json:"repairNs"`
+	SiblingTime time.Duration `json:"siblingNs"`
 }
 
 // streamIndex grows a built index by inserts.
@@ -459,6 +468,72 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 			}
 		}
 		s.stats.RepairTime += time.Since(clock)
+	}
+	if s.cfg.siblings && !s.cfg.assignOnly {
+		clock = time.Now()
+		if err := s.linkSiblings(first, first+1); err != nil {
+			return err
+		}
+		s.stats.SiblingTime += time.Since(clock)
+	}
+	return nil
+}
+
+// linkSiblings gives every member of either half of a split its nearest
+// neighbors in the other half. They were posting mates, so the old posting's
+// member list holds them all and no search is needed: the exact distances
+// between the halves are computed once, the member's current edges get
+// theirs, and of both the nearest are kept, nearest first. Current edges
+// lead out of the old posting, so none of them is in the other half.
+func (s *streamIndex) linkSiblings(a, b uint32) error {
+	lists := s.st.postings.lists
+	halves := [2]*postingList{&lists[a], &lists[b]}
+	na, nb := len(halves[0].docIDs), len(halves[1].docIDs)
+	across := make([]float32, na*nb)
+	for i, x := range halves[0].docIDs {
+		from := s.vectorOf(x)
+		for j, y := range halves[1].docIDs {
+			dist, err := s.ix.provider.SingleDist(from, s.vectorOf(y))
+			if err != nil {
+				return err
+			}
+			across[i*nb+j] = dist
+		}
+	}
+	s.stats.SiblingDistances += na * nb
+
+	ids := [2]uint32{a, b}
+	var nearest topK
+	for h := range 2 {
+		l, other := halves[h], halves[1-h]
+		for i, docID := range l.docIDs {
+			nearest.reset(s.neighbors)
+			from := s.vectorOf(docID)
+			for _, endpoint := range l.edgesOf(i) {
+				dist, err := s.ix.provider.SingleDist(from, s.vectorOf(uint64(endpoint)))
+				if err != nil {
+					return err
+				}
+				nearest.push(uint64(endpoint), dist)
+				s.stats.SiblingDistances++
+			}
+			for j, sibling := range other.docIDs {
+				if h == 0 {
+					nearest.push(sibling, across[i*nb+j])
+				} else {
+					nearest.push(sibling, across[j*nb+i])
+				}
+			}
+			kept := nearest.sorted()
+			edges := make([]uint32, len(kept))
+			for e, near := range kept {
+				edges[e] = uint32(near.id)
+				if s.st.side.postingOf[near.id] == ids[1-h] {
+					s.stats.SiblingEdges++
+				}
+			}
+			l.setEdges(i, edges)
+		}
 	}
 	return nil
 }

@@ -34,7 +34,7 @@ import (
 
 var (
 	benchStream = flag.String("bench.stream", "", "the streaming experiment of v2.0 (TestStream): calibrate, or a cell: "+
-		"principal, h1 (inverse edges), h2 (edge repair) or both")
+		"principal, h1 (inverse edges), h2 (edge repair), both, or siblings (cell 5, sibling repair at a split)")
 	benchStreamOrder = flag.String("bench.streamorder", "shuffled", "with -bench.stream: the order the train set is "+
 		"built and inserted in, shuffled (seed 1) or natural")
 	benchStreamThreshold  = flag.Int("bench.streamthreshold", 0, "with a -bench.stream cell: the size past which a posting splits")
@@ -189,6 +189,8 @@ func TestStream(t *testing.T) {
 		cfg.repair = true
 	case "both":
 		cfg.inverse, cfg.repair = true, true
+	case "siblings":
+		cfg.siblings = true
 	default:
 		t.Fatalf("unknown -bench.stream %q", *benchStream)
 	}

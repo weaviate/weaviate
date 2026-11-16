@@ -27,7 +27,12 @@ import statistics
 import sys
 
 CELLS = [('principal', 'principal'), ('h1', 'control H1 (aristas inversas)'),
-         ('h2', 'control H2 (reparación)'), ('both', 'las dos'), ('natural', 'principal, orden natural')]
+         ('h2', 'control H2 (reparación)'), ('both', 'las dos'), ('natural', 'principal, orden natural'),
+         ('siblings', 'celda 5 (reparación por hermanos)')]
+# cell 5 against H2 (pre-registration of cell 5): it matches if its recall is
+# at most this much below H2's at every ef, and its loads at 0.95 at most
+# this share above H2's
+MATCH_RECALL, MATCH_LOADS = 0.001, 0.02
 MAX_DEFICIT, MAX_LOADS, MIN_EDGE_RECALL, S, BAND = 0.005, 0.15, 0.90, 236, 0.15
 
 
@@ -183,11 +188,45 @@ def main(d):
         print('- **Stop-and-report en:** %s.' % ', '.join(stops))
     if edge_low:
         print('- **Guardia del constructor, recall de arista al insertar bajo 0.90:** %s.' % ', '.join('%s en el tramo al %d %% (%.4f)' % e for e in edge_low))
-    for key in ('h1', 'h2', 'both'):
+    for key in ('h1', 'h2', 'both', 'siblings'):
         if key in cells and len(cells[key]) == 4:
             _, _, w, l = cells[key]
             print('- **%s:** peor diferencia %+.4f (principal %+.4f), cargas a 0.95 %+.1f %% (principal %+.1f %%).' % (
                 cells[key][0], w, worst, 100 * l, 100 * loads))
+    siblings_vs_h2(cells)
+
+
+def per_split(doc, fields):
+    st = doc['checkpoints'][-1]['stats']
+    return sum(st[f] for f in fields) / 1e3 / max(st['splits'], 1), st
+
+
+def siblings_vs_h2(cells):
+    if 'siblings' not in cells or 'h2' not in cells or len(cells['siblings']) < 4 or len(cells['h2']) < 4:
+        return
+    sib, h2 = cells['siblings'][1], cells['h2'][1]
+    ps = curve(sib['checkpoints'][-1]['points'])
+    ph = {p['ef']: p for p in curve(h2['checkpoints'][-1]['points'])}
+    print('\n### Celda 5 frente a H2, al 100 %\n')
+    print('| ef | H2 | celda 5 | diferencia |')
+    print('|---|---|---|---|')
+    worst = 0
+    for p in ps:
+        if p['ef'] in ph:
+            d = p['recall'] - ph[p['ef']]['recall']
+            worst = min(worst, d)
+            print('| %d | %.4f | %.4f | %+.4f |' % (p['ef'], ph[p['ef']]['recall'], p['recall'], d))
+    l5, lh = at(ps, 0.95, 'loadsMean'), at(curve(h2['checkpoints'][-1]['points']), 0.95, 'loadsMean')
+    us5, st5 = per_split(sib, ('splitNs', 'siblingNs'))
+    ush, sth = per_split(h2, ('splitNs', 'repairNs'))
+    matches = worst >= -MATCH_RECALL and l5 is not None and lh and l5 <= lh * (1 + MATCH_LOADS)
+    print('\n- **Recall:** peor diferencia frente a H2 %+.4f (umbral −%.3f). **Cargas a 0.95:** %s frente a %s (%s; umbral +%d %%).' % (
+        worst, MATCH_RECALL, fmt(l5), fmt(lh), fmt(100 * (l5 / lh - 1) if l5 and lh else None, '%+.1f %%'), 100 * MATCH_LOADS))
+    print('- **Coste por split, µs (indicativo; H2 corrió en paralelo con otras dos celdas, la 5 sola):** celda 5 %.0f, H2 %.0f.' % (us5, ush))
+    print('- **Trabajo por split, sin depender de la máquina:** celda 5, %.0f distancias exactas; H2, %.1f búsquedas.' % (
+        st5['siblingDistances'] / max(st5['splits'], 1), sth['repaired'] / max(sth['splits'], 1)))
+    print('- **Celda 5 %s a H2 sin búsqueda: %s.**' % ('iguala o supera' if matches else 'no iguala',
+          'candidata a mecanismo de split para disco' if matches else 'no es la candidata'))
 
 
 if __name__ == '__main__':

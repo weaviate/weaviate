@@ -109,6 +109,7 @@ func TestStreamInserts(t *testing.T) {
 		{name: "inverse edges", cfg: streamConfig{threshold: 60, inverse: true}},
 		{name: "edge repair", cfg: streamConfig{threshold: 60, repair: true}},
 		{name: "both", cfg: streamConfig{threshold: 60, inverse: true, repair: true}},
+		{name: "sibling repair", cfg: streamConfig{threshold: 60, siblings: true}},
 		{name: "assignment only", cfg: streamConfig{threshold: 60, assignOnly: true}},
 	}
 	for _, tt := range tests {
@@ -164,7 +165,7 @@ func TestStreamInserts(t *testing.T) {
 					assert.Empty(t, now[id], "doc %d", id)
 				}
 				return
-			case !tt.cfg.inverse && !tt.cfg.repair:
+			case !tt.cfg.inverse && !tt.cfg.repair && !tt.cfg.siblings:
 				for docID, edges := range old {
 					require.True(t, slices.Equal(edges, now[docID]),
 						"the principal cell leaves the edges of doc %d alone: %v, now %v", docID, edges, now[docID])
@@ -185,6 +186,11 @@ func TestStreamInserts(t *testing.T) {
 					"every split repairs all the members of the posting it splits")
 			} else {
 				assert.Zero(t, s.stats.Repaired)
+			}
+			if tt.cfg.siblings {
+				assert.Positive(t, s.stats.SiblingEdges)
+			} else {
+				assert.Zero(t, s.stats.SiblingEdges)
 			}
 
 			// The new vectors are where a search finds them.
@@ -456,25 +462,37 @@ func TestStreamEdgeRecallAtInsert(t *testing.T) {
 	}
 }
 
-// The repair is what lets the members of a split posting reach each other by
+// A repair is what lets the members of a split posting reach each other by
 // edge: right after the first split, none of them has an edge into the other
-// half without it, since their edges were made while they shared a posting,
-// and some do with it.
+// half without one, since their edges were made while they shared a posting.
+// The search repair finds the other half when the index has a path to it, as
+// in one blob; the sibling repair finds it by construction, tight clusters
+// included, where no path does.
 func TestStreamRepairReachesTheOtherHalf(t *testing.T) {
 	const batch, total = 1200, 2400
 	ctx := context.Background()
-	// One blob: a posting is a piece of it, and so are the halves a split
-	// leaves, whose members are each other's nearest neighbors.
-	all := clusteredVectors(total, 24, 1, 404)
-	for _, repair := range []bool{false, true} {
-		t.Run(map[bool]string{false: "without repair", true: "with repair"}[repair], func(t *testing.T) {
+	blob := clusteredVectors(total, 24, 1, 404)
+	tight := clusteredVectors(total, 64, 20, 61)
+	tests := []struct {
+		name   string
+		all    [][]float32
+		cfg    streamConfig
+		across bool
+	}{
+		{name: "no repair, one blob", all: blob, cfg: streamConfig{threshold: 60}},
+		{name: "no repair, tight clusters", all: tight, cfg: streamConfig{threshold: 60}},
+		{name: "search repair, one blob", all: blob, cfg: streamConfig{threshold: 60, repair: true}, across: true},
+		{name: "sibling repair, one blob", all: blob, cfg: streamConfig{threshold: 60, siblings: true}, across: true},
+		{name: "sibling repair, tight clusters", all: tight, cfg: streamConfig{threshold: 60, siblings: true}, across: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			uc := smallConfig()
-			s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, repair: repair})
+			s := newStreamTestIndex(t, tt.all, batch, uc, tt.cfg)
 			uc.Distance, uc.EF = "l2-squared", 64
 			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
-			id := uint64(batch)
-			for ; id < total && s.stats.Splits == 0; id++ {
-				require.NoError(t, s.insert(ctx, id, all[id]))
+			for id := uint64(batch); id < total && s.stats.Splits == 0; id++ {
+				require.NoError(t, s.insert(ctx, id, tt.all[id]))
 			}
 			require.Equal(t, 1, s.stats.Splits, "a split happened")
 			first := uint32(len(s.st.postings.lists) - 2)
@@ -488,13 +506,74 @@ func TestStreamRepairReachesTheOtherHalf(t *testing.T) {
 					}
 				}
 			}
-			if repair {
+			members := len(s.st.postings.lists[first].docIDs) + len(s.st.postings.lists[first+1].docIDs)
+			if tt.across {
 				assert.Positive(t, across)
-				assert.Equal(t, len(s.st.postings.lists[first].docIDs)+len(s.st.postings.lists[first+1].docIDs), s.stats.Repaired)
 			} else {
 				assert.Zero(t, across)
 			}
+			if tt.cfg.repair {
+				assert.Equal(t, members, s.stats.Repaired)
+			}
+			if tt.cfg.siblings {
+				assert.Equal(t, across, s.stats.SiblingEdges)
+			}
 			require.NoError(t, s.checkCoverage())
 		})
+	}
+}
+
+// The sibling repair keeps, for every member of either half, the nearest of
+// its edges before the split and of the members of the other half, by exact
+// distance: an independent count right after the first split gives the same
+// edges.
+func TestStreamSiblingRepairKeepsTheNearest(t *testing.T) {
+	const batch, total = 1200, 2400
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 1, 909)
+	provider := distancer.NewL2SquaredProvider()
+	uc := smallConfig()
+	s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, siblings: true})
+	uc.Distance, uc.EF = "l2-squared", 64
+	require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+	// The edges before the split: those of every vector before the insert
+	// that splits, and those that insert wrote for its own vector.
+	var before map[uint64][]uint32
+	s.onWrite = func(docID uint64, _ uint32, edges []uint32) error {
+		before[docID] = slices.Clone(edges)
+		return nil
+	}
+	for id := uint64(batch); id < total && s.stats.Splits == 0; id++ {
+		before = edgesByDoc(s)
+		require.NoError(t, s.insert(ctx, id, all[id]))
+	}
+	require.Equal(t, 1, s.stats.Splits)
+	first := uint32(len(s.st.postings.lists) - 2)
+	for half := range uint32(2) {
+		l := s.st.postings.lists[first+half]
+		other := s.st.postings.lists[first+1-half]
+		for i, docID := range l.docIDs {
+			type cand struct {
+				id   uint64
+				dist float32
+			}
+			var cands []cand
+			for _, endpoint := range before[docID] {
+				dist, err := provider.SingleDist(all[docID], all[endpoint])
+				require.NoError(t, err)
+				cands = append(cands, cand{id: uint64(endpoint), dist: dist})
+			}
+			for _, sibling := range other.docIDs {
+				dist, err := provider.SingleDist(all[docID], all[sibling])
+				require.NoError(t, err)
+				cands = append(cands, cand{id: sibling, dist: dist})
+			}
+			sort.SliceStable(cands, func(i, j int) bool { return cands[i].dist < cands[j].dist })
+			var want []uint32
+			for _, c := range cands[:min(s.neighbors, len(cands))] {
+				want = append(want, uint32(c.id))
+			}
+			assert.Equal(t, want, l.edgesOf(i), "doc %d", docID)
+		}
 	}
 }
