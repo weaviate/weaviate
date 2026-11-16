@@ -1,6 +1,6 @@
 # Índice posting+edges: notas para el diseño de la versión en disco
 
-**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento. El resto del diseño de disco no está escrito aquí.
+**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento, y el ef de inserción que deja v2.1. El resto del diseño de disco no está escrito aquí.
 
 Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
 
@@ -238,7 +238,8 @@ Abierto:
 - *los vectores que ya existen tienen que ganar aristas hacia el nuevo: sin aristas inversas el índice no aguanta doblar el corpus;*
 - *el split simple (T=360 para S=236, 2-means, sin reasignar vecinos) no necesita reparar aristas si hay aristas inversas;*
 - *con aristas inversas, un índice que dobla su corpus por inserciones queda como el lote; más allá de doblarlo no está medido;*
-- *para los inserts basta la asignación asistida por el grafo de centroides con ef 8, con cobertura completa y de un 2.3 a un 2.6 % de asignaciones que no van al centroide más cercano.*
+- *para los inserts basta la asignación asistida por el grafo de centroides con ef 8, con cobertura completa y de un 2.3 a un 2.6 % de asignaciones que no van al centroide más cercano;*
+- *la búsqueda de aristas de un insert puede bajar de ef 320 a 80 (v2.1): 21.9 cargas de posting por insert en lugar de unas 57, con el índice dentro del criterio.*
 
 ### 3. Modelo de I/O del layout
 
@@ -391,13 +392,53 @@ Datos en `testdata/bench/phase2/`:
 | paso | medido en memoria | en disco (*lectura mía*) |
 |---|---|---|
 | asignación | grafo de centroides con ef 8; de un 2.3 a un 2.6 % no va al centroide más cercano, y el criterio se cumple igual | residente, sin I/O |
-| búsqueda de aristas, k=16 y ef=320 | de 53 a 60 cargas de posting en 13 a 15 rondas, y 64 candidatos de rescore | las mismas cargas y lecturas que una query a ese ef. Es el coste dominante de un insert |
+| búsqueda de aristas, k=16 | con ef 320, unas 57 cargas de posting en 14 rondas; con ef 80 (v2.1), 21.9 en 5.2 rondas. Siempre 64 candidatos de rescore | las mismas cargas y lecturas que una query a ese ef. Es el coste dominante de un insert |
 | escritura del miembro | una | un append al posting propio, el código en el sidecar y la entrada del mapa |
 | aristas inversas | lee las listas de 8.97 vecinos y escribe en 4.62 (p95 11), que viven en 3.28 postings distintos (p95 8) | depende de dónde vivan las aristas: la sección siguiente |
 | split, uno cada 240 inserts | 2-means, dos centroides nuevos y una lápida; con hermanos, 34 800 distancias exactas y 344 listas cambiadas | la reescritura de los dos hijos, que ya hace el `Put` de HFresh |
 
-- **Un insert carga más postings que una query a 0.99** (de 44 a 53 cargas). En HFresh un insert no lee ningún posting.
-- **El ef de inserción no se barrió.** Con 320, el recall de arista al insertar queda entre 0.964 y 0.987. Cuánto se puede bajar, y con él las cargas de un insert, es la primera medida que le falta al diseño.
+- **Con ef 320, un insert carga más postings que una query a 0.99** (de 44 a 53 cargas). En HFresh un insert no lee ningún posting.
+- **El ef de inserción se barrió en v2.1,** en la sección siguiente. Con 80, un insert carga 21.9 postings, el 38 % de lo que carga una query a 0.99 en ese índice.
+
+### El ef de inserción (v2.1, 2026-11-16)
+
+*De `bench-report.md`, «v2.1: el ef de inserción, sobre H1»: la celda de aristas inversas con ef de inserción 160, 80, 40 y 20, frente al lote del 100 % y a las dos corridas con ef 320. Las cargas por insert son el conteo directo de su búsqueda; las de ef 320 no se contaron y salen de las queries a ese ef, que en las otras celdas dan el conteo con un 0.3 % de error.*
+
+| ef de inserción | cargas de posting por insert: media (p95) | rondas | recall de arista al insertar | recall frente al lote, peor ef | cargas por query a 0.95, frente al lote | a 0.99 | cumple el criterio |
+|---|---|---|---|---|---|---|---|
+| 320 | unas 56.6 | unas 13.9 | 0.985 | +0.0007 | +2.3 % | −5.7 % | sí |
+| 160 | 34.6 (69) | 8.4 | 0.977 | −0.0001 | +3.0 % | −3.3 % | sí |
+| 80 | 21.9 (45) | 5.2 | 0.963 | −0.0024 | +6.2 % | +9.8 % | sí; a 0.99, por 0.2 puntos |
+| 40 | 14.4 (29) | 3.3 | 0.942 | −0.0057 | +14.4 % | +23.0 % | no |
+| 20, hasta el 80 % | 9.9 (21) | 2.2 | de 0.911 a 0.899 | sin medir | sin medir | sin medir | no: lo corta la guardia del constructor |
+
+**El elegido por la regla pre-registrada es 80:** el menor ef que deja el recall a 0.005 o menos del lote, las cargas a 0.95 un 15 % o menos por encima y las de 0.99 un 10 % o menos.
+
+- **La condición de 0.99 la cumple por 0.2 puntos, con un suelo de ruido del 3.0 %.** No se distingue del ruido. El menor ef que cumple las tres con margen es 160.
+- **Lo que cuesta, frente a ef 320:** un 4 % más de cargas por query a 0.95 y de un 16 a un 20 % más a 0.99, con dos rondas más a 0.99. Cumple frente al lote porque con ef 320 el índice mantenido quedaba de un 6 a un 9 % por debajo del lote a 0.99.
+- **No cambia lo que escribe un insert:** 4.54 aristas inversas de media y 11 en el p95, en 3.19 postings distintos y 8 en el p95. Las cuentas de «Dónde viven las aristas» valen igual.
+- **Las cargas por insert crecen un 7 % al doblar el corpus.**
+
+**Qué lee un insert,** con la cuenta de «Qué lee cada layout por query»: 208 B de id y código por vector escaneado, más 36 B de aristas por miembro.
+
+| ef de inserción | cargas | rondas | vectores escaneados | (a) y (b'): bytes de posting | lecturas de rescore | listas de vecinos leídas para las aristas inversas |
+|---|---|---|---|---|---|---|
+| 320 | unas 56.6 | unas 13.9 | unos 14 100 | 2.9 MB | 64 | 8.97 |
+| 160 | 34.6 | 8.4 | 8 642 | 1.8 MB | 64 | 8.94 |
+| 80 | 21.9 | 5.2 | 5 474 | 1.1 MB | 64 | 8.91 |
+| 40 | 14.4 | 3.3 | 3 606 | 0.75 MB | 64 | 8.83 |
+
+- **El ef solo baja las cargas.** Los 64 candidatos de rescore y la comprobación de las aristas inversas, con unas 89 distancias exactas, son los mismos con cualquier ef.
+- *Mío:* en (a) y (b') eso deja 64 lecturas de vector exacto por insert, que con ef 80 son tres veces sus cargas de posting. La comprobación de las aristas inversas no lee nada si la distancia va guardada con cada arista.
+
+*Lectura mía, para el diseño:*
+
+- **El ef de inserción cambia lecturas del insert por lecturas de la query.** De 160 a 80, cada insert se ahorra 12.8 cargas, y cada query carga 0.32 más a 0.95 y 6.9 más a 0.99. Un índice que sirve más de dos queries a 0.99 por insert lee más en total con 80 que con 160. A 0.95 hacen falta cuarenta.
+- **De 320 a 160 casi no hay nada que pagar:** 22 cargas menos por insert, por 0.1 más por query a 0.95 y de 1.3 a 2.8 más a 0.99.
+- **El default que sale de la regla es 80, y 160 si el objetivo de recall es 0.99.** Es un parámetro del índice, no una constante.
+- **La guardia del constructor en 0.90 no avisa de dónde se rompe el criterio:** ef 40 la pasa con 0.94 y no cumple. Con aristas inversas, la frontera está entre 0.94 y 0.96 de recall de arista al insertar.
+
+**Sin medir:** la repetición de la celda de ef 80, un ef intermedio entre 80 y 160, y el déficit de un ef bajo más allá de una duplicación.
 
 ### Dónde viven las aristas
 
@@ -446,7 +487,8 @@ Quedan tres sitios. Las cuentas son por insert, a 1536d y con postings de 237 mi
 - **Deletes y updates.** No hay ninguno.
 - **Más allá de doblar el corpus.** Un solo lote y una sola duplicación, en un dataset y a 1M.
 - **Concurrencia.** El harness es secuencial: ninguna búsqueda corre durante un insert ni durante un split.
-- **El ef de inserción,** fijo en 320.
+- **El ef de inserción,** fijo en 320. *Medido en v2.1: «El ef de inserción», arriba.*
 - **Aristas inversas con reparación por búsqueda,** y los hermanos con la regla del lote.
+  - *Decisión del usuario del 16:* la celda de aristas inversas con hermanos no entra en el barrido del ef, porque su aporte va mezclado con un grado un 53 % mayor. Queda abierta junto con la variante de la regla del lote, sin medir ahora.
 - **El QPS de las celdas que cumplen.** Solo se cronometró la principal, que queda en 0.54x–0.64x de la referencia por docID a 0.95.
 - **Cualquier I/O.**
