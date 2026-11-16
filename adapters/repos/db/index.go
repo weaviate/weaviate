@@ -4617,7 +4617,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 var errShardBusy = stderrors.New("shard is busy")
 
 // shardForStatusRead pins the local shard for a status or queue-size read without loading it or waiting on its
-// locks. cold reports a lazy shard that is not loaded yet, and a shard held by an activation, unload or freeze is shardBusy.
+// locks. cold reports a lazy shard that is not loaded yet, also while it loads, and a loaded shard held by an unload or freeze is errShardBusy.
 func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool, release func(), err error) {
 	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
 		return nil, false, func() {}, err
@@ -4628,14 +4628,21 @@ func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool
 	defer i.exitRead()
 	// Every unload holds this lock for write, so a shard loaded under it stays loaded.
 	if !i.shardCreateLocks.TryRLock(shardName) {
+		// A warm-up or activation holds the lock for the whole load; the shard is read, not pinned.
+		if lazy, ok := i.shards.Load(shardName).(*LazyLoadShard); ok && !lazy.loadedLockFree.Load() {
+			return nil, true, func() {}, nil
+		}
 		// a 422, so the caller asks another replica
 		return nil, false, func() {}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard: %w", shardName, errShardBusy))
 	}
 	defer i.shardCreateLocks.RUnlock(shardName)
 
 	shard = i.shards.Load(shardName)
-	if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.loadedLockFree.Load() {
-		return nil, true, func() {}, nil
+	if lazy, ok := shard.(*LazyLoadShard); ok {
+		if !lazy.loadedLockFree.Load() {
+			return nil, true, func() {}, nil
+		}
+		shard = lazy.shard // a vector-index drop holds the lazy mutex for the whole drop
 	}
 	if shard == nil {
 		return nil, false, func() {}, nil

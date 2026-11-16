@@ -114,8 +114,9 @@ const (
 	localReady localShardKind = iota
 	localRecovering
 	localShuttingDown
-	localLocked  // a load, unload or freeze holds its create lock
-	localLoading // a lazy load is running
+	localLocked         // an unload or freeze holds its create lock
+	localLoading        // a warm-up or activation loads the lazy shard under its create lock
+	localLoadingForRead // a request loads the lazy shard
 )
 
 // newShardStatusIndex lists deleted shards without replicas and fails any tenant status lookup, which could activate a tenant.
@@ -194,11 +195,15 @@ func newShardStatusIndex(t *testing.T, mt bool, physical map[string]sharding.Phy
 			index.shards.Store(name, NewMockShardLike(t))
 			index.shardCreateLocks.Lock(name)
 			t.Cleanup(func() { index.shardCreateLocks.Unlock(name) })
-		case localLoading:
+		case localLoading, localLoadingForRead:
 			lazy := &LazyLoadShard{}
 			lazy.mutex.Lock()
 			t.Cleanup(lazy.mutex.Unlock)
 			index.shards.Store(name, lazy)
+			if kind == localLoading {
+				index.shardCreateLocks.Lock(name)
+				t.Cleanup(func() { index.shardCreateLocks.Unlock(name) })
+			}
 		default:
 			shard := NewMockShardLike(t)
 			shard.EXPECT().preventShutdown().Return(func() {}, nil).Maybe()
@@ -239,7 +244,7 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 		queueNotAsked []string // "node/shard", by the queue lookup
 	}{
 		{
-			name:        "local copy held by an activation, unload or freeze is not waited for",
+			name:        "local copy held by an unload or freeze is not waited for",
 			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
 			local:       map[string]localShardKind{"s1": localLocked},
 			reachable:   []string{"node2"},
@@ -249,9 +254,19 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 			wantSize:    map[string]int64{"s1": 7},
 		},
 		{
-			name:        "local lazy copy that is loading is not waited for",
+			name:        "local lazy copy that a warm-up or activation is loading reads LAZY_LOADING",
 			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
 			local:       map[string]localShardKind{"s1": localLoading},
+			reachable:   []string{"node2"},
+			replies:     map[string]statusReply{"node2": {status: ready, size: 7}},
+			wantPerNode: map[string]map[string]string{"s1": {shardStatusLocalNode: "LAZY_LOADING", "node2": ready}},
+			wantStatus:  map[string]string{"s1": "LAZY_LOADING"},
+			wantSize:    map[string]int64{"s1": 0},
+		},
+		{
+			name:        "local lazy copy that a request is loading reads LAZY_LOADING",
+			physical:    map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
+			local:       map[string]localShardKind{"s1": localLoadingForRead},
 			reachable:   []string{"node2"},
 			replies:     map[string]statusReply{"node2": {status: ready, size: 7}},
 			wantPerNode: map[string]map[string]string{"s1": {shardStatusLocalNode: "LAZY_LOADING", "node2": ready}},
@@ -587,14 +602,32 @@ func TestIndex_ShardsStatusAndQueueSize_SkipPeerThatTimedOut(t *testing.T) {
 	})
 }
 
-// A peer answers a busy shard with a 422, so the caller asks another replica instead of retrying.
+// A peer answers a busy shard with a 422, so the caller asks another replica instead of retrying,
+// and a lazy shard that is loading as LAZY_LOADING.
 func TestIndex_IncomingShardStatusReadsOfABusyShard(t *testing.T) {
-	index, _ := newShardStatusIndex(t, false, map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode}}},
-		map[string]localShardKind{"s1": localLocked}, nil, &shardStatusRemoteClient{})
-	_, statusErr := index.IncomingGetShardStatus(t.Context(), "s1")
-	_, queueErr := index.IncomingGetShardQueueSize(t.Context(), "s1")
-	for _, err := range []error{statusErr, queueErr} {
-		require.ErrorIs(t, err, errShardBusy)
-		require.ErrorAs(t, err, &enterrors.ErrUnprocessable{})
+	for _, tc := range []struct {
+		name string
+		kind localShardKind
+	}{
+		{"held by an unload or freeze", localLocked},
+		{"loaded by a warm-up or activation", localLoading},
+		{"loaded by a request", localLoadingForRead},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			index, _ := newShardStatusIndex(t, false, map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode}}},
+				map[string]localShardKind{"s1": tc.kind}, nil, &shardStatusRemoteClient{})
+			status, statusErr := index.IncomingGetShardStatus(t.Context(), "s1")
+			size, queueErr := index.IncomingGetShardQueueSize(t.Context(), "s1")
+			if tc.kind != localLocked {
+				require.NoError(t, errors.Join(statusErr, queueErr))
+				require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+				require.Zero(t, size)
+				return
+			}
+			for _, err := range []error{statusErr, queueErr} {
+				require.ErrorIs(t, err, errShardBusy)
+				require.ErrorAs(t, err, &enterrors.ErrUnprocessable{})
+			}
+		})
 	}
 }
