@@ -2154,7 +2154,6 @@ const heldClass = "Held"
 func reindexTenantsStore(t *testing.T, tweaks ...func(*Config)) (*Store, *MockStore) {
 	t.Helper()
 	srv, m := newBarrierTestStore(t, append([]func(*Config){func(c *Config) {
-		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{db.ReindexNamespace: db.ExtractReindexTaskCollection}
 		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{db.ReindexNamespace: db.ExtractReindexTaskReplicas}
 		c.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}}
 	}}, tweaks...)...)
