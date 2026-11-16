@@ -85,7 +85,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	)
 
 	swap := func() (*lsmkv.Bucket, error) {
-		displaced, err := shard.SwapBucketsAndSetOverlay(ctx,
+		displaced, err := shard.SwapBucketsAndSetOverlay(
 			map[string]inverted.PropertyOverlay{fieldProp: wordOverlay}, []lsmkv.BucketSwap{pair})
 		if err != nil {
 			return nil, err

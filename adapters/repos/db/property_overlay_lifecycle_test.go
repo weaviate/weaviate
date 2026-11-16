@@ -308,8 +308,7 @@ func TestSecondMigrationUnionsIntoAFailedTokenizationOverlay(t *testing.T) {
 		{
 			name: "the live swap arms through SwapBucketsAndSetOverlay",
 			arm: func(t *testing.T, shard *Shard, prop string, o inverted.PropertyOverlay) {
-				_, err := shard.SwapBucketsAndSetOverlay(context.Background(),
-					map[string]inverted.PropertyOverlay{prop: o}, nil)
+				_, err := shard.SwapBucketsAndSetOverlay(map[string]inverted.PropertyOverlay{prop: o}, nil)
 				require.NoError(t, err)
 			},
 		},

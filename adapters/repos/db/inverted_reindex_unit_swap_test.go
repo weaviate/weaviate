@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -195,20 +196,73 @@ func TestChangeTokenizationFiltersWhileASwapTearsDown(t *testing.T) {
 		require.Empty(t, (<-done).Errs)
 	})
 
-	t.Run("the filterable staged bucket is gone", func(t *testing.T) {
-		f := newTokenizationChange(t)
-		staged := f.tasks[1].ingestBucketName(tokChangeProp)
-		require.NoError(t, f.shard.Store().ShutdownBucket(f.ctx, staged))
-		require.NoError(t, os.RemoveAll(filepath.Join(f.shard.pathLSM(), staged)))
+	for _, tc := range []struct {
+		name string
+		fail func(t *testing.T, f *tokenizationChange) (repair func())
+	}{
+		{
+			name: "the filterable staged bucket is gone",
+			fail: func(t *testing.T, f *tokenizationChange) func() {
+				staged := f.tasks[1].ingestBucketName(tokChangeProp)
+				require.NoError(t, f.shard.Store().ShutdownBucket(f.ctx, staged))
+				require.NoError(t, os.RemoveAll(filepath.Join(f.shard.pathLSM(), staged)))
+				return func() {}
+			},
+		},
+		{
+			name: "the decisions cannot be recorded",
+			fail: func(t *testing.T, f *tokenizationChange) func() {
+				records := f.shard.migrationRecords.Dir()
+				denyDirectoryWrites(t, records)
+				return func() { require.NoError(t, os.Chmod(records, 0o700)) }
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newTokenizationChange(t)
+			repair := tc.fail(t, f)
 
-		require.NotEmpty(t, f.swap(f.tasks).Errs)
-		assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
-		assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+			require.NotEmpty(t, f.swap(f.tasks).Errs)
+			assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
+			assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
 
-		f.reload(t)
-		assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
-		assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
-	})
+			repair()
+			f.reload(t)
+			assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
+			assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+		})
+	}
+}
+
+// A forced drop drains a query's pin while the query waits to pin its next
+// bucket, so a flip must not hold that query back while it waits on the drop.
+func TestAFlipDuringADropLetsQueriesPin(t *testing.T) {
+	f := newTokenizationChange(t)
+	store := f.shard.Store()
+	searchable := helpers.BucketSearchableFromPropNameLSM(tokChangeProp)
+	_, releaseFirstPin := store.AcquireBucketForRead(searchable)
+
+	dropped := make(chan error, 1)
+	enterrors.GoWrapper(func() { dropped <- store.Shutdown(f.ctx) }, f.idx.logger)
+	require.Eventually(t, func() bool { return store.Bucket(searchable) == nil }, 10*time.Second, time.Millisecond)
+
+	flipped := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, err := f.shard.SwapBucketsAndSetOverlay(
+			map[string]inverted.PropertyOverlay{tokChangeProp: {Tokenization: models.PropertyTokenizationWord}}, nil)
+		flipped <- err
+	}, f.idx.logger)
+	assert.Never(t, func() bool {
+		if f.shard.propertyOverlayMu.TryRLock() {
+			f.shard.propertyOverlayMu.RUnlock()
+			return false
+		}
+		return true
+	}, 200*time.Millisecond, time.Millisecond, "the flip holds the lock the query needs for its next pin")
+
+	releaseFirstPin()
+	require.NoError(t, <-dropped)
+	require.ErrorIs(t, <-flipped, lsmkv.ErrAlreadyClosed)
 }
 
 // A load that withholds promotion leaves both decisions with the staged buckets on disk.

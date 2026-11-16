@@ -764,22 +764,23 @@ func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOve
 	return o
 }
 
-// SwapBucketsAndSetOverlay is ONE critical section. The caller shuts the displaced buckets down after
-// it returns: a query may hold one's pin while it waits for propertyOverlayMu to pin the next.
-func (s *Shard) SwapBucketsAndSetOverlay(ctx context.Context,
-	overlay map[string]inverted.PropertyOverlay, swaps []lsmkv.BucketSwap,
-) ([]*lsmkv.Bucket, error) {
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
-
-	displaced, err := s.store.SwapBucketPointers(ctx, swaps)
-	if err != nil {
-		return nil, err
-	}
-	for propName, o := range overlay {
-		s.mergePropertyOverlayLocked(propName, o)
-	}
-	return displaced, nil
+// SwapBucketsAndSetOverlay is ONE critical section. A query may hold one pin while it waits for
+// propertyOverlayMu to pin the next, so neither the store's close nor the caller's shutdown of the
+// displaced buckets, which drain pins, may run while that lock is held.
+func (s *Shard) SwapBucketsAndSetOverlay(overlay map[string]inverted.PropertyOverlay, swaps []lsmkv.BucketSwap,
+) (displaced []*lsmkv.Bucket, err error) {
+	err = s.store.WhileOpen(func(store lsmkv.OpenStore) error {
+		s.propertyOverlayMu.Lock()
+		defer s.propertyOverlayMu.Unlock()
+		if displaced, err = store.SwapBucketPointers(swaps); err != nil {
+			return err
+		}
+		for propName, o := range overlay {
+			s.mergePropertyOverlayLocked(propName, o)
+		}
+		return nil
+	})
+	return displaced, err
 }
 
 func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,

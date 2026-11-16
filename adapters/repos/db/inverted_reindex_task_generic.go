@@ -482,7 +482,7 @@ func flipUnit(ctx context.Context, shard ShardLike, units []*unitSwap,
 			return fmt.Errorf("recording the flip decision: %w", err)
 		}
 	}
-	displaced, err := concrete.SwapBucketsAndSetOverlay(ctx, armed, pairs)
+	displaced, err := concrete.SwapBucketsAndSetOverlay(armed, pairs)
 	if err != nil {
 		return err
 	}
