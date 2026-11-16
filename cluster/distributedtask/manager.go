@@ -12,6 +12,7 @@
 package distributedtask
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1014,6 +1015,34 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 		out = append(out, task.StatusEntryFor(shard))
 	}
 	return out
+}
+
+type DecidedRun struct {
+	TaskDescriptor
+	Header TaskHeader
+}
+
+// DecidedRunsOf returns unfinished barrier runs that decided the shard's group
+// and owe node no swap.
+func (m *Manager) DecidedRunsOf(collection, shard, node string) []DecidedRun {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var runs []DecidedRun
+	for ns := range m.headerDecoders {
+		for _, task := range m.tasks[ns] {
+			if !task.NeedsPreparationBarrier || task.Status == TaskStatusFinished ||
+				!strings.EqualFold(task.collection(), collection) {
+				continue
+			}
+			group := task.groupOf(shard)
+			if task.GroupSwapDecided(group) && !task.SwapOwedBy(group, node) {
+				runs = append(runs, DecidedRun{TaskDescriptor: task.TaskDescriptor, Header: task.header})
+			}
+		}
+	}
+	slices.SortFunc(runs, func(a, b DecidedRun) int { return cmp.Compare(a.Version, b.Version) })
+	return runs
 }
 
 // This is not reached through the [TaskLister] interface in production —

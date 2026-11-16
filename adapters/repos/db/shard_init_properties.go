@@ -495,6 +495,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if prop.SearchableBlockmax != nil {
 			blockmax = *prop.SearchableBlockmax
 		}
+		blockmax = blockmax || s.promotedToBlockmax(prop.Name)
 		strategy := lsmkv.DefaultSearchableStrategy(blockmax)
 		searchableBucketOpts := makeBucketOptions(strategy)
 

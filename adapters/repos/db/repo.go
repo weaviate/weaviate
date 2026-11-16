@@ -134,6 +134,8 @@ type DB struct {
 	migrationSeals   migrationUnitSeals
 	migrationCluster migrationClusterReconciler
 
+	migrationDecidedRuns MigrationDecidedRunSource
+
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 

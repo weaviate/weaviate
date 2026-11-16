@@ -626,6 +626,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
+	var unloaded atomic.Int64
+	var firstUnloaded atomic.Pointer[error]
 
 	for _, shard := range localShards {
 		if shard.activityStatus != models.TenantActivityStatusHOT {
@@ -659,6 +661,18 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
 					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
+				if stderrors.Is(err, errFirstLoadRecord) {
+					// Loading without the record would build the shard in the old format for
+					// good, so it stays unloaded and its next access retries the write.
+					if unloaded.Add(1) == 1 {
+						firstUnloaded.Store(&err)
+					}
+					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.shardReindexer, false, i.bitmapBufPool))
+					startupShards.lazy.Add(1)
+					return nil
+				}
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -672,7 +686,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}, shardName)
 	}
 
-	if err := eg.Wait(); err != nil {
+	err = eg.Wait()
+	if n := unloaded.Load(); n > 0 {
+		i.logger.WithField("shard_count", n).Errorf(
+			"%d shard(s) left unloaded until their next access; first: %v", n, *firstUnloaded.Load())
+	}
+	if err != nil {
 		return err
 	}
 

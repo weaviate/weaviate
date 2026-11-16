@@ -385,7 +385,11 @@ func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className
 	createMTCollection(t, restURI, className, 3, textProps("text"))
 	createTenants(t, restURI, className, []string{"small", "large"})
 	importObjectsTenant(t, restURI, className, "small", []string{"needle phrase", "other words"})
+	importLargeTenant(t, restURI, className)
+}
 
+func importLargeTenant(t *testing.T, restURI, className string) {
+	t.Helper()
 	const batchSize = 1000
 	for start := 0; start < perTenantLargeObjects; start += batchSize {
 		objects := make([]map[string]any, 0, batchSize)

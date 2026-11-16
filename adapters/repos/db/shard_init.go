@@ -149,6 +149,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
 	}
 
+	if err := s.writeFirstLoadRecords(class); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+
 	// init the store itself synchronously
 	if err := s.initLSMStore(); err != nil {
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)

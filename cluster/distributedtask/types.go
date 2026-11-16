@@ -513,10 +513,7 @@ type TaskStatusEntry struct {
 
 // StatusEntryFor answers for one shard (copying all decided groups would be quadratic in tenants).
 func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
-	group := shard
-	if t.hasGroup("") {
-		group = ""
-	}
+	group := t.groupOf(shard)
 	var acked []string
 	for node := range t.PreparedGroups[group] {
 		acked = append(acked, node)
@@ -525,6 +522,13 @@ func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
 		TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group),
 		PrepAckedBy: acked,
 	}
+}
+
+func (t *Task) groupOf(shard string) string {
+	if t.hasGroup("") {
+		return ""
+	}
+	return shard
 }
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.
