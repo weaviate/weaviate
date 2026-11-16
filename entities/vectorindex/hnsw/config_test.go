@@ -1301,3 +1301,26 @@ func TestUserConfigMuveraKSimBound(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAndValidateConfig_MultiVectorModuleWithoutBlock(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         interface{}
+		isMultiVector bool
+		want          bool
+	}{
+		{name: "module, nil config", input: nil, isMultiVector: true, want: true},
+		{name: "module, empty config", input: map[string]interface{}{}, isMultiVector: true, want: true},
+		{name: "module, unrelated keys only", input: map[string]interface{}{"ef": float64(64)}, isMultiVector: true, want: true},
+		{name: "module, explicit false is overridden", input: map[string]interface{}{"multivector": map[string]interface{}{"enabled": false}}, isMultiVector: true, want: true},
+		{name: "no module, nil config", input: nil, isMultiVector: false, want: false},
+		{name: "no module, empty config", input: map[string]interface{}{}, isMultiVector: false, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseAndValidateConfig(tt.input, tt.isMultiVector)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, cfg.IsMultiVector())
+		})
+	}
+}

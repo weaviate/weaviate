@@ -147,7 +147,7 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	}
 
 	ran, sealedDuring := false, false
-	require.NoError(t, p.runPerUnitPhase(task, payload, []string{"u1"}, idx, logger, "probe", false,
+	require.NoError(t, p.runPerUnitPhase(task, payload, []string{"u1"}, idx, logger, "probe", "starting", false,
 		func(unitID string, _ ShardLike, _ []*ShardReindexTaskGeneric, _ bool) phaseResult {
 			ran = true
 			if release, sealed := p.SealLocalUnit(desc, unitID); sealed {
@@ -374,7 +374,48 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			defer clean.Shutdown(ctx)
 			require.Equal(t, want, bm25(ctx, clean, tc.query))
 			require.Equal(t, !tc.unreadable, slices.Contains(rec.completed, unit), rec.failed)
-			require.Equal(t, tc.unreadable, strings.Contains(rec.failed[unit], "could not be read"), rec.failed)
+			if tc.unreadable {
+				// The FSM prefixes the unit, so the message must not.
+				require.True(t, strings.HasPrefix(rec.failed[unit], "1 migration record"), rec.failed)
+			}
+		})
+	}
+}
+
+func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
+	tests := []struct {
+		name      string
+		bad       int
+		wantNamed int
+		wantMore  string
+	}{
+		{name: "every bad file fits the cap", bad: maxNamedUnreadableRecords, wantNamed: maxNamedUnreadableRecords},
+		{name: "one past the cap", bad: maxNamedUnreadableRecords + 1, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 1 more)"},
+		{name: "more bad files than the cap", bad: maxNamedUnreadableRecords + 3, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 3 more)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			require.NoError(t, os.MkdirAll(store.Dir(), 0o777))
+			var files []string
+			for i := range tc.bad {
+				name := fmt.Sprintf("%02d_enable_searchable.json", i)
+				require.NoError(t, os.WriteFile(filepath.Join(store.Dir(), name), []byte("{"), 0o600))
+				files = append(files, name)
+			}
+			require.NoError(t, store.Load())
+
+			fault := unreadableRecordFault(store)
+			require.True(t, strings.HasPrefix(fault, fmt.Sprintf("%d migration record fault(s)", tc.bad)), fault)
+			for i, name := range files {
+				require.Equal(t, i < tc.wantNamed, strings.Contains(fault, `"`+name+`"`), fault)
+			}
+			if tc.wantMore != "" {
+				require.Contains(t, fault, tc.wantMore)
+			} else {
+				require.NotContains(t, fault, "more)")
+			}
 		})
 	}
 }
