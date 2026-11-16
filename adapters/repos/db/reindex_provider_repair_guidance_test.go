@@ -114,21 +114,47 @@ func TestLogOperatorRepairGuidanceOnPartialSwap_MigratedTenantsGetResubmit(t *te
 		Collection: "Products", MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{"name"}, TargetTokenization: "field",
 	}
-	task := &distributedtask.Task{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Status: distributedtask.TaskStatusCancelled,
-		SwapDecidedGroups: map[string]time.Time{"a": {}},
-		Units:             map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}},
+	for _, tc := range []struct {
+		name        string
+		decided     string
+		units       map[string]*distributedtask.Unit
+		wantCounts  bool
+		wantMigrate int
+		wantTotal   int
+	}{
+		{
+			name: "tenants", decided: "a",
+			units:      map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}},
+			wantCounts: true, wantMigrate: 1, wantTotal: 2,
+		},
+		{
+			name: "without multi-tenancy", decided: "",
+			units: map[string]*distributedtask.Unit{"u": {ID: "u"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Status: distributedtask.TaskStatusCancelled,
+				SwapDecidedGroups: map[string]time.Time{tc.decided: {}},
+				Units:             tc.units,
+			}
+			task.IndexGroups()
+			logger, hook := logrustest.NewNullLogger()
+			logOperatorRepairGuidanceOnPartialSwap(logger, payload, distributedtask.TaskStatusCancelled,
+				[]ReindexRun{{Task: task, Payload: *payload}})
+			require.Len(t, hook.Entries, 1)
+			entry := hook.Entries[0]
+			require.Equal(t, logrus.WarnLevel, entry.Level)
+			if tc.wantCounts {
+				require.Equal(t, tc.wantMigrate, entry.Data["migrated_tenants"])
+				require.Equal(t, tc.wantTotal, entry.Data["total_tenants"])
+			} else {
+				require.NotContains(t, entry.Data, "migrated_tenants")
+				require.NotContains(t, entry.Data, "total_tenants")
+			}
+			require.Equal(t, `PUT /v1/schema/Products/properties/name/index/searchable -d '{"tokenization":"field"}'`, entry.Data["resubmit_command"])
+		})
 	}
-	task.IndexGroups()
-	logger, hook := logrustest.NewNullLogger()
-	logOperatorRepairGuidanceOnPartialSwap(logger, payload, distributedtask.TaskStatusCancelled,
-		[]ReindexRun{{Task: task, Payload: *payload}})
-	require.Len(t, hook.Entries, 1)
-	entry := hook.Entries[0]
-	require.Equal(t, logrus.WarnLevel, entry.Level)
-	require.Equal(t, 1, entry.Data["migrated_tenants"])
-	require.Equal(t, 2, entry.Data["total_tenants"])
-	require.Equal(t, `PUT /v1/schema/Products/properties/name/index/searchable -d '{"tokenization":"field"}'`, entry.Data["resubmit_command"])
 }
 
 // Tenant counts can run into the thousands.

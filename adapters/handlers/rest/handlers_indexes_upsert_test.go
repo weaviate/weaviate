@@ -873,6 +873,17 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			want:   only("b", "c"),
 			status: "partial", migrated: 1, total: 3,
 		},
+		{
+			name: "a collection without tenants reads partial but counts no tenants",
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				task := run(1, failed, changeTok, field, "", "")
+				task.Units = map[string]*distributedtask.Unit{"u": {ID: "u"}}
+				task.IndexGroups()
+				return task
+			}()},
+			want:   ownership,
+			status: "partial", migrated: 0, total: 0,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, skipTenantsAlreadyMigrated(ownership, "C", "title", plan, tc.tasks))
