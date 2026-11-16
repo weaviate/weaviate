@@ -167,11 +167,10 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
-	// wakeCh asks the run loop for a scheduling cycle before the next
-	// periodic tick, no sooner than minWakeSpacing after the last one.
-	// Sized 1 so concurrent
+	// wakeCh signals the run loop to fire a scheduling cycle, paced by minWakeSpacing,
+	// instead of waiting for the next periodic tick. Sized 1 so concurrent
 	// callers coalesce — a pending wake-up is equivalent to any number of
-	// queued wake-ups, because the next loop iteration reads this node's
+	// queued wake-ups, because the next loop iteration reads cluster-wide
 	// task state from scratch.
 	//
 	// Why this exists: with the default 1-minute tickInterval, a barrier
@@ -179,8 +178,6 @@ type Scheduler struct {
 	// minute of "the followers haven't fired their OnGroupCompleted /
 	// OnTaskCompleted yet" — the FSM apply path knows the barrier is open,
 	// but the followers' scheduler loops are still asleep on their ticker.
-	// Wake() (called from the Manager's RAFT-apply paths) shortens that gap
-	// to at most minWakeSpacing.
 	wakeCh chan struct{}
 }
 
@@ -202,8 +199,7 @@ type SchedulerParams struct {
 	TickInterval     time.Duration
 }
 
-// minWakeSpacing paces woken ticks. Each tick copies every task under the
-// task manager's lock, and during a run nearly every apply wakes the loop.
+// minWakeSpacing paces woken ticks: each copies every task under the manager's lock.
 const minWakeSpacing = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
@@ -256,10 +252,9 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Wake requests a scheduling cycle no sooner than minWakeSpacing after the
-// last one. Non-blocking: a pending
+// Wake requests a scheduling cycle, paced by minWakeSpacing. Non-blocking: a pending
 // wake-up coalesces additional calls (the next loop iteration sees the
-// latest task state regardless of how many wakes accumulated).
+// latest cluster-wide task state regardless of how many wakes accumulated).
 // Safe to call from any goroutine, including RAFT-apply paths.
 //
 // Wake is a no-op after [Scheduler.Close] returns — the run loop has
@@ -456,13 +451,6 @@ func (s *Scheduler) loop() {
 			lastTick = s.clock.Now()
 			s.tick()
 		case <-s.wakeCh:
-			// Reactive wake-up from a RAFT-apply path (typically the
-			// Manager observing a unit transition that opens a group
-			// barrier). Fire a tick once minWakeSpacing has passed since
-			// the last one, instead of waiting for the next ticker. The
-			// periodic ticker keeps running as a
-			// fallback — late wake-ups, missed signals, and any state
-			// drift get cleaned up at the next periodic tick.
 			if wait := minWakeSpacing - s.clock.Since(lastTick); wait > 0 {
 				select {
 				case <-s.clock.After(wait):

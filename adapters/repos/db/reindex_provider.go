@@ -1637,8 +1637,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping:
-				// FINISHED comes from the task list, not this node's schema,
-				// and only removing an index retires its overlay fields.
+				// FINISHED comes from the task list, not this node's
+				// schema, and only removing an index retires its overlay fields.
 			}
 		}
 		return nil

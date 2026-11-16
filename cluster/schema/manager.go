@@ -981,7 +981,6 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	)
 }
 
-// propertyHolds reports whether applying req would leave the property unchanged.
 func (s *SchemaManager) propertyHolds(class string, req command.UpdatePropertyRequest) bool {
 	cls, _ := s.schema.ReadOnlyClass(class)
 	if cls == nil {

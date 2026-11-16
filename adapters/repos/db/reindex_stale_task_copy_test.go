@@ -26,11 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// The scheduler reads this node's own task copy, which can trail the leader.
-// Pins that a trailing copy cannot revert a newer run's schema flip: the node
-// still sees an older run at SWAPPING after a newer run on the same property
-// finished, fires the older run's flip, and the flip check refuses it.
-// It passes without the local read too: it guards the property that read relies on.
+// A trailing task copy firing an older run's flip must not revert a newer run's flip.
 func TestReindexStaleTaskCopyCannotRevertANewerFlip(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	leader := distributedtask.NewManager(distributedtask.ManagerParameters{
@@ -77,7 +73,6 @@ func TestReindexStaleTaskCopyCannotRevertANewerFlip(t *testing.T) {
 		}
 	}
 
-	// The node has applied only the older run's first two entries.
 	const nodeApplied = 2
 	for i, entry := range append(run("t1", 1, "field"), run("t2", 5, "whitespace")...) {
 		entry(leader)
@@ -109,7 +104,6 @@ type flipTarget struct {
 	tokenization string
 }
 
-// flip makes the FSM's check for a migration's flip, then writes it.
 func (f *flipTarget) flip(leader *distributedtask.Manager, run api.MigrationRun, target string) error {
 	if err := leader.CheckMigrationPropertyUpdate("C", "name", run); err != nil {
 		return err
@@ -126,8 +120,7 @@ func (f *flipTarget) get() string {
 	return f.tokenization
 }
 
-// staleCopyFlipProvider flips the schema from OnTaskCompleted at SWAPPING, as
-// the reindex provider does, and counts the flips it fired.
+// staleCopyFlipProvider flips the schema from OnTaskCompleted at SWAPPING, as the reindex provider does.
 type staleCopyFlipProvider struct {
 	leader *distributedtask.Manager
 	schema *flipTarget
@@ -176,7 +169,6 @@ func (p *staleCopyFlipProvider) StartTask(*distributedtask.Task) (distributedtas
 	return nil, errors.New("this node owns no unit")
 }
 
-// leaderFinalizer applies the scheduler's finalize and fail proposals on the leader.
 type leaderFinalizer struct{ leader *distributedtask.Manager }
 
 func (f leaderFinalizer) MarkDistributedTaskFinalized(_ context.Context, namespace, id string, version uint64) error {

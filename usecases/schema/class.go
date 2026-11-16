@@ -538,8 +538,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	return h.updateClass(ctx, className, updated)
 }
 
-// UpdateClassInternal skips the auth checks. The leader round trip is bounded by
-// Raft.ConsistencyWaitTimeout unless ctx has a deadline.
+// bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
 ) error {
 	ctx, cancel := clusterUtils.BoundIfNoDeadline(ctx, h.config.Raft.ConsistencyWaitTimeout)
@@ -715,8 +714,7 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // h.schemaManager.UpdateProperty directly) so the MutationGuard
 // applies to external mutations.
 //
-// Returns only after the local FSM has applied the update. The leader round trip and the
-// wait are bounded by Raft.ConsistencyWaitTimeout unless ctx has a deadline.
+// Returns only after the local FSM has applied the update.
 func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run command.MigrationRun,
 	prop *models.Property, fields ...string,
 ) error {
