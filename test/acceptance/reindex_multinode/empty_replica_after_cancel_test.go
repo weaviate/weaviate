@@ -148,6 +148,7 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 
 	require.NoError(t, compose.StopNode(ctx, joined, nil))
 	require.NoError(t, compose.StartNode(ctx, joined))
+	restURI = restURIOf(compose, 1) // a restarted node gets a new port
 	require.Eventually(t, func() bool { return migratedOn(joinedURI()) }, time.Minute, 500*time.Millisecond,
 		"the new replica must serve t1 after it restarts")
 
