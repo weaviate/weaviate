@@ -137,11 +137,6 @@ func (i *HNSWIndex) Exists(id uint64) bool {
 	return i.hnsw.ContainsDoc(id)
 }
 
-// Known reports whether id was ever given a centroid, deleted or not.
-func (i *HNSWIndex) Known(id uint64) bool {
-	return i.hnsw.ContainsNode(id)
-}
-
 func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
 	start := time.Now()
 	defer i.metrics.CentroidSearchDuration(start)
