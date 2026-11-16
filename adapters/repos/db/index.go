@@ -259,6 +259,10 @@ type Index struct {
 	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
 	replicationFSMReader atomic.Pointer[replicationTypes.ReplicationFSMReader]
 	logger               logrus.FieldLogger
+	// Shared by the index's shards: a restart with a migration in flight demotes
+	// every tenant's properties at once.
+	rangeableDemotedOnce sync.Once
+	rangeableDemoted     *logrusext.Sampler
 	remote               *sharding.RemoteIndex
 	stopwords            *stopwords.Detector
 	// stopwordProvider bundles the collection-level stopword detector and the

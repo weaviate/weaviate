@@ -252,8 +252,10 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 	if migrationFaultCouldHideARangeableRecord(s.migrationRecords.Unreadable()) {
 		if s.rangeableUndecidable.CompareAndSwap(false, true) {
-			s.index.logger.WithField("shard", s.name).
-				Warn("a migration record is unreadable, so range filters read the filterable index on this shard until it reloads")
+			s.index.rangeableDemotedLog().WithSampling(func(l logrus.FieldLogger) {
+				l.WithField("shard", s.name).
+					Warn("a migration record is unreadable, so range filters read the filterable index on this shard until it reloads")
+			})
 		}
 	}
 	for _, rec := range s.migrationRecords.Records() {

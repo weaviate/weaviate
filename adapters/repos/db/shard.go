@@ -738,9 +738,18 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	wasReady, set := s.rangeableLocalReady[propName]
 	s.rangeableLocalReady[propName] = ready
 	if !ready && (wasReady || !set) {
-		s.index.logger.WithField("shard", s.name).WithField("property", propName).
-			Info("range filters on this property read the filterable index on this shard until its rangeable index is ready")
+		s.index.rangeableDemotedLog().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("shard", s.name).WithField("property", propName).
+				Info("range filters on this property read the filterable index on this shard until its rangeable index is ready")
+		})
 	}
+}
+
+func (i *Index) rangeableDemotedLog() *logrusext.Sampler {
+	i.rangeableDemotedOnce.Do(func() {
+		i.rangeableDemoted = logrusext.NewSampler(i.logger, maxReportedErrors, time.Minute)
+	})
+	return i.rangeableDemoted
 }
 
 func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {
