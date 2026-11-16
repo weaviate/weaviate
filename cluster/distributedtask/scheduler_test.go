@@ -2314,3 +2314,36 @@ func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
 	require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
 	require.Contains(t, msg, "(and 990 more)")
 }
+
+type swapFailingProvider struct{ *unitAwareTestProvider }
+
+func (p swapFailingProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+	return errors.New("segment unreadable")
+}
+
+// A stopped task has nothing left to cancel, so this line is where an operator learns who owes the swap and the ways out.
+func TestDecidedSwapRetryLogNamesStatusReplicaAndExits(t *testing.T) {
+	for _, status := range []TaskStatus{TaskStatusSwapping, TaskStatusFailed, TaskStatusCancelled} {
+		t.Run(string(status), func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			s := NewScheduler(SchedulerParams{Logger: logger, LocalNode: "node-a", TickInterval: time.Second})
+			desc := TaskDescriptor{ID: "reindex-1", Version: 1}
+			task := withUnits(&Task{
+				TaskDescriptor: desc, Status: status, NeedsPreparationBarrier: true,
+				SwapDecidedGroups: map[string]time.Time{"tenant-1": {}},
+				SwapsOwed:         map[string][]string{"tenant-1": {"node-a"}},
+			}, unitPerGroup([]string{"tenant-1"}))
+
+			s.runDecidedSwapPhase("ns", desc, task, swapFailingProvider{newUnitAwareTestProvider(t)})
+
+			entry := hook.LastEntry()
+			require.NotNil(t, entry)
+			require.Equal(t, status, entry.Data["status"])
+			require.Equal(t, "node-a", entry.Data["node"])
+			require.Equal(t, "tenant-1", entry.Data["groupID"])
+			for _, exit := range []string{"resubmit the reindex", "delete the tenant", "delete the collection", "segment unreadable"} {
+				require.Contains(t, entry.Message, exit)
+			}
+		})
+	}
+}

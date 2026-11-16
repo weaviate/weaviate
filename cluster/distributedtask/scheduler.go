@@ -1097,8 +1097,11 @@ func (s *Scheduler) runDecidedSwapPhase(
 					}
 				} else {
 					s.swapRetryLogger.WithSampling(func(l logrus.FieldLogger) {
-						l.WithField("taskID", desc.ID).WithField("groupID", w.groupID).WithField("node", s.localNode).
-							Errorf("swap of a decided group failed on this node; retrying it next tick: %v", err)
+						l.WithField("taskID", desc.ID).WithField("status", task.Status).
+							WithField("groupID", w.groupID).WithField("node", s.localNode).
+							Errorf("swap of a decided group failed on this node, which keeps serving the old index for it "+
+								"while its peers serve the new one; retrying it next tick. Fix the fault so the swap lands, "+
+								"or resubmit the reindex once the task has ended, delete the tenant, or delete the collection: %v", err)
 					})
 				}
 				continue
