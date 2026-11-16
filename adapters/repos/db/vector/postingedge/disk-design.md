@@ -1,6 +1,6 @@
 # Índice posting+edges: notas para el diseño de la versión en disco
 
-**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. La última sección, "Open for phase 2", lista lo que el diseño de disco tiene que resolver, sin resolverlo. El resto del diseño de disco no está escrito aquí.
+**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. El resto del diseño de disco no está escrito aquí.
 
 Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
 
@@ -262,3 +262,58 @@ Abierto:
 - **Su relación con el layout (c):** el refinado lee el sidecar por cada candidato refinado.
 - **Cómo se mantiene con inserciones, deletes y movimientos de posting,** que depende del punto 1.
 - **Qué memoria deja el modo disco,** con el sidecar y los centroides residentes, frente a HNSW y a HFresh.
+
+## HFresh map
+
+*Inventario de solo lectura, 2026-11-16, sobre `adapters/repos/db/vector/hfresh` en la cabeza de esta rama (`1467402870`), que lleva `main`. Las rutas son de ese paquete salvo que se diga otra cosa. El veredicto es para el posting-edge en disco: **reutilizable** (tal cual), **adaptar** (la pieza sirve con cambios) o **eliminar** (posting-edge no la necesita).*
+
+### Componentes
+
+| componente | HFresh hoy | veredicto | para posting-edge |
+|---|---|---|---|
+| Grafo de centroides | `hnsw.HNSW` en memoria, ef 64, RQ8, persistido por commit log en `<indexID>.hfresh.d`. El centroide float no se guarda: `Get` devuelve la reconstrucción RQ8 (`hnsw.go:62-113`). | adaptar | posting-edge ya busca su entrada en un HNSW de centroides (`centroids.go`), float y L2, sin persistir, con 124 MB de centroides float a 10M. Se aprovecha la persistencia del commit log; queda por ver si la reconstrucción RQ8 basta para la asignación exacta. |
+| Store de postings | LSM `SetCollection` con compactación forzada. Clave de 10 B: versión de esquema, postingID y versión del posting. Cada elemento es id (8 B), versión del vector (1 B) y código RQ1 con cabecera de 8 B. Sin cabecera de posting (`store.go:90-158`, `posting.go:24-37`). | adaptar | Un `SetCollection` es un conjunto sin orden, así que las aristas de cada miembro tienen que ir dentro de su elemento: id, código y aristas. Se quedan la clave versionada y la reescritura entera. |
+| Reescritura de un posting | `Put` escribe el posting entero bajo la versión siguiente; flush y compactación descartan las claves de versiones viejas, nunca elementos sueltos (`store.go:249-292`, `100-127`). La versión es un `uint8` sin tratamiento de la vuelta a 0 (`store.go:269`). | reutilizable | Es lo que pide un split, un merge o la reparación de las aristas de un posting. La vuelta del `uint8` hay que cerrarla antes de depender de ella. |
+| Append | `SetAdd` de un elemento bajo la clave vigente (`store.go:294-313`). | reutilizable | Insert incremental: el elemento nuevo lleva sus aristas. |
+| Lectura | `SetRawList`: concatena segmentos y memtables sin deduplicar. Al leer solo se saltan los borrados (`store.go:201-225`, `search.go:127`). | reutilizable | Igual, con la lápida en el mapa vector→posting en lugar de en `VersionMap`. |
+| Split | 2-means balanceado sobre los vectores exactos del bucket de objetos (o de FDE). Escribe los dos hijos, inserta sus centroides y borra el viejo, todo con el lock del posting. Después encola la reasignación de vecinos (`split.go:29-196`, `300-449`). | adaptar | Con aristas que guardan un id estable, un split cambia las entradas del mapa de los vectores que mueve, y ninguna arista. Esa actualización es lo que hay que añadir. El 2-means podría trabajar sobre el sidecar en vez de sobre el bucket. |
+| Merge | Lo dispara un scan que ve menos vivos que el mínimo. Busca un vecino entre 64 candidatos, funde y borra el pequeño. El centroide del fusionado no se recalcula (`merge.go:21-285`). | adaptar | Lo mismo que el split: actualizar las entradas del mapa de los vectores movidos. |
+| Reassign | `RNGSelect` con hasta 4 réplicas por vector, y un bump de versión por CAS que invalida las copias viejas (`reassign.go:28-131`, `rng.go:24-69`). | adaptar | posting-edge asigna cada vector a un solo posting, exacto, y cubre la frontera con aristas, no con réplicas. Sobran la selección RNG y las réplicas. Queda mover un vector a su posting más cercano y cambiar su entrada del mapa. |
+| Cola de tareas | Cuatro `DiskQueue` (analyze, split, reassign y merge) con deduplicación en memoria. Después de cada lote escribe los logs del LSM y hace flush (`task_queue.go`). | reutilizable | Tal cual, con sus invariantes de durabilidad (abajo). |
+| `PostingMap` | posting → ids de sus vectores, en memoria y en el bucket compartido. El insert solo toca la memoria; lo persisten analyze, split y merge (`posting_map.go`). | adaptar | Es el inverso del que hace falta. posting-edge saca la pertenencia del propio posting. |
+| Mapa vector→posting | **No existe.** | (nuevo) | 4 B por vector, persistido. Es la pieza del punto 1 de "Open for phase 2". |
+| `PostingSizes` | posting → `uint32`, mantenido como `PostingMap` (`posting_size.go`). | reutilizable | Tal cual. |
+| `VersionMap` | vector → 1 B: un contador de 7 bits y un bit de borrado. Detecta las copias viejas que dejan las réplicas y el reassign (`version_map.go`). | eliminar | Con un solo posting por vector, la copia válida es la del posting que dice el mapa vector→posting, y una lápida en el mapa hace de bit de borrado. El CAS del bump pasa a ser un CAS sobre la entrada del mapa. |
+| Delete | Pone la lápida en `VersionMap`; postings, mapas y centroides no se tocan. El GC es perezoso, en split y merge (`hfresh.go:230-245`). | adaptar | Además hay aristas que apuntan al borrado: se saltan al puntuar, por la lápida del mapa, y se quitan cuando se reescribe el posting de su source. |
+| Update | No llega al índice. El shard da un docID nuevo a un vector que cambia: borra el viejo del índice y añade el nuevo, con un contador monótono (`adapters/repos/db/shard_write_put.go:546-549`, `926-930`). | reutilizable | posting-edge solo ve inserts y deletes. Consecuencia: los docIDs crecen con la historia y dejan huecos, así que un array por docID ocupa 4 B por docID emitido, no por vector vivo. |
+| Búsqueda | Centroides a `max(k, searchProbe)`, filtro por ratio de distancia, `MultiGet` y scan RQ1 (`search.go:48-257`). | eliminar | posting-edge tiene su propio bucle, por rondas guiadas por aristas. |
+| Rescore | En paralelo, sobre una vista consistente del bucket de objetos (`TempVectorForIDWithViewThunk`), con slices de un pool (`search.go:182-256`, `269-293`). | reutilizable | Es el camino de rescore desde el bucket. Si el layout aísla el rescore, (b') o (c), se adapta. |
+| MUVERA | Rescore intermedio contra FDE y MaxSim (`search.go:443-482`, `500-732`). | eliminar | Fuera del alcance de posting-edge v1. |
+| Filtros | Allow list de solo pertenencia y orden de centroides determinista (`allow_list.go`, `hnsw.go:155-172`). Por debajo de 5 000 ids, búsqueda plana sobre objetos (`search_flat.go`). | adaptar | posting-edge aún no filtra. El invariante del fix de orden de reclamo vale igual (abajo). |
+| Metadata y arranque | Bucket compartido `Replace`: dimensiones, cuantizador, versiones, mapas y la secuencia de ids de posting en bloques de 1 000. Al arrancar: commit log de centroides, colas, metadata y mapas (`index_metadata.go`, `hfresh.go:125-220`). | reutilizable | Con el mapa vector→posting como un prefijo más. |
+
+### La cadena de #12512: dónde vive cada fix y qué invariante protege
+
+- **[#11785](https://github.com/weaviate/weaviate/pull/11785) está en `main`** (squash `022ca976db`, 2026-08-18). Lleva los presupuestos `max(k, …)`, el desempate determinista y el rescore intermedio de MUVERA.
+- **[#12512](https://github.com/weaviate/weaviate/pull/12512) sigue abierto y no está en este árbol.** Su re-ruta síncrona (`rerouteLostInsert`, como mucho 3 intentos) vive solo en `origin/hfresh-insert-reroute-lost-split-race`. Aquí, una colocación perdida solo encola un reassign (`insert.go:105-110`), y la ventana de invisibilidad sigue abierta.
+
+| fix | dónde vive | invariante | ¿lo hereda posting-edge? |
+|---|---|---|---|
+| #12512 (abierto) | `insert.go`, `rerouteLostInsert` | Un insert confirmado está en un posting vivo cuando `Add` vuelve. | Sí, y por construcción. Es el riesgo del punto 1: en HFresh a 10M se midió un 5.9 % de vectores fuera de todo posting. |
+| `c5ea8a5e47` | `insert.go:100-111`, `209-216` (`add`, `append`) | Una colocación perdida contra un posting retirado siempre se encola para reassign. | Sí, mientras la re-ruta no sea síncrona. |
+| `9a0e663ea9` | `task_queue.go:292-295` (`EnqueueReassign`) | Un push fallido no deja un bit de dedup que bloquee los reassigns siguientes de ese vector. | Sí, con la cola. |
+| `70ce8bad08` | `reassign.go:115-127` (`appendReassignReplicas`) | Un reassign que pierde su destino se re-encola, en vez de tragárselo su propio marcador de dedup. | Sí. |
+| `63c2351f4f` | `reassign.go:66-70` (`doReassign`) | Ninguna versión se sube, invalidando las copias viejas, sin un destino. | Sí, como regla del mapa: la entrada de un vector movido no cambia antes de que su posting nuevo esté escrito. |
+| `de7a8ff03c` | `reassign_all.go:96-116` (`EnqueueReassignAll`) | Antes de reasignar un posting huérfano se crea un destino. | Sí. |
+| `f5e79fdfc4` | `split.go:36-49`, `78-128` (`doSplit`) | Un posting de más tamaño conserva su split programado, y un delete concurrente no lo aborta para siempre. | Sí. |
+| `0618fa2589` | `allow_list.go:22-132`, `hnsw.go:155-172` | Que un vector permitido sea alcanzable no depende del orden de sondeo. | Sí, cuando posting-edge filtre. |
+| `442511fa8c` | `task_queue.go:305-316` (`OnBatchProcessed`) | El commit log de centroides nunca llega a disco antes que los postings a los que apunta. | Sí, si los centroides se persisten por commit log. |
+| `fef06768e5` | `adapters/repos/db/queue/queue.go:375-387` | Una tarea procesada no se pierde si falla el flush de después del lote. | Sí, con la cola. |
+| `1993f72d9a` | `reassign.go:75-79` | Un cambio de versión concurrente convierte el reassign en un no-op. | Sí, como CAS sobre la entrada del mapa. |
+
+**Sin determinar:**
+
+- qué hace la versión de posting `uint8` al dar la vuelta (255 → 0);
+- la capacidad y el desalojo de la caché `otter` de versiones de posting;
+- si `Centroids.Get` puede fallar sobre un centroide ya borrado, después de la limpieza de lápidas, en `split.go:301` y `merge.go:236-241`;
+- la política de fsync del push de las colas.
