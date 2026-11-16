@@ -121,6 +121,33 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 	require.Equal(t, unrelatedValue, data)
 }
 
+// A store rolled back behind the centroid commit log restarts the posting ID
+// sequence below IDs the centroid graph already holds.
+func TestPostingIDSequenceStartsAboveCentroidGraph(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	t.Cleanup(func() { cfg.Scheduler.Close(context.Background()) })
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	vec := []float32{1, 0, 0, 0}
+	require.NoError(t, index.initDimensions(vec))
+	compressed := index.quantizer.CompressedBytes(index.quantizer.Encode(vec))
+	for id := uint64(1); id <= 7; id++ {
+		require.NoError(t, index.Centroids.Insert(id, &Centroid{Uncompressed: vec, Compressed: compressed}))
+	}
+	require.NoError(t, index.Centroids.MarkAsDeleted(7))
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
+	require.NoError(t, err)
+	require.NoError(t, NewBucketStore(bucket).Store(0))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	id, err := index.IDs.Next()
+	require.NoError(t, err)
+	require.Greater(t, id, uint64(7))
+}
+
 // A reassign that saved its version bump but lost its new copy leaves the
 // orphan's stale entry as the only record of the vector, so the repair must
 // not drop it.
