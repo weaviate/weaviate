@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1015,7 +1016,8 @@ func TestPartialRunRefusalsCountTenantsOnlyForTenantReaders(t *testing.T) {
 		return &indexesHandlers{appState: &state.State{
 			Authorizer: authz, SchemaManager: &schemaUC.Manager{SchemaReader: reader},
 			ReindexSubmitLocks: state.NewReindexSubmitLocks(), Logger: logrus.New(),
-			ServerConfig: &config.WeaviateConfig{Config: config.Config{RuntimeReindexEnabled: true}},
+			NamespaceQualifier: namespacing.Disabled,
+			ServerConfig:       &config.WeaviateConfig{Config: config.Config{RuntimeReindexEnabled: true}},
 		}, taskLister: fakeReindexTaskLister{tasks: tasks}}
 	}
 	for _, tc := range []struct {
