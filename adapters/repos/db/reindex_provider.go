@@ -624,8 +624,6 @@ func (p *ReindexProvider) processOneUnit(
 		cached = len(tasks) > 0
 	}
 	if cached {
-		// Recovery seeds only the halves whose iteration finished, so a restart
-		// between a unit's halves leaves the other one to build here.
 		fresh, createErr := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
@@ -1219,11 +1217,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	}
 	// Swapping a sibling of a refused half would leave the migration half-applied on this shard.
 	for _, reindexTask := range unitTasks {
-		rec, ok := reindexTask.migrationRecord(shard)
-		if !ok {
-			continue
-		}
-		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
+		if err := reindexTask.refuseUnmirroredOn(shard); err != nil {
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 		}
 	}
