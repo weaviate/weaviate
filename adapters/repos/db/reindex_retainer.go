@@ -68,12 +68,9 @@ func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(
 }
 
 func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, task *distributedtask.Task) error {
-	if task != nil && (task.Status == distributedtask.TaskStatusSwapping || task.Status == distributedtask.TaskStatusFinished) {
+	if task != nil && task.Status == distributedtask.TaskStatusSwapping {
 		if h, ok := reindexHeaderOf(task); ok &&
 			strings.EqualFold(h.Class, className) && slices.Contains(h.Properties, propertyName) {
-			if task.Status == distributedtask.TaskStatusFinished {
-				return fmt.Errorf("%w: %s.%s", distributedtask.ErrCutoverRunFinished, className, propertyName)
-			}
 			return nil
 		}
 	}

@@ -13,7 +13,6 @@ package db
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"runtime"
 	"testing"
@@ -482,19 +481,17 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
 	require.NoError(t, err)
 	for _, tc := range []struct {
-		status       distributedtask.TaskStatus
-		class        string
-		prop         string
-		run          api.MigrationRun
-		wantRefuse   bool
-		wantFinished bool
+		status     distributedtask.TaskStatus
+		class      string
+		prop       string
+		run        api.MigrationRun
+		wantRefuse bool
 	}{
 		{status: distributedtask.TaskStatusSwapping, class: "c", prop: "name"},
 		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "other", wantRefuse: true},
 		{status: distributedtask.TaskStatusSwapping, class: "D", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusFailed, class: "C", prop: "name", wantRefuse: true},
-		{status: distributedtask.TaskStatusFinished, class: "C", prop: "name", wantRefuse: true, wantFinished: true},
-		{status: distributedtask.TaskStatusFinished, class: "C", prop: "other", wantRefuse: true},
+		{status: distributedtask.TaskStatusFinished, class: "C", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusPreparing, class: "C", prop: "name", wantRefuse: true},
 		{
 			status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
@@ -522,7 +519,6 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 			require.NoError(t, mgr.Restore(snapshot))
 			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
 			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
-			require.Equal(t, tc.wantFinished, errors.Is(err, distributedtask.ErrCutoverRunFinished), "err=%v", err)
 		})
 	}
 }
