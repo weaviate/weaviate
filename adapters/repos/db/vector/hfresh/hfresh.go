@@ -155,7 +155,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	if maxID, found := h.Centroids.hnsw.MaxNodeID(); found {
+	// cleanup may already have freed IDs since the graph loaded
+	if maxID, found := h.Centroids.hnsw.RestoredMaxNodeID(); found {
 		h.minPostingID = maxID + 1
 	}
 
