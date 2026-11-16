@@ -46,8 +46,9 @@ import (
 // Tests that need no pre-migration history start on rbacMockStore.
 //
 // An rbacMockStore runs its migration loop alongside any direct
-// migrateBackupPrincipalGrants call. Every assertion holds no matter which of
-// the two proposed.
+// migrateBackupPrincipalGrants call. Its first role write while the marker is
+// absent also runs the migration. Every assertion holds whichever of these
+// proposed.
 
 // rbacMockStore is NewMockStore with a real RBAC store under rbacDir, built
 // as production builds it: NewFSM, then its address.
@@ -72,7 +73,9 @@ func writeLegacyPolicy(t *testing.T, rbacDir, version string, rows ...string) {
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "version"), []byte(version), 0o600))
 }
 
-func openMockStore(t *testing.T, m MockStore) *Raft {
+// openMockStore opens m and waits until it leads and is ready. Each afterOpen
+// hook runs on m.store right after Open returns, before any wait.
+func openMockStore(t *testing.T, m MockStore, afterOpen ...func(st *Store)) *Raft {
 	t.Helper()
 	ctx := context.Background()
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
@@ -80,6 +83,9 @@ func openMockStore(t *testing.T, m MockStore) *Raft {
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Maybe()
 	m.indexer.On("Close", Anything).Return(nil).Maybe()
 	require.NoError(t, srv.Open(ctx, m.indexer))
+	for _, f := range afterOpen {
+		f(m.store)
+	}
 	require.NoError(t, srv.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
 	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
 	require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
@@ -88,11 +94,12 @@ func openMockStore(t *testing.T, m MockStore) *Raft {
 }
 
 // reopenWithRBAC opens base's raft directories again with a real RBAC store
-// under rbacDir, and closes it when the test ends.
-func reopenWithRBAC(t *testing.T, base MockStore, rbacDir string) (MockStore, *Raft) {
+// under rbacDir, and closes it when the test ends. It passes afterOpen to
+// openMockStore.
+func reopenWithRBAC(t *testing.T, base MockStore, rbacDir string, afterOpen ...func(st *Store)) (MockStore, *Raft) {
 	t.Helper()
 	m := rbacMockStore(t, base, rbacDir)
-	srv := openMockStore(t, m)
+	srv := openMockStore(t, m, afterOpen...)
 	t.Cleanup(func() { require.NoError(t, srv.Close(context.Background())) })
 	return m, srv
 }

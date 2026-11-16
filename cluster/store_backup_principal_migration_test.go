@@ -36,29 +36,44 @@ import (
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// migrationEntries returns the migration entries in st's log with an index
-// above after. A migration entry is a role upsert that names the marker role.
-func migrationEntries(t *testing.T, st *Store, after uint64) []cmd.CreateRolesRequest {
+// walkLog calls visit for each command entry in st's log with an index above
+// after. A migration entry is a role upsert that names the marker role. For a
+// migration entry, migration holds the decoded request. Otherwise it is nil.
+func walkLog(t *testing.T, st *Store, after uint64, visit func(i uint64, req *cmd.ApplyRequest, migration *cmd.CreateRolesRequest)) {
 	t.Helper()
 	first, err := st.logStore.FirstIndex()
 	require.NoError(t, err)
 	last, err := st.logStore.LastIndex()
 	require.NoError(t, err)
-	var out []cmd.CreateRolesRequest
 	for i := max(first, after+1); i <= last; i++ {
 		var l raft.Log
 		require.NoError(t, st.logStore.GetLog(i, &l))
 		var req cmd.ApplyRequest
-		if l.Type != raft.LogCommand || googleproto.Unmarshal(l.Data, &req) != nil ||
-			req.Type != cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS {
+		if l.Type != raft.LogCommand || googleproto.Unmarshal(l.Data, &req) != nil {
 			continue
 		}
-		var sub cmd.CreateRolesRequest
-		require.NoError(t, json.Unmarshal(req.SubCommand, &sub))
-		if _, ok := sub.Roles[conv.BackupPrincipalsMigratedRole]; ok {
-			out = append(out, sub)
+		var migration *cmd.CreateRolesRequest
+		if req.Type == cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS {
+			var sub cmd.CreateRolesRequest
+			require.NoError(t, json.Unmarshal(req.SubCommand, &sub))
+			if _, ok := sub.Roles[conv.BackupPrincipalsMigratedRole]; ok {
+				migration = &sub
+			}
 		}
+		visit(i, &req, migration)
 	}
+}
+
+// migrationEntries returns the migration entries in st's log with an index
+// above after.
+func migrationEntries(t *testing.T, st *Store, after uint64) []cmd.CreateRolesRequest {
+	t.Helper()
+	var out []cmd.CreateRolesRequest
+	walkLog(t, st, after, func(_ uint64, _ *cmd.ApplyRequest, migration *cmd.CreateRolesRequest) {
+		if migration != nil {
+			out = append(out, *migration)
+		}
+	})
 	return out
 }
 
@@ -307,5 +322,124 @@ func TestBackupPrincipalMigrationAfterRoleRestore(t *testing.T) {
 		roles, err := m.cfg.RBAC.GetRolesForUserOrGroup("alice", authentication.AuthTypeDb, false)
 		require.NoError(t, err)
 		assert.Contains(t, roles, authorization.Admin)
+	})
+}
+
+func TestBackupPrincipalMigrationOrdersRoleWrites(t *testing.T) {
+	movies := backupsGrant(t, &models.PermissionBackups{Collection: authorization.String("Movies")})
+	usersGrant := backupsGrant(t, authorization.AllBackupUsers)
+	rolesGrant := backupsGrant(t, authorization.AllBackupRoles)
+	upsert := func(t *testing.T, srv *Raft, roles map[string][]authorization.Policy) {
+		t.Helper()
+		executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, &cmd.CreateRolesRequest{
+			Roles: roles, Version: cmd.RBACLatestCommandPolicyVersion, RoleCreation: true,
+		})
+	}
+	// With the loop stopped, only a role write or a direct call proposes the
+	// migration. Open starts the loop just before it returns, and the first tick
+	// comes one interval later. The hook stops the loop right after Open
+	// returns, so how long Open takes does not matter.
+	openWithoutLoop := func(t *testing.T, base MockStore) (MockStore, *Raft) {
+		t.Helper()
+		m, srv := reopenWithRBAC(t, base, t.TempDir(), func(st *Store) {
+			close(st.backupPrincipalMigrationStop)
+			<-st.backupPrincipalMigrationDone
+			st.backupPrincipalMigrationStop = nil
+		})
+		require.False(t, backupPrincipalsMigrated(t, m.cfg.RBAC))
+		return m, srv
+	}
+	migrations := func(t *testing.T, st *Store) []uint64 {
+		t.Helper()
+		var out []uint64
+		walkLog(t, st, 0, func(i uint64, _ *cmd.ApplyRequest, migration *cmd.CreateRolesRequest) {
+			if migration != nil {
+				out = append(out, i)
+			}
+		})
+		return out
+	}
+	writes := func(t *testing.T, st *Store, typ cmd.ApplyRequest_Type) []uint64 {
+		t.Helper()
+		var out []uint64
+		walkLog(t, st, 0, func(i uint64, req *cmd.ApplyRequest, migration *cmd.CreateRolesRequest) {
+			if req.Type == typ && migration == nil {
+				out = append(out, i)
+			}
+		})
+		return out
+	}
+
+	t.Run("a role upsert on a store without the marker keeps exactly its grant", func(t *testing.T) {
+		m, srv := openWithoutLoop(t, NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort()))
+		upsert(t, srv, map[string][]authorization.Policy{"test-role": {movies}})
+		runMigration(t, m.store)
+
+		assert.Equal(t, []authorization.Policy{movies}, rolePolicies(t, m.cfg.RBAC, "test-role"))
+		assert.True(t, backupPrincipalsMigrated(t, m.cfg.RBAC))
+		migrationIdx := migrations(t, m.store)
+		require.Len(t, migrationIdx, 1)
+		writeIdx := writes(t, m.store, cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS)
+		require.Len(t, writeIdx, 1)
+		assert.Less(t, migrationIdx[0], writeIdx[0])
+	})
+
+	t.Run("a role present before the first guarded write gains both wildcards", func(t *testing.T) {
+		base := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+		preMigrationHistory(t, base, func(srv *Raft) {
+			upsert(t, srv, map[string][]authorization.Policy{"operator": {movies}})
+		})
+		m, srv := openWithoutLoop(t, base)
+		upsert(t, srv, map[string][]authorization.Policy{"test-role": {movies}})
+
+		assert.ElementsMatch(t, []authorization.Policy{movies, usersGrant, rolesGrant}, rolePolicies(t, m.cfg.RBAC, "operator"))
+		assert.Equal(t, []authorization.Policy{movies}, rolePolicies(t, m.cfg.RBAC, "test-role"))
+		assert.True(t, backupPrincipalsMigrated(t, m.cfg.RBAC))
+	})
+
+	t.Run("remove and delete are ordered after the migration entry", func(t *testing.T) {
+		for _, tc := range []struct {
+			typ   cmd.ApplyRequest_Type
+			write func(srv *Raft) error
+			want  []authorization.Policy
+		}{
+			{
+				typ:   cmd.ApplyRequest_TYPE_REMOVE_PERMISSIONS,
+				write: func(srv *Raft) error { return srv.RemovePermissions("operator", []*authorization.Policy{&rolesGrant}) },
+				want:  []authorization.Policy{movies, usersGrant},
+			},
+			{
+				typ:   cmd.ApplyRequest_TYPE_DELETE_ROLES,
+				write: func(srv *Raft) error { return srv.DeleteRoles("operator") },
+			},
+		} {
+			t.Run(cmd.ApplyRequest_Type_name[int32(tc.typ)], func(t *testing.T) {
+				base := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+				preMigrationHistory(t, base, func(srv *Raft) {
+					upsert(t, srv, map[string][]authorization.Policy{"operator": {movies}})
+				})
+				m, srv := openWithoutLoop(t, base)
+				require.NoError(t, tc.write(srv))
+
+				assert.ElementsMatch(t, tc.want, rolePolicies(t, m.cfg.RBAC, "operator"))
+				migrationIdx := migrations(t, m.store)
+				require.Len(t, migrationIdx, 1)
+				writeIdx := writes(t, m.store, tc.typ)
+				require.Len(t, writeIdx, 1)
+				assert.Less(t, migrationIdx[0], writeIdx[0])
+			})
+		}
+	})
+
+	t.Run("with the marker present, a write proposes no migration entry", func(t *testing.T) {
+		m, srv := openWithoutLoop(t, NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort()))
+		runMigration(t, m.store)
+		require.True(t, backupPrincipalsMigrated(t, m.cfg.RBAC))
+
+		before := m.store.raft.Load().LastIndex()
+		upsert(t, srv, map[string][]authorization.Policy{"test-role": {movies}})
+
+		assert.Empty(t, migrationEntries(t, m.store, before))
+		assert.Equal(t, []authorization.Policy{movies}, rolePolicies(t, m.cfg.RBAC, "test-role"))
 	})
 }

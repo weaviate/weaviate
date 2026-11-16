@@ -293,7 +293,7 @@ type Store struct {
 	wipedJoinerDone chan struct{}
 
 	// backupPrincipalMigrationMu is held for a whole migrateBackupPrincipalGrants
-	// call, so the loop and a direct call cannot both propose.
+	// call, so the loop and a role write cannot both propose.
 	backupPrincipalMigrationMu sync.Mutex
 	// Close closes backupPrincipalMigrationStop to end the loop Open starts.
 	// The loop closes backupPrincipalMigrationDone on exit.
@@ -825,7 +825,7 @@ func (st *Store) Close(ctx context.Context) error {
 			st.log.Warnf("wiped-joiner watcher still running at shutdown deadline; proceeding: %v", ctx.Err())
 		}
 	}
-	// This wait comes after raft shutdown. The shutdown makes any Execute call the loop is blocked in fail with ErrRaftShutdown.
+	// This wait comes after raft shutdown. The shutdown makes any execute call the loop is blocked in fail with ErrRaftShutdown.
 	if st.backupPrincipalMigrationDone != nil {
 		select {
 		case <-st.backupPrincipalMigrationDone:
@@ -1706,6 +1706,10 @@ func (st *Store) backupPrincipalMigrationLoop(stop <-chan struct{}) {
 // shape: an upsert at RBACLatestCommandPolicyVersion without RoleCreation.
 // proposed reports whether an entry was committed.
 //
+// Execute calls it before a role upsert, permission removal or role delete
+// while the marker is absent. It commits its entry through the unexported
+// execute, which skips that check.
+//
 // cfg.RBAC is nil only for a Store built without an RBAC manager, as tests
 // build it. Production sets it whether or not RBAC is enabled
 // (configureAuthorizer), so a cluster with RBAC disabled also proposes the
@@ -1747,7 +1751,7 @@ func (st *Store) migrateBackupPrincipalGrants() (proposed bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("marshal upsert-roles subcommand: %w", err)
 	}
-	if _, err := st.Execute(&api.ApplyRequest{Type: api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, SubCommand: subCmd}); err != nil {
+	if _, err := st.execute(&api.ApplyRequest{Type: api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, SubCommand: subCmd}); err != nil {
 		return false, fmt.Errorf("commit backup principal migration: %w", err)
 	}
 	st.log.WithField("action", "backup_principal_migration").WithField("roles", len(roles)-1).
