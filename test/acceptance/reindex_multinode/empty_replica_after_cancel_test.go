@@ -44,38 +44,18 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 
 	const className, tenant = "EmptyReplicaAfterCancel", "t1"
 	restURI := compose.GetWeaviate().URI()
-	// Factor 1: a replica can be removed only down to the factor, and the new one must answer alone.
-	createMTCollection(t, restURI, className, 1, textProps("text"))
+	// Replication factor 1, because a replica can be removed only down to the
+	// factor and the new one must answer alone.
+	createAsyncMTCollection(t, restURI, className)
 	createTenants(t, restURI, className, []string{tenant, "large"})
-	objects := map[string]string{uuid.NewString(): "The Hobbit", uuid.NewString(): "other words"}
-	putToEveryReplica := func() {
-		batch := make([]map[string]any, 0, len(objects))
-		for id, text := range objects {
-			batch = append(batch, map[string]any{
-				"class": className, "id": id, "tenant": tenant, "properties": map[string]any{"text": text},
-			})
-		}
-		body, err := json.Marshal(map[string]any{"objects": batch})
-		require.NoError(t, err)
-		resp, err := http.Post(fmt.Sprintf("http://%s/v1/batch/objects?consistency_level=ALL", restURI),
-			"application/json", bytes.NewReader(body))
-		require.NoError(t, err)
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		require.Equal(t, http.StatusOK, resp.StatusCode, "batch: %s", respBody)
-		require.NotContains(t, string(respBody), `"errors"`, "batch: %s", respBody)
-	}
-	putToEveryReplica()
+	ids := []string{uuid.NewString(), uuid.NewString()}
+	postBatchToEveryReplica(t, restURI, []map[string]any{
+		{"class": className, "id": ids[0], "tenant": tenant, "properties": map[string]any{"text": "The Hobbit"}},
+		{"class": className, "id": ids[1], "tenant": tenant, "properties": map[string]any{"text": "other words"}},
+	})
 	importLargeTenant(t, restURI, className)
+	migratedOn := func(uri string) bool { return tenantMigratedOn(t, uri, className, tenant, "The Hobbit", "Hobbit") }
 
-	migratedOn := func(uri string) bool {
-		whole, err := runBM25QueryOnNodeTenant(t, uri, className, tenant, "The Hobbit")
-		if err != nil || len(whole) != 1 {
-			return false
-		}
-		word, err := runBM25QueryOnNodeTenant(t, uri, className, tenant, "Hobbit")
-		return err == nil && len(word) == 0
-	}
 	// The large tenant keeps the run cancellable after t1 swaps.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
 	require.Eventually(t, func() bool {
@@ -94,13 +74,19 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 		return false
 	}, time.Minute, 500*time.Millisecond, "the indexes endpoint must read partial, 1 of 2 tenants")
 
-	var state models.ReplicationShardingStateResponse
-	require.True(t, httpGetJSON(fmt.Sprintf("http://%s/v1/replication/sharding-state?collection=%s&shard=%s",
-		restURI, className, tenant), &state) && state.ShardingState != nil && len(state.ShardingState.Shards) == 1)
-	owners := state.ShardingState.Shards[0].Replicas
+	replicasOfTenant := func() []string {
+		var state models.ReplicationShardingStateResponse
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/replication/sharding-state?collection=%s&shard=%s",
+			restURI, className, tenant), &state) || state.ShardingState == nil || len(state.ShardingState.Shards) != 1 {
+			return nil
+		}
+		return state.ShardingState.Shards[0].Replicas
+	}
+	owners := replicasOfTenant()
 	require.Len(t, owners, 1)
 	joined := slices.IndexFunc([]string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2},
 		func(n string) bool { return !slices.Contains(owners, n) })
+	joinedName := fmt.Sprintf("weaviate-%d", joined)
 	joinedURI := func() string { return restURIOf(compose, joined+1) }
 
 	scale := func(actions models.ReplicationScalePlanShardScaleActionsAnon) {
@@ -116,18 +102,24 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 		}
 		require.NoError(t, err)
 	}
-	scale(models.ReplicationScalePlanShardScaleActionsAnon{AddNodes: map[string]string{fmt.Sprintf("weaviate-%d", joined): ""}})
-	// Written again once the new replica is listed, so they reach it through the write path.
+	scale(models.ReplicationScalePlanShardScaleActionsAnon{AddNodes: map[string]string{joinedName: ""}})
+	// Read from the new replica alone; the nodes endpoint's object count lags behind it.
 	require.Eventually(t, func() bool {
-		var check models.ReplicationShardingStateResponse
-		return httpGetJSON(fmt.Sprintf("http://%s/v1/replication/sharding-state?collection=%s&shard=%s",
-			restURI, className, tenant), &check) && check.ShardingState != nil &&
-			len(check.ShardingState.Shards) == 1 && len(check.ShardingState.Shards[0].Replicas) == 2
-	}, 30*time.Second, 200*time.Millisecond, "the new replica must be listed")
-	putToEveryReplica()
+		return !slices.ContainsFunc(ids, func(id string) bool {
+			resp, err := http.Get(fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s&node_name=%s",
+				restURI, className, id, tenant, joinedName))
+			if err != nil {
+				return true
+			}
+			resp.Body.Close()
+			return resp.StatusCode != http.StatusOK
+		})
+	}, 3*time.Minute, time.Second, "async replication must fill the new replica")
 	scale(models.ReplicationScalePlanShardScaleActionsAnon{RemoveNodes: owners})
+	require.Eventually(t, func() bool { return slices.Equal(replicasOfTenant(), []string{joinedName}) },
+		30*time.Second, 200*time.Millisecond, "only the new replica must be listed")
 
-	require.Eventually(t, func() bool { return migratedOn(joinedURI()) }, 30*time.Second, 200*time.Millisecond,
+	require.True(t, migratedOn(joinedURI()),
 		"the new replica, alone, must serve t1 with field tokenization before the schema changes")
 
 	retry := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
@@ -139,4 +131,22 @@ func TestMultiNode_EmptyReplicaAfterCancel_ServesTheMigratedIndex(t *testing.T) 
 	require.NoError(t, compose.StartNode(ctx, joined))
 	require.Eventually(t, func() bool { return migratedOn(joinedURI()) }, time.Minute, 500*time.Millisecond,
 		"the new replica must serve t1 after it restarts")
+}
+
+func createAsyncMTCollection(t *testing.T, restURI, className string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"class": className, "vectorizer": "none", "properties": textProps("text"),
+		"multiTenancyConfig": map[string]any{"enabled": true},
+		"replicationConfig": map[string]any{
+			"factor": 1, "asyncEnabled": true,
+			"asyncConfig": map[string]any{"frequency": 5000, "frequencyWhilePropagating": 1000, "propagationDelay": 1000},
+		},
+	})
+	require.NoError(t, err)
+	resp, err := http.Post(fmt.Sprintf("http://%s/v1/schema", restURI), "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "create class: %s", respBody)
 }

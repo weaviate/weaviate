@@ -150,7 +150,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	if err := s.writeFirstLoadRecords(class); err != nil {
-		return nil, fmt.Errorf("shard %q: %w", s.ID(), err)
+		return nil, fmt.Errorf("shard %q: %w: %w", s.ID(), errFirstLoadRecord, err)
 	}
 
 	// init the store itself synchronously

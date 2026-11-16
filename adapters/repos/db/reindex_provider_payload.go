@@ -39,6 +39,13 @@ type ReindexTaskHeader struct {
 
 func (h ReindexTaskHeader) Collection() string { return h.Class }
 
+func (h ReindexTaskHeader) payload() ReindexTaskPayload {
+	return ReindexTaskPayload{
+		MigrationType: h.MigrationType, Collection: h.Class, Properties: h.Properties,
+		TargetTokenization: h.TargetTokenization, BucketStrategy: h.BucketStrategy,
+	}
+}
+
 // DecodeReindexTaskHeader decodes the full payload, so a payload the detectors refused as unparseable still is.
 func DecodeReindexTaskHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	var p ReindexTaskPayload

@@ -99,8 +99,8 @@ func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.Task
 	return s.store.LocalTaskStatuses(namespace, shard)
 }
 
-func (s *Raft) DecidedRunsOf(collection, shard, node string) []distributedtask.DecidedRun {
-	return s.store.DecidedRunsOf(collection, shard, node)
+func (s *Raft) BarrierRunsOf(namespace, collection, shard string) []distributedtask.BarrierRun {
+	return s.store.BarrierRunsOf(namespace, collection, shard)
 }
 
 func (s *Raft) Ready() bool {

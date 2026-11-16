@@ -1017,31 +1017,33 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	return out
 }
 
-type DecidedRun struct {
+type BarrierRun struct {
 	TaskDescriptor
-	Header TaskHeader
+	Status       TaskStatus
+	GroupDecided bool
+	Header       TaskHeader
 }
 
-// DecidedRunsOf returns unfinished barrier runs that decided the shard's group
-// and owe node no swap.
-func (m *Manager) DecidedRunsOf(collection, shard, node string) []DecidedRun {
+// BarrierRunsOf returns namespace's tasks on collection (matched ignoring case)
+// that use the preparation barrier and either finished or decided the swap of
+// shard's group, oldest first.
+func (m *Manager) BarrierRunsOf(namespace, collection, shard string) []BarrierRun {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var runs []DecidedRun
-	for ns := range m.headerDecoders {
-		for _, task := range m.tasks[ns] {
-			if !task.NeedsPreparationBarrier || task.Status == TaskStatusFinished ||
-				!strings.EqualFold(task.collection(), collection) {
-				continue
-			}
-			group := task.groupOf(shard)
-			if task.GroupSwapDecided(group) && !task.SwapOwedBy(group, node) {
-				runs = append(runs, DecidedRun{TaskDescriptor: task.TaskDescriptor, Header: task.header})
-			}
+	var runs []BarrierRun
+	for _, task := range m.tasks[namespace] {
+		if !task.NeedsPreparationBarrier || !strings.EqualFold(task.collection(), collection) {
+			continue
+		}
+		decided := task.GroupSwapDecided(task.groupOf(shard))
+		if decided || task.Status == TaskStatusFinished {
+			runs = append(runs, BarrierRun{
+				TaskDescriptor: task.TaskDescriptor, Status: task.Status, GroupDecided: decided, Header: task.header,
+			})
 		}
 	}
-	slices.SortFunc(runs, func(a, b DecidedRun) int { return cmp.Compare(a.Version, b.Version) })
+	slices.SortFunc(runs, func(a, b BarrierRun) int { return cmp.Compare(a.Version, b.Version) })
 	return runs
 }
 

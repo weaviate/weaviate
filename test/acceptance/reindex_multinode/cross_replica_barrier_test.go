@@ -399,27 +399,37 @@ func importLargeTenant(t *testing.T, restURI, className string) {
 				"properties": map[string]any{"text": fmt.Sprintf("bulk %d", i)},
 			})
 		}
-		body, err := json.Marshal(map[string]any{"objects": objects})
-		require.NoError(t, err)
-		resp, err := http.Post(fmt.Sprintf("http://%s/v1/batch/objects?consistency_level=ALL", restURI),
-			"application/json", bytes.NewReader(body))
-		require.NoError(t, err)
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		require.Equal(t, http.StatusOK, resp.StatusCode, "batch import: %s", string(respBody))
+		postBatchToEveryReplica(t, restURI, objects)
 	}
+}
+
+func postBatchToEveryReplica(t *testing.T, restURI string, objects []map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"objects": objects})
+	require.NoError(t, err)
+	resp, err := http.Post(fmt.Sprintf("http://%s/v1/batch/objects?consistency_level=ALL", restURI),
+		"application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	respBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "batch import: %s", string(respBody))
+	require.NotContains(t, string(respBody), `"errors"`, "batch import: %s", string(respBody))
+}
+
+// tenantMigratedOn reports whether the node at uri matches tenant's whole phrase but not one of its words.
+func tenantMigratedOn(t *testing.T, uri, className, tenant, phrase, word string) bool {
+	whole, err := runBM25QueryOnNodeTenant(t, uri, className, tenant, phrase)
+	if err != nil || len(whole) != 1 {
+		return false
+	}
+	words, err := runBM25QueryOnNodeTenant(t, uri, className, tenant, word)
+	return err == nil && len(words) == 0
 }
 
 // smallTenantMigratedOnEveryNode reports whether every node matches the small tenant's whole phrase but not a single word.
 func smallTenantMigratedOnEveryNode(t *testing.T, compose *docker.DockerCompose, className string) bool {
 	for i := 1; i <= 3; i++ {
-		uri := compose.GetWeaviateNode(i).URI()
-		whole, err := runBM25QueryOnNodeTenant(t, uri, className, "small", "needle phrase")
-		if err != nil || len(whole) != 1 {
-			return false
-		}
-		word, err := runBM25QueryOnNodeTenant(t, uri, className, "small", "needle")
-		if err != nil || len(word) != 0 {
+		if !tenantMigratedOn(t, compose.GetWeaviateNode(i).URI(), className, "small", "needle phrase", "needle") {
 			return false
 		}
 	}

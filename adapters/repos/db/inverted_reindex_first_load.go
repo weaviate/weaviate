@@ -17,81 +17,112 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// MigrationDecidedRunSource reads the task manager as of the current RAFT apply.
-type MigrationDecidedRunSource func(collection, shard, node string) []distributedtask.DecidedRun
+// MigrationBarrierRunSource reads the task manager as of the current RAFT apply.
+type MigrationBarrierRunSource func(namespace, collection, shard string) []distributedtask.BarrierRun
 
-// SetMigrationDecidedRunSource must run before the first shard loads.
-func (db *DB) SetMigrationDecidedRunSource(source MigrationDecidedRunSource) {
-	db.migrationDecidedRuns = source
+// SetMigrationBarrierRunSource must run before the first shard loads.
+func (db *DB) SetMigrationBarrierRunSource(source MigrationBarrierRunSource) {
+	db.migrationBarrierRuns = source
 }
 
-var errFirstLoadRecord = errors.New("write the migration records of a shard's first load")
+var errFirstLoadRecord = errors.New("write promoted migration records for an empty shard")
 
-// writeFirstLoadRecords migrates a new shard past runs that already swapped, as
-// no swap will reach it. Keyed on the objects bucket so a retry still counts.
+// writeFirstLoadRecords writes the promoted records of each run that already
+// swapped this shard's group, since no swap reaches a new replica. It writes
+// while the objects bucket holds no file, so a retry after a failed write still writes.
 func (s *Shard) writeFirstLoadRecords(class *models.Class) error {
 	unit := s.migrationUnit()
-	if unit == "" || s.index.db == nil || s.index.db.migrationDecidedRuns == nil {
+	if unit == "" || s.index.db == nil || s.index.db.migrationBarrierRuns == nil {
 		return nil
 	}
-	runs := s.index.db.migrationDecidedRuns(class.Class, s.name, s.index.getSchema.NodeName())
-	if len(runs) == 0 {
-		return nil
+	runs, err := firstLoadRuns(s.index.db.migrationBarrierRuns(ReindexNamespace, class.Class, s.name))
+	if err != nil || len(runs) == 0 {
+		return err
 	}
 	holds, err := dirHoldsFile(filepath.Join(s.pathLSM(), helpers.ObjectsBucketLSM))
-	if err != nil {
-		return fmt.Errorf("%w: %w", errFirstLoadRecord, err)
+	if err != nil || holds {
+		return err
 	}
-	if holds {
-		return nil
-	}
-	// The record store does not create the LSM directory.
-	if err := os.Mkdir(s.pathLSM(), os.ModePerm); err != nil && !errors.Is(err, fs.ErrExist) {
-		return fmt.Errorf("%w: %w", errFirstLoadRecord, err)
+	if err := os.MkdirAll(s.pathLSM(), os.ModePerm); err != nil {
+		return err
 	}
 	store := NewMigrationRecordStoreForUnit(s.pathLSM(), unit, s.index.logger)
 	if err := store.Load(); err != nil {
-		return fmt.Errorf("%w: %w", errFirstLoadRecord, err)
+		return err
 	}
 	for _, run := range runs {
 		records, err := firstLoadRecords(s.index.logger, run, unit, class)
 		if err != nil {
-			return fmt.Errorf("%w: %w", errFirstLoadRecord, err)
+			return err
 		}
 		for _, rec := range records {
 			if _, there := store.Get(rec.Subject().Key); there {
 				continue
 			}
 			if err := store.Put(rec); err != nil {
-				return fmt.Errorf("%w: %w", errFirstLoadRecord, err)
+				return err
 			}
 		}
 	}
 	return nil
 }
 
-func firstLoadRecords(logger logrus.FieldLogger, run distributedtask.DecidedRun, unit string,
-	class *models.Class,
+type firstLoadRun struct {
+	desc   distributedtask.TaskDescriptor
+	header ReindexTaskHeader
+}
+
+// firstLoadRuns keeps unfinished runs that decided the group, on the properties
+// no newer finished run flipped (as ReindexMigratedTenants does).
+func firstLoadRuns(runs []distributedtask.BarrierRun) ([]firstLoadRun, error) {
+	headers := make([]ReindexTaskHeader, len(runs))
+	for i, run := range runs {
+		header, ok := run.Header.(ReindexTaskHeader)
+		if !ok {
+			return nil, fmt.Errorf("task %s/%d carries no reindex header", run.ID, run.Version)
+		}
+		headers[i] = header
+	}
+	var kept []firstLoadRun
+	for i, run := range runs {
+		if !run.GroupDecided || run.Status == distributedtask.TaskStatusFinished {
+			continue
+		}
+		types, _ := ReindexIndexTypes(headers[i].MigrationType)
+		header := headers[i]
+		header.Properties = slices.DeleteFunc(slices.Clone(header.Properties), func(prop string) bool {
+			for j := i + 1; j < len(runs); j++ {
+				if slices.Contains(headers[j].Properties, prop) &&
+					reindexFlipCovers(runs[j].Status, headers[j].MigrationType, types) {
+					return true
+				}
+			}
+			return false
+		})
+		if len(header.Properties) > 0 {
+			kept = append(kept, firstLoadRun{desc: run.TaskDescriptor, header: header})
+		}
+	}
+	return kept, nil
+}
+
+func firstLoadRecords(logger logrus.FieldLogger, run firstLoadRun, unit string, class *models.Class,
 ) ([]MigrationRecord, error) {
-	header, ok := run.Header.(ReindexTaskHeader)
-	if !ok {
-		return nil, fmt.Errorf("task %s/%d carries no reindex header", run.ID, run.Version)
-	}
-	payload := ReindexTaskPayload{
-		MigrationType: header.MigrationType, Collection: header.Class, Properties: header.Properties,
-		TargetTokenization: header.TargetTokenization, BucketStrategy: header.BucketStrategy,
-	}
-	tasks, err := buildMigrationTasks(logger, nil, run.Version, &payload, func(_, propName string) bool {
+	payload := run.header.payload()
+	tasks, err := buildMigrationTasks(logger, nil, run.desc.Version, &payload, func(_, propName string) bool {
 		prop, err := schema.GetPropertyByName(class, propName)
 		return err == nil && inverted.HasFilterableIndex(prop)
 	})
@@ -100,15 +131,10 @@ func firstLoadRecords(logger logrus.FieldLogger, run distributedtask.DecidedRun,
 	}
 	records := make([]MigrationRecord, 0, len(tasks))
 	for _, task := range tasks {
-		subject := MigrationSubject{
-			Key:           MigrationRecordKey{TaskVersion: run.Version, StrategyCode: task.strategy.StrategyCode(), UnitID: unit},
-			TaskID:        run.ID,
-			MigrationType: header.MigrationType, TargetTokenization: header.TargetTokenization,
-			Collection: header.Class, BucketStrategy: header.BucketStrategy,
-			Props: make(map[string]MigrationPropertyDirs, len(header.Properties)),
-		}
-		for _, prop := range header.Properties {
-			subject.Props[prop] = MigrationPropertyDirs{Canonical: task.strategy.SourceBucketName(prop)}
+		task.setMigrationIdentity(run.desc, unit, &payload)
+		subject := task.migrationSubject(nil, payload.Properties, time.Time{})
+		for prop, dirs := range subject.Props {
+			subject.Props[prop] = MigrationPropertyDirs{Canonical: dirs.Canonical}
 		}
 		records = append(records, NewMigrationRecordPromoted(subject, subject.Properties(), nil))
 	}
@@ -133,18 +159,37 @@ func dirHoldsFile(dir string) (bool, error) {
 	return holds, err
 }
 
-// A first-load bucket has no segment recording its blockmax format, so the
-// promoted record decides it until the schema does.
+// promotedToBlockmax reports whether the newest promoted record on propName's
+// searchable bucket builds it as blockmax. A bucket built on an empty shard has
+// no segment recording its format, so the record keeps it until the schema does.
 func (s *Shard) promotedToBlockmax(propName string) bool {
 	if s.migrationRecords == nil {
 		return false
 	}
-	for _, rec := range s.migrationRecords.Records() {
-		_, covers := rec.Subject().Props[propName]
-		if covers && rec.State() == MigrationStatePromoted &&
-			rec.Subject().Key.StrategyCode == StrategyCodeSearchableMapToBlockmax {
-			return true
+	all := s.migrationRecords.Records()
+	for _, rec := range all {
+		subject := rec.Subject()
+		if rec.State() != MigrationStatePromoted ||
+			subject.Props[propName].Canonical != helpers.BucketSearchableFromPropNameLSM(propName) ||
+			migrationPropertySuperseded(all, subject, propName) {
+			continue
 		}
+		return migrationTargetStrategy(s.index.logger, subject) == lsmkv.StrategyInverted
 	}
 	return false
+}
+
+func migrationTargetStrategy(logger logrus.FieldLogger, subject MigrationSubject) string {
+	payload := subject.reindexPayload()
+	tasks, err := buildMigrationTasks(logger, nil, subject.Key.TaskVersion, &payload,
+		func(string, string) bool { return true })
+	if err != nil {
+		return ""
+	}
+	for _, task := range tasks {
+		if task.strategy.StrategyCode() == subject.Key.StrategyCode {
+			return task.strategy.TargetStrategy()
+		}
+	}
+	return ""
 }

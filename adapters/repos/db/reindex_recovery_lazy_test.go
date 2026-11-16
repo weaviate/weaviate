@@ -1432,23 +1432,51 @@ func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distri
 	payload ReindexTaskPayload, unitID, group, node string,
 ) {
 	t.Helper()
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	restoreReindexRuns(t, mgr, restoredRun{
+		desc: desc, payload: payload, status: distributedtask.TaskStatusSwapping, barrier: true,
+		group: group, decided: true, units: map[string]string{unitID: node}, owedBy: []string{node},
+	})
+}
+
+// restoredRun is one reindex task as a snapshot restore puts it in the manager.
+type restoredRun struct {
+	desc    distributedtask.TaskDescriptor
+	payload ReindexTaskPayload
+	status  distributedtask.TaskStatus
+	barrier bool
+	group   string
+	decided bool
+	units   map[string]string // unit ID → node, all in group
+	owedBy  []string
+}
+
+func restoreReindexRuns(t *testing.T, mgr *distributedtask.Manager, runs ...restoredRun) {
+	t.Helper()
 	type taskWithUnits struct {
 		*distributedtask.Task
 		Units map[string]*distributedtask.Unit `json:"units"`
 	}
-	snapshot, err := json.Marshal(map[string]map[string][]taskWithUnits{"tasks": {ReindexNamespace: {{
-		Task: &distributedtask.Task{
-			Namespace: ReindexNamespace, TaskDescriptor: desc, Payload: raw,
-			Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true,
-			SwapDecidedGroups: map[string]time.Time{group: time.Now()},
-			SwapsOwed:         map[string][]string{group: {node}},
-		},
-		Units: map[string]*distributedtask.Unit{unitID: {
-			ID: unitID, GroupID: group, NodeID: node, Status: distributedtask.UnitStatusCompleted,
-		}},
-	}}}})
+	tasks := make([]taskWithUnits, 0, len(runs))
+	for _, run := range runs {
+		raw, err := json.Marshal(run.payload)
+		require.NoError(t, err)
+		task := &distributedtask.Task{
+			Namespace: ReindexNamespace, TaskDescriptor: run.desc, Payload: raw,
+			Status: run.status, NeedsPreparationBarrier: run.barrier,
+		}
+		if run.decided {
+			task.SwapDecidedGroups = map[string]time.Time{run.group: time.Now()}
+		}
+		if len(run.owedBy) > 0 {
+			task.SwapsOwed = map[string][]string{run.group: run.owedBy}
+		}
+		units := make(map[string]*distributedtask.Unit, len(run.units))
+		for id, node := range run.units {
+			units[id] = &distributedtask.Unit{ID: id, GroupID: run.group, NodeID: node, Status: distributedtask.UnitStatusCompleted}
+		}
+		tasks = append(tasks, taskWithUnits{Task: task, Units: units})
+	}
+	snapshot, err := json.Marshal(map[string]map[string][]taskWithUnits{"tasks": {ReindexNamespace: tasks}})
 	require.NoError(t, err)
 	require.NoError(t, mgr.Restore(snapshot))
 }

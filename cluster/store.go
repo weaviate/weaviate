@@ -507,8 +507,8 @@ func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.Ta
 	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
-func (st *Store) DecidedRunsOf(collection, shard, node string) []distributedtask.DecidedRun {
-	return st.distributedTasksManager.DecidedRunsOf(collection, shard, node)
+func (st *Store) BarrierRunsOf(namespace, collection, shard string) []distributedtask.BarrierRun {
+	return st.distributedTasksManager.BarrierRunsOf(namespace, collection, shard)
 }
 
 // lastIndex returns the last index in stable storage,

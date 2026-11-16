@@ -644,12 +644,15 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				startupShards.lazy.Add(1)
 				return nil
 			default:
-				// avoid footprint of empty shards
-				if i.skipLoadingEmptyShard(shardName) {
+				storeUnloaded := func() {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
 					startupShards.lazy.Add(1)
+				}
+				// avoid footprint of empty shards
+				if i.skipLoadingEmptyShard(shardName) {
+					storeUnloaded()
 					return nil
 				}
 				// default behavior is to load all shards immediately
@@ -662,15 +665,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
 				if stderrors.Is(err, errFirstLoadRecord) {
-					// Loading without the record would build the shard in the old format for
-					// good, so it stays unloaded and its next access retries the write.
+					// Loading without the record would build the shard from the pre-reindex schema
+					// for good, so it stays unloaded and its next access retries the write.
 					if unloaded.Add(1) == 1 {
 						firstUnloaded.Store(&err)
 					}
-					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
-						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
-						i.shardReindexer, false, i.bitmapBufPool))
-					startupShards.lazy.Add(1)
+					storeUnloaded()
 					return nil
 				}
 				if err != nil {

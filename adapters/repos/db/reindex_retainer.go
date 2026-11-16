@@ -77,6 +77,13 @@ func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName stri
 	return fmt.Errorf("no reindex run is completing on %s.%s; its cutover write is refused", className, propertyName)
 }
 
+// reindexFlipCovers reports whether a run flipped the schema for every type in types.
+func reindexFlipCovers(status distributedtask.TaskStatus, mt ReindexMigrationType, types []string) bool {
+	flipped, _ := ReindexIndexTypes(mt)
+	return status == distributedtask.TaskStatusFinished && IsSemanticMigration(mt) &&
+		!slices.ContainsFunc(types, func(t string) bool { return !slices.Contains(flipped, t) })
+}
+
 type ReindexRun struct {
 	Task    *distributedtask.Task
 	Payload ReindexTaskPayload
@@ -98,8 +105,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	swappedSince := map[string]struct{}{}
 	for _, run := range onProperty {
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
-		if run.Task.Status == distributedtask.TaskStatusFinished && IsSemanticMigration(run.Payload.MigrationType) &&
-			!slices.ContainsFunc(targetTypes, func(t string) bool { return !slices.Contains(types, t) }) {
+		if reindexFlipCovers(run.Task.Status, run.Payload.MigrationType, targetTypes) {
 			break
 		}
 		overlaps := slices.ContainsFunc(types, func(t string) bool { return slices.Contains(targetTypes, t) })
@@ -152,10 +158,7 @@ func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
 	runs := make([]ReindexRun, 0, len(tasks))
 	for _, task := range tasks {
 		if h, ok := reindexHeaderOf(task); ok {
-			runs = append(runs, ReindexRun{Task: task, Payload: ReindexTaskPayload{
-				MigrationType: h.MigrationType, Collection: h.Class, Properties: h.Properties,
-				TargetTokenization: h.TargetTokenization, BucketStrategy: h.BucketStrategy,
-			}})
+			runs = append(runs, ReindexRun{Task: task, Payload: h.payload()})
 		}
 	}
 	return runs

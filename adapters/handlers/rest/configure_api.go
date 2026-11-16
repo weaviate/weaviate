@@ -862,7 +862,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.SchemaManager,
 		reindexProvider,
 	))
-	repo.SetMigrationDecidedRunSource(appState.ClusterService.DecidedRunsOf)
+	repo.SetMigrationBarrierRunSource(appState.ClusterService.BarrierRunsOf)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
