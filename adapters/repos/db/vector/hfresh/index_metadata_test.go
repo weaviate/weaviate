@@ -121,6 +121,29 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 	require.Equal(t, unrelatedValue, data)
 }
 
+// A reassign that saved its version bump but lost its new copy leaves the
+// orphan's stale entry as the only record of the vector, so the repair must
+// not drop it.
+func TestRepairKeepsOrphanWithOnlyStaleEntries(t *testing.T) {
+	tf := createHFreshIndex(t)
+	postingID, posting := createPostingWithVectors(t, &tf, [][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}}, 100)
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, posting))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, posting))
+	for _, v := range posting {
+		_, err := tf.Index.VersionMap.Increment(t.Context(), v.ID(), v.Version())
+		require.NoError(t, err)
+	}
+
+	tf.Index.repairOrphanPostings()
+
+	metadata, err := tf.Index.PostingMap.Get(t.Context(), postingID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, metadata.Count())
+	stored, err := tf.Index.PostingStore.Get(t.Context(), postingID)
+	require.NoError(t, err)
+	require.Len(t, stored, 2)
+}
+
 // partialFlushCase rolls one directory back to a snapshot taken before mutate
 // ran, as a process crash leaves it when that side's buffered writes never
 // reached the file while the other side's did.
