@@ -151,6 +151,10 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 	idStore := NewBucketStore(bucket)
+	// the commit log can record an ID before the store's next flush, so each
+	// reserved range reaches the file first; postings go before the versions
+	// in the shared bucket
+	idStore.flushOnStore = []bucketRef{newBucketRef(store, postingsBucketName(cfg.ID)), bucket}
 	// a store rolled back behind the commit log restarts the sequence below
 	// IDs the centroid graph holds; cleanup may have freed some since load
 	if maxID, found := h.Centroids.hnsw.RestoredMaxNodeID(); found {

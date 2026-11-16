@@ -318,6 +318,8 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 type BucketStore struct {
 	bucket bucketRef
 	key    []byte
+	// written to their files in this order after each stored bound
+	flushOnStore []bucketRef
 }
 
 func NewBucketStore(bucket bucketRef) *BucketStore {
@@ -337,7 +339,29 @@ func (s *BucketStore) Store(upperBound uint64) error {
 	}
 	defer release()
 
-	return bucket.Put(s.key, buf[:])
+	err = bucket.Put(s.key, buf[:])
+	if err != nil {
+		return err
+	}
+
+	for _, ref := range s.flushOnStore {
+		err = writeWAL(ref)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeWAL(ref bucketRef) error {
+	bucket, release, err := ref.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.WriteWAL()
 }
 
 func (s *BucketStore) Load() (uint64, error) {
