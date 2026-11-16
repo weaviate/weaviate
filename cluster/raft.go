@@ -97,6 +97,7 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
+// SchedulerTaskLister fails while no leader is known, so a quorum loss skips the tick.
 func (s *Raft) SchedulerTaskLister() distributedtask.TaskLister { return schedulerTaskLister{s} }
 
 type schedulerTaskLister struct{ s *Raft }

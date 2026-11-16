@@ -129,8 +129,6 @@ func (s *Raft) UpdateProperty(ctx context.Context, class string, property *model
 	return s.updateProperty(ctx, class, property, nil, fields...)
 }
 
-// UpdatePropertyFromMigration schedules a RAFT command for a property
-// schema flip from the scheduler's completion handler; the FSM admits it only while run is SWAPPING.
 func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, run cmd.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
 	return s.updateProperty(ctx, class, property, &run, fields...)
 }

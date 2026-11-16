@@ -172,12 +172,6 @@ type Scheduler struct {
 	// callers coalesce — a pending wake-up is equivalent to any number of
 	// queued wake-ups, because the next loop iteration reads cluster-wide
 	// task state from scratch.
-	//
-	// Why this exists: with the default 1-minute tickInterval, a barrier
-	// opening (last unit terminal) on the leader was followed by up to a
-	// minute of "the followers haven't fired their OnGroupCompleted /
-	// OnTaskCompleted yet" — the FSM apply path knows the barrier is open,
-	// but the followers' scheduler loops are still asleep on their ticker.
 	wakeCh chan struct{}
 }
 
@@ -199,7 +193,6 @@ type SchedulerParams struct {
 	TickInterval     time.Duration
 }
 
-// minWakeSpacing paces woken ticks: each copies every task under the manager's lock.
 const minWakeSpacing = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
@@ -252,9 +245,6 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Wake requests a scheduling cycle, paced by minWakeSpacing. Non-blocking: a pending
-// wake-up coalesces additional calls (the next loop iteration sees the
-// latest cluster-wide task state regardless of how many wakes accumulated).
 // Safe to call from any goroutine, including RAFT-apply paths.
 //
 // Wake is a no-op after [Scheduler.Close] returns — the run loop has

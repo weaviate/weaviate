@@ -64,7 +64,7 @@ type Manager struct {
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
-	// the Scheduler runs an immediate scheduling cycle instead of waiting
+	// the Scheduler runs a scheduling cycle, paced by a minimum gap, instead of waiting
 	// for its next periodic tick. nil-safe so the Manager can be used in
 	// tests and during bootstrap before the Scheduler is wired up. The
 	// notifier's Wake() must be non-blocking — it is called under the
