@@ -169,16 +169,18 @@ func TestSinglePostingMaxSizeFromEnv(t *testing.T) {
 		value    *string
 		expected uint64
 	}{
-		{"unset", nil, DefaultSinglePostingMaxSize},
+		{"unset disables", nil, 0},
+		{"zero disables", ptr("0"), 0},
 		{"bytes", ptr("1048576"), 1 << 20},
-		{"disabled", ptr("0"), 0},
-		{"unit is not accepted", ptr("10MiB"), DefaultSinglePostingMaxSize},
-		{"negative", ptr("-1"), DefaultSinglePostingMaxSize},
+		{"binary unit", ptr("10MiB"), 10 * 1024 * 1024},
+		{"decimal unit", ptr("10MB"), 10 * 1000 * 1000},
+		{"invalid disables", ptr("ten megabytes"), 0},
+		{"negative disables", ptr("-1"), 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.value != nil {
-				t.Setenv(singlePostingMaxSizeEnv, *tt.value)
+				t.Setenv("EXPERIMENTAL_HFRESH_SINGLE_POSTING_MAX_SIZE", *tt.value)
 			}
 			require.Equal(t, tt.expected, SinglePostingMaxSizeFromEnv(logrus.New()))
 		})
