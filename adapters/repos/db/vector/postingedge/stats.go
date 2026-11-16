@@ -122,6 +122,11 @@ type SearchStats struct {
 	// trace, when set, follows the redundant edges the search meets
 	// (edgeTrace). Only the benchmark and the tests set it.
 	trace *edgeTrace
+	// loadHook, when set, is called with every loaded posting, after its
+	// scan and before its endpoints are collected, outside the timed
+	// sections. Only the benchmark and the tests set it, to record what the
+	// endpoint scoring of a search is given (endpoint_keys_test.go).
+	loadHook func(sc *searchScratch, post *posting, cut float32)
 }
 
 // EndpointsRepeated is the number of followed edges whose endpoint had

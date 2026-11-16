@@ -387,6 +387,9 @@ func (s *postingSearch) load(p uint32) error {
 			tr.picked(sc, p)
 			tr.predict(sc, side.postingOf, &post, cut)
 		}
+		if hook := s.stats.loadHook; hook != nil {
+			hook(sc, &post, cut)
+		}
 		clock = time.Now()
 	}
 

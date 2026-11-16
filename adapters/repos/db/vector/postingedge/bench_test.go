@@ -355,12 +355,12 @@ func TestBenchmark(t *testing.T) {
 	}
 	// Checked before the build, which takes an hour at 10M.
 	experiments := 0
-	for _, flagged := range []string{*benchDegreeCaps, *benchEdgeCells, *benchCentroidEFs} {
-		if flagged != "" {
+	for _, flagged := range []bool{*benchDegreeCaps != "", *benchEdgeCells != "", *benchCentroidEFs != "", *benchEndpointKeys} {
+		if flagged {
 			experiments++
 		}
 	}
-	require.LessOrEqual(t, experiments, 1, "-bench.degreecaps, -bench.edgecells and -bench.centroidefs are experiments of their own, one per run")
+	require.LessOrEqual(t, experiments, 1, "-bench.degreecaps, -bench.edgecells, -bench.centroidefs and -bench.endpointkeys are experiments of their own, one per run")
 	ctx := context.Background()
 	stream := *benchStreamTrain && *benchArm == "postingedge" && *benchMode == "full"
 	if stream {
@@ -626,6 +626,8 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		benchCappedDegrees(t, index, data, uc, plan, result, truth)
 	case *benchEdgeCells != "":
 		measureEdgeCells(t, index, data, uc, plan, result, truth)
+	case *benchEndpointKeys:
+		measureEndpointKeys(t, index, data, uc, plan)
 	default:
 		runPostingEdgePlan(t, index, data, uc, plan, result, *benchOut)
 		if *benchCentroidEFs != "" {
