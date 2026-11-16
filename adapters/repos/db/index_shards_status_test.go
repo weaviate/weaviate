@@ -242,6 +242,14 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			wantStatus: map[string]string{"s1": ready},
 		},
 		{
+			name:       "local lazy copy that a warm-up or activation is loading reads LAZY_LOADING",
+			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
+			local:      map[string]localShardKind{"s1": localLoading},
+			reachable:  []string{"node2"},
+			replies:    map[string]statusReply{"node2": {status: ready, size: 7}},
+			wantStatus: map[string]string{"s1": "LAZY_LOADING"},
+		},
+		{
 			name:       "local lazy copy that a request is loading reads LAZY_LOADING",
 			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
 			local:      map[string]localShardKind{"s1": localLoadingForRead},
@@ -425,6 +433,7 @@ func TestIndex_IncomingShardStatusReadsOfABusyShard(t *testing.T) {
 		kind localShardKind
 	}{
 		{"held by an unload or freeze", localLocked},
+		{"loaded by a warm-up or activation", localLoading},
 		{"loaded by a request", localLoadingForRead},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
