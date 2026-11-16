@@ -11018,7 +11018,7 @@
             }
           },
           "409": {
-            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted. Also returned while a reindex in this namespace is running or a replica still owes its index swap: wait for it to finish, or cancel it, then retry.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

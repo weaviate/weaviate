@@ -939,6 +939,7 @@ func TestStatusForChangeStateErr(t *testing.T) {
 	}{
 		{name: "not found", err: usecasesNamespaces.ErrNotFound, want: http.StatusNotFound},
 		{name: "lost the race", err: usecasesNamespaces.ErrStateChangedConcurrently, want: http.StatusConflict},
+		{name: "reindex still writing", err: usecasesNamespaces.ErrSuspendBlockedByReindex, want: http.StatusConflict},
 		{name: "illegal transition", err: usecasesNamespaces.ErrInvalidStateTransition, want: http.StatusUnprocessableEntity},
 		{name: "forwarded not-leader", err: types.ErrNotLeader, want: http.StatusServiceUnavailable},
 		{name: "forwarded leader-not-found", err: types.ErrLeaderNotFound, want: http.StatusServiceUnavailable},

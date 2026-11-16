@@ -372,6 +372,8 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrNamespaceResuming)
 		case strings.Contains(msg, namespaces.ErrStateChangedConcurrently.Error()):
 			return errors.Join(err, namespaces.ErrStateChangedConcurrently)
+		case strings.Contains(msg, namespaces.ErrSuspendBlockedByReindex.Error()):
+			return errors.Join(err, namespaces.ErrSuspendBlockedByReindex)
 		case strings.Contains(msg, clusterSchema.ErrMTDisabled.Error()):
 			return errors.Join(err, clusterSchema.ErrMTDisabled)
 		case strings.Contains(msg, replicationTypes.ErrMovementBlockedByTask.Error()):

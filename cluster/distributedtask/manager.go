@@ -426,6 +426,19 @@ func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	return false
 }
 
+// TaskWritingCollection returns a task of namespace on a collection match accepts that is active or still owed a swap, since either rewrites its shards.
+func (m *Manager) TaskWritingCollection(namespace string, match func(collection string) bool) (taskID, collection string, ok bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, task := range m.tasks[namespace] {
+		if (task.Status.IsActive() || len(task.SwapsOwed) > 0) && match(task.collection) {
+			return task.ID, task.collection, true
+		}
+	}
+	return "", "", false
+}
+
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
 // Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
 // the same namespace/ID is already running, or if no units are provided.

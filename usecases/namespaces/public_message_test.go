@@ -49,6 +49,7 @@ var managementOnlySentinels = map[string]error{
 	// Only a caller sending a nonzero expected index can trigger it, and the
 	// operator needs the moved index to decide whether to retry.
 	"ErrStateChangedConcurrently": ErrStateChangedConcurrently,
+	"ErrSuspendBlockedByReindex":  ErrSuspendBlockedByReindex, // only the suspend endpoint returns it, and the operator needs the task it names
 }
 
 // errorConstructors are the calls that build a sentinel. A var assigned one

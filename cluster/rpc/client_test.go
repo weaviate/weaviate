@@ -182,6 +182,12 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 				replicationTypes.ErrMovementBlockedByTask, "Movies"),
 			want: replicationTypes.ErrMovementBlockedByTask,
 		},
+		{
+			name: "ErrSuspendBlockedByReindex",
+			send: fmt.Errorf("%w: namespace %q: reindex task %q on collection %q",
+				namespaces.ErrSuspendBlockedByReindex, "alpha", "task1", "alpha:Movies"),
+			want: namespaces.ErrSuspendBlockedByReindex,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

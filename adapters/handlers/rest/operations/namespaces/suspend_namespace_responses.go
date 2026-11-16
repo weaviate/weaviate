@@ -168,7 +168,7 @@ func (o *SuspendNamespaceNotFound) WriteResponse(rw http.ResponseWriter, produce
 const SuspendNamespaceConflictCode int = 409
 
 /*
-SuspendNamespaceConflict Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.
+SuspendNamespaceConflict Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted. Also returned while a reindex in this namespace is running or a replica still owes its index swap: wait for it to finish, or cancel it, then retry.
 
 swagger:response suspendNamespaceConflict
 */

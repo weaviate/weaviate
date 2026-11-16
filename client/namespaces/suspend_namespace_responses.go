@@ -343,7 +343,7 @@ func NewSuspendNamespaceConflict() *SuspendNamespaceConflict {
 /*
 SuspendNamespaceConflict describes a response with status code 409, with default header values.
 
-Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.
+Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted. Also returned while a reindex in this namespace is running or a replica still owes its index swap: wait for it to finish, or cancel it, then retry.
 */
 type SuspendNamespaceConflict struct {
 	Payload *models.ErrorResponse

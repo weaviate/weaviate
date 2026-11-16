@@ -364,7 +364,8 @@ func statusForChangeStateErr(err error) int {
 	switch {
 	case errors.Is(err, usecasesNamespaces.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, usecasesNamespaces.ErrStateChangedConcurrently):
+	case errors.Is(err, usecasesNamespaces.ErrStateChangedConcurrently),
+		errors.Is(err, usecasesNamespaces.ErrSuspendBlockedByReindex):
 		return http.StatusConflict
 	case errors.Is(err, usecasesNamespaces.ErrInvalidStateTransition):
 		return http.StatusUnprocessableEntity

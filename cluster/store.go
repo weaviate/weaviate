@@ -317,7 +317,8 @@ type Store struct {
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	taskMovementLocks *entsync.KeyLocker
+	taskMovementLocks  *entsync.KeyLocker
+	namespaceTaskLocks *entsync.KeyLocker
 
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
@@ -483,6 +484,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
 		taskMovementLocks:       entsync.NewKeyLocker(),
+		namespaceTaskLocks:      entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
