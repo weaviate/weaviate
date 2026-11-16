@@ -1082,7 +1082,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
-	// Under asyncReplicationRWMux.RLock, so registerDoubleWriteWithScope's Lock waits for this write.
 	w, err := s.prepareDeleteInvertedWrite(bucket, existing, docID)
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
@@ -1115,6 +1114,8 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}
+	// Bucket teardowns wait on these pins, so drop them before the vector-index deletes.
+	w.release()
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Delete(docID); err != nil {

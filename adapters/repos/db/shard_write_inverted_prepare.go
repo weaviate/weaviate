@@ -33,9 +33,9 @@ type propSlots struct {
 
 var noSlots = propSlots{noSlot, noSlot, noSlot, noSlot, noSlot, noSlot}
 
-// invertedWrite pins every inverted-index and dimensions bucket an object write changes before its
-// first change, so a missing bucket refuses it with nothing changed (fireMirror's buckets stay
-// unpinned). Callers release on every exit: a leftover pin blocks Bucket.Shutdown forever.
+// invertedWrite pins every inverted-index and dimensions bucket an object write changes, before its first
+// change, so a missing bucket refuses it with nothing changed. fireMirror's ingest buckets stay unpinned
+// because resolveScopedDoubleWriteBucket skips a missing one. Callers release on every exit, or Bucket.Shutdown hangs.
 type invertedWrite struct {
 	s      *Shard
 	st     *propValueIndexState
@@ -54,11 +54,14 @@ type invertedWrite struct {
 	dims                           slot
 	buckets                        []*lsmkv.Bucket
 
-	// unreadable: the deleted object would not decode; the delete goes ahead and apply returns it.
+	// unreadable is the error from reading or analyzing the deleted object. apply returns it and changes no index.
 	unreadable error
+	// mirrorErr is analyzeMirror's error. apply returns it after the main index changes, as base did.
+	mirrorErr error
 }
 
-// prepareInvertedWrite takes a nil next for a delete and a nil prev for a create.
+// prepareInvertedWrite takes a nil next for a delete and a nil prev for a create. Callers hold
+// asyncReplicationRWMux.RLock across it and the object write, so registerDoubleWriteWithScope's Lock waits for them.
 func (s *Shard) prepareInvertedWrite(next, prev *storobj.Object, status objectInsertStatus) (*invertedWrite, error) {
 	// loadPropValueIndexState runs before analyze. The swap publishes the overlay before
 	// it disarms, so a disarmed snapshot means analyze already sees the overlay.
@@ -98,14 +101,13 @@ func (w *invertedWrite) analyze() error {
 		w.nilAdd, w.nilDel = nextNil, prevNil
 	}
 
-	if w.mirrorAdd, err = w.s.analyzeMirror(w.st, w.next); err != nil {
-		return err
+	if w.mirrorAdd, w.mirrorErr = w.s.analyzeMirror(w.st, w.next); w.mirrorErr == nil {
+		w.mirrorDel, w.mirrorErr = w.s.analyzeMirror(w.st, w.prev)
 	}
-	w.mirrorDel, err = w.s.analyzeMirror(w.st, w.prev)
-	return err
+	return nil
 }
 
-// resolve pins after analyze: lock order puts propertyOverlayMu, which analysis takes, before lifetimeLock.
+// resolve runs after analyze because analysis takes propertyOverlayMu, which the lock order puts before lifetimeLock.
 func (w *invertedWrite) resolve() error {
 	s, cfg := w.s, w.s.index.invertedIndexConfig
 	slots := make([]propSlots, 0, len(w.toDel)+len(w.toAdd)+len(w.nilDel)+len(w.nilAdd)+len(w.nestedDel)+len(w.nestedAdd))
@@ -188,7 +190,8 @@ func (s *Shard) refuseWrite(bucket string) error {
 	err := fmt.Errorf("%w: %q", lsmkv.ErrBucketNotFound, bucket)
 	s.refusedWriteSampler.WithSampling(func(l logrus.FieldLogger) {
 		l.WithField("bucket", bucket).
-			Warnf("refused a write that needs a bucket this shard does not have, nothing was changed: %v", err)
+			Warnf("refused a write that needs a bucket this shard does not have, nothing was changed; "+
+				"this repeats until the bucket is created or the shard reloads: %v", err)
 	})
 	return err
 }
@@ -263,6 +266,11 @@ func (w *invertedWrite) apply() error {
 		}
 	}
 
+	if w.mirrorErr != nil && w.next == nil {
+		return fmt.Errorf("migration double-write delete: %w", w.mirrorErr)
+	} else if w.mirrorErr != nil {
+		return fmt.Errorf("migration double-write: %w", w.mirrorErr)
+	}
 	if err := s.fireMirror(w.st, status.oldDocID, w.mirrorDel, false); err != nil {
 		return fmt.Errorf("migration double-write delete: %w", err)
 	}

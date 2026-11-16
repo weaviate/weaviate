@@ -418,7 +418,7 @@ type Shard struct {
 	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
 	// Such a row is never pruned or deleted, so every later call would warn about it again.
 	unreadableRowSampler *logrusext.Sampler
-	// refusedWriteSampler: while a bucket is missing every write needing it is refused, retries included.
+	// refusedWriteSampler rate-limits refuseWrite's warning, which every retry of a write needing a missing bucket repeats.
 	refusedWriteSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32

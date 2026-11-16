@@ -54,8 +54,8 @@ import (
 // The migrated property (dateInt) starts with IndexRangeFilters=false, so the
 // rangeable index only exists after the runtime migration. Once the migration
 // finishes and the rangeable index is ready, a range query over the moved band
-// is served from that index alone, so a short count means lost index entries; on a
-// replica whose rangeable index is not ready, those are filterable-index entries.
+// is served from that index alone, so a short count means lost index entries. On a replica
+// whose rangeable index is not ready, range filters read the filterable index, so the loss is there.
 //
 // The test PATCHes every mover into a sentinel band far above every initial
 // value while the migration runs, then asserts, on every replica and again

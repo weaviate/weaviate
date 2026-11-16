@@ -233,8 +233,8 @@ type refBucketPins struct {
 	byName map[string]*lsmkv.Bucket
 }
 
-// pinRefBuckets pins what writeInverted writes; mirrorColocatedPropsForReindex's ingest buckets stay
-// unpinned. A property missing a bucket is refused, so its references fail before any merge.
+// pinRefBuckets pins the buckets writeInverted writes and refuses each property missing one, so its references
+// fail before any merge. mirrorColocatedPropsForReindex's ingest buckets stay unpinned and are skipped when missing.
 func (b *referencesBatcher) pinRefBuckets(batch objects.BatchReferences,
 	propsByName map[string]*models.Property,
 ) (refBucketPins, map[string]error) {

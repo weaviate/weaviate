@@ -225,11 +225,13 @@ func TestRangeableDemotionLogsOncePerChange(t *testing.T) {
 	tests := []struct {
 		name    string
 		prior   []bool
+		ready   bool
 		wantLog bool
 	}{
-		{"unset to not ready", nil, true},
-		{"ready to not ready", []bool{true}, true},
-		{"not ready again", []bool{false}, false},
+		{"unset to not ready", nil, false, true},
+		{"ready to not ready", []bool{true}, false, true},
+		{"not ready again", []bool{false}, false, false},
+		{"not ready to ready", []bool{false}, true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -239,7 +241,7 @@ func TestRangeableDemotionLogsOncePerChange(t *testing.T) {
 				shard.setRangeableLocallyReady("num", ready)
 			}
 			hook.Reset()
-			shard.setRangeableLocallyReady("num", false)
+			shard.setRangeableLocallyReady("num", tt.ready)
 			require.Equal(t, tt.wantLog, hook.LastEntry() != nil)
 			if tt.wantLog {
 				require.Equal(t, "num", hook.LastEntry().Data["property"])
@@ -248,28 +250,35 @@ func TestRangeableDemotionLogsOncePerChange(t *testing.T) {
 	}
 }
 
-// A stored object that no longer decodes has no postings to clean up, so a delete
-// must still remove it instead of refusing.
+// A delete cannot read which postings an undecodable object has, so it removes the
+// object and leaves those postings behind instead of refusing.
 func TestDeleteRemovesAnObjectThatNoLongerDecodes(t *testing.T) {
-	ctx := testCtx()
-	className := "UndecodableDelete_" + uuid.NewString()[:8]
-	shd, _ := testShardWithSettings(t, ctx, missingBucketClass(className), enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	for _, w := range missingBucketWrites {
+		if !w.deletes {
+			continue
+		}
+		t.Run(w.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "UndecodableDelete_" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx, missingBucketClass(className), enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
 
-	id := strfmt.UUID(uuid.NewString())
-	require.NoError(t, shard.PutObject(ctx, missingBucketObject(className, id, "alpha", 1)))
-	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
-	require.NoError(t, err)
-	objects := shard.store.Bucket(helpers.ObjectsBucketLSM)
-	stored, err := objects.Get(idBytes)
-	require.NoError(t, err)
-	docID, _, err := storobj.DocIDAndTimeFromBinary(stored)
-	require.NoError(t, err)
-	require.NoError(t, shard.upsertObjectDataLSM(objects, idBytes, stored[:storobj.MarshallerV1HeaderLen+2], docID))
+			obj := missingBucketObject(className, strfmt.UUID(uuid.NewString()), "alpha", 1)
+			require.NoError(t, shard.PutObject(ctx, obj))
+			idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+			require.NoError(t, err)
+			objects := shard.store.Bucket(helpers.ObjectsBucketLSM)
+			stored, err := objects.Get(idBytes)
+			require.NoError(t, err)
+			docID, _, err := storobj.DocIDAndTimeFromBinary(stored)
+			require.NoError(t, err)
+			require.NoError(t, shard.upsertObjectDataLSM(objects, idBytes, stored[:storobj.MarshallerV1HeaderLen+2], docID))
 
-	require.Error(t, shard.DeleteObject(ctx, id, time.Time{}))
-	remaining, err := objects.Get(idBytes)
-	require.NoError(t, err)
-	require.Nil(t, remaining)
+			require.ErrorContains(t, w.write(ctx, shard, obj), "unmarshal previous object")
+			remaining, err := objects.Get(idBytes)
+			require.NoError(t, err)
+			require.Nil(t, remaining)
+		})
+	}
 }

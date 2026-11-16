@@ -83,7 +83,7 @@ func TestArmWaitsForWritesThatLoadedTheUnarmedState(t *testing.T) {
 			shard.asyncReplicationRWMux.RUnlock()
 			return false
 		}
-		return true // the arm waits for this read section
+		return true // TryRLock fails only once the arm's Lock is queued behind the RLock this test holds
 	}, interleaveDeadline, time.Millisecond)
 
 	idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
@@ -244,6 +244,64 @@ func TestWriteReleasesPinsOnEveryExit(t *testing.T) {
 			case <-time.After(interleaveDeadline):
 				t.Fatalf("shutting down %q hangs on a pin the failed %s never released", tt.pinned, tt.name)
 			}
+		})
+	}
+}
+
+// blockingDeleteIndex parks a vector-index delete, the way a delete waits behind an HNSW compression.
+type blockingDeleteIndex struct {
+	VectorIndex
+	entered, unblock chan struct{}
+}
+
+func (b *blockingDeleteIndex) Delete(ids ...uint64) error {
+	close(b.entered)
+	<-b.unblock
+	return b.VectorIndex.Delete(ids...)
+}
+
+// A delete waiting in its vector-index step must not hold the inverted-index pins
+// that a property's ShutdownBucket waits on.
+func TestDeleteReleasesPinsBeforeVectorIndexWork(t *testing.T) {
+	for _, w := range missingBucketWrites {
+		if !w.deletes {
+			continue
+		}
+		t.Run(w.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "DeleteVectorStall_" + uuid.NewString()[:8]
+			shd, _ := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+			obj := createTestObjectWithText(className, "alpha")
+			require.NoError(t, shard.PutObject(ctx, obj))
+
+			queue, ok := shard.GetVectorIndexQueue("")
+			require.True(t, ok)
+			stall := &blockingDeleteIndex{VectorIndex: queue.vectorIndex, entered: make(chan struct{}), unblock: make(chan struct{})}
+			queue.vectorIndex = stall
+			var unblock sync.Once
+			defer unblock.Do(func() { close(stall.unblock) })
+
+			deleted := runAsync(shard, func() error { return w.write(ctx, shard, obj) })
+			select {
+			case <-stall.entered:
+			case err := <-deleted:
+				t.Fatalf("the delete finished without reaching the vector index: %v", err)
+			}
+			shutdown := runAsync(shard, func() error {
+				return shard.store.ShutdownBucket(ctx, helpers.BucketFromPropNameLSM("title"))
+			})
+			select {
+			case err := <-shutdown:
+				require.NoError(t, err)
+			case <-time.After(interleaveDeadline):
+				unblock.Do(func() { close(stall.unblock) })
+				t.Fatalf("ShutdownBucket waits on pins the %s holds through its vector-index delete", w.name)
+			}
+			unblock.Do(func() { close(stall.unblock) })
+			require.NoError(t, <-deleted)
 		})
 	}
 }

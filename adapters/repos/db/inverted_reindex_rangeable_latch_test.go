@@ -14,6 +14,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -122,10 +123,13 @@ func TestShardInitLatchesOnlyOnAFaultThatCouldBeRangeable(t *testing.T) {
 			require.NoError(t, store.Load())
 			require.Len(t, store.Unreadable(), 1, "the planted file is the fault under test")
 
-			shard := &Shard{migrationRecords: store, index: &Index{logger: logger}}
+			shardLogger, hook := test.NewNullLogger()
+			shard := &Shard{migrationRecords: store, index: &Index{logger: shardLogger}}
 			markInFlightRangeableMigrationsNotReady(shard)
 
 			require.Equal(t, tt.want, shard.rangeableUndecidable.Load())
+			warned := hook.LastEntry() != nil && strings.Contains(hook.LastEntry().Message, "migration record is unreadable")
+			require.Equal(t, tt.want, warned, "the latch logs its warning exactly when it sets")
 		})
 	}
 }

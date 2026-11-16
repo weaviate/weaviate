@@ -103,7 +103,7 @@ func (w *invertedWrite) addToPropertyValueIndex(docID uint64, property inverted.
 		}
 	}
 
-	// Scope props skip st.add; invertedWrite.apply fires them through fireMirror under the TARGET overlay.
+	// Scope props skip st.add. invertedWrite.apply fires them through fireMirror under the TARGET overlay.
 	if _, migrating := w.st.scope.props[property.Name]; !migrating {
 		if err := s.fireAddToPropertyValueIndex(w.st.add, docID, &property); err != nil {
 			return err
