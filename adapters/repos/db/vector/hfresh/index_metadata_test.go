@@ -368,3 +368,38 @@ func TestInterruptedTransitionRetriesTheBuiltFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, built, "the next insert must finish the transition")
 }
+
+// An index restarted before its first insert has no dimensions to restore,
+// yet must come back in the mode its built flag records.
+func TestEmptyIndexReopenKeepsCentroidMode(t *testing.T) {
+	tests := []struct {
+		name          string
+		createVectors uint32 // single-posting limit when created, in vectors
+		reopenVectors uint32 // and when reopened
+		wantBuilt     bool
+	}{
+		{"feature off, reopened off", 0, 0, true},
+		{"feature off, reopened on", 0, singlePostingThreshold, true},
+		{"feature on, reopened off", singlePostingThreshold, 0, true},
+		{"feature on, reopened on", singlePostingThreshold, singlePostingThreshold, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := testinghelpers.NewDummyStore(t)
+			cfg, uc, vectors := singlePostingRestartConfig(t, tt.createVectors)
+
+			index := makeHFreshWithConfig(t, store, cfg, uc)
+			require.NoError(t, index.Shutdown(t.Context()))
+
+			cfg.SinglePostingMaxSize = singlePostingSize(tt.reopenVectors)
+			index = makeHFreshWithConfig(t, store, cfg, uc)
+			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
+
+			// enough vectors to split, and to cross the single-posting limit
+			all := addRestartVectors(t, index, vectors, 0, singlePostingThreshold+200)
+			index.waitForMaintenance(t)
+			require.Greater(t, index.PostingSizes.Count(), uint64(1), "the posting must split")
+			requireSelfSearchExcept(t, index, all, -1)
+		})
+	}
+}
