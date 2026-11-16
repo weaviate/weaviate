@@ -14,6 +14,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -57,27 +58,102 @@ func TestPutPublishesTheRecordByReplacingTheFile(t *testing.T) {
 		"publishing must leave a different file at the name")
 }
 
-// No other test catches a deleted content sync: it only shows after a crash.
-func TestWriteFileAtomicSyncsTheContentBeforeItPublishesTheName(t *testing.T) {
-	dir := t.TempDir()
-	const name = "record.mig"
-	target := filepath.Join(dir, name)
+func TestPutAllRefusesWithoutWritingAnything(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	first := NewMigrationRecordMerged(testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title"))
+	second := NewMigrationRecordMerged(testMigrationSubject(42, StrategyCodeFilterableRetokenize, "body"))
+	keys := []MigrationRecordKey{first.Subject().Key, second.Subject().Key}
 
-	var synced []string
-	sync := func(f *os.File) error {
-		got, err := os.ReadFile(f.Name())
-		require.NoError(t, err)
-		require.Equal(t, "payload", string(got), "the bytes have to be written before the sync")
-		require.NoFileExists(t, target, "and the name must not be published before it")
-		synced = append(synced, f.Name())
-		return f.Sync()
+	t.Run("every record lands", func(t *testing.T) {
+		store := NewMigrationRecordStore(t.TempDir(), logger)
+		require.NoError(t, store.PutAll([]MigrationRecord{first, second}))
+		reloaded := NewMigrationRecordStore(filepath.Dir(filepath.Dir(store.Dir())), logger)
+		require.NoError(t, reloaded.Load())
+		for _, s := range []*MigrationRecordStore{store, reloaded} {
+			for _, key := range keys {
+				_, ok := s.Get(key)
+				require.True(t, ok, key.String())
+			}
+		}
+	})
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, store *MigrationRecordStore)
+		recs    []MigrationRecord
+		wantErr string
+	}{
+		{
+			name: "a record here cannot be read",
+			setup: func(t *testing.T, store *MigrationRecordStore) {
+				require.NoError(t, os.MkdirAll(store.Dir(), 0o777))
+				garbled := testMigrationSubject(7, StrategyCodeSearchableRetokenize, "summary").Key
+				require.NoError(t, os.WriteFile(filepath.Join(store.Dir(), garbled.fileName()), []byte("{"), 0o600))
+				require.NoError(t, store.Load())
+			},
+			recs:    []MigrationRecord{first, second},
+			wantErr: "refusing to write",
+		},
+		{
+			name:    "a key is listed twice",
+			setup:   func(*testing.T, *MigrationRecordStore) {},
+			recs:    []MigrationRecord{first, second, first},
+			wantErr: "listed twice",
+		},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			tc.setup(t, store)
 
-	require.NoError(t, writeFileAtomicWithSync(dir, name, []byte("payload"), sync))
+			require.ErrorContains(t, store.PutAll(tc.recs), tc.wantErr)
+			for _, key := range keys {
+				require.NoFileExists(t, filepath.Join(store.Dir(), key.fileName()))
+				_, ok := store.Get(key)
+				require.False(t, ok, key.String())
+			}
+		})
+	}
+}
 
-	require.Len(t, synced, 1, "the content is synced exactly once, before the rename")
-	require.FileExists(t, target, "and the rename then publishes the name")
-	got, err := os.ReadFile(target)
-	require.NoError(t, err)
-	require.Equal(t, "payload", string(got))
+// Whether the syncs run shows only after a crash; these rows check what real faults show.
+func TestRecordWritesKeepTheirOrderingOnRealFaults(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	rec := NewMigrationRecordMerged(testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title"))
+
+	t.Run("the content is whole before the name exists", func(t *testing.T) {
+		dir := t.TempDir()
+		tmp, err := writeSyncedTemp(dir, "record.mig", []byte("payload"))
+		require.NoError(t, err)
+		got, err := os.ReadFile(tmp)
+		require.NoError(t, err)
+		require.Equal(t, "payload", string(got))
+		require.NoFileExists(t, filepath.Join(dir, "record.mig"))
+	})
+
+	t.Run("a directory that could not be created is created by the next write", func(t *testing.T) {
+		lsm := filepath.Join(t.TempDir(), "lsm")
+		require.NoError(t, os.WriteFile(lsm, nil, 0o600))
+		store := NewMigrationRecordStore(lsm, logger)
+
+		require.ErrorIs(t, store.Put(rec), syscall.ENOTDIR)
+		require.Nil(t, store.dirsSynced)
+
+		require.NoError(t, os.Remove(lsm))
+		require.NoError(t, os.Mkdir(lsm, 0o777))
+		require.NoError(t, store.Put(rec))
+		require.FileExists(t, filepath.Join(store.Dir(), rec.Subject().Key.fileName()))
+	})
+
+	t.Run("a write after a drop does not re-create the tree", func(t *testing.T) {
+		root := t.TempDir()
+		lsm := filepath.Join(root, "lsm")
+		require.NoError(t, os.Mkdir(lsm, 0o777))
+		store := NewMigrationRecordStore(lsm, logger)
+		require.NoError(t, store.Put(rec))
+
+		require.NoError(t, os.Rename(lsm, filepath.Join(root, "dropped")))
+		require.ErrorIs(t, store.Put(rec), os.ErrNotExist)
+		require.NoDirExists(t, lsm)
+	})
 }

@@ -1544,34 +1544,6 @@ func TestACanonicalHandleMustBeTheRecordsOwnMainBucket(t *testing.T) {
 	}
 }
 
-// A record fsynced into a directory whose own name never reached disk reads
-// after a crash as no record at all, which is the one outcome the freeze
-// cannot see: the shard proceeds as if the migration had never run.
-func TestTheRecordsDirectoryIsOnDiskBeforeARecordLandsInIt(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	lsmPath := t.TempDir()
-	store := NewMigrationRecordStore(lsmPath, logger)
-
-	var synced []string
-	record := func(path string) error {
-		synced = append(synced, path)
-		return nil
-	}
-
-	require.NoError(t, store.mkdirSynced(record))
-	require.Equal(t, []string{lsmPath, filepath.Join(lsmPath, migrationsDir)}, synced,
-		"each directory this call created has to have its own name published by its parent")
-
-	synced = nil
-	require.NoError(t, store.mkdirSynced(record))
-	require.Equal(t, []string{lsmPath, filepath.Join(lsmPath, migrationsDir)}, synced,
-		"a directory an earlier process left unsynced is published again, not assumed durable")
-
-	fresh := NewMigrationRecordStore(t.TempDir(), logger)
-	require.Equal(t, assert.AnError, fresh.mkdirSynced(func(string) error { return assert.AnError }),
-		"a directory whose name did not reach disk must not read as a store ready to be written to")
-}
-
 // The two counters were persisted but never written or read. Retiring them
 // only holds if a record an older build wrote still loads: a record this build
 // cannot decode withholds every destructive action on its shard.

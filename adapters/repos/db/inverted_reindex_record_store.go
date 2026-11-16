@@ -107,6 +107,8 @@ type MigrationRecordStore struct {
 	// on the apply loop would queue behind the disk.
 	writeMu sync.Mutex
 
+	dirsSynced os.FileInfo
+
 	mu         sync.RWMutex
 	records    map[MigrationRecordKey]MigrationRecord
 	unreadable []MigrationRecordUnreadable
@@ -139,14 +141,14 @@ func (s *MigrationRecordStore) Dir() string { return s.dir }
 
 // Two levels, not MkdirAll: a write racing a collection DELETE, which renames
 // the class directory away, would otherwise re-materialize the deleted tree.
+// Synced once per process: nothing removes these under a live store, and a drop fails the stat.
 func (s *MigrationRecordStore) mkdir() error {
-	return s.mkdirSynced(diskio.Fsync)
-}
-
-// The sync is a parameter for the same reason writeFileAtomicWithSync takes
-// one: a test can assert a created directory's own name is on disk before a
-// record is written into it.
-func (s *MigrationRecordStore) mkdirSynced(sync func(string) error) error {
+	if s.dirsSynced != nil {
+		if info, err := os.Stat(s.dir); err == nil && os.SameFile(s.dirsSynced, info) {
+			return nil
+		}
+		s.dirsSynced = nil
+	}
 	for _, dir := range []string{filepath.Dir(s.dir), s.dir} {
 		if err := os.Mkdir(dir, 0o777); err != nil && !os.IsExist(err) {
 			return err
@@ -155,10 +157,15 @@ func (s *MigrationRecordStore) mkdirSynced(sync func(string) error) error {
 		// crash without this leaves the record synced into a directory that is gone.
 		// Unconditional, because whoever created an already-present directory may
 		// have died before syncing it.
-		if err := sync(filepath.Dir(dir)); err != nil {
+		if err := diskio.Fsync(filepath.Dir(dir)); err != nil {
 			return err
 		}
 	}
+	info, err := os.Stat(s.dir)
+	if err != nil {
+		return err
+	}
+	s.dirsSynced = info
 	return nil
 }
 
@@ -537,34 +544,85 @@ func (s *MigrationRecordStore) Wedged(key MigrationRecordKey) bool {
 }
 
 func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
-	data, err := encodeMigrationRecord(rec)
-	if err != nil {
-		return fmt.Errorf("encode migration record %q: %w", rec.Subject().Key, err)
+	return s.PutAll([]MigrationRecord{rec})
+}
+
+// PutAll writes every record or, when a check refuses one, none. Until the one
+// directory sync, the renames reach disk in no set order, so a crash can leave
+// any subset published.
+func (s *MigrationRecordStore) PutAll(recs []MigrationRecord) error {
+	data := make([][]byte, len(recs))
+	for i, rec := range recs {
+		key := rec.Subject().Key
+		for _, earlier := range recs[:i] {
+			if earlier.Subject().Key == key {
+				return fmt.Errorf("migration record %q is listed twice", key)
+			}
+		}
+		encoded, err := encodeMigrationRecord(rec)
+		if err != nil {
+			return fmt.Errorf("encode migration record %q: %w", key, err)
+		}
+		data[i] = encoded
 	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	if err := s.mayWrite(rec.Subject().Key); err != nil {
-		return err
+	for _, rec := range recs {
+		if err := s.mayWrite(rec.Subject().Key); err != nil {
+			return err
+		}
 	}
 	if err := s.mkdir(); err != nil {
 		return fmt.Errorf("create migration records dir %q: %w", s.dir, err)
 	}
-	if err := writeFileAtomic(s.dir, rec.Subject().Key.fileName(), data); err != nil {
-		s.adoptIfPublished(rec, data)
-		return fmt.Errorf("write migration record %q: %w", rec.Subject().Key, err)
+	if err := s.writeAll(recs, data); err != nil {
+		for i, rec := range recs {
+			s.adoptIfPublished(rec, data[i])
+		}
+		return err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.records[rec.Subject().Key] = rec
-	delete(s.wedged, rec.Subject().Key)
-	delete(s.deferredPromotions, rec.Subject().Key)
+	for _, rec := range recs {
+		key := rec.Subject().Key
+		s.records[key] = rec
+		delete(s.wedged, key)
+		delete(s.deferredPromotions, key)
+	}
 	return nil
 }
 
-// [diskio.RenameAndSync] renames before it syncs, so a failed write can follow
+func (s *MigrationRecordStore) writeAll(recs []MigrationRecord, data [][]byte) error {
+	temps := make([]string, 0, len(recs))
+	defer func() {
+		for _, tmp := range temps {
+			os.Remove(tmp)
+		}
+	}()
+	for i, rec := range recs {
+		tmp, err := writeSyncedTemp(s.dir, rec.Subject().Key.fileName(), data[i])
+		if err != nil {
+			return fmt.Errorf("write migration record %q: %w", rec.Subject().Key, err)
+		}
+		temps = append(temps, tmp)
+	}
+	for len(temps) > 0 {
+		key := recs[len(recs)-len(temps)].Subject().Key
+		if err := os.Rename(temps[0], s.path(key)); err != nil {
+			return fmt.Errorf("write migration record %q: %w", key, err)
+		}
+		temps = temps[1:]
+	}
+	if err := diskio.Fsync(s.dir); err != nil {
+		return fmt.Errorf("write migration records in %q: %w", s.dir, err)
+	}
+	return nil
+}
+
+// The rename precedes the directory sync, so a failed write can follow
 // a rename that already published the record. Nothing else re-reads the
 // store, so memory must be settled against the file here or it serves the
 // older record for the life of the process.
@@ -582,8 +640,7 @@ func (s *MigrationRecordStore) Remove(key MigrationRecordKey) error {
 	return s.removeSynced(key, diskio.Fsync)
 }
 
-// The sync is a parameter for the same reason mkdirSynced takes one: a test can
-// assert the unlink's own directory entry reached disk.
+// The sync is a parameter so a test can assert the unlink reached disk.
 func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(string) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -726,34 +783,35 @@ func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadO
 }
 
 func writeFileAtomic(dir, name string, content []byte) error {
-	return writeFileAtomicWithSync(dir, name, content, (*os.File).Sync)
-}
-
-// The sync is a parameter so a test can assert it runs after the bytes and
-// before the rename publishes the name.
-func writeFileAtomicWithSync(dir, name string, content []byte, sync func(*os.File) error) (err error) {
-	tmp, err := os.CreateTemp(dir, name+".*"+tmpExt)
+	tmp, err := writeSyncedTemp(dir, name, content)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
+	return diskio.RenameAndSync(tmp, filepath.Join(dir, name))
+}
+
+func writeSyncedTemp(dir, name string, content []byte) (_ string, err error) {
+	tmp, err := os.CreateTemp(dir, name+".*"+tmpExt)
+	if err != nil {
+		return "", err
+	}
 	defer func() {
 		if err != nil {
 			tmp.Close()
-			os.Remove(tmpPath)
+			os.Remove(tmp.Name())
 		}
 	}()
 
 	if _, err = tmp.Write(content); err != nil {
-		return err
+		return "", err
 	}
 	// Bytes must reach disk before the name does, or a crash can publish the
 	// new name over content that never landed.
-	if err = sync(tmp); err != nil {
-		return err
+	if err = tmp.Sync(); err != nil {
+		return "", err
 	}
 	if err = tmp.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return diskio.RenameAndSync(tmpPath, filepath.Join(dir, name))
+	return tmp.Name(), nil
 }
