@@ -898,6 +898,121 @@ func TestReplaceDynamicUserAssignments(t *testing.T) {
 	})
 }
 
+func TestDropMissingDynamicUserAssignments(t *testing.T) {
+	encode := func(t *testing.T, s snapshot) []byte {
+		var buf bytes.Buffer
+		require.NoError(t, json.NewEncoder(&buf).Encode(s))
+		return buf.Bytes()
+	}
+
+	editor := conv.PrefixRoleName("editor")
+	nsEditor := conv.PrefixRoleName("ns1:editor")
+	viewer := conv.PrefixRoleName(authorization.Viewer)
+	editorP := []string{editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain}
+	placeholder := []string{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor}
+	// "db:custom-user" is a static API-key user, so its row is not a dynamic-user row.
+	nonDynamic := [][]string{placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}}
+	static := []string{"custom-user"}
+
+	tests := []struct {
+		name    string
+		blob    snapshot
+		current []byte
+		want    snapshot
+	}{
+		{
+			name: "keeps a dynamic row current holds and drops one it lacks",
+			blob: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", editor}, {"db:bob", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:alice", editor}}}),
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "drops a dynamic row whose subject current holds with another role",
+			blob: snapshot{
+				GroupingPolicy: [][]string{{"db:alice", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:alice", viewer}}}),
+			want:    snapshot{Version: SnapshotVersionLatest},
+		},
+		{
+			name: "matches a namespaced subject on the full row",
+			blob: snapshot{
+				GroupingPolicy: [][]string{{"db:ns1:alice", nsEditor}, {"db:ns1:bob", nsEditor}},
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:ns1:alice", nsEditor}, {"db:bob", nsEditor}}}),
+			want: snapshot{
+				GroupingPolicy: [][]string{{"db:ns1:alice", nsEditor}},
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+		},
+		{
+			name: "keeps p-rows and non-dynamic rows against a current that lacks them",
+			blob: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: append([][]string{{"db:alice", editor}}, nonDynamic...),
+				Version:        SnapshotVersionV0,
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:bob", editor}}}),
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: nonDynamic,
+				Version:        SnapshotVersionV0,
+			},
+		},
+		{
+			name: "an empty current drops every dynamic row and keeps the rest",
+			blob: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: append([][]string{{"db:alice", editor}}, nonDynamic...),
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: nonDynamic,
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := DropMissingDynamicUserAssignments(encode(t, tt.blob), tt.current, static)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(out, &got))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("an empty blob returns unchanged", func(t *testing.T) {
+		current := encode(t, snapshot{GroupingPolicy: [][]string{{"db:bob", viewer}}})
+		out, err := DropMissingDynamicUserAssignments(nil, current, nil)
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
+	t.Run("malformed input returns an error", func(t *testing.T) {
+		valid := encode(t, snapshot{Policy: [][]string{editorP}})
+		_, err := DropMissingDynamicUserAssignments([]byte("{"), valid, nil)
+		require.ErrorContains(t, err, "decode blob")
+		_, err = DropMissingDynamicUserAssignments(valid, []byte("{"), nil)
+		require.ErrorContains(t, err, "decode current")
+	})
+}
+
 // TestSnapshotRecordsNamespaces covers what a snapshot writes into its namespace list.
 // The list is what the strip trusts on the restoring cluster, and it is also part of the
 // artifact an operator may hand to one tenant.

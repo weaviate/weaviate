@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3138,6 +3139,8 @@ func (f *fakeUserLister) ListAllUsers() []string { return f.users }
 // fakeRoleLister is a static RoleLister for scheduler tests. carried records the
 // ids of each BuiltInAssignments call, and oidcCarried the namespaces of each
 // OIDCBuiltInAssignments call. snapshot and snapshotErr are what Snapshot returns.
+// When refreshed is non-nil, the second and later Snapshot calls return it in
+// place of snapshot.
 type fakeRoleLister struct {
 	roles           []string
 	err             error
@@ -3147,6 +3150,10 @@ type fakeRoleLister struct {
 	oidcCarried     [][]string
 	snapshot        []byte
 	snapshotErr     error
+	refreshed       []byte
+
+	mu            sync.Mutex
+	snapshotReads int
 }
 
 func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.err }
@@ -3161,7 +3168,15 @@ func (f *fakeRoleLister) OIDCBuiltInAssignments(namespaces ...string) ([]byte, e
 	return f.oidcAssignments, nil
 }
 
-func (f *fakeRoleLister) Snapshot(...string) ([]byte, error) { return f.snapshot, f.snapshotErr }
+func (f *fakeRoleLister) Snapshot(...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshotReads++
+	if f.snapshotReads > 1 && f.refreshed != nil {
+		return f.refreshed, f.snapshotErr
+	}
+	return f.snapshot, f.snapshotErr
+}
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 	fc := fakeScheduler{}
@@ -3208,6 +3223,12 @@ func roleRows(t *testing.T, blob []byte) (policies, grouping [][]string) {
 // apply. The backup and target share no dynamic-user row, so the applied roles
 // show whether the replace ran. The replace also drops the carried db:dave row,
 // which shows it runs after the carried assignments are merged in.
+//
+// The target loses db:erin between the request and the dispatch. The replace
+// adds db:erin, so its absence from the applied roles shows the refresh ran at
+// dispatch. When the backup users apply, the applied roles keep db:alice and
+// db:dave. The refreshed target lacks both, so their presence shows no refresh
+// ran in that case.
 func TestRestoreDynamicUserAssignmentsGate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -3217,7 +3238,8 @@ func TestRestoreDynamicUserAssignmentsGate(t *testing.T) {
 	)
 	backupRoles := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:alice","role:editor"],["oidc:carol","role:editor"]]}`)
 	carried := []byte(`{"version":1,"grouping_policies":[["db:dave","role:admin"]]}`)
-	target := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"]]}`)
+	target := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"],["db:erin","role:editor"]]}`)
+	refreshedTarget := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"]]}`)
 	policies := [][]string{{"role:editor", "*", "R", "*"}}
 	replaced := [][]string{{"oidc:carol", "role:editor"}, {"db:bob", "role:editor"}}
 	kept := [][]string{{"db:alice", "role:editor"}, {"oidc:carol", "role:editor"}, {"db:dave", "role:admin"}}
@@ -3245,6 +3267,7 @@ func TestRestoreDynamicUserAssignmentsGate(t *testing.T) {
 
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.roleLister.snapshot = target
+		fs.roleLister.refreshed = refreshedTarget
 		rec := &recordingRolesAndUsersRestorer{}
 		fs.rolesAndUsers = rec
 		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)

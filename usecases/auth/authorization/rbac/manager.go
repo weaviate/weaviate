@@ -749,6 +749,55 @@ func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []st
 	return buf.Bytes(), nil
 }
 
+// DropMissingDynamicUserAssignments returns blob minus each dynamic-user row
+// that current does not hold. A row matches only when every field is equal.
+// All other rows are kept, so the result is a subset of blob.
+//
+// An empty blob is returned unchanged. An empty current drops every dynamic-user
+// row. The result keeps blob's Version and Namespaces.
+func DropMissingDynamicUserAssignments(blob, current []byte, staticAPIKeyUsers []string) ([]byte, error) {
+	if len(blob) == 0 {
+		return blob, nil
+	}
+
+	var sb, sc snapshot
+	if err := json.Unmarshal(blob, &sb); err != nil {
+		return nil, fmt.Errorf("drop missing dynamic user assignments: decode blob: %w", err)
+	}
+	// Manager.Snapshot returns an empty blob when RBAC holds no store.
+	if len(current) > 0 {
+		if err := json.Unmarshal(current, &sc); err != nil {
+			return nil, fmt.Errorf("drop missing dynamic user assignments: decode current: %w", err)
+		}
+	}
+
+	present := make(map[string]struct{}, len(sc.GroupingPolicy))
+	for _, g := range sc.GroupingPolicy {
+		present[fmt.Sprintf("%q", g)] = struct{}{}
+	}
+	isDynamicUserRow := dynamicUserRowClassifier(staticAPIKeyUsers)
+	var groupingPolicy [][]string
+	for _, g := range sb.GroupingPolicy {
+		if _, ok := isDynamicUserRow(g); ok {
+			if _, ok := present[fmt.Sprintf("%q", g)]; !ok {
+				continue
+			}
+		}
+		groupingPolicy = append(groupingPolicy, g)
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         sb.Policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        sb.Version,
+		Namespaces:     sb.Namespaces,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // dynamicUserRowClassifier returns a function that takes a g-row. When the row
 // assigns a role to a dynamic user, it returns that user's id and true.
 // A subject that does not parse is never a dynamic user.
