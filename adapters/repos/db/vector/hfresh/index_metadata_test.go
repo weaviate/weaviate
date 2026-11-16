@@ -275,7 +275,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			rollback:  wholeStore,
 			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
 			check: func(t *testing.T, h *HFresh) {
-				id, err := h.nextPostingID()
+				id, err := h.IDs.Next()
 				require.NoError(t, err)
 				require.Greater(t, id, highestPostingID, "a freed centroid slot may still be cleaned up or tombstoned")
 			},
