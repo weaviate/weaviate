@@ -124,6 +124,7 @@ func NewTenantsNotHotError(collection string) error {
 // rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
+// ErrCutoverRunFinished: the schema FSM accepts the write as a no-op if the property already holds its values.
 var ErrCutoverRunFinished = errors.New("the run of this cutover write already finished")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
