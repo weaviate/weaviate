@@ -67,12 +67,12 @@ func TestALoadFinishesAHalfWrittenSwapDecision(t *testing.T) {
 
 			f.reload(t)
 			assert.Equal(t, tc.wantTok, f.tokenization())
-			assert.Equal(t, [3]int{3, 3, 3}, f.counts(t), "Equal, Like and BM25 before any swap tick")
+			assert.Equal(t, allFound, f.counts(t), "before any swap tick")
 			assert.Equal(t, tc.wantStates, f.states(t))
 
 			assert.Equal(t, tc.wantSwapErr, len(f.swap(f.freshTasks(t)).Errs) > 0)
 			assert.Equal(t, tc.wantTok, f.tokenization())
-			assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+			assert.Equal(t, allFound, f.counts(t))
 		})
 	}
 }
@@ -87,16 +87,16 @@ func TestARehydrateFlipsNothingWhileItsUnitIsHalfDecided(t *testing.T) {
 	simulateProcessRestartBucketCleanup(t, f.shard.pathLSM())
 	denyDirectoryWrites(t, records)
 	f.shard = openShardFromDisk(t, f.ctx, f.idx, f.class, name)
-	require.Equal(t, [3]int{3, 3, 3}, f.counts(t), "the load itself must leave the old pair")
+	require.Equal(t, allFound, f.counts(t), "the load itself must leave the old pair")
 
 	tasks := f.freshTasks(t)
 	logger, _ := logrustest.NewNullLogger()
 	f.provider.runShardPrepPhase(f.ctx, f.payload, f.unit, f.shard, tasks, true, logger)
 	assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
-	assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+	assert.Equal(t, allFound, f.counts(t))
 
 	require.NoError(t, os.Chmod(records, 0o700))
 	require.Empty(t, f.swap(tasks).Errs)
 	assert.Equal(t, models.PropertyTokenizationWord, f.tokenization())
-	assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+	assert.Equal(t, allFound, f.counts(t))
 }

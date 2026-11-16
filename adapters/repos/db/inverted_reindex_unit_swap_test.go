@@ -31,9 +31,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -88,7 +90,7 @@ func newTokenizationChange(t *testing.T) *tokenizationChange {
 	for range 3 {
 		require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, tokChangeValue)))
 	}
-	require.Equal(t, [3]int{3, 3, 3}, f.counts(t), "the fixture must find every object before the change")
+	require.Equal(t, allFound, f.counts(t), "the fixture must find every object before the change")
 
 	f.tasks = f.freshTasks(t)
 	require.Len(t, f.tasks, 2, "a property with both indexes changes tokenization in two halves")
@@ -142,8 +144,13 @@ func (f *tokenizationChange) tokenization() string {
 	return queryTokenization(f.shard, tokChangeProp, models.PropertyTokenizationField)
 }
 
-// counts is Equal, Like and BM25; each is 3 only while tokenization and bucket agree.
-func (f *tokenizationChange) counts(t *testing.T) [3]int {
+// allFound is what counts returns while tokenization and buckets agree.
+var allFound = [7]int{3, 3, 3, 3, 3, 3, 3}
+
+// counts asks every query entry point for the stored value: Equal, Like, BM25,
+// BM25 with an Equal filter, the vector search allow list, the batch delete
+// match and an Equal-filtered aggregation.
+func (f *tokenizationChange) counts(t *testing.T) [7]int {
 	t.Helper()
 	search := func(filter *filters.LocalFilter, keyword *searchparams.KeywordRanking) int {
 		found, _, err := f.shard.ObjectSearch(f.ctx, 10, filter, keyword, nil, nil,
@@ -151,14 +158,25 @@ func (f *tokenizationChange) counts(t *testing.T) [3]int {
 		require.NoError(t, err)
 		return len(found)
 	}
+	equal := propEqualsFilter(f.class.Class, tokChangeProp, tokChangeValue)
 	like := propEqualsFilter(f.class.Class, tokChangeProp, "Hello*")
 	like.Root.Operator = filters.OperatorLike
-	return [3]int{
-		search(propEqualsFilter(f.class.Class, tokChangeProp, tokChangeValue), nil),
-		search(like, nil),
-		search(nil, &searchparams.KeywordRanking{
-			Type: "bm25", Properties: []string{tokChangeProp}, Query: tokChangeValue,
-		}),
+	bm25 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{tokChangeProp}, Query: tokChangeValue}
+
+	allow, err := f.shard.buildAllowList(f.ctx, equal, additional.Properties{})
+	require.NoError(t, err)
+	defer allow.Close()
+	deletes, err := f.shard.FindUUIDs(f.ctx, equal, 10)
+	require.NoError(t, err)
+	agg, err := f.shard.Aggregate(f.ctx, aggregation.Params{
+		ClassName: schema.ClassName(f.class.Class), Filters: equal, IncludeMetaCount: true,
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, agg.Groups, 1)
+
+	return [7]int{
+		search(equal, nil), search(like, nil), search(nil, bm25), search(equal, bm25),
+		allow.Len(), len(deletes), agg.Groups[0].Count,
 	}
 }
 
@@ -189,7 +207,7 @@ func TestChangeTokenizationFiltersWhileASwapTearsDown(t *testing.T) {
 		require.Eventually(t, func() bool { return f.tokenization() == models.PropertyTokenizationWord },
 			10*time.Second, time.Millisecond)
 
-		assert.Equal(t, [3]int{3, 3, 3}, f.counts(t), "Equal, Like and BM25 while the teardown waits")
+		assert.Equal(t, allFound, f.counts(t), "while the teardown waits")
 
 		release()
 		released = true
@@ -224,12 +242,12 @@ func TestChangeTokenizationFiltersWhileASwapTearsDown(t *testing.T) {
 
 			require.NotEmpty(t, f.swap(f.tasks).Errs)
 			assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
-			assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+			assert.Equal(t, allFound, f.counts(t))
 
 			repair()
 			f.reload(t)
 			assert.Equal(t, models.PropertyTokenizationField, f.tokenization())
-			assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+			assert.Equal(t, allFound, f.counts(t))
 		})
 	}
 }
@@ -284,5 +302,5 @@ func TestDecidedSwapsLeftByALoadFlipAsOneUnit(t *testing.T) {
 
 	require.Empty(t, rec.failed)
 	assert.Equal(t, models.PropertyTokenizationWord, f.tokenization())
-	assert.Equal(t, [3]int{3, 3, 3}, f.counts(t))
+	assert.Equal(t, allFound, f.counts(t))
 }

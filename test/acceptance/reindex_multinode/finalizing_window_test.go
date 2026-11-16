@@ -148,6 +148,19 @@ func TestLiveQueriesDuringChangeTokenization(t *testing.T) {
 			expectedAfter: 1500,
 		},
 		{
+			// Both indexes swap; an Equal filter tokenized for one bucket and
+			// read from the other returns 0, outside [1, 1].
+			name:       "reverse_field_to_word_both_indexes_equal",
+			startTok:   "field",
+			targetTok:  "word",
+			indexType:  "searchable",
+			probeQuery: "alpha doc number 0 filler",
+			probe: func(uri, cn string) (int, error) {
+				return equalCount(uri, cn, "text", "alpha doc number 0 filler")
+			},
+			expectedAfter: 1,
+		},
+		{
 			name:       "forward_word_to_field_filterable",
 			startTok:   "word",
 			targetTok:  "field",
@@ -272,11 +285,10 @@ func runLiveQueryDuringChangeTokenizationCase(
 		"observed %d out-of-range samples for %s→%s on %s — every sample "+
 			"must lie within [min(baseline, expectedAfter)=%d, "+
 			"max(baseline, expectedAfter)=%d]. The per-shard tokenization "+
-			"overlay (Shard.TokenizationFor, BM25Searcher.WithTokenizationResolver, "+
-			"Searcher.WithTokenizationResolver, aggregator.New tokResolver) is "+
-			"not keeping the query analyzer aligned with bucket content during "+
-			"the FINALIZING window. Investigate the resolver wiring and the "+
-			"set/clear hooks in OnGroupCompleted / OnTaskCompleted.",
+			"overlay (read through Shard.PinTokenizationAndBucket by filters, "+
+			"BM25 and aggregations) is not keeping the query analyzer aligned "+
+			"with bucket content during the FINALIZING window. Investigate the "+
+			"pinner wiring and the unit flip in the swap phase.",
 		c.OutOfRange, startTok, targetTok, indexType,
 		minInt(baselineCount, expectedAfter), maxInt(baselineCount, expectedAfter))
 
