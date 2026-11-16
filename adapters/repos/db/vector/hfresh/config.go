@@ -13,6 +13,8 @@ package hfresh
 
 import (
 	"math"
+	"os"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -32,6 +34,29 @@ const (
 	maxPostingSizeFloor uint32 = 192 // Minimum vectors per posting
 	minPostingSizeFloor uint32 = 3   // Minimum vectors for split threshold
 )
+
+const (
+	singlePostingMaxSizeEnv = "HFRESH_SINGLE_POSTING_MAX_SIZE"
+	// DefaultSinglePostingMaxSize keeps an index in one posting up to 10MiB.
+	DefaultSinglePostingMaxSize uint64 = 10 * 1024 * 1024
+)
+
+// SinglePostingMaxSizeFromEnv reads HFRESH_SINGLE_POSTING_MAX_SIZE, in bytes;
+// 0 builds the centroid graph up front.
+func SinglePostingMaxSizeFromEnv(logger logrus.FieldLogger) uint64 {
+	v := os.Getenv(singlePostingMaxSizeEnv)
+	if v == "" {
+		return DefaultSinglePostingMaxSize
+	}
+
+	size, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		logger.WithField("value", v).Warnf("invalid %s, using the default of %d bytes: %v",
+			singlePostingMaxSizeEnv, DefaultSinglePostingMaxSize, err)
+		return DefaultSinglePostingMaxSize
+	}
+	return size
+}
 
 type Config struct {
 	Logger                       logrus.FieldLogger

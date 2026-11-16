@@ -162,3 +162,29 @@ func TestSinglePostingThresholdFromSize(t *testing.T) {
 		})
 	}
 }
+
+func TestSinglePostingMaxSizeFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    *string
+		expected uint64
+	}{
+		{"unset", nil, DefaultSinglePostingMaxSize},
+		{"bytes", ptr("1048576"), 1 << 20},
+		{"disabled", ptr("0"), 0},
+		{"unit is not accepted", ptr("10MiB"), DefaultSinglePostingMaxSize},
+		{"negative", ptr("-1"), DefaultSinglePostingMaxSize},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.value != nil {
+				t.Setenv(singlePostingMaxSizeEnv, *tt.value)
+			}
+			require.Equal(t, tt.expected, SinglePostingMaxSizeFromEnv(logrus.New()))
+		})
+	}
+}
+
+func ptr(s string) *string {
+	return &s
+}
