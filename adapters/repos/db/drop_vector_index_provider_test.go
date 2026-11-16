@@ -1803,6 +1803,7 @@ func deferringDropTaskCovering(id, collection string, shards, deferred []string,
 		panic(err)
 	}
 	payload.DeferredShards = deferred
+	payload.DropEpochID = "E1"
 	enc, err := payload.encode()
 	if err != nil {
 		panic(err)
@@ -2105,9 +2106,9 @@ func TestCheckVectorConfigRemoval_DeletionResolvedVoucher_CountsOnlyStrippedShar
 }
 
 // TestCheckVectorConfigRemoval_DeletionResolvedVoucher_UnfinishedUnits pins
-// what a FAILED or CANCELLED round may vouch for: it is credited only with the
-// shards whose every replica unit completed, and it owes the rest, so it
-// vouches exactly when every unstripped shard it knew about is gone.
+// when a FAILED or CANCELLED round vouches: every current shard was stripped
+// by its completed units or by an earlier round of its epoch, and a shard it
+// left unstripped or deferred has since been deleted.
 func TestCheckVectorConfigRemoval_DeletionResolvedVoucher_UnfinishedUnits(t *testing.T) {
 	const (
 		done   = distributedtask.UnitStatusCompleted
@@ -2187,6 +2188,20 @@ func TestCheckVectorConfigRemoval_DeletionResolvedVoucher_UnfinishedUnits(t *tes
 			units: map[string]distributedtask.UnitStatus{
 				"s1__n1": done, "s1__n2": failed, "s3__n1": failed, "s3__n2": failed,
 			},
+			shards:  []string{"s1"},
+			wantErr: true,
+		},
+		{
+			name:     "every unit completed, deferred shard deleted",
+			status:   distributedtask.TaskStatusFailed,
+			units:    map[string]distributedtask.UnitStatus{"s1__n1": done, "s2__n1": done},
+			deferred: []string{"s3"},
+			shards:   []string{"s1", "s2"},
+		},
+		{
+			name:    "every unit completed, nothing deferred, a stripped shard deleted",
+			status:  distributedtask.TaskStatusFailed,
+			units:   map[string]distributedtask.UnitStatus{"s1__n1": done, "s2__n1": done},
 			shards:  []string{"s1"},
 			wantErr: true,
 		},

@@ -115,6 +115,10 @@ var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dr
 // Such a chain is complete for the collection as it now stands, so the marker
 // can be removed without re-stripping shards that are already clean.
 //
+// A true result alone does not make the marker removable. Both callers also
+// require EpochCoveredShards to span shards, because this credits a FAILED or
+// CANCELLED round's inherited CleanedShards and EpochCoveredShards does not.
+//
 // A round owes the shards it deferred and, when it ended FAILED or CANCELLED,
 // the shards whose units did not all complete: a tenant deleted mid-strip
 // fails its unit, and that work vanished exactly like a deleted deferred
@@ -359,34 +363,15 @@ func terminalWithPartialWork(s distributedtask.TaskStatus) bool {
 func EpochAndInheritedCoverage(collection string, targets []string, state *sharding.State,
 	tasks map[string][]*distributedtask.Task, logger logrus.FieldLogger,
 ) (epoch string, cleaned []string, finalizeNow bool) {
-	// The newest matching task (raft-assigned Version: monotonic and
-	// deterministic, unlike node wall clocks) names the candidate epoch.
-	var newest *DropVectorIndexTaskPayload
-	var newestVersion uint64
-	for _, task := range tasks[DropVectorIndexNamespace] {
-		p, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
-			}
-			continue
-		}
-		if !SameDrop(p, collection, targets) {
-			continue
-		}
-		if newest == nil || task.Version > newestVersion {
-			newest, newestVersion = p, task.Version
-		}
-	}
-	if newest == nil || newest.DropEpochID == "" {
+	newestEpoch, ok := newestDropEpoch(tasks[DropVectorIndexNamespace], collection, targets, logger)
+	if !ok {
 		return uuid.NewString(), nil, false
 	}
 	// Completed tasks vouch their full CoveredShards; a FAILED or CANCELLED
 	// round vouches only its COMPLETED units — a deactivated tenant fails a
 	// whole round, and discarding its finished work would make MT-scale
 	// convergence improbable.
-	covered := EpochCoveredShards(tasks[DropVectorIndexNamespace], collection, targets, newest.DropEpochID)
+	covered := EpochCoveredShards(tasks[DropVectorIndexNamespace], collection, targets, newestEpoch)
 	// Prune to current shards: deleted tenants would otherwise accumulate in
 	// every subsequent payload forever.
 	cleaned = make([]string, 0, len(covered))
@@ -416,13 +401,46 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 		// only, so an epoch with a record under another op cannot be verified
 		// and re-cleans as well.
 		if resolvedByDeletion(tasks[DropVectorIndexNamespace], collection, targets,
-			newest.DropEpochID, shardNames) &&
-			!epochHasForeignOp(tasks[DropVectorIndexNamespace], collection, targets, newest.DropEpochID) {
-			return newest.DropEpochID, cleaned, true
+			newestEpoch, shardNames) &&
+			!epochHasForeignOp(tasks[DropVectorIndexNamespace], collection, targets, newestEpoch) {
+			return newestEpoch, cleaned, true
 		}
 		return uuid.NewString(), nil, false
 	}
-	return newest.DropEpochID, cleaned, false
+	return newestEpoch, cleaned, false
+}
+
+// newestDropEpoch returns the epoch of the newest record of the drop
+// (collection, targets). Newest is by raft-assigned Version, which is monotonic
+// and deterministic, unlike node wall clocks. ok is false when the drop has no
+// record or its newest record carries no epoch. The enqueuer and the removal
+// gate both read the epoch here: records of an older epoch say nothing about
+// the rows the newest one still has pending.
+func newestDropEpoch(tasks []*distributedtask.Task, collection string, targets []string,
+	logger logrus.FieldLogger,
+) (epoch string, ok bool) {
+	var newest *DropVectorIndexTaskPayload
+	var newestVersion uint64
+	for _, task := range tasks {
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			if logger != nil {
+				logger.WithField("task", task.ID).
+					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
+			}
+			continue
+		}
+		if !SameDrop(p, collection, targets) {
+			continue
+		}
+		if newest == nil || task.Version > newestVersion {
+			newest, newestVersion = p, task.Version
+		}
+	}
+	if newest == nil || newest.DropEpochID == "" {
+		return "", false
+	}
+	return newest.DropEpochID, true
 }
 
 // resolvedByDeletion reports whether some task of the epoch proves the drop's
