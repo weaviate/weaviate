@@ -39,7 +39,7 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 	}
 
 	// validate scale plan
-	copiesReplica := false
+	var copiedShards []string
 	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
 		sourceNodeUsage := make(map[string]int)
 
@@ -53,7 +53,9 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 			}
 
 			if sourceNode != "" {
-				copiesReplica = true
+				if len(sourceNodeUsage) == 0 {
+					copiedShards = append(copiedShards, shardName)
+				}
 				sourceNodeUsage[sourceNode]++
 				if sourceNodeUsage[sourceNode] > 1 {
 					if _, isBeingRemoved := shardActions.RemoveNodes[sourceNode]; isBeingRemoved {
@@ -67,8 +69,8 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 	if len(scalePlan.ShardReplicationScaleActions) > 0 && !s.SchemaReader().ClassInfo(scalePlan.Collection).Exists {
 		return nil, fmt.Errorf("collection %q: %w", scalePlan.Collection, replicationTypes.ErrNotFound)
 	}
-	if copiesReplica {
-		if err := s.store.admitTaskOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection); err != nil {
+	for _, shardName := range copiedShards {
+		if err := s.store.admitTaskOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection, shardName); err != nil {
 			return nil, err
 		}
 	}

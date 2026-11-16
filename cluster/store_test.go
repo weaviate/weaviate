@@ -1753,6 +1753,72 @@ func seedExclusionMovement(t *testing.T, s *Store) {
 	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
 }
 
+const owingTaskID = "owing"
+
+func owingSubCommand(t *testing.T, v any) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(v)
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{SubCommand: sub}
+}
+
+// seedOwedSwap leaves a task that decided group's swap, swapped it on nodes[0] and still owes it on nodes[1].
+// A second, undecided group keeps a per-tenant task PREPARING until stop ends it. Without multi-tenancy
+// group is "" and the only one, so deciding it starts the swap.
+func seedOwedSwap(t *testing.T, s *Store, group string, nodes [2]string, stop func(*testing.T, *distributedtask.Manager)) {
+	t.Helper()
+	m := s.distributedTasksManager
+	specs := []*cmd.UnitSpec{{Id: "u0", GroupId: group}, {Id: "u1", GroupId: group}}
+	unitNodes := map[string]string{"u0": nodes[0], "u1": nodes[1]}
+	if group != "" {
+		specs = append(specs, &cmd.UnitSpec{Id: "u2", GroupId: "undecided"})
+		unitNodes["u2"] = "node1"
+	}
+	require.NoError(t, m.AddTask(owingSubCommand(t, &cmd.AddDistributedTaskRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, NeedsPreparationBarrier: true, UnitSpecs: specs,
+	}), 1))
+	for unit, node := range unitNodes {
+		require.NoError(t, m.RecordUnitCompletion(owingSubCommand(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, NodeId: node, UnitId: unit,
+		})))
+	}
+	for _, node := range nodes {
+		require.NoError(t, m.RecordPreparationCompleteAck(owingSubCommand(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, GroupId: new(group), NodeId: node, Success: true,
+		})))
+	}
+	stop(t, m)
+	paySwap(t, s, group, nodes[0])
+}
+
+func paySwap(t *testing.T, s *Store, group, node string) {
+	t.Helper()
+	require.NoError(t, s.distributedTasksManager.RecordPostCompletionAck(owingSubCommand(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, GroupId: group, NodeId: node, Success: true,
+	})))
+}
+
+func failOwingTask(t *testing.T, m *distributedtask.Manager) {
+	t.Helper()
+	require.NoError(t, m.RecordPreparationCompleteAck(owingSubCommand(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, GroupId: new("undecided"), NodeId: "node1", Error: "disk full",
+	})))
+}
+
+func failSwappingTask(t *testing.T, m *distributedtask.Manager) {
+	t.Helper()
+	require.NoError(t, m.MarkTaskFailed(owingSubCommand(t, &cmd.MarkTaskFailedRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, Version: 1, Error: "cutover write failed",
+	})))
+}
+
+func cancelOwingTask(t *testing.T, m *distributedtask.Manager) {
+	t.Helper()
+	require.NoError(t, m.CancelTask(owingSubCommand(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: exclusionNamespace, Id: owingTaskID, Version: 1,
+	})))
+}
+
 // openExclusionStore opens a single-node raft, so the admitted submit really applies and the other one's check can see it.
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
@@ -1819,13 +1885,64 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 	// ErrPermanentRejection lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
 	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
 
+	movementOf := func(shard string, transfer cmd.ShardReplicationTransferType) func(*testing.T) *cmd.ApplyRequest {
+		return func(t *testing.T) *cmd.ApplyRequest {
+			sub, err := json.Marshal(&cmd.ReplicationReplicateShardRequest{
+				Version: cmd.ReplicationCommandVersionV0, Uuid: exclusionMovement.Uuid, SourceCollection: exclusionCollection,
+				SourceShard: shard, SourceNode: "node1", TargetNode: "node3", TransferType: transfer.String(),
+			})
+			require.NoError(t, err)
+			return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+		}
+	}
+	owedBy := func(stop func(*testing.T, *distributedtask.Manager)) func(*testing.T, *Store) {
+		return func(t *testing.T, s *Store) { seedOwedSwap(t, s, "shard1", [2]string{"node1", "node2"}, stop) }
+	}
+	owedWithoutTenants := func(t *testing.T, s *Store) {
+		seedOwedSwap(t, s, "", [2]string{"node1", "node2"}, failSwappingTask)
+	}
+	owed := []error{replicationTypes.ErrMovementBlockedByTask}
+
 	for _, tc := range []struct {
 		name     string
 		seed     func(*testing.T, *Store)
 		command  func(*testing.T) *cmd.ApplyRequest
 		wantErrs []error
+		// wantOwing is the node the refusal must name, so the operator knows which one to bring back.
+		wantOwing string
 	}{
 		{name: "a movement is admitted when no task runs", command: movement},
+		{
+			name: "a copy is refused while a failed task owes its shard's swap", command: movementOf("shard1", cmd.COPY),
+			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "a copy is refused while a cancelled task owes its shard's swap", command: movementOf("shard1", cmd.COPY),
+			seed: owedBy(cancelOwingTask), wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "a move is refused while a stopped task owes its shard's swap", command: movementOf("shard1", cmd.MOVE),
+			seed: owedBy(failOwingTask), wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "without multi-tenancy a copy is refused while a failed task owes the swap", command: movementOf("shard1", cmd.COPY),
+			seed: owedWithoutTenants, wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "without multi-tenancy a move is refused while a failed task owes the swap", command: movementOf("shard1", cmd.MOVE),
+			seed: owedWithoutTenants, wantErrs: owed, wantOwing: "node2",
+		},
+		{
+			name: "a copy of a shard no task owes is admitted", command: movementOf("undecided", cmd.COPY),
+			seed: owedBy(failOwingTask),
+		},
+		{
+			name: "a copy is admitted once the last owing node swapped", command: movementOf("shard1", cmd.COPY),
+			seed: func(t *testing.T, s *Store) {
+				owedBy(failOwingTask)(t, s)
+				paySwap(t, s, "shard1", "node2")
+			},
+		},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,
 			seed: seedExclusionMovement, wantErrs: taskRefused,
@@ -1843,10 +1960,10 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			}
 
 			command := tc.command(t)
-			collection, task, err := s.taskOrMovementCollection(command)
+			collection, shard, task, err := s.taskOrMovementCollection(command)
 			require.NoError(t, err)
 
-			err = s.admitPropose(command, collection, task)
+			err = s.admitPropose(command, collection, shard, task)
 			if len(tc.wantErrs) == 0 {
 				require.NoError(t, err)
 				return
@@ -1856,6 +1973,7 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			}
 			require.Contains(t, err.Error(), exclusionCollection,
 				"the refusal must name the collection the operator has to wait on")
+			require.Contains(t, err.Error(), tc.wantOwing)
 		})
 	}
 }
@@ -1957,9 +2075,9 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
 
 			// Execute's own sequence, so the check sees the task as decoded from the proposal.
-			collection, task, err := s.taskOrMovementCollection(req)
+			collection, shard, task, err := s.taskOrMovementCollection(req)
 			require.NoError(t, err)
-			err = s.admitPropose(req, collection, task)
+			err = s.admitPropose(req, collection, shard, task)
 			if !tc.wantRefused {
 				require.NoError(t, err)
 				return

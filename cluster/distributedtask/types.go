@@ -522,10 +522,7 @@ type TaskStatusEntry struct {
 
 // StatusEntryFor answers for one shard (copying all decided groups would be quadratic in tenants).
 func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
-	group := shard
-	if t.hasGroup("") {
-		group = ""
-	}
+	group := t.groupOf(shard)
 	var acked []string
 	for node := range t.PreparedGroups[group] {
 		acked = append(acked, node)
@@ -649,6 +646,14 @@ func (t *Task) forgetGroups(groups []string) {
 		delete(t.SwapDecidedGroups, group)
 		delete(t.PreparedGroups, group)
 	}
+}
+
+// groupOf maps a shard to its group: without multi-tenancy every unit is in group "".
+func (t *Task) groupOf(shard string) string {
+	if t.hasGroup("") {
+		return ""
+	}
+	return shard
 }
 
 func (t *Task) hasGroup(group string) bool {

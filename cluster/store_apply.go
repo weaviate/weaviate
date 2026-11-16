@@ -57,7 +57,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
-	collection, task, err := st.taskOrMovementCollection(req)
+	collection, shard, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
@@ -86,7 +86,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req, collection, task); err != nil {
+	if err := st.admitPropose(req, collection, shard, task); err != nil {
 		return 0, err
 	}
 
@@ -135,7 +135,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
 // admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
-func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
+func (st *Store) admitPropose(req *api.ApplyRequest, collection, shard string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
+	if err := st.admitTaskOrMovement(req.Type, collection, shard); err != nil {
 		return err
 	}
 	return st.admitTaskReplicas(task, collection)
@@ -197,37 +197,42 @@ func sameNodes(a, b []string) bool {
 	return slices.Equal(notEmpty(a), notEmpty(b))
 }
 
-// taskOrMovementCollection also returns the decoded task of a task add, so admitPropose need not decode it again.
-func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, *api.AddDistributedTaskRequest, error) {
+// taskOrMovementCollection also returns the shard a replicate copies and the decoded task of a task add, so admitPropose need not decode either again.
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, string, *api.AddDistributedTaskRequest, error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		sub := &api.ReplicationReplicateShardRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
+			return "", "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
 		}
-		return sub.SourceCollection, nil, nil
+		return sub.SourceCollection, sub.SourceShard, nil, nil
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		sub := &api.AddDistributedTaskRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
+			return "", "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
 		}
-		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), sub, nil
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), "", sub, nil
 
 	default:
-		return "", nil, nil
+		return "", "", nil, nil
 	}
 }
 
 // admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
-func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection, shard string) error {
 	switch cmdType {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
-		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
-			return nil
+		if st.distributedTasksManager.HasActiveTaskForCollection(collection) {
+			return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+				replicationTypes.ErrMovementBlockedByTask, collection)
 		}
-		return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
-			replicationTypes.ErrMovementBlockedByTask, collection)
+		if taskID, nodes, owed := st.distributedTasksManager.TaskOwingSwap(collection, shard); owed {
+			return fmt.Errorf("%w: task %q still owes the swap of shard %q of collection %q on nodes %v; "+
+				"bring those nodes back and set the shard READY so the swap lands, or delete the tenant or collection",
+				replicationTypes.ErrMovementBlockedByTask, taskID, shard, collection, nodes)
+		}
+		return nil
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {

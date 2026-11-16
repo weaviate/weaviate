@@ -87,8 +87,10 @@ together into a small REST surface rooted at
 > stamps an in-flight migration whatever the flag says.
 
 A replica movement requested while a migration runs on its collection is
-refused with 409. One that reaches a shard still being cleaned up after a
-cancelled or failed migration waits for the cleanup to finish.
+refused with 409. So is a copy or move of a shard that a stopped migration
+still owes a swap on some node; the error names those nodes. One that
+reaches a shard still being cleaned up after a cancelled or failed
+migration waits for the cleanup to finish.
 
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 

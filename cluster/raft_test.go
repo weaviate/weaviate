@@ -569,6 +569,27 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		require.ErrorContains(t, err, "invalid scale plan: source node")
 	})
 
+	t.Run("A copy of a shard a stopped task still owes is refused before any step", func(t *testing.T) {
+		seedOwedSwap(t, r.store, shard, [2]string{sourceNode, removeNode}, failOwingTask)
+		defer paySwap(t, r.store, shard, removeNode)
+		before, err := readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+
+		_, err = r.ApplyReplicationScalePlan(ctx, command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard:      {AddNodes: map[string]string{destNode: sourceNode}},
+				otherShard: {AddNodes: map[string]string{destNode: ""}},
+			},
+		})
+		require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
+		require.ErrorContains(t, err, removeNode)
+
+		after, err := readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+		require.Equal(t, before.Physical, after.Physical)
+	})
+
 	t.Run("While a reindex runs a copy is refused before any step, removals and empty additions still apply", func(t *testing.T) {
 		seedExclusionTask(t, r.store)
 		before, err := readShardingState(r.SchemaReader(), class)
