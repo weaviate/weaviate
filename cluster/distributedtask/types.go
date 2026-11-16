@@ -46,7 +46,7 @@ type TaskHeader interface {
 	Collection() string
 }
 
-// HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. The Manager decodes each task's header once, when it stores the task; DecodeHeader must be a pure function of the payload.
+// HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
 type HeaderDecoder interface {
 	DecodeHeader(payload []byte) (TaskHeader, error)
 }
@@ -757,7 +757,7 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
-// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire rather than from a Manager.
+// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.
 func (t *Task) Header() TaskHeader {
 	return t.header
 }

@@ -271,7 +271,9 @@ func (m *Manager) headerFor(namespace string, payload []byte) TaskHeader {
 	}
 	header, err := decoder.DecodeHeader(payload)
 	if err != nil {
-		m.logger.WithField("namespace", namespace).Warnf("task payload has no readable header, so checks treat it as unparseable: %v", err)
+		reason := err.Error()
+		reason = reason[:min(len(reason), 200)]
+		m.logger.WithField("namespace", namespace).Warnf("task payload has no readable header, so checks treat it as unparseable: %s", reason)
 		return nil
 	}
 	return header

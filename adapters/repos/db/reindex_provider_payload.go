@@ -41,7 +41,7 @@ func (h ReindexTaskHeader) Collection() string { return h.Class }
 
 var _ distributedtask.HeaderDecoder = ReindexDetector{}
 
-// DecodeHeader keeps no per-tenant field, and unmarshals the whole payload so a malformed field anywhere leaves no header, which the checks refuse.
+// DecodeHeader unmarshals the whole payload, so a malformed field anywhere yields no header and the checks refuse.
 func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	var p ReindexTaskPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
