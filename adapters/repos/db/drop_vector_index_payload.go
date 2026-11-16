@@ -100,7 +100,9 @@ type DropVectorIndexTaskPayload struct {
 	// so the marker must not fall before they drain.
 	//
 	// A node that predates the field runs the round as a normal one: it arms
-	// its unit's shard and re-cleans it, which is wasteful but safe.
+	// and re-cleans its unit's shard and checks none of its other shards, so
+	// on that node the drop finalizes unverified, as it did before the field
+	// existed.
 	VerifyOnly bool `json:"verifyOnly,omitempty"`
 }
 
@@ -382,10 +384,15 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 		// Either the shards it still owed were DELETED — the work is genuinely
 		// done for the collection as it now stands, so the caller finalizes
 		// through a verify-only round rather than re-strip shards that are
-		// already clean — or the chain owed nothing,
-		// which is closed-epoch residue (see above) and must re-clean.
+		// already clean — or the chain owed nothing, which is closed-epoch
+		// residue (see above) and must re-clean.
+		//
+		// A verify-only round looks for leftover rows under the epoch's op
+		// only, so an epoch with a record under another op cannot be verified
+		// and re-cleans as well.
 		if resolvedByDeletion(tasks[DropVectorIndexNamespace], collection, targets,
-			newest.DropEpochID, shardNames) {
+			newest.DropEpochID, shardNames) &&
+			!epochHasForeignOp(tasks[DropVectorIndexNamespace], collection, targets, newest.DropEpochID) {
 			return newest.DropEpochID, cleaned, true
 		}
 		return uuid.NewString(), nil, false
@@ -411,6 +418,23 @@ func resolvedByDeletion(tasks []*distributedtask.Task, collection string, target
 			continue
 		}
 		if p.ResolvedByShardDeletion(shardNames) {
+			return true
+		}
+	}
+	return false
+}
+
+// epochHasForeignOp reports whether some record of the epoch ran under an op
+// other than the epoch's own. Rounds enqueued by a version that minted an op
+// per round leave such records, and rows still pending under their ops are
+// invisible to anything that looks the op up by epoch.
+func epochHasForeignOp(tasks []*distributedtask.Task, collection string, targets []string, epoch string) bool {
+	for _, task := range tasks {
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if SameDrop(p, collection, targets) && p.DropEpochID == epoch && p.OpID != epoch {
 			return true
 		}
 	}
