@@ -205,5 +205,5 @@ func (ua unfilteredAggregator) scanObjects(ctx context.Context, scans []objectSc
 		return nil
 	}
 
-	return iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
+	return iteratorConcurrently(ctx, b, func(context.Context) Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
 }
