@@ -67,7 +67,7 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	params := a.getParameters(cfg, options, imageProperties)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
-	anthropicURL, err := a.getAnthropicURL(ctx, params.BaseURL)
+	anthropicURL, err := a.getAnthropicURL(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "get anthropic url")
 	}
@@ -229,8 +229,8 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Anthropic-Baseurl", baseURL)
+func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Anthropic-Baseurl", baseURL, classBaseURL, "X-Anthropic-Api-Key")
 	if err != nil {
 		return "", err
 	}

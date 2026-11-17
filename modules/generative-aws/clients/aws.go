@@ -85,6 +85,9 @@ func (v *awsClient) GenerateAllResults(ctx context.Context, properties []*module
 
 func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := v.getParameters(cfg, options, imageProperties)
+	if err := generativeconfig.ValidateRegion(params.Region); err != nil {
+		return nil, err
+	}
 	service := params.Service
 	debugInformation := v.getDebugInformation(debug, prompt)
 

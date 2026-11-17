@@ -89,7 +89,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	oaiUrl, err := v.buildOpenAIUrl(ctx, settings.BaseURL(), settings.ResourceName(), settings.DeploymentID(), settings.IsAzure())
+	oaiUrl, hostFromRequest, err := v.buildOpenAIUrl(ctx, settings.BaseURL(), settings.ResourceName(), settings.DeploymentID(), settings.IsAzure())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
@@ -110,7 +110,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
-	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
+	if openAIOrganization := v.getOpenAIOrganization(ctx, hostFromRequest); openAIOrganization != "" {
 		req.Header.Add("OpenAI-Organization", openAIOrganization)
 	}
 	req.Header.Add("Content-Type", "application/json")
@@ -161,10 +161,16 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}, nil
 }
 
-func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", baseURL)
+// buildOpenAIUrl applies the base URL rule of modulecomponents.RequestBaseURL
+// to the Azure resource name too, as it is part of the Azure host. The
+// arguments are the class settings; hostFromRequest is set when a request
+// header chose the host instead.
+func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool,
+) (endpoint string, hostFromRequest bool, err error) {
+	passedBaseURL, hostFromRequest, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl",
+		baseURL, baseURL, apiKeyHeader(isAzure))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
@@ -172,10 +178,17 @@ func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploym
 	}
 
 	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		if isAzure && !strings.EqualFold(headerResourceName, resourceName) {
+			if err := modulecomponents.RequireRequestAPIKey(ctx, "X-Azure-Resource-Name", apiKeyHeader(isAzure)); err != nil {
+				return "", false, err
+			}
+			hostFromRequest = true
+		}
 		resourceName = headerResourceName
 	}
 
-	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID, isAzure)
+	endpoint, err = v.buildUrlFn(passedBaseURL, resourceName, deploymentID, isAzure)
+	return endpoint, hostFromRequest, err
 }
 
 func (v *qna) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
@@ -211,20 +224,19 @@ Q: %v
 A:`, strings.ReplaceAll(text, "\n", " "), question)
 }
 
-func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
-	var apiKey, envVarValue, envVar string
-
+func apiKeyHeader(isAzure bool) string {
 	if isAzure {
-		apiKey = "X-Azure-Api-Key"
-		envVar = "AZURE_APIKEY"
-		envVarValue = v.azureApiKey
-	} else {
-		apiKey = "X-Openai-Api-Key"
-		envVar = "OPENAI_APIKEY"
-		envVarValue = v.openAIApiKey
+		return "X-Azure-Api-Key"
 	}
+	return "X-Openai-Api-Key"
+}
 
-	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
+func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+	envVar, envVarValue := "OPENAI_APIKEY", v.openAIApiKey
+	if isAzure {
+		envVar, envVarValue = "AZURE_APIKEY", v.azureApiKey
+	}
+	return v.getApiKeyFromContext(ctx, apiKeyHeader(isAzure), envVarValue, envVar)
 }
 
 func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
@@ -237,9 +249,12 @@ func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, env
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *qna) getOpenAIOrganization(ctx context.Context) string {
+func (v *qna) getOpenAIOrganization(ctx context.Context, hostFromRequest bool) string {
 	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
+	}
+	if hostFromRequest {
+		return ""
 	}
 	return v.openAIOrganization
 }

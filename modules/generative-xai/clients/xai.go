@@ -66,7 +66,7 @@ func (v *xai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	xaiUrl, err := v.getXaiUrl(ctx, params.BaseURL)
+	xaiUrl, err := v.getXaiUrl(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -210,8 +210,8 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *xai) getXaiUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Xai-Baseurl", baseURL)
+func (v *xai) getXaiUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Xai-Baseurl", baseURL, classBaseURL, "X-Xai-Api-Key")
 	if err != nil {
 		return "", err
 	}
