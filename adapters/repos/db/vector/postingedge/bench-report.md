@@ -214,6 +214,11 @@ Por celda:
 
 **Datos:** `v3.0/dbpedia-1m-halo-s236.json` y `v3.0/dbpedia-1m-halo-s1024.json`, de `v3.0/scripts/run_v30_halo.sh`, y el veredicto en `v3.0/halo-verdict.md`.
 
+*Smoke después del pre-registro (15:20):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos. No predice 1M y no cambia nada de lo escrito arriba.
+
+- **Cada búsqueda cuadra con sus propios conteos:** los postings que ve el gancho son los que la búsqueda dice haber cargado, con los miembros que escaneó y las aristas que encontró.
+- **Las ocho celdas pasan el gate con rescoreLimit 64,** así que el segundo barrido, con 200, no llegó a correr.
+
 ## v2.4: refresco al doblar, en línea (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado.** Escrito y commiteado el 17 a las 14:20, antes de compilar nada de esta ronda. El encargo, los tamaños de las tandas, la condición del refresco, el criterio, las medidas, lo que se reporta y la tercera hipótesis son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
