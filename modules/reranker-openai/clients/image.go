@@ -22,11 +22,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-// The API takes an image only as an inline data URL; hosted URLs and file ids
-// are rejected.
 const (
+	// The API takes an image only as an inline data URL; hosted URLs and file
+	// ids are rejected.
 	inputRoleUser  = "user"
 	inputImageType = "input_image"
+
+	// magicChars is 16 base64 characters: the first 12 bytes of an image.
+	magicChars = 16
+	// maxImageBytes is 20 MiB (20,971,520 bytes). The API rejects a larger
+	// image.
+	maxImageBytes = 20 << 20
 )
 
 type inputMessage struct {
@@ -58,12 +64,6 @@ type magic struct {
 func (m magic) matches(decoded []byte) bool {
 	return len(decoded) >= m.offset+len(m.bytes) && bytes.Equal(decoded[m.offset:m.offset+len(m.bytes)], m.bytes)
 }
-
-// magicChars is the base64 of the first 12 bytes.
-const magicChars = 16
-
-// The API rejects images over maxImageBytes.
-const maxImageBytes = 20 << 20
 
 // imageMIME decodes only the head of the image.
 func imageMIME(encoded string) (string, error) {

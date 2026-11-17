@@ -34,27 +34,36 @@ import (
 )
 
 const (
-	// The client has two pools of slots, and each has
-	// RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS slots. Up to twice the value can
-	// be in flight per process. A request for an image holds about three copies
-	// of its base64 while it holds a slot (80 MiB for a 20 MiB image).
+	// DefaultMaxConcurrentRequests is 32: the default size of each of the two
+	// pools of the client, set by RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS. Up
+	// to twice the value can be in flight per process. A request for an image
+	// holds about three copies of its base64 while it holds a slot (80 MiB for
+	// a 20 MiB image).
 	DefaultMaxConcurrentRequests = 32
-	MaxConcurrentRequestsLimit   = 256
-	// A query sends one billed request per object.
+	// MaxConcurrentRequestsLimit is 256: the largest value the setting takes.
+	MaxConcurrentRequestsLimit = 256
+	// DefaultMaxDocumentsPerQuery is 1,000 documents. A query sends one billed
+	// request per object.
 	DefaultMaxDocumentsPerQuery = 1000
 	MaxDocumentsPerQueryEnv     = "RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY"
 
-	apiPath              = "/v1/decisions"
-	predicateType        = "predicate"
-	refusalType          = "refusal"
-	questionName         = "condition"
-	apiKeyHeader         = "X-Openai-Api-Key"
-	baseURLHeader        = "X-Openai-Baseurl"
-	organizationHeader   = "X-Openai-Organization"
-	maxErrorBodyBytes    = 16 * 1024
+	apiPath            = "/v1/decisions"
+	predicateType      = "predicate"
+	refusalType        = "refusal"
+	questionName       = "condition"
+	apiKeyHeader       = "X-Openai-Api-Key"
+	baseURLHeader      = "X-Openai-Baseurl"
+	organizationHeader = "X-Openai-Organization"
+	// maxErrorBodyBytes is 16 KiB (16,384 bytes): the most of an error reply
+	// the client reads.
+	maxErrorBodyBytes = 16 * 1024
+	// maxErrorMessageBytes is 512 bytes: the most of a reply an error quotes.
 	maxErrorMessageBytes = 512
+	// maxResponseBodyBytes is 1 MiB (1,048,576 bytes): the largest reply body
+	// the client reads.
 	maxResponseBodyBytes = 1 << 20
-	maxQueryBytes        = 100_000
+	// maxQueryBytes is 100,000 bytes per rerank.query.
+	maxQueryBytes = 100_000
 )
 
 type client struct {
