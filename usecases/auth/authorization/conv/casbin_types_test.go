@@ -882,6 +882,11 @@ func Test_casbinSegment(t *testing.T) {
 		{"qualified alternation keeps prefix outside the group", "customer1:x|*", "customer1:(x|.*)"},
 		{"colon-bearing id keeps its prefix outside the group", "okta:x|y", "okta:(x|y)"},
 		{"line anchor is wrapped", "^x", "(^x)"},
+		{"balanced groups are wrapped as before", "(x)|(y)", "((x)|(y))"},
+		{"literal parentheses without alternation stay bare", "(x)", "(x)"},
+		{"unbalanced parentheses are quoted, not wrapped", "x)|(", `x\)\|\(`},
+		{"unbalanced parentheses with wildcard are quoted", "x)|(*", `x\)\|\(\*`},
+		{"qualified unbalanced body keeps prefix, is quoted", "customer1:x)|(", `customer1:x\)\|\(`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -921,6 +926,27 @@ func Test_casbinSegmentConfinement(t *testing.T) {
 	t.Run("wildcard still matches everything in-segment", func(t *testing.T) {
 		require.True(t, casbinutil.KeyMatch5("users/anyone", CasbinUsers("*")))
 	})
+
+	// A body that closes the confinement group early must not leave a second
+	// top-level branch: "(x)|(.*)" would match any resource ending like the
+	// policy does, in any collection or domain.
+	unbalanced := []struct {
+		name    string
+		pol     string
+		outside string
+	}{
+		{"data tenant, other collection", CasbinData("Movies", "x)|(*"), "data/collections/Books/shards/t1/objects/o1"},
+		{"data tenant, empty branch", CasbinData("Movies", "x)|("), "data/collections/Books/shards/t1/objects/o1"},
+		{"schema tenant, other collection", CasbinSchema("Movies", "x)|(*"), "schema/collections/Books/shards/t1"},
+		{"users, other domain", CasbinUsers("z)|(*"), "roles/admin"},
+		{"roles, other domain", CasbinRoles("z)|(*"), "users/admin"},
+		{"namespaces, other domain", CasbinNamespaces("z)|(*"), "roles/admin"},
+	}
+	for _, tt := range unbalanced {
+		t.Run("unbalanced parentheses stay confined: "+tt.name, func(t *testing.T) {
+			require.False(t, casbinutil.KeyMatch5(tt.outside, tt.pol), "policy %q must not reach %q", tt.pol, tt.outside)
+		})
+	}
 }
 
 // Test_casbinSegmentRoundTrip pins that a target survives the policy()/permission()
