@@ -224,7 +224,7 @@ Lo que queda por medir:
 
 ### Contexto: frente a HFresh, en dbpedia 1M
 
-*Las dos filas de HFresh son de `findings.md`, las simulaciones del 4 y el 5 de noviembre (rama `hfresh-filtered-lab`, `cmd/hfreshedges/`): un índice HFresh por defecto de este mismo dataset, con réplicas (replicas = 4, posting máximo de 227 entradas, RQ-1), y ese mismo índice con cada vector solo en su posting primario. Las de posting-edge son las de v3.0, con S = 236. Ninguna cifra está ajustada: lo que no se puede comparar se dice debajo.*
+*Las dos filas de HFresh son de `findings.md`, las simulaciones del 4 y el 5 de noviembre (rama `hfresh-filtered-lab`, `cmd/hfreshedges/`): un índice HFresh por defecto de este mismo dataset, con réplicas (replicas = 4, posting máximo de 227 entradas, RQ-1), y ese mismo índice con cada vector solo en su posting primario. Las de posting-edge son las de v3.0, con S = 236, y las dos últimas, las de v3.1. Ninguna cifra está ajustada: lo que no se puede comparar se dice debajo.*
 
 | a recall 0.95 | de dónde sale | cargas por query | rondas | bytes de posting por query | disco de postings | RAM de códigos |
 |---|---|---|---|---|---|---|
@@ -234,6 +234,8 @@ Lo que queda por medir:
 | posting-edge, halo de 512 bits | medido en v3.0, con el modelo de bytes de arriba | 18.26 | 4.32 | 3.33 MB | 662 MB | — |
 | posting-edge, halo de 384 bits | igual | 23.71 | 5.68 | 3.72 MB | 573 MB | — |
 | posting-edge, halo de 256 bits | igual | 37.63 | 9.16 | 5.00 MB | 485 MB | — |
+| posting-edge, halo de 512 bits podado | medido en v3.1, otra corrida sobre el mismo build: una arista por posting de destino, cap 8 y M = 0.08 | 20.36 | 4.84 | 2.75 MB | 493 MB | — |
+| posting-edge, halo de 384 bits podado | igual, con M = 0.04 | 24.76 | 5.94 | 2.94 MB | 437 MB | — |
 
 **Qué viene de simulación:**
 
@@ -245,7 +247,7 @@ Lo que queda por medir:
 
 | | HFresh, en `findings.md` | posting-edge, en v3.0 | ¿se puede comparar? |
 |---|---|---|---|
-| tamaño de un posting | 170 entradas de media con réplicas y 38 sin ellas, de 209 B: 35.5 KB y 8 KB | 236 miembros de 208 B y 8.98 aristas de 4 B por miembro: 57.6 KB. Con halo, de 116 a 158 KB | **Las cargas, no.** Una carga pesa de 7 KB a 182 KB según la fila. |
+| tamaño de un posting | 170 entradas de media con réplicas y 38 sin ellas, de 209 B: 35.5 KB y 8 KB | 236 miembros de 208 B y 8.98 aristas de 4 B por miembro: 57.6 KB. Con halo, de 116 a 158 KB, y podado, de 104 a 118 KB | **Las cargas, no.** Una carga pesa de 7 KB a 182 KB según la fila. |
 | cómo se llega a 0.95 | un k igual para todas las queries | la media de las cargas en el ef que da 0.95, con parada por query | No como número de cargas. |
 | rondas | todas las cargas a la vez, con el orden conocido de antemano | rondas en serie, de hasta 4 postings | No: unas cargas son paralelas y las otras no. |
 | qué recall es | el de los vecinos exactos dentro de lo cargado, sin error de código y sin rescore | el de la búsqueda, con el código RQ1 y el rescore de 64 | **No del todo.** La cifra de HFresh es un suelo: su búsqueda real necesita eso o más. Cuánto más, sin medir. |
@@ -259,6 +261,7 @@ Lo que queda por medir:
 
 - **En bytes de posting por query, el modo con sidecar residente lee 0.63 MB** donde la simulación de HFresh lee 4.17 MB con réplicas y 2.46 MB sin ellas.
 - **El halo queda en el territorio de las réplicas:** 3.33 MB con 512 bits, 3.72 con 384 y 5.00 con 256, frente a 4.17 MB. Lee más que la partición sin réplicas en los tres anchos.
+  - **Podado (v3.1), también:** 2.75 MB con 512 bits y 2.94 con 384, frente a 2.46 MB.
 - **En disco de postings,** el modo residente son 241 MB, más 198 MB de RAM, frente a 925 MB con réplicas. El halo son de 485 a 662 MB sin esa RAM. La partición sin réplicas ni aristas son 207 MB.
 
 **Lo que no se puede decir:**
@@ -270,23 +273,63 @@ Lo que queda por medir:
 *Lectura mía, para el diseño:*
 
 - **Hay dos modos, y el sidecar residente es el barato en I/O.** El halo es para cuando el sidecar no cabe: a 100M y 1536d son de 10 a 20 GB de RAM.
-- **El halo iría con S = 236 y 384 bits** si el objetivo es 0.99, y con 512 si es 0.95.
+- **El halo iría con S = 236 y 384 bits** si el objetivo es 0.99, y con 512 si es 0.95. Podado (v3.1), con 512 bits en los dos.
 - **El término que crece es el de las rondas,** que en disco van en serie: de 12.9 a entre 19 y 37 a 0.99.
-- **Las dos palancas están en «Abierto, sin medir ahora», abajo:** podar el halo, y recalibrar el margen y la parada.
+- **Las dos palancas están medidas en v3.1, abajo,** salvo la parada: podar el halo quita de un 17 a un 21 % de los bytes a 0.95, y el margen no los mueve.
 - **El mantenimiento se encarece.** Una arista nueva hacia un vector mete su sketch en el posting del source: las 4.5 aristas inversas de un insert y la lista propia de un refresco tocan halos de otros postings. Sin medir.
 - **El otro punto sin RAM es el sidecar paginado,** que guarda cada código una vez y lo lee por páginas. Aquí no está medido; en las simulaciones no era operable por lecturas aleatorias.
 
+### Podar el halo (v3.1, 2026-11-17)
+
+*De `bench-report.md`, «v3.1: podar el halo»: el build de S = 236 de v3.0, con sketches de 384 y de 512 bits. Cuatro juegos de aristas (todas, una por posting de destino, cap de grado 8, y las dos podas) por tres márgenes de source (0.04, 0.06 y 0.08). Cada celda se compara con la de v3.0, todas las aristas y M = 0.06, medida en la misma corrida. Son conteos y el modelo de bytes de arriba.*
+
+**No sirve, por el criterio del usuario:** la poda servía si alguna celda leía 2.46 MB o menos a 0.95, la cifra de la partición sin réplicas de HFresh, con 0.99 alcanzable. Ninguna de las 22 celdas podadas llega. Todas pasan el gate de 0.99 con rescoreLimit 64.
+
+| bytes de posting por query | halo de 384 bits: a 0.95 | a 0.99 | disco a 1M | halo de 512 bits: a 0.95 | a 0.99 | disco a 1M |
+|---|---|---|---|---|---|---|
+| base: todas las aristas, M = 0.06 | 3.72 MB | 14.11 MB | 573 MB | 3.31 MB | 14.02 MB | 662 MB |
+| una arista por posting de destino | 3.21 MB (−13.7 %) | 13.10 MB (−7.2 %) | 467 MB | 2.92 MB (−11.7 %) | 11.99 MB (−14.5 %) | 531 MB |
+| cap 8 | 3.20 MB (−14.1 %) | 13.90 MB (−1.5 %) | 469 MB | 2.95 MB (−10.7 %) | 12.92 MB (−7.9 %) | 533 MB |
+| las dos podas | 3.01 MB (−19.2 %) | 12.85 MB (−8.9 %) | 437 MB | 2.76 MB (−16.5 %) | 11.68 MB (−16.7 %) | 493 MB |
+| las dos podas, con el mejor M a 0.95 | **2.94 MB** (−21.0 %), M = 0.04 | 12.91 MB (−8.5 %) | 437 MB | **2.75 MB** (−16.7 %), M = 0.08 | 11.60 MB (−17.3 %) | 493 MB |
+| el listón | 2.46 MB | — | — | 2.46 MB | — | — |
+
+| lo que hace cada poda | aristas por vector | entradas de halo | copias de cada sketch | postings de destino perdidos |
+|---|---|---|---|---|
+| todas las aristas | 8.98 | 5 528 876 | 5.58 | — |
+| una arista por posting de destino | 5.51 (−38.7 %) | −27.9 % | 4.03 | ninguno |
+| cap 8 | 6.35 (−29.3 %) | −28.2 % | 4.01 | el 23.5 % |
+| las dos | 4.90 (−45.4 %) | −36.3 % | 3.56 | el 11.0 % |
+
+- **La poda quita bytes por carga y devuelve cargas.** Con las dos podas cada carga pesa un 24 a un 26 % menos, y hacen falta de un 4 a un 13 % más a 0.95 y de un 12 a un 22 % más a 0.99.
+- **Las rondas suben con las cargas:** a 0.99, de 22.4 a 27.2 con 384 bits y de 19.1 a 21.4 con 512.
+- **El cap cuesta más cargas que el filtro.** A 0.99 con 384 bits quita un 1.5 % de los bytes con un 23.3 % más de cargas. Una arista por posting de destino es la que aguanta a 0.99.
+- **Las dos podas se pisan:** solas quitan de un 11 a un 14 % cada una a 0.95, y juntas de un 16.5 a un 19.2 %.
+- **El margen no mueve los bytes a igual recall.** Cambiarlo los mueve entre un −2.9 y un +1.9 % a 0.95, sin signo fijo.
+  - Lo que cambia es cuánto del halo puntúa la búsqueda: del 10 al 14 % de las entradas que lee con M = 0.04, del 20 al 26 % con 0.06 y del 32 al 42 % con 0.08.
+  - El «20 %» de v3.0 era del margen, y no de entradas que sobren.
+- **Con 512 bits se lee menos en los dos puntos,** porque la poda le cuesta menos cargas a 0.99: un 12.8 % más, frente a un 21.0 % con 384.
+- **Frente al sidecar residente, en la misma corrida** (0.63 MB a 0.95 y 3.23 MB a 0.99): el halo de 512 bits podado lee 4.3 y 3.6 veces más, donde sin podar leía 5.2 y 4.3.
+- **En disco, el halo podado ocupa lo que el modo residente entero:** de 437 a 493 MB, frente a 241 MB de disco y 198 MB de RAM.
+
+*Lectura mía:*
+
+- **Lo que falta para el listón no está en las aristas.** En la mejor celda, 1.17 MB de los 2.75 son miembros y aristas. El listón deja 1.29 MB para el halo, que lee 1.58: haría falta un 18.6 % menos de halo sin una carga más, y cada poda de aristas trae cargas.
+- **La poda sí vale como ahorro, aunque no llegue:** una cuarta parte del disco, y hasta un 17 % de los bytes a 0.99. Lo paga en rondas.
+- **Para el mantenimiento, menos copias es menos que tocar:** 3.56 halos por vector en lugar de 5.58. Sin medir.
+
 ### Abierto, sin medir ahora
 
-*Anotado el 17, por indicación del usuario. Ninguna de las dos está medida.*
+*Anotado el 17, por indicación del usuario, y revisado con v3.1.*
 
-- **Podar el halo.** La query usa el 20 % de lo que lee.
-  - A 0.99 con 384 bits son 141 551 entradas de halo leídas para 28 174 endpoints puntuados. Con 256 y 512 bits, el 16 y el 23 %. A 0.95 son las mismas proporciones.
-  - Por saber: qué entradas no se usan, si se pueden dejar fuera sin cambiar qué postings se cargan, y si el halo se puede leer aparte, solo para los sources dentro del margen.
-- **Recalibrar el margen y la parada para el modo con sketch.**
-  - Las celdas corrieron con el margen de source de la referencia, 0.06, y con su umbral de parada: el ef-ésimo candidato del scan con código completo.
+- **Podar el halo: medido en v3.1, arriba.** No llega al listón con las dos podas de aristas. Lo que queda de ahí:
+  - **Leer del halo solo lo que la búsqueda usa.** Contando solo las entradas que puntúa, las bases de v3.1 leerían 1.93 MB (384 bits) y 1.64 MB (512 bits) a 0.95. Es una cota por abajo y no un layout: leer el halo por source repite endpoints y añade lecturas.
+  - **Quitar entradas del halo sin quitar la arista,** y las podas dentro del constructor, que podría rellenar con otros destinos lo que el filtro quita.
+- **El margen para el modo con sketch: medido en v3.1.** No mueve los bytes a igual recall, y se queda en 0.06.
+- **La parada para el modo con sketch: sin medir.**
+  - Las celdas corren con el umbral de parada de la referencia: el ef-ésimo candidato del scan con código completo.
   - A igual ef cargan de 1.6 a 3.8 veces más postings que la referencia, con algo más de recall desde ef 40.
-  - Por saber: cuántas cargas quita, a igual recall, un margen y una parada propios del sketch.
+  - Por saber: cuántas cargas quita, a igual recall, una parada propia del sketch.
 
 ## Open for phase 2
 
@@ -374,7 +417,7 @@ Abierto:
 - **Si cabe residente a la escala objetivo,** o hace falta un sidecar capado, con lo que eso le quita al routing: con 256 bits para todo, 3.0x cargas a igual recall.
   - *Medido el 17 (v3.0; el detalle, en «El halo»):* con el scan a código completo y solo el ruteo capado, son 2.85, 1.71 y 1.48 veces las cargas a 0.99 con 256, 384 y 512 bits. Sin sidecar, con esos sketches dentro de los postings, una query lee de 4.3 a 6.0 veces más bytes.
 - **Su relación con el layout (c):** el refinado lee el sidecar por cada candidato refinado.
-- **Con halo, en lugar de sidecar:** podar el halo, y recalibrar el margen y la parada para el sketch. Están anotadas en «El halo», «Abierto, sin medir ahora».
+- **Con halo, en lugar de sidecar:** podar el halo y recalibrar el margen están medidos en v3.1 («El halo», «Podar el halo»): la poda quita de un 17 a un 21 % de los bytes a 0.95 sin llegar a los 2.46 MB del listón, y el margen no los mueve. La parada para el sketch sigue en «Abierto, sin medir ahora».
 - **Cómo se mantiene con inserciones, deletes y movimientos de posting,** que depende del punto 1.
 - **Qué memoria deja el modo disco,** con el sidecar y los centroides residentes, frente a HNSW y a HFresh.
 
