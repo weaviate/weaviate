@@ -3229,7 +3229,8 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	var outScores []float32
 
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
+	// a recovering local shard has nothing to add; its peers serve the search
+	if err != nil && !enterrors.IsShardRecovering(err) {
 		return nil, nil, err
 	}
 	defer release()
@@ -3335,10 +3336,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 	localSearch := func(shardName string) error {
 		shard, release, err := i.GetShard(ctx, shardName)
+		defer release()
+		if enterrors.IsShardRecovering(err) {
+			return remoteSearch(shardName)
+		}
 		if err != nil {
 			return err
 		}
-		defer release()
 
 		if shard != nil {
 			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
