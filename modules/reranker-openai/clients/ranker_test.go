@@ -138,7 +138,10 @@ func TestRankScoresARefusedDocumentZero(t *testing.T) {
 // host, so with it the second query opens the other connections again.
 func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 	f := newFake(t)
-	f.delay = 50 * time.Millisecond
+	// The fake answers the twenty requests of a query only once all twenty
+	// have arrived, so a query holds twenty connections at once whatever the
+	// timing.
+	f.together = 20
 	documents := make([]string, 20)
 	for i := range documents {
 		documents[i] = fmt.Sprintf("ticket %d", i)
@@ -151,7 +154,7 @@ func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 
 	rank()
 	opened := f.opened.Load()
-	require.Greater(t, opened, int64(2), "the first query must send requests at once")
+	require.Equal(t, int64(20), opened, "the first query must send its twenty requests at once")
 	rank()
 
 	assert.Equal(t, opened, f.opened.Load(), "the second query opened new connections")
@@ -1104,6 +1107,10 @@ func TestRankNormalizesTheBaseURL(t *testing.T) {
 	}
 }
 
+// unexpectedHeaderHostReply is the error of a 200 reply the client cannot use
+// from a host the request header named.
+const unexpectedHeaderHostReply = "unexpected OpenAI response from the host named by X-Openai-Baseurl"
+
 // A host named in the base URL header is untrusted: status errors quote no reply body of it.
 func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 	const banner = `{"error":{"message":"internal banner"}}`
@@ -1156,15 +1163,31 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			name:       "a 200 that is not JSON from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: "not json"},
 			fromHeader: true,
-			wantErr:    "parse OpenAI response: invalid character 'o' in literal null (expecting 'u')",
+			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
-			// A reply in the API's own shape has no useful body text, so the
-			// answer name is quoted for every host.
 			name:       "a wrong answer name from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"internal banner","probability":0.5}]}`},
 			fromHeader: true,
-			wantErr:    "object " + firstID + `: OpenAI answer is for "internal banner", want "condition"`,
+			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+		},
+		{
+			name:       "an answer of another type from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"internal banner","name":"condition","probability":0.5}]}`},
+			fromHeader: true,
+			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+		},
+		{
+			name:       "a probability outside 0 to 1 from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"condition","probability":7.25}]}`},
+			fromHeader: true,
+			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+		},
+		{
+			name:       "two answers from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"condition","probability":0.5},{"type":"predicate","name":"condition","probability":0.5}]}`},
+			fromHeader: true,
+			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
 		},
 	}
 	for _, tt := range tests {
@@ -1485,6 +1508,10 @@ func TestRankCutsLongErrorText(t *testing.T) {
 				classConfig(classServer.url(), nil))
 
 			require.Error(t, err)
+			if tt.fromHeader {
+				assert.Equal(t, unexpectedHeaderHostReply, err.Error())
+				return
+			}
 			assert.Contains(t, err.Error(), "parse OpenAI response: ")
 			assert.LessOrEqual(t, len(err.Error()), 1200)
 		})
@@ -1564,6 +1591,10 @@ func TestRankKeepsTheNumberLiteralOutOfTheDecodeError(t *testing.T) {
 
 			require.Error(t, err)
 			message := err.Error()
+			if tt.fromHeader {
+				assert.Equal(t, unexpectedHeaderHostReply, message)
+				return
+			}
 			require.Contains(t, message, "probability")
 			if tt.wantPrefix != "" {
 				require.True(t, strings.HasPrefix(message, tt.wantPrefix), message)
@@ -2153,8 +2184,11 @@ type fakeOpenAI struct {
 	probabilities map[string]float64
 	refusals      map[string]bool
 	// replies overrides the answer to the n-th request, from 0.
-	replies  map[int]fakeReply
-	delay    time.Duration
+	replies map[int]fakeReply
+	delay   time.Duration
+	// together, when set, holds each handler until that many requests are in
+	// their handlers, so every one of them needs a connection of its own.
+	together int
 	release  chan struct{}
 	handlers sync.WaitGroup
 	// closed ends the handlers of stalled replies.
@@ -2167,6 +2201,10 @@ type fakeOpenAI struct {
 	requests []fakeRequest
 	inFlight int
 	maxSeen  int
+	// gathering closes when together requests have arrived; waiting counts
+	// the requests that wait for it.
+	gathering chan struct{}
+	waiting   int
 }
 
 func newFake(t *testing.T) *fakeOpenAI {
@@ -2228,6 +2266,18 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.requests = append(f.requests, received)
 	f.inFlight++
 	f.maxSeen = max(f.maxSeen, f.inFlight)
+	var gathered chan struct{}
+	if f.together > 0 {
+		if f.gathering == nil {
+			f.gathering = make(chan struct{})
+		}
+		gathered = f.gathering
+		f.waiting++
+		if f.waiting == f.together {
+			close(f.gathering)
+			f.gathering, f.waiting = nil, 0
+		}
+	}
 	f.lock.Unlock()
 	defer func() {
 		f.lock.Lock()
@@ -2236,6 +2286,12 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	time.Sleep(f.delay)
+	if gathered != nil {
+		select {
+		case <-gathered:
+		case <-r.Context().Done():
+		}
+	}
 	if f.release != nil {
 		<-f.release
 	}

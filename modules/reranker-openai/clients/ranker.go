@@ -247,7 +247,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	}
 	score, err := response.score(questionName)
 	if err != nil {
-		return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
+		return 0, 0, fmt.Errorf("object %s: %w", document.ID, c.replyError(err, r.hostFromHeader))
 	}
 	return score, response.inputTokens(), nil
 }
@@ -323,8 +323,9 @@ func (c *client) transportError(ctx context.Context, action, failure string, err
 	return fmt.Errorf("%s: %s the host named by %s", action, failure, baseURLHeader)
 }
 
-// readResponse quotes no status error body and no error object of a host the
-// request header named. A decode error is cut to 512 bytes for every host.
+// readResponse quotes no status error body, no error object and no decode
+// error of a host the request header named. A decode error of the class or
+// default host is cut to 512 bytes.
 func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromHeader bool) (decisionResponse, error) {
 	if res.StatusCode != http.StatusOK {
 		return decisionResponse{}, c.statusError(res, hostFromHeader)
@@ -346,7 +347,7 @@ func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromH
 		}
 		err = fmt.Errorf("parse OpenAI response: %s", truncate(err.Error()))
 		if hostFromHeader || len(body) == 0 {
-			return decisionResponse{}, err
+			return decisionResponse{}, c.replyError(err, hostFromHeader)
 		}
 		return decisionResponse{}, fmt.Errorf("%w: %s", err, truncate(string(body)))
 	}
@@ -371,6 +372,16 @@ type apiError struct {
 
 func (e apiError) message() string {
 	return truncate(e.Message)
+}
+
+// replyError is the error of a 200 reply the client cannot use. For the class
+// or default host it is err. For a host the request header named it is a fixed
+// message: err can quote the reply, such as the name or the type of an answer.
+func (c *client) replyError(err error, hostFromHeader bool) error {
+	if hostFromHeader {
+		return errors.New("unexpected OpenAI response from the host named by " + baseURLHeader)
+	}
+	return err
 }
 
 func (c *client) readAPIError(body io.Reader) apiError {
