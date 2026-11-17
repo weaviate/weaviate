@@ -90,5 +90,5 @@ func (ic *classSettings) Validate() error {
 	if err := ic.base.ValidateBaseURL(ic.BaseURL()); err != nil {
 		return err
 	}
-	return nil
+	return ic.base.ValidateIntegers("dimensions")
 }
