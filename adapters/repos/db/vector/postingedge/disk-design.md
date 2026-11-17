@@ -243,7 +243,8 @@ Abierto:
 
 *Medido el 17 en memoria (v2.2; el detalle, en «Crecer diez veces»):*
 
-- *al multiplicar el corpus por diez, el mismo índice cumple en recall a igual ef y en cargas a 0.95, y no a 0.99: carga de un 18 a un 20 % más que el lote, con ef de inserción 160 o con 80;*
+- *al multiplicar el corpus por diez, el mismo índice cumple en recall a igual ef y en cargas a 0.95, y no a 0.99: carga de un 18 a un 32 % más que el lote en tres corridas, con ef de inserción 160 o con 80;*
+- *lo que falla son las aristas, no la partición (diagnóstico de v2.2; el detalle, en «Aristas o partición»): reconstruidas en lote sobre la partición final, el índice carga un 0.8 % menos que el lote a 0.99. El mantenimiento que falta es un refresco de aristas, sin medir;*
 - *cada cuánto hace falta rehacerlo, con aristas inversas solas y el objetivo en 0.99: en algún punto entre ×2 y ×10, sin medir dónde;*
 - *las asignaciones que no van al centroide más cercano suben al 3.1 % en el último tramo, con cobertura completa;*
 - *el build incremental hace de 0.39 a 0.55 veces las distancias por código del lote y 0.10 veces las exactas. Sin la asignación n·k, 1.6 veces las exactas.*
@@ -391,11 +392,12 @@ Datos en `testdata/bench/phase2/`:
 | ¿Sustituye la reparación por búsqueda a las aristas inversas? | **No.** | Recupera el 60 % del recall perdido a ef 10 y queda en +29.9 % de cargas a 0.95, con 365.5 búsquedas por split. |
 | ¿Y la reparación por hermanos, sin búsqueda? | **Sola, no:** no iguala a la de búsqueda. **Sobre las aristas inversas, aporta.** | Sola: −0.0285 y +69.5 %. Con aristas inversas: +0.0067 de recall a ef 10 sobre H1, un 6 % menos de cargas a 0.95 y de un 10 a un 12 % menos a 0.99, con listas un 53 % más largas. |
 | ¿Aristas inversas más reparación por búsqueda? | sin medir | La celda no corrió. |
-| ¿Aguantan las aristas inversas, sin reparar splits, multiplicar el corpus por diez? (v2.2) | **A 0.95 sí; a 0.99 no.** | Lote sobre el 10 %: −0.0027 y −0.0037 de recall en el peor ef, +6.3 y +9.2 % de cargas a 0.95, y +19.6 y +17.9 % a 0.99, con ef de inserción 160 y 80. |
+| ¿Aguantan las aristas inversas, sin reparar splits, multiplicar el corpus por diez? (v2.2) | **A 0.95 sí; a 0.99 no.** | Lote sobre el 10 %: −0.0027 y −0.0037 de recall en el peor ef, +6.3 y +9.2 % de cargas a 0.95, y +19.6 y +17.9 % a 0.99, con ef de inserción 160 y 80. La celda de ef 80, repetida: +32.0 % a 0.99. |
+| ¿Lo que falla al crecer diez veces son las aristas o la partición? (diagnóstico de v2.2) | **Las aristas.** | Con las aristas reconstruidas en lote sobre la partición que dejan los inserts: −0.8 % de cargas a 0.99 y +3.0 % a 0.95 frente al lote, y de +0.0008 a +0.0034 de recall a igual ef. El 17.3 % de los vectores no está en el posting de su centroide más cercano. |
 
 **El mínimo que cumple es: aristas inversas en cada insert, y un split que no toca aristas.** La reparación por hermanos es una mejora opcional encima, que se paga en grado.
 
-*v2.2, del 17:* ese mínimo vale al doblar el corpus. Al multiplicarlo por diez deja de cumplir a 0.99 («Crecer diez veces», abajo).
+*v2.2, del 17:* ese mínimo vale al doblar el corpus. Al multiplicarlo por diez deja de cumplir a 0.99 («Crecer diez veces», abajo). Lo que le falta es mantener las aristas, no la partición («Aristas o partición», abajo).
 
 ### Lo que hace un insert
 
@@ -465,6 +467,7 @@ Datos en `testdata/bench/phase2/`:
 **El mínimo de v2.0 (aristas inversas en cada insert y un split que no toca aristas) aguanta doblar el corpus y no aguanta multiplicarlo por diez, si el índice sirve queries a 0.99.** A 0.95 sigue dentro del criterio.
 
 - **El ef de inserción no es la palanca.** A 0.99 las dos celdas cargan lo mismo: 63.1 y 62.2 postings, a un 1.4 % una de otra, con un suelo de ruido del 3.0 %. Lo que ef 160 ganaba sobre ef 80 al doblar el corpus, aquí se pierde.
+  - *Del diagnóstico:* la celda de ef 80, repetida, carga 69.7. A 0.99 dos corridas iguales se separan un 12.0 %, y el suelo del 3.0 % no vale para esta medida. La conclusión se queda igual.
 - **Lo que tiene el índice crecido, con cualquiera de los dos ef:**
   - **a igual ef de búsqueda,** de 0.0005 a 0.0015 menos de recall de ef 160 en adelante, y de un 6 a un 7 % más de cargas. Al doblar el corpus eran de un 3 a un 4 % más;
   - **el grado fijado al entrar:** una arista inversa ocupa el sitio de la peor arista de la lista, y el split no toca aristas. Los vectores del lote del 10 % se quedan con 7.63 aristas y los del último tramo entran con 9.47. El lote del 100 % tiene 8.98 de media;
@@ -491,8 +494,53 @@ Datos en `testdata/bench/phase2/`:
 - **Con aristas inversas solas, el índice necesita algo más para crecer con el objetivo de 0.99:** un rebuild cada cierto crecimiento, o un mantenimiento que rehaga aristas. El punto en que se rompe está entre ×2 y ×10, sin medir.
 - **Las candidatas que ya están en este documento son las que reparan el split:** los hermanos sobre aristas inversas y su variante con la regla del lote. Siguen sin medir en este régimen, por decisión del usuario.
 - **Falta saber qué arreglar.** v2.2 no separa cuánto del déficit es de las aristas (viejas, y con el grado de cuando entraron) y cuánto de la partición (todos los postings salen de un 2-means). Lo separa reconstruir en lote las aristas sobre la partición final de una celda, sin cronometrar.
+  - *Medido el mismo día:* es de las aristas. Está en la sección siguiente.
 - **La búsqueda en el grafo de centroides se puede hacer una vez por insert.** Hoy el harness la hace dos, con la misma query: es el 28 % de las distancias exactas de un insert.
 - **La comparación de trabajo sirve para dimensionar un insert, no para sustituir el lote:** el incremental cuesta menos y deja un índice que no es el del lote.
+
+### Aristas o partición (diagnóstico de v2.2, 2026-11-17)
+
+*De `bench-report.md`, «Diagnóstico: aristas o partición»: la celda de ef 80 de v2.2, repetida. Al 100 %, las aristas de todos los vectores se reconstruyen con el constructor del lote sobre la partición que dejan los inserts, sin tocarla. Después, además, se rehace en lote el grafo de centroides.*
+
+| frente al lote del 100 % | antes de reconstruir | aristas reconstruidas | y el grafo de centroides |
+|---|---|---|---|
+| cargas por query a 0.99 | +32.0 % | −0.8 % | −0.8 % |
+| cargas por query a 0.95 | +10.4 % | +3.0 % | +2.4 % |
+| recall a igual ef | de −0.0031 a −0.0007 | de +0.0008 a +0.0034 | de +0.0008 a +0.0037 |
+| cargas por query a igual ef | de +5.7 a +6.9 % | de +5.4 a +7.8 % | de +5.6 a +7.7 % |
+| aristas por vector, con 8.98 en el lote | 8.85 | 9.79 | 9.79 |
+
+**El déficit a 0.99 es de las aristas.** La regla, del usuario y escrita antes de correr: si las cargas a 0.99 vuelven a +10 % o menos frente al lote, es de las aristas, y lo siguiente es un refresco de aristas en segundo plano.
+
+- **La partición que dejan los splits, sin ningún reassign, busca como la del lote si las aristas están al día.** Son 3 674 splits, y al final el 17.3 % de los vectores (171 128) no está en el posting de su centroide más cercano.
+- **Lo que cuesta esa partición, con las aristas al día:**
+  - un 3.0 % más de cargas a 0.95, y de un 5 a un 8 % más a igual ef, que a 0.99 compensa el recall;
+  - un 9 % más de aristas con la misma regla: 9.79 por vector frente a 8.98, unos 3 B más por miembro;
+  - un 3.7 % más de endpoints a 0.99.
+- **El grafo de centroides construido por inserts no pesa:** rehacerlo en lote no cambia las cargas a 0.99.
+- **Las aristas que faltan son las de los vectores viejos:**
+
+| aristas por vector | lote del 10 % | 10 → 20 % | 20 → 40 % | 40 → 60 % | 60 → 80 % | 80 → 100 % |
+|---|---|---|---|---|---|---|
+| antes de reconstruir | 7.63 | 8.07 | 8.66 | 9.04 | 9.27 | 9.44 |
+| reconstruidas | 10.26 | 10.13 | 9.85 | 9.71 | 9.61 | 9.57 |
+
+- **Contra el corpus actual,** un vector del lote del 10 % tiene el 49 % de las aristas que le da la regla del lote, y uno insertado, el 71 %. Reconstruidas, el 97 % los dos.
+- **Las cargas a 0.99 no sirven de señal fina en este régimen:** dos corridas iguales de la celda se separan un 12.0 %, con el recall a igual ef a 0.0010 como mucho. El índice crecido cruza 0.99 entre ef 320 y ef 640, donde 0.001 de recall son de 9 a 12 cargas.
+
+*Lectura mía, para el diseño:*
+
+- **El mantenimiento que falta es de aristas.** El reassign tras el split de HFresh no entra en el mínimo por este criterio. Lo que podría comprar está acotado por lo que cuesta la partición, arriba, y sigue sin medir.
+  - Mover un vector de posting sigue haciendo falta donde lo pida otra cosa: un posting retirado, o un merge.
+- **Reconstruir en lote no es el refresco.** Cuesta 1.23 veces las distancias por código del lote entero y su misma asignación n·k: 63 625 distancias por código y 4 094 exactas por vector.
+- **Un refresco por búsqueda costaría lo que la búsqueda de un insert:** 21.5 cargas de posting, 15 709 distancias por código y 64 de rescore por vector, con ef 80 a 1M. Es la cuarta parte de la regla del lote por código, y no tiene asignación n·k.
+  - Sin medir si recupera lo mismo: la búsqueda de un insert encuentra el 96.2 % de sus aristas, y la regla del lote, el 97.0 %.
+- **Lo que escribe es la lista del vector refrescado,** en su posting. Con los sitios (2) o (3) de «Dónde viven las aristas» es un elemento o una lista en RAM. Con (1), el posting entero.
+- **El orden lo da la edad de las aristas.** Hace falta saber, por vector o por posting, con qué tamaño de corpus se calcularon.
+- **Abierto, y es lo siguiente por medir:**
+  - si refrescar por búsqueda al final recupera lo que la reconstrucción en lote;
+  - cada cuánto: el déficit aparece entre ×2 y ×10 de crecimiento, sin medir dónde;
+  - si el refresco escribe también aristas inversas, y si basta con refrescar a los miembros de un posting cuando se parte.
 
 ### Dónde viven las aristas
 

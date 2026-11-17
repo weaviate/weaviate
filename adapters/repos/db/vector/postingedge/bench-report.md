@@ -6,7 +6,7 @@
 
 ## Resumen, al cierre del 2026-11-17
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2).*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición.*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -72,14 +72,18 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Crecer diez veces por inserciones (v2.2, del 17).** dbpedia 1M, con el lote sobre el 10 % y el 90 % insertado con aristas inversas y sin reparar splits, frente al lote del 100 %. En memoria.
 
-- **A 0.99 no aguanta:** carga un 19.6 % más que el lote con ef de inserción 160 y un 17.9 % más con 80, donde el umbral es un 10 %.
+- **A 0.99 no aguanta:** carga un 19.6 % más que el lote con ef de inserción 160 y un 17.9 % más con 80, donde el umbral es un 10 %. La celda de ef 80, repetida, carga un 32.0 % más.
   - El recall a igual ef sí cumple (−0.0027 y −0.0037 en el peor ef), y las cargas a 0.95 también (+6.3 y +9.2 %).
 - **La deriva crece con el tramo insertado.** Frente a doblar el corpus con el mismo ef, a 0.99 son un 24 % más de cargas con ef 160 y un 7 % más con ef 80.
 - **Subir el ef de inserción no lo arregla:** a 0.99 las dos celdas quedan en 63.1 y 62.2 cargas, dentro del ruido.
 - **El grado de un vector queda fijado cuando entra:** 7.63 aristas en los del lote del 10 % y 9.47 en los del último tramo, frente a 8.98 de media en el lote del 100 %.
 - **Lo que hace un insert depende del tamaño del corpus, no de la historia:** en el último tramo, 36.8 cargas con ef 160 y 23.1 con ef 80, y 4.8 escrituras inversas.
 - **El build incremental hace menos trabajo que el lote:** 0.55 veces sus distancias por código con ef 160 y 0.39 con ef 80, y 0.10 veces las exactas, porque el 94 % de las del lote es la asignación n·k.
-- **Sin separar:** cuánto del déficit es de las aristas y cuánto de la partición que dejan los splits.
+- **El déficit a 0.99 es de las aristas, no de la partición (diagnóstico del 17).** Con las aristas reconstruidas en lote sobre la partición que dejan los inserts, el índice carga un 0.8 % menos que el lote a 0.99, y su recall a igual ef queda por encima en todos los ef.
+  - Lo que queda de la partición: un 3.0 % más de cargas a 0.95 y un 9 % más de aristas. El 17.3 % de los vectores no está en el posting de su centroide más cercano.
+  - Las aristas que faltaban son las de los vectores viejos: los del lote del 10 % pasan de 7.63 a 10.26, y los del último tramo, de 9.44 a 9.57.
+  - Lo siguiente es un refresco de aristas en segundo plano, sin medir. Reconstruirlas en lote cuesta 1.23 veces las distancias por código del lote entero.
+- **Las cargas a 0.99 de un índice crecido no se repiten entre corridas:** las dos de ef 80 se separan un 12.0 %, con el recall a igual ef a 0.0010 como mucho. A 0.99 no separan los dos ef de inserción ni la deriva de ef 80.
 
 **Limitaciones:**
 
@@ -193,6 +197,8 @@ Tres unidades, para el lote del 100 % y para cada celda (su lote del 10 % más s
 
 **Veredicto: ninguna de las dos celdas cumple el criterio. Las dos fallan la condición de cargas a 0.99,** por 9.6 y 7.9 puntos, con un suelo de ruido del 3.0 %. El recall a igual ef y las cargas a 0.95 cumplen con margen. El umbral de split no se recalibra: el tamaño medio final queda un 2.5 y un 2.9 % por encima del lote.
 
+*Del diagnóstico, el mismo día («Diagnóstico: resultados»):* la repetición de la celda de ef 80 carga 69.7 postings a 0.99, un 32.0 % más que el lote y un 12.0 % más que la primera corrida. Las tres corridas fallan la condición. El tamaño del fallo solo se conoce entre un 18 y un 32 %: el suelo de ruido del 3.0 % no vale para esta medida.
+
 | pre-registro | resultado al 100 % |
 |---|---|
 | tamaño medio final a ±15 % del lote (de 200.6 a 271.4) | **dentro:** 241.8 con ef 160 y 242.8 con ef 80, frente a 236.0. El umbral se queda en 360 |
@@ -227,6 +233,7 @@ Tres unidades, para el lote del 100 % y para cada celda (su lote del 10 % más s
 - **El grado de un vector queda fijado cuando entra.** Los del lote del 10 % se quedan con 7.63 aristas y los del último tramo entran con 9.47. En el lote del 100 % la media es 8.98.
 - **Lo que lee y escribe un insert depende del tamaño del corpus y no de cómo se llegó a él:** en el tramo del 80 al 100 %, un 3 % más de cargas y un 1 % más de escrituras inversas que en la celda que parte del 50 %.
 - **El build incremental hace menos trabajo que el lote:** 0.55 veces sus distancias por código con ef 160 y 0.39 con ef 80, y 0.10 veces sus distancias exactas. El índice que deja no es el del lote: es el que falla a 0.99.
+- ***Del diagnóstico:* el déficit a 0.99 es de las aristas.** Reconstruidas en lote sobre la partición final de la celda de ef 80, el índice carga un 0.8 % menos que el lote a 0.99.
 
 ### Resultados de v2.2: condiciones
 
@@ -469,9 +476,11 @@ En millones. El incremental es su lote del 10 % más sus 891 000 inserts.
 
 - **Qué parte del déficit a 0.99 es de las aristas y qué parte de la partición.** Las dos celdas comparten las dos cosas. Por un lado, las aristas: nadie rehace las viejas, y el grado queda fijado al entrar. Por otro, la partición: todos los postings salen de un 2-means, y un 3 % de los inserts no va al centroide más cercano.
   - *Mío, sin correr:* lo separa reconstruir en lote las aristas sobre la partición final de una celda. Si las cargas a 0.99 vuelven a las del lote, el déficit es de las aristas.
+  - *Medido en el diagnóstico:* vuelven. Con las aristas reconstruidas, 52.39 cargas a 0.99 frente a 52.78 del lote.
 - **Dónde se rompe el criterio entre doblar el corpus y multiplicarlo por diez.** Los checkpoints intermedios no tienen lote de su tamaño.
 - **Reparar el split.** La celda 6 (aristas inversas más hermanos) y la variante fiel al lote siguen abiertas por decisión del usuario, sin medir en este régimen.
 - **La repetición.** Hay una corrida por celda. El suelo de ruido es el de v2.0, medido al doblar el corpus.
+  - *Medido en el diagnóstico:* la celda de ef 80 repetida carga un 12.0 % más a 0.99, con el recall a igual ef a 0.0010 como mucho. El suelo de v2.0 no vale para las cargas a 0.99 de este régimen.
 - **Otro dataset, otra escala y un corpus que llegue en orden semántico.**
 - **Deletes, concurrencia y cualquier I/O.** Las cargas son conteos en memoria.
 
@@ -494,7 +503,7 @@ python3 v2.2/scripts/growth_verdict.py v2.2 v2.0 v2.1 > v2.2/growth-verdict.md
 
 ### Diagnóstico: aristas o partición (pre-registro, 2026-11-17)
 
-**Estado: pre-registrado.** Escrito y commiteado a las 08:56 del 17, antes de compilar nada de este diagnóstico. El encargo y su lectura son del usuario. Lo que deja abierto lo fijo aquí, marcado como mío.
+**Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 08:56 del 17, antes de compilar nada de este diagnóstico. La celda corrió de 09:13 a 10:26, y sus resultados están debajo, desde «Diagnóstico: resultados (2026-11-17)». El encargo y su lectura son del usuario. Lo que deja abierto lo fijo aquí, marcado como mío.
 
 **Qué se mide.** v2.2 no separa cuánto del déficit a 0.99 es de las aristas y cuánto de la partición. El diagnóstico repite la celda de ef de inserción 80 y, al 100 %, reconstruye en lote las aristas de todos los vectores sobre la partición final, sin tocarla. Lo que cambie entre antes y después es de las aristas. Lo que quede es de la partición.
 
@@ -549,6 +558,202 @@ python3 v2.2/scripts/growth_verdict.py v2.2 v2.0 v2.1 > v2.2/growth-verdict.md
 
 - **Los vectores que acaban fuera del posting de su centroide más cercano son muchos más que las asignaciones no-nearest de los inserts:** 3 962 de 30 000, el 13.2 %, con un 0.2 % de no-nearest al insertar.
   - *Mío:* los deja ahí un split, no el insert. Un split reparte los miembros entre sus dos medias y no mira los centroides de alrededor, y los centroides nuevos de un posting vecino pueden quedar más cerca que el propio.
+
+### Diagnóstico: resultados (2026-11-17)
+
+*Escrito el 17 por la mañana, con la corrida acabada (10:26). Las tablas completas están en `v2.2/rebuild-verdict.md`, de `v2.2/scripts/rebuild_verdict.py`.*
+
+**Veredicto, por la regla: el déficit a 0.99 es de las aristas.** Con las aristas reconstruidas en lote sobre la partición que dejan los inserts, el índice carga 52.39 postings a 0.99: un 0.8 % menos que el lote, donde la regla pedía +10 % o menos (58.06 cargas). Lo siguiente, por la regla, es un refresco de aristas en segundo plano.
+
+| | lote del 100 % | primera corrida, al 100 % | esta corrida, al 100 %: antes | aristas reconstruidas | aristas y grafo de centroides reconstruidos |
+|---|---|---|---|---|---|
+| cargas a 0.99 | 52.78 | 62.21 (+17.9 %) | 69.69 (+32.0 %) | **52.39 (−0.8 %)** | 52.37 (−0.8 %) |
+| cargas a 0.95 | 10.06 | 10.99 (+9.2 %) | 11.11 (+10.4 %) | 10.36 (+3.0 %) | 10.31 (+2.4 %) |
+| endpoints a 0.99 | 26 634 | 31 806 | 35 139 | 27 611 | 27 599 |
+| peor diferencia de recall a igual ef | | −0.0037 | −0.0031 | +0.0008 | +0.0008 |
+| cargas a igual ef, frente al lote | | de +4.2 a +6.5 % | de +5.7 a +6.9 % | de +5.4 a +7.8 % | de +5.6 a +7.7 % |
+| aristas por vector | 8.98 | 8.84 | 8.85 | 9.79 | 9.79 |
+| recall de arista contra el corpus actual: insertados / lote del 10 % | | 0.7061 / 0.4855 | 0.7065 / 0.4867 | 0.9697 / 0.9688 | 0.9697 / 0.9688 |
+| postings, y su tamaño medio | 4 195, 236.0 | 4 077, 242.8 | 4 094, 241.8 | los mismos | los mismos |
+| cobertura | | completa | completa | completa | completa |
+
+**Lo que dice:**
+
+- **La reconstrucción cierra todo el déficit a 0.99 y el 72 % del de 0.95.** A 0.99, de 69.69 a 52.39 cargas con el lote en 52.78: el 102 %. A 0.95, de 11.11 a 10.36 con el lote en 10.06.
+- **El recall a igual ef pasa de estar por debajo del lote en todos los ef a estar por encima en todos:** de entre −0.0031 y −0.0007 a entre +0.0008 y +0.0034.
+- **Las cargas a igual ef no se mueven.** Siguen de un 5.4 a un 7.8 % por encima del lote, y antes de reconstruir estaban de un 5.7 a un 6.9 %. Es lo que queda de la partición.
+  - A 0.99 lo compensa el recall. A 0.95 quedan un 3.0 % más de cargas que el lote.
+- **Con la misma regla, la partición crecida deja más aristas que la del lote:** 9.79 por vector frente a 8.98, un 9 % más. Los endpoints a 0.99 quedan un 3.7 % por encima del lote.
+- **171 128 vectores, el 17.3 %, no están en el posting de su centroide más cercano.** Es lo que movería un reassign. Las asignaciones no-nearest de los inserts son el 2.7 %; el resto lo dejan los splits.
+- **Las aristas que faltaban son las de los vectores viejos.** Los del lote del 10 % pasan de 7.63 a 10.26 aristas, y los del último tramo, de 9.44 a 9.57.
+- **El grafo de centroides no es.** Rehecho en lote sobre los mismos centroides, las cargas a 0.99 quedan en 52.37 y las de 0.95 en 10.31.
+- **La celda repetida no reproduce las cargas a 0.99 de la primera corrida:** 69.69 frente a 62.21, un 12.0 % más, con un suelo de ruido del 3.0 %.
+  - La regla se aplica como está escrita, sobre las cargas frente al lote. El veredicto no depende de cuál de los dos «antes» se tome: tras reconstruir, el índice carga menos que el lote.
+  - El suelo de ruido de v2.0 no vale para las cargas a 0.99 de un índice crecido diez veces. El detalle está abajo, en «la celda repetida y el ruido a 0.99».
+
+**Lo que deja para el diseño** (*mío*):
+
+- **Lo que hay que mantener son las aristas.** Con las aristas al día, la partición que dejan 3 674 splits sin ningún reassign busca como la del lote a 0.99, y a un 3.0 % de sus cargas a 0.95.
+- **Reconstruir en lote es el instrumento del diagnóstico, no el refresco.** Son 62 989 millones de distancias por código y 4 116 millones de exactas, casi todas de la asignación n·k: 3.2 veces las distancias por código de todo el build incremental y 8.9 veces sus exactas.
+- **Un refresco por búsqueda costaría lo que la búsqueda de un insert:** 21.5 cargas de posting y 15 709 distancias por código por vector con ef 80, frente a las 63 625 de la regla del lote.
+  - Sin medir si recupera lo mismo. La búsqueda de un insert encuentra el 96.2 % de sus aristas en el último tramo, y la regla del lote, el 97.0 %.
+- **El orden lo da la edad:** a un vector del lote del 10 % le faltan 2.63 aristas, y a uno del último tramo, 0.13.
+- **El reassign tras el split no hace falta para este criterio.** Lo que podría comprar está acotado por lo que queda: un 3.0 % de cargas a 0.95, un 9 % de aristas y de un 5 a un 8 % de cargas a igual ef. Sin medir cuánto de eso recupera.
+
+### Diagnóstico: recall y cargas a igual ef
+
+**Recall, diferencia frente al lote:**
+
+| ef de búsqueda | lote | primera corrida, al 100 % | esta corrida, al 100 %: antes | aristas reconstruidas | aristas y grafo de centroides reconstruidos |
+|---|---|---|---|---|---|
+| 10 | 0.9229 | −0.0037 | −0.0031 | +0.0025 | +0.0032 |
+| 20 | 0.9506 | −0.0021 | −0.0023 | +0.0029 | +0.0034 |
+| 40 | 0.9664 | −0.0023 | −0.0021 | +0.0034 | +0.0037 |
+| 80 | 0.9782 | −0.0021 | −0.0023 | +0.0021 | +0.0021 |
+| 160 | 0.9858 | −0.0015 | −0.0024 | +0.0009 | +0.0009 |
+| 320 | 0.9908 | −0.0010 | −0.0020 | +0.0008 | +0.0008 |
+| 640 | 0.9940 | −0.0008 | −0.0007 | +0.0011 | +0.0011 |
+| 1024 | 0.9960 | −0.0005 | −0.0008 | +0.0008 | +0.0008 |
+
+**Cargas de posting, frente al lote:**
+
+| ef de búsqueda | lote | primera corrida, al 100 % | esta corrida, al 100 %: antes | aristas reconstruidas | aristas y grafo de centroides reconstruidos |
+|---|---|---|---|---|---|
+| 10 | 7.58 | 7.90 (+4.2 %) | 8.01 (+5.8 %) | 7.99 (+5.4 %) | 8.00 (+5.6 %) |
+| 20 | 10.13 | 10.60 (+4.7 %) | 10.70 (+5.7 %) | 10.75 (+6.2 %) | 10.75 (+6.2 %) |
+| 40 | 14.56 | 15.37 (+5.6 %) | 15.45 (+6.2 %) | 15.60 (+7.2 %) | 15.60 (+7.2 %) |
+| 80 | 22.12 | 23.56 (+6.5 %) | 23.59 (+6.6 %) | 23.84 (+7.8 %) | 23.83 (+7.7 %) |
+| 160 | 35.18 | 37.41 (+6.3 %) | 37.58 (+6.8 %) | 37.80 (+7.5 %) | 37.79 (+7.4 %) |
+| 320 | 57.27 | 60.72 (+6.0 %) | 61.21 (+6.9 %) | 61.54 (+7.5 %) | 61.53 (+7.4 %) |
+| 640 | 95.54 | 101.00 (+5.7 %) | 101.67 (+6.4 %) | 102.16 (+6.9 %) | 102.15 (+6.9 %) |
+| 1024 | 136.38 | 144.32 (+5.8 %) | 145.14 (+6.4 %) | 145.82 (+6.9 %) | 145.82 (+6.9 %) |
+
+- **La reconstrucción mueve el recall y no las cargas.** A cada ef el recall sube de 0.0016 a 0.0056, y las cargas cambian un 1.1 % como mucho.
+- **Las dos partes del déficit de v2.2 tienen dueño distinto:** el recall a igual ef era de las aristas, y las cargas de más a igual ef son de la partición.
+- **Las aristas de más se pagan en endpoints:** a ef 320 una query sigue un 10 % más de aristas (97 283 frente a 88 668) y puntúa un 3.5 % más de endpoints (32 190 frente a 31 104).
+
+**Parte recuperada,** (antes − después) / (antes − lote):
+
+| | lote | antes | aristas reconstruidas | recuperado | con el grafo de centroides | recuperado |
+|---|---|---|---|---|---|---|
+| cargas a 0.95 | 10.06 | 11.11 | 10.36 | 72 % | 10.31 | 77 % |
+| rondas a 0.95 | 2.27 | 2.53 | 2.34 | 71 % | 2.33 | 77 % |
+| endpoints a 0.95 | 4 953 | 5 455 | 5 165 | 58 % | 5 133 | 64 % |
+| cargas a 0.99 | 52.78 | 69.69 | 52.39 | 102 % | 52.37 | 102 % |
+| rondas a 0.99 | 12.94 | 17.17 | 12.84 | 102 % | 12.84 | 103 % |
+| endpoints a 0.99 | 26 634 | 35 139 | 27 611 | 89 % | 27 599 | 89 % |
+
+### Diagnóstico: el grado por cohorte y el recall de arista
+
+**Aristas por vector, según cuándo entró:**
+
+| | lote del 10 % | 10 → 20 % | 20 → 40 % | 40 → 60 % | 60 → 80 % | 80 → 100 % | todos |
+|---|---|---|---|---|---|---|---|
+| antes | 7.63 | 8.07 | 8.66 | 9.04 | 9.27 | 9.44 | 8.85 |
+| aristas reconstruidas | 10.26 | 10.13 | 9.85 | 9.71 | 9.61 | 9.57 | 9.79 |
+| lo que gana | +2.63 | +2.06 | +1.19 | +0.66 | +0.34 | +0.13 | +0.93 |
+| lote del 100 % | | | | | | | 8.98 |
+
+- **Cuanto antes entró un vector, más aristas le faltaban:** la reconstrucción da un 35 % más a los del lote del 10 %, y un 1 % más a los del último tramo.
+- **Tras reconstruir el orden se invierte:** los más viejos quedan con más aristas que los más nuevos, 10.26 frente a 9.57.
+  - *Mío, sin medir:* han pasado por más splits, y más de sus vecinos han quedado en otro posting. El conteo de vectores fuera de su centroide más cercano no está separado por cohorte.
+- **Rehacer el grafo de centroides no cambia ninguna arista,** como debe: las dos medidas tienen las mismas 9 689 587.
+
+**Recall de arista contra el corpus actual,** sobre la muestra de 2 000 vectores de cada grupo, a nivel de vector y, entre paréntesis, de posting:
+
+| | insertados | su grado | del lote del 10 % | su grado |
+|---|---|---|---|---|
+| primera corrida, al 100 % | 0.7061 (0.7800) | 8.86 | 0.4855 (0.5959) | 7.54 |
+| esta corrida, al 100 %: antes | 0.7065 (0.7800) | 8.88 | 0.4867 (0.5961) | 7.54 |
+| aristas reconstruidas | 0.9697 (0.9555) | 9.69 | 0.9688 (0.9508) | 10.18 |
+
+- **Antes de reconstruir, un vector del lote del 10 % tiene la mitad de las aristas que le daría la regla del lote,** y uno insertado, el 71 %.
+- **La reconstrucción los deja iguales,** en 0.97, que es lo que da el constructor del lote con P=256 y R=64.
+- *Mío:* aquí el recall de arista contra el corpus actual sí acompaña a la búsqueda. En v2.0 no ordenaba las celdas.
+
+### Diagnóstico: la partición al final y el trabajo de la reconstrucción
+
+- **Fuera del posting de su centroide más cercano:** 171 128 de 990 000 vectores, el 17.29 %.
+  - Uno solo tiene su posting fuera de sus 256 centroides más cercanos, y ocupa el sitio del último.
+  - El smoke de 30 000 vectores daba un 13.2 %.
+- **Aristas:** 9 689 587 tras reconstruir, frente a 8 764 012 antes y a 8 888 026 en el lote del 100 %.
+
+**El trabajo de la reconstrucción,** en millones de operaciones:
+
+| | reconstrucción | lote del 100 % | build incremental de la celda |
+|---|---|---|---|
+| postings sondeados | 253.4 | 253.4 | |
+| distancias por código | 62 989 | 51 008 | 19 904 |
+| candidatos rescoreados | 63.4 | 63.4 | 63.4 |
+| distancias exactas de la asignación | 4 053.1 | 4 153.1 | 41.6 en el lote del 10 % y 112.8 en los inserts |
+| distancias exactas, todas | 4 116 | 4 411.6 | 460 |
+
+- **La reconstrucción ordena un 23 % más de candidatos por código que el lote del 100 %,** con los mismos sondeos. Los postings que sondea miden 248.5 de media y los del lote, 201.3, con tamaños medios de 241.8 y 236.0.
+  - Sin investigar por qué en el lote los postings sondeados son más pequeños que la media.
+- **Tardó 558 s,** indicativo y con el proceso solo. El build de conteos del lote tardó 747 s con tres procesos a la vez.
+- **Por vector son 63 625 distancias por código y 4 094 exactas.** La búsqueda de un insert de esta celda hace 15 709 por código (5 476 de scan y 10 233 de endpoints), 64 de rescore y 127 exactas por búsqueda en el grafo de centroides.
+
+### Diagnóstico: la celda repetida y el ruido a 0.99
+
+La celda de ef 80 corrió dos veces con el mismo camino de insert: la de v2.2, junto a otros dos procesos, y esta, sola. Al 100 %:
+
+| | primera corrida | esta corrida | diferencia | suelo de ruido de v2.0 |
+|---|---|---|---|---|
+| recall a ef 160 | 0.9843 | 0.9834 | −0.0009 | 0.0009 |
+| recall a ef 320 | 0.9898 | 0.9889 | −0.0010 | 0.0009 |
+| recall a ef 640 | 0.9932 | 0.9933 | +0.0001 | 0.0009 |
+| recall en los otros cinco ef | | | de −0.0003 a +0.0007 | 0.0009 |
+| cargas a 0.95 | 10.99 | 11.11 | +1.2 % | 0.5 % |
+| cargas a 0.99 | 62.21 | 69.69 | +12.0 % | 3.0 % |
+| postings | 4 077 | 4 094 | +0.4 % | |
+| splits | 3 657 | 3 674 | +0.5 % | |
+| no-nearest, acumulado | 2.68 % | 2.69 % | | |
+| cargas por insert | 21.52 | 21.54 | +0.1 % | |
+| escrituras inversas por insert | 4.52 | 4.54 | +0.4 % | |
+| aristas por vector | 8.84 | 8.85 | +0.2 % | |
+
+- **Las dos corridas dejan el mismo índice en todo lo que se cuenta:** postings, splits, grado y trabajo por insert se separan un 0.5 % como mucho.
+- **El recall a igual ef se separa 0.0010 como mucho,** en ef 320: 0.98984 y 0.98886. Es el borde del suelo de ruido.
+- **Las cargas a 0.99 se separan un 12.0 % porque el cruce de 0.99 cae en la parte plana de la curva.**
+  - El índice crecido cruza 0.99 entre ef 320 y ef 640. Ahí gana 0.0045 de recall con 40.5 cargas más: 9 cargas por cada 0.001 de recall. En la primera corrida son 12.
+  - El lote cruza entre ef 160 y ef 320, donde son 4.4 cargas por cada 0.001.
+  - Con 0.0010 menos de recall a ef 320, esta corrida carga 7.5 postings más a 0.99.
+- **El suelo de ruido de v2.0 (3.0 % a 0.99) se midió con el cruce entre ef 160 y ef 320.** No vale cuando el cruce pasa de ef 320.
+
+**Lo que cambia de lo escrito en v2.2:**
+
+- **El fallo a 0.99 se mantiene:** las tres corridas quedan por encima del umbral de +10 % (+17.9, +19.6 y +32.0 %), y las tres pierden recall a igual ef frente al lote en todos los ef.
+- **Su tamaño solo se conoce entre un 18 y un 32 %.**
+- **A 0.99 no se separan los dos ef de inserción,** como ya decía v2.2 (63.1 y 62.2 cargas), **ni la deriva de ef 80 frente a v2.1** (+7.3 %), que queda dentro de la diferencia entre corridas.
+- **Lo que no cambia:** el recall a igual ef, las cargas a 0.95 y todo lo que es conteo de inserts.
+
+*Mío:* para un índice que cruza 0.99 por encima de ef 320, la medida estable es el recall a igual ef. Las cargas a 0.99 amplifican una diferencia de recall que está en el ruido.
+
+### Lo que el diagnóstico no mide
+
+- **Un refresco de verdad.** La reconstrucción rehace todas las aristas a la vez, al final y con la regla del lote. No dice cuánto recupera un refresco por búsqueda, ni uno parcial, ni cada cuánto hace falta.
+- **Lo que recuperaría un reassign.** Queda acotado por lo que deja la partición con las aristas al día.
+- **La repetición del después.** Es una reconstrucción sobre una corrida. Tras reconstruir, el cruce de 0.99 vuelve a caer entre ef 160 y ef 320, donde se midió el suelo de ruido de v2.0.
+- **El ef de inserción 160.** La partición de esa celda no se reconstruyó.
+- **El cuantizador.** Es el del lote del 10 %, igual antes y después.
+- **Otro dataset, otra escala, deletes, concurrencia y cualquier I/O.**
+
+### Datos y reproducción del diagnóstico
+
+En `testdata/bench/v2.2/`:
+
+- `dbpedia-1m-grow10-h1-ef80-run2.json`: la celda repetida, con sus checkpoints y, en `rebuilt`, los conteos de la reconstrucción (`work`), sus segundos y las dos medidas de después (`edges` y `graph`), con el formato de un checkpoint.
+  - `-run2-cp<porcentaje>.json`, `-run2-rebuilt-edges.json` y `-run2-rebuilt-graph.json`: cada medida, escrita al acabarla.
+- `rebuild-verdict.md`: las tablas, de `scripts/rebuild_verdict.py`, frente a la referencia en lote de `v2.0/` y a la primera corrida de la celda.
+- `scripts/run_v22_rebuild.sh`: la celda, la reconstrucción y el veredicto, en un proceso.
+
+```bash
+go test -tags postingedgebench -c -o <dir>/postingedge-v22d.test ./adapters/repos/db/vector/postingedge/
+WORK=<dir con postingedge-v22d.test> caffeinate -s -i v2.2/scripts/run_v22_rebuild.sh
+python3 v2.2/scripts/rebuild_verdict.py v2.2 v2.0 v2.2 80 > v2.2/rebuild-verdict.md
+```
+
+El binario es el del commit `216325a9bd`, con las dos búsquedas en el grafo de centroides por insert.
 
 ## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
 
