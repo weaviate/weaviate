@@ -18,6 +18,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
@@ -42,7 +43,7 @@ func prefixCorpus(t *testing.T, n int) *columnRun {
 
 // TestPrefixColumnShortQueryKeys pins query keys shorter than the elided prefix resolving in range on both scanInto branches.
 func TestPrefixColumnShortQueryKeys(t *testing.T) {
-	const corpusSize = 64 // stepping takes over at 5+ query keys
+	const corpusSize = 64 // small enough that the dense queries below step
 	run := prefixCorpus(t, corpusSize)
 	require.Equal(t, []byte("key_0"), run.keys.(*prefixKeyColumn).prefix)
 
@@ -114,7 +115,8 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.step, !shouldGallop(tt.keys.Len(), corpusSize),
+			gallop, _ := scanStrategy(run.keys, tt.keys.Len(), corpusSize)
+			require.Equal(t, tt.step, !gallop,
 				"test case must exercise the branch it claims")
 
 			res := newResolution(tt.keys.Len(), 1_000_000)
@@ -211,8 +213,8 @@ func TestFixedColumnWideKeys(t *testing.T) {
 		}
 		q, err := kb.Build()
 		require.NoError(t, err)
-		require.Equal(t, len(picks) <= 2, shouldGallop(q.Len(), len(keys)),
-			"each query must exercise the branch it claims")
+		gallop, _ := scanStrategy(run.keys, q.Len(), len(keys))
+		require.Equal(t, len(picks) <= 2, gallop, "each query must exercise the branch it claims")
 		res := newResolution(q.Len(), 1_000)
 		run.scanInto(q, res, true)
 		require.Equal(t, want, heldDocs(res))
@@ -361,8 +363,8 @@ func TestScanMatchesStoredProbes(t *testing.T) {
 			}
 
 			strategies := map[string]func(res *Resolution){
-				"step":   func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, false) },
-				"gallop": func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, true) },
+				"step":   func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, false, 0) },
+				"gallop": func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, true, maxBlocksBeforeGallop) },
 			}
 			for name, scan := range strategies {
 				res := newResolution(q.Len(), 1_000)
@@ -392,11 +394,117 @@ func TestScansStepOverKeys(t *testing.T) {
 				lo, hi := run.keys.queryWindow(q)
 				for _, gallop := range []bool{false, true} {
 					res := newResolution(q.Len(), 1_000)
-					run.keys.scan(run, q, lo, hi, res, true, false, gallop)
+					run.keys.scan(run, q, lo, hi, res, true, false, gallop, maxBlocksBeforeGallop)
 					require.ElementsMatch(t, want, heldDocs(res), "stride %d, gallop %v", stride, gallop)
 				}
 			}
 		})
+	}
+}
+
+// TestGallopBlockStep pins galloping with a block step, on each packed backing, matching the stored rows around block edges.
+func TestGallopBlockStep(t *testing.T) {
+	const n = rowsPerBlock*maxBlocksBeforeGallop*8 + 5 // a partial last block
+	reach := rowsPerBlock * maxBlocksBeforeGallop
+	corpora := []struct {
+		name string
+		key  func(i int) string
+	}{
+		{name: "fixed", key: func(i int) string { return string([]byte{byte(i >> 7), byte(i << 1)}) }},
+		{name: "prefix", key: func(i int) string { return fmt.Sprintf("key_%05d", i) }},
+		// three rows per head, so heads tie and compareTied decides
+		{name: "fixed, tied heads", key: func(i int) string {
+			return string([]byte{byte(i / 3 >> 7), byte(i / 3 << 1)}) + "abcdef" + string([]byte{byte(i % 3)}) + strings.Repeat("\x00", 7)
+		}},
+	}
+	// probe is a stored row, or with absent a key sorting just after it, or with past a key whose head sorts after the row's
+	type probe struct {
+		row    int
+		absent bool
+		past   bool
+	}
+	tests := []struct {
+		name   string
+		probes []probe
+	}{
+		{name: "present and absent keys", probes: []probe{{row: 10}, {row: 13, absent: true}, {row: 30}, {row: 50, absent: true}, {row: 51}}},
+		{name: "first row", probes: []probe{{row: 0}, {row: 8}}},
+		{name: "target at the block's last row", probes: []probe{{row: 10}, {row: 18}}},
+		{name: "target one past the block", probes: []probe{{row: 10}, {row: 19}}},
+		{name: "absent key at the block's last row", probes: []probe{{row: 10}, {row: 17, absent: true}}},
+		{name: "last row", probes: []probe{{row: 10}, {row: n - 1}}},
+		{name: "absent key past the last row", probes: []probe{{row: 10}, {row: n - 1, absent: true}}},
+		{name: "target in a tail shorter than a block", probes: []probe{{row: n - 8}, {row: n - 1}}},
+		{name: "key past the last row's head, from inside the tail", probes: []probe{{row: n - 3}, {row: n - 1, past: true}}},
+		{name: "blocks ending exactly at the last row", probes: []probe{{row: n - 17}, {row: n - 1, past: true}}},
+		{name: "every block, then a gallop landing on the target", probes: []probe{{row: 10}, {row: 11 + reach}, {row: 13 + reach}}},
+		{name: "every block, then a gallop past them", probes: []probe{{row: 10}, {row: 16 + reach}}},
+		{name: "absent key past every block", probes: []probe{{row: 10}, {row: 15 + reach, absent: true}, {row: 20 + reach}}},
+		{
+			name:   "far key, then near keys",
+			probes: []probe{{row: 10}, {row: 11 + 3*reach}, {row: 14 + 3*reach}, {row: 25 + 3*reach}, {row: 26 + 3*reach, absent: true}},
+		},
+		{
+			name:   "near, far, near",
+			probes: []probe{{row: 1}, {row: 9}, {row: 9 + 2*reach}, {row: 10 + 2*reach}, {row: 30 + 2*reach}, {row: 30 + 4*reach}},
+		},
+	}
+
+	for _, c := range corpora {
+		keys := make([]string, n)
+		for i := range keys {
+			keys[i] = c.key(i)
+		}
+		tc := keyColumnCase{keys: keys, backing: &fixedKeyColumn{}}
+		if c.name == "prefix" {
+			tc.backing = &prefixKeyColumn{}
+		}
+		// row i holds docID i, and n+i in overflow, so the scan applies overflow too
+		rb := newColumnRunBuilder()
+		for i, k := range keys {
+			rb.append([]byte(k), uint64(i))
+			rb.appendExtra(uint64(n + i))
+		}
+		run := rb.columnRun()
+		require.IsType(t, tc.backing, run.keys, "corpus must select the backing this case names")
+		for _, tt := range tests {
+			t.Run(c.name+"/"+tt.name, func(t *testing.T) {
+				picked := make([]string, len(tt.probes))
+				want := make([]uint32, len(tt.probes))
+				for i, p := range tt.probes {
+					picked[i], want[i] = keys[p.row], uint32(p.row)
+					if p.absent {
+						picked[i], want[i] = picked[i]+"\x00", noDoc32
+					}
+					if p.past {
+						picked[i], want[i] = picked[i]+"\xff", noDoc32
+					}
+				}
+				q := testKeys(t, picked...)
+				lo, hi := run.keys.queryWindow(q)
+				// plain gallop, and gallop with blocks
+				for _, s := range []struct {
+					gallop    bool
+					maxBlocks int
+				}{{true, 0}, {true, maxBlocksBeforeGallop}} {
+					res := newResolution(q.Len(), 1_000)
+					run.keys.scan(run, q, lo, hi, res, true, true, s.gallop, s.maxBlocks)
+					require.Equal(t, want, res.docs32, "gallop %v, maxBlocks %d", s.gallop, s.maxBlocks)
+					var held []uint64
+					for _, w := range want {
+						if w != noDoc32 {
+							held = append(held, uint64(w), uint64(n)+uint64(w))
+						}
+					}
+					require.ElementsMatch(t, held, heldDocs(res), "overflow, gallop %v, maxBlocks %d", s.gallop, s.maxBlocks)
+					// retiring what a scan added leaves nothing held
+					res = newResolution(q.Len(), 1_000)
+					run.keys.scan(run, q, lo, hi, res, true, true, s.gallop, s.maxBlocks)
+					run.keys.scan(run, q, lo, hi, res, false, true, s.gallop, s.maxBlocks)
+					require.Empty(t, heldDocs(res), "retired, gallop %v, maxBlocks %d", s.gallop, s.maxBlocks)
+				}
+			})
+		}
 	}
 }
 
@@ -433,7 +541,8 @@ func TestGallopResumesFromPreviousHit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keys := testKeys(t, tt.keys...)
-			require.True(t, shouldGallop(keys.Len(), corpusSize), "test case must gallop")
+			gallop, _ := scanStrategy(run.keys, keys.Len(), corpusSize)
+			require.True(t, gallop, "test case must gallop")
 
 			res := newResolution(keys.Len(), 1_000)
 			run.scanInto(keys, res, true)
@@ -442,23 +551,45 @@ func TestGallopResumesFromPreviousHit(t *testing.T) {
 	}
 }
 
-// TestShouldGallop pins the density at which scanInto switches to galloping.
-func TestShouldGallop(t *testing.T) {
+// TestScanStrategy pins the density at which scanInto switches to galloping, per backing, and the block limit it gallops with.
+func TestScanStrategy(t *testing.T) {
+	blob, prefix, fixed := &blobKeyColumn{}, &prefixKeyColumn{}, &fixedKeyColumn{}
+	stepCorpus := 100 * maxKeySpacingForStepping
+	gate := rowsPerBlock * maxBlocksBeforeGallop / 2
 	tests := []struct {
 		name            string
+		backing         keyColumn
 		numKeys, corpus int
 		want            bool
+		wantBlocks      int // checked only when want is set
 	}{
-		{name: "empty corpus", numKeys: 5, corpus: 0, want: false},
-		{name: "just below one key in fifteen", numKeys: 99, corpus: 1_500, want: true},
-		{name: "one key in fifteen", numKeys: 100, corpus: 1_500, want: false},
-		{name: "every key", numKeys: 1_000, corpus: 1_000, want: false},
-		{name: "one key, small corpus", numKeys: 1, corpus: 15, want: false},
-		{name: "one key, corpus past fifteen", numKeys: 1, corpus: 16, want: true},
+		{name: "blob, empty corpus", backing: blob, numKeys: 5, corpus: 0, want: false},
+		{name: "blob, one key under its spacing", backing: blob, numKeys: 99, corpus: stepCorpus, want: true},
+		{name: "blob, at its spacing", backing: blob, numKeys: 100, corpus: stepCorpus, want: false},
+		{name: "blob, one key over its spacing", backing: blob, numKeys: 101, corpus: stepCorpus, want: false},
+		{name: "blob, every key", backing: blob, numKeys: 1_000, corpus: 1_000, want: false},
+		{name: "blob, one key, small corpus", backing: blob, numKeys: 1, corpus: maxKeySpacingForStepping, want: false},
+		{name: "blob, one key, corpus past its spacing", backing: blob, numKeys: 1, corpus: maxKeySpacingForStepping + 1, want: true},
+		{name: "prefix, one key under the spacing", backing: prefix, numKeys: 99, corpus: stepCorpus, want: true, wantBlocks: maxBlocksBeforeGallop},
+		{name: "prefix, at the spacing", backing: prefix, numKeys: 100, corpus: stepCorpus, want: false},
+		{name: "prefix, one key over the spacing", backing: prefix, numKeys: 101, corpus: stepCorpus, want: false},
+		{name: "prefix, one key at the block gate", backing: prefix, numKeys: 1, corpus: gate, want: true, wantBlocks: maxBlocksBeforeGallop},
+		{name: "prefix, one key past the block gate", backing: prefix, numKeys: 1, corpus: gate + 1, want: true},
+		{name: "fixed, one key under the spacing", backing: fixed, numKeys: 99, corpus: stepCorpus, want: true, wantBlocks: maxBlocksBeforeGallop},
+		{name: "fixed, at the spacing", backing: fixed, numKeys: 100, corpus: stepCorpus, want: false},
+		{name: "fixed, one key over the spacing", backing: fixed, numKeys: 101, corpus: stepCorpus, want: false},
+		{name: "fixed, one key short of the block gate", backing: fixed, numKeys: 99, corpus: 100 * gate, want: true},
+		{name: "fixed, at the block gate", backing: fixed, numKeys: 100, corpus: 100 * gate, want: true, wantBlocks: maxBlocksBeforeGallop},
+		{name: "fixed, one key past the block gate", backing: fixed, numKeys: 101, corpus: 100 * gate, want: true, wantBlocks: maxBlocksBeforeGallop},
+		{name: "fixed, every key", backing: fixed, numKeys: 1_000, corpus: 1_000, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, shouldGallop(tt.numKeys, tt.corpus))
+			gallop, maxBlocks := scanStrategy(tt.backing, tt.numKeys, tt.corpus)
+			require.Equal(t, tt.want, gallop)
+			if gallop {
+				require.Equal(t, tt.wantBlocks, maxBlocks)
+			}
 		})
 	}
 }
@@ -494,15 +625,19 @@ func testKeys(tb testing.TB, keys ...string) entinverted.SortedKeys {
 	return built
 }
 
-// BenchmarkScanStrategies times stepping and galloping scans, each
-// forced, across query density, corpus size and key layout; it sweeps
-// maxKeySpacingForStepping.
+// BenchmarkScanStrategies times stepping and galloping scans, each forced, by query density
+// and shape, corpus size, key layout and warm or cold memory, over docIDs shuffled against key
+// order. It sweeps maxKeySpacingForStepping, maxBlocksBeforeGallop and the gallopBlocks gate.
 //
 // Run:
 //
-//	go test -run '^$' -bench 'ScanStrategies' -benchtime 0.3s -count 3 \
+//	go test -run '^$' -bench 'ScanStrategies/warm' -benchtime 0.3s -count 3 \
 //	    ./adapters/repos/db/roaringset/keydoccolumn/
 func BenchmarkScanStrategies(b *testing.B) {
+	// enough columns of the largest corpus to outgrow the CPU caches
+	const coldColumns = 16
+	// the densest cold query, past where the packed backings stop galloping
+	const maxColdDensityBP = 2000
 	layouts := []struct {
 		name    string
 		keys    func(n int) [][]byte
@@ -532,57 +667,167 @@ func BenchmarkScanStrategies(b *testing.B) {
 			})
 		}, &blobKeyColumn{}},
 	}
-	densities := []int{1, 2, 5, 7, 10, 15, 20, 33, 50, 100}
-
-	for _, l := range layouts {
-		for _, corpus := range []int{30_000, 300_000, 3_000_000} {
-			keys := l.keys(corpus)
-			docs := make([]uint64, corpus)
-			for i := range docs {
-				docs[i] = uint64(i)
+	densitiesBP := []int{1, 3, 10, 30, 100, 200, 300, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 2000, 3300, 5000, 10000}
+	// shapes pick numKeys ascending rows of n, or fewer when the density leaves no room for the shape
+	shapes := []struct {
+		name string
+		rows func(n, numKeys int) []int
+	}{
+		{"even", func(n, numKeys int) []int {
+			rows := make([]int, numKeys)
+			for j := range rows {
+				rows[j] = j * n / numKeys
 			}
-			run := runFromPairs(keys, docs)
-			require.IsType(b, l.backing, run.keys, "corpus must select the backing this layout names")
+			return rows
+		}},
+		{"clustered", func(n, numKeys int) []int {
+			const runLen = 10 // consecutive rows per run, runs evenly spread
+			runs := (numKeys + runLen - 1) / runLen
+			rows := make([]int, 0, numKeys)
+			for r := 0; r < runs; r++ {
+				for j := 0; j < runLen && len(rows) < numKeys; j++ {
+					rows = append(rows, r*n/runs+j)
+				}
+			}
+			return rows
+		}},
+		{"alternating", func(n, numKeys int) []int {
+			const near = 8 // rows between a pair's keys; pairs are evenly spread
+			pairs := (numKeys + 1) / 2
+			rows := make([]int, 0, numKeys)
+			for p := 0; p < pairs; p++ {
+				rows = append(rows, p*n/pairs)
+				if len(rows) < numKeys {
+					rows = append(rows, p*n/pairs+near)
+				}
+			}
+			return rows
+		}},
+		// a ContainsAny over near-unique values
+		{"random", func(n, numKeys int) []int {
+			rows := rand.New(rand.NewSource(1)).Perm(n)[:numKeys]
+			slices.Sort(rows)
+			return rows
+		}},
+	}
 
-			for _, d := range densities {
-				benchScanStrategies(b, fmt.Sprintf("%s/keys=%d/density=%d%%", l.name, corpus, d), run, keys, d, nil)
-				if corpus == 300_000 {
+	// benchShapes runs every density and shape over runs, all holding keys
+	benchShapes := func(b *testing.B, runs []*columnRun, keys [][]byte) {
+		corpus := len(keys)
+		for _, bp := range densitiesBP {
+			numKeys := max(1, corpus*bp/10_000)
+			if len(runs) > 1 && bp > maxColdDensityBP {
+				continue // a resolution per column per goroutine outgrows memory
+			}
+			for _, sh := range shapes {
+				rows := sh.rows(corpus, numKeys)
+				if !slices.IsSorted(rows) || len(slices.Compact(slices.Clone(rows))) < len(rows) || rows[len(rows)-1] >= corpus {
+					continue // too dense for this shape
+				}
+				name := fmt.Sprintf("density=%g%%/%s", float64(bp)/100, sh.name)
+				benchScanStrategies(b, name, runs, keys, rows, nil)
+				if len(runs) == 1 && corpus == 300_000 && sh.name == "even" {
 					// a key one zero byte longer sorts just after its stored key, so it is absent
-					benchScanStrategies(b, fmt.Sprintf("%s/keys=%d/density=%d%%/absent", l.name, corpus, d), run, keys, d, []byte{0})
+					benchScanStrategies(b, name+"-absent", runs, keys, rows, []byte{0})
 				}
 			}
 		}
 	}
+
+	for _, l := range layouts {
+		for _, corpus := range []int{30_000, 300_000, 3_000_000} {
+			keys := l.keys(corpus)
+			// columns are built inside b.Run, so a -bench filter skips building those it excludes
+			b.Run(fmt.Sprintf("warm/%s/keys=%d", l.name, corpus), func(b *testing.B) {
+				run := shuffledRun(keys, 0)
+				require.IsType(b, l.backing, run.keys, "corpus must select the backing this layout names")
+				benchShapes(b, []*columnRun{run}, keys)
+			})
+
+			if _, ok := l.backing.(*blobKeyColumn); ok || corpus != 3_000_000 {
+				continue
+			}
+			b.Run(fmt.Sprintf("cold/%s/keys=%dx%d", l.name, corpus, coldColumns), func(b *testing.B) {
+				cold := make([]*columnRun, coldColumns)
+				for c := range cold {
+					cold[c] = shuffledRun(keys, int64(c+1))
+				}
+				benchShapes(b, cold, keys)
+			})
+		}
+	}
 }
 
-// benchScanStrategies times both strategies over density percent of keys, evenly
-// spread, each extended by suffix.
-func benchScanStrategies(b *testing.B, name string, run *columnRun, keys [][]byte, density int, suffix []byte) {
-	numKeys := max(1, len(keys)*density/100)
-	kb := entinverted.NewVarKeyBuilder(numKeys, 0)
-	for j := 0; j < numKeys; j++ {
-		kb.AppendString(string(keys[j*len(keys)/numKeys]) + string(suffix))
+// shuffledRun builds a column run of keys under docIDs shuffled against key order,
+// so each insert into a resolution lands somewhere new.
+func shuffledRun(keys [][]byte, seed int64) *columnRun {
+	keyBytes := 0
+	for _, k := range keys {
+		keyBytes += len(k)
+	}
+	b := newColumnRunBuilderSized(len(keys), keyBytes, bytesForCount(uint64(len(keys))))
+	for i, d := range rand.New(rand.NewSource(seed)).Perm(len(keys)) {
+		b.append(keys[i], uint64(d))
+	}
+	return b.columnRun()
+}
+
+// benchScanStrategies times stepping, and galloping at each block limit, over the keys at
+// rows, each extended by suffix, scanning several runs in parallel. A limit gallopBlocks
+// turns off runs anyway, named below-gate, so the gate itself can be re-decided.
+func benchScanStrategies(b *testing.B, name string, runs []*columnRun, keys [][]byte, rows []int, suffix []byte) {
+	kb := entinverted.NewVarKeyBuilder(len(rows), 0)
+	for _, r := range rows {
+		kb.AppendString(string(keys[r]) + string(suffix))
 	}
 	q, err := kb.Build()
 	require.NoError(b, err)
-	lo, hi := run.keys.queryWindow(q)
-	require.Equal(b, numKeys, hi-lo, "every query key must fall inside the column's window")
+	lo, hi := runs[0].keys.queryWindow(q)
+	require.Equal(b, len(rows), hi-lo, "every query key must fall inside the column's window")
 
-	strategies := []struct {
-		name string
-		scan func(res *Resolution)
-	}{
-		{"step", func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, false) }},
-		{"gallop", func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, true) }},
+	type strategy struct {
+		name      string
+		gallop    bool
+		maxBlocks int
+	}
+	strategies := []strategy{{name: "step"}}
+	if _, ok := runs[0].keys.(*blobKeyColumn); ok {
+		strategies = append(strategies, strategy{name: "gallop", gallop: true})
+	} else {
+		// blocks=0 is the plain gallop, the baseline for the others
+		for _, mb := range []int{0, 4, 8, 16, 32} {
+			s := strategy{name: fmt.Sprintf("gallop-blocks=%d", mb), gallop: true, maxBlocks: mb}
+			if mb > 0 && gallopBlocks(hi-lo, len(keys), mb) == 0 {
+				s.name += "-below-gate"
+			}
+			strategies = append(strategies, s)
+		}
 	}
 	for _, s := range strategies {
 		b.Run(name+"/"+s.name, func(b *testing.B) {
-			// insert keeps a doc it already holds, so one resolution serves every iteration
-			res := newResolution(numKeys, uint64(len(keys)))
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				s.scan(res)
+			scan := func(run *columnRun, res *Resolution) {
+				run.keys.scan(run, q, lo, hi, res, true, false, s.gallop, s.maxBlocks)
 			}
+			// insert keeps a doc it already holds, so one resolution serves every iteration
+			if len(runs) == 1 {
+				res := newResolution(len(rows), uint64(len(keys)))
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					scan(runs[0], res)
+				}
+				return
+			}
+			var next atomic.Int64
+			b.RunParallel(func(pb *testing.PB) {
+				ress := make([]*Resolution, len(runs))
+				for c := range ress {
+					ress[c] = newResolution(len(rows), uint64(len(keys)))
+				}
+				for pb.Next() {
+					c := int(next.Add(1)) % len(runs)
+					scan(runs[c], ress[c])
+				}
+			})
 		})
 	}
 }
