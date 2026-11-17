@@ -842,7 +842,9 @@ func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
 		"node-2": {"shard-b", "shard-a"},
 		"node-1": {"shard-a"},
 	})
-	raw, err := json.Marshal(buildReindexPayload(nil, "C", nil, upsertPlan{}, nil, unitToShard, unitToNode))
+	payload := buildReindexPayload(nil, "C", nil, upsertPlan{}, nil)
+	payload.UnitToShard, payload.UnitToNode = unitToShard, unitToNode
+	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
 	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]
