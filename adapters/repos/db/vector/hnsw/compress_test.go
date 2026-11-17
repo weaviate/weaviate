@@ -1386,3 +1386,76 @@ func Test_CompressSkipsTargetVectorNotFound(t *testing.T) {
 		})
 	}
 }
+
+// Deleting every node resets the index, but it stays compressed in memory, so
+// a restart must restore the compression the nodes added after the reset use.
+func Test_ResetKeepsCompressionAcrossRestart(t *testing.T) {
+	const dimensions, size = 20, 50
+	vectors, _ := testinghelpers.RandomVecs(2*size, 0, dimensions)
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	withCompression := func(enable func(*ent.UserConfig)) ent.UserConfig {
+		uc := userConfig(dimensions/10, 5, 32, 64, 32, size)
+		uc.PQ.Enabled = false
+		enable(&uc)
+		return uc
+	}
+	tests := []struct {
+		name string
+		uc   ent.UserConfig
+	}{
+		{name: "PQ", uc: withCompression(func(uc *ent.UserConfig) { uc.PQ.Enabled = true })},
+		{name: "SQ", uc: withCompression(func(uc *ent.UserConfig) { uc.SQ = ent.SQConfig{Enabled: true} })},
+		{name: "BQ", uc: withCompression(func(uc *ent.UserConfig) { uc.BQ.Enabled = true })},
+		{name: "RQ 8 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 8} })},
+		{name: "RQ 4 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 4} })},
+		{name: "RQ 4 bits centered", uc: withCompression(func(uc *ent.UserConfig) {
+			uc.RQ = ent.RQConfig{Enabled: true, Bits: 4, Centering: true, TrainingLimit: size}
+		})},
+		{name: "RQ 1 bit", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 1} })},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+			cfg := indexConfig("reset", tempDir, logger, vectors, distancer.NewL2SquaredProvider())
+			cfg.WaitForCachePrefill = true
+
+			index, err := New(cfg, withCompression(func(*ent.UserConfig) {}), cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			for id := range size {
+				require.NoError(t, index.Add(ctx, uint64(id), vectors[id]))
+			}
+			compressed := make(chan struct{})
+			require.NoError(t, index.UpdateUserConfig(tt.uc, func() { close(compressed) }))
+			<-compressed
+
+			for id := range size {
+				require.NoError(t, index.Delete(uint64(id)))
+			}
+			require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
+			require.True(t, index.isEmpty(), "deleting every node must reset the index")
+			require.True(t, index.compressed.Load())
+
+			for id := size; id < 2*size; id++ {
+				require.NoError(t, index.Add(ctx, uint64(id), vectors[id]))
+			}
+			require.NoError(t, index.Flush())
+			require.NoError(t, index.Shutdown(ctx))
+			store.FlushMemtables(ctx)
+
+			index, err = New(cfg, tt.uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			defer index.Shutdown(ctx)
+			index.PostStartup(ctx)
+
+			require.True(t, index.compressed.Load(), "the index must reload compressed")
+			for id := size; id < 2*size; id++ {
+				got, _, err := index.SearchByVector(ctx, vectors[id], 1, nil)
+				require.NoError(t, err)
+				require.Equal(t, []uint64{uint64(id)}, got)
+			}
+		})
+	}
+}
