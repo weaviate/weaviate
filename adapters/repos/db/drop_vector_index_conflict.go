@@ -113,6 +113,22 @@ func (p *DropVectorIndexDetector) CheckTenantMutation(className string, tenants 
 // vectors. A marker whose finalize was missed heals through reconciliation
 // (fresh-epoch re-clean), not through record replay.
 func (p *DropVectorIndexDetector) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+	return p.checkVectorConfigRemoval(className, removedVectors, shards, existingTasks, true)
+}
+
+// CheckVectorConfigRemovalAtPropose implements
+// distributedtask.VectorConfigRemovalProposeGate. It is CheckVectorConfigRemoval
+// without the deletion-resolved voucher: that proof cannot show the surviving
+// shards are drained, so a leader running this version refuses to propose a
+// removal that rests on it alone. Its own enqueuer finalizes such a drop
+// through a verify-only round, whose SWAPPING task vouches here.
+func (p *DropVectorIndexDetector) CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+	return p.checkVectorConfigRemoval(className, removedVectors, shards, existingTasks, false)
+}
+
+func (p *DropVectorIndexDetector) checkVectorConfigRemoval(className string, removedVectors, shards []string,
+	existingTasks []*distributedtask.Task, deletionResolvedVouches bool,
+) error {
 	for _, targetVector := range removedVectors {
 		if id, active := p.dropCovers(className, targetVector, existingTasks, stillStrippingStatus); active {
 			return fmt.Errorf(
@@ -133,13 +149,13 @@ func (p *DropVectorIndexDetector) CheckVectorConfigRemoval(className string, rem
 			continue
 		}
 		// A terminal round may also vouch, but only on the one proof that a
-		// stale record cannot fabricate: it covers every shard that still
+		// stale record cannot fabricate: it stripped every shard that still
 		// exists AND it recorded owing a shard that has since been deleted.
 		// Re-cleaning that collection would rewrite already-stripped shards for
 		// work that no longer has anywhere to happen. A record that owed
 		// nothing stays refused — that is the closed-epoch residue shape, where
 		// full coverage says nothing about the current marker's data.
-		if p.deletionResolvedDropVoucher(className, targetVector, shards, existingTasks) {
+		if deletionResolvedVouches && p.deletionResolvedDropVoucher(className, targetVector, shards, existingTasks) {
 			continue
 		}
 		if coversVec {
@@ -194,18 +210,31 @@ func (p *DropVectorIndexDetector) completedDropVoucher(className, targetVector s
 }
 
 // deletionResolvedDropVoucher reports whether a terminal round of this drop
-// proves the cleanup is done for the collection as it now stands: it covers
-// every current shard, and it recorded owing a shard that no longer exists.
+// proves the cleanup is done for the collection as it now stands: it owed a
+// shard that no longer exists, and its epoch stripped every current shard.
 //
-// This is the one case where a non-SWAPPING record may remove a marker. It is
-// safe where a bare FINISHED voucher is not, because a finalized drop's residue
-// owes nothing — it covered everything before it finalized — so it can never
-// satisfy the deleted-shard half. Terminal-with-partial-work rounds count too:
-// a round that failed after completing its units still recorded what it owed.
+// This is the one case where a non-SWAPPING record may remove a marker. A
+// finalized drop's earlier rounds can have owed a shard that is now deleted.
+// The purge of the previous drop's records when a marker is introduced
+// (cluster/schema/manager.go) keeps those rounds from vouching for a new
+// marker.
 //
-// Mirrors the enqueuer, which finalizes on the same proof
-// (EpochAndInheritedCoverage); the two must agree or the enqueuer would
-// propose removals this apply refuses.
+// Only a round of the drop's newest epoch vouches (newestDropEpoch), the epoch
+// the enqueuer reads. An older epoch was closed because a shard had to be
+// stripped again, so its records prove nothing about that shard. The round's
+// epoch must also span every current shard (EpochCoveredShards), as
+// ResolvedByShardDeletion asks of its callers.
+//
+// Accepts the proof an older leader's enqueuer finalizes on directly, so
+// those removals still apply during a rolling upgrade. The enqueuer here asks
+// more: it re-cleans an epoch with a record under another op
+// (epochHasForeignOp).
+//
+// The enqueuer does not remove the marker on this proof itself; it submits a
+// verify-only round so each node first confirms its shards are drained. This
+// voucher cannot see that, so the leader refuses to propose a removal resting
+// on it alone (CheckVectorConfigRemovalAtPropose). Only a removal an older
+// leader proposed reaches the apply on this proof.
 func (p *DropVectorIndexDetector) deletionResolvedDropVoucher(className, targetVector string,
 	shards []string, existingTasks []*distributedtask.Task,
 ) bool {
@@ -215,11 +244,19 @@ func (p *DropVectorIndexDetector) deletionResolvedDropVoucher(className, targetV
 	var vouched bool
 	p.eachDropCovering(className, targetVector, existingTasks, terminal,
 		func(task *distributedtask.Task, existP *DropVectorIndexTaskPayload) bool {
-			if existP.ResolvedByShardDeletion(shards) {
-				vouched = true
-				return false // done
+			newestEpoch, ok := newestDropEpoch(existingTasks, existP.Collection, existP.Targets, nil)
+			if !ok || existP.DropEpochID != newestEpoch {
+				return true
 			}
-			return true
+			if !existP.ResolvedByShardDeletion(task, shards) {
+				return true
+			}
+			stripped := EpochCoveredShards(existingTasks, existP.Collection, existP.Targets, existP.DropEpochID)
+			if len(ShardsNotCovered(shards, stripped)) > 0 {
+				return true
+			}
+			vouched = true
+			return false // done
 		})
 	return vouched
 }

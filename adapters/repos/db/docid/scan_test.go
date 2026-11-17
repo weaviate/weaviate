@@ -103,6 +103,31 @@ func runScanObjectsLSMCase(t *testing.T, objectCount, failOnCall, segments int) 
 	require.ErrorIs(t, err, errScanFn)
 }
 
+// TestScanObjectsLSMWorkersFollowTheBudget pins that the scan runs no more
+// workers than the query's admission grant allows. Each worker hands scanFn its
+// own properties, so the distinct pointers scanFn sees count the workers.
+func TestScanObjectsLSMWorkersFollowTheBudget(t *testing.T) {
+	const objects = 200
+	logger, _ := test.NewNullLogger()
+	store, pointers := storeWithObjects(t, objects, logger, 1)
+
+	for _, budget := range []int{1, 2} {
+		t.Run(fmt.Sprintf("budget=%d", budget), func(t *testing.T) {
+			ctx := concurrency.CtxWithBudget(context.Background(), budget)
+			workers := map[*models.PropertySchema]bool{}
+			scan := func(_ context.Context, prop *models.PropertySchema, _ uint64) error {
+				workers[prop] = true
+				// let the other workers queue up behind this one
+				time.Sleep(100 * time.Microsecond)
+				return nil
+			}
+
+			require.NoError(t, ScanObjectsLSM(ctx, store, pointers, scan, []string{"name"}, logger))
+			require.LessOrEqual(t, len(workers), budget)
+		})
+	}
+}
+
 func TestScanObjectsLSMCancellation(t *testing.T) {
 	const someObjects = 100
 

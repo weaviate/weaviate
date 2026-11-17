@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -81,6 +82,10 @@ type MutationGuard interface {
 	// coverage baseline; FINISHED records never vouch). Returns non-nil to
 	// reject.
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
+
+	// CheckVectorConfigRemovalAtPropose is the same gate asked on the leader
+	// before the update is appended. It may refuse what the apply accepts.
+	CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
@@ -420,6 +425,12 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		}
 	}
 
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS {
+		if err := s.admitDroppedVectorConfigRemoval(req); err != nil {
+			return err
+		}
+	}
+
 	// Per-collection tenant cap, enforced pre-commit. store.Execute serializes
 	// AddTenants per class so this count read can't race the apply increment.
 	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT && s.tenantLimit != nil {
@@ -625,11 +636,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// and removing the marker would strand its data.
 		if s.mutationGuard != nil {
 			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
-				shards := make([]string, 0, len(meta.Sharding.Physical))
-				for name := range meta.Sharding.Physical {
-					shards = append(shards, name)
-				}
-				sort.Strings(shards)
+				shards := sortedShardNames(&meta.Sharding)
 				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
 					return fmt.Errorf("%w: %w", ErrBadRequest, err)
 				}
@@ -757,6 +764,44 @@ func removedDroppedVectorConfigs(prev, next *models.Class) []string {
 		}
 	}
 	return removed
+}
+
+func sortedShardNames(state *sharding.State) []string {
+	shards := make([]string, 0, len(state.Physical))
+	for name := range state.Physical {
+		shards = append(shards, name)
+	}
+	sort.Strings(shards)
+	return shards
+}
+
+// admitDroppedVectorConfigRemoval refuses, before the append, a class update
+// that removes a dropped VectorConfig entry the propose-time gate does not
+// allow. The apply-time gate in UpdateClass stays the deterministic one; this
+// one may be stricter because a refusal here reaches no node. An update this
+// cannot read is let through for the apply to reject.
+func (s *SchemaManager) admitDroppedVectorConfigRemoval(cmd *command.ApplyRequest) error {
+	if s.mutationGuard == nil {
+		return nil
+	}
+	req := command.UpdateClassRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil || req.Class == nil {
+		return nil
+	}
+	var removed, shards []string
+	if err := s.schema.Read(cmd.Class, false, func(class *models.Class, state *sharding.State) error {
+		removed = removedDroppedVectorConfigs(class, req.Class)
+		if state != nil {
+			shards = sortedShardNames(state)
+		}
+		return nil
+	}); err != nil || len(removed) == 0 {
+		return nil
+	}
+	if err := s.mutationGuard.CheckVectorConfigRemovalAtPropose(cmd.Class, removed, shards); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return nil
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
