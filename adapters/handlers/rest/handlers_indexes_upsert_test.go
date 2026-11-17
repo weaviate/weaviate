@@ -891,7 +891,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			status: "partial", migrated: 3, total: 3,
 		},
 		{
-			name:    "every named tenant decided: rerun those, though an unnamed one still needs work",
+			name:    "ShardReplicaOwnershipForMT alone, as no request can name tenants here: every named tenant decided, rerun those, an unnamed one still needs work",
 			tenants: []string{"a", "b"},
 			tasks:   []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a", "b")},
 			want:    []string{"a", "b"},
