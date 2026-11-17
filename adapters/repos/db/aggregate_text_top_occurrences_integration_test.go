@@ -15,7 +15,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -33,10 +32,10 @@ import (
 
 const aggTextTopOccClass = "AggregateTextTopOccurrences"
 
-// TestAggregateTextCountOnlyKeepsTopOccurrencesUnlessOnlyRequested pins that a
-// count-only text aggregation still returns the top occurrences unless the
-// caller sets [aggregation.Params.OnlyRequestedAggregations].
-func TestAggregateTextCountOnlyKeepsTopOccurrencesUnlessOnlyRequested(t *testing.T) {
+// TestAggregateTextTopOccurrencesOnlyWhenRequested pins that a text
+// aggregation returns the top occurrences only when asked for them, including
+// as totalTrue by a coordinator older than this node.
+func TestAggregateTextTopOccurrencesOnlyWhenRequested(t *testing.T) {
 	ctx := context.Background()
 	class := &models.Class{
 		Class: aggTextTopOccClass,
@@ -66,7 +65,7 @@ func TestAggregateTextCountOnlyKeepsTopOccurrencesUnlessOnlyRequested(t *testing
 		On:       &filters.Path{Class: aggTextTopOccClass, Property: "title"},
 		Value:    &filters.Value{Value: "Dune", Type: schema.DataTypeText},
 	}}
-	testCases := []struct {
+	filterCases := []struct {
 		name      string
 		filter    *filters.LocalFilter
 		wantCount int
@@ -75,24 +74,37 @@ func TestAggregateTextCountOnlyKeepsTopOccurrencesUnlessOnlyRequested(t *testing
 		{name: "unfiltered", wantCount: 3, wantItems: []aggregation.TextOccurrence{{Value: "Dune", Occurs: 2}, {Value: "Emma", Occurs: 1}}},
 		{name: "filtered", filter: dune, wantCount: 2, wantItems: []aggregation.TextOccurrence{{Value: "Dune", Occurs: 2}}},
 	}
+	aggCases := []struct {
+		name      string
+		aggs      []aggregation.Aggregator
+		wantItems bool
+	}{
+		{name: "count only", aggs: []aggregation.Aggregator{aggregation.CountAggregator}},
+		{
+			name:      "top occurrences",
+			aggs:      []aggregation.Aggregator{aggregation.CountAggregator, aggregation.NewTopOccurrencesAggregator(nil)},
+			wantItems: true,
+		},
+		{
+			name:      "totalTrue from an older coordinator",
+			aggs:      []aggregation.Aggregator{aggregation.CountAggregator, aggregation.TotalTrueAggregator},
+			wantItems: true,
+		},
+	}
 
-	for _, tc := range testCases {
-		for _, onlyRequested := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/onlyRequested=%t", tc.name, onlyRequested), func(t *testing.T) {
+	for _, fc := range filterCases {
+		for _, ac := range aggCases {
+			t.Run(fc.name+"/"+ac.name, func(t *testing.T) {
 				res, err := s.Aggregate(ctx, aggregation.Params{
-					ClassName: aggTextTopOccClass,
-					Filters:   tc.filter,
-					Properties: []aggregation.ParamProperty{{
-						Name:        "title",
-						Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
-					}},
-					OnlyRequestedAggregations: onlyRequested,
+					ClassName:  aggTextTopOccClass,
+					Filters:    fc.filter,
+					Properties: []aggregation.ParamProperty{{Name: "title", Aggregators: ac.aggs}},
 				}, nil)
 				require.NoError(t, err)
 
-				want := aggregation.Text{Count: tc.wantCount, Items: tc.wantItems}
-				if onlyRequested {
-					want.Items = nil
+				want := aggregation.Text{Count: fc.wantCount}
+				if ac.wantItems {
+					want.Items = fc.wantItems
 				}
 				require.Equal(t, want, res.Groups[0].Properties["title"].TextAggregation)
 			})

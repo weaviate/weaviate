@@ -33,20 +33,22 @@ func extractLimitFromTopOccs(aggs []aggregation.Aggregator) int {
 	return 5
 }
 
+// wantsTopOccurrences reports whether aggs ask for a text property's top
+// occurrences. Coordinators older than this node ask for them without a limit
+// as totalTrue.
 func wantsTopOccurrences(aggs []aggregation.Aggregator) bool {
 	for _, agg := range aggs {
-		if agg.Type == aggregation.TopOccurrencesType {
+		if agg.Type == aggregation.TopOccurrencesType || agg.Type == aggregation.TotalTrueAggregator.Type {
 			return true
 		}
 	}
 	return false
 }
 
-// newTextAggregator tracks how often each value occurs unless onlyRequested
-// is set and aggs do not ask for the top occurrences; see
-// [aggregation.Params.OnlyRequestedAggregations].
-func newTextAggregator(aggs []aggregation.Aggregator, onlyRequested bool) *textAggregator {
-	if onlyRequested && !wantsTopOccurrences(aggs) {
+// newTextAggregator tracks how often each value occurs only when aggs ask for
+// the top occurrences.
+func newTextAggregator(aggs []aggregation.Aggregator) *textAggregator {
+	if !wantsTopOccurrences(aggs) {
 		return &textAggregator{}
 	}
 	return &textAggregator{itemCounter: map[string]int{}, max: extractLimitFromTopOccs(aggs)}
