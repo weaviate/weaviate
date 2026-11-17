@@ -461,9 +461,14 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	}
 	clusterapi.IndicesPayloads.AggregationParams.SetContentTypeHeaderReq(req)
 
-	// send request
+	// An aggregation scans the whole shard, which can take far longer than the
+	// query timeout, so a caller that sets its own deadline is bounded by it alone.
+	timeout := c.timeoutUnit * QUERY_TIMEOUT_VALUE
+	if _, ok := ctx.Deadline(); ok {
+		timeout = 0
+	}
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	err = c.doWithCustomMarshaller(timeout, req, body, resp.decode, successCode, MAX_RETRIES)
 	if err != nil {
 		// Rehydrate the shed's identity (429) past retry exhaustion, as in
 		// SearchShard, so it reaches the ingress mapping.
