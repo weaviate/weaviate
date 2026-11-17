@@ -492,6 +492,59 @@ WORK=<dir con postingedge-v22.test> caffeinate -s -i v2.2/scripts/run_v22_growth
 python3 v2.2/scripts/growth_verdict.py v2.2 v2.0 v2.1 > v2.2/growth-verdict.md
 ```
 
+### Diagnóstico: aristas o partición (pre-registro, 2026-11-17)
+
+**Estado: pre-registrado.** Escrito y commiteado a las 08:56 del 17, antes de compilar nada de este diagnóstico. El encargo y su lectura son del usuario. Lo que deja abierto lo fijo aquí, marcado como mío.
+
+**Qué se mide.** v2.2 no separa cuánto del déficit a 0.99 es de las aristas y cuánto de la partición. El diagnóstico repite la celda de ef de inserción 80 y, al 100 %, reconstruye en lote las aristas de todos los vectores sobre la partición final, sin tocarla. Lo que cambie entre antes y después es de las aristas. Lo que quede es de la partición.
+
+**Protocolo:**
+
+- **La celda de ef 80 de v2.2, igual:** lote sobre el 10 %, 891 000 inserts con aristas inversas, umbral 360 y checkpoints al 20, 40, 60, 80 y 100 %.
+  - El camino del insert es el de la primera corrida. La búsqueda repetida en el grafo de centroides se quita después del diagnóstico, no antes (decisión del usuario).
+  - No sale idéntica a la primera corrida: el grafo de centroides no se construye igual entre corridas. Su checkpoint del 100 % es una segunda corrida de la celda, y se reporta como tal.
+- **La reconstrucción, al 100 %** (*mío*):
+  - se quedan como están los postings, sus miembros, sus centroides, los códigos y el grafo de centroides;
+  - las aristas de cada vector se sustituyen por las que le da el constructor del lote: candidatos de los P=256 postings de centroide más cercano, ordenados por código, R=64 rescoreados, y de sus 16 vecinos más cercanos, los de fuera de su posting;
+  - los 256 centroides más cercanos de cada vector salen por fuerza bruta, como en el lote. Si el posting propio de un vector no está entre ellos, ocupa el sitio del último, y se cuenta cuántas veces pasa.
+- **Se mide después de reconstruir,** sobre el mismo índice: la malla de búsqueda de 10 a 1024 (recall a igual ef, y cargas a 0.95 y a 0.99), el grado por cohorte, el recall de arista contra el corpus actual y la cobertura.
+- **Sin cronometrar.** Son conteos.
+
+**Lectura (del usuario),** sobre las cargas a 0.99 tras reconstruir, frente al lote:
+
+| cargas a 0.99 tras reconstruir | lectura | lo siguiente |
+|---|---|---|
+| +10 % o menos frente al lote | el déficit es de las aristas | un refresco de aristas en segundo plano |
+| donde están: dentro del ruido del +17.9 % | es la partición | el reassign tras el split, como hace HFresh |
+| entre medias | se reporta qué parte recupera | |
+
+*Mío, para aplicarla:*
+
+- **+10 % son 58.06 cargas:** el lote carga 52.78 postings a 0.99.
+- **«Dentro del ruido del +17.9 %» es de 60.3 a 64.1 cargas:** la celda cargaba 62.2, y el suelo de ruido a 0.99 es un 3.0 %. Frente al lote, de +14.3 a +21.4 %. Por encima de 64.1 también se lee como partición.
+- **Entre medias es de 58.06 a 60.3 cargas.**
+- **La parte recuperada** es (antes − después) / (antes − lote). «Antes» es el checkpoint del 100 % de esta misma corrida, que tiene la misma partición.
+  - Se da siempre, caiga donde caiga la regla. También para las cargas a 0.95 y para el recall a igual ef, que no tienen regla.
+- **Si el «antes» de esta corrida se separa de las 62.2 cargas de la primera por más de un 3.0 %,** el suelo de ruido de v2.0 no vale al crecer diez veces. La regla se aplica como está escrita, sobre las cargas frente al lote, y se dice.
+
+**Lo que se reporta además** (*mío*):
+
+- **Cuántos vectores no están, al final, en el posting de su centroide más cercano.** Exacto y sobre todos, de la fuerza bruta de la reconstrucción. Es lo que movería un reassign.
+- **El trabajo de la reconstrucción, en conteos:** postings sondeados, candidatos ordenados por código y rescoreados, y las n·k distancias de la asignación.
+- **Una segunda medida, informativa:** con las aristas ya reconstruidas, el grafo de centroides rehecho en lote sobre los mismos centroides, y la malla otra vez. Dice si lo que queda es del grafo y no de la partición. No entra en la regla.
+
+**Lo que no separa** (*mío*):
+
+- **La partición cuenta como una sola cosa:** los centroides que dejan los splits, los vectores que ya no están en su centroide más cercano y la distribución de tamaños.
+- **El cuantizador es el del lote del 10 %:** su media sale de esos 99 000 vectores. Va igual antes y después.
+
+**Lo que el binario añade** (*mío*):
+
+- **Un flag en la celda** que, tras el último checkpoint, reconstruye las aristas y mide otra vez, y después rehace el grafo de centroides y mide una tercera.
+- **Tests:** que reconstruir sobre la partición de un lote recién construido deja sus mismas aristas, y que sobre una partición crecida por inserts deja las de la regla del lote y no toca nada más.
+
+**Datos:** `v2.2/dbpedia-1m-grow10-h1-ef80-run2.json`, de `v2.2/scripts/run_v22_rebuild.sh`.
+
 ## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 21:06, antes de compilar nada de esta ronda. Las cuatro celdas corrieron de 21:13 a 22:38, y sus resultados están al final de la sección, desde «Resultados de v2.1 (2026-11-16)». Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
