@@ -109,6 +109,111 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
 
+## v3.0: punto de operación del halo (pre-registro, 2026-11-17)
+
+**Estado: pre-registrado.** Escrito y commiteado el 17 a las 15:14, antes de compilar nada de esta ronda, con la corrida de v2.4 en marcha. El encargo, las celdas, las medidas, el resultado principal, el gate y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### Qué se mide
+
+En el diseño de disco, los endpoints de las aristas se puntúan contra un sidecar residente con el código completo de cada vector: 200 B por vector a 1536d, 198 MB a 1M y de 10 a 20 GB a 100M. El halo es la alternativa sin sidecar. Cada posting lleva, además de sus miembros y de sus aristas, un sketch corto de cada endpoint distinto de sus aristas, y la búsqueda ordena los postings con esos sketches.
+
+v3.0 mide lo que cuesta: cuántas cargas más pide ordenar los postings con un sketch, cuánto pesa el halo de un posting, y cuántos bytes lee una query con todo en disco frente a una con el sidecar residente. Son conteos, sin ningún I/O.
+
+### Celdas (del usuario)
+
+dbpedia 1M, construido en lote. Scan con el código completo y ruteo de endpoints con un sketch de 256, 384 y 512 bits, con S = 236 y con S = 1024. La referencia es el ruteo con el código completo.
+
+| S | referencia | celdas |
+|---|---|---|
+| 236 | ruteo con código completo | ruteo con sketch de 256, de 384 y de 512 bits |
+| 1024 | ruteo con código completo | ruteo con sketch de 256, de 384 y de 512 bits |
+
+**Cómo lo leo, para escribirlo** (*mío*):
+
+- **Un build por S, y sus cuatro celdas sobre el mismo índice.** Los postings, las aristas y las queries son los mismos; solo cambia el código con que se puntúan los endpoints. Las celdas de un S se comparan dentro de la corrida y sobre un índice.
+- **La referencia de una celda es la de su S.**
+- **El sketch es el código capado del índice,** el de `CodeBits`: los primeros bits de signo del mismo cuantizador, con su cabecera de 8 B. Con 256, 384 y 512 bits son 40, 56 y 72 B. El código completo son 200 B.
+- **Las aristas son las del build con código completo.** El halo no cambia qué aristas hay: el constructor trabaja con los vectores.
+- **Los builds:** S = 236 con P = 256, el default. S = 1024 con P = 112, el de la Fase C. R = 64 en los dos.
+- **La búsqueda es la de hoy, con sus defaults:** una entrada, lotes de 4 postings, margen de source 0.06, ef de centroides 8 y rescoreLimit 64.
+  - Los candidatos y el umbral de parada salen del scan, con el código completo, como en la referencia.
+  - La estimación de un endpoint sale de su sketch. Ordena los postings y se compara con ese umbral.
+  - El margen no se recalibra.
+- **Nada en el índice:** el estado con sketch se monta en los tests, sobre el índice construido.
+
+### Medidas (del usuario)
+
+Por celda:
+
+- cargas a 0.95 y a 0.99;
+- endpoints distintos por posting, media y p95;
+- bytes por posting, con cada bloque por separado: miembros, aristas y halo.
+
+**El modelo de bytes** (*mío*):
+
+| bloque | por cada | bytes |
+|---|---|---|
+| miembros | miembro | 208: el id (8 B) y el código completo (200 B) |
+| aristas | arista | 4: el id del endpoint, como en `disk-design.md` |
+| halo | endpoint distinto de las aristas de los miembros del posting | 4 del id, más el sketch: 44, 60 y 76 B con 256, 384 y 512 bits |
+
+- **El posting de un endpoint sale del mapa vector→posting,** de 4 B por vector, que queda residente en los dos modos, como los centroides.
+- **Sin alineación a página, sin cabecera de posting y sin comprimir nada.**
+- **Los bytes de una query se cuentan sobre los postings que carga,** uno a uno, no como una media por las cargas.
+- **De cada bloque se da la media y el p95 por posting,** y cuántos endpoints distintos hay por arista.
+
+### Resultado principal (del usuario)
+
+**Bytes leídos por query a 0.95 y a 0.99 en modo todo en disco, frente al modo con sidecar residente.**
+
+*Mío, para escribirlo:*
+
+- **Todo en disco:** de cada posting que carga la celda, sus tres bloques.
+- **Con sidecar residente:** de cada posting que carga la referencia de ese S, sus miembros y sus aristas. El sidecar, 198 MB a 1M, está en RAM.
+- **A 0.95 y a 0.99 se lee como las cargas:** interpolando en la curva de ef de cada celda.
+- **El rescore va aparte:** 64 lecturas de 6 KB en los dos modos.
+- **Además, las celdas de S = 1024 frente a la referencia de S = 236 con sidecar residente,** que es el layout de hoy. Son dos particiones distintas, y esa comparación lleva lo que se separan dos builds, sin medir aquí.
+
+### Gate de 0.99 (del usuario)
+
+**Se aplica igual.** Una celda que no llegue a 0.99 solo con ef y rescore queda documentada y fuera.
+
+- *Mío:* la malla de ef va de 10 a 2048, con rescoreLimit 64. La celda que no llegue a 0.99 en esa malla se barre otra vez con rescoreLimit 200. Si tampoco llega, queda fuera, con su techo de recall.
+- **No se toca nada más:** ni entradas, ni lotes, ni margen.
+
+### Criterio (del usuario)
+
+**El halo es viable si alguna celda alcanza 0.99 con 3× o menos las cargas de la referencia.**
+
+- *Mío, para aplicarlo:* las cargas a 0.99 de la celda entre las de la referencia de su S, las dos de esta corrida y sobre el mismo índice. Junto al veredicto se da entre qué dos ef cruza 0.99 cada una, y su recall en ellos.
+- **Una celda fuera por el gate no cuenta para el criterio.**
+
+### Regla de ruido (del usuario, de v2.3)
+
+- **Cada celda se compara con su referencia dentro de la corrida,** sobre el mismo índice y con las mismas queries.
+- **Nada a 0.99 se compara con otra corrida:** ni con el lote de v2.0, ni con la Fase C.
+
+### Lo que se reporta además (mío)
+
+- **Recall y cargas a igual ef,** frente a la referencia.
+- **Endpoints puntuados por query** a 0.95 y a 0.99.
+- **Lo que ocupa cada modo:** en disco, los tres bloques sumados sobre todos los postings; en RAM, el sidecar que el halo quita.
+
+### Lo que no mide
+
+- **Ningún I/O y ningún tiempo.** Tampoco la alineación a página, ni leer el halo aparte del posting o solo en parte.
+- **El halo con mantenimiento.** Una arista inversa, un refresco o un split cambian el halo de postings que no son el del vector.
+- **Un halo más ligero:** podado, comprimido, o con otro sketch que el código capado.
+- **El refinado del layout (c),** que es otra cosa: aquí el scan lleva el código completo.
+- **Otros S, otros anchos, 10M y otro dataset.**
+
+### Lo que el binario añade (mío)
+
+- **Un test de benchmark,** `TestHalo`, con la etiqueta de los benchmarks: monta el estado con sketch sobre el índice construido, cuenta por query los postings que carga, y saca las estadísticas por posting.
+- **Tests:** que el estado montado con el código completo busca igual que el índice, con los mismos resultados y los mismos conteos; que los endpoints distintos de un posting salen de sus aristas; y que los bytes de una query suman los de sus postings cargados.
+
+**Datos:** `v3.0/dbpedia-1m-halo-s236.json` y `v3.0/dbpedia-1m-halo-s1024.json`, de `v3.0/scripts/run_v30_halo.sh`, y el veredicto en `v3.0/halo-verdict.md`.
+
 ## v2.4: refresco al doblar, en línea (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado.** Escrito y commiteado el 17 a las 14:20, antes de compilar nada de esta ronda. El encargo, los tamaños de las tandas, la condición del refresco, el criterio, las medidas, lo que se reporta y la tercera hipótesis son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
