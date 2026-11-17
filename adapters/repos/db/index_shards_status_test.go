@@ -114,6 +114,7 @@ const (
 	localLocked         // an unload or freeze holds its create lock
 	localLoading        // a warm-up or activation loads the lazy shard under its create lock
 	localLoadingForRead // a request loads the lazy shard
+	localStalled        // a read blocks, as behind a queue flush on a stalled disk
 )
 
 // newShardStatusIndex lists deleted shards without replicas and fails any tenant status lookup, which could activate a tenant.
@@ -188,6 +189,14 @@ func newShardStatusIndex(t *testing.T, mt bool, physical map[string]sharding.Phy
 			index.shards.Store(name, NewMockShardLike(t))
 			index.shardCreateLocks.Lock(name)
 			t.Cleanup(func() { index.shardCreateLocks.Unlock(name) })
+		case localStalled:
+			stalled := make(chan struct{})
+			t.Cleanup(func() { close(stalled) })
+			shard := NewMockShardLike(t)
+			shard.EXPECT().preventShutdown().Return(func() {}, nil).Maybe()
+			shard.EXPECT().ForEachVectorQueue(mock.Anything).Return(nil).Maybe()
+			shard.EXPECT().GetStatus().RunAndReturn(func() storagestate.Status { <-stalled; return storagestate.StatusReady }).Maybe()
+			index.shards.Store(name, shard)
 		case localLoading, localLoadingForRead:
 			lazy := &LazyLoadShard{}
 			lazy.mutex.Lock()
@@ -330,6 +339,14 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			},
 			wantStatus: map[string]string{"s1": indexing},
 			notAsked:   []string{shardStatusLocalNode + "/s1"},
+		},
+		{
+			name:       "local replica stalled on its disk falls over to a peer",
+			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node2"}}},
+			local:      map[string]localShardKind{"s1": localStalled},
+			reachable:  []string{"node2"},
+			replies:    map[string]statusReply{"node2": {status: ready, size: 7}},
+			wantStatus: map[string]string{"s1": ready},
 		},
 		{
 			name:       "local replica shutting down falls over to a peer",

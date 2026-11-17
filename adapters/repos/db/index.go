@@ -3864,19 +3864,43 @@ func (i *Index) firstShardStatus(ctx context.Context, shardName, thisNode string
 	for _, nodeName := range localFirst(replicas, thisNode) {
 		var status string
 		var err error
-		if nodeName == thisNode {
-			status, err = i.localShardStatus(shardName)
-		} else if timedOut.Has(nodeName) {
+		if timedOut.Has(nodeName) {
 			continue
+		} else if nodeName == thisNode {
+			status, err = i.localShardStatusWithin(ctx, shardName)
 		} else {
 			status, err = i.remote.GetShardStatus(ctx, shardName, nodeName)
-			timedOut.Record(ctx, nodeName, err)
 		}
+		timedOut.Record(ctx, nodeName, err)
 		if err == nil && status != "" {
 			return status
 		}
 	}
 	return storagestate.StatusUnavailable.String()
+}
+
+// localStatusTimeout bounds a local status read as the client bounds a peer's, so a stalled disk falls over.
+const localStatusTimeout = 2 * time.Second
+
+// localShardStatusWithin is localShardStatus within localStatusTimeout; a read still blocked then finishes on its own.
+func (i *Index) localShardStatusWithin(ctx context.Context, shardName string) (string, error) {
+	type result struct {
+		status string
+		err    error
+	}
+	done := make(chan result, 1)
+	enterrors.GoWrapper(func() {
+		status, err := i.localShardStatus(shardName)
+		done <- result{status, err}
+	}, i.logger)
+	ctx, cancel := context.WithTimeout(ctx, localStatusTimeout)
+	defer cancel()
+	select {
+	case r := <-done:
+		return r.status, r.err
+	case <-ctx.Done():
+		return "", fmt.Errorf("local shard %q status: %w", shardName, ctx.Err())
+	}
 }
 
 func localFirst(nodes []string, localNode string) []string {
