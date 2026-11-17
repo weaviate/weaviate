@@ -59,9 +59,9 @@ type keyColumn interface {
 	// match. prefixKeyColumn narrows it so its comparisons can skip the prefix check.
 	queryWindow(sorted entinverted.SortedKeys) (lo, hi int)
 	// scan walks the column and query keys [lo, hi) together, applying each match
-	// to res through run. A column key below the query key is stepped over, or
-	// jumped over with gallop set.
-	scan(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed, gallop bool)
+	// to res through run. A column key below the query key is stepped over, or with
+	// gallop set jumped over. A packed backing galloping first steps up to maxBlocks blocks.
+	scan(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed, gallop bool, maxBlocks int)
 
 	// Flattening.
 
@@ -126,7 +126,7 @@ func (c *blobKeyColumn) seek(from int, q []byte, t uint64) (int, bool) {
 }
 
 func (c *blobKeyColumn) scan(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool, _ int,
 ) {
 	run.scanBlob(c, sortedKeys, lo, hi, res, adds, overflowed, gallop)
 }
@@ -153,9 +153,9 @@ func (c *fixedKeyColumn) keyAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] 
 func (c *fixedKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
 
 func (c *fixedKeyColumn) scan(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool, maxBlocks int,
 ) {
-	run.scanPacked(c.data, c.w, 0, sortedKeys, lo, hi, res, adds, overflowed, gallop)
+	run.scanPacked(c.data, c.w, 0, sortedKeys, lo, hi, res, adds, overflowed, gallop, maxBlocks)
 }
 
 func (c *fixedKeyColumn) queryWindow(sorted entinverted.SortedKeys) (int, int) {
@@ -179,9 +179,9 @@ func (c *prefixKeyColumn) len() int { return len(c.data) / c.w }
 func (c *prefixKeyColumn) suffixAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
 
 func (c *prefixKeyColumn) scan(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool, maxBlocks int,
 ) {
-	run.scanPacked(c.data, c.w, len(c.prefix), sortedKeys, lo, hi, res, adds, overflowed, gallop)
+	run.scanPacked(c.data, c.w, len(c.prefix), sortedKeys, lo, hi, res, adds, overflowed, gallop, maxBlocks)
 }
 
 // queryWindow narrows the query keys, by two binary searches, to the run carrying
@@ -826,7 +826,7 @@ func (s State) Resolve(ctx context.Context, sortedKeys entinverted.SortedKeys, d
 }
 
 // scanInto applies this run's matches for sortedKeys to res, per key, adding
-// when adds is set and retiring otherwise, stepping or galloping by shouldGallop.
+// when adds is set and retiring otherwise, stepping or galloping by scanStrategy.
 func (run *columnRun) scanInto(sortedKeys entinverted.SortedKeys, res *Resolution, adds bool) {
 	n := run.keys.len()
 	if n == 0 {
@@ -841,15 +841,21 @@ func (run *columnRun) scanInto(sortedKeys entinverted.SortedKeys, res *Resolutio
 	}
 
 	// One interface call per scan; the loops make none per corpus key.
-	run.keys.scan(run, sortedKeys, lo, hi, res, adds, overflowed, shouldGallop(hi-lo, n))
+	gallop, maxBlocks := scanStrategy(run.keys, hi-lo, n)
+	run.keys.scan(run, sortedKeys, lo, hi, res, adds, overflowed, gallop, maxBlocks)
 }
 
 // scanPacked is keyColumn.scan over the w-wide keys packed in data, each query key
 // compared without its first skip bytes. A match moves both cursors, as a key has
 // one row.
 func (run *columnRun) scanPacked(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool, maxBlocks int,
 ) {
+	if gallop && maxBlocks > 0 {
+		// A loop of its own keeps the block step's state out of the plain loops' registers.
+		run.scanPackedBlocks(data, w, skip, sortedKeys, lo, hi, res, adds, overflowed, maxBlocks)
+		return
+	}
 	n, mask := len(data)/w, headMask(w)
 	k := sortedKeys.At(lo)
 	qi, q, t := lo, k[skip:], queryHead(k, skip)
@@ -885,6 +891,67 @@ func (run *columnRun) scanPacked(data []byte, w, skip int, sortedKeys entinverte
 		k = sortedKeys.At(qi)
 		q, t = k[skip:], queryHead(k, skip)
 	}
+}
+
+// scanPackedBlocks is scanPacked galloping, with stepBlocks before each search.
+func (run *columnRun) scanPackedBlocks(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed bool, maxBlocks int,
+) {
+	n, mask := len(data)/w, headMask(w)
+	k := sortedKeys.At(lo)
+	qi, q, t := lo, k[skip:], queryHead(k, skip)
+	si, _ := seekPacked(data, w, n, mask, 0, q, t)
+	// Once a search outruns the blocks, the following ones gallop until one lands within their
+	// reach again, so a sparse stretch of query keys pays for the wasted blocks only once.
+	useBlocks := true
+	for si < n {
+		var match bool
+		if useBlocks {
+			si, match, useBlocks = stepBlocks(data, w, n, mask, si, q, t, maxBlocks)
+		} else {
+			from := si
+			si, match = seekPacked(data, w, n, mask, si, q, t)
+			useBlocks = si-from <= rowsPerBlock*maxBlocks
+		}
+		if match {
+			run.applyRow(si, qi, res, adds, overflowed)
+			si++
+		}
+		if qi++; qi == hi {
+			return
+		}
+		k = sortedKeys.At(qi)
+		q, t = k[skip:], queryHead(k, skip)
+	}
+}
+
+// stepBlocks returns seekPacked's answer for q from si, found by stepping over up to maxBlocks
+// blocks below t first, and whether that many blocks were enough.
+func stepBlocks(data []byte, w, n int, mask uint64, si int, q []byte, t uint64, maxBlocks int) (int, bool, bool) {
+	blocks := 0
+	for si+rowsPerBlock < n && loadHead(data, (si+rowsPerBlock-1)*w, w, mask) < t {
+		si += rowsPerBlock
+		if blocks++; blocks == maxBlocks {
+			si, match := seekPacked(data, w, n, mask, si, q, t)
+			return si, match, false
+		}
+	}
+	// The first row whose head reaches t is within the next block, and seekPacked
+	// gallops past the rows tying it.
+	h := loadHead(data, si*w, w, mask)
+	for h < t {
+		if si++; si == n {
+			return n, false, true
+		}
+		h = loadHead(data, si*w, w, mask)
+	}
+	off := si * w
+	cmp := keyCompare(h, t, data, off, off+w, q)
+	if cmp < 0 {
+		si, match := seekPacked(data, w, n, mask, si+1, q, t)
+		return si, match, true
+	}
+	return si, cmp == 0, true
 }
 
 // scanBlob is keyColumn.scan over c's keys.
@@ -1416,14 +1483,47 @@ func replayKey(key []byte, held []uint64, adds, dels []columnRunCursor) []uint64
 	return slices.Compact(held)
 }
 
-// maxKeySpacingForStepping is the most corpus keys per query key at which stepping
-// wins. Per query key stepping walks over that many corpus keys, while galloping
-// probes about 2·log2 of them. BenchmarkScanStrategies sweeps it.
+// maxKeySpacingForStepping is the most corpus keys per query key at which stepping beats
+// galloping, plain or with blocks. Random query keys mix short and long gaps, and on a short
+// gap a block probe is wasted while the finish steps anyway. BenchmarkScanStrategies sweeps it.
 const maxKeySpacingForStepping = 15
 
-// shouldGallop reports whether galloping to each query key beats stepping over the
-// corpus, about numKeys·log2(corpus/numKeys). At a fixed density both costs grow
-// linearly with corpus, so density alone decides.
+// rowsPerBlock is how many rows one block probe in stepBlocks skips.
+const rowsPerBlock = 8
+
+// maxBlocksBeforeGallop is the most blocks stepBlocks steps over, at one probe each, before it
+// gallops. The blocks reach rowsPerBlock·maxBlocksBeforeGallop rows, and gallopBlocks allows them
+// only where query keys average at most half that apart. BenchmarkScanStrategies sweeps both.
+const maxBlocksBeforeGallop = 16
+
+// gallopBlocks returns the block limit for a galloping scan of numKeys keys over corpus rows,
+// maxBlocks or none. Gating at half the reach keeps the far key of a near/far pair within it.
+func gallopBlocks(numKeys, corpus, maxBlocks int) int {
+	if 2*corpus <= numKeys*rowsPerBlock*maxBlocks {
+		return maxBlocks
+	}
+	return 0
+}
+
+// shouldGallop reports whether galloping to each query key beats stepping over the corpus,
+// about numKeys·log2(corpus/numKeys). At a fixed density both costs grow linearly with
+// corpus, so density alone decides.
 func shouldGallop(numKeys, corpus int) bool {
 	return numKeys*maxKeySpacingForStepping < corpus
+}
+
+// scanStrategy returns whether c's scan of numKeys query keys over corpus rows gallops, and
+// its block limit. By the average gap between query keys, corpus/numKeys:
+//
+//	gap <= maxKeySpacingForStepping                                 step
+//	gap <= rowsPerBlock·maxBlocksBeforeGallop/2, fixed or prefix    gallop with blocks
+//	otherwise                                                       plain gallop
+func scanStrategy(c keyColumn, numKeys, corpus int) (gallop bool, maxBlocks int) {
+	if !shouldGallop(numKeys, corpus) {
+		return false, 0
+	}
+	if _, blob := c.(*blobKeyColumn); blob {
+		return true, 0
+	}
+	return true, gallopBlocks(numKeys, corpus, maxBlocksBeforeGallop)
 }
