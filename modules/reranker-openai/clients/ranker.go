@@ -336,7 +336,7 @@ func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromH
 		return decisionResponse{}, c.transportError(ctx, "read OpenAI response", "no complete body from", err, hostFromHeader)
 	}
 	if len(body) > maxResponseBodyBytes {
-		return decisionResponse{}, fmt.Errorf("OpenAI response exceeds %d bytes", maxResponseBodyBytes)
+		return decisionResponse{}, c.replyError(fmt.Errorf("OpenAI response exceeds %d bytes", maxResponseBodyBytes), hostFromHeader)
 	}
 	var response decisionResponse
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -354,7 +354,7 @@ func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromH
 	if response.Error != nil {
 		message := response.Error.message()
 		if hostFromHeader || message == "" {
-			return decisionResponse{}, errors.New("OpenAI API returned an error")
+			return decisionResponse{}, c.replyError(errors.New("OpenAI API returned an error"), hostFromHeader)
 		}
 		return decisionResponse{}, fmt.Errorf("OpenAI API returned an error: %s", message)
 	}

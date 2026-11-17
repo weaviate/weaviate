@@ -1152,7 +1152,18 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			name:       "a 200 with an error object from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: banner},
 			fromHeader: true,
-			wantErr:    "OpenAI API returned an error",
+			wantErr:    unexpectedHeaderHostReply,
+		},
+		{
+			name:    "a 200 above 1 MiB from the class base URL",
+			reply:   fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
+			wantErr: "OpenAI response exceeds 1048576 bytes",
+		},
+		{
+			name:       "a 200 above 1 MiB from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
+			fromHeader: true,
+			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
 			name:    "a 200 that is not JSON from the class base URL",
