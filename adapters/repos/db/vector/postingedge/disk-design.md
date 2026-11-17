@@ -241,6 +241,13 @@ Abierto:
 - *para los inserts basta la asignación asistida por el grafo de centroides con ef 8, con cobertura completa y de un 2.3 a un 2.6 % de asignaciones que no van al centroide más cercano;*
 - *la búsqueda de aristas de un insert puede bajar de ef 320 a 80 (v2.1): 21.9 cargas de posting por insert en lugar de unas 57, con el índice dentro del criterio.*
 
+*Medido el 17 en memoria (v2.2; el detalle, en «Crecer diez veces»):*
+
+- *al multiplicar el corpus por diez, el mismo índice cumple en recall a igual ef y en cargas a 0.95, y no a 0.99: carga de un 18 a un 20 % más que el lote, con ef de inserción 160 o con 80;*
+- *cada cuánto hace falta rehacerlo, con aristas inversas solas y el objetivo en 0.99: en algún punto entre ×2 y ×10, sin medir dónde;*
+- *las asignaciones que no van al centroide más cercano suben al 3.1 % en el último tramo, con cobertura completa;*
+- *el build incremental hace de 0.39 a 0.55 veces las distancias por código del lote y 0.10 veces las exactas. Sin la asignación n·k, 1.6 veces las exactas.*
+
 ### 3. Modelo de I/O del layout
 
 **Hoy todo son cuentas, no tiempos.** Las cifras de este documento son cargas, rondas, bytes y lecturas por query; ninguna latencia de I/O está medida. A 10M (768d, rescoreLimit 200):
@@ -384,8 +391,11 @@ Datos en `testdata/bench/phase2/`:
 | ¿Sustituye la reparación por búsqueda a las aristas inversas? | **No.** | Recupera el 60 % del recall perdido a ef 10 y queda en +29.9 % de cargas a 0.95, con 365.5 búsquedas por split. |
 | ¿Y la reparación por hermanos, sin búsqueda? | **Sola, no:** no iguala a la de búsqueda. **Sobre las aristas inversas, aporta.** | Sola: −0.0285 y +69.5 %. Con aristas inversas: +0.0067 de recall a ef 10 sobre H1, un 6 % menos de cargas a 0.95 y de un 10 a un 12 % menos a 0.99, con listas un 53 % más largas. |
 | ¿Aristas inversas más reparación por búsqueda? | sin medir | La celda no corrió. |
+| ¿Aguantan las aristas inversas, sin reparar splits, multiplicar el corpus por diez? (v2.2) | **A 0.95 sí; a 0.99 no.** | Lote sobre el 10 %: −0.0027 y −0.0037 de recall en el peor ef, +6.3 y +9.2 % de cargas a 0.95, y +19.6 y +17.9 % a 0.99, con ef de inserción 160 y 80. |
 
 **El mínimo que cumple es: aristas inversas en cada insert, y un split que no toca aristas.** La reparación por hermanos es una mejora opcional encima, que se paga en grado.
+
+*v2.2, del 17:* ese mínimo vale al doblar el corpus. Al multiplicarlo por diez deja de cumplir a 0.99 («Crecer diez veces», abajo).
 
 ### Lo que hace un insert
 
@@ -439,7 +449,50 @@ Datos en `testdata/bench/phase2/`:
   - *Decisión del usuario del 17:* queda así, como parámetro del índice, y la celda de ef 80 no se repite.
 - **La guardia del constructor en 0.90 no avisa de dónde se rompe el criterio:** ef 40 la pasa con 0.94 y no cumple. Con aristas inversas, la frontera está entre 0.94 y 0.96 de recall de arista al insertar.
 
-**Sin medir:** un ef intermedio entre 80 y 160, y el déficit de un ef bajo más allá de una duplicación. La celda de ef 80 no se repite, por decisión del usuario del 17.
+**Sin medir:** un ef intermedio entre 80 y 160. La celda de ef 80 no se repite, por decisión del usuario del 17. Más allá de una duplicación está medido en v2.2, en la sección siguiente: al multiplicar el corpus por diez, ni ef 80 ni ef 160 cumplen a 0.99.
+
+### Crecer diez veces (v2.2, 2026-11-17)
+
+*De `bench-report.md`, «v2.2: crecer desde el 10 %, sobre H1»: el lote sobre el 10 % del corpus y el 90 % insertado con aristas inversas y sin reparar ningún split, con ef de inserción 160 y 80, frente al lote del 100 %. Las celdas de v2.1 con el mismo ef parten del 50 %.*
+
+| al 100 %, frente al lote | ef 160, corpus ×10 | ef 80, corpus ×10 | ef 160, corpus ×2 (v2.1) | ef 80, corpus ×2 (v2.1) |
+|---|---|---|---|---|
+| recall a igual ef, peor ef | −0.0027 | −0.0037 | −0.0001 | −0.0024 |
+| cargas por query a 0.95 | +6.3 % | +9.2 % | +3.0 % | +6.2 % |
+| cargas por query a 0.99 | +19.6 % | +17.9 % | −3.3 % | +9.8 % |
+| cumple el criterio | no | no | sí | sí; a 0.99, por 0.2 puntos |
+
+**El mínimo de v2.0 (aristas inversas en cada insert y un split que no toca aristas) aguanta doblar el corpus y no aguanta multiplicarlo por diez, si el índice sirve queries a 0.99.** A 0.95 sigue dentro del criterio.
+
+- **El ef de inserción no es la palanca.** A 0.99 las dos celdas cargan lo mismo: 63.1 y 62.2 postings, a un 1.4 % una de otra, con un suelo de ruido del 3.0 %. Lo que ef 160 ganaba sobre ef 80 al doblar el corpus, aquí se pierde.
+- **Lo que tiene el índice crecido, con cualquiera de los dos ef:**
+  - **a igual ef de búsqueda,** de 0.0005 a 0.0015 menos de recall de ef 160 en adelante, y de un 6 a un 7 % más de cargas. Al doblar el corpus eran de un 3 a un 4 % más;
+  - **el grado fijado al entrar:** una arista inversa ocupa el sitio de la peor arista de la lista, y el split no toca aristas. Los vectores del lote del 10 % se quedan con 7.63 aristas y los del último tramo entran con 9.47. El lote del 100 % tiene 8.98 de media;
+  - **más asignaciones no-nearest:** suben del 1.6 al 3.1 % a lo largo de la corrida, de 0.5 a 0.6 puntos por encima de v2.1 al mismo tamaño de corpus. La cobertura sigue completa.
+- **Lo que hace un insert es función del tamaño del corpus.** Las cuentas de «Lo que hace un insert» y de «Dónde viven las aristas» valen igual.
+  - En el tramo del 80 al 100 %, un insert carga 36.8 postings con ef 160 y 23.1 con ef 80. Escribe 4.79 y 4.73 aristas inversas (p95 11), en 3.46 y 3.40 postings distintos (p95 8). Son un 3 % más de cargas y un 1 % más de escrituras que en v2.1.
+  - Las cargas por insert crecen un 24 % mientras el corpus se multiplica por seis, entre la mitad del primer tramo y la del último.
+
+**El trabajo del build,** en millones de operaciones:
+
+| | lote del 100 % | incremental, ef 160 | incremental, ef 80 |
+|---|---|---|---|
+| distancias por código | 51 008 | 28 266 (0.55x) | 19 894 (0.39x) |
+| distancias exactas | 4 411.6 | 457.2 (0.10x) | 451.5 (0.10x) |
+| exactas, sin la asignación n·k de ningún lote | 258.6 | 415.6 (1.61x) | 409.9 (1.59x) |
+| cargas de posting | 253.4, visitas | 55.8 | 44.5 |
+
+- **El 94 % de las exactas del lote es la asignación n·k.** Un insert asigna por el grafo de centroides con unas 125 distancias, frente a las 4 195 de un vector del lote.
+- **Un insert calcula 445 distancias exactas con ef 160:** 249 en dos búsquedas iguales en el grafo de centroides, 84 en comprobar las aristas inversas, 64 de rescore, 32 de su parte de los splits y 15 de la limpieza de lápidas.
+- **Las cargas del lote son visitas y las de los inserts, lecturas.** Su ratio no se sostiene; el de las distancias, sí.
+
+*Lectura mía, para el diseño:*
+
+- **Con aristas inversas solas, el índice necesita algo más para crecer con el objetivo de 0.99:** un rebuild cada cierto crecimiento, o un mantenimiento que rehaga aristas. El punto en que se rompe está entre ×2 y ×10, sin medir.
+- **Las candidatas que ya están en este documento son las que reparan el split:** los hermanos sobre aristas inversas y su variante con la regla del lote. Siguen sin medir en este régimen, por decisión del usuario.
+- **Falta saber qué arreglar.** v2.2 no separa cuánto del déficit es de las aristas (viejas, y con el grado de cuando entraron) y cuánto de la partición (todos los postings salen de un 2-means). Lo separa reconstruir en lote las aristas sobre la partición final de una celda, sin cronometrar.
+- **La búsqueda en el grafo de centroides se puede hacer una vez por insert.** Hoy el harness la hace dos, con la misma query: es el 28 % de las distancias exactas de un insert.
+- **La comparación de trabajo sirve para dimensionar un insert, no para sustituir el lote:** el incremental cuesta menos y deja un índice que no es el del lote.
 
 ### Dónde viven las aristas
 
@@ -480,13 +533,14 @@ Quedan tres sitios. Las cuentas son por insert, a 1536d y con postings de 237 mi
 - **El recall de arista contra el corpus actual no sirve como señal de cuándo rehacer un índice.** Ni a nivel de vector ni de posting ordena las celdas por recall de búsqueda: la de reparación por búsqueda lo deja por encima de la de aristas inversas y busca peor.
 - **El recall de arista al insertar sí sirve como guardia del constructor:** dice si la búsqueda que crea las aristas funciona.
 - **La limpieza de lápidas del grafo de centroides funciona** tras cada tramo de splits (unas 400 lápidas cada 99 000 inserts).
+  - En v2.2 son cinco limpiezas por celda, de 411 a 831 lápidas cada una, con cobertura completa. Cuestan 15 distancias exactas por insert.
 - **La representación por docID cuesta un 15 % de QPS con 8 threads,** de punta a punta y con los docIDs barajados. Es el caso malo del microbenchmark de arriba, medido ahora en la búsqueda entera.
 - **El orden natural de dbpedia no prueba la deriva:** queda como el barajado. Un corpus que llegue en orden semántico sigue sin medir.
 
 ### Lo que v2.0 no mide
 
 - **Deletes y updates.** No hay ninguno.
-- **Más allá de doblar el corpus.** Un solo lote y una sola duplicación, en un dataset y a 1M.
+- **Más allá de doblar el corpus.** Un solo lote y una sola duplicación, en un dataset y a 1M. *Medido en v2.2: «Crecer diez veces», arriba.*
 - **Concurrencia.** El harness es secuencial: ninguna búsqueda corre durante un insert ni durante un split.
 - **El ef de inserción,** fijo en 320. *Medido en v2.1: «El ef de inserción», arriba.*
 - **Aristas inversas con reparación por búsqueda,** y los hermanos con la regla del lote.

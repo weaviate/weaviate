@@ -4,9 +4,9 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero en el v1 y el v1.1, en reposo y de noche en el v1.2
 
-## Resumen, al cierre del 2026-11-16
+## Resumen, al cierre del 2026-11-17
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, y el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1).*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2).*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -70,6 +70,17 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - Queda como parámetro del índice, sin repetir la celda (decisión del usuario del 17): 80 por la regla, y 160 si el objetivo de recall es 0.99.
 - **La representación por docID cuesta un 15 % de QPS** con 8 threads, con los docIDs barajados.
 
+**Crecer diez veces por inserciones (v2.2, del 17).** dbpedia 1M, con el lote sobre el 10 % y el 90 % insertado con aristas inversas y sin reparar splits, frente al lote del 100 %. En memoria.
+
+- **A 0.99 no aguanta:** carga un 19.6 % más que el lote con ef de inserción 160 y un 17.9 % más con 80, donde el umbral es un 10 %.
+  - El recall a igual ef sí cumple (−0.0027 y −0.0037 en el peor ef), y las cargas a 0.95 también (+6.3 y +9.2 %).
+- **La deriva crece con el tramo insertado.** Frente a doblar el corpus con el mismo ef, a 0.99 son un 24 % más de cargas con ef 160 y un 7 % más con ef 80.
+- **Subir el ef de inserción no lo arregla:** a 0.99 las dos celdas quedan en 63.1 y 62.2 cargas, dentro del ruido.
+- **El grado de un vector queda fijado cuando entra:** 7.63 aristas en los del lote del 10 % y 9.47 en los del último tramo, frente a 8.98 de media en el lote del 100 %.
+- **Lo que hace un insert depende del tamaño del corpus, no de la historia:** en el último tramo, 36.8 cargas con ef 160 y 23.1 con ef 80, y 4.8 escrituras inversas.
+- **El build incremental hace menos trabajo que el lote:** 0.55 veces sus distancias por código con ef 160 y 0.39 con ef 80, y 0.10 veces las exactas, porque el 94 % de las del lote es la asignación n·k.
+- **Sin separar:** cuánto del déficit es de las aristas y cuánto de la partición que dejan los splits.
+
 **Limitaciones:**
 
 - **Build en lote:** `AddBatch` solo admite vectores antes de `Build`, que corre una vez; después devuelve `ErrBuilt`. El camino incremental de v2.0 vive en los tests, no en el índice.
@@ -82,7 +93,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v2.2: crecer desde el 10 %, sobre H1 (pre-registro, 2026-11-17)
 
-**Estado: pre-registrado.** Escrito y commiteado a las 06:34 del 17, antes de compilar nada de esta ronda. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+**Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 06:34 del 17, antes de compilar nada de esta ronda. Las dos celdas y el build de conteos del lote corrieron de 06:46 a 08:14, y sus resultados están al final de la sección, desde «Resultados de v2.2 (2026-11-17)». Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
@@ -175,6 +186,311 @@ Tres unidades, para el lote del 100 % y para cada celda (su lote del 10 % más s
 *Smoke después del pre-registro (06:43):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos. No predice 1M y no cambia nada de lo escrito arriba. Enseñó una cosa de la cuenta:
 
 - **Un insert busca dos veces en el grafo de centroides con la misma query:** una para su posting y otra para la entrada de su búsqueda de aristas, que pide el mismo centroide más cercano. Las dos se cuentan, por separado, y en los resultados se dice cuánto es la repetida.
+
+### Resultados de v2.2 (2026-11-17)
+
+*Escrito el 17 por la mañana, con la cadena acabada (08:14). Las tablas completas están en `v2.2/growth-verdict.md`, de `v2.2/scripts/growth_verdict.py`.*
+
+**Veredicto: ninguna de las dos celdas cumple el criterio. Las dos fallan la condición de cargas a 0.99,** por 9.6 y 7.9 puntos, con un suelo de ruido del 3.0 %. El recall a igual ef y las cargas a 0.95 cumplen con margen. El umbral de split no se recalibra: el tamaño medio final queda un 2.5 y un 2.9 % por encima del lote.
+
+| pre-registro | resultado al 100 % |
+|---|---|
+| tamaño medio final a ±15 % del lote (de 200.6 a 271.4) | **dentro:** 241.8 con ef 160 y 242.8 con ef 80, frente a 236.0. El umbral se queda en 360 |
+| ef 160 | **no cumple:** cargas a 0.99 +19.6 %, donde el umbral es +10 %. Cumplen el recall (peor diferencia −0.0027) y las cargas a 0.95 (+6.3 %) |
+| ef 80 | **no cumple:** cargas a 0.99 +17.9 %. Cumplen el recall (peor diferencia −0.0037) y las cargas a 0.95 (+9.2 %) |
+| guardia del constructor | no corta: el peor tramo queda en 0.9738 con ef 160 y en 0.9626 con ef 80 |
+| cobertura | completa en los seis checkpoints de las dos celdas |
+| ¿crece la deriva con el tramo insertado? | **sí.** Frente a la H1 de 50 → 100 % con el mismo ef: un 23.7 % más de cargas a 0.99 con ef 160 y un 7.3 % más con ef 80, y un 3 % más a 0.95 en las dos |
+
+**Por celda, al 100 %,** junto a la celda de v2.1 con el mismo ef de inserción, que parte del 50 %:
+
+| | lote del 100 % | ef 160, desde el 10 % | ef 160, desde el 50 % (v2.1) | ef 80, desde el 10 % | ef 80, desde el 50 % (v2.1) |
+|---|---|---|---|---|---|
+| peor diferencia de recall a igual ef | | −0.0027 | −0.0001 | −0.0037 | −0.0024 |
+| cargas a 0.95 | 10.1 | 10.7 (+6.3 %) | 10.4 (+3.0 %) | 11.0 (+9.2 %) | 10.7 (+6.2 %) |
+| cargas a 0.99 | 52.8 | 63.1 (+19.6 %) | 51.0 (−3.3 %) | 62.2 (+17.9 %) | 58.0 (+9.8 %) |
+| endpoints a 0.95 | 4 953 | 5 246 | 5 140 | 5 428 | 5 300 |
+| endpoints a 0.99 | 26 634 | 32 628 | 26 760 | 31 806 | 29 760 |
+| postings, y su tamaño medio | 4 195, 236.0 | 4 094, 241.8 | 4 142, 239.0 | 4 077, 242.8 | 4 168, 237.5 |
+| inserts | | 891 000 | 495 000 | 891 000 | 495 000 |
+| splits | | 3 674 | 2 044 | 3 657 | 2 070 |
+| cargas de posting por insert: media (p50 / p95) | | 34.2 (33 / 69) | 34.6 (33 / 69) | 21.5 (21 / 41) | 21.9 (21 / 45) |
+| escrituras inversas por insert: media / p95 | | 4.57 / 11 | 4.58 / 11 | 4.52 / 11 | 4.54 / 11 |
+| asignaciones no-nearest | | 2.63 % | 2.43 % | 2.68 % | 2.54 % |
+| cumple | | **no** | sí | **no** | sí, a 0.99 dentro del ruido |
+
+**Lo que deja para el diseño de mantenimiento:**
+
+- **Las aristas inversas sin reparar el split aguantan doblar el corpus, y no aguantan multiplicarlo por diez si el objetivo es 0.99.** A 0.95 sí: un 6.3 y un 9.2 % más de cargas que el lote, con el umbral en un 15 %.
+- **Subir el ef de inserción no lo arregla.** A 0.99 las dos celdas quedan a un 1.4 % una de otra (63.1 y 62.2 cargas), dentro del ruido. Al doblar el corpus, la de ef 80 cargaba un 14 % más que la de ef 160.
+- **A igual ef de búsqueda, el índice crecido pierde de 0.0005 a 0.0015 de recall de ef 160 en adelante y carga de un 6 a un 7 % más de postings,** con cualquiera de los dos ef de inserción.
+- **El grado de un vector queda fijado cuando entra.** Los del lote del 10 % se quedan con 7.63 aristas y los del último tramo entran con 9.47. En el lote del 100 % la media es 8.98.
+- **Lo que lee y escribe un insert depende del tamaño del corpus y no de cómo se llegó a él:** en el tramo del 80 al 100 %, un 3 % más de cargas y un 1 % más de escrituras inversas que en la celda que parte del 50 %.
+- **El build incremental hace menos trabajo que el lote:** 0.55 veces sus distancias por código con ef 160 y 0.39 con ef 80, y 0.10 veces sus distancias exactas. El índice que deja no es el del lote: es el que falla a 0.99.
+
+### Resultados de v2.2: condiciones
+
+- **Corrida:** tres procesos a la vez, de 06:46 a 08:14: las dos celdas y el build de conteos del lote del 100 %. El build de conteos acabó a las 06:59, la celda de ef 80 a las 08:01 y la de ef 160 a las 08:14.
+  - Son conteos, así que la contención no les afecta.
+  - Los µs por insert son indicativos: 4 020 con ef 160 y 3 088 con ef 80. Unos 1 090 son el check del centroide exacto, que solo reporta.
+- **Stops: ninguno.**
+  - Cobertura completa en los seis checkpoints de cada celda.
+  - La guardia del constructor queda lejos de 0.90 en todos los tramos.
+  - Ningún split falla: son 3 674 con ef 160 y 3 657 con ef 80.
+- **El umbral de split se queda en 360.** La media final es 241.8 y 242.8, dentro de la banda de ±15 %. No hay corrida recalibrada.
+  - La media final es 0.67 veces el umbral. En la calibración de v2.0 era 0.66.
+  - En los checkpoints intermedios la media va de 234.6 a 242.2.
+  - La cola es más corta que la del lote: p95 de 343 a 345 y máximo 360, frente a 380 y 786.
+- **El lote del 10 %:** 99 000 vectores en 420 postings, con 235.7 de media, p95 362 y máximo 568. Su recall de arista es 0.9935 (0.9915 a nivel de posting), con 7.63 aristas por vector.
+  - Es el mismo build en las dos celdas: su recall a ef 10 es 0.9530 y 0.9531.
+- **Ground truth por fuerza bruta:** 2 202 de las 5 000 queries al 10 %, 14 al 20 % y ninguna después.
+- **El build de conteos da el lote de la referencia:** 4 195 postings de 236.0 vectores de media y 8.98 aristas por vector.
+
+### Resultados de v2.2: el criterio, celda a celda
+
+**Recall a igual ef de búsqueda al 100 %,** como diferencia frente al lote:
+
+| ef de búsqueda | lote | 160, desde el 10 % | 160, desde el 50 % (v2.1) | 80, desde el 10 % | 80, desde el 50 % (v2.1) |
+|---|---|---|---|---|---|
+| 10 | 0.9229 | −0.0027 | +0.0008 | −0.0037 | −0.0024 |
+| 20 | 0.9506 | +0.0002 | +0.0010 | −0.0021 | −0.0013 |
+| 40 | 0.9664 | −0.0002 | +0.0003 | −0.0023 | −0.0019 |
+| 80 | 0.9782 | −0.0016 | −0.0001 | −0.0021 | −0.0018 |
+| 160 | 0.9858 | −0.0015 | +0.0003 | −0.0015 | −0.0015 |
+| 320 | 0.9908 | −0.0010 | +0.0008 | −0.0010 | −0.0006 |
+| 640 | 0.9940 | −0.0010 | +0.0010 | −0.0008 | +0.0002 |
+| 1024 | 0.9960 | −0.0009 | +0.0007 | −0.0005 | −0.0002 |
+| peor | | −0.0027 | −0.0001 | −0.0037 | −0.0024 |
+
+**Las tres condiciones,** con el suelo de ruido de v2.0 (0.0009 de recall, un 0.5 % en cargas a 0.95 y un 3.0 % a 0.99):
+
+| celda | peor diferencia de recall (umbral −0.005) | cargas a 0.95 (umbral +15 %) | cargas a 0.99 (umbral +10 %) | guardia: peor tramo (umbral 0.90) | cumple |
+|---|---|---|---|---|---|
+| 160, desde el 10 % | −0.0027: cumple | 10.7 (+6.3 %): cumple | 63.1 (+19.6 %): no cumple | 0.9738 | **no** |
+| 80, desde el 10 % | −0.0037: cumple | 11.0 (+9.2 %): cumple | 62.2 (+17.9 %): no cumple | 0.9626 | **no** |
+| 160, desde el 50 % (v2.1) | −0.0001: cumple | 10.4 (+3.0 %): cumple | 51.0 (−3.3 %): cumple | 0.9765 | sí |
+| 80, desde el 50 % (v2.1) | −0.0024: cumple | 10.7 (+6.2 %): cumple | 58.0 (+9.8 %): cumple, no distinguible del ruido | 0.9623 | sí |
+
+- **Las dos fallan por las cargas a 0.99, y no por el ruido:** 63.1 y 62.2 cargas, frente a un umbral de 58.1. Quedan 9.6 y 7.9 puntos por encima, con un suelo de 3.0.
+- **El recall cumple con margen:** 0.0023 y 0.0013 hasta el umbral, con un suelo de 0.0009. El peor punto de las dos es ef 10.
+- **Las cargas a 0.95 cumplen con margen:** 8.7 y 5.8 puntos.
+- **El ef de inserción deja de separar las celdas en los ef de búsqueda altos.** De ef 160 a 1024 la diferencia entre las dos es de 0.0004 como mucho. De ef 10 a 80, la de ef 160 queda de 0.0005 a 0.0023 por encima.
+
+**El trabajo de una query a igual ef de búsqueda,** en cargas de posting y frente al lote:
+
+| ef de búsqueda | lote | 160, desde el 10 % | 80, desde el 10 % | 160, desde el 50 % (v2.1) | 80, desde el 50 % (v2.1) |
+|---|---|---|---|---|---|
+| 10 | 7.58 | 8.01 (+5.7 %) | 7.90 (+4.2 %) | 7.88 (+4.0 %) | 7.84 (+3.5 %) |
+| 20 | 10.13 | 10.78 (+6.4 %) | 10.60 (+4.7 %) | 10.54 (+4.1 %) | 10.53 (+3.9 %) |
+| 40 | 14.56 | 15.43 (+6.0 %) | 15.37 (+5.6 %) | 15.06 (+3.4 %) | 15.07 (+3.6 %) |
+| 80 | 22.12 | 23.65 (+6.9 %) | 23.56 (+6.5 %) | 22.99 (+3.9 %) | 22.82 (+3.2 %) |
+| 160 | 35.18 | 37.54 (+6.7 %) | 37.41 (+6.3 %) | 36.41 (+3.5 %) | 36.38 (+3.4 %) |
+| 320 | 57.27 | 61.16 (+6.8 %) | 60.72 (+6.0 %) | 59.17 (+3.3 %) | 59.11 (+3.2 %) |
+| 640 | 95.54 | 101.69 (+6.4 %) | 101.00 (+5.7 %) | 98.40 (+3.0 %) | 98.08 (+2.7 %) |
+| 1024 | 136.38 | 145.38 (+6.6 %) | 144.32 (+5.8 %) | 140.53 (+3.0 %) | 140.31 (+2.9 %) |
+
+- **El fallo a 0.99 tiene dos partes.**
+  - **El recall a igual ef:** a ef 320 las dos celdas quedan en 0.9898, 0.0010 por debajo del lote. El cruce de 0.99 pasa del tramo de ef 160 a 320, donde lo tiene el lote, al de 320 a 640.
+  - **Las cargas a igual ef:** cada ef carga de un 6 a un 7 % más de postings que en el lote. Al doblar el corpus era de un 3 a un 4 %.
+- **Los endpoints suben más que las cargas:** de un 9 a un 10 % más que el lote de ef 80 en adelante con ef de inserción 160, y de un 7 a un 8 % más con ef 80.
+- **A 0.99 son dos rondas y media más:** 15.5 y 15.3 rondas, frente a 12.9 del lote.
+
+**Los checkpoints intermedios.** Son informativos: no hay lote de ese tamaño con el que compararlos.
+
+| checkpoint | ef 160: recall a ef 10 | cargas a 0.95 | cargas a 0.99 | ef 80: recall a ef 10 | cargas a 0.95 | cargas a 0.99 |
+|---|---|---|---|---|---|---|
+| 10 %, el lote | 0.9530 | 6.4 | 16.3 | 0.9531 | 6.4 | 16.3 |
+| 20 % | 0.9428 | 7.5 | 22.6 | 0.9426 | 7.5 | 23.8 |
+| 40 % | 0.9344 | 8.8 | 34.4 | 0.9326 | 8.9 | 37.6 |
+| 60 % | 0.9297 | 9.5 | 41.6 | 0.9282 | 9.7 | 44.4 |
+| 80 % | 0.9260 | 10.1 | 52.6 | 0.9217 | 10.4 | 55.8 |
+| 100 % | 0.9203 | 10.7 | 63.1 | 0.9192 | 11.0 | 62.2 |
+| lote del 100 % | 0.9229 | 10.1 | 52.8 | | | |
+
+- **De aquí no sale dónde se rompe el criterio.** Las cargas suben con el corpus también en un lote: el del 10 % necesita 16.3 a 0.99 y el del 100 %, 52.8.
+- **La celda de ef 160 va por delante de la de ef 80 hasta el 80 %** (52.6 frente a 55.8 cargas a 0.99) y la pierde en el último tramo.
+  - *Mío:* en ese tramo su recall a ef 320 baja de 0.9914 a 0.9898 y el cruce de 0.99 cambia de tramo de la malla. La interpolación es lineal entre puntos, así que el salto del 80 al 100 % (un 20 % más de cargas) lleva algo de eso. La comparación con el lote se hace igual en los dos lados.
+
+### Resultados de v2.2: por tramo
+
+*Lo que hicieron los inserts de cada tramo. Las cargas, las escrituras y la tasa de no-nearest cuentan todos los inserts del tramo. El grado al insertar y el recall de arista salen de la muestra de la guardia, de 2 000 inserts por tramo.*
+
+**ef de inserción 160:**
+
+| tramo | inserts | splits | no-nearest | cargas por insert: media (p50 / p95) | rondas | recall de arista al insertar (posting) | grado al insertar | escrituras inversas: media (p95) | postings distintos: media (p95) | listas leídas |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10 → 20 % | 99 000 | 424 | 1.61 % | 29.7 (29 / 57) | 7.2 | 0.9873 (0.9806) | 8.07 | 4.11 (10) | 2.76 (7) | 7.77 |
+| 20 → 40 % | 198 000 | 815 | 2.09 % | 32.2 (29 / 61) | 7.8 | 0.9789 (0.9699) | 8.74 | 4.44 (11) | 3.08 (7) | 8.34 |
+| 40 → 60 % | 198 000 | 806 | 2.91 % | 34.4 (33 / 65) | 8.3 | 0.9803 (0.9717) | 9.05 | 4.59 (11) | 3.26 (8) | 8.75 |
+| 60 → 80 % | 198 000 | 809 | 2.93 % | 35.7 (33 / 69) | 8.7 | 0.9738 (0.9655) | 9.19 | 4.70 (11) | 3.37 (8) | 8.98 |
+| 80 → 100 % | 198 000 | 820 | 3.12 % | 36.8 (33 / 73) | 9.0 | 0.9743 (0.9653) | 9.36 | 4.79 (11) | 3.46 (8) | 9.18 |
+| todo | 891 000 | 3 674 | 2.63 % | 34.2 (33 / 69) | 8.3 | | | 4.57 (11) | 3.23 (8) | 8.70 |
+
+**ef de inserción 80:**
+
+| tramo | inserts | splits | no-nearest | cargas por insert: media (p50 / p95) | rondas | recall de arista al insertar (posting) | grado al insertar | escrituras inversas: media (p95) | postings distintos: media (p95) | listas leídas |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10 → 20 % | 99 000 | 411 | 1.53 % | 18.7 (17 / 37) | 4.4 | 0.9787 (0.9655) | 8.06 | 4.07 (10) | 2.72 (7) | 7.71 |
+| 20 → 40 % | 198 000 | 806 | 2.42 % | 20.3 (21 / 41) | 4.8 | 0.9642 (0.9482) | 8.76 | 4.39 (11) | 3.03 (7) | 8.29 |
+| 40 → 60 % | 198 000 | 831 | 2.81 % | 21.6 (21 / 41) | 5.2 | 0.9651 (0.9484) | 8.98 | 4.54 (11) | 3.20 (8) | 8.67 |
+| 60 → 80 % | 198 000 | 802 | 2.99 % | 22.4 (21 / 45) | 5.4 | 0.9626 (0.9453) | 9.18 | 4.65 (11) | 3.32 (8) | 8.92 |
+| 80 → 100 % | 198 000 | 807 | 3.08 % | 23.1 (21 / 45) | 5.5 | 0.9626 (0.9465) | 9.41 | 4.73 (11) | 3.40 (8) | 9.13 |
+| todo | 891 000 | 3 657 | 2.68 % | 21.5 (21 / 41) | 5.1 | | | 4.52 (11) | 3.18 (8) | 8.64 |
+
+**La tasa de asignaciones no-nearest:**
+
+- **Se dobla a lo largo de la corrida:** de un 1.6 a un 3.1 % con ef 160, y de un 1.5 a un 3.1 % con ef 80. Acumulada queda en un 2.63 y un 2.68 %.
+- **Al mismo tamaño de corpus, el índice crecido desde el 10 % asigna peor.** En el tramo del 80 al 100 %, las celdas de v2.1 tenían un 2.48 y un 2.60 %: aquí son 0.6 y 0.5 puntos más.
+  - *Mío:* la comparación lleva dos diferencias a la vez. Aquí casi todos los centroides salen de un split: de los 4 094 del final, como mucho 420 son del lote. Y el grafo se limpió de lápidas cinco veces, no una. No las separo.
+- **La cobertura no depende de ella:** un vector que no va al centroide más cercano está en un posting, y solo en uno.
+
+**Las cargas de posting por insert:**
+
+- **Crecen un 24 % entre el primer tramo y el último:** de 29.7 a 36.8 con ef 160, y de 18.7 a 23.1 con ef 80.
+  - *Mío:* entre la mitad de un tramo y la del otro el corpus se multiplica por seis, unas 2.6 duplicaciones. Sale a un 9 % por duplicación, cerca del 7 % de v2.1.
+- **En el tramo del 80 al 100 % son las de v2.1 más un 3 %:** 36.8 frente a 35.6 con ef 160, y 23.1 frente a 22.5 con ef 80.
+
+**Las escrituras de aristas inversas:**
+
+- **Crecen con el corpus, cada vez menos:** 4.11, 4.44, 4.59, 4.70 y 4.79 por insert con ef 160. El p95 es 10 en el primer tramo y 11 en los demás.
+- **Los postings distintos en los que escribe un insert,** de 2.76 a 3.46, con el p95 de 7 a 8.
+- **Siguen al grado:** un insert lee las listas de 7.8 vecinos de fuera de su posting en el primer tramo y de 9.2 en el último, y escribe en algo más de la mitad.
+- **Dependen del tamaño del corpus, no de la historia:** en el tramo del 80 al 100 % son 4.79 con ef 160, frente a 4.72 en la celda que parte del 50 %, y 4.73 frente a 4.69 con ef 80.
+- **Acumulado, con ef 160:** 4.57 de media, p50 4, p95 11 y máximo 16. El 10.4 % de los inserts no escribe ninguna, y el 19.8 % escribe 8 o más. Con ef 80 son 4.52, el 10.7 % y el 19.5 %.
+
+**El grado al insertar y la guardia:**
+
+- **Un vector entra con más aristas cuanto mayor es el corpus:** 8.07, 8.74, 9.05, 9.19 y 9.36 con ef 160, de la muestra.
+- **El recall de arista al insertar baja en los dos primeros tramos y ahí se queda:** 0.987, 0.979, 0.980, 0.974 y 0.974 con ef 160, y 0.979, 0.964, 0.965, 0.963 y 0.963 con ef 80. Desde el 40 % son los valores de v2.1 (0.977 y 0.963).
+
+### Resultados de v2.2: el grado por cohorte y las aristas contra el corpus actual
+
+**Grado medio de cada cohorte,** contado sobre todos sus vectores y no sobre una muestra:
+
+| celda | lote del 10 % | 10 → 20 % | 20 → 40 % | 40 → 60 % | 60 → 80 % | 80 → 100 % | todo el índice, al 100 % |
+|---|---|---|---|---|---|---|---|
+| ef 160 | 7.63 | 8.10 | 8.69 | 9.08 | 9.30 | 9.47 | 8.88 |
+| ef 80 | 7.63 | 8.05 | 8.65 | 9.01 | 9.25 | 9.43 | 8.84 |
+| lote del 100 % | | | | | | | 8.98 |
+
+- **El grado de una cohorte no cambia después de su tramo.** En todos los checkpoints posteriores es el mismo, a la centésima.
+  - Es por construcción: una arista inversa ocupa el sitio de la peor arista de la lista, y el split no toca aristas. La lista de un vector cambia de contenido y no de longitud.
+- **El grado con el que entra un vector crece con el corpus.** En un lote son 7.63 aristas con 99 000 vectores y 8.98 con 990 000. Los vectores viejos se quedan con el de su momento.
+- **En total, el índice crecido tiene un 1.1 % menos de aristas que el lote** con ef 160 (8.79 millones frente a 8.89), y un 1.6 % menos con ef 80. Están repartidas de otra forma: faltan en los vectores viejos y sobran en los nuevos.
+
+**Recall de arista contra el corpus actual,** de una muestra de 2 000 vectores de cada grupo. A nivel de vector y, entre paréntesis, de posting:
+
+| checkpoint | ef 160: insertados | ef 160: vectores del lote | ef 80: insertados | ef 80: vectores del lote |
+|---|---|---|---|---|
+| 10 % | | 0.9935 (0.9915) | | 0.9935 (0.9915) |
+| 20 % | 0.8070 (0.8643) | 0.6629 (0.7728) | 0.8002 (0.8546) | 0.6641 (0.7720) |
+| 40 % | 0.7621 (0.8315) | 0.5508 (0.6769) | 0.7520 (0.8167) | 0.5486 (0.6774) |
+| 60 % | 0.7349 (0.8116) | 0.5205 (0.6470) | 0.7270 (0.7965) | 0.5156 (0.6355) |
+| 80 % | 0.7253 (0.8040) | 0.4984 (0.6151) | 0.7168 (0.7894) | 0.4948 (0.6111) |
+| 100 % | 0.7220 (0.7975) | 0.4870 (0.5998) | 0.7061 (0.7800) | 0.4855 (0.5959) |
+| v2.1, al 100 % | 0.8169 (0.8615) | 0.6705 (0.7628) | 0.8007 (0.8400) | 0.6673 (0.7606) |
+
+- **Tras la primera duplicación, los vectores del lote quedan donde quedaban en v2.1:** 0.663 al 20 %, frente a 0.671 al doblar desde el 50 %. Después siguen bajando, cada vez menos, hasta 0.487.
+- **Los insertados bajan de 0.807 a 0.722,** casi todo antes del 60 %.
+- **Es descriptivo.** En v2.0 esta métrica no ordenaba las celdas por recall de búsqueda, así que no la uso como causa.
+
+### Resultados de v2.2: frente a la H1 de 50 → 100 %
+
+Al 100 % y al mismo ef de inserción. La diferencia es la celda que crece desde el 10 % menos la que crece desde el 50 %; el suelo de ruido es el de v2.0.
+
+| al 100 % | ef 160: desde el 50 % | desde el 10 % | diferencia | ef 80: desde el 50 % | desde el 10 % | diferencia | suelo de ruido |
+|---|---|---|---|---|---|---|---|
+| recall a ef 10 | 0.9237 | 0.9203 | −0.0034 | 0.9206 | 0.9192 | −0.0013 | 0.0009 |
+| recall a ef 20 | 0.9516 | 0.9508 | −0.0008, dentro | 0.9494 | 0.9485 | −0.0009, dentro | 0.0009 |
+| recall a ef 40 | 0.9667 | 0.9662 | −0.0005, dentro | 0.9645 | 0.9641 | −0.0004, dentro | 0.0009 |
+| recall a ef 80 | 0.9781 | 0.9766 | −0.0016 | 0.9764 | 0.9761 | −0.0004, dentro | 0.0009 |
+| recall a ef 160 | 0.9862 | 0.9843 | −0.0019 | 0.9843 | 0.9843 | +0.0000, dentro | 0.0009 |
+| recall a ef 320 | 0.9917 | 0.9898 | −0.0019 | 0.9902 | 0.9898 | −0.0004, dentro | 0.0009 |
+| recall a ef 640 | 0.9950 | 0.9930 | −0.0020 | 0.9942 | 0.9932 | −0.0010 | 0.0009 |
+| recall a ef 1024 | 0.9966 | 0.9951 | −0.0016 | 0.9957 | 0.9954 | −0.0003, dentro | 0.0009 |
+| cargas a 0.95 | 10.4 | 10.7 | +3.2 % | 10.7 | 11.0 | +2.8 % | 0.5 % |
+| endpoints a 0.95 | 5 140 | 5 246 | +2.1 % | 5 300 | 5 428 | +2.4 % | |
+| cargas a 0.99 | 51.0 | 63.1 | +23.7 % | 58.0 | 62.2 | +7.3 % | 3.0 % |
+| rondas a 0.99 | 12.5 | 15.5 | +24.2 % | 14.2 | 15.3 | +7.5 % | |
+| endpoints a 0.99 | 26 760 | 32 628 | +21.9 % | 29 760 | 31 806 | +6.9 % | |
+| escrituras inversas por insert, acumulado | 4.58 | 4.57 | −0.01 | 4.54 | 4.52 | −0.02 | |
+| postings distintos por insert, acumulado | 3.24 | 3.23 | −0.01 | 3.19 | 3.18 | −0.01 | |
+| cargas por insert, del 80 al 100 % | 35.6 | 36.8 | +3.3 % | 22.5 | 23.1 | +2.7 % | |
+| escrituras inversas por insert, del 80 al 100 % | 4.72 | 4.79 | +1.4 % | 4.69 | 4.73 | +1.0 % | |
+| no-nearest, del 80 al 100 % | 2.48 % | 3.12 % | +0.64 puntos | 2.60 % | 3.08 % | +0.48 puntos | |
+| postings al final | 4 142 | 4 094 | −1.2 % | 4 168 | 4 077 | −2.2 % | |
+
+- **La deriva crece con el tramo insertado, en las dos celdas.**
+  - **Con ef 160,** el recall queda por debajo en los ocho ef de búsqueda, y por más que el suelo en seis: de 0.0016 a 0.0034. Las cargas suben un 3.2 % a 0.95 y un 23.7 % a 0.99.
+  - **Con ef 80,** el recall solo se separa del suelo en dos ef, 10 y 640. Las cargas suben un 2.8 % a 0.95 y un 7.3 % a 0.99.
+- **La celda de ef 160 pierde lo que la separaba de la de ef 80.** Al doblar el corpus estaba por delante en todo. Al multiplicarlo por diez solo lo está a 0.95 (10.7 frente a 11.0 cargas) y en los ef de búsqueda bajos.
+- **Lo que hace un insert casi no cambia:** las mismas escrituras inversas acumuladas, y en el último tramo un 3 % más de cargas y un 1 % más de escrituras.
+
+### Resultados de v2.2: el trabajo del build, en conteos
+
+En millones. El incremental es su lote del 10 % más sus 891 000 inserts.
+
+| unidad | lote del 100 % | ef 160: lote del 10 % + inserts | total | frente al lote | ef 80: lote del 10 % + inserts | total | frente al lote |
+|---|---|---|---|---|---|---|---|
+| cargas de posting | 253.4, visitas | 25.3 + 30.5 | 55.8 | 0.22x | 25.3 + 19.2 | 44.5 | 0.18x |
+| distancias por código | 51 008 | 5 908 + 22 359 | 28 266 | 0.55x | 5 908 + 13 986 | 19 894 | 0.39x |
+| distancias exactas | 4 411.6 | 60.7 + 396.5 | 457.2 | 0.10x | 60.7 + 390.8 | 451.5 | 0.10x |
+| exactas, sin la asignación n·k de ningún lote | 258.6 | 19.1 + 396.5 | 415.6 | 1.61x | 19.1 + 390.8 | 409.9 | 1.59x |
+
+**Por vector del lote y por insert:**
+
+| | lote del 100 %, por vector | insert con ef 160 | insert con ef 80 |
+|---|---|---|---|
+| cargas de posting | 256, visitas | 34.2 | 21.5 |
+| distancias por código | 51 523 | 25 094 | 15 698 |
+| exactas: asignación | 4 195, n·k | 124.7, por el grafo | 122.2 |
+| exactas: entrada de la búsqueda de aristas | | 124.7, la misma búsqueda otra vez | 122.2 |
+| exactas: rescore | 64.0 | 64.0 | 64.0 |
+| exactas: comprobar las aristas inversas | | 84.2 | 83.5 |
+| exactas: partición, o splits | 193.5 | 24.5, y 7.6 de sus altas y bajas en el grafo | 24.4, y 7.5 |
+| exactas: grafo de centroides | 3.7, construirlo | 15.1, limpiar lápidas | 14.8 |
+| exactas, total | 4 456 | 445.0 | 438.6 |
+
+- **En distancias por código, el incremental hace 0.55 veces las del lote con ef 160 y 0.39 con ef 80.**
+  - Un insert con ef 160 calcula la mitad que un vector del lote: 25 094 frente a 51 523.
+  - El lote del 10 % sale caro por vector, 59 673: con 420 postings, P=256 sondea el 61 % del corpus.
+- **En distancias exactas, 0.10 veces. Casi todo es la asignación del lote:** n·k son 4 153 millones, el 94 % de sus exactas.
+  - Sin la asignación de ningún lote, el incremental hace 1.6 veces las del lote: 416 millones frente a 259.
+- **La búsqueda repetida en el grafo de centroides son 111 millones con ef 160 y 109 con ef 80:** el 28 % de las exactas de los inserts y el 24 % del total. Un insert que la haga una vez calcula 320 exactas, no 445.
+- **Lo que pesa en las exactas de un insert:** las dos búsquedas en el grafo, el 56 %; la comprobación de las aristas inversas, el 19 %; el rescore, el 14 %; los splits, el 7 %; y la limpieza de lápidas, el 3 %.
+- **Las cargas no se comparan igual en los dos lados.** Las del lote son visitas: 256 postings sondeados por vector, casi todos compartidos con sus vecinos de posting. Las de los inserts son lecturas de cada insert. Contando lecturas, el 0.22x y el 0.18x subirían.
+- **La búsqueda en el grafo crece con el número de centroides:** 107 distancias por insert en el primer tramo y 122 de media en toda la corrida, con ef 80.
+- **Fuera de la cuenta,** como en el pre-registro: el check del centroide exacto, la fuerza bruta de la guardia y de las métricas, las búsquedas de los checkpoints, y el entrenamiento y la codificación.
+- **Tiempos, indicativos y con los tres procesos a la vez:** el build de conteos del lote tardó 747 s. Los inserts, 3 582 s con ef 160 y 2 751 s con ef 80, de los que unos 970 s son el check del centroide exacto.
+
+*Lectura mía:* el build incremental es más barato que el lote en las tres unidades, pero no construye el mismo índice. La comparación de trabajo vale para dimensionar un insert, y no como argumento para sustituir el lote por inserts.
+
+### Lo que v2.2 no mide
+
+- **Qué parte del déficit a 0.99 es de las aristas y qué parte de la partición.** Las dos celdas comparten las dos cosas. Por un lado, las aristas: nadie rehace las viejas, y el grado queda fijado al entrar. Por otro, la partición: todos los postings salen de un 2-means, y un 3 % de los inserts no va al centroide más cercano.
+  - *Mío, sin correr:* lo separa reconstruir en lote las aristas sobre la partición final de una celda. Si las cargas a 0.99 vuelven a las del lote, el déficit es de las aristas.
+- **Dónde se rompe el criterio entre doblar el corpus y multiplicarlo por diez.** Los checkpoints intermedios no tienen lote de su tamaño.
+- **Reparar el split.** La celda 6 (aristas inversas más hermanos) y la variante fiel al lote siguen abiertas por decisión del usuario, sin medir en este régimen.
+- **La repetición.** Hay una corrida por celda. El suelo de ruido es el de v2.0, medido al doblar el corpus.
+- **Otro dataset, otra escala y un corpus que llegue en orden semántico.**
+- **Deletes, concurrencia y cualquier I/O.** Las cargas son conteos en memoria.
+
+### Datos y reproducción de v2.2
+
+En `testdata/bench/v2.2/`:
+
+- `dbpedia-1m-grow10-h1-ef<ef>.json`: una celda, con el lote del 10 % y sus conteos (`batchBuild`) y los checkpoints del 10, 20, 40, 60, 80 y 100 %.
+  - Cada checkpoint lleva el grado por cohorte (`cohorts`) y las estadísticas acumuladas (`stats`), con las distancias exactas de los inserts: `assignDistances`, `searchCentroidDistances`, `inverseDistances`, `splitDistances`, `splitGraphDistances` y `cleanDistances`.
+  - `-cp<porcentaje>.json`: el mismo checkpoint, escrito al acabar de medirlo.
+- `dbpedia-1m-batch-buildwork.json`: los conteos del lote del 100 %, sin ninguna búsqueda.
+- `growth-verdict.md`: las tablas, de `scripts/growth_verdict.py`, frente a la referencia en lote de `v2.0/` y a las celdas de ef 160 y 80 de `v2.1/`.
+- `scripts/run_v22_growth.sh`: el build de conteos y las dos celdas en paralelo, y el veredicto.
+
+```bash
+go test -tags postingedgebench -c -o <dir>/postingedge-v22.test ./adapters/repos/db/vector/postingedge/
+WORK=<dir con postingedge-v22.test> caffeinate -s -i v2.2/scripts/run_v22_growth.sh
+python3 v2.2/scripts/growth_verdict.py v2.2 v2.0 v2.1 > v2.2/growth-verdict.md
+```
 
 ## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
 
@@ -452,6 +768,7 @@ Al 100 %, con 1 thread y sin cronometrar. Entre paréntesis, frente al lote:
 - **La repetición de la celda de ef 80.** Su tercera condición está a 0.2 puntos del umbral, con un suelo del 3.0 %. Una corrida más no la decide; harían falta varias, o un ef intermedio entre 80 y 160, que no está en el barrido.
   - *Decisión del usuario del 17:* no se repite. El ef de inserción queda como parámetro del índice: 80 por la regla, y 160 si el objetivo de recall es 0.99.
 - **Más allá de doblar el corpus.** El déficit de un ef bajo está medido con la mitad del corpus insertada.
+  - *Medido en v2.2:* al multiplicar el corpus por diez, ni ef 80 ni ef 160 cumplen la condición de 0.99.
 - **La celda 6 y la variante fiel al lote.** Quedan abiertas por decisión del usuario: el aporte de la celda 6 va mezclado con un grado un 53 % mayor, y los hermanos con la regla del lote dirían cuánto es reparación y cuánto es grado. No se miden ahora.
 - **Cualquier I/O.** Las cargas son conteos en memoria.
 
