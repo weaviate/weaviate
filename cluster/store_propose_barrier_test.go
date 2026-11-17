@@ -198,53 +198,65 @@ func TestProposeBarrier_ConcurrentCallersShareOneBarrier(t *testing.T) {
 		"%d concurrent first-of-term callers appended one barrier each", callers)
 }
 
-// The tenant lock is held across the apply, so a caller can wait on it long
-// enough for leadership to turn over. A term confirmed before that wait says
-// nothing about the term it wakes up in, so the gate must run after the lock.
-//
-// Red if the gate moves back above the tenant lock: the caller passes it on the
-// memo while the term is still current, and issues no barrier once the
-// confirmation is invalidated under it.
-func TestProposeBarrier_ReconfirmsAfterWaitingOnTheTenantLock(t *testing.T) {
-	srv, m := newBarrierTestStore(t)
-	st := srv.store
-	m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
-	st.schemaManager.SetTenantLimit(func() int { return 100 }, nil)
-
+// A caller can wait on the tenant or task lock long enough for leadership to turn over, so waitLeaderFSMCaughtUp must run after the lock.
+// Red if it moves above a lock, since the caller then trusts the stale memo and issues no barrier.
+func TestProposeBarrier_ReconfirmsAfterWaitingOnALock(t *testing.T) {
 	const class = "Docs"
-	sub, err := proto.Marshal(&command.AddTenantsRequest{
-		ClusterNodes: []string{st.cfg.NodeID},
+	addT1, err := proto.Marshal(&command.AddTenantsRequest{
+		ClusterNodes: []string{"Node-1"},
 		Tenants:      []*command.Tenant{{Name: "t1", Status: "HOT"}},
 	})
 	require.NoError(t, err)
-	addTenants := &command.ApplyRequest{
-		Type: command.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: sub,
+	deleteT1, err := proto.Marshal(&command.DeleteTenantsRequest{Tenants: []string{"t1"}})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		locks func(*Store) *evictingKeyRWLocker
+		key   string
+		req   *command.ApplyRequest
+	}{
+		{
+			name: "tenant add waits on the tenant lock", locks: func(st *Store) *evictingKeyRWLocker { return st.tenantAddLocks }, key: class,
+			req: &command.ApplyRequest{Type: command.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: addT1},
+		},
+		{
+			name: "tenant delete waits on the task lock", locks: func(st *Store) *evictingKeyRWLocker { return st.taskMovementLocks }, key: classLockKey(class),
+			req: &command.ApplyRequest{Type: command.ApplyRequest_TYPE_DELETE_TENANT, Class: class, SubCommand: deleteT1},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, m := newBarrierTestStore(t)
+			st := srv.store
+			m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
+			st.schemaManager.SetTenantLimit(func() int { return 100 }, nil)
+			locks := tc.locks(st)
+
+			// A warm memo is what lets a gate above the lock issue nothing.
+			require.NoError(t, st.waitLeaderFSMCaughtUp())
+
+			locks.Lock(tc.key)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_, _ = st.Execute(tc.req)
+			}()
+
+			// Invalidating the memo stands in for the leadership turnover.
+			require.Eventually(t, func() bool { return lockRefs(locks, tc.key) > 1 },
+				10*time.Second, time.Millisecond, "the caller never reached the lock")
+			st.fsmCaughtUpTerm.Store(0)
+			before := barrierCount(t, st)
+
+			locks.Unlock(tc.key)
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("Execute never returned")
+			}
+
+			require.Equal(t, float64(1), barrierCount(t, st)-before,
+				"a stale confirmation must be re-established after the lock wait")
+		})
 	}
-
-	// Confirm the term first, so a gate above the lock would find the memo warm
-	// and issue nothing. Without this the two orderings are indistinguishable.
-	require.NoError(t, st.waitLeaderFSMCaughtUp())
-
-	st.tenantAddLocks.Lock(class)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = st.Execute(addTenants)
-	}()
-
-	// Let the caller reach the lock, then invalidate the confirmation it would
-	// have been travelling on — this stands in for the leadership turnover.
-	time.Sleep(300 * time.Millisecond)
-	st.fsmCaughtUpTerm.Store(0)
-	before := barrierCount(t, st)
-
-	st.tenantAddLocks.Unlock(class)
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Execute never returned")
-	}
-
-	require.Equal(t, float64(1), barrierCount(t, st)-before,
-		"a stale confirmation must be re-established after the tenant-lock wait")
 }

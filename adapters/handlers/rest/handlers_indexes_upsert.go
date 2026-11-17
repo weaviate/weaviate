@@ -753,16 +753,22 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
+	payload := buildReindexPayload(class, collection, properties, plan, tenants)
 	// One unit per shard per replica: each replica has its own local copy.
 	var shardOwnership map[string][]string
 	var err error
 	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, collection, tenants)
+		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &payload, propertyName, tenants, reindexTasks)
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
-	if errors.Is(err, db.ErrTenantsNotHot) {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	var notHot *db.TenantsNotHotError
+	if errors.As(err, &notHot) {
+		msg := err.Error()
+		if h.mayReadTenants(ctx, principal, collection) {
+			msg = fmt.Sprintf("%s (tenants still needing work that are not HOT: %d)", msg, notHot.Count)
+		}
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, msg))
 	}
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
@@ -771,13 +777,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	if len(shardOwnership) == 0 {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
 	}
-	if isMT && semantic {
-		shardOwnership = skipTenantsAlreadyMigrated(shardOwnership, collection, propertyName, plan, reindexTasks)
-	}
 
-	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
-
-	payload := buildReindexPayload(class, collection, properties, plan, tenants, unitToShard, unitToNode)
+	var unitIDs []string
+	unitIDs, payload.UnitToShard, payload.UnitToNode = buildUnitMaps(shardOwnership)
 
 	// Human-readable task ID with a random suffix for uniqueness.
 	// Format: "Collection:migration-type:property:ab3f".
@@ -828,35 +830,11 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	})
 }
 
-func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
-	plan upsertPlan, reindexTasks []*distributedtask.Task,
-) map[string][]string {
-	_, paid, _ := db.ReindexMigratedTenants(db.ReindexRuns(reindexTasks), propertyName, &db.ReindexTaskPayload{
-		Collection: collection, MigrationType: plan.migrationType,
-		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
-	})
-	if len(paid) == 0 {
-		return ownership
-	}
-	remaining := make(map[string][]string, len(ownership))
-	for node, shards := range ownership {
-		for _, shard := range shards {
-			if _, ok := paid[shard]; !ok {
-				remaining[node] = append(remaining[node], shard)
-			}
-		}
-	}
-	if len(remaining) == 0 {
-		return ownership
-	}
-	return remaining
-}
-
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
 // recorded for RAFT-log diagnostics only — no runtime reader (see its godoc on
 // ReindexTaskPayload).
 func buildReindexPayload(class *models.Class, collection string, properties []string, plan upsertPlan,
-	tenants []string, unitToShard, unitToNode map[string]string,
+	tenants []string,
 ) db.ReindexTaskPayload {
 	var originalTok string
 	if mt := plan.migrationType; mt == db.ReindexTypeChangeTokenization ||
@@ -873,8 +851,6 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 		OriginalTokenization: originalTok,
 		BucketStrategy:       plan.bucketStrategy,
 		Tenants:              tenants,
-		UnitToNode:           unitToNode,
-		UnitToShard:          unitToShard,
 	}
 }
 
@@ -1002,6 +978,9 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
+	}
+	if errors.Is(err, distributedtask.ErrTaskTenantsNotHot) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, db.ErrTenantsNotHot.Error()))
 	}
 	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
