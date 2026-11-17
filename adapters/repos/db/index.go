@@ -4851,6 +4851,9 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 func (i *Index) localShardStatus(ctx context.Context, shardName string) (string, error) {
 	shard, cold, release, err := i.shardForStatusRead(shardName)
 	defer release()
+	if enterrors.IsShardRecovering(err) {
+		return storagestate.StatusRecovering.String(), nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -4872,6 +4875,9 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
 	shard, cold, release, err := i.shardForStatusRead(shardName)
+	if enterrors.IsShardRecovering(err) {
+		return storagestate.StatusRecovering.String(), nil
+	}
 	if err != nil {
 		return "", err
 	}
