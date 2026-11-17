@@ -99,7 +99,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v2.3: refresco de aristas con la búsqueda del insert (pre-registro, 2026-11-17)
 
-**Estado: pre-registrado.** Escrito y commiteado a las 11:05 del 17, antes de compilar nada de esta ronda. El encargo, las etapas, la definición del refresco, el criterio y la regla de ruido son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+**Estado: pre-registrado.** Escrito y commiteado a las 10:59 del 17 (`d8dd553157`), antes de compilar nada de esta ronda. El encargo, las etapas, la definición del refresco, el criterio y la regla de ruido son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
