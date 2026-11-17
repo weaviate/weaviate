@@ -23,7 +23,6 @@ type MultiCache[T any] interface {
 	PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []T)
 	GetDoc(ctx context.Context, docID uint64) ([][]float32, error)
 	GetKeys(id uint64) (uint64, uint64)
-	// GetKeysNoLock is GetKeys for callers that hold LockAll.
 	GetKeysNoLock(id uint64) (uint64, uint64)
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 }

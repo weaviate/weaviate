@@ -162,10 +162,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	return nil
 }
 
-// preloadCompressorFromCache encodes every vector held by the uncompressed
-// cache into the compressor. The cache stays locked for the whole pass: a full
-// cache is cleared in place by its deletion watcher, slots and multivector
-// keys alike. Callers hold compressActionLock.
 func (h *hnsw) preloadCompressorFromCache(singleVector bool) {
 	h.cache.LockAll()
 	defer h.cache.UnlockAll()
