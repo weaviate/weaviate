@@ -1816,3 +1816,123 @@ func TestRecoverFromWAL_ChunkStampedWithMountedCorpusAverage(t *testing.T) {
 	require.EqualValues(t, 100, blocks[0].MaxImpactPropLength,
 		"and its property length with it, so the pair the reader rebuilds the bound from is wrong")
 }
+
+func TestRecoverFromWAL_OccupiedSuccessorSurvivesRetry(t *testing.T) {
+	for _, infoNames := range []bool{false, true} {
+		t.Run(fmt.Sprintf("segment-info-%t", infoNames), func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			b := openChunkTestBucket(t, dir, StrategyReplace, 0)
+			value := []byte(strings.Repeat("v", 64))
+			for _, key := range []string{"first", "second"} {
+				require.NoError(t, b.Put([]byte(key), value))
+			}
+			closeChunkTestBucket(t, ctx, b)
+			walName := filesWithExt(t, dir, ".wal")[0]
+			walPath := filepath.Join(dir, walName)
+			walBytes, err := os.ReadFile(walPath)
+			require.NoError(t, err)
+			walID, ok := canonicalSegmentTimestamp(walName)
+			require.True(t, ok)
+
+			// A separately flushed memtable is committed data, not part of this
+			// replay. A clock step backwards can put its ID beside the WAL's.
+			incumbentDir := t.TempDir()
+			incumbent := openChunkTestBucket(t, incumbentDir, StrategyReplace, 0)
+			require.NoError(t, incumbent.Put([]byte("durable-key"), []byte("durable-value")))
+			require.NoError(t, incumbent.FlushAndSwitch())
+			closeChunkTestBucket(t, ctx, incumbent)
+			incumbentBytes, err := os.ReadFile(filepath.Join(incumbentDir,
+				filesWithExt(t, incumbentDir, ".db")[0]))
+			require.NoError(t, err)
+			incumbentName := fmt.Sprintf("segment-%d.db", walID+1)
+			if infoNames {
+				// Compaction may change the level without changing the segment ID.
+				incumbentName = fmt.Sprintf("segment-%d.l1.s0.db", walID+1)
+			}
+			incumbentPath := filepath.Join(dir, incumbentName)
+			require.NoError(t, os.WriteFile(incumbentPath, incumbentBytes, 0o666))
+
+			_, err = tryOpenChunkTestBucket(dir, StrategyReplace, 1,
+				WithWriteSegmentInfoIntoFileName(infoNames))
+			require.ErrorContains(t, err, "a segment already exists at that id",
+				"occupied segment IDs must refuse the replay")
+			got, err := os.ReadFile(incumbentPath)
+			require.NoError(t, err)
+			require.Equal(t, incumbentBytes, got, "refusal must preserve the incumbent bytes")
+			got, err = os.ReadFile(walPath)
+			require.NoError(t, err)
+			require.Equal(t, walBytes, got, "refusal must preserve the source WAL bytes")
+
+			// With room to adopt the whole WAL, the retry needs no successor ID.
+			// Run it twice so a successful open cannot merely postpone the loss.
+			for range 2 {
+				b = openChunkTestBucket(t, dir, StrategyReplace, 0,
+					WithWriteSegmentInfoIntoFileName(infoNames))
+				for _, key := range []string{"first", "second"} {
+					got, err := b.Get([]byte(key))
+					require.NoError(t, err)
+					require.Equal(t, value, got, "retry must recover both WAL records")
+				}
+				got, err := b.Get([]byte("durable-key"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("durable-value"), got,
+					"startup retry must preserve unrelated committed data after an occupied-ID refusal")
+				closeChunkTestBucket(t, ctx, b)
+			}
+		})
+	}
+}
+
+func TestRecoverFromWAL_IncumbentAfterCommittedRun(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	b := openChunkTestBucket(t, dir, StrategyReplace, 0)
+	for _, key := range []string{"first", "second"} {
+		require.NoError(t, b.Put([]byte(key), []byte(strings.Repeat("v", 64))))
+	}
+	closeChunkTestBucket(t, ctx, b)
+	walName := filesWithExt(t, dir, ".wal")[0]
+	walBytes, err := os.ReadFile(filepath.Join(dir, walName))
+	require.NoError(t, err)
+	walID, ok := canonicalSegmentTimestamp(walName)
+	require.True(t, ok)
+
+	// Open an empty bucket so the replay can be stopped at its existing
+	// pending-cover boundary: after commit, before unlinking the WAL.
+	replayDir := t.TempDir()
+	b = openChunkTestBucket(t, replayDir, StrategyReplace, 0)
+	require.NoError(t, b.Put([]byte("durable-key"), []byte("durable-value")))
+	require.NoError(t, b.FlushAndSwitch())
+	oldPath := filepath.Join(replayDir, filesWithExt(t, replayDir, ".db")[0])
+	closeChunkTestBucket(t, ctx, b)
+	incumbentBytes, err := os.ReadFile(oldPath)
+	require.NoError(t, err)
+	incumbentPath := chunkSegmentPath(replayDir, walID, 2) + ".db"
+	require.NoError(t, os.Rename(oldPath, incumbentPath))
+	b = openChunkTestBucket(t, replayDir, StrategyReplace, 0)
+	require.NoError(t, os.WriteFile(filepath.Join(replayDir, walName), walBytes, 0o666))
+	stop := errors.New("pending cover unavailable")
+	err = b.recoverFromWAL(b.disk, walName, int64(len(walBytes)), false, 1,
+		func(_ string, ids []string) error {
+			require.Len(t, ids, 2, "the incumbent must sit immediately after the replay")
+			return stop
+		})
+	require.ErrorIs(t, err, stop)
+	closeChunkTestBucket(t, ctx, b)
+
+	b = openChunkTestBucket(t, replayDir, StrategyReplace, 1)
+	defer closeChunkTestBucket(t, ctx, b)
+	got, err := b.Get([]byte("durable-key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("durable-value"), got,
+		"startup must preserve committed data immediately after an interrupted replay")
+	got, err = os.ReadFile(incumbentPath)
+	require.NoError(t, err)
+	require.Equal(t, incumbentBytes, got)
+	for _, key := range []string{"first", "second"} {
+		got, err := b.Get([]byte(key))
+		require.NoError(t, err)
+		require.Equal(t, []byte(strings.Repeat("v", 64)), got)
+	}
+}
