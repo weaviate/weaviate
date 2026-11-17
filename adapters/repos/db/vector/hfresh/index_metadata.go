@@ -346,9 +346,9 @@ func (s *BucketStore) Store(upperBound uint64) error {
 	if err != nil {
 		return err
 	}
-	defer release()
-
 	err = bucket.Put(s.key, buf[:])
+	// writeWAL pins the shared bucket again, so this pin must not be held
+	release()
 	if err != nil {
 		return err
 	}
