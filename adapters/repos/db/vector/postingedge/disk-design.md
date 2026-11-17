@@ -244,7 +244,8 @@ Abierto:
 *Medido el 17 en memoria (v2.2; el detalle, en «Crecer diez veces»):*
 
 - *al multiplicar el corpus por diez, el mismo índice cumple en recall a igual ef y en cargas a 0.95, y no a 0.99: carga de un 18 a un 32 % más que el lote en tres corridas, con ef de inserción 160 o con 80;*
-- *lo que falla son las aristas, no la partición (diagnóstico de v2.2; el detalle, en «Aristas o partición»): reconstruidas en lote sobre la partición final, el índice carga un 0.8 % menos que el lote a 0.99. El mantenimiento que falta es un refresco de aristas, sin medir;*
+- *lo que falla son las aristas, no la partición (diagnóstico de v2.2; el detalle, en «Aristas o partición»): reconstruidas en lote sobre la partición final, el índice carga un 0.8 % menos que el lote a 0.99. El mantenimiento que falta es un refresco de aristas;*
+- *ese refresco, hecho con la búsqueda del insert, sirve (v2.3; el detalle, en «El refresco de aristas por búsqueda»): con todos los vectores refrescados el índice carga un 6.3 % más que el lote a 0.99, donde el umbral es un 10 %, a 23.2 cargas de posting por vector refrescado;*
 - *cada cuánto hace falta rehacerlo, con aristas inversas solas y el objetivo en 0.99: en algún punto entre ×2 y ×10, sin medir dónde;*
 - *las asignaciones que no van al centroide más cercano suben al 3.1 % en el último tramo, con cobertura completa;*
 - *el build incremental hace de 0.39 a 0.55 veces las distancias por código del lote y 0.10 veces las exactas. Sin la asignación n·k, 1.6 veces las exactas.*
@@ -394,10 +395,13 @@ Datos en `testdata/bench/phase2/`:
 | ¿Aristas inversas más reparación por búsqueda? | sin medir | La celda no corrió. |
 | ¿Aguantan las aristas inversas, sin reparar splits, multiplicar el corpus por diez? (v2.2) | **A 0.95 sí; a 0.99 no.** | Lote sobre el 10 %: −0.0027 y −0.0037 de recall en el peor ef, +6.3 y +9.2 % de cargas a 0.95, y +19.6 y +17.9 % a 0.99, con ef de inserción 160 y 80. La celda de ef 80, repetida: +32.0 % a 0.99. |
 | ¿Lo que falla al crecer diez veces son las aristas o la partición? (diagnóstico de v2.2) | **Las aristas.** | Con las aristas reconstruidas en lote sobre la partición que dejan los inserts: −0.8 % de cargas a 0.99 y +3.0 % a 0.95 frente al lote, y de +0.0008 a +0.0034 de recall a igual ef. El 17.3 % de los vectores no está en el posting de su centroide más cercano. |
+| ¿Lo arregla refrescar las aristas con la búsqueda del insert? (v2.3) | **Sí, por el criterio.** | Con todos los vectores refrescados: +6.3 % de cargas a 0.99 y +1.7 % a 0.95 frente al lote, y de +0.0001 a +0.0037 de recall a igual ef. Antes del refresco, +22.7 % a 0.99. Un refresco son 23.2 cargas de posting por vector. |
 
 **El mínimo que cumple es: aristas inversas en cada insert, y un split que no toca aristas.** La reparación por hermanos es una mejora opcional encima, que se paga en grado.
 
 *v2.2, del 17:* ese mínimo vale al doblar el corpus. Al multiplicarlo por diez deja de cumplir a 0.99 («Crecer diez veces», abajo). Lo que le falta es mantener las aristas, no la partición («Aristas o partición», abajo).
+
+*v2.3, del 17:* con un refresco de aristas por búsqueda encima, ese mínimo vuelve a cumplir a 0.99 tras multiplicar el corpus por diez («El refresco de aristas por búsqueda», abajo).
 
 ### Lo que hace un insert
 
@@ -536,12 +540,69 @@ Datos en `testdata/bench/phase2/`:
 - **Reconstruir en lote no es el refresco.** Cuesta 1.23 veces las distancias por código del lote entero y su misma asignación n·k: 63 625 distancias por código y 4 094 exactas por vector.
 - **Un refresco por búsqueda costaría lo que la búsqueda de un insert:** 21.5 cargas de posting, 15 709 distancias por código y 64 de rescore por vector, con ef 80 a 1M. Es la cuarta parte de la regla del lote por código, y no tiene asignación n·k.
   - Sin medir si recupera lo mismo: la búsqueda de un insert encuentra el 96.2 % de sus aristas, y la regla del lote, el 97.0 %.
+  - *Medido en v2.3:* cuesta 23.2 cargas y 18 503 distancias por código, y cierra el 72 % de la distancia al lote a 0.99, donde la regla del lote, en la misma corrida, cierra el 126 %.
 - **Lo que escribe es la lista del vector refrescado,** en su posting. Con los sitios (2) o (3) de «Dónde viven las aristas» es un elemento o una lista en RAM. Con (1), el posting entero.
 - **El orden lo da la edad de las aristas.** Hace falta saber, por vector o por posting, con qué tamaño de corpus se calcularon.
 - **Abierto, y es lo siguiente por medir:**
-  - si refrescar por búsqueda al final recupera lo que la reconstrucción en lote;
+  - si refrescar por búsqueda al final recupera lo que la reconstrucción en lote (*medido en v2.3, abajo: no todo, y lo bastante para el criterio*);
   - cada cuánto: el déficit aparece entre ×2 y ×10 de crecimiento, sin medir dónde;
   - si el refresco escribe también aristas inversas, y si basta con refrescar a los miembros de un posting cuando se parte.
+
+### El refresco de aristas por búsqueda (v2.3, 2026-11-17)
+
+*De `bench-report.md`, «v2.3: refresco de aristas con la búsqueda del insert»: la celda de ef 80 de v2.2 otra vez. Al 100 %, cada vector repite el paso de aristas de su insert: la búsqueda con ef 80, entrando por su posting, su lista nueva y las escrituras inversas. Va en tres etapas por edad, sobre un índice y en una corrida. Al final, informativa, la reconstrucción en lote del diagnóstico.*
+
+| frente al lote del 100 % | antes | refrescados los del lote del 10 % | hasta el 40 % | todos | aristas reconstruidas en lote |
+|---|---|---|---|---|---|
+| cargas por query a 0.99 | +22.7 % | +19.1 % | +11.9 % | +6.3 % | −5.9 % |
+| cargas por query a 0.95 | +9.0 % | +6.4 % | +4.0 % | +1.7 % | +1.0 % |
+| recall a igual ef | de −0.0032 a −0.0003 | de −0.0022 a −0.0004 | de −0.0009 a +0.0010 | de +0.0001 a +0.0037 | de +0.0010 a +0.0047 |
+| cargas por query a igual ef | de +4.8 a +6.8 % | de +4.2 a +6.9 % | de +4.5 a +7.1 % | de +4.5 a +7.2 % | de +5.2 a +7.5 % |
+| aristas por vector, con 8.98 en el lote | 8.85 | 9.11 | 9.55 | 9.77 | 9.77 |
+
+**El refresco por búsqueda sirve.** El criterio, del usuario y escrito antes de correr: con todo refrescado, las cargas a 0.99 a +10 % o menos del lote.
+
+- **Cumple con 3.7 puntos de margen, en una corrida.** El índice refrescado cruza 0.99 entre ef 160 y ef 320, como el lote; ahí el suelo de ruido de v2.0 es del 3.0 %.
+- **Lo que deja sin cerrar no es de las aristas.** El recall a igual ef queda en el del lote (+0.0001 en ef 160 y en ef 320), y las cargas a igual ef siguen un 7 % por encima: es lo que cuesta la partición.
+- **Rinde más cuanto más viejo es el vector, y hace falta en todos:**
+
+| lo que bajan las cargas a 0.99 | los del lote del 10 % | los que entraron del 10 al 40 % | los que entraron del 40 al 100 % |
+|---|---|---|---|
+| vectores | 99 000 | 297 000 | 594 000 |
+| parte de la recuperación | 22 % | 44 % | 34 % |
+| por 100 000 vectores refrescados | 1.89 cargas | 1.29 | 0.50 |
+| listas que cambian | 96.9 % | 95.7 % | 78.0 % |
+
+- **Con el 40 % más viejo refrescado, el índice queda en +11.9 %,** a 1.9 puntos del umbral. No se separa de cumplir, y no cumple.
+- **Qué lee y qué escribe un refresco,** junto a un insert de la misma corrida:
+
+| por vector | un refresco | un insert | la regla del lote |
+|---|---|---|---|
+| cargas de posting | 23.2 | 21.5 (23.1 en el último tramo) | 256 postings sondeados |
+| distancias por código | 18 503 | 15 717 (17 841) | 63 900 |
+| distancias exactas | 112: 64 de rescore y 48 de las inversas | 324.5 | 64 de rescore y 4 099 de la asignación n·k |
+| listas propias escritas | 0.85 | 1 | 1 |
+| aristas inversas escritas | 0.21 | 4.53 | ninguna |
+| postings distintos con una lista de vecino escrita: media, p95 | 0.18, 1 | 3.19, 8 | ninguno |
+
+- **Refrescar el corpus entero son 23.0 millones de cargas de posting y 18 318 millones de distancias por código:** 1.31 veces las de las búsquedas de todos sus inserts, y 0.29 veces las de reconstruir en lote.
+- **La regla del lote da más:** en la misma corrida y sobre la misma partición, deja el índice un 5.9 % por debajo del lote a 0.99, con 3.45 veces las distancias por código.
+  - Sus listas tienen menos vecinos exactos que las del refresco (0.970 frente a 0.977 de recall de arista) y el mismo grado, y dan de 0.0007 a 0.0017 más de recall a cada ef. Sin investigar por qué.
+
+*Lectura mía, para el diseño:*
+
+- **El mínimo para crecer diez veces queda en tres piezas:** aristas inversas en cada insert, un split que no toca aristas, y un refresco de aristas por búsqueda. Sin reassign y sin la regla del lote.
+- **El refresco no pide un camino nuevo.** Es el paso de aristas del insert, entrando por el posting del vector en lugar de preguntar al grafo de centroides.
+- **En disco es casi todo lectura.** Lee 23 postings por vector y escribe su lista, en su posting. El 85 % de los refrescos no escribe en ninguna lista ajena, el 13 % escribe en las de un posting más, y el 2 %, en las de dos o más.
+  - Con el sitio (1) de «Dónde viven las aristas», la lista propia es el posting entero. Con (2) o (3), un elemento o una lista en RAM.
+- **El coste se puede dimensionar como una pasada de inserts.** Un refresco completo por cada ×10 de crecimiento deja el mantenimiento en 2.3 veces las distancias por código de los inserts solos. Es una cuenta sobre esta celda, no una medida de un refresco repartido.
+- **El orden lo da la edad,** y el refresco tiene que acabar la vuelta: los más nuevos dan menos por vector, y son un tercio de la recuperación.
+- **Las escrituras inversas del refresco están por justificar.** Son 0.21 por vector y cuestan 48 distancias exactas y la lectura de 4.83 listas. Sin medir qué pasa sin ellas.
+- **Abierto, y sin medir:**
+  - un refresco repartido entre los inserts, y cada cuánto: aquí va todo al final;
+  - el orden contrario, para separar lo que da una cohorte de lo que da su turno;
+  - por qué las listas de la regla del lote buscan mejor, y si un refresco con más ef llega a ellas;
+  - la repetición de la corrida, y lo que recuperaría un reassign sobre el índice refrescado.
 
 ### Dónde viven las aristas
 
