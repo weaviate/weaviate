@@ -297,6 +297,7 @@ func TestMergeTaskQueueOperations(t *testing.T) {
 
 func TestMergeTaskRequeueStaysPending(t *testing.T) {
 	tf := createHFreshIndex(t)
+	require.NoError(t, tf.Index.scheduler.Close(t.Context()))
 	postingID := uint64(42)
 	require.NoError(t, tf.Index.taskQueue.EnqueueMerge(postingID))
 
