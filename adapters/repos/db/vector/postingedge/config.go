@@ -226,6 +226,12 @@ type Config struct {
 	// Seed makes the build reproducible. The partitioning is the only
 	// randomized step.
 	Seed uint64
+
+	// centroidProvider, when set, is the distance of the centroid graph
+	// instead of the l2 one it is built with. It has to be l2 all the same:
+	// only the benchmark and the tests set it, to count the distances the
+	// graph computes.
+	centroidProvider distancer.Provider
 }
 
 func (c *Config) validate() error {

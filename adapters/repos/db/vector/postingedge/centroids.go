@@ -45,6 +45,10 @@ type centroidIndex struct {
 func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]float32,
 ) (*centroidIndex, error) {
 	index := &centroidIndex{vectors: vectors}
+	provider := distancer.Provider(distancer.NewL2SquaredProvider())
+	if cfg.centroidProvider != nil {
+		provider = cfg.centroidProvider
+	}
 	vectorForID := func(_ context.Context, id uint64) ([]float32, error) {
 		if id >= uint64(len(index.vectors)) {
 			return nil, storobj.NewErrNotFoundf(id, "centroid out of range")
@@ -59,7 +63,7 @@ func newCentroidIndex(ctx context.Context, cfg *Config, dir string, vectors [][]
 		ClassName:             cfg.ClassName,
 		Logger:                cfg.Logger,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		DistanceProvider:      provider,
 		AllocChecker:          cfg.AllocChecker,
 		VectorForIDThunk:      vectorForID,
 		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice,

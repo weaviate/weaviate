@@ -92,7 +92,7 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 		ix.logStage("partition and assign taken from another build", 0, logrus.Fields{"postings": len(centroids)})
 	} else {
 		stage = time.Now()
-		centroids, err = partition(ctx, ix.logger, vectors, dims, postings, ix.cfg.Seed)
+		centroids, stats.PartitionDistances, err = partition(ctx, ix.logger, vectors, dims, postings, ix.cfg.Seed)
 		if err != nil {
 			return nil, errors.Wrap(err, "partition vectors")
 		}
@@ -104,6 +104,9 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 		if err != nil {
 			return nil, errors.Wrap(err, "assign vectors to centroids")
 		}
+		// Brute force: every vector against every centroid, the empty ones
+		// included.
+		stats.AssignDistances = int64(n) * int64(len(centroids))
 		centroids = dropEmpty(centroids, assigned)
 		stats.AssignTime = time.Since(stage)
 		ix.logStage("assign", stats.AssignTime, logrus.Fields{"postings": len(centroids)})
@@ -131,7 +134,7 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 	ix.logStage("encode", stats.EncodeTime, nil)
 
 	stage = time.Now()
-	edgeStart, edges, scored, err := buildEdges(ctx, ix.logger, edgeInput{
+	edgeStart, edges, edgeWork, err := buildEdges(ctx, ix.logger, edgeInput{
 		vectors:   vectors,
 		layout:    layout,
 		assign:    assigned,
@@ -147,7 +150,9 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 	}
 	stats.EdgeTime = time.Since(stage)
 	stats.Edges = len(edges)
-	stats.CandidatesScored = scored
+	stats.PostingsProbed = edgeWork.probed
+	stats.CandidatesScored = edgeWork.scored
+	stats.CandidatesRescored = edgeWork.rescored
 	ix.logStage("edges", stats.EdgeTime, logrus.Fields{"edges": len(edges)})
 
 	docIDs := make([]uint64, n)

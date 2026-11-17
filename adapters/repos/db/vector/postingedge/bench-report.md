@@ -172,6 +172,10 @@ Tres unidades, para el lote del 100 % y para cada celda (su lote del 10 % más s
 - **El grado exacto por cohorte** en cada checkpoint.
 - **Los conteos del trabajo del build** de la sección anterior, y un modo que construye el lote y solo escribe sus conteos y sus tamaños de posting.
 
+*Smoke después del pre-registro (06:43):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos. No predice 1M y no cambia nada de lo escrito arriba. Enseñó una cosa de la cuenta:
+
+- **Un insert busca dos veces en el grafo de centroides con la misma query:** una para su posting y otra para la entrada de su búsqueda de aristas, que pide el mismo centroide más cercano. Las dos se cuentan, por separado, y en los resultados se dice cuánto es la repetida.
+
 ## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 21:06, antes de compilar nada de esta ronda. Las cuatro celdas corrieron de 21:13 a 22:38, y sus resultados están al final de la sección, desde «Resultados de v2.1 (2026-11-16)». Lo que el encargo deja abierto lo fijo aquí, marcado como mío.

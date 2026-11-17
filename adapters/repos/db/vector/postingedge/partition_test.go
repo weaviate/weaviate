@@ -47,9 +47,18 @@ func TestPartitionClustersCoverEveryVectorOnce(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			n := len(tt.vectors)
-			clusters, err := partitionClusters(context.Background(), logger, tt.vectors, len(tt.vectors[0]), tt.k, 7)
+			clusters, distances, err := partitionClusters(context.Background(), logger, tt.vectors, len(tt.vectors[0]), tt.k, 7)
 			require.NoError(t, err)
 			require.Len(t, clusters, tt.want)
+			if tt.want == 1 {
+				require.Zero(t, distances, "nothing is split")
+			} else {
+				// A 2-means of m vectors computes 2m distances to start
+				// and 2m per iteration, of which it runs from one to nine.
+				// The first split is over all n, and there are want-1.
+				require.GreaterOrEqual(t, distances, int64(4*n))
+				require.LessOrEqual(t, distances, int64(20*n*(tt.want-1)))
+			}
 
 			seen := make([]int, n)
 			largest := 0
@@ -67,9 +76,10 @@ func TestPartitionClustersCoverEveryVectorOnce(t *testing.T) {
 			// away with the corpus.
 			assert.LessOrEqual(t, largest, 4*((n+tt.want-1)/tt.want))
 
-			centroids, err := partition(context.Background(), logger, tt.vectors, len(tt.vectors[0]), tt.k, 7)
+			centroids, counted, err := partition(context.Background(), logger, tt.vectors, len(tt.vectors[0]), tt.k, 7)
 			require.NoError(t, err)
 			require.Len(t, centroids, tt.want)
+			require.Equal(t, distances, counted, "the same seed runs the same splits")
 			for _, centroid := range centroids {
 				require.True(t, isFinite(centroid))
 			}
@@ -81,13 +91,14 @@ func TestPartitionIsDeterministicForASeed(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	vectors := clusteredVectors(2000, 16, 20, 9)
 
-	first, err := partition(context.Background(), logger, vectors, 16, 40, 11)
+	first, firstDistances, err := partition(context.Background(), logger, vectors, 16, 40, 11)
 	require.NoError(t, err)
-	second, err := partition(context.Background(), logger, vectors, 16, 40, 11)
+	second, secondDistances, err := partition(context.Background(), logger, vectors, 16, 40, 11)
 	require.NoError(t, err)
 	assert.Equal(t, first, second, "the same seed must give the same centroids")
+	assert.Equal(t, firstDistances, secondDistances, "and take the same work")
 
-	other, err := partition(context.Background(), logger, vectors, 16, 40, 12)
+	other, _, err := partition(context.Background(), logger, vectors, 16, 40, 12)
 	require.NoError(t, err)
 	assert.NotEqual(t, first, other, "the seed must actually drive the splits")
 }
@@ -96,7 +107,7 @@ func TestPartitionCentroidIsTheClusterMean(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	vectors := [][]float32{{0, 0}, {2, 4}, {4, 2}}
 
-	centroids, err := partition(context.Background(), logger, vectors, 2, 1, 1)
+	centroids, _, err := partition(context.Background(), logger, vectors, 2, 1, 1)
 	require.NoError(t, err)
 	require.Len(t, centroids, 1)
 	assert.InDeltaSlice(t, []float32{2, 2}, centroids[0], 1e-6)
@@ -104,7 +115,7 @@ func TestPartitionCentroidIsTheClusterMean(t *testing.T) {
 
 func TestPartitionRejectsEmptyInput(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	_, err := partition(context.Background(), logger, nil, 4, 3, 1)
+	_, _, err := partition(context.Background(), logger, nil, 4, 3, 1)
 	require.Error(t, err)
 }
 
@@ -113,7 +124,7 @@ func TestPartitionStopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := partition(ctx, logger, clusteredVectors(500, 8, 5, 1), 8, 10, 1)
+	_, _, err := partition(ctx, logger, clusteredVectors(500, 8, 5, 1), 8, 10, 1)
 	require.ErrorIs(t, err, context.Canceled)
 }
 

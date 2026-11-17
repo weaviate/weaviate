@@ -41,12 +41,25 @@ type edgeScratch struct {
 	nearest    topK
 }
 
+// edgeWork counts what the neighbor searches of the edge builder took: the
+// postings they read candidates from, the candidates they ranked by code, the
+// dominant cost of the build, and the candidates they compared at full
+// precision.
+type edgeWork struct {
+	probed, scored, rescored int64
+}
+
+func (w *edgeWork) add(o edgeWork) {
+	w.probed += o.probed
+	w.scored += o.scored
+	w.rescored += o.rescored
+}
+
 // nearestNeighbors finds the nearest neighbors of the vector in a slot among
 // the members of its probe postings: the candidates are ranked by code, the
 // best rescue of them re-ranked with exact distances, and the neighbors
 // nearest of those returned, nearest first. The result aliases the scratch.
-// ranked is the number of candidates ranked by code.
-func (in *edgeInput) nearestNeighbors(slot uint32, sc *edgeScratch) (nearest []scored, ranked int64, err error) {
+func (in *edgeInput) nearestNeighbors(slot uint32, sc *edgeScratch) (nearest []scored, work edgeWork, err error) {
 	input := in.layout.order[slot]
 	vector := in.vectors[input]
 	estimator := in.quantizer.NewEstimator(vector)
@@ -63,22 +76,24 @@ func (in *edgeInput) nearestNeighbors(slot uint32, sc *edgeScratch) (nearest []s
 			}
 			dist, err := estimator.Distance(in.side.code(t))
 			if err != nil {
-				return nil, 0, errors.Wrapf(err, "estimate distance from slot %d to slot %d", slot, t)
+				return nil, edgeWork{}, errors.Wrapf(err, "estimate distance from slot %d to slot %d", slot, t)
 			}
 			sc.candidates.push(uint64(t), dist)
 		}
-		ranked += int64(to - from)
+		work.probed++
+		work.scored += int64(to - from)
 	}
 
 	sc.nearest.reset(in.neighbors)
 	for _, cand := range sc.candidates.items {
 		dist, err := in.provider.SingleDist(vector, in.vectors[in.layout.order[cand.id]])
 		if err != nil {
-			return nil, 0, errors.Wrapf(err, "distance from slot %d to slot %d", slot, cand.id)
+			return nil, edgeWork{}, errors.Wrapf(err, "distance from slot %d to slot %d", slot, cand.id)
 		}
 		sc.nearest.push(cand.id, dist)
 	}
-	return sc.nearest.sorted(), ranked, nil
+	work.rescored = int64(len(sc.candidates.items))
+	return sc.nearest.sorted(), work, nil
 }
 
 // buildEdges links every vector to its nearest neighbors in other postings.
@@ -91,33 +106,33 @@ func (in *edgeInput) nearestNeighbors(slot uint32, sc *edgeScratch) (nearest []s
 // nearest first. Neighbors inside the posting need no edge: a search that
 // loads the posting scans them anyway.
 //
-// The edges come back in CSR form by source slot. scored is the number of
-// candidates ranked, the dominant cost of the build.
+// The edges come back in CSR form by source slot. work is what the neighbor
+// searches of all vectors took.
 func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
-) (edgeStart, edges []uint32, scored int64, err error) {
+) (edgeStart, edges []uint32, work edgeWork, err error) {
 	n := len(in.vectors)
 	if uint64(n)*uint64(in.neighbors) > math.MaxUint32 {
-		return nil, nil, 0, errors.Errorf("%d vectors with %d edges each exceed the edge offset range",
+		return nil, nil, edgeWork{}, errors.Errorf("%d vectors with %d edges each exceed the edge offset range",
 			n, in.neighbors)
 	}
 
 	// Fixed-width rows first, compacted once every row is known.
 	rows := make([]uint32, n*in.neighbors)
 	edgeStart = make([]uint32, n+1)
-	var totalScored atomic.Int64
+	var probed, scored, rescored atomic.Int64
 	scratches := make([]edgeScratch, parallelWorkers())
 
 	// Slot order keeps consecutive vectors in the same posting, whose probe
 	// sets overlap almost entirely, so the candidate codes stay cached.
 	err = parallelChunks(ctx, logger, n, 64, func(worker, start, end int) error {
 		sc := &scratches[worker]
-		var chunkScored int64
+		var chunk edgeWork
 		for slot := uint32(start); slot < uint32(end); slot++ {
-			nearest, ranked, err := in.nearestNeighbors(slot, sc)
+			nearest, took, err := in.nearestNeighbors(slot, sc)
 			if err != nil {
 				return err
 			}
-			chunkScored += ranked
+			chunk.add(took)
 
 			own := in.side.postingOf[slot]
 			row := rows[int(slot)*in.neighbors:]
@@ -130,11 +145,13 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 			}
 			edgeStart[slot+1] = count
 		}
-		totalScored.Add(chunkScored)
+		probed.Add(chunk.probed)
+		scored.Add(chunk.scored)
+		rescored.Add(chunk.rescored)
 		return nil
 	})
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, edgeWork{}, err
 	}
 
 	for slot := 0; slot < n; slot++ {
@@ -145,5 +162,5 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 		count := edgeStart[slot+1] - edgeStart[slot]
 		copy(edges[edgeStart[slot]:], rows[slot*in.neighbors:slot*in.neighbors+int(count)])
 	}
-	return edgeStart, edges, totalScored.Load(), nil
+	return edgeStart, edges, edgeWork{probed: probed.Load(), scored: scored.Load(), rescored: rescored.Load()}, nil
 }

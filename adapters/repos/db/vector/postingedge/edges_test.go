@@ -36,7 +36,7 @@ type edgeFixture struct {
 	input     edgeInput
 	edgeStart []uint32
 	edges     []uint32
-	scored    int64
+	work      edgeWork
 }
 
 func (f *edgeFixture) edgesOf(slot uint32) []uint32 {
@@ -61,7 +61,7 @@ func newCappedEdgeFixture(t *testing.T, vectors [][]float32, provider distancer.
 	dims := len(vectors[0])
 	cfg := testConfig(t, vectors, 0, provider)
 
-	centroids, err := partition(ctx, logger, vectors, dims, postings, 3)
+	centroids, _, err := partition(ctx, logger, vectors, dims, postings, 3)
 	require.NoError(t, err)
 	assigned, err := assign(ctx, logger, vectors, centroids, probe)
 	require.NoError(t, err)
@@ -85,12 +85,12 @@ func newCappedEdgeFixture(t *testing.T, vectors [][]float32, provider distancer.
 		neighbors: neighbors,
 		rescue:    rescue,
 	}
-	edgeStart, edges, scored, err := buildEdges(ctx, logger, input)
+	edgeStart, edges, work, err := buildEdges(ctx, logger, input)
 	require.NoError(t, err)
 
 	return &edgeFixture{
 		vectors: vectors, provider: provider, assign: assigned, layout: layout, side: side,
-		input: input, edgeStart: edgeStart, edges: edges, scored: scored,
+		input: input, edgeStart: edgeStart, edges: edges, work: work,
 	}
 }
 
@@ -151,7 +151,7 @@ func TestBuildEdgesMatchesTheExactNeighborsUnderFullCoverage(t *testing.T) {
 				crossPosting += len(want)
 			}
 			require.Positive(t, crossPosting, "the fixture must have neighbors across postings")
-			assert.Equal(t, int64(n)*int64(n), f.scored,
+			assert.Equal(t, int64(n)*int64(n), f.work.scored,
 				"full coverage ranks every vector for every vector")
 		})
 	}
@@ -207,7 +207,7 @@ func TestBuildEdgesInvariants(t *testing.T) {
 	// search cost depends on.
 	recall := float64(captured) / float64(wanted)
 	assert.Greaterf(t, recall, 0.85, "edge recall %.3f", recall)
-	assert.Less(t, f.scored, int64(len(vectors))*int64(len(vectors))/2,
+	assert.Less(t, f.work.scored, int64(len(vectors))*int64(len(vectors))/2,
 		"a narrow probe must rank far fewer candidates than brute force")
 }
 
@@ -225,27 +225,32 @@ func TestBuildEdgesWithANarrowerProbeUsesTheNearestCentroids(t *testing.T) {
 
 		input := wide.input
 		input.probe = probe
-		edgeStart, edges, scored, err := buildEdges(context.Background(), logrus.New(), input)
+		edgeStart, edges, work, err := buildEdges(context.Background(), logrus.New(), input)
 		require.NoError(t, err)
 		require.Equalf(t, narrow.edgeStart, edgeStart, "probe %d", probe)
 		require.Equalf(t, narrow.edges, edges, "probe %d", probe)
-		require.Equalf(t, narrow.scored, scored, "probe %d", probe)
+		require.Equalf(t, narrow.work, work, "probe %d", probe)
+		require.Equalf(t, int64(len(vectors)*probe), work.probed, "probe %d: every vector reads its probe postings", probe)
 	}
 	// Fewer probes reach fewer candidates.
 	fewer := wide.input
 	fewer.probe = 4
-	_, _, scored, err := buildEdges(context.Background(), logrus.New(), fewer)
+	_, _, work, err := buildEdges(context.Background(), logrus.New(), fewer)
 	require.NoError(t, err)
-	require.Less(t, scored, wide.scored)
+	require.Less(t, work.scored, wide.work.scored)
+	require.Less(t, work.probed, wide.work.probed)
+	// Every vector has more candidates than it rescues, at either width.
+	require.Equal(t, int64(len(vectors)*rescue), work.rescored)
+	require.Equal(t, int64(len(vectors)*rescue), wide.work.rescored)
 
 	// A probe wider than what the assignment recorded uses all there is.
 	beyond := wide.input
 	beyond.probe = 500
-	edgeStart, edges, scored, err := buildEdges(context.Background(), logrus.New(), beyond)
+	edgeStart, edges, work, err := buildEdges(context.Background(), logrus.New(), beyond)
 	require.NoError(t, err)
 	require.Equal(t, wide.edgeStart, edgeStart)
 	require.Equal(t, wide.edges, edges)
-	require.Equal(t, wide.scored, scored)
+	require.Equal(t, wide.work, work)
 }
 
 func TestBuildEdgesWithASinglePostingHasNoEdges(t *testing.T) {

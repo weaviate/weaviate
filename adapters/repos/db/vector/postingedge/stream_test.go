@@ -15,6 +15,8 @@ import (
 	"context"
 	"math"
 	"slices"
+	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -69,6 +71,38 @@ type streamConfig struct {
 	assignOnly bool
 	// seed seeds the 2-means of the splits.
 	seed uint64
+	// centroidDistances, when set, is the count of the distances the
+	// centroid graph of the index computes: the index was created with a
+	// countingProvider over it (Config.centroidProvider). The inserts read it
+	// to tell what the graph took for each of their steps.
+	centroidDistances *atomic.Int64
+}
+
+// countingProvider counts the distances a provider computes: one per
+// SingleDist, and one per Distance of the distancers it hands out. The count
+// is shared by its copies.
+type countingProvider struct {
+	distancer.Provider
+	count *atomic.Int64
+}
+
+func (p countingProvider) SingleDist(a, b []float32) (float32, error) {
+	p.count.Add(1)
+	return p.Provider.SingleDist(a, b)
+}
+
+func (p countingProvider) New(vec []float32) distancer.Distancer {
+	return countingDistancer{Distancer: p.Provider.New(vec), count: p.count}
+}
+
+type countingDistancer struct {
+	distancer.Distancer
+	count *atomic.Int64
+}
+
+func (d countingDistancer) Distance(vec []float32) (float32, error) {
+	d.count.Add(1)
+	return d.Distancer.Distance(vec)
 }
 
 // streamStats counts what the inserts did. The times are indicative: they
@@ -121,6 +155,20 @@ type streamStats struct {
 	// loaded: SearchLoadsHist[l] inserts loaded l. It is nil until an insert
 	// searches.
 	SearchLoadsHist []int `json:"searchLoadsHist,omitempty"`
+	// SplitDistances counts the full-precision distances of the splits: those
+	// of each 2-means, failed ones included, and the two of every member to
+	// the two means.
+	SplitDistances int64 `json:"splitDistances"`
+	// The distances the centroid graph computed, by what for. They are
+	// counted only with streamConfig.centroidDistances, and are zero without:
+	// AssignDistances for the search that gives an insert its posting,
+	// SearchCentroidDistances for the entry postings of its edge search,
+	// SplitGraphDistances for the two centroids a split adds and the one it
+	// deletes, and CleanDistances for the cleanups of the deleted ones.
+	AssignDistances         int64 `json:"assignDistances"`
+	SearchCentroidDistances int64 `json:"searchCentroidDistances"`
+	SplitGraphDistances     int64 `json:"splitGraphDistances"`
+	CleanDistances          int64 `json:"cleanDistances"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	NearestTime time.Duration `json:"nearestCheckNs"` // only the report needs it
@@ -258,6 +306,15 @@ func newPostingList() postingList {
 	return postingList{edgeStart: []uint32{0}}
 }
 
+// centroidCount returns the distances the centroid graph has computed so
+// far, 0 when they are not counted.
+func (s *streamIndex) centroidCount() int64 {
+	if s.cfg.centroidDistances == nil {
+		return 0
+	}
+	return s.cfg.centroidDistances.Load()
+}
+
 func (l *postingList) append(docID uint64, code []uint64, edges []uint32) {
 	l.docIDs = append(l.docIDs, docID)
 	l.codes = append(l.codes, code...)
@@ -303,10 +360,12 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	st := s.st
 
 	clock := time.Now()
+	counted := s.centroidCount()
 	entry, err := st.centroids.nearest(ctx, vector, 1)
 	if err != nil {
 		return err
 	}
+	s.stats.AssignDistances += s.centroidCount() - counted
 	if len(entry) == 0 {
 		return errors.New("the centroid graph found no centroid")
 	}
@@ -328,11 +387,13 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	var dists []float32
 	if !s.cfg.assignOnly {
 		clock = time.Now()
+		counted = s.centroidCount()
 		var work SearchStats
 		neighbors, dists, err = s.ix.search(ctx, vector, s.neighbors, nil, &work)
 		if err != nil {
 			return errors.Wrapf(err, "search the neighbors of doc %d", docID)
 		}
+		s.stats.SearchCentroidDistances += s.centroidCount() - counted
 		// SpreadTime is what a search spends on its stats alone.
 		s.stats.EdgeTime += time.Since(clock) - work.SpreadTime
 		s.stats.countSearch(work)
@@ -474,8 +535,9 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 		vectors[i] = s.vectorOf(docID)
 		members[i] = uint32(i)
 	}
-	left, right, err := bisect(vectors, st.dims, cluster{members: members, leaves: 2, path: 1},
+	left, right, computed, err := bisect(vectors, st.dims, cluster{members: members, leaves: 2, path: 1},
 		s.cfg.seed^uint64(s.stats.Splits+s.stats.SplitsFailed))
+	s.stats.SplitDistances += int64(computed)
 	if err != nil {
 		// A 2-means that leaves one side empty is counted, not fatal: the
 		// posting tries again on its next insert.
@@ -500,6 +562,7 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 		}
 		sizes[sideOf[i]]++
 	}
+	s.stats.SplitDistances += int64(2 * n)
 	if sizes[0] == 0 || sizes[1] == 0 {
 		s.stats.SplitsFailed++
 		s.stats.SplitTime += time.Since(clock)
@@ -523,6 +586,7 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 
 	centroids := st.centroids
 	centroids.vectors = append(centroids.vectors, means[0], means[1])
+	counted := s.centroidCount()
 	for c := range 2 {
 		if err := centroids.graph.Add(ctx, uint64(first)+uint64(c), means[c]); err != nil {
 			return errors.Wrap(err, "add a centroid")
@@ -531,6 +595,7 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 	if err := centroids.graph.Delete(uint64(p)); err != nil {
 		return errors.Wrap(err, "delete the centroid")
 	}
+	s.stats.SplitGraphDistances += s.centroidCount() - counted
 	s.stats.Splits++
 	s.stats.SplitTime += time.Since(clock)
 
@@ -708,7 +773,49 @@ func (s *streamIndex) checkCoverage() error {
 
 // cleanCentroidGraph removes the deleted centroids from the graph for good.
 func (s *streamIndex) cleanCentroidGraph() error {
-	return s.st.centroids.graph.CleanUpTombstonedNodes(func() bool { return false })
+	counted := s.centroidCount()
+	err := s.st.centroids.graph.CleanUpTombstonedNodes(func() bool { return false })
+	s.stats.CleanDistances += s.centroidCount() - counted
+	return err
+}
+
+// cohortDegree counts the edges of the live vectors of one cohort: those
+// whose place in the order they entered the index in is in [From, To).
+type cohortDegree struct {
+	From    int `json:"from"`
+	To      int `json:"to"`
+	Vectors int `json:"vectors"`
+	Edges   int `json:"edges"`
+}
+
+// degreeByCohort counts the edges of every live vector, by cohort. rank is
+// the place of every doc id in the order the vectors entered the index in,
+// and bounds, ascending, part that order: cohort i holds the places in
+// [bounds[i], bounds[i+1]). A vector placed outside the bounds is not
+// counted.
+func (s *streamIndex) degreeByCohort(rank []uint32, bounds []int) []cohortDegree {
+	if len(bounds) < 2 {
+		return nil
+	}
+	out := make([]cohortDegree, len(bounds)-1)
+	for i := range out {
+		out[i].From, out[i].To = bounds[i], bounds[i+1]
+	}
+	for p, l := range s.st.postings.lists {
+		if s.retired[p] {
+			continue
+		}
+		for i, docID := range l.docIDs {
+			// The last bound at or before the place of the vector.
+			c := sort.SearchInts(bounds, int(rank[docID])+1) - 1
+			if c < 0 || c >= len(out) {
+				continue
+			}
+			out[c].Vectors++
+			out[c].Edges += int(l.edgeStart[i+1] - l.edgeStart[i])
+		}
+	}
+	return out
 }
 
 // postingSizes returns the size of every live posting.

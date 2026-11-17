@@ -22,6 +22,17 @@ type BuildStats struct {
 	// CandidatesScored is the number of neighbor candidates the edge builder
 	// ranked by code, its dominant cost.
 	CandidatesScored int64
+	// PostingsProbed is the number of postings the edge builder read those
+	// candidates from, over all vectors, and CandidatesRescored the number
+	// of candidates it then compared at full precision.
+	PostingsProbed     int64
+	CandidatesRescored int64
+	// PartitionDistances and AssignDistances are the full-precision
+	// distances of the first two stages: those of the 2-means of the
+	// partition, and one per vector and centroid of the exact assignment.
+	// Both are zero for a build that took the two from another one.
+	PartitionDistances int64
+	AssignDistances    int64
 
 	PartitionTime     time.Duration // clustering into postings
 	AssignTime        time.Duration // exact nearest-centroid assignment

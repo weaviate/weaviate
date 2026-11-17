@@ -17,6 +17,7 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sort"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,12 +28,17 @@ import (
 
 // newStreamTestIndex builds an index over the first n vectors, with the doc
 // ids 0..n-1 and a config that serves all of them, and hands it to a stream
-// index over all the doc ids.
+// index over all the doc ids. With a count of the centroid graph's distances
+// in cfg, the graph of the index counts into it from its build on.
 func newStreamTestIndex(t *testing.T, all [][]float32, n int, uc UserConfig, cfg streamConfig) *streamIndex {
 	t.Helper()
 	ctx := context.Background()
 	uc.Distance = "l2-squared"
-	index, err := New(testConfig(t, all, 0, distancer.NewL2SquaredProvider()), uc)
+	config := testConfig(t, all, 0, distancer.NewL2SquaredProvider())
+	if cfg.centroidDistances != nil {
+		config.centroidProvider = countingProvider{Provider: distancer.NewL2SquaredProvider(), count: cfg.centroidDistances}
+	}
+	index, err := New(config, uc)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
 	require.NoError(t, index.AddBatch(ctx, sequentialIDs(n, 0), all[:n]))
@@ -811,6 +817,176 @@ func TestStreamInsertSearchWork(t *testing.T) {
 			kept := s.stats.clone()
 			s.stats.SearchLoadsHist[0]++
 			assert.Equal(t, want.SearchLoadsHist, kept.SearchLoadsHist)
+		})
+	}
+}
+
+// A counting provider computes what the provider it wraps computes, and
+// counts one distance for each: by SingleDist and by the distancers it hands
+// out, which is how the centroid graph reaches it.
+func TestCountingProvider(t *testing.T) {
+	plain := distancer.NewL2SquaredProvider()
+	var count atomic.Int64
+	counting := countingProvider{Provider: plain, count: &count}
+	a, b, c := []float32{1, 2, 3}, []float32{4, 6, 8}, []float32{0, 0, 1}
+
+	assert.Equal(t, plain.Type(), counting.Type())
+	want, err := plain.SingleDist(a, b)
+	require.NoError(t, err)
+	got, err := counting.SingleDist(a, b)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Equal(t, int64(1), count.Load())
+
+	from := counting.New(a)
+	for i, to := range [][]float32{b, c, a} {
+		want, err := plain.SingleDist(a, to)
+		require.NoError(t, err)
+		got, err := from.Distance(to)
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+		assert.Equal(t, int64(2+i), count.Load())
+	}
+
+	// A copy counts into the same count.
+	copied := counting
+	_, err = copied.SingleDist(a, c)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), count.Load())
+}
+
+// The work of the inserts outside their edge search, in counts: every
+// distance the centroid graph computes after its build is charged to the step
+// that asked for it, and to one step only; a split is charged its 2-means and
+// the distances of its members to the two means; and without a count of the
+// graph's distances nothing is charged for the graph.
+func TestStreamInsertWorkOutsideTheSearch(t *testing.T) {
+	const batch, total, threshold = 1200, 2400, 60
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 733)
+
+	tests := []struct {
+		name    string
+		cfg     streamConfig
+		counted bool
+	}{
+		{name: "inverse edges", cfg: streamConfig{threshold: threshold, inverse: true}, counted: true},
+		{name: "principal", cfg: streamConfig{threshold: threshold}, counted: true},
+		{name: "assignment only", cfg: streamConfig{threshold: threshold, assignOnly: true}, counted: true},
+		{name: "inverse edges, the graph not counted", cfg: streamConfig{threshold: threshold, inverse: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.cfg
+			if tt.counted {
+				cfg.centroidDistances = new(atomic.Int64)
+			}
+			s := newStreamTestIndex(t, all, batch, smallConfig(), cfg)
+			built := s.centroidCount()
+			if tt.counted {
+				require.Positive(t, built, "the build of the graph is counted")
+			}
+
+			for id := uint64(batch); id < total; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+				if id == (batch+total)/2 {
+					require.NoError(t, s.cleanCentroidGraph())
+				}
+			}
+			require.NoError(t, s.cleanCentroidGraph())
+			require.NoError(t, s.checkCoverage())
+
+			got := s.stats
+			splits := int64(got.Splits + got.SplitsFailed)
+			require.Positive(t, got.Splits)
+			// A split is over more than threshold members: 2m distances
+			// to start its 2-means, 2m for each of its one to nine
+			// iterations, and 2m to the two means.
+			assert.GreaterOrEqual(t, got.SplitDistances, 6*(threshold+1)*splits)
+
+			if !tt.counted {
+				assert.Zero(t, got.AssignDistances)
+				assert.Zero(t, got.SearchCentroidDistances)
+				assert.Zero(t, got.SplitGraphDistances)
+				assert.Zero(t, got.CleanDistances)
+				return
+			}
+			assert.Equal(t, s.centroidCount()-built,
+				got.AssignDistances+got.SearchCentroidDistances+got.SplitGraphDistances+got.CleanDistances,
+				"every distance of the graph is charged, once")
+			assert.GreaterOrEqual(t, got.AssignDistances, int64(got.Inserted), "an insert finds its posting in the graph")
+			assert.Positive(t, got.SplitGraphDistances, "a split adds two centroids to the graph")
+			assert.Positive(t, got.CleanDistances, "a cleanup reconnects the neighbors of the deleted centroids")
+			if tt.cfg.assignOnly {
+				assert.Zero(t, got.SearchCentroidDistances, "no edge search, no entry postings")
+			} else {
+				assert.GreaterOrEqual(t, got.SearchCentroidDistances, int64(got.Inserted), "an edge search enters through the graph")
+			}
+		})
+	}
+}
+
+// The degree by cohort counts every live vector once, in the cohort of the
+// place it entered the index at, with the edges it has now.
+func TestStreamDegreeByCohort(t *testing.T) {
+	const batch, total = 1200, 2400
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 947)
+	s := newStreamTestIndex(t, all, batch, smallConfig(), streamConfig{threshold: 60, inverse: true})
+
+	// The inserts enter in another order than their doc ids.
+	order := make([]uint64, total)
+	for i := range order {
+		order[i] = uint64(i)
+	}
+	rand.New(rand.NewPCG(5, 5)).Shuffle(total-batch, func(i, j int) {
+		order[batch+i], order[batch+j] = order[batch+j], order[batch+i]
+	})
+	rank := make([]uint32, total)
+	for place, id := range order {
+		rank[id] = uint32(place)
+	}
+	const upto = 2000
+	for _, id := range order[batch:upto] {
+		require.NoError(t, s.insert(ctx, id, all[id]))
+	}
+	require.NoError(t, s.checkCoverage())
+	edges := edgesByDoc(s)
+
+	tests := []struct {
+		name   string
+		bounds []int
+	}{
+		{name: "the batch part and two stretches", bounds: []int{0, batch, 1500, upto}},
+		{name: "the batch part and the inserts", bounds: []int{0, batch, upto}},
+		{name: "past what is live", bounds: []int{0, batch, upto, total}},
+		{name: "the batch part alone", bounds: []int{0, batch}},
+		{name: "one stretch in the middle", bounds: []int{1500, 1700}},
+		{name: "no cohort", bounds: []int{0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.degreeByCohort(rank, tt.bounds)
+			if len(tt.bounds) < 2 {
+				require.Nil(t, got)
+				return
+			}
+			want := make([]cohortDegree, len(tt.bounds)-1)
+			for i := range want {
+				want[i].From, want[i].To = tt.bounds[i], tt.bounds[i+1]
+				for _, id := range order[want[i].From:min(want[i].To, upto)] {
+					want[i].Vectors++
+					want[i].Edges += len(edges[id])
+				}
+			}
+			require.Equal(t, want, got)
+			if tt.bounds[0] == 0 && tt.bounds[len(tt.bounds)-1] >= upto {
+				vectors := 0
+				for _, c := range got {
+					vectors += c.Vectors
+				}
+				require.Equal(t, s.liveCount, vectors, "every live vector is in one cohort")
+			}
 		})
 	}
 }

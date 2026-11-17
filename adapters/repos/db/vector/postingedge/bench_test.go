@@ -2027,7 +2027,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 	require.NoError(t, err)
 	target := targetPostingSize(uc.TargetPostingSize, 8*len(quantizer.Encode(vectors[0])))
 	stage := time.Now()
-	centroids, err := partition(ctx, logger, vectors, data.dims, int(math.Ceil(float64(n)/float64(target))), cfg.Seed)
+	centroids, _, err := partition(ctx, logger, vectors, data.dims, int(math.Ceil(float64(n)/float64(target))), cfg.Seed)
 	require.NoError(t, err)
 	partitionTime := time.Since(stage)
 	stage = time.Now()
@@ -2049,7 +2049,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 	truth := sampleEdgeTruth(data, *benchSample, uc.Edges, layout.slotOf, side.postingOf)
 	for _, probe := range probes {
 		begin := time.Now()
-		edgeStart, edges, scored, err := buildEdges(ctx, logger, edgeInput{
+		edgeStart, edges, work, err := buildEdges(ctx, logger, edgeInput{
 			vectors:   vectors,
 			layout:    layout,
 			assign:    assigned,
@@ -2064,7 +2064,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 		point := probePoint{
 			Probe:               probe,
 			EdgeSec:             time.Since(begin).Seconds(),
-			CandidatesPerVector: float64(scored) / float64(n),
+			CandidatesPerVector: float64(work.scored) / float64(n),
 			EdgesPerVector:      float64(len(edges)) / float64(n),
 			EdgeRecall: truth.recall(func(slot uint32) []uint32 {
 				return edges[edgeStart[slot]:edgeStart[slot+1]]
@@ -2137,7 +2137,7 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 		require.NoError(t, share.fits(n, postings, widest))
 		t.Logf("partition and assignment taken from %s", cacheDir)
 	} else {
-		centroids, err := partition(ctx, logger, vectors, data.dims, postings, cfg.Seed)
+		centroids, _, err := partition(ctx, logger, vectors, data.dims, postings, cfg.Seed)
 		require.NoError(t, err)
 		assigned, err := assign(ctx, logger, vectors, centroids, widest)
 		require.NoError(t, err)
@@ -2204,12 +2204,12 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 				parallelFor(len(truth.slots), func(i int) {
 					var sc edgeScratch
 					begin := time.Now()
-					nearest, count, err := in.nearestNeighbors(truth.slots[i], &sc)
+					nearest, work, err := in.nearestNeighbors(truth.slots[i], &sc)
 					if err != nil {
 						panic(err)
 					}
 					spent.Add(int64(time.Since(begin)))
-					ranked.Add(count)
+					ranked.Add(work.scored)
 					for _, nb := range nearest {
 						found[i] = append(found[i], uint32(nb.id))
 					}

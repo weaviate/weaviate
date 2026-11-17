@@ -338,6 +338,15 @@ func TestIndexLifecycle(t *testing.T) {
 	assert.Equal(t, len(vectors), stats.Vectors)
 	assert.Positive(t, stats.Postings)
 	assert.Positive(t, stats.TotalTime)
+	// The work of the build, in counts.
+	n := int64(len(vectors))
+	assert.GreaterOrEqual(t, stats.PartitionDistances, 4*n, "the first split alone starts and iterates once over every vector")
+	assert.Zero(t, stats.AssignDistances%n, "every vector against every centroid")
+	assert.GreaterOrEqual(t, stats.AssignDistances, n*int64(stats.Postings))
+	assert.Equal(t, n*int64(min(uc.BuildProbe, stats.Postings)), stats.PostingsProbed)
+	assert.Greater(t, stats.CandidatesScored, stats.CandidatesRescored)
+	assert.LessOrEqual(t, stats.CandidatesRescored, n*int64(uc.RescueLimit))
+	assert.Positive(t, stats.CandidatesRescored)
 
 	got, _, err := index.SearchByVector(ctx, vectors[7], 5, nil)
 	require.NoError(t, err)

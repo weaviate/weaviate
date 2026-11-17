@@ -36,15 +36,16 @@ type cluster struct {
 // computations instead of the O(n k) per iteration of a flat k-means, and
 // keeps the cluster sizes close to n/k. The clusters only seed the centroids:
 // membership is decided afterwards by exact nearest-centroid assignment.
+// distances is the number of distances the splits computed.
 func partition(ctx context.Context, logger logrus.FieldLogger, vectors [][]float32,
 	dims, k int, seed uint64,
-) ([][]float32, error) {
-	clusters, err := partitionClusters(ctx, logger, vectors, dims, k, seed)
+) (centroids [][]float32, distances int64, err error) {
+	clusters, distances, err := partitionClusters(ctx, logger, vectors, dims, k, seed)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	centroids := make([][]float32, len(clusters))
+	centroids = make([][]float32, len(clusters))
 	sums := make([][]float64, parallelWorkers())
 	err = parallelChunks(ctx, logger, len(clusters), 16, func(worker, start, end int) error {
 		if sums[worker] == nil {
@@ -56,19 +57,20 @@ func partition(ctx context.Context, logger logrus.FieldLogger, vectors [][]float
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return centroids, nil
+	return centroids, distances, nil
 }
 
 // partitionClusters returns the min(k, n) clusters partition takes the means
-// of. Every vector is in exactly one of them and none is empty.
+// of, and the number of distances its splits computed. Every vector is in
+// exactly one of the clusters and none is empty.
 func partitionClusters(ctx context.Context, logger logrus.FieldLogger, vectors [][]float32,
 	dims, k int, seed uint64,
-) ([]cluster, error) {
+) (clusters []cluster, distances int64, err error) {
 	n := len(vectors)
 	if n == 0 {
-		return nil, errors.New("cannot partition an empty set of vectors")
+		return nil, 0, errors.New("cannot partition an empty set of vectors")
 	}
 	k = min(max(k, 1), n)
 
@@ -84,21 +86,22 @@ func partitionClusters(ctx context.Context, logger logrus.FieldLogger, vectors [
 	done := make([]cluster, 0, k)
 	for len(level) > 0 {
 		children := make([][2]cluster, len(level))
+		spent := make([]int, len(level))
 		err := parallelChunks(ctx, logger, len(level), 1, func(_, start, end int) error {
 			for i := start; i < end; i++ {
 				if level[i].leaves == 1 {
 					continue
 				}
-				left, right, err := bisect(vectors, dims, level[i], seed)
+				left, right, computed, err := bisect(vectors, dims, level[i], seed)
 				if err != nil {
 					return err
 				}
-				children[i] = [2]cluster{left, right}
+				children[i], spent[i] = [2]cluster{left, right}, computed
 			}
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		next := make([]cluster, 0, 2*len(level))
@@ -108,16 +111,18 @@ func partitionClusters(ctx context.Context, logger logrus.FieldLogger, vectors [
 				continue
 			}
 			next = append(next, children[i][0], children[i][1])
+			distances += int64(spent[i])
 		}
 		level = next
 	}
-	return done, nil
+	return done, distances, nil
 }
 
 // bisect splits a cluster in two. Both sides are non-empty and neither holds
 // more than three quarters of the members (the FitBalanced floor), so the
-// recursion always terminates, duplicates included.
-func bisect(vectors [][]float32, dims int, c cluster, seed uint64) (cluster, cluster, error) {
+// recursion always terminates, duplicates included. distances is the number
+// of distances the 2-means computed.
+func bisect(vectors [][]float32, dims int, c cluster, seed uint64) (left, right cluster, distances int, err error) {
 	data := make([][]float32, len(c.members))
 	for i, m := range c.members {
 		data[i] = vectors[m]
@@ -127,8 +132,9 @@ func bisect(vectors [][]float32, dims int, c cluster, seed uint64) (cluster, clu
 	km.Seed = seed ^ (c.path * 0x9E3779B97F4A7C15)
 	labels, err := km.FitBalanced(data)
 	if err != nil {
-		return cluster{}, cluster{}, errors.Wrapf(err, "split cluster of %d vectors", len(data))
+		return cluster{}, cluster{}, 0, errors.Wrapf(err, "split cluster of %d vectors", len(data))
 	}
+	distances = km.Metrics.TotalComputations()
 
 	nLeft := 0
 	for _, label := range labels {
@@ -136,23 +142,23 @@ func bisect(vectors [][]float32, dims int, c cluster, seed uint64) (cluster, clu
 			nLeft++
 		}
 	}
-	left := make([]uint32, 0, nLeft)
-	right := make([]uint32, 0, len(labels)-nLeft)
+	lefts := make([]uint32, 0, nLeft)
+	rights := make([]uint32, 0, len(labels)-nLeft)
 	for i, label := range labels {
 		if label == 0 {
-			left = append(left, c.members[i])
+			lefts = append(lefts, c.members[i])
 		} else {
-			right = append(right, c.members[i])
+			rights = append(rights, c.members[i])
 		}
 	}
-	if len(left) == 0 || len(right) == 0 {
-		return cluster{}, cluster{}, errors.Errorf(
+	if len(lefts) == 0 || len(rights) == 0 {
+		return cluster{}, cluster{}, distances, errors.Errorf(
 			"split of %d vectors left one side empty", len(data))
 	}
 
-	kLeft := splitLeaves(c.leaves, len(left), len(right))
-	return cluster{members: left, leaves: kLeft, path: 2 * c.path},
-		cluster{members: right, leaves: c.leaves - kLeft, path: 2*c.path + 1}, nil
+	kLeft := splitLeaves(c.leaves, len(lefts), len(rights))
+	return cluster{members: lefts, leaves: kLeft, path: 2 * c.path},
+		cluster{members: rights, leaves: c.leaves - kLeft, path: 2*c.path + 1}, distances, nil
 }
 
 // splitLeaves decides how many of a node's leaves go to its left child:
