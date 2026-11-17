@@ -302,6 +302,16 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			wantStatus: map[string]string{"s1": ready},
 		},
 		{
+			name:       "a lazy tenant copy on this node that does not serve reads falls over to a peer",
+			mt:         true,
+			physical:   map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{shardStatusLocalNode, "node1"}, Status: models.TenantActivityStatusHOT}},
+			local:      map[string]localShardKind{"hot": localLoadingForRead},
+			unreadable: []string{shardStatusLocalNode},
+			reachable:  []string{"node1"},
+			replies:    map[string]statusReply{"node1": {status: ready, size: 7}},
+			wantStatus: map[string]string{"hot": ready},
+		},
+		{
 			name:       "local replica answers without asking a peer listed first",
 			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"node2", shardStatusLocalNode}}},
 			local:      map[string]localShardKind{"s1": localReady},

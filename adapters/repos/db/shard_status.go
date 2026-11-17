@@ -104,6 +104,20 @@ func (s *Shard) getStatusUnlocked() storagestate.Status {
 	return status
 }
 
+// statusReadable reports whether GetStatus and the vector queues can be read now: a vector-index drop holds
+// vectorIndexMu for the whole drop, and a GetStatus waiting on it holds statusLock.
+func (s *Shard) statusReadable() bool {
+	if !s.statusLock.TryLock() {
+		return false
+	}
+	defer s.statusLock.Unlock()
+	if !s.vectorIndexMu.TryRLock() {
+		return false
+	}
+	s.vectorIndexMu.RUnlock()
+	return true
+}
+
 func (s *Shard) GetStatusReason() string {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()

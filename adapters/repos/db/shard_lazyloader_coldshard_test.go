@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -434,6 +435,32 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 		require.Equal(t, storagestate.StatusReady.String(), listed[name])
 		require.Equal(t, storagestate.StatusReady.String(), incoming)
 		require.Zero(t, size)
+
+		// a vector-index drop holds vectorIndexMu for the whole drop, and a GetStatus waiting on it holds statusLock
+		for _, lock := range []sync.Locker{&shard.shard.vectorIndexMu, &shard.shard.statusLock} {
+			lock.Lock()
+			done = make(chan struct{})
+			enterrors.GoWrapper(func() {
+				defer close(done)
+				listed, errs[0] = f.migrator.GetShardsStatus(ctx, className, "")
+				_, errs[1] = f.index.IncomingGetShardStatus(ctx, name)
+				_, errs[2] = f.index.IncomingGetShardQueueSize(ctx, name)
+			}, logger)
+			waited = false
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				waited = true
+			}
+			lock.Unlock()
+			<-done
+			require.False(t, waited, "a status read waited behind a vector-index drop")
+			require.NoError(t, errs[0])
+			require.Equal(t, storagestate.StatusUnavailable.String(), listed[name], "its only replica is busy")
+			for _, err := range errs[1:] {
+				require.ErrorContains(t, err, errShardBusy.Error())
+			}
+		}
 
 		require.NoError(t, shard.Shutdown(ctx))
 		statuses, err = f.migrator.GetShardsStatus(ctx, className, "")

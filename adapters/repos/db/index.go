@@ -3762,7 +3762,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 var errShardBusy = stderrors.New("shard is busy")
 
 // shardForStatusRead pins the local shard for a status or queue-size read without loading it or waiting on its
-// locks. cold reports a lazy shard that is not loaded yet, also while it loads, and a loaded shard held by an unload or freeze is errShardBusy.
+// locks. cold reports a lazy shard that is not loaded yet, also while it loads, and a loaded shard held by an unload, freeze or vector-index drop is errShardBusy.
 func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool, release func(), err error) {
 	if err := i.enterRead(); err != nil {
 		return nil, false, func() {}, fmt.Errorf("local shard %q: %w", shardName, err)
@@ -3784,10 +3784,13 @@ func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool
 		if !lazy.loadedLockFree.Load() {
 			return nil, true, func() {}, nil
 		}
-		shard = lazy.shard // a vector-index drop holds the lazy mutex for the whole drop
+		shard = lazy.shard // a lazy GetStatus blocked by a vector-index drop holds the lazy mutex
 	}
 	if shard == nil {
 		return nil, false, func() {}, nil
+	}
+	if s, ok := shard.(*Shard); ok && !s.statusReadable() {
+		return nil, false, func() {}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard: %w", shardName, errShardBusy))
 	}
 	release, err = shard.preventShutdown()
 	if err != nil {
@@ -3872,6 +3875,13 @@ func localFirst(nodes []string, localNode string) []string {
 // localShardStatus returns "" when the local shard can't serve reads. A cold
 // shard reports its status without being loaded.
 func (i *Index) localShardStatus(shardName string) (string, error) {
+	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
+	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
+		node := i.getSchema.NodeName()
+		if !slices.Contains(r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, []string{node}), node) {
+			return "", nil
+		}
+	}
 	shard, cold, release, err := i.shardForStatusRead(shardName)
 	defer release()
 	if err != nil {
@@ -3879,13 +3889,6 @@ func (i *Index) localShardStatus(shardName string) (string, error) {
 	}
 	if cold {
 		return storagestate.StatusLazyLoading.String(), nil
-	}
-	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
-	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
-		node := i.getSchema.NodeName()
-		if !slices.Contains(r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, []string{node}), node) {
-			return "", nil
-		}
 	}
 	if shard == nil {
 		return "", nil
