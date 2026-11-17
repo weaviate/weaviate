@@ -1250,3 +1250,351 @@ func TestStreamRebuildCentroidGraph(t *testing.T) {
 	require.NoError(t, s.checkCoverage())
 	assert.Equal(t, total, s.liveCount)
 }
+
+// A refresh repeats the edge step of an insert for a vector that is in the
+// index. Its list becomes what the rule of the insert gives over its own
+// search, entered through its posting: the nearest neighbors found, itself
+// left out, that are outside its posting, with no endpoint twice. It enters
+// the lists of those neighbors as a new vector does, and not where it is
+// already. Nothing else changes: no other list, nothing of the partition and
+// none of the counts of the inserts. Over an exact batch build, with a search
+// that compares everything it reaches exactly, every list stays as it was.
+func TestStreamRefresh(t *testing.T) {
+	const batch, total = 1200, 2400
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 947)
+	provider := distancer.NewL2SquaredProvider()
+
+	tests := []struct {
+		name    string
+		inverse bool
+		// upto is how far the inserts go before the refresh, and ef and
+		// rescore are the search parameters of the inserts and the refresh.
+		upto, ef, rescore int
+		// exact: the batch build probes every posting and compares every
+		// candidate exactly.
+		exact bool
+	}{
+		{name: "an exact batch build, a search that compares all it reaches", inverse: true, upto: batch, ef: total, rescore: total, exact: true},
+		{name: "grown by inserts", inverse: true, upto: 2200, ef: 64, rescore: 64},
+		{name: "grown by inserts, a narrow search", inverse: true, upto: 2200, ef: 8, rescore: 20},
+		{name: "grown by inserts, without inverse edges", upto: 2200, ef: 64, rescore: 64},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			if tt.exact {
+				uc.BuildProbe, uc.RescueLimit = 64, total
+			}
+			s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: tt.inverse})
+			uc.Distance, uc.EF, uc.RescoreLimit = "l2-squared", tt.ef, tt.rescore
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+			for id := uint64(batch); id < uint64(tt.upto); id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.cleanCentroidGraph())
+			require.NoError(t, s.checkCoverage())
+			require.Zero(t, s.repeatedEdges(), "the build and the inserts leave no endpoint twice in a list")
+
+			var members [][]uint64
+			var codes [][]uint64
+			for _, l := range s.st.postings.lists {
+				members = append(members, slices.Clone(l.docIDs))
+				codes = append(codes, slices.Clone(l.codes))
+			}
+			postingOf := slices.Clone(s.st.side.postingOf)
+			retired := slices.Clone(s.retired)
+			graph, centroids := s.st.centroids, len(s.st.centroids.vectors)
+			stats := s.stats.clone()
+			docIDs := sequentialIDs(tt.upto, 0)
+			staleness, err := s.edgeRecall(ctx, testLogger(), docIDs)
+			require.NoError(t, err)
+
+			listOf := func(docID uint64) []uint32 {
+				l := s.st.postings.lists[s.st.side.postingOf[docID]]
+				return l.edgesOf(l.member(docID))
+			}
+			type outsider struct {
+				id   uint64
+				dist float32
+				list []uint32
+			}
+			var sum refreshStats
+			wantWrites := make([]int, s.neighbors+1)
+			already, written := 0, 0
+			for _, id := range docIDs {
+				p := s.st.side.postingOf[id]
+				// The search of the refresh, run just before it.
+				ids, dists, err := s.ix.searchFrom(ctx, all[id], s.neighbors+1, nil, []uint64{uint64(p)}, nil)
+				require.NoError(t, err)
+				at := slices.Index(ids, id)
+				require.GreaterOrEqual(t, at, 0, "the search of doc %d finds it", id)
+				ids, dists = slices.Delete(ids, at, at+1), slices.Delete(dists, at, at+1)
+				require.LessOrEqual(t, len(ids), s.neighbors)
+				var want []uint32
+				var outsiders []outsider
+				for i, u := range ids {
+					if s.st.side.postingOf[u] != p {
+						want = append(want, uint32(u))
+						outsiders = append(outsiders, outsider{id: u, dist: dists[i], list: slices.Clone(listOf(u))})
+					}
+				}
+				old := slices.Clone(listOf(id))
+				// For some, every list of the index: only those of the
+				// vector and of its neighbors outside its posting may change.
+				var everything map[uint64][]uint32
+				if id%97 == 0 {
+					everything = edgesByDoc(s)
+				}
+
+				out, err := s.refreshEdges(ctx, []uint64{id})
+				require.NoError(t, err)
+
+				got := listOf(id)
+				require.Truef(t, slices.Equal(want, got), "doc %d: %v by the rule over its search, %v refreshed", id, want, got)
+				require.NotContains(t, got, uint32(id), "a vector is no edge of its own")
+				touched := map[uint64]bool{id: true}
+				writes := 0
+				for _, o := range outsiders {
+					touched[o.id] = true
+					now := listOf(o.id)
+					if len(o.list) == 0 {
+						require.Empty(t, now, "doc %d has no edges and takes none", o.id)
+						continue
+					}
+					if slices.Contains(o.list, uint32(id)) {
+						// Only the inverse edges look at the neighbors.
+						if tt.inverse {
+							already++
+						}
+						require.Truef(t, slices.Equal(o.list, now), "doc %d had doc %d already and keeps its edges", o.id, id)
+						continue
+					}
+					worst, err := provider.SingleDist(all[o.id], all[o.list[len(o.list)-1]])
+					require.NoError(t, err)
+					if !tt.inverse || o.dist >= worst {
+						require.Truef(t, slices.Equal(o.list, now), "doc %d keeps its edges", o.id)
+						continue
+					}
+					// In the place its distance gives it, and the worst
+					// edge gone.
+					writes++
+					place := slices.Index(now, uint32(id))
+					require.GreaterOrEqual(t, place, 0, "doc %d, at %f of doc %d whose worst edge is at %f, is among its edges", id, o.dist, o.id, worst)
+					rest := slices.Delete(slices.Clone(now), place, place+1)
+					require.Truef(t, slices.Equal(o.list[:len(o.list)-1], rest), "doc %d: %v before, %v now", o.id, o.list, now)
+					if place > 0 {
+						nearer, err := provider.SingleDist(all[o.id], all[now[place-1]])
+						require.NoError(t, err)
+						require.LessOrEqual(t, nearer, o.dist)
+					}
+					if place+1 < len(now) {
+						farther, err := provider.SingleDist(all[o.id], all[now[place+1]])
+						require.NoError(t, err)
+						require.Greater(t, farther, o.dist)
+					}
+				}
+				for docID, list := range everything {
+					if !touched[docID] {
+						require.Truef(t, slices.Equal(list, listOf(docID)), "doc %d is no neighbor of doc %d and keeps its edges", docID, id)
+					}
+				}
+
+				kept := 0
+				for _, endpoint := range want {
+					if slices.Contains(old, endpoint) {
+						kept++
+					}
+				}
+				require.Equal(t, 1, out.Refreshed)
+				require.Zero(t, out.SelfMissing)
+				require.Equal(t, len(old), out.EdgesBefore)
+				require.Equal(t, len(want), out.EdgesAfter)
+				require.Equal(t, kept, out.EdgesKept)
+				require.Equal(t, !slices.Equal(old, want), out.ListsChanged == 1)
+				require.Equal(t, writes, out.Work.InverseEdges)
+				require.Equal(t, 1, out.Work.SearchLoadsHist[out.Work.SearchLoads], "one search, with the loads it is charged")
+				require.Positive(t, out.Work.SearchRescored)
+				require.Zero(t, out.Work.Inserted, "a refresh is no insert")
+				written += writes
+				wantWrites[writes]++
+				sum.Refreshed += out.Refreshed
+				sum.ListsChanged += out.ListsChanged
+				sum.EdgesBefore += out.EdgesBefore
+				sum.EdgesAfter += out.EdgesAfter
+				sum.EdgesKept += out.EdgesKept
+				sum.Work.InverseAlready += out.Work.InverseAlready
+				if tt.inverse {
+					require.Equal(t, 1, out.Work.InverseWrites[writes], "one refresh, with the inverse edges it wrote")
+				} else {
+					require.Nil(t, out.Work.InverseWrites)
+				}
+			}
+
+			// Nothing but edges changed, and the inserts keep their counts.
+			require.NoError(t, s.checkCoverage())
+			require.Zero(t, s.repeatedEdges(), "a refresh leaves no endpoint twice in a list")
+			for p, l := range s.st.postings.lists {
+				require.Equal(t, members[p], l.docIDs, "the members of posting %d", p)
+				require.Equal(t, codes[p], l.codes, "the codes of posting %d", p)
+			}
+			require.Equal(t, postingOf, s.st.side.postingOf)
+			require.Equal(t, retired, s.retired)
+			require.Same(t, graph, s.st.centroids)
+			require.Len(t, s.st.centroids.vectors, centroids)
+			require.Equal(t, stats, s.stats, "a refresh is no insert")
+
+			assert.Equal(t, tt.upto, sum.Refreshed)
+			assert.Equal(t, already, sum.Work.InverseAlready)
+			switch {
+			case tt.exact:
+				// The lists are those of the rule already: none changes, and
+				// a vector that beats the worst edge of a neighbor is among
+				// its edges.
+				assert.Zero(t, sum.ListsChanged)
+				assert.Zero(t, written)
+				assert.Equal(t, sum.EdgesBefore, sum.EdgesAfter)
+				assert.Equal(t, sum.EdgesBefore, sum.EdgesKept)
+				assert.Positive(t, already)
+			case tt.inverse:
+				assert.Positive(t, sum.ListsChanged)
+				assert.Positive(t, written)
+				assert.Positive(t, already, "some neighbors have the refreshed vector among their edges")
+				assert.Positive(t, wantWrites[0], "some refreshes write no inverse edge")
+			default:
+				assert.Positive(t, sum.ListsChanged)
+				assert.Zero(t, written)
+				assert.Zero(t, already, "without inverse edges no neighbor is looked at")
+			}
+			if tt.ef >= 64 && !tt.exact {
+				// What the refresh is for: the edges of the vectors against
+				// the corpus as it is now.
+				fresh, err := s.edgeRecall(ctx, testLogger(), docIDs)
+				require.NoError(t, err)
+				assert.Greater(t, fresh.recall(), staleness.recall())
+			}
+
+			// A vector that is not in the index has nothing to refresh, and
+			// the counts of the inserts come back all the same.
+			if tt.upto < total {
+				_, err := s.refreshEdges(ctx, []uint64{uint64(tt.upto)})
+				require.Error(t, err)
+				require.Equal(t, stats, s.stats)
+			}
+			_, err = s.refreshEdges(ctx, []uint64{total})
+			require.Error(t, err)
+
+			// The inserts go on.
+			for id := uint64(tt.upto); id < total; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.checkCoverage())
+			require.Zero(t, s.repeatedEdges())
+			assert.Equal(t, total, s.liveCount)
+		})
+	}
+}
+
+// The stages of a refresh add up: several vectors refreshed in one call are
+// counted as each of them alone, in the order given.
+func TestStreamRefreshEdgesCounts(t *testing.T) {
+	const batch, total = 1200, 2000
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 389)
+	build := func() *streamIndex {
+		uc := smallConfig()
+		s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: true})
+		uc.Distance, uc.EF = "l2-squared", 64
+		require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+		for id := uint64(batch); id < total; id++ {
+			require.NoError(t, s.insert(ctx, id, all[id]))
+		}
+		return s
+	}
+	docIDs := sequentialIDs(300, 100)
+
+	one, each := build(), build()
+	require.Equal(t, edgesByDoc(one), edgesByDoc(each), "the two indexes are built the same")
+	got, err := one.refreshEdges(ctx, docIDs)
+	require.NoError(t, err)
+
+	var want refreshStats
+	want.Work.InverseWrites = make([]int, each.neighbors+1)
+	want.Work.InversePostings = make([]int, each.neighbors+1)
+	for _, id := range docIDs {
+		out, err := each.refreshEdges(ctx, []uint64{id})
+		require.NoError(t, err)
+		want.Refreshed += out.Refreshed
+		want.SelfMissing += out.SelfMissing
+		want.ListsChanged += out.ListsChanged
+		want.EdgesBefore += out.EdgesBefore
+		want.EdgesAfter += out.EdgesAfter
+		want.EdgesKept += out.EdgesKept
+		want.Work.InverseEdges += out.Work.InverseEdges
+		want.Work.InverseChecks += out.Work.InverseChecks
+		want.Work.InverseDistances += out.Work.InverseDistances
+		want.Work.InverseAlready += out.Work.InverseAlready
+		want.Work.SearchLoads += out.Work.SearchLoads
+		want.Work.SearchRounds += out.Work.SearchRounds
+		want.Work.SearchScanned += out.Work.SearchScanned
+		want.Work.SearchEndpoints += out.Work.SearchEndpoints
+		want.Work.SearchRescored += out.Work.SearchRescored
+		for w, count := range out.Work.InverseWrites {
+			want.Work.InverseWrites[w] += count
+		}
+		for w, count := range out.Work.InversePostings {
+			want.Work.InversePostings[w] += count
+		}
+	}
+	require.Equal(t, edgesByDoc(each), edgesByDoc(one), "one call or many, the same edges")
+	assert.Equal(t, len(docIDs), got.Refreshed)
+	assert.Positive(t, got.Time)
+	got.Time, got.Work.SearchLoadsHist = 0, nil
+	assert.Equal(t, want, got)
+	assert.Positive(t, got.Work.InverseChecks)
+	assert.Equal(t, got.Work.InverseEdges, func() int {
+		sum := 0
+		for w, count := range got.Work.InverseWrites {
+			sum += w * count
+		}
+		return sum
+	}())
+}
+
+// repeatedEdges counts the vectors with an endpoint twice among their edges,
+// which checkCoverage lets through.
+func TestStreamRepeatedEdges(t *testing.T) {
+	all := clusteredVectors(1200, 24, 30, 53)
+	s := newStreamTestIndex(t, all, 1200, smallConfig(), streamConfig{threshold: 60, inverse: true})
+	require.Zero(t, s.repeatedEdges())
+
+	tests := []struct {
+		name    string
+		repeats func(edges []uint32) []uint32
+		want    int
+	}{
+		{name: "its edges as they are", repeats: func(edges []uint32) []uint32 { return edges }, want: 0},
+		{name: "the first edge twice, together", repeats: func(edges []uint32) []uint32 { return append([]uint32{edges[0]}, edges...) }, want: 1},
+		{name: "the first edge twice, apart", repeats: func(edges []uint32) []uint32 { return append(slices.Clone(edges), edges[0]) }, want: 1},
+		{name: "two edges twice count once", repeats: func(edges []uint32) []uint32 { return append(slices.Clone(edges), edges[:2]...) }, want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// A vector with two edges or more, and its list put back after.
+			for p := range s.st.postings.lists {
+				l := &s.st.postings.lists[p]
+				for i := range l.docIDs {
+					if edges := slices.Clone(l.edgesOf(i)); len(edges) >= 2 {
+						l.setEdges(i, tt.repeats(edges))
+						assert.Equal(t, tt.want, s.repeatedEdges())
+						assert.NoError(t, s.checkCoverage(), "the coverage does not look for them")
+						l.setEdges(i, edges)
+						require.Zero(t, s.repeatedEdges())
+						return
+					}
+				}
+			}
+			t.Fatal("no vector has two edges")
+		})
+	}
+}

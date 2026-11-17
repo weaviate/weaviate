@@ -126,6 +126,10 @@ type streamStats struct {
 	// would do.
 	InverseChecks    int `json:"inverseChecks"`
 	InverseDistances int `json:"inverseDistances"`
+	// InverseAlready counts the neighbors that had the vector among their
+	// edges already, and were left as they were. A new vector is in no list:
+	// only a refresh finds any.
+	InverseAlready int `json:"inverseAlready,omitempty"`
 	// InverseWrites counts the inserts by the inverse edges each wrote:
 	// InverseWrites[w] inserts wrote w. InversePostings counts them by the
 	// distinct postings those lists live in, which is what an insert writes
@@ -469,8 +473,10 @@ func (s *streamIndex) nearestCentroid(vector []float32) (uint32, error) {
 // enterNeighbors gives the new vector, in posting p, a place in the edges of
 // each of its neighbors outside p whose worst edge it beats: it takes the
 // place its distance gives it, the list stays nearest first, and the worst
-// edge goes. A neighbor without edges takes none. dists are the exact
-// distances from the new vector to its neighbors.
+// edge goes. A neighbor without edges takes none, and neither does one that
+// has the vector among its edges already, which only a vector that was in
+// the index before can find. dists are the exact distances from the vector to
+// its neighbors.
 func (s *streamIndex) enterNeighbors(docID uint64, p uint32, neighbors []uint64, dists []float32) error {
 	writes := 0
 	s.written = s.written[:0]
@@ -486,6 +492,10 @@ func (s *streamIndex) enterNeighbors(docID uint64, p uint32, neighbors []uint64,
 		}
 		edges := l.edgesOf(m)
 		if len(edges) == 0 {
+			continue
+		}
+		if slices.Contains(edges, uint32(docID)) {
+			s.stats.InverseAlready++
 			continue
 		}
 		s.stats.InverseChecks++
@@ -700,6 +710,127 @@ func (s *streamIndex) repairEdges(ctx context.Context, q uint32) error {
 		s.stats.Repaired++
 	}
 	return nil
+}
+
+// refreshStats counts what a refresh of the edges of some vectors did.
+type refreshStats struct {
+	Refreshed int `json:"refreshed"`
+	// SelfMissing counts the vectors their own search did not return.
+	SelfMissing int `json:"selfMissing"`
+	// ListsChanged counts the vectors whose list is not the one they had.
+	// EdgesBefore, EdgesAfter and EdgesKept count the edges of all the
+	// refreshed vectors before, after, and in both lists.
+	ListsChanged int `json:"listsChanged"`
+	EdgesBefore  int `json:"edgesBefore"`
+	EdgesAfter   int `json:"edgesAfter"`
+	EdgesKept    int `json:"edgesKept"`
+	// Work is the work of the searches and of the inverse edges, counted as
+	// the inserts count theirs and apart from them. Nothing else in it is
+	// set: a refresh assigns, writes and splits nothing.
+	Work streamStats   `json:"work"`
+	Time time.Duration `json:"ns"`
+}
+
+// refreshEdges refreshes the edges of the given vectors, one after another
+// in the order given, and returns what that took. The counts of the inserts
+// are left as they were.
+func (s *streamIndex) refreshEdges(ctx context.Context, docIDs []uint64) (refreshStats, error) {
+	var out refreshStats
+	inserts := s.stats
+	defer func() { s.stats = inserts }()
+	s.stats = streamStats{}
+	if s.cfg.inverse {
+		s.stats.InverseWrites = make([]int, s.neighbors+1)
+		s.stats.InversePostings = make([]int, s.neighbors+1)
+	}
+	begin := time.Now()
+	for _, docID := range docIDs {
+		if err := s.refresh(ctx, docID, &out); err != nil {
+			return out, err
+		}
+	}
+	out.Time = time.Since(begin)
+	out.Work = s.stats
+	return out, nil
+}
+
+// refresh repeats the edge step of the insert of a vector that is in the
+// index. Its edge search enters through its own posting, where the search of
+// an insert enters through the posting its vector was given. Its list
+// becomes what an insert writes: of the nearest neighbors the search finds,
+// itself left out, those outside its posting. And it takes its place in the
+// edges of those neighbors as a new vector does, except where it has one
+// already. The vector stays where it is: no posting, member, code or
+// centroid changes. The search parameters are the index's own, as for an
+// insert, and the work is counted in the stats of the index.
+func (s *streamIndex) refresh(ctx context.Context, docID uint64, out *refreshStats) error {
+	if docID >= uint64(len(s.live)) || !s.live[docID] {
+		return errors.Errorf("doc %d is not in the index", docID)
+	}
+	p := s.st.side.postingOf[docID]
+	l := &s.st.postings.lists[p]
+	m := l.member(docID)
+	if m < 0 {
+		return errors.Errorf("doc %d is not in posting %d, where the map has it", docID, p)
+	}
+
+	// One more than an insert asks for: the search finds the vector itself.
+	var work SearchStats
+	ids, dists, err := s.ix.searchFrom(ctx, s.vectorOf(docID), s.neighbors+1, nil, []uint64{uint64(p)}, &work)
+	if err != nil {
+		return errors.Wrapf(err, "search the neighbors of doc %d", docID)
+	}
+	s.stats.countSearch(work)
+	if at := slices.Index(ids, docID); at >= 0 {
+		ids, dists = slices.Delete(ids, at, at+1), slices.Delete(dists, at, at+1)
+	} else {
+		out.SelfMissing++
+	}
+	ids, dists = ids[:min(len(ids), s.neighbors)], dists[:min(len(dists), s.neighbors)]
+
+	edges := s.outside(ids, p)
+	old := l.edgesOf(m)
+	out.EdgesBefore += len(old)
+	out.EdgesAfter += len(edges)
+	for _, endpoint := range edges {
+		if slices.Contains(old, endpoint) {
+			out.EdgesKept++
+		}
+	}
+	if !slices.Equal(old, edges) {
+		l.setEdges(m, edges)
+		out.ListsChanged++
+	}
+	if s.cfg.inverse {
+		if err := s.enterNeighbors(docID, p, ids, dists); err != nil {
+			return err
+		}
+	}
+	out.Refreshed++
+	return nil
+}
+
+// repeatedEdges counts the live vectors whose edges hold the same endpoint
+// more than once. No step of the index should leave any, and checkCoverage
+// does not look for them.
+func (s *streamIndex) repeatedEdges() int {
+	repeated := 0
+	for p := range s.st.postings.lists {
+		if s.retired[p] {
+			continue
+		}
+		l := &s.st.postings.lists[p]
+		for i := range l.docIDs {
+			edges := l.edgesOf(i)
+			for e := 1; e < len(edges); e++ {
+				if slices.Contains(edges[:e], edges[e]) {
+					repeated++
+					break
+				}
+			}
+		}
+	}
+	return repeated
 }
 
 // checkCoverage checks the invariant of the inserts: every live vector is in

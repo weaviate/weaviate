@@ -60,6 +60,12 @@ var (
 	benchStreamRebuild = flag.Bool("bench.streamrebuild", false, "with a -bench.stream cell that ends at 100: after "+
 		"its last checkpoint, rebuild in batch the edges of every vector over the partition as it is and measure again, "+
 		"and then rebuild the centroid graph too and measure a third time (v2.2, the diagnostic)")
+	benchStreamRebuildGraph = flag.Bool("bench.streamrebuildgraph", true, "with -bench.streamrebuild: rebuild the "+
+		"centroid graph too and measure once more")
+	benchStreamRefresh = flag.String("bench.streamrefresh", "", "with a -bench.stream cell that ends at 100: after its "+
+		"last checkpoint, refresh the edges of the vectors in the order they entered the index in, with the search of "+
+		"an insert, in cumulative stages that end at these shares of the train set, in percent and ascending, and "+
+		"measure after each (v2.3). It comes before -bench.streamrebuild")
 	benchStreamReference = flag.Bool("bench.streamreference", false, "with a -bench.stream cell: build the batch "+
 		"reference over the whole train set first, measure it, and time its frontier and the cell's at the end with "+
 		"the plan of -bench.sweep")
@@ -92,6 +98,9 @@ type streamCheckpoint struct {
 	Inserted edgeCounts `json:"inserted"`
 	Batch    edgeCounts `json:"batch"`
 	Coverage string     `json:"coverage"`
+	// RepeatedEdges counts the live vectors whose edges hold an endpoint
+	// more than once: none should.
+	RepeatedEdges int `json:"repeatedEdges"`
 	// TruthFallbacks counts the queries whose shipped top neighbors held too
 	// few live ones, and whose ground truth was brute-forced.
 	TruthFallbacks int `json:"truthFallbacks"`
@@ -132,6 +141,9 @@ type streamResult struct {
 	BatchBuild  *buildWork         `json:"batchBuild,omitempty"`
 	Checkpoints []streamCheckpoint `json:"checkpoints"`
 	Guards      []streamGuard      `json:"guards,omitempty"`
+	// Refreshed are the stages of the refresh of v2.3, with
+	// -bench.streamrefresh.
+	Refreshed []streamRefresh `json:"refreshed,omitempty"`
 	// Rebuilt is the diagnostic of v2.2, with -bench.streamrebuild.
 	Rebuilt *streamRebuild `json:"rebuilt,omitempty"`
 	Stopped string         `json:"stopped,omitempty"`
@@ -149,6 +161,19 @@ type streamRebuild struct {
 	// rebuilt, and Graph once its centroid graph is too.
 	Edges *streamCheckpoint `json:"edges,omitempty"`
 	Graph *streamCheckpoint `json:"graph,omitempty"`
+}
+
+// streamRefresh is one stage of the refresh of v2.3: the vectors that
+// entered the index at the places [From, To) of the order have their edges
+// refreshed, after those of the stages before, and the cell is measured as a
+// checkpoint is.
+type streamRefresh struct {
+	// Percent is the share of the train set the stage ends at.
+	Percent int               `json:"percent"`
+	From    int               `json:"from"`
+	To      int               `json:"to"`
+	Stats   refreshStats      `json:"stats"`
+	After   *streamCheckpoint `json:"after,omitempty"`
 }
 
 // buildWork is the work of a batch build, in counts, and the postings it
@@ -417,6 +442,7 @@ func TestStream(t *testing.T) {
 		cp.Stats = s.stats.clone()
 		cp.Cohorts = s.degreeByCohort(rank, cohortBounds)
 		cp.Coverage = "complete"
+		cp.RepeatedEdges = s.repeatedEdges()
 		if err := s.checkCoverage(); err != nil {
 			cp.Coverage = err.Error()
 			keep(cp)
@@ -465,6 +491,9 @@ func TestStream(t *testing.T) {
 		for _, c := range cp.Cohorts {
 			t.Logf("%s: the vectors that entered at %d to %d: %d with %.2f edges each",
 				at, c.From, c.To, c.Vectors, float64(c.Edges)/float64(max(c.Vectors, 1)))
+		}
+		if cp.RepeatedEdges > 0 {
+			t.Logf("%s: %d vectors hold an edge more than once", at, cp.RepeatedEdges)
 		}
 		if atInsert.Vectors > 0 && atInsert.recall() < *benchStreamMinEdgeRecall {
 			result.Stopped = fmt.Sprintf("edge recall at insert %.4f in the stretch to %d%%", atInsert.recall(), percent)
@@ -548,6 +577,30 @@ func TestStream(t *testing.T) {
 		}
 	}
 
+	if *benchStreamRefresh != "" {
+		// v2.3: the edges of the vectors refreshed with the search of an
+		// insert, the oldest first, in cumulative stages.
+		require.Equal(t, n, s.liveCount, "the edges are refreshed over the whole train set")
+		from := 0
+		for _, percent := range parseInts(t, *benchStreamRefresh) {
+			upto := n * percent / 100
+			require.Greater(t, upto, from, "the stages of the refresh end at ascending shares")
+			require.LessOrEqual(t, upto, n)
+			// A measurement leaves the search parameters of its last point.
+			require.NoError(t, s.ix.UpdateUserConfig(insertUC, func() {}))
+			stats, err := s.refreshEdges(ctx, order[from:upto])
+			require.NoError(t, err)
+			result.Refreshed = append(result.Refreshed, streamRefresh{Percent: percent, From: from, To: upto, Stats: stats})
+			write()
+			at := fmt.Sprintf("refreshed to %d%%", percent)
+			logRefresh(t, at, stats)
+			stage := len(result.Refreshed) - 1
+			measureAs(at, fmt.Sprintf("refreshed%d", percent), 100, n, insertTime.Seconds(), edgeCounts{},
+				func(cp streamCheckpoint) { result.Refreshed[stage].After = &cp })
+			from = upto
+		}
+	}
+
 	if *benchStreamRebuild {
 		// The diagnostic of v2.2: the same partition with the edges a batch
 		// build gives it, and then with a centroid graph built at once too.
@@ -563,9 +616,11 @@ func TestStream(t *testing.T) {
 			work.PostingsProbed, work.CandidatesScored, work.CandidatesRescored, work.AssignDistances)
 		measureAs("edges rebuilt", "rebuilt-edges", 100, n, insertTime.Seconds(), edgeCounts{},
 			func(cp streamCheckpoint) { result.Rebuilt.Edges = &cp })
-		require.NoError(t, s.rebuildCentroidGraph(ctx))
-		measureAs("edges and centroid graph rebuilt", "rebuilt-graph", 100, n, insertTime.Seconds(), edgeCounts{},
-			func(cp streamCheckpoint) { result.Rebuilt.Graph = &cp })
+		if *benchStreamRebuildGraph {
+			require.NoError(t, s.rebuildCentroidGraph(ctx))
+			measureAs("edges and centroid graph rebuilt", "rebuilt-graph", 100, n, insertTime.Seconds(), edgeCounts{},
+				func(cp streamCheckpoint) { result.Rebuilt.Graph = &cp })
+		}
 	}
 
 	if batchReference == nil {
@@ -586,6 +641,24 @@ func TestStream(t *testing.T) {
 	require.NoError(t, err)
 	timed(batchReference, "reference-docid")
 	timed(s.ix, "cell")
+}
+
+// logRefresh logs what a stage of the refresh took, per refreshed vector.
+func logRefresh(t *testing.T, at string, stats refreshStats) {
+	t.Helper()
+	per := 1 / float64(max(stats.Refreshed, 1))
+	work := stats.Work
+	t.Logf("%s: %d vectors refreshed in %s, %d of their lists changed: %.2f edges each before, %.2f after, %.2f kept | "+
+		"%d did not find themselves",
+		at, stats.Refreshed, stats.Time.Round(time.Second), stats.ListsChanged, float64(stats.EdgesBefore)*per,
+		float64(stats.EdgesAfter)*per, float64(stats.EdgesKept)*per, stats.SelfMissing)
+	t.Logf("%s: the search of a refresh: %.1f loads, %.1f rounds, %.0f scanned, %.0f endpoints, %.1f rescored",
+		at, float64(work.SearchLoads)*per, float64(work.SearchRounds)*per, float64(work.SearchScanned)*per,
+		float64(work.SearchEndpoints)*per, float64(work.SearchRescored)*per)
+	t.Logf("%s: the inverse edges of a refresh: %.2f written, %.2f lists read with %.1f exact distances, %.2f neighbors "+
+		"had it already",
+		at, float64(work.InverseEdges)*per, float64(work.InverseChecks)*per, float64(work.InverseDistances)*per,
+		float64(work.InverseAlready)*per)
 }
 
 // logInsertSearch logs the mean work of the edge search of an insert so far.

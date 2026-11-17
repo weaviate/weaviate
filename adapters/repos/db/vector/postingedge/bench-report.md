@@ -194,6 +194,11 @@ Además, como en cada checkpoint: el recall de arista contra el corpus actual en
 
 **Datos:** `v2.3/dbpedia-1m-grow10-h1-ef80-refresh.json`, de `v2.3/scripts/run_v23_refresh.sh`, y el veredicto en `v2.3/refresh-verdict.md`.
 
+*Smoke después del pre-registro (11:09):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos. No predice 1M y no cambia nada de lo escrito arriba. Enseñó una cosa de la cuenta:
+
+- **Casi todos los vecinos de un vector refrescado ya lo tienen en su lista:** 4.2 por refresco, y cada refresco escribe 0.2 aristas inversas de media, donde un insert escribe 4.
+  - Ningún vector dejó de encontrarse a sí mismo, y ninguna lista repite una arista.
+
 ## v2.2: crecer desde el 10 %, sobre H1 (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 06:34 del 17, antes de compilar nada de esta ronda. Las dos celdas y el build de conteos del lote corrieron de 06:46 a 08:14, y sus resultados están al final de la sección, desde «Resultados de v2.2 (2026-11-17)». Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
