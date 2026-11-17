@@ -1598,3 +1598,596 @@ func TestStreamRepeatedEdges(t *testing.T) {
 		})
 	}
 }
+
+// A refresh on doubling takes the vectors whose edges were last built with
+// half the vectors the index holds now, or fewer: the batch part once the
+// index has doubled, and at each later doubling those refreshed the last time
+// and those that entered up to then. An inverse edge that enters a list does
+// not make it any younger.
+func TestStreamStaleEdges(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		batch, total int
+		inverse      bool
+		// rounds are the sizes of the index at which the stale vectors are
+		// refreshed, and want how many each round takes.
+		rounds, want []int
+	}{
+		{name: "from a tenth, at each doubling", batch: 150, total: 1500, inverse: true, rounds: []int{300, 600, 1200}, want: []int{150, 300, 600}},
+		{name: "the first inserts with the batch part, as in v2.4", batch: 198, total: 2000, inverse: true, rounds: []int{400, 800, 1600}, want: []int{200, 400, 800}},
+		{name: "without inverse edges", batch: 150, total: 700, rounds: []int{300, 600}, want: []int{150, 300}},
+		{name: "one vector short of the double", batch: 150, total: 400, inverse: true, rounds: []int{299}, want: []int{0}},
+		{name: "a round that comes late", batch: 150, total: 800, inverse: true, rounds: []int{700}, want: []int{350}},
+		{name: "the same size twice", batch: 150, total: 400, inverse: true, rounds: []int{300, 300}, want: []int{150, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			all := clusteredVectors(tt.total, 24, 1, 211)
+			uc := smallConfig()
+			s := newStreamTestIndex(t, all, tt.batch, uc, streamConfig{threshold: 60, inverse: tt.inverse})
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+
+			// Kept apart from the index: the size at which the edges of
+			// every vector were last built.
+			built := make([]int, tt.total)
+			for id := range tt.batch {
+				built[id] = tt.batch
+			}
+			check := func() {
+				t.Helper()
+				for id := range s.liveCount {
+					require.Equalf(t, uint32(built[id]), s.builtAt[id], "doc %d", id)
+				}
+			}
+			check()
+			next := uint64(tt.batch)
+			total := 0
+			for i, size := range tt.rounds {
+				for ; next < uint64(size); next++ {
+					require.NoError(t, s.insert(ctx, next, all[next]))
+					built[next] = int(next) + 1
+				}
+				require.Equal(t, size, s.liveCount)
+				check()
+
+				var want []uint64
+				for id := range size {
+					if 2*built[id] <= size {
+						want = append(want, uint64(id))
+					}
+				}
+				stale := s.staleEdges(sequentialIDs(size, 0))
+				require.Equal(t, want, stale, "the stale vectors, in the order given")
+				require.Len(t, stale, tt.want[i])
+				total += len(stale)
+
+				stats, err := s.refreshEdges(ctx, stale)
+				require.NoError(t, err)
+				require.Equal(t, len(stale), stats.Refreshed)
+				if len(stale) > 0 {
+					require.Positive(t, stats.EdgesAfter, "the refreshed vectors have neighbors in other postings")
+				}
+				for _, id := range stale {
+					built[id] = size
+				}
+				check()
+				require.Empty(t, s.staleEdges(sequentialIDs(size, 0)), "a refreshed vector is not stale")
+			}
+			for ; next < uint64(tt.total); next++ {
+				require.NoError(t, s.insert(ctx, next, all[next]))
+				built[next] = int(next) + 1
+			}
+			check()
+			require.NoError(t, s.cleanCentroidGraph())
+			require.NoError(t, s.checkCoverage())
+			require.Zero(t, s.repeatedEdges())
+			sum := 0
+			for _, w := range tt.want {
+				sum += w
+			}
+			require.Equal(t, sum, total)
+		})
+	}
+}
+
+// A snapshot of the edges puts back every list as it was, whatever was done
+// to the edges since, and says so when the vectors are not where they were.
+func TestStreamSnapshotRestoreEdges(t *testing.T) {
+	const batch, upto, total = 1200, 2000, 2400
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 6, 397)
+
+	tests := []struct {
+		name string
+		// change is what happens between the snapshot and its restore.
+		change  func(t *testing.T, s *streamIndex)
+		wantErr string
+	}{
+		{name: "nothing", change: func(*testing.T, *streamIndex) {}},
+		{name: "a refresh of every vector", change: func(t *testing.T, s *streamIndex) {
+			_, err := s.refreshEdges(ctx, sequentialIDs(upto, 0))
+			require.NoError(t, err)
+		}},
+		{name: "a batch rebuild", change: func(t *testing.T, s *streamIndex) {
+			_, err := s.rebuildEdges(ctx, testLogger(), 6, 64)
+			require.NoError(t, err)
+		}},
+		{name: "no edges at all", change: func(_ *testing.T, s *streamIndex) {
+			s.replaceEdges(func(uint64) []uint32 { return nil })
+		}},
+		{name: "an insert", wantErr: "snapshot", change: func(t *testing.T, s *streamIndex) {
+			require.NoError(t, s.insert(ctx, upto, all[upto]))
+		}},
+		{name: "inserts that split postings", wantErr: "snapshot", change: func(t *testing.T, s *streamIndex) {
+			for id := uint64(upto); id < total; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: true})
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+			for id := uint64(batch); id < upto; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.cleanCentroidGraph())
+
+			want, wantBuilt, digest := edgesByDoc(s), slices.Clone(s.builtAt), s.edgesDigest()
+			edges := 0
+			for _, list := range want {
+				edges += len(list)
+			}
+			require.Greater(t, edges, upto, "the vectors have edges to put back")
+			snap := s.snapshotEdges()
+			require.Equal(t, digest, snap.digest)
+			tt.change(t, s)
+
+			err := s.restoreEdges(snap)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, want, edgesByDoc(s))
+			require.Equal(t, wantBuilt, s.builtAt)
+			require.Equal(t, digest, s.edgesDigest())
+			require.NoError(t, s.checkCoverage())
+
+			// The index does not share its lists with the snapshot: it can be
+			// restored again.
+			_, err = s.refreshEdges(ctx, sequentialIDs(upto, 0))
+			require.NoError(t, err)
+			require.NoError(t, s.restoreEdges(snap))
+			require.Equal(t, want, edgesByDoc(s))
+		})
+	}
+}
+
+// The digest of the edges tells two lists apart by any endpoint and by the
+// order of the endpoints.
+func TestStreamEdgesDigest(t *testing.T) {
+	const batch = 1200
+	all := clusteredVectors(batch, 24, 6, 401)
+	s := newStreamTestIndex(t, all, batch, smallConfig(), streamConfig{threshold: 60, inverse: true})
+	digest := s.edgesDigest()
+	require.Equal(t, digest, s.edgesDigest())
+
+	// A vector with two edges or more, and an endpoint its list lacks.
+	var l *postingList
+	member := -1
+	for p := range s.st.postings.lists {
+		l = &s.st.postings.lists[p]
+		for i := range l.docIDs {
+			if len(l.edgesOf(i)) >= 2 {
+				member = i
+				break
+			}
+		}
+		if member >= 0 {
+			break
+		}
+	}
+	require.GreaterOrEqual(t, member, 0)
+	edges := slices.Clone(l.edgesOf(member))
+
+	tests := []struct {
+		name   string
+		change func(edges []uint32) []uint32
+	}{
+		{name: "two endpoints swapped", change: func(e []uint32) []uint32 { e[0], e[1] = e[1], e[0]; return e }},
+		{name: "one endpoint replaced", change: func(e []uint32) []uint32 { e[0] = e[0] ^ 1; return e }},
+		{name: "one endpoint dropped", change: func(e []uint32) []uint32 { return e[1:] }},
+		{name: "every endpoint dropped", change: func([]uint32) []uint32 { return nil }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l.setEdges(member, tt.change(slices.Clone(edges)))
+			require.NotEqual(t, digest, s.edgesDigest())
+			l.setEdges(member, edges)
+			require.Equal(t, digest, s.edgesDigest())
+		})
+	}
+}
+
+// replaceEdges gives every vector the list it is told, and incomingEdges
+// counts the edges that end in every posting.
+func TestStreamReplaceAndIncomingEdges(t *testing.T) {
+	const batch, upto = 1200, 2200
+	ctx := context.Background()
+	all := clusteredVectors(upto, 24, 6, 433)
+	uc := smallConfig()
+	s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: true})
+	uc.Distance, uc.EF = "l2-squared", 64
+	require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+	for id := uint64(batch); id < upto; id++ {
+		require.NoError(t, s.insert(ctx, id, all[id]))
+	}
+	require.NoError(t, s.cleanCentroidGraph())
+
+	count := func() []int {
+		incoming := make([]int, len(s.st.postings.lists))
+		for _, edges := range edgesByDoc(s) {
+			for _, endpoint := range edges {
+				incoming[s.st.side.postingOf[endpoint]]++
+			}
+		}
+		return incoming
+	}
+	check := func() {
+		t.Helper()
+		incoming := s.incomingEdges()
+		require.Equal(t, count(), incoming)
+		total, edges := 0, 0
+		for p, n := range incoming {
+			total += n
+			edges += len(s.st.postings.lists[p].edges)
+			if s.retired[p] {
+				require.Zerof(t, n, "retired posting %d", p)
+			}
+		}
+		require.Equal(t, edges, total, "every edge ends in one posting")
+		require.Greater(t, total, upto, "the vectors have edges to count")
+	}
+	check()
+
+	grown := edgesByDoc(s)
+	_, err := s.rebuildEdges(ctx, testLogger(), 6, 64)
+	require.NoError(t, err)
+	require.NotEqual(t, grown, edgesByDoc(s))
+	check()
+
+	s.replaceEdges(func(docID uint64) []uint32 { return grown[docID] })
+	got := edgesByDoc(s)
+	require.Len(t, got, len(grown))
+	for docID, edges := range grown {
+		// A vector without edges has none, as a nil list or an empty one.
+		require.Truef(t, slices.Equal(edges, got[docID]), "doc %d: %v, not %v", docID, got[docID], edges)
+	}
+	require.NoError(t, s.checkCoverage())
+	check()
+}
+
+// A sample followed through the batch rule and through a refresh tells, for
+// every neighbor the rule asks for and a list lacks, where it was lost: in a
+// posting the rule did not read, or in one it read, behind the candidates it
+// compared exactly.
+func TestWhySample(t *testing.T) {
+	const batch, upto = 1200, 2200
+	ctx := context.Background()
+	all := clusteredVectors(upto, 24, 6, 457)
+
+	tests := []struct {
+		name    string
+		inverse bool
+		// ef and rescore are the search of the refresh, probe and rescue the
+		// batch rule.
+		ef, rescore, probe, rescue int
+		// exhaustive: the search reads every posting it knows and compares
+		// every candidate exactly, and so does the batch rule with those it
+		// reads.
+		exhaustive bool
+	}{
+		{name: "a search and a rule that compare all they read", inverse: true, ef: upto, rescore: upto, probe: 6, rescue: upto, exhaustive: true},
+		{name: "a rule that reads every posting", inverse: true, ef: upto, rescore: upto, probe: 4096, rescue: upto, exhaustive: true},
+		{name: "a narrow search and a narrow rule", inverse: true, ef: 8, rescore: 20, probe: 3, rescue: 20},
+		{name: "the search of an insert", inverse: true, ef: 64, rescore: 64, probe: 16, rescue: 64},
+		{name: "without inverse edges", ef: 64, rescore: 64, probe: 16, rescue: 64},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: tt.inverse})
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+			for id := uint64(batch); id < upto; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.cleanCentroidGraph())
+			require.NoError(t, s.checkCoverage())
+			ids := sequentialIDs(upto, 0)
+			postingOf := s.st.side.postingOf
+
+			// As the cell does: the batch rule first, then the edges of the
+			// cell put back and every vector refreshed.
+			snap := s.snapshotEdges()
+			incoming := map[string][]int{"final": s.incomingEdges()}
+			probes := map[uint64][]uint32{}
+			s.onRebuild = func(docID uint64, p []uint32) { probes[docID] = slices.Clone(p) }
+			_, err := s.rebuildEdges(ctx, testLogger(), tt.probe, tt.rescue)
+			require.NoError(t, err)
+			s.onRebuild = nil
+			require.Len(t, probes, upto)
+
+			w, err := newWhySample(ctx, testLogger(), s, ids)
+			require.NoError(t, err)
+			for docID, p := range probes {
+				w.probes(docID, p)
+			}
+			w.keep(func(v *whyVector) *[]uint32 { return &v.rebuilt })
+			incoming["rebuilt"] = s.incomingEdges()
+			rebuilt, err := s.edgeRecall(ctx, testLogger(), ids)
+			require.NoError(t, err)
+			require.NoError(t, s.restoreEdges(snap))
+
+			uc.EF, uc.RescoreLimit = tt.ef, tt.rescore
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+			own := map[uint64][]uint32{}
+			s.traceRefresh = w.trace
+			s.onRefresh = func(docID uint64, edges []uint32) {
+				own[docID] = slices.Clone(edges)
+				w.refreshedTo(docID, edges)
+			}
+			stats, err := s.refreshEdges(ctx, ids)
+			require.NoError(t, err)
+			s.traceRefresh, s.onRefresh = nil, nil
+			require.Equal(t, upto, stats.Refreshed)
+			w.keep(func(v *whyVector) *[]uint32 { return &v.refreshed })
+			incoming["refreshed"] = s.incomingEdges()
+			final := edgesByDoc(s)
+
+			got, err := w.analyze(incoming)
+			require.NoError(t, err)
+
+			// Counted apart from the sample, from the lists themselves.
+			var wanted, ownCaptured, inverseOut, inverseIn int
+			for i := range w.vectors {
+				v := &w.vectors[i]
+				require.Equal(t, postingOf[v.docID], v.posting)
+				require.Equal(t, own[v.docID], v.own, "the list the refresh of doc %d wrote", v.docID)
+				require.Equal(t, final[v.docID], v.refreshed)
+				require.Len(t, v.refreshed, len(v.own), "an inverse edge takes the place of another")
+				for j, nb := range v.nearest {
+					require.Equal(t, postingOf[nb.id], v.targets[j])
+					bit := uint32(1) << j
+					inOwn := slices.Contains(v.own, uint32(nb.id))
+					if v.targets[j] == v.posting {
+						require.NotZero(t, v.loaded&bit, "the posting of doc %d is where its search enters", v.docID)
+						require.False(t, inOwn, "an edge of doc %d inside its posting", v.docID)
+						continue
+					}
+					wanted++
+					if inOwn {
+						ownCaptured++
+						require.NotZero(t, v.loaded&bit, "doc %d has an edge to a posting its search did not read", v.docID)
+					}
+					if v.loaded&bit != 0 {
+						require.NotZero(t, v.known&bit, "the search of doc %d read a posting no edge led it to", v.docID)
+					}
+					if slices.Contains(v.rebuilt, uint32(nb.id)) {
+						require.NotZero(t, v.probed&bit, "the batch rule gave doc %d an edge to a posting it did not read", v.docID)
+					}
+					if tt.exhaustive {
+						// Read and compared exactly is found.
+						require.Equal(t, v.loaded&bit != 0, inOwn, "doc %d, neighbor %d", v.docID, nb.id)
+						require.Equal(t, v.known&bit != 0, v.loaded&bit != 0, "a search with no stop reads every posting it knows")
+						require.Equal(t, v.probed&bit != 0, slices.Contains(v.rebuilt, uint32(nb.id)), "doc %d, neighbor %d", v.docID, nb.id)
+					}
+				}
+				for _, endpoint := range v.own {
+					if !slices.Contains(v.refreshed, endpoint) {
+						inverseOut++
+					}
+				}
+				for _, endpoint := range v.refreshed {
+					if !slices.Contains(v.own, endpoint) {
+						inverseIn++
+					}
+				}
+			}
+
+			require.Equal(t, upto, got.Sample)
+			require.Equal(t, rebuilt.Wanted, wanted, "the neighbors the rule asks for, as the edge recall counts them")
+			require.Equal(t, wanted, got.Wanted)
+			require.Equal(t, wanted-ownCaptured, got.Refresh.Missed)
+			require.Equal(t, rebuilt.Wanted-rebuilt.Captured, got.Batch.Missed)
+			require.Equal(t, got.Refresh.Missed, got.Refresh.Unreached+got.Refresh.KnownNotRead+got.Refresh.Read)
+			require.Equal(t, got.Batch.Missed, got.Batch.Unreached+got.Batch.Read)
+			require.Zero(t, got.Batch.KnownNotRead)
+			require.LessOrEqual(t, got.BothMissed, min(got.Refresh.Missed, got.Batch.Missed))
+			require.Equal(t, inverseOut, got.InverseOut)
+			require.Equal(t, inverseIn, got.InverseIn)
+			require.Equal(t, got.InverseOut, got.InverseIn)
+			require.LessOrEqual(t, got.InverseOutExact, got.InverseOut)
+			require.LessOrEqual(t, got.InverseInExact, got.InverseIn)
+			require.Positive(t, got.Wanted, "the vectors have neighbors in other postings")
+			switch {
+			case tt.inverse && !tt.exhaustive:
+				// A vector whose search missed a neighbor gets it when that
+				// neighbor is refreshed after it.
+				require.Positive(t, stats.Work.InverseEdges)
+				require.Positive(t, got.InverseIn, "inverse edges change lists their own refresh wrote")
+			case tt.inverse:
+				require.Positive(t, stats.Work.InverseEdges)
+			default:
+				require.Zero(t, got.InverseIn)
+				refreshed, err := s.edgeRecall(ctx, testLogger(), ids)
+				require.NoError(t, err)
+				require.Equal(t, refreshed.Wanted-refreshed.Captured, got.Refresh.Missed)
+				require.Zero(t, stats.Work.InverseEdges)
+			}
+			if tt.exhaustive {
+				require.Zero(t, got.Refresh.Read)
+				require.Zero(t, got.Refresh.KnownNotRead)
+				require.Zero(t, got.Batch.Read)
+			} else {
+				require.Positive(t, got.Refresh.Read+got.Refresh.KnownNotRead+got.Refresh.Unreached)
+				require.Positive(t, got.Batch.Read)
+			}
+			if tt.probe < 16 {
+				require.Positive(t, got.Batch.Unreached, "a rule that reads %d postings", tt.probe)
+			}
+			if tt.probe >= len(s.st.postings.lists) {
+				require.Zero(t, got.Batch.Missed, "a rule that reads everything and compares it exactly")
+			}
+
+			live := 0
+			for p := range s.st.postings.lists {
+				if !s.retired[p] {
+					live++
+				}
+			}
+			for _, name := range []string{"final", "rebuilt", "refreshed"} {
+				edges := 0
+				for _, n := range incoming[name] {
+					edges += n
+				}
+				require.InDelta(t, float64(edges)/float64(live), got.Incoming[name].Mean, 1e-6)
+				for _, key := range []string{name, name + "PerMember"} {
+					fifths := got.Fifths[key]
+					require.Len(t, fifths, 5, key)
+					var sum whyFifth
+					for i, f := range fifths {
+						require.LessOrEqual(t, f.From, f.To)
+						if i > 0 {
+							require.LessOrEqual(t, fifths[i-1].To, f.From)
+						}
+						sum.Wanted += f.Wanted
+						sum.RefreshMissed += f.RefreshMissed
+						sum.BatchMissed += f.BatchMissed
+					}
+					require.Equal(t, got.Wanted, sum.Wanted)
+					require.Equal(t, got.Refresh.Missed, sum.RefreshMissed)
+					require.Equal(t, got.Batch.Missed, sum.BatchMissed)
+				}
+			}
+		})
+	}
+}
+
+// A sample is read once every vector of it went through both rules.
+func TestWhySampleErrors(t *testing.T) {
+	const batch = 1200
+	ctx := context.Background()
+	all := clusteredVectors(batch+1, 24, 6, 461)
+	s := newStreamTestIndex(t, all, batch, smallConfig(), streamConfig{threshold: 60, inverse: true})
+
+	_, err := newWhySample(ctx, testLogger(), s, []uint64{3, 7, 3})
+	require.ErrorContains(t, err, "doc 3 is in the sample twice")
+	_, err = newWhySample(ctx, testLogger(), s, []uint64{batch})
+	require.ErrorContains(t, err, "is not live")
+
+	w, err := newWhySample(ctx, testLogger(), s, []uint64{3, 7})
+	require.NoError(t, err)
+	require.Nil(t, w.trace(5), "a vector outside the sample is not traced")
+	_, err = w.analyze(nil)
+	require.ErrorContains(t, err, "was not followed")
+	for _, docID := range []uint64{3, 7} {
+		w.probes(docID, nil)
+		require.NotNil(t, w.trace(docID))
+	}
+	_, err = w.analyze(map[string][]int{"final": {1, 2}})
+	require.ErrorContains(t, err, "incoming edges")
+	got, err := w.analyze(map[string][]int{"final": s.incomingEdges()})
+	require.NoError(t, err)
+	require.Equal(t, 2, got.Sample)
+	// Followed through nothing: every neighbor the rule asks for is missed,
+	// in a posting no rule read.
+	require.Equal(t, got.Wanted, got.Refresh.Missed)
+	require.Equal(t, got.Wanted, got.Refresh.Unreached)
+	require.Equal(t, got.Wanted, got.Batch.Unreached)
+	require.Equal(t, got.Wanted, got.BothMissed)
+}
+
+func TestFifthsBy(t *testing.T) {
+	tests := []struct {
+		name           string
+		keys           []float64
+		refresh, batch []bool
+		want           []whyFifth
+	}{
+		{
+			name:    "ten neighbors, out of order",
+			keys:    []float64{9, 1, 5, 3, 7, 2, 10, 4, 8, 6},
+			refresh: []bool{false, true, false, true, false, true, false, false, false, false},
+			batch:   []bool{true, false, false, false, false, false, true, false, false, true},
+			want: []whyFifth{
+				{From: 1, To: 2, Wanted: 2, RefreshMissed: 2},
+				{From: 3, To: 4, Wanted: 2, RefreshMissed: 1},
+				{From: 5, To: 6, Wanted: 2, BatchMissed: 1},
+				{From: 7, To: 8, Wanted: 2},
+				{From: 9, To: 10, Wanted: 2, BatchMissed: 2},
+			},
+		},
+		{
+			name:    "equal keys stay in the order given",
+			keys:    []float64{4, 4, 4, 4, 4},
+			refresh: []bool{true, false, false, false, true},
+			batch:   []bool{false, true, false, false, false},
+			want: []whyFifth{
+				{From: 4, To: 4, Wanted: 1, RefreshMissed: 1},
+				{From: 4, To: 4, Wanted: 1, BatchMissed: 1},
+				{From: 4, To: 4, Wanted: 1},
+				{From: 4, To: 4, Wanted: 1},
+				{From: 4, To: 4, Wanted: 1, RefreshMissed: 1},
+			},
+		},
+		{
+			name:    "fewer neighbors than parts",
+			keys:    []float64{2, 1, 3},
+			refresh: []bool{true, true, false},
+			batch:   []bool{false, false, false},
+			want: []whyFifth{
+				{},
+				{From: 1, To: 1, Wanted: 1, RefreshMissed: 1},
+				{},
+				{From: 2, To: 2, Wanted: 1, RefreshMissed: 1},
+				{From: 3, To: 3, Wanted: 1},
+			},
+		},
+		{name: "none", want: make([]whyFifth, 5)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, fifthsBy(tt.keys, tt.refresh, tt.batch))
+		})
+	}
+}
+
+func TestSpreadOf(t *testing.T) {
+	hundred := make([]float64, 100)
+	for i := range hundred {
+		hundred[i] = float64(100 - i)
+	}
+	tests := []struct {
+		name   string
+		values []float64
+		want   whySpread
+	}{
+		{name: "none"},
+		{name: "one", values: []float64{7}, want: whySpread{Min: 7, P1: 7, P5: 7, P10: 7, P25: 7, P50: 7, P75: 7, P90: 7, P99: 7, Max: 7, Mean: 7}},
+		{
+			name: "one to a hundred, out of order", values: hundred,
+			want: whySpread{Min: 1, P1: 2, P5: 6, P10: 11, P25: 26, P50: 51, P75: 76, P90: 91, P99: 100, Max: 100, Mean: 50.5},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, spreadOf(tt.values))
+		})
+	}
+}

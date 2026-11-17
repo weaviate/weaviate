@@ -66,6 +66,11 @@ var (
 		"last checkpoint, refresh the edges of the vectors in the order they entered the index in, with the search of "+
 		"an insert, in cumulative stages that end at these shares of the train set, in percent and ascending, and "+
 		"measure after each (v2.3). It comes before -bench.streamrebuild")
+	benchStreamDoubling = flag.String("bench.streamdoubling", "", "with a -bench.stream cell: the sizes of the index, "+
+		"in vectors, at which every vector whose edges were last built with half that many vectors or fewer has them "+
+		"refreshed with the search of an insert, with a measurement before and one after (v2.4)")
+	benchStreamWhy = flag.Int("bench.streamwhy", 0, "with -bench.streamrebuild: after it, the vectors sampled to look at "+
+		"why the edges of the batch rule search better than those of a refresh (v2.4, informative), 0 for none")
 	benchStreamReference = flag.Bool("bench.streamreference", false, "with a -bench.stream cell: build the batch "+
 		"reference over the whole train set first, measure it, and time its frontier and the cell's at the end with "+
 		"the plan of -bench.sweep")
@@ -144,9 +149,39 @@ type streamResult struct {
 	// Refreshed are the stages of the refresh of v2.3, with
 	// -bench.streamrefresh.
 	Refreshed []streamRefresh `json:"refreshed,omitempty"`
+	// Doubling are the refresh rounds of v2.4, with -bench.streamdoubling.
+	Doubling []streamDoubling `json:"doubling,omitempty"`
 	// Rebuilt is the diagnostic of v2.2, with -bench.streamrebuild.
 	Rebuilt *streamRebuild `json:"rebuilt,omitempty"`
-	Stopped string         `json:"stopped,omitempty"`
+	// Why is the informative part of v2.4, with -bench.streamwhy.
+	Why     *streamWhy `json:"why,omitempty"`
+	Stopped string     `json:"stopped,omitempty"`
+}
+
+// streamDoubling is one refresh round of v2.4: with At vectors in the index,
+// the cell is measured as a checkpoint is, every vector whose edges were last
+// built with half that many vectors or fewer has them refreshed, the oldest
+// first, and the cell is measured again.
+type streamDoubling struct {
+	At     int               `json:"at"`
+	Before *streamCheckpoint `json:"before,omitempty"`
+	Stats  refreshStats      `json:"stats"`
+	After  *streamCheckpoint `json:"after,omitempty"`
+}
+
+// streamWhy is the informative part of v2.4, after the cell and its batch
+// rebuild are measured: the edges of the cell at its end are put back, every
+// vector is refreshed as in v2.3, and the cell is measured twice, as the
+// refresh leaves it and with every list as its own refresh wrote it, without
+// what the inverse edges of the other refreshes changed in it afterwards.
+// Analysis is what a sample of vectors tells of the misses of the refresh
+// and of the batch rule.
+type streamWhy struct {
+	Sample    int               `json:"sample"`
+	Refresh   refreshStats      `json:"refresh"`
+	Refreshed *streamCheckpoint `json:"refreshed,omitempty"`
+	Own       *streamCheckpoint `json:"own,omitempty"`
+	Analysis  *whyAnalysis      `json:"analysis,omitempty"`
 }
 
 // streamRebuild is the cell at its end with the edges of every vector rebuilt
@@ -256,6 +291,40 @@ func streamStops(start int, checkpoints, guards []int) ([]streamStop, error) {
 		return nil, errors.New("the last stop of a cell is a checkpoint")
 	}
 	return stops, nil
+}
+
+// streamPause is where the inserts of a cell pause: with upto vectors of the
+// order in the index. It is a stop of the cell, given as a share of the train
+// set, or a refresh round of v2.4, given as a size.
+type streamPause struct {
+	upto       int
+	percent    int
+	checkpoint bool
+	doubling   bool
+}
+
+// streamPauses merges the stops of a cell over n vectors with the sizes of
+// its refresh rounds, in the order the inserts reach them. A round comes
+// after the batch part of built vectors and before the end of the cell, and
+// not where a stop is.
+func streamPauses(n, built int, stops []streamStop, doubling []int) ([]streamPause, error) {
+	pauses := make([]streamPause, 0, len(stops)+len(doubling))
+	for _, stop := range stops {
+		pauses = append(pauses, streamPause{upto: n * stop.percent / 100, percent: stop.percent, checkpoint: stop.checkpoint})
+	}
+	for _, size := range doubling {
+		if size <= built || size >= n {
+			return nil, errors.Errorf("a refresh round at %d vectors is outside the inserted part, past %d and before %d", size, built, n)
+		}
+		pauses = append(pauses, streamPause{upto: size, percent: size * 100 / n, doubling: true})
+	}
+	slices.SortStableFunc(pauses, func(a, b streamPause) int { return cmp.Compare(a.upto, b.upto) })
+	for i := 1; i < len(pauses); i++ {
+		if pauses[i-1].upto == pauses[i].upto {
+			return nil, errors.Errorf("the inserts pause twice at %d vectors", pauses[i].upto)
+		}
+	}
+	return pauses, nil
 }
 
 // TestStream runs the streaming experiment of v2.0 (bench-report.md, "v2.0:
@@ -538,11 +607,16 @@ func TestStream(t *testing.T) {
 	}
 	stops, err := streamStops(*benchStreamStart, parseInts(t, *benchStreamCheckpoints), guards)
 	require.NoError(t, err)
+	var rounds []int
+	if *benchStreamDoubling != "" {
+		rounds = parseInts(t, *benchStreamDoubling)
+	}
+	pauses, err := streamPauses(n, built, stops, rounds)
+	require.NoError(t, err)
 	measure(*benchStreamStart, built, 0, edgeCounts{})
 	inserted, insertTime := built, time.Duration(0)
-	for i, stop := range stops {
-		percent := stop.percent
-		upto := n * percent / 100
+	for i, stop := range pauses {
+		percent, upto := stop.percent, stop.upto
 		cohortBounds = append(cohortBounds, upto)
 		// The guard counts a sample of the stretch's inserts as each is
 		// written; what it takes is kept out of the insert time.
@@ -570,9 +644,27 @@ func TestStream(t *testing.T) {
 		insertTime += time.Since(begin) - guardTime
 		s.onWrite = nil
 		inserted = upto
-		if stop.checkpoint {
+		switch {
+		case stop.doubling:
+			// v2.4: the index has doubled since the edges of some vectors
+			// were built, and those are refreshed, the oldest first.
+			at := fmt.Sprintf("corpus %d", upto)
+			result.Doubling = append(result.Doubling, streamDoubling{At: upto})
+			round := len(result.Doubling) - 1
+			measureAs(at+", before its refresh", fmt.Sprintf("doubling%d-before", upto), percent, upto,
+				insertTime.Seconds(), atInsert, func(cp streamCheckpoint) { result.Doubling[round].Before = &cp })
+			// A measurement leaves the search parameters of its last point.
+			require.NoError(t, s.ix.UpdateUserConfig(insertUC, func() {}))
+			stats, err := s.refreshEdges(ctx, s.staleEdges(order[:upto]))
+			require.NoError(t, err)
+			result.Doubling[round].Stats = stats
+			write()
+			logRefresh(t, at+", its refresh", stats)
+			measureAs(at+", after its refresh", fmt.Sprintf("doubling%d-after", upto), percent, upto,
+				insertTime.Seconds(), edgeCounts{}, func(cp streamCheckpoint) { result.Doubling[round].After = &cp })
+		case stop.checkpoint:
 			measure(percent, upto, insertTime.Seconds(), atInsert)
-		} else {
+		default:
 			guard(percent, insertTime.Seconds(), atInsert)
 		}
 	}
@@ -605,9 +697,31 @@ func TestStream(t *testing.T) {
 		// The diagnostic of v2.2: the same partition with the edges a batch
 		// build gives it, and then with a centroid graph built at once too.
 		require.Equal(t, n, s.liveCount, "the edges are rebuilt over the whole train set")
+		// v2.4, informative: the edges of the cell are kept, to put them back
+		// once the rebuild is measured, and so is what the batch rule reads
+		// for every sampled vector.
+		var whyIDs []uint64
+		var whyEdges edgeSnapshot
+		whyProbes := map[uint64][]uint32{}
+		whyIncoming := map[string][]int{}
+		if *benchStreamWhy > 0 {
+			require.False(t, *benchStreamRebuildGraph, "the sample is read over the centroid graph of the cell")
+			whyIDs = sampleOf(rand.New(rand.NewPCG(5, 5)), order, *benchStreamWhy)
+			for _, docID := range whyIDs {
+				whyProbes[docID] = nil
+			}
+			whyEdges = s.snapshotEdges()
+			whyIncoming["final"] = s.incomingEdges()
+			s.onRebuild = func(docID uint64, probes []uint32) {
+				if _, sampled := whyProbes[docID]; sampled {
+					whyProbes[docID] = slices.Clone(probes)
+				}
+			}
+		}
 		begin := time.Now()
 		work, err := s.rebuildEdges(ctx, logger, uc.BuildProbe, uc.RescueLimit)
 		require.NoError(t, err)
+		s.onRebuild = nil
 		result.Rebuilt = &streamRebuild{Work: work, Seconds: time.Since(begin).Seconds()}
 		write()
 		t.Logf("edges rebuilt: %d vectors in %d postings, %d edges, in %s | %d not with their nearest centroid, "+
@@ -620,6 +734,60 @@ func TestStream(t *testing.T) {
 			require.NoError(t, s.rebuildCentroidGraph(ctx))
 			measureAs("edges and centroid graph rebuilt", "rebuilt-graph", 100, n, insertTime.Seconds(), edgeCounts{},
 				func(cp streamCheckpoint) { result.Rebuilt.Graph = &cp })
+		}
+
+		if *benchStreamWhy > 0 {
+			// v2.4, informative: why the edges of the batch rule search
+			// better than those of a refresh. The sample is followed through
+			// the batch rule, whose lists the index holds now, and then
+			// through a refresh of every vector over the edges the cell
+			// ended with.
+			why, err := newWhySample(ctx, logger, s, whyIDs)
+			require.NoError(t, err)
+			for docID, probes := range whyProbes {
+				why.probes(docID, probes)
+			}
+			why.keep(func(v *whyVector) *[]uint32 { return &v.rebuilt })
+			whyIncoming["rebuilt"] = s.incomingEdges()
+			require.NoError(t, s.restoreEdges(whyEdges))
+
+			own := make([][]uint32, n)
+			s.traceRefresh = why.trace
+			s.onRefresh = func(docID uint64, edges []uint32) {
+				own[docID] = edges
+				why.refreshedTo(docID, edges)
+			}
+			require.NoError(t, s.ix.UpdateUserConfig(insertUC, func() {}))
+			stats, err := s.refreshEdges(ctx, order)
+			require.NoError(t, err)
+			s.traceRefresh, s.onRefresh = nil, nil
+			result.Why = &streamWhy{Sample: len(whyIDs), Refresh: stats}
+			write()
+			logRefresh(t, "why: every vector refreshed", stats)
+			measureAs("why: every vector refreshed", "why-refreshed", 100, n, insertTime.Seconds(), edgeCounts{},
+				func(cp streamCheckpoint) { result.Why.Refreshed = &cp })
+			why.keep(func(v *whyVector) *[]uint32 { return &v.refreshed })
+			whyIncoming["refreshed"] = s.incomingEdges()
+
+			s.replaceEdges(func(docID uint64) []uint32 { return own[docID] })
+			measureAs("why: every list as its own refresh left it", "why-own", 100, n, insertTime.Seconds(), edgeCounts{},
+				func(cp streamCheckpoint) { result.Why.Own = &cp })
+
+			analysis, err := why.analyze(whyIncoming)
+			require.NoError(t, err)
+			result.Why.Analysis = analysis
+			write()
+			t.Logf("why: %d sampled, %d wanted | the refresh misses %d: %d unreached, %d known and not read, %d read | "+
+				"the batch rule misses %d: %d unreached, %d read | %d missed by both | inverse edges took out %d (%d exact) "+
+				"and put in %d (%d exact)",
+				analysis.Sample, analysis.Wanted, analysis.Refresh.Missed, analysis.Refresh.Unreached,
+				analysis.Refresh.KnownNotRead, analysis.Refresh.Read, analysis.Batch.Missed, analysis.Batch.Unreached,
+				analysis.Batch.Read, analysis.BothMissed, analysis.InverseOut, analysis.InverseOutExact,
+				analysis.InverseIn, analysis.InverseInExact)
+			for _, f := range analysis.Fifths["final"] {
+				t.Logf("why: wanted in postings with %.0f to %.0f incoming edges: %d, the refresh misses %d, the batch rule %d",
+					f.From, f.To, f.Wanted, f.RefreshMissed, f.BatchMissed)
+			}
 		}
 	}
 
@@ -848,6 +1016,60 @@ func TestStreamStops(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := streamStops(tt.start, tt.checkpoints, tt.guards)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestStreamPauses(t *testing.T) {
+	tests := []struct {
+		name     string
+		n, built int
+		stops    []streamStop
+		doubling []int
+		want     []streamPause
+		wantErr  string
+	}{
+		{
+			name: "the stops of a cell alone", n: 1000, built: 100,
+			stops: []streamStop{{20, true}, {60, false}, {100, true}},
+			want:  []streamPause{{upto: 200, percent: 20, checkpoint: true}, {upto: 600, percent: 60}, {upto: 1000, percent: 100, checkpoint: true}},
+		},
+		{
+			name: "the rounds of v2.4", n: 990000, built: 99000,
+			stops:    []streamStop{{100, true}},
+			doubling: []int{200000, 400000, 800000},
+			want: []streamPause{
+				{upto: 200000, percent: 20, doubling: true},
+				{upto: 400000, percent: 40, doubling: true},
+				{upto: 800000, percent: 80, doubling: true},
+				{upto: 990000, percent: 100, checkpoint: true},
+			},
+		},
+		{
+			name: "rounds between stops, in any order", n: 1000, built: 100,
+			stops:    []streamStop{{50, false}, {100, true}},
+			doubling: []int{800, 250},
+			want: []streamPause{
+				{upto: 250, percent: 25, doubling: true},
+				{upto: 500, percent: 50},
+				{upto: 800, percent: 80, doubling: true},
+				{upto: 1000, percent: 100, checkpoint: true},
+			},
+		},
+		{name: "a round where a stop is", n: 1000, built: 100, stops: []streamStop{{50, true}, {100, true}}, doubling: []int{500}, wantErr: "pause twice at 500"},
+		{name: "a round twice", n: 1000, built: 100, stops: []streamStop{{100, true}}, doubling: []int{300, 300}, wantErr: "pause twice at 300"},
+		{name: "a round inside the batch part", n: 1000, built: 100, stops: []streamStop{{100, true}}, doubling: []int{100}, wantErr: "outside the inserted part"},
+		{name: "a round at the end", n: 1000, built: 100, stops: []streamStop{{100, true}}, doubling: []int{1000}, wantErr: "outside the inserted part"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := streamPauses(tt.n, tt.built, tt.stops, tt.doubling)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return

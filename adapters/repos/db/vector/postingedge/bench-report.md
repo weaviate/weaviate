@@ -235,6 +235,12 @@ v2.3 dice que refrescar todas las aristas al final, con la búsqueda del insert,
 
 **Datos:** `v2.4/dbpedia-1m-grow10-h1-ef80-doubling.json`, de `v2.4/scripts/run_v24_doubling.sh`, y el veredicto en `v2.4/doubling-verdict.md`.
 
+*Smoke después del pre-registro (14:35):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos, con las tandas en 6 000, 12 000 y 24 000. No predice 1M y no cambia nada de lo escrito arriba.
+
+- **Las tandas refrescan lo que dice la condición:** 3 000, 6 000 y 12 000 vectores, siete veces el lote.
+- **Las listas repuestas tras la reconstrucción en lote son las del 100 %,** por el resumen.
+- **A esa escala no hay nada que leer en la parte informativa:** la regla del lote y el índice refrescado dan el mismo recall, y la muestra de 1 000 vectores deja 38 fallos del refresco y 11 del lote.
+
 ## v2.3: refresco de aristas con la búsqueda del insert (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 10:59 del 17 (`d8dd553157`), antes de compilar nada de esta ronda. La celda corrió de 11:13 a 13:04, y sus resultados están al final de la sección, desde «Resultados de v2.3 (2026-11-17)». El encargo, las etapas, la definición del refresco, el criterio y la regla de ruido son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.

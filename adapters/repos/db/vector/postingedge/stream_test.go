@@ -233,6 +233,22 @@ type streamIndex struct {
 	onWrite func(docID uint64, p uint32, edges []uint32) error
 	// written holds the postings the inverse edges of one insert wrote.
 	written []uint32
+	// builtAt is, by doc id, how many vectors were live when the edges of
+	// the vector were last built: by the batch build, by its insert, itself
+	// counted, or by its last refresh. An inverse edge that enters its list
+	// does not count: it does not build the list again.
+	builtAt []uint32
+	// onRefresh, when set, is called with the list a refresh gives its
+	// vector, before the inverse edges of that refresh. The list is the
+	// caller's to keep.
+	onRefresh func(docID uint64, edges []uint32)
+	// traceRefresh, when set, gives the hook the search of a refresh calls
+	// with every posting it loads (SearchStats.loadHook), nil for none.
+	traceRefresh func(docID uint64) func(sc *searchScratch, post *posting, cut float32)
+	// onRebuild, when set, is called by rebuildEdges with the live postings
+	// the batch rule reads the candidates of every vector from. probes is
+	// only valid during the call.
+	onRebuild func(docID uint64, probes []uint32)
 }
 
 // newStreamIndex takes over a built index: its state is converted to the
@@ -288,6 +304,12 @@ func newStreamIndex(ix *Index, keys int, cfg streamConfig, vectorOf func(uint64)
 		}
 	}
 	s.retired = make([]bool, len(lists))
+	s.builtAt = make([]uint32, keys)
+	for docID, live := range s.live {
+		if live {
+			s.builtAt[docID] = uint32(s.liveCount)
+		}
+	}
 	// Every split adds two postings, and there is at most one split per
 	// insert.
 	s.capacity = len(lists) + 2*keys
@@ -415,6 +437,7 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	st.side.postingOf[docID] = p
 	s.live[docID] = true
 	s.liveCount++
+	s.builtAt[docID] = uint32(s.liveCount)
 	s.stats.Inserted++
 	s.stats.WriteTime += time.Since(clock)
 
@@ -707,6 +730,7 @@ func (s *streamIndex) repairEdges(ctx context.Context, q uint32) error {
 			ids = slices.Delete(ids, at, at+1)
 		}
 		l.setEdges(i, s.outside(ids[:min(len(ids), s.neighbors)], q))
+		s.builtAt[docID] = uint32(s.liveCount)
 		s.stats.Repaired++
 	}
 	return nil
@@ -776,6 +800,9 @@ func (s *streamIndex) refresh(ctx context.Context, docID uint64, out *refreshSta
 
 	// One more than an insert asks for: the search finds the vector itself.
 	var work SearchStats
+	if s.traceRefresh != nil {
+		work.loadHook = s.traceRefresh(docID)
+	}
 	ids, dists, err := s.ix.searchFrom(ctx, s.vectorOf(docID), s.neighbors+1, nil, []uint64{uint64(p)}, &work)
 	if err != nil {
 		return errors.Wrapf(err, "search the neighbors of doc %d", docID)
@@ -801,6 +828,10 @@ func (s *streamIndex) refresh(ctx context.Context, docID uint64, out *refreshSta
 		l.setEdges(m, edges)
 		out.ListsChanged++
 	}
+	s.builtAt[docID] = uint32(s.liveCount)
+	if s.onRefresh != nil {
+		s.onRefresh(docID, edges)
+	}
 	if s.cfg.inverse {
 		if err := s.enterNeighbors(docID, p, ids, dists); err != nil {
 			return err
@@ -808,6 +839,126 @@ func (s *streamIndex) refresh(ctx context.Context, docID uint64, out *refreshSta
 	}
 	out.Refreshed++
 	return nil
+}
+
+// staleEdges returns, of the given vectors and in their order, those whose
+// edges were last built when the index held half the vectors it holds now,
+// or fewer: the ones a refresh on doubling takes.
+func (s *streamIndex) staleEdges(docIDs []uint64) []uint64 {
+	var stale []uint64
+	for _, docID := range docIDs {
+		if s.live[docID] && 2*int(s.builtAt[docID]) <= s.liveCount {
+			stale = append(stale, docID)
+		}
+	}
+	return stale
+}
+
+// edgeSnapshot is a copy of the edges of every posting, and of when the
+// edges of every vector were built.
+type edgeSnapshot struct {
+	edges, starts [][]uint32
+	builtAt       []uint32
+	digest        uint64
+}
+
+// edgesDigest folds every live vector and its edges, in the order the
+// postings hold them, into one number: two indexes with the same members in
+// the same places have the same digest only if every list is the same, bar
+// a collision.
+func (s *streamIndex) edgesDigest() uint64 {
+	h := uint64(14695981039346656037)
+	mix := func(v uint64) {
+		h ^= v
+		h *= 1099511628211
+	}
+	for p := range s.st.postings.lists {
+		if s.retired[p] {
+			continue
+		}
+		l := &s.st.postings.lists[p]
+		for i, docID := range l.docIDs {
+			edges := l.edgesOf(i)
+			mix(docID)
+			mix(uint64(len(edges)))
+			for _, endpoint := range edges {
+				mix(uint64(endpoint))
+			}
+		}
+	}
+	return h
+}
+
+// snapshotEdges copies the edges of every vector as they are.
+func (s *streamIndex) snapshotEdges() edgeSnapshot {
+	lists := s.st.postings.lists
+	snap := edgeSnapshot{
+		edges: make([][]uint32, len(lists)), starts: make([][]uint32, len(lists)),
+		builtAt: slices.Clone(s.builtAt), digest: s.edgesDigest(),
+	}
+	for p := range lists {
+		snap.edges[p] = slices.Clone(lists[p].edges)
+		snap.starts[p] = slices.Clone(lists[p].edgeStart)
+	}
+	return snap
+}
+
+// restoreEdges puts the edges of a snapshot back. The postings must hold the
+// members they held then, in the same places: nothing was inserted or split
+// since. It checks that the index ends with the lists of the snapshot.
+func (s *streamIndex) restoreEdges(snap edgeSnapshot) error {
+	lists := s.st.postings.lists
+	if len(snap.edges) != len(lists) {
+		return errors.Errorf("the snapshot holds %d postings, the index %d", len(snap.edges), len(lists))
+	}
+	for p := range lists {
+		if len(snap.starts[p]) != len(lists[p].docIDs)+1 {
+			return errors.Errorf("posting %d holds %d members, the snapshot has the edges of %d",
+				p, len(lists[p].docIDs), len(snap.starts[p])-1)
+		}
+	}
+	for p := range lists {
+		lists[p].edges = slices.Clone(snap.edges[p])
+		lists[p].edgeStart = slices.Clone(snap.starts[p])
+	}
+	copy(s.builtAt, snap.builtAt)
+	if got := s.edgesDigest(); got != snap.digest {
+		return errors.Errorf("the restored edges have digest %x, the snapshot %x: the members changed since", got, snap.digest)
+	}
+	return nil
+}
+
+// replaceEdges gives every live vector the edges listOf returns for it.
+func (s *streamIndex) replaceEdges(listOf func(docID uint64) []uint32) {
+	for p := range s.st.postings.lists {
+		if s.retired[p] {
+			continue
+		}
+		l := &s.st.postings.lists[p]
+		edges := make([]uint32, 0, len(l.edges))
+		starts := make([]uint32, 1, len(l.docIDs)+1)
+		for _, docID := range l.docIDs {
+			edges = append(edges, listOf(docID)...)
+			starts = append(starts, uint32(len(edges)))
+		}
+		l.edges, l.edgeStart = edges, starts
+	}
+}
+
+// incomingEdges counts, for every posting, the edges of all the live vectors
+// that end at one of its members.
+func (s *streamIndex) incomingEdges() []int {
+	incoming := make([]int, len(s.st.postings.lists))
+	postingOf := s.st.side.postingOf
+	for p := range s.st.postings.lists {
+		if s.retired[p] {
+			continue
+		}
+		for _, endpoint := range s.st.postings.lists[p].edges {
+			incoming[postingOf[endpoint]]++
+		}
+	}
+	return incoming
 }
 
 // repeatedEdges counts the live vectors whose edges hold the same endpoint
@@ -1003,6 +1154,19 @@ func (s *streamIndex) rebuildEdges(ctx context.Context, logger logrus.FieldLogge
 		}
 		assigned.primary[i] = own
 	}
+	if s.onRebuild != nil {
+		width := min(probe, assigned.width)
+		probes := make([]uint32, 0, width)
+		for i, docID := range docIDs {
+			probes = probes[:0]
+			for _, c := range assigned.probesOf(i)[:width] {
+				if c != noCentroid {
+					probes = append(probes, alive[c])
+				}
+			}
+			s.onRebuild(docID, probes)
+		}
+	}
 
 	// The builder works by slot: the vectors in posting order, with their
 	// codes, which are the ones the postings hold.
@@ -1042,6 +1206,9 @@ func (s *streamIndex) rebuildEdges(ctx context.Context, logger logrus.FieldLogge
 			starts = append(starts, uint32(len(rebuilt)))
 		}
 		l.edges, l.edgeStart = rebuilt, starts
+	}
+	for _, docID := range docIDs {
+		s.builtAt[docID] = uint32(s.liveCount)
 	}
 	return out, nil
 }
