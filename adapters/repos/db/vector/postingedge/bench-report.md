@@ -85,6 +85,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - Las aristas que faltaban son las de los vectores viejos: los del lote del 10 % pasan de 7.63 a 10.26, y los del último tramo, de 9.44 a 9.57.
   - Lo siguiente es un refresco de aristas en segundo plano, sin medir. Reconstruirlas en lote cuesta 1.23 veces las distancias por código del lote entero.
 - **Las cargas a 0.99 de un índice crecido no se repiten entre corridas:** las dos de ef 80 se separan un 12.0 %, con el recall a igual ef a 0.0010 como mucho. A 0.99 no separan los dos ef de inserción ni la deriva de ef 80.
+  - **Regla de ruido (del usuario, del 17): ninguna comparación a 0.99 entre corridas distintas.** Vale desde v2.3, donde está escrita.
 
 **Limitaciones:**
 
@@ -95,6 +96,103 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - P y R crecen con N. Es el riesgo principal para 100M.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
+
+## v2.3: refresco de aristas con la búsqueda del insert (pre-registro, 2026-11-17)
+
+**Estado: pre-registrado.** Escrito y commiteado a las 11:05 del 17, antes de compilar nada de esta ronda. El encargo, las etapas, la definición del refresco, el criterio y la regla de ruido son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### Qué se mide
+
+El diagnóstico de v2.2 dice que el déficit a 0.99 de un índice crecido diez veces es de las aristas. Lo cierra reconstruyéndolas todas con la regla del lote, que cuesta más distancias por código que un build en lote entero. v2.3 mide si lo cierra un refresco hecho con la búsqueda del propio insert, y cuánto aporta refrescar cada parte del corpus según cuándo entró.
+
+### Protocolo
+
+- **La celda de crecimiento de v2.2 con ef de inserción 80:** lote sobre el 10 %, 891 000 inserts con aristas inversas y sin reparar splits, umbral 360 y checkpoints al 20, 40, 60, 80 y 100 %.
+  - El insert es el de ahora, que pregunta una vez al grafo de centroides (desde `eb32538ae3`). Es la primera corrida de 1M con ese insert.
+- **Al llegar al 100 %, el refresco, acumulado en tres etapas** (del usuario), midiendo tras cada una:
+
+| etapa | se refrescan | vectores | refrescados en total |
+|---|---|---|---|
+| 1 | los del lote inicial: los que entraron del 0 al 10 % | 99 000 | 99 000 |
+| 2 | hasta la cohorte del 40 %: los que entraron del 10 al 40 % | 297 000 | 396 000 |
+| 3 | todos: los que entraron del 40 al 100 % | 594 000 | 990 000 |
+
+- **Refrescar un vector (del usuario) es repetir el paso de aristas de su insert:**
+  - la búsqueda, con ef 80;
+  - su lista nueva, con los 16 más cercanos fuera de su posting;
+  - las escrituras inversas, como en el insert.
+- **Cómo lo leo, para escribirlo** (*mío*):
+  - **La lista nueva sigue la regla del insert y del lote:** de los 16 vecinos más cercanos que encuentra la búsqueda, los que están fuera de su posting. No son 16 aristas.
+  - **Las escrituras inversas son las del insert:** el vector entra en la lista de cada uno de esos vecinos de fuera de su posting cuya peor arista mejora, y esa peor arista sale.
+  - **La búsqueda entra por el posting del vector,** sin preguntar al grafo de centroides. En el insert, la búsqueda de aristas entra por el posting del vector. El vector no cambia de posting.
+  - **El vector se encuentra a sí mismo.** La búsqueda pide 17 y se le quita, como en la reparación por búsqueda de v2.0. Ocupa uno de los 64 sitios de rescore.
+  - **Una arista inversa no se escribe si el vecino ya tiene al vector en su lista.** En un insert no puede pasar. Se cuenta.
+  - **Cada vector se refresca una vez,** en el orden en que entró. Una etapa añade los suyos a los de las anteriores y no repite a nadie.
+  - **Secuencial,** como los inserts: cada refresco ve las listas que dejaron los anteriores.
+  - **No toca nada más:** postings, miembros, centroides, códigos y grafo de centroides se quedan como están. No hay splits.
+- **Sin cronometrar.** Son conteos. Los segundos se dan como indicativos.
+
+### Medidas (del usuario)
+
+Antes del refresco y tras cada etapa, sobre el mismo índice y dentro de la misma corrida:
+
+- cargas a 0.95 y a 0.99;
+- recall y cargas a igual ef, en la malla de 10 a 1024;
+- grado por cohorte;
+- coste del refresco, en conteos.
+
+*Mío, lo que cuenta el coste,* por etapa y por vector refrescado:
+
+- **de la búsqueda:** cargas de posting, rondas, distancias por código (scan y endpoints) y candidatos rescoreados;
+- **de las aristas inversas:** listas leídas, distancias exactas de comprobarlas, aristas escritas, y vecinos que ya tenían al vector;
+- **de la lista propia:** cuántas cambian, y cuántas aristas tenían, tienen y conservan;
+- **las escrituras,** como en el insert: listas de otros vectores escritas por refresco, y postings distintos en los que están.
+
+Además, como en cada checkpoint: el recall de arista contra el corpus actual en las dos muestras, y la cobertura. La cobertura no mira si una lista repite una arista: eso se cuenta aparte, antes del refresco y tras cada etapa, y tiene que ser cero.
+
+### Criterio (del usuario)
+
+**El refresco sirve si, con todo refrescado, las cargas a 0.99 quedan a +10 % o menos del lote.**
+
+- *Mío, para aplicarlo:* el lote carga 52.78 postings a 0.99, y +10 % son 58.06. Es la referencia en lote de v2.0, la del criterio de v2.2 y la del diagnóstico.
+- **Se reporta qué parte de la recuperación da cada etapa** (del usuario). *Mío:* la recuperación es lo que bajan las cargas a 0.99 de antes del refresco a después de la etapa 3. La parte de una etapa es lo que bajan en ella, sobre ese total, y las tres suman el 100 %.
+  - Se da también para las cargas a 0.95 y para el recall a igual ef, y por vector refrescado.
+  - Junto a cada parte va la parte de la distancia al lote que cierra, (antes − después) / (antes − lote), como en el diagnóstico.
+  - Si el refresco entero no baja las cargas a 0.99, no hay partes que dar: se dan las cifras de cada etapa.
+- **Las partes son las de este orden,** de los vectores más viejos a los más nuevos. Lo que aporta una etapa depende de las que van antes.
+
+### Regla de ruido (del usuario)
+
+**Ninguna comparación a 0.99 entre corridas distintas.**
+
+- **Por qué:** dos corridas de la misma celda de ef 80 se separan un 12.0 % en cargas a 0.99 (62.21 y 69.69), con el recall a igual ef a 0.0010 como mucho. El índice crecido cruza 0.99 entre ef 320 y ef 640, donde 0.001 de recall son de 9 a 12 cargas. Está en «Diagnóstico: la celda repetida y el ruido a 0.99».
+- **Cómo se aplica aquí** (*mío*):
+  - Las etapas se comparan entre sí y con el «antes» de esta misma corrida. Es un solo índice, que cambia solo por el refresco.
+  - Nada a 0.99 se compara con las celdas de v2.2, con la corrida del diagnóstico ni con v2.1. Tampoco lo que recupera el refresco con lo que recuperó allí la reconstrucción en lote.
+  - El criterio compara con el lote, que es otra corrida, porque así está escrito. Es la única comparación a 0.99 fuera de la corrida. Junto al veredicto se da entre qué dos ef cruza 0.99 el índice refrescado, y su recall en ellos.
+- **Lo que sí se compara entre corridas:** el recall a igual ef, las cargas a 0.95 y los conteos de los inserts, cada uno con su suelo de ruido.
+
+### Lo que se reporta además (mío)
+
+- **Una cuarta medida, informativa: tras la etapa 3, las aristas reconstruidas en lote sobre la misma partición,** como en el diagnóstico (P=256, R=64).
+  - Es la forma de comparar el refresco por búsqueda con la regla del lote sin salir de la corrida.
+  - No entra en el criterio. El grafo de centroides no se rehace: en el diagnóstico no cambió nada.
+- **El coste de un refresco junto al de un insert de la misma corrida,** y junto al de la reconstrucción en lote, por vector.
+
+### Lo que no mide
+
+- **Un refresco en segundo plano de verdad.** Aquí va todo al final, de una vez y sin inserts entre medias.
+- **Cada cuánto hace falta,** ni una política por edad más fina que las tres etapas.
+- **Otro orden.** Con los nuevos primero se sabría si lo que aporta una etapa es de su cohorte o de su turno.
+- **Un ef de refresco distinto de 80,** otro dataset, otra escala, deletes, concurrencia y cualquier I/O.
+
+### Lo que el binario añade (mío)
+
+- **`refresh`, en el harness de streaming,** y un flag en la celda con los límites de las etapas.
+- **Un flag para que la reconstrucción en lote no rehaga el grafo de centroides.**
+- **Tests:** que un refresco deja en la lista del vector lo que da la regla del insert sobre su búsqueda, sin él mismo y sin repetidos; que no toca la partición; que sus aristas inversas son las del insert y no se repiten; y que sobre un índice recién construido en lote, con una búsqueda que lo ve todo, deja las aristas del lote.
+
+**Datos:** `v2.3/dbpedia-1m-grow10-h1-ef80-refresh.json`, de `v2.3/scripts/run_v23_refresh.sh`, y el veredicto en `v2.3/refresh-verdict.md`.
 
 ## v2.2: crecer desde el 10 %, sobre H1 (pre-registro, 2026-11-17)
 
@@ -730,6 +828,8 @@ La celda de ef 80 corrió dos veces con el mismo camino de insert: la de v2.2, j
 - **Lo que no cambia:** el recall a igual ef, las cargas a 0.95 y todo lo que es conteo de inserts.
 
 *Mío:* para un índice que cruza 0.99 por encima de ef 320, la medida estable es el recall a igual ef. Las cargas a 0.99 amplifican una diferencia de recall que está en el ruido.
+
+**Regla de ruido (del usuario, del 17, después de estos resultados): ninguna comparación a 0.99 entre corridas distintas.** Está escrita, con cómo se aplica, en el pre-registro de v2.3.
 
 ### Lo que el diagnóstico no mide
 
