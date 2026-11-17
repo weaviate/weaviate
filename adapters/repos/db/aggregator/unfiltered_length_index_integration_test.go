@@ -189,7 +189,6 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 		aggs                []aggregation.Aggregator
 		indexPropertyLength bool
 		skipIndexOf         map[int]bool
-		readsUnrequested    bool
 		wantIndex           bool
 	}{
 		{name: "text[]", dt: schema.DataTypeTextArray, aggs: countOnly, indexPropertyLength: true, wantIndex: true},
@@ -208,12 +207,8 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 		},
 		{name: "length index disabled", dt: schema.DataTypeTextArray, aggs: countOnly},
 		{
-			name: "text[] for a caller that reads unrequested results", dt: schema.DataTypeTextArray, aggs: countOnly,
-			indexPropertyLength: true, readsUnrequested: true,
-		},
-		{
-			name: "int[] for a caller that reads unrequested results", dt: schema.DataTypeIntArray, aggs: countOnly,
-			indexPropertyLength: true, readsUnrequested: true, wantIndex: true,
+			name: "text[] top occurrences as totalTrue from an older coordinator", dt: schema.DataTypeTextArray, indexPropertyLength: true,
+			aggs: []aggregation.Aggregator{aggregation.CountAggregator, aggregation.TotalTrueAggregator},
 		},
 		{
 			name: "objects missing from the index", dt: schema.DataTypeTextArray, aggs: countOnly,
@@ -233,9 +228,8 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 					logger:    logger,
 					getSchema: lengthTestSchema(t, indexPropertyLength),
 					params: aggregation.Params{
-						ClassName:                 lengthTestClass,
-						Properties:                []aggregation.ParamProperty{prop},
-						OnlyRequestedAggregations: !tc.readsUnrequested,
+						ClassName:  lengthTestClass,
+						Properties: []aggregation.ParamProperty{prop},
 					},
 				}}
 				got, err := ua.properties(ctx)

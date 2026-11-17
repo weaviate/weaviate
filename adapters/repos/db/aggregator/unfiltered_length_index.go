@@ -32,17 +32,11 @@ import (
 // the request asks for nothing but the count and the index holds every object
 // exactly once: objects written before the property was added, or before it
 // had an inverted index, have no entry. Writes stop updating the index once
-// the property has no inverted index left, so it also reports false then. A
-// text[] count also needs a caller that reads only what it requests, as the
-// index gives no top occurrences; see
-// [aggregation.Params.OnlyRequestedAggregations].
+// the property has no inverted index left, so it also reports false then.
 func (ua unfilteredAggregator) countFromLengthIndex(ctx context.Context,
 	prop aggregation.ParamProperty, dt schema.DataType,
 ) (int, bool, error) {
 	if !ua.countsArrayLength(dt) || !ua.onlyCountRequested(prop.Aggregators) {
-		return 0, false, nil
-	}
-	if dt == schema.DataTypeTextArray && !ua.params.OnlyRequestedAggregations {
 		return 0, false, nil
 	}
 	class := ua.getSchema.ReadOnlyClass(ua.params.ClassName.String())

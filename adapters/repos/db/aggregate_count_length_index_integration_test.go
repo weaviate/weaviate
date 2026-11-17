@@ -118,7 +118,6 @@ func TestAggregateCountOfArraysWithLengthIndex(t *testing.T) {
 					Name:        schema.PropertyName(name),
 					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
 				}},
-				OnlyRequestedAggregations: true,
 			}, nil)
 			require.NoError(t, err)
 			got := res.Groups[0].Properties[name]
@@ -164,7 +163,6 @@ func TestAggregateCountOfArraysAfterDroppingLastInvertedIndex(t *testing.T) {
 				Name:        "ints",
 				Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
 			}},
-			OnlyRequestedAggregations: true,
 		}, nil)
 		require.NoError(t, err)
 		return res.Groups[0].Properties["ints"].NumericalAggregations["count"].(float64)
