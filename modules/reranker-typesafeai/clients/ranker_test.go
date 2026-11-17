@@ -862,6 +862,17 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
+			name:    "a 200 above 1 MiB from the class base URL",
+			reply:   fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
+			wantErr: "TypeSafe AI response exceeds 1048576 bytes",
+		},
+		{
+			name:       "a 200 above 1 MiB from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
+			fromHeader: true,
+			wantErr:    unexpectedHeaderHostReply,
+		},
+		{
 			name:       "an answer of another type from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"q":{"type":"internal banner","noul":0.5}}}`},
 			fromHeader: true,

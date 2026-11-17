@@ -385,7 +385,8 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 			"incomplete response from the host named by "+baseURLHeader, err, hostFromHeader)
 	}
 	if len(responseBody) > maxResponseBodyBytes {
-		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes)
+		return typesafeaiResponse{}, false, c.replyError(
+			fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes), nil, hostFromHeader)
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		// Value holds the number literal of the reply when it is out of range,
