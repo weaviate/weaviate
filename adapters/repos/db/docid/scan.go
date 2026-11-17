@@ -111,7 +111,8 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 	eg, groupCtx := enterrors.NewErrorGroupWithContextWrapper(os.logger, ctx)
 	// drawn one at a time: sizes vary by orders of magnitude, so an equal count is not equal work
 	var nextIdx atomic.Int64
-	workers := min(concurrency.CurrentGOMAXPROCSx2(), len(os.pointers))
+	// sized from the query's admission grant, so a shed-level grant runs few workers
+	workers := concurrency.NumWorkers(ctx, len(os.pointers), concurrency.CurrentGOMAXPROCSx2())
 	for range workers {
 		f := func() error {
 			// each object is scanned one after the other, so we can reuse the same memory allocations for all objects

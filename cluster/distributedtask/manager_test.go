@@ -1548,6 +1548,8 @@ type fakeRemovalGate struct {
 	lastShards    []string
 	lastTaskCount int
 	gateReject    error
+	proposeCalled int
+	proposeReject error
 }
 
 func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, shards []string, existing []*Task) error {
@@ -1557,6 +1559,62 @@ func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, sh
 	f.lastShards = shards
 	f.lastTaskCount = len(existing)
 	return f.gateReject
+}
+
+func (f *fakeRemovalGate) CheckVectorConfigRemovalAtPropose(className string, removed, shards []string, existing []*Task) error {
+	f.proposeCalled++
+	f.lastRemoved = removed
+	f.lastShards = shards
+	f.lastTaskCount = len(existing)
+	return f.proposeReject
+}
+
+// TestManager_CheckVectorConfigRemovalAtPropose_DispatchToGates pins that the
+// propose-time check reaches only the propose gate, with the namespace's tasks.
+func TestManager_CheckVectorConfigRemovalAtPropose_DispatchToGates(t *testing.T) {
+	tests := []struct {
+		name       string
+		removed    []string
+		reject     error
+		wantCalled int
+	}{
+		{name: "gate allows", removed: []string{"v1"}, wantCalled: 1},
+		{name: "gate refuses", removed: []string{"v1"}, reject: fmt.Errorf("not drained"), wantCalled: 1},
+		{name: "empty removal list", reject: fmt.Errorf("should not be reached")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHarness(t)
+			gate := &fakeRemovalGate{
+				fakeSchemaMutationDetector: &fakeSchemaMutationDetector{},
+				gateReject:                 fmt.Errorf("the apply-time gate must not be asked"),
+				proposeReject:              tt.reject,
+			}
+			h.schemaMutationDetectors = map[string]SchemaMutationDetector{
+				"drop-vector-index": gate,
+				// Does not implement the propose gate and must be skipped.
+				"reindex": &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("should not be reached")},
+			}
+			h.init(t)
+			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace: "drop-vector-index", Id: "T1",
+				SubmittedAtUnixMillis: time.Now().UnixMilli(), UnitIds: []string{"su-1"},
+			}), 100))
+
+			err := h.manager.CheckVectorConfigRemovalAtPropose("C", tt.removed, []string{"s1"})
+			if tt.reject != nil && tt.wantCalled > 0 {
+				require.ErrorIs(t, err, tt.reject)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.wantCalled, gate.proposeCalled)
+			require.Zero(t, gate.gateCalled)
+			if tt.wantCalled > 0 {
+				require.Equal(t, []string{"s1"}, gate.lastShards)
+				require.Equal(t, 1, gate.lastTaskCount)
+			}
+		})
+	}
 }
 
 // TestManager_CheckVectorConfigRemoval_DispatchToGates pins the dispatch:

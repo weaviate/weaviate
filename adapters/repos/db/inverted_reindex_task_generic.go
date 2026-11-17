@@ -205,6 +205,9 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 	if err != nil {
 		return false, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
+	if err := t.refuseUnmirroredOn(concreteShard); err != nil {
+		return false, err
+	}
 
 	// context.Canceled means the index is closing — propagate unwrapped so
 	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
@@ -697,11 +700,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 	return t.onAfterLsmInit(ctx, shard)
 }
 
-// Recovery's entry creates nothing: a record says how far a migration got, not that it
-// is live. No closing check: some NewShard routes already hold closeLock.RLock.
+// OnAfterLsmInit writes a record only to restart a migration whose owned directory is gone. It skips closingGuard because some NewShard routes hold closeLock.RLock.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	rec, hasRecord := t.migrationRecord(shard)
-	if !hasRecord || !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
+	if !hasRecord || rec.State() == MigrationStatePromoted {
 		return nil
 	}
 	// Only a task verdict wedges an unflipped record at load, and its copy is never read.
@@ -761,6 +763,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 		logger.Debug("merged, not swapped. starting ingest buckets")
 	} else {
 		if hasRecord {
+			// loadReindexBuckets creates a missing directory empty, so resuming without this restart would swap in an empty rebuild.
+			if err = restartIfOwnedDirGone(logger, shard, rec.Subject()); err != nil {
+				return false, err
+			}
 			logger.Debug("resuming reindex buckets from disk")
 		} else {
 			logger.Debug("not reindexed. starting reindex buckets")
@@ -800,6 +806,30 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	}
 
 	return true, nil
+}
+
+func restartIfOwnedDirGone(logger logrus.FieldLogger, shard *Shard, subject MigrationSubject) error {
+	dirs := shardBucketDirs(shard.pathLSM())
+	for _, dir := range migrationOwnedDirs(subject) {
+		there, err := dirs.Exists(dir)
+		if err != nil {
+			return err
+		}
+		if there {
+			continue
+		}
+
+		restarted := subject
+		restarted.IterationCutoff = migrationHorizonEverything
+
+		logger.WithField("record", subject.Key.String()).Warnf(
+			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
+		if err := shard.migrationRecordStore().Put(NewMigrationRecordIterating(restarted, MigrationCheckpoint{})); err != nil {
+			return fmt.Errorf("record the restart for lost %q: %w", dir, err)
+		}
+		return nil
+	}
+	return nil
 }
 
 // A load holds this promotion back while the schema leaves the index off, and
@@ -1487,6 +1517,14 @@ func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) err
 	return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
 		"staged data is stale and is not swapped in. This migration fails; once the cause is cleared, submit a "+
 		"new migration covering the same properties", t.migrationRecordKey())
+}
+
+func (t *ShardReindexTaskGeneric) refuseUnmirroredOn(shard ShardLike) error {
+	rec, ok := t.migrationRecord(shard)
+	if !ok {
+		return nil
+	}
+	return t.refuseUnmirrored(rec.Subject())
 }
 
 func (t *ShardReindexTaskGeneric) migrationSubjectNow(shard ShardLike) (MigrationSubject, error) {

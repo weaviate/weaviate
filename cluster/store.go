@@ -334,14 +334,14 @@ type Store struct {
 
 	// tenantAddLocks serializes AddTenants per class on the leader so the
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
-	tenantAddLocks *entsync.KeyLocker
+	tenantAddLocks *evictingKeyRWLocker
 
 	// collectionAddLocks serializes AddClass per namespace on the leader so the
 	// pre-commit collection-cap check cannot race the apply that increments the
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	taskMovementLocks *entsync.KeyLocker
+	taskMovementLocks *evictingKeyRWLocker
 
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
@@ -504,9 +504,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
-		tenantAddLocks:          entsync.NewKeyLocker(),
+		tenantAddLocks:          newEvictingKeyRWLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
-		taskMovementLocks:       entsync.NewKeyLocker(),
+		taskMovementLocks:       newEvictingKeyRWLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
