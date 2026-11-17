@@ -282,6 +282,13 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		return useInverted, err
 	}
 
+	if s.dataTypesHelper.filterableDisabled(propNames[0]) {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("property '%s' is not filterable yet, its index may still be building, "+
+				"falling back to objects bucket strategy", propNames[0]))
+		return useInverted, err
+	}
+
 	if s.invertedDisabled.Get() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("the query planner predicts an estimated cost savings of %.2fx, "+

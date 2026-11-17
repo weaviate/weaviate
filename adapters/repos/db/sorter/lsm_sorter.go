@@ -61,7 +61,17 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor, store, invertedDisabled}, nil
 }
 
+func checkLimit(limit int) error {
+	if limit < 0 {
+		return fmt.Errorf("negative sort limit %d", limit)
+	}
+	return nil
+}
+
 func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
+	if err := checkLimit(limit); err != nil {
+		return nil, err
+	}
 	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, nil, limit, sort)
 	if err != nil {
@@ -95,6 +105,9 @@ func (s *lsmSorter) sortAllByObjects(ctx context.Context, limit int, sort []filt
 }
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
+	if err := checkLimit(limit); err != nil {
+		return nil, err
+	}
 	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, ids, limit, sort)
 	if err != nil {

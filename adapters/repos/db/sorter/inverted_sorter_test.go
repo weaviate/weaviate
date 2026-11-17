@@ -202,28 +202,30 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCount int,
 	dirName string, logger logrus.FieldLogger,
 ) *lsmkv.Store {
+	store := newSortTestStore(t, ctx, dirName, logger)
+	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := 0; i < objectCount; i++ {
+		objBytes, docID := createDummyObject(t, i)
+		require.NoError(t, objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes))
+	}
+	return store
+}
+
+func newSortTestStore(t testing.TB, ctx context.Context, dirName string, logger logrus.FieldLogger,
+	objectsOpts ...lsmkv.BucketOption,
+) *lsmkv.Store {
 	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithStrategy(lsmkv.StrategyReplace))
-	require.Nil(t, err)
-
-	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
-	for i := 0; i < objectCount; i++ {
-		objBytes, docID := createDummyObject(t, i)
-		objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
-		require.Nil(t, err)
-	}
-
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		append([]lsmkv.BucketOption{lsmkv.WithStrategy(lsmkv.StrategyReplace)}, objectsOpts...)...))
 	for _, propName := range []string{"int", "int2", "number", "date"} {
-		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-		require.Nil(t, err)
+		require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 	}
-
 	return store
 }
 
@@ -287,27 +289,10 @@ func generateRandomProps(count int) []dummyProps {
 }
 
 func dummyInvertedIndex(t *testing.T, ctx context.Context, store *lsmkv.Store, props []dummyProps) {
-	for _, propName := range []string{"int", "int2", "number", "date"} {
-		bucket := store.Bucket(helpers.BucketFromPropNameLSM(propName))
-		for _, p := range props {
-			var key []byte
-			var err error
-			switch propName {
-			case "int":
-				key, err = inverted.LexicographicallySortableInt64(p.int)
-				require.Nil(t, err)
-			case "int2":
-				key, err = inverted.LexicographicallySortableInt64(p.int2)
-				require.Nil(t, err)
-			case "number":
-				key, err = inverted.LexicographicallySortableFloat64(p.number)
-				require.Nil(t, err)
-			case "date":
-				key, err = inverted.LexicographicallySortableInt64(p.date.UnixNano())
-				require.Nil(t, err)
-			}
-			err = bucket.RoaringSetAddOne(key, p.docID)
-			require.Nil(t, err)
+	for _, p := range props {
+		r := sortRow{int: &p.int, int2: p.int2, number: p.number, date: p.date}
+		for propName, key := range sortRowIndexKeys(t, r) {
+			require.NoError(t, store.Bucket(helpers.BucketFromPropNameLSM(propName)).RoaringSetAddOne(key, p.docID))
 		}
 	}
 }
@@ -334,9 +319,10 @@ func dummyClass() *models.Class {
 				IndexInverted: &t,
 			},
 			{
-				Name:          "date",
-				DataType:      []string{string(schema.DataTypeDate)},
-				IndexInverted: &t,
+				Name:            "date",
+				DataType:        []string{string(schema.DataTypeDate)},
+				IndexInverted:   &t,
+				IndexFilterable: &t,
 			},
 			{
 				Name:          "int_not_indexed",
@@ -347,6 +333,11 @@ func dummyClass() *models.Class {
 				Name:          "int_corrupt_index",
 				DataType:      []string{string(schema.DataTypeInt)},
 				IndexInverted: &t,
+			},
+			{
+				Name:            "int_reindexing",
+				DataType:        []string{string(schema.DataTypeInt)},
+				IndexFilterable: &f,
 			},
 			{
 				Name:          "text",
@@ -501,23 +492,11 @@ func docIDKey(docID uint64) []byte {
 }
 
 func newCandidateTestSorter(t testing.TB) (*lsmSorter, *lsmkv.Store) {
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
-	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
+	store := newSortTestStore(t, ctx, t.TempDir(), logger,
+		lsmkv.WithSecondaryIndices(1), lsmkv.WithCalcCountNetAdditions(true))
 	t.Cleanup(func() { store.Shutdown(ctx) })
-
-	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1),
-		lsmkv.WithCalcCountNetAdditions(true)))
-	for _, propName := range []string{"int", "int2", "number", "date"} {
-		require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
-	}
 
 	s, err := NewLSMSorter(store, func(string) *models.Class { return dummyClass() }, "DummyClass", nil)
 	require.NoError(t, err)
@@ -574,11 +553,7 @@ func flushSortBuckets(t testing.TB, store *lsmkv.Store) {
 func sortByObjects(t testing.TB, s *lsmSorter, limit int, sort []filters.Sort, ids helpers.AllowList) []uint64 {
 	ctx := context.Background()
 	if ids == nil {
-		count, err := s.bucket.Count(ctx)
-		require.NoError(t, err)
-		helper, err := s.createHelper(sort, validateLimit(limit, count))
-		require.NoError(t, err)
-		sorted, err := helper.getSorted(ctx)
+		sorted, err := s.sortAllByObjects(ctx, limit, sort)
 		require.NoError(t, err)
 		return sorted
 	}
@@ -587,14 +562,6 @@ func sortByObjects(t testing.TB, s *lsmSorter, limit int, sort []filters.Sort, i
 	sorted, err := helper.getSortedDocIDs(ctx, ids)
 	require.NoError(t, err)
 	return sorted
-}
-
-func sortsBy(pairs ...string) []filters.Sort {
-	sort := make([]filters.Sort, 0, len(pairs)/2)
-	for i := 0; i < len(pairs); i += 2 {
-		sort = append(sort, filters.Sort{Path: []string{pairs[i]}, Order: pairs[i+1]})
-	}
-	return sort
 }
 
 func everyNth(rows []sortRow, n int) helpers.AllowList {
@@ -613,33 +580,47 @@ func TestLSMSorterMultiPropertyCandidatesMatchObjectsPath(t *testing.T) {
 		}
 		return r
 	}
+	sameFirst := func(i int) sortRow {
+		r := groupedRow(1)(i)
+		five := int64(5)
+		r.int = &five
+		return r
+	}
 
 	tests := []struct {
-		name  string
-		rows  []sortRow
-		sort  []filters.Sort
-		limit int
+		name       string
+		rows       []sortRow
+		sort       []filters.Sort
+		limit      int
+		unfiltered bool
+		flush      bool
+		fallsBack  bool
 	}{
 		{
-			name: "asc first, tie group straddles limit", rows: sortRows(100, groupedRow(7)),
-			sort: sortsBy("int", "asc", "text", "desc"), limit: 10,
-		},
-		{
-			name: "desc first, tie group straddles limit", rows: sortRows(100, groupedRow(7)),
-			sort: sortsBy("int", "desc", "number", "asc"), limit: 10,
-		},
-		{
-			name: "three properties, asc desc asc", rows: sortRows(100, groupedRow(7)),
-			sort: sortsBy("int", "asc", "int2", "desc", "text", "asc"), limit: 12,
-		},
-		{
 			name: "asc first, missing first value omitted", rows: sortRows(100, missingEvery4th),
-			sort: sortsBy("int", "asc", "text", "desc"), limit: 10,
+			sort: sort2("int", "asc", "text", "desc"), limit: 10,
 		},
 		{
 			// the limit reaches past the 75 objects with a value
 			name: "desc first, missing first value omitted", rows: sortRows(100, missingEvery4th),
-			sort: sortsBy("int", "desc", "text", "desc"), limit: 90,
+			sort: sort2("int", "desc", "text", "desc"), limit: 90,
+		},
+		{
+			name: "unfiltered, every object ties", rows: sortRows(100, sameFirst),
+			sort: sort2("int", "asc", "text", "desc"), limit: 10, unfiltered: true, flush: true, fallsBack: true,
+		},
+		{
+			name: "unfiltered, small tie group", rows: sortRows(100, groupedRow(7)),
+			sort: sort2("int", "asc", "text", "desc"), limit: 10, unfiltered: true,
+		},
+		{
+			name: "filtered, every object ties", rows: sortRows(100, sameFirst),
+			sort: sort2("int", "asc", "text", "desc"), limit: 10, flush: true,
+		},
+		{
+			// GraphQL leaves order empty when the query omits it
+			name: "empty first order sorts ascending", rows: sortRows(100, groupedRow(7)),
+			sort: sort2("int", "", "text", ""), limit: 10,
 		},
 	}
 
@@ -649,7 +630,9 @@ func TestLSMSorterMultiPropertyCandidatesMatchObjectsPath(t *testing.T) {
 			for _, r := range tc.rows {
 				putSortRow(t, store, r)
 			}
-			ids := everyNth(tc.rows, 1)
+			if tc.flush {
+				flushSortBuckets(t, store)
+			}
 
 			// objects without a first value have no index entry, so the candidate
 			// path omits them
@@ -659,13 +642,35 @@ func TestLSMSorterMultiPropertyCandidatesMatchObjectsPath(t *testing.T) {
 					withFirst = append(withFirst, r.docID)
 				}
 			}
-			expected := sortByObjects(t, s, tc.limit, tc.sort, helpers.NewAllowList(withFirst...))
+			ids, expectedIDs := everyNth(tc.rows, 1), helpers.NewAllowList(withFirst...)
+			if tc.unfiltered {
+				ids, expectedIDs = nil, nil
+			}
+			expected := sortByObjects(t, s, tc.limit, tc.sort, expectedIDs)
 			require.NotEmpty(t, expected)
 
-			actual, err := s.sortInverted(context.Background(), tc.limit, tc.sort, ids)
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			actual, err := s.sortInverted(ctx, tc.limit, tc.sort, ids)
 			require.NoError(t, err)
 			assert.Equal(t, expected, actual)
+			fallback := strings.Contains(fmt.Sprint(helpers.ExtractSlowQueryDetails(ctx)["sort_query_planner"]),
+				"sorting all objects from objects bucket")
+			assert.Equal(t, tc.fallsBack, fallback)
 		})
+	}
+}
+
+func TestLSMSorterRejectsNegativeLimit(t *testing.T) {
+	s, store := newCandidateTestSorter(t)
+	for _, r := range sortRows(20, groupedRow(1)) {
+		putSortRow(t, store, r)
+	}
+
+	for _, sort := range [][]filters.Sort{sort1("int", "asc"), sort2("int", "asc", "text", "asc")} {
+		_, err := s.Sort(context.Background(), -1, sort)
+		assert.ErrorContains(t, err, "negative sort limit")
+		_, err = s.SortDocIDs(context.Background(), -1, sort, helpers.NewAllowList(1, 2, 3))
+		assert.ErrorContains(t, err, "negative sort limit")
 	}
 }
 
@@ -676,7 +681,7 @@ func TestLSMSorterRoutesMultiPropertySortThroughCandidates(t *testing.T) {
 		putSortRow(t, store, r)
 	}
 	flushSortBuckets(t, store)
-	multi := sortsBy("int", "asc", "text", "desc")
+	multi := sort2("int", "asc", "text", "desc")
 	sortAll := func(ctx context.Context, limit int, sort []filters.Sort, _ helpers.AllowList) ([]uint64, error) {
 		return s.Sort(ctx, limit, sort)
 	}
@@ -698,11 +703,11 @@ func TestLSMSorterRoutesMultiPropertySortThroughCandidates(t *testing.T) {
 			strategy: "inverted index candidates", run: sortDocIDs,
 		},
 		{
-			name: "Sort, first property not indexable", sort: sortsBy("text", "asc", "int", "asc"), limit: 10,
+			name: "Sort, first property not indexable", sort: sort2("text", "asc", "int", "asc"), limit: 10,
 			strategy: "objects bucket", run: sortAll,
 		},
 		{
-			name: "SortDocIDs, single property", ids: everyNth(rows, 2), sort: sortsBy("int", "asc"), limit: 10,
+			name: "SortDocIDs, single property", ids: everyNth(rows, 2), sort: sort1("int", "asc"), limit: 10,
 			strategy: "inverted index", run: sortDocIDs,
 		},
 		// limit 0 sorts every match, so the candidate walk would leave none unread
@@ -721,51 +726,9 @@ func TestLSMSorterRoutesMultiPropertySortThroughCandidates(t *testing.T) {
 	}
 }
 
-func TestLSMSorterFallsBackFromLargeTieGroup(t *testing.T) {
-	sameFirst := func(i int) sortRow {
-		r := groupedRow(1)(i)
-		five := int64(5)
-		r.int = &five
-		return r
-	}
-	sort := sortsBy("int", "asc", "text", "desc")
-
-	tests := []struct {
-		name      string
-		rows      []sortRow
-		filtered  bool
-		fallsBack bool
-	}{
-		{name: "unfiltered, every object ties", rows: sortRows(100, sameFirst), fallsBack: true},
-		{name: "unfiltered, small tie group", rows: sortRows(100, groupedRow(7))},
-		{name: "filtered, every object ties", rows: sortRows(100, sameFirst), filtered: true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			s, store := newCandidateTestSorter(t)
-			for _, r := range tc.rows {
-				putSortRow(t, store, r)
-			}
-			flushSortBuckets(t, store)
-			var ids helpers.AllowList
-			if tc.filtered {
-				ids = everyNth(tc.rows, 1)
-			}
-
-			ctx := helpers.InitSlowQueryDetails(context.Background())
-			actual, err := s.sortInverted(ctx, 10, sort, ids)
-			require.NoError(t, err)
-			assert.Equal(t, sortByObjects(t, s, 10, sort, ids), actual)
-			fallback := strings.Contains(fmt.Sprint(helpers.ExtractSlowQueryDetails(ctx)["sort_query_planner"]),
-				"sorting all objects from objects bucket")
-			assert.Equal(t, tc.fallsBack, fallback)
-		})
-	}
-}
-
 func TestLSMSorterSortInvertedReturnsCandidatesError(t *testing.T) {
 	s, _ := newCandidateTestSorter(t)
-	_, err := s.sortInverted(context.Background(), 10, sortsBy("int_not_indexed", "asc", "text", "asc"), nil)
+	_, err := s.sortInverted(context.Background(), 10, sort2("int_not_indexed", "asc", "text", "asc"), nil)
 	require.ErrorIs(t, err, lsmkv.ErrBucketNotFound)
 }
 
@@ -781,7 +744,7 @@ func BenchmarkMultiPropertySort(b *testing.B) {
 		putSortRow(b, store, r)
 	}
 	flushSortBuckets(b, store)
-	sort := sortsBy("date", "asc", "text", "asc")
+	sort := sort2("date", "asc", "text", "asc")
 	const limit = 101
 
 	for _, matchCount := range []int{500, 5_000, 25_000} {
@@ -824,14 +787,6 @@ func TestInvertedSorterCandidates(t *testing.T) {
 		maxIDs  int // 0 sets no cap
 		tooMany bool
 	}{
-		{
-			name: "asc, tie group straddles limit", rows: sortRows(100, groupedRow(7)),
-			ids: rowsWhere(func(i int) bool { return true }), order: "asc", limit: 10,
-		},
-		{
-			name: "desc, tie group straddles limit", rows: sortRows(100, groupedRow(7)),
-			ids: rowsWhere(func(i int) bool { return true }), order: "desc", limit: 10,
-		},
 		{
 			name: "asc, limit on a group boundary", rows: sortRows(100, groupedRow(7)),
 			ids: rowsWhere(func(i int) bool { return true }), order: "asc", limit: 14,
@@ -976,8 +931,8 @@ func firstLimitWithTies(rows []sortRow, ids []uint64, order string, limit int) [
 }
 
 // BenchmarkMultiPropertySortTieGroups compares, without a filter, reading all
-// objects with a cursor against looking up every candidate, as the first sort
-// property's tie group grows. FullScanCandidateShare is where the two should cross.
+// objects with a cursor against looking up every candidate, as the candidates'
+// share of the objects grows. FullScanCandidateShare is where the two should cross.
 func BenchmarkMultiPropertySortTieGroups(b *testing.B) {
 	const objectCount = 20_000
 	ctx := context.Background()
@@ -991,7 +946,7 @@ func BenchmarkMultiPropertySortTieGroups(b *testing.B) {
 	// a limit inside the k-th of 10 groups makes the first k groups, k/10 of
 	// the objects, candidates
 	for _, groups := range []int{1, 3, 5, 9} {
-		sort := sortsBy("int", "asc", "text", "asc")
+		sort := sort2("int", "asc", "text", "asc")
 		limit := groups*objectCount/10 - objectCount/20 + limit
 		b.Run(fmt.Sprintf("share=%d0%%/objects", groups), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {

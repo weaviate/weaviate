@@ -165,7 +165,7 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 	}
 
 	switch orders[0] {
-	case "asc":
+	case "asc", "":
 		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, nesting, mode)
 	case "desc":
 		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, nesting, mode)
