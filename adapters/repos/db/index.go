@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -2747,7 +2748,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	// Therefore, we should set the maximum amount of concurrency to at least 3
 	// so that single-tenant rf=3 queries are not serialized. For any higher value of
 	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
-	eg.SetLimit(_NUMCPU*2 + 1)
+	workers := _NUMCPU*2 + 1
+	// A ref filter's search runs inside an admitted query and inherits its grant:
+	// split the grant between the shards searched at once.
+	if budget := concurrency.BudgetFromCtx(ctx, 0); budget > 0 {
+		workers = concurrency.NumWorkers(ctx, len(readPlan.Shards()), workers)
+		ctx = concurrency.CtxWithBudget(ctx, max(1, budget/workers))
+	}
+	eg.SetLimit(workers)
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
