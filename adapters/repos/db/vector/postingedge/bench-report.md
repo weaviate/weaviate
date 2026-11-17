@@ -132,6 +132,124 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
 
+## v3.1: podar el halo (pre-registro, 2026-11-17)
+
+**Estado: pre-registrado.** Escrito el 17 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, las celdas, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### Qué se mide
+
+El halo de v3.0 cuesta bytes. A recall 0.95, una query lee 3.33 MB de posting con el sketch de 512 bits y 3.72 MB con el de 384, y de eso el halo son 2.19 y 2.25 MB: el 66 y el 60 %. La búsqueda puntúa una de cada cinco entradas de halo que lee: el 23 y el 20 % a 0.99.
+
+v3.1 mide tres formas de aligerarlo, solas y combinadas: dos que quitan aristas, y con ellas entradas de halo, y una que cambia cuántas aristas sigue la búsqueda. Son conteos, sin ningún I/O.
+
+### Celdas (del usuario)
+
+Sobre el build de S = 236 de v3.0, con sketches de 384 y de 512 bits. Cada celda se compara con la base de v3.0 medida en la misma corrida.
+
+1. Una arista por posting de destino, el filtro de v1.6.
+2. Cap de grado 8.
+3. Margen recalibrado para el modo con sketch: M en 0.04, 0.06 y 0.08, elegido por bytes leídos a igual recall.
+4. La mejor combinación de las anteriores.
+
+**Cómo lo leo, para escribirlo** (*mío*):
+
+- **El build es el de v3.0 con S = 236,** construido otra vez en esta corrida: P = 256, R = 64, código completo y la misma semilla. El constructor es determinista, así que los postings y las aristas salen iguales.
+  - El script del veredicto lo comprueba: los miembros, las aristas y los endpoints distintos de cada posting tienen que ser los de `v3.0/dbpedia-1m-halo-s236.json`. Si no lo son, se dice, y la corrida no es sobre ese build.
+  - El grafo de centroides puede cambiar la entrada de alguna query.
+- **La base, por ancho, es la celda de v3.0:** todas las aristas y margen 0.06, medida otra vez aquí.
+- **Los filtros se aplican sobre el build, sin reconstruirlo,** como en v1.5 y v1.6: `onePerTarget` y `capDegree`, y el índice se vuelve a publicar con esas aristas (`replaceEdges`). El halo de un posting son los endpoints distintos de las aristas que quedan.
+  - **Celda 1:** de cada grupo de aristas de un vector que van al mismo posting se conserva la más cercana al source. Ningún vector pierde un posting de destino.
+  - **Celda 2:** cada vector se queda con sus 8 aristas más cercanas, como mucho.
+- **El margen es de la búsqueda,** y no cambia el posting ni el disco. La celda 3 son dos celdas nuevas por ancho, M = 0.04 y M = 0.08 con todas las aristas, porque M = 0.06 es la base.
+  - **Se elige, por ancho, el M que menos bytes lee a recall 0.95,** que es el recall del criterio.
+  - A 0.99 se da igual, y si allí lee menos otro M, se dice.
+- **La mejor combinación sale de medir la malla entera,** para no elegirla a mano con los datos delante: 4 juegos de aristas por 3 márgenes, 12 celdas por ancho.
+
+  | aristas | M = 0.04 | M = 0.06 | M = 0.08 |
+  |---|---|---|---|
+  | todas | celda 3 | **base** | celda 3 |
+  | una por posting de destino | combinación | celda 1 | combinación |
+  | cap 8 | combinación | celda 2 | combinación |
+  | una por posting de destino y cap 8 | combinación | combinación | combinación |
+
+  - **Las dos podas juntas:** primero el filtro y después el cap. Quedan como mucho 8 aristas, cada una hacia un posting distinto.
+  - **La mejor combinación de un ancho** es, de sus siete celdas con dos palancas o más, la que menos bytes lee a 0.95 entre las que pasan el gate.
+  - Si ninguna combinación lee menos que la mejor palanca sola, se dice.
+- **El resto de la búsqueda es la de v3.0:** una entrada, lotes de 4 postings, ef de centroides 8, rescoreLimit 64, scan con el código completo y umbral de parada del scan.
+- **Además, la referencia de v3.0** (ruteo con el código completo, todas las aristas, M = 0.06), que es el modo con sidecar residente, medida en la misma corrida. Es contexto y no entra en el criterio.
+
+### Medidas (del usuario)
+
+Por celda:
+
+- bytes leídos por query a 0.95 y a 0.99, con la parte que es halo;
+- cargas y rondas;
+- disco total;
+- gate de 0.99.
+
+*Mío, para escribirlo:*
+
+- **El modelo de bytes es el de v3.0:** 208 B por miembro, 4 B por arista, y 4 B de id más el sketch por entrada de halo, 60 B con 384 bits y 76 B con 512. Sin alineación a página, sin cabeceras y sin el rescore, que son 64 lecturas de 6.1 KB en todas las celdas.
+- **Los bytes de una query se cuentan sobre los postings que carga,** uno a uno, con sus tres bloques.
+- **A 0.95 y a 0.99 se lee interpolando en la curva de ef de la celda,** como en v3.0, y las cargas y las rondas igual.
+- **La malla de ef es la de v3.0 con los puntos medios hasta 640:** 10, 14, 20, 28, 40, 56, 80, 113, 160, 226, 320, 452, 640, 1024 y 2048. El criterio es un umbral sobre una cifra interpolada, y con el paso a la mitad la interpolación pesa menos. Los puntos de v3.0 están en la malla.
+- **El disco total** son los tres bloques sumados sobre todos los postings. Con solo el margen, es el de la base.
+
+### Gate de 0.99 (del usuario, como en v3.0)
+
+- La celda que no llegue a 0.99 en la malla de ef, con rescoreLimit 64, se barre otra vez con rescoreLimit 200.
+- Si tampoco llega, queda documentada y fuera, con su techo de recall.
+- *Mío, como en v3.0:* la celda que pasa solo con rescoreLimit 200 se lee en esa curva, también a 0.95, y se dice.
+
+### Criterio (del usuario)
+
+**La poda sirve si alguna celda lee 2.46 MB o menos a 0.95 y mantiene 0.99 alcanzable.** Se reporta también cuánto baja a 0.99.
+
+*Mío, para aplicarlo:*
+
+- **Lo que se compara con 2.46 MB** son los bytes de posting por query a 0.95, con sus tres bloques y sin el rescore, que es como está la cifra en la tabla de `disk-design.md`.
+- **«Mantiene 0.99 alcanzable»** es pasar el gate.
+- **Cuentan las 22 celdas podadas,** 11 por ancho. Las dos bases no cuentan.
+- **Cuánto baja a 0.99:** los bytes a 0.99 de cada celda frente a los de su base, en MB y en tanto por ciento.
+- **Qué es el 2.46 MB.** Es la cifra de la simulación de HFresh con cada vector solo en su posting primario (`disk-design.md`, «Contexto: frente a HFresh»).
+  - No es una configuración de HFresh.
+  - Su recall no lleva error de código ni rescore, así que para HFresh es un suelo.
+  - El criterio la usa como listón, tal cual. Cumplirlo no dice que el halo lea menos que un HFresh sin réplicas.
+
+**Para orientarse, con las cifras de v3.0:** el listón pide un 26 % menos de bytes a 0.95 con 512 bits y un 34 % menos con 384. El veredicto se da con la base de esta corrida, no con esas.
+
+### Regla de ruido (del usuario, de v2.3)
+
+- **Cada celda se compara con la base de su ancho dentro de la corrida,** sobre el mismo build y con las mismas queries.
+- **Nada a 0.99 se compara con otra corrida.** Las cifras de v3.0 no entran en el veredicto.
+- **La identidad con v3.0 se comprueba, no se compara:** los postings uno a uno y, a igual ef, los puntos de la base.
+
+### Lo que se reporta además (mío)
+
+- **Qué hace cada poda a las aristas:** aristas por vector, endpoints distintos por posting (media y p95), y los bytes del posting bloque a bloque.
+- **La comprobación de cada poda en el propio paso.** Si falla, es un bug del filtro y la corrida para sin medir.
+  - Una por posting de destino: los postings de destino de cada vector no cambian y no queda ninguna arista repetida.
+  - Cap 8: ningún vector tiene más de 8 aristas, y el total es el de recortar cada fila a 8.
+- **Recall, cargas y rondas a igual ef,** frente a la base.
+- **Endpoints puntuados por query y qué parte son de las entradas de halo leídas,** a 0.95 y a 0.99.
+- **Lo que quita cada palanca sola a 0.95,** y lo que añade la combinación.
+
+### Lo que no mide
+
+- **Ningún I/O y ningún tiempo.**
+- **La parada.** El umbral sigue siendo el ef-ésimo candidato del scan: es la otra mitad de la palanca abierta en `disk-design.md`.
+- **Leer el halo aparte del posting o en parte,** y quitar entradas del halo sin quitar la arista.
+- **Las podas dentro del constructor.** Aquí son filtros sobre un índice construido.
+- **Las podas en el modo con sidecar residente.** v1.5 y v1.6 las cronometraron a 10M, y no ganaron.
+- **El halo con mantenimiento, otros S, el sketch de 256 bits, otros M, otro cap, 10M y otro dataset.**
+
+### Lo que el binario añade (mío)
+
+- **Un test de benchmark,** `TestHaloPrune`, con la etiqueta de los benchmarks: un build, la referencia, y por ancho la malla de aristas por margen, cada celda con su barrido de ef.
+- **Tests:** que las dos podas juntas dejan como mucho 8 aristas hacia postings distintos y son un prefijo de la fila filtrada; que el halo de un posting sale de las aristas que quedan; y que cada búsqueda sobre aristas podadas cuadra con sus propios conteos.
+
+**Datos:** `v3.1/dbpedia-1m-haloprune-s236.json`, de `v3.1/scripts/run_v31_prune.sh`, y el veredicto en `v3.1/prune-verdict.md`, de `v3.1/scripts/prune_verdict.py`.
+
 ## v3.0: punto de operación del halo (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado el 17 a las 15:14 (`341148bd05`), antes de compilar nada de esta ronda, con la corrida de v2.4 en marcha. Las celdas corrieron de 15:21 a 15:49, y sus resultados están al final de la sección, desde «Resultados de v3.0 (2026-11-17)». El encargo, las celdas, las medidas, el resultado principal, el gate y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
