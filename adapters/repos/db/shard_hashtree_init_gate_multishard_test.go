@@ -422,6 +422,8 @@ func TestHeightChangeWhileHashtreeInitQueued(t *testing.T) {
 
 		release()
 		awaitHashtreeInitialized(t, s)
+		// the scan logs its success after marking the tree initialized
+		require.Eventually(t, func() bool { return countMessages(hook, "hashtree successfully initialized") > 0 }, 5*time.Second, 10*time.Millisecond)
 		require.Equal(t, 1, countMessages(hook, "hashtree successfully initialized"), "one scan must suffice after a height change while queued")
 		assertConverged(t, s, expected)
 	})
