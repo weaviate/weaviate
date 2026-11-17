@@ -98,7 +98,7 @@ func imageDataURL(encoded string) (string, error) {
 }
 
 // checkImages runs before any request is sent and billed.
-func checkImages(documents []ent.Document, positions []int) error {
+func (c *client) checkImages(documents []ent.Document, positions []int) error {
 	for _, position := range positions {
 		if _, err := imageMIME(documents[position].Value); err != nil {
 			return fmt.Errorf("object %s: image: %w", documents[position].ID, err)
@@ -107,8 +107,8 @@ func checkImages(documents []ent.Document, positions []int) error {
 	return nil
 }
 
-func newInput(document string, image bool) (any, error) {
-	if !image {
+func (r judgeRequest) input(document string) (any, error) {
+	if !r.image {
 		return document, nil
 	}
 	url, err := imageDataURL(document)

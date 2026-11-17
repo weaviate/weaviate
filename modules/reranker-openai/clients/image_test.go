@@ -82,8 +82,8 @@ func TestImageDataURL(t *testing.T) {
 func TestCheckImages(t *testing.T) {
 	documents := documentsOf(pngBase64, textBase64, "", jpegBase64)
 
-	assert.NoError(t, checkImages(documents, []int{0, 3}))
-	assert.EqualError(t, checkImages(documents, []int{0, 1, 3}),
+	assert.NoError(t, (&client{}).checkImages(documents, []int{0, 3}))
+	assert.EqualError(t, (&client{}).checkImages(documents, []int{0, 1, 3}),
 		"object 00000000-0000-0000-0000-000000000001: image: not a PNG, JPEG, GIF or WebP image")
 }
 

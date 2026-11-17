@@ -34,18 +34,14 @@ import (
 )
 
 const (
-	// DefaultMaxConcurrentRequests is 32: the default size of each of the two
-	// pools of the client, set by RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS. Up
-	// to twice the value can be in flight per process. A request for an image
-	// holds about three copies of its base64 while it holds a slot (80 MiB for
-	// a 20 MiB image).
-	DefaultMaxConcurrentRequests = 32
-	// MaxConcurrentRequestsLimit is 256: the largest value the setting takes.
-	MaxConcurrentRequestsLimit = 256
-	// DefaultMaxDocumentsPerQuery is 1,000 documents. A query sends one billed
+	// MaxConcurrentRequests is 32: the size of each of the two pools of the
+	// client, so a process has up to 64 requests in flight. A request for an
+	// image holds about three copies of its base64 while it holds a slot
+	// (80 MiB for a 20 MiB image).
+	MaxConcurrentRequests = 32
+	// MaxDocumentsPerQuery is 1,000 documents. A query sends one billed
 	// request per object.
-	DefaultMaxDocumentsPerQuery = 1000
-	MaxDocumentsPerQueryEnv     = "RERANKER_OPENAI_MAX_DOCUMENTS_PER_QUERY"
+	MaxDocumentsPerQuery = 1000
 
 	apiPath            = "/v1/decisions"
 	predicateType      = "predicate"
@@ -101,10 +97,12 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 	}
 }
 
-// ValidateQuery returns the error of a rerank.query the module does not rank
-// with: an empty one, and one above maxQueryBytes.
-func ValidateQuery(query string) error {
-	if query == "" {
+// validateQuery returns the error of a rerank.query the module does not rank
+// with: a blank one, and one above maxQueryBytes. The gRPC search rejects a
+// blank query before the search; GraphQL reaches this check only. The API
+// answers a blank query with a probability and bills the request.
+func (c *client) validateQuery(query string) error {
+	if strings.TrimSpace(query) == "" {
 		return errors.New("rerank.query is required by reranker-openai: the query is the condition the model judges")
 	}
 	if len(query) > maxQueryBytes {
@@ -124,10 +122,10 @@ func ValidateQuery(query string) error {
 func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	if err := ValidateQuery(query); err != nil {
+	if err := c.validateQuery(query); err != nil {
 		return nil, err
 	}
-	image, err := propertyInput(cfg, property)
+	image, err := c.propertyInput(cfg, property)
 	if err != nil {
 		return nil, err
 	}
@@ -153,12 +151,12 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		pending = append(pending, i)
 	}
 	if len(pending) > c.maxDocumentsPerQuery {
-		return nil, fmt.Errorf("rerank of %d objects: reranker-openai sends one request per object and takes at most %d per query (%s)",
-			len(pending), c.maxDocumentsPerQuery, MaxDocumentsPerQueryEnv)
+		return nil, fmt.Errorf("rerank of %d objects: reranker-openai sends one request per object and takes at most %d per query",
+			len(pending), c.maxDocumentsPerQuery)
 	}
 
 	if image {
-		if err := checkImages(documents, pending); err != nil {
+		if err := c.checkImages(documents, pending); err != nil {
 			return nil, err
 		}
 	}
@@ -208,7 +206,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 }
 
 // The gRPC parser runs the same check before the search; GraphQL has none.
-func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, err error) {
+func (c *client) propertyInput(cfg moduletools.ClassConfig, property string) (image bool, err error) {
 	if cfg == nil {
 		return false, errors.New("no class config")
 	}
@@ -251,7 +249,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	if err != nil {
 		return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
 	}
-	return score, inputTokens(response.Usage), nil
+	return score, response.inputTokens(), nil
 }
 
 func (c *client) slotsFor(hostFromHeader bool) chan struct{} {
@@ -277,7 +275,7 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 		return decisionResponse{}, ctx.Err()
 	}
 
-	input, err := newInput(document, r.image)
+	input, err := r.input(document)
 	if err != nil {
 		return decisionResponse{}, fmt.Errorf("image: %w", err)
 	}
@@ -301,17 +299,17 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return decisionResponse{}, transportError(ctx, "send OpenAI request", "no HTTP response from", err, r.hostFromHeader)
+		return decisionResponse{}, c.transportError(ctx, "send OpenAI request", "no HTTP response from", err, r.hostFromHeader)
 	}
 	defer res.Body.Close()
-	return readResponse(ctx, res, r.hostFromHeader)
+	return c.readResponse(ctx, res, r.hostFromHeader)
 }
 
 // transportError keeps the transport's error for the class or default host.
 // For a host the request header named it keeps only the end of the context:
 // net/http quotes bytes the host sent, and a dial error names the address that
 // refused the connection. failure says what the host did not deliver.
-func transportError(ctx context.Context, action, failure string, err error, hostFromHeader bool) error {
+func (c *client) transportError(ctx context.Context, action, failure string, err error, hostFromHeader bool) error {
 	if !hostFromHeader {
 		return fmt.Errorf("%s: %w", action, err)
 	}
@@ -327,14 +325,14 @@ func transportError(ctx context.Context, action, failure string, err error, host
 
 // readResponse quotes no status error body and no error object of a host the
 // request header named. A decode error is cut to 512 bytes for every host.
-func readResponse(ctx context.Context, res *http.Response, hostFromHeader bool) (decisionResponse, error) {
+func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromHeader bool) (decisionResponse, error) {
 	if res.StatusCode != http.StatusOK {
-		return decisionResponse{}, statusError(res, hostFromHeader)
+		return decisionResponse{}, c.statusError(res, hostFromHeader)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
 	if err != nil {
-		return decisionResponse{}, transportError(ctx, "read OpenAI response", "no complete body from", err, hostFromHeader)
+		return decisionResponse{}, c.transportError(ctx, "read OpenAI response", "no complete body from", err, hostFromHeader)
 	}
 	if len(body) > maxResponseBodyBytes {
 		return decisionResponse{}, fmt.Errorf("OpenAI response exceeds %d bytes", maxResponseBodyBytes)
@@ -375,7 +373,7 @@ func (e apiError) message() string {
 	return truncate(e.Message)
 }
 
-func readAPIError(body io.Reader) apiError {
+func (c *client) readAPIError(body io.Reader) apiError {
 	var parsed struct {
 		Error apiError `json:"error"`
 	}
@@ -392,7 +390,7 @@ func readAPIError(body io.Reader) apiError {
 //
 // A body that is not quoted is not read, so a host that stalls it does not
 // hold the call until the client timeout.
-func statusError(res *http.Response, hostFromHeader bool) error {
+func (c *client) statusError(res *http.Response, hostFromHeader bool) error {
 	switch res.StatusCode {
 	case http.StatusUnauthorized:
 		return errors.New("OpenAI rejected the API key (status 401)")
@@ -401,12 +399,12 @@ func statusError(res *http.Response, hostFromHeader bool) error {
 	}
 	apiErr := apiError{}
 	if !hostFromHeader {
-		apiErr = readAPIError(res.Body)
+		apiErr = c.readAPIError(res.Body)
 	}
 	return rejectedError{
 		status:        res.StatusCode,
 		message:       apiErr.message(),
-		aboutDocument: aboutDocument(res.StatusCode, apiErr),
+		aboutDocument: apiErr.aboutDocument(res.StatusCode),
 	}
 }
 
@@ -414,12 +412,12 @@ func statusError(res *http.Response, hostFromHeader bool) error {
 // request. A 400 is, unless the error object points at the model or the
 // questions, which are the same for every object of the query. param is a
 // path into the request body, such as "input[0].type".
-func aboutDocument(status int, apiErr apiError) bool {
+func (e apiError) aboutDocument(status int) bool {
 	if status != http.StatusBadRequest {
 		return false
 	}
-	param, _ := apiErr.Param.(string)
-	code, _ := apiErr.Code.(string)
+	param, _ := e.Param.(string)
+	code, _ := e.Code.(string)
 	return !strings.HasPrefix(param, "model") && !strings.HasPrefix(param, "questions") && code != "model_not_found"
 }
 
@@ -529,11 +527,11 @@ type decisionAnswer struct {
 	Probability *float64 `json:"probability"`
 }
 
-func inputTokens(usage json.RawMessage) int64 {
+func (r decisionResponse) inputTokens() int64 {
 	var u struct {
 		InputTokens json.Number `json:"input_tokens"`
 	}
-	if json.Unmarshal(usage, &u) != nil {
+	if json.Unmarshal(r.Usage, &u) != nil {
 		return 0
 	}
 	tokens, err := u.InputTokens.Float64()

@@ -251,7 +251,15 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			{
 				name:        "a missing query fails before any request",
 				property:    "text",
-				wantErr:     []string{"rerank.query is required by reranker-openai"},
+				wantErr:     []string{"rerank: query is required"},
+				minRequests: 0,
+				maxRequests: 0,
+			},
+			{
+				name:        "a query above the limit fails before any request",
+				property:    "text",
+				query:       new(strings.Repeat("q", 100_001)),
+				wantErr:     []string{"rerank.query is 100001 bytes"},
 				minRequests: 0,
 				maxRequests: 0,
 			},
@@ -302,20 +310,16 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			})
 		}
 
-		// The rank call does not run for a search without objects, so the
-		// query is checked before the search.
+		// The rank call does not run for a search without objects. The gRPC
+		// search rejects a blank query before the search.
 		rejectedQueries := []struct {
 			name    string
 			query   *string
 			wantErr string
 		}{
-			{name: "a missing query", wantErr: "rerank.query is required by reranker-openai"},
-			{name: "an empty query", query: new(""), wantErr: "rerank.query is required by reranker-openai"},
-			{
-				name:    "a query above the limit",
-				query:   new(strings.Repeat("q", 100_001)),
-				wantErr: "rerank.query is 100001 bytes",
-			},
+			{name: "a missing query", wantErr: "rerank: query is required"},
+			{name: "an empty query", query: new(""), wantErr: "rerank: query is required"},
+			{name: "a query of whitespace", query: new("  "), wantErr: "rerank: query is required"},
 		}
 		for _, tt := range rejectedQueries {
 			t.Run(tt.name+" fails a search without objects", func(t *testing.T) {
