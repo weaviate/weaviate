@@ -335,3 +335,65 @@ func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
 			"centroid graph must never prefill from object storage, but doc id %d was found in its cache", docID)
 	}
 }
+
+// TestCentroidIndexUpgradeBlocksGet drives the centroid index past the
+// centering training limit while readers hammer Get. hnsw.Get reads across
+// the float-cache-to-compressor swap without the HNSW's compression lock, so
+// without the HFresh-side gate a reader can observe an empty centroid mid
+// upgrade. The window is small, so this is a smoke test rather than a
+// deterministic reproduction.
+func TestCentroidIndexUpgradeBlocksGet(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	dims := 64
+	n := centroidTrainingLimit + 200
+	vecs, _ := testinghelpers.RandomVecsFixedSeed(n, 1, dims)
+
+	// Seed enough centroids that readers have something to fetch, but stay
+	// below the limit so the upgrade fires during the concurrent phase.
+	seeded := centroidTrainingLimit / 2
+	for id := 0; id < seeded; id++ {
+		require.NoError(t, index.Centroids.Insert(uint64(id), &Centroid{Uncompressed: vecs[id]}))
+	}
+	require.False(t, index.Centroids.hnsw.Compressed())
+
+	stop := make(chan struct{})
+	var empty atomic.Int32
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := uint64(0); ; id = (id + 1) % uint64(seeded) {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				c, err := index.Centroids.Get(id)
+				if err != nil || len(c.Uncompressed) == 0 {
+					empty.Add(1)
+				}
+			}
+		}()
+	}
+
+	for id := seeded; id < n; id++ {
+		require.NoError(t, index.Centroids.Insert(uint64(id), &Centroid{Uncompressed: vecs[id]}))
+	}
+	require.Eventually(t, func() bool { return index.Centroids.hnsw.Compressed() },
+		10*time.Second, 10*time.Millisecond, "centroid index never upgraded")
+	close(stop)
+	wg.Wait()
+
+	require.Zero(t, empty.Load(), "Get returned an empty centroid during the upgrade")
+	require.Equal(t, "rq", index.Centroids.hnsw.CompressionStats().CompressionType())
+
+	// Inserts and searches after the upgrade keep working.
+	require.NoError(t, index.Centroids.Insert(uint64(n), &Centroid{Uncompressed: vecs[0]}))
+	res, err := index.Centroids.Search(vecs[0], 2, nil)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uint64{0, uint64(n)}, []uint64{res.data[0].ID, res.data[1].ID})
+}
