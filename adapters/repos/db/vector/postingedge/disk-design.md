@@ -341,6 +341,7 @@ Abierto:
 - *al multiplicar el corpus por diez, el mismo índice cumple en recall a igual ef y en cargas a 0.95, y no a 0.99: carga de un 18 a un 32 % más que el lote en tres corridas, con ef de inserción 160 o con 80;*
 - *lo que falla son las aristas, no la partición (diagnóstico de v2.2; el detalle, en «Aristas o partición»): reconstruidas en lote sobre la partición final, el índice carga un 0.8 % menos que el lote a 0.99. El mantenimiento que falta es un refresco de aristas;*
 - *ese refresco, hecho con la búsqueda del insert, sirve (v2.3; el detalle, en «El refresco de aristas por búsqueda»): con todos los vectores refrescados el índice carga un 6.3 % más que el lote a 0.99, donde el umbral es un 10 %, a 23.2 cargas de posting por vector refrescado;*
+- *repartido durante el crecimiento, también (v2.4; el detalle, en «El refresco al doblar»): refrescando al doblar a los vectores con aristas de la mitad del corpus o menos, el índice acaba un 7.8 % por encima del lote a 0.99, con un tercio menos de trabajo de refresco que refrescando todo al final;*
 - *cada cuánto hace falta rehacerlo, con aristas inversas solas y el objetivo en 0.99: en algún punto entre ×2 y ×10, sin medir dónde;*
 - *las asignaciones que no van al centroide más cercano suben al 3.1 % en el último tramo, con cobertura completa;*
 - *el build incremental hace de 0.39 a 0.55 veces las distancias por código del lote y 0.10 veces las exactas. Sin la asignación n·k, 1.6 veces las exactas.*
@@ -493,12 +494,15 @@ Datos en `testdata/bench/phase2/`:
 | ¿Aguantan las aristas inversas, sin reparar splits, multiplicar el corpus por diez? (v2.2) | **A 0.95 sí; a 0.99 no.** | Lote sobre el 10 %: −0.0027 y −0.0037 de recall en el peor ef, +6.3 y +9.2 % de cargas a 0.95, y +19.6 y +17.9 % a 0.99, con ef de inserción 160 y 80. La celda de ef 80, repetida: +32.0 % a 0.99. |
 | ¿Lo que falla al crecer diez veces son las aristas o la partición? (diagnóstico de v2.2) | **Las aristas.** | Con las aristas reconstruidas en lote sobre la partición que dejan los inserts: −0.8 % de cargas a 0.99 y +3.0 % a 0.95 frente al lote, y de +0.0008 a +0.0034 de recall a igual ef. El 17.3 % de los vectores no está en el posting de su centroide más cercano. |
 | ¿Lo arregla refrescar las aristas con la búsqueda del insert? (v2.3) | **Sí, por el criterio.** | Con todos los vectores refrescados: +6.3 % de cargas a 0.99 y +1.7 % a 0.95 frente al lote, y de +0.0001 a +0.0037 de recall a igual ef. Antes del refresco, +22.7 % a 0.99. Un refresco son 23.2 cargas de posting por vector. |
+| ¿Basta con refrescar al doblar, mientras crece? (v2.4) | **Sí, por el criterio, por 2.2 puntos.** | Tandas con 200 000, 400 000 y 800 000 vectores, 700 000 refrescos y ninguno al final: +7.8 % de cargas a 0.99 y +6.1 % a 0.95 frente al lote, con el recall del lote a igual ef. Frente a las aristas reconstruidas en lote sobre la misma partición, +18.8 % a 0.99. |
 
 **El mínimo que cumple es: aristas inversas en cada insert, y un split que no toca aristas.** La reparación por hermanos es una mejora opcional encima, que se paga en grado.
 
 *v2.2, del 17:* ese mínimo vale al doblar el corpus. Al multiplicarlo por diez deja de cumplir a 0.99 («Crecer diez veces», abajo). Lo que le falta es mantener las aristas, no la partición («Aristas o partición», abajo).
 
 *v2.3, del 17:* con un refresco de aristas por búsqueda encima, ese mínimo vuelve a cumplir a 0.99 tras multiplicar el corpus por diez («El refresco de aristas por búsqueda», abajo).
+
+*v2.4, del 17:* también cumple con el refresco repartido, cada vez que el corpus dobla, por un margen que cabe en el ruido («El refresco al doblar», abajo).
 
 ### Lo que hace un insert
 
@@ -696,10 +700,68 @@ Datos en `testdata/bench/phase2/`:
 - **El orden lo da la edad,** y el refresco tiene que acabar la vuelta: los más nuevos dan menos por vector, y son un tercio de la recuperación.
 - **Las escrituras inversas del refresco están por justificar.** Son 0.21 por vector y cuestan 48 distancias exactas y la lectura de 4.83 listas. Sin medir qué pasa sin ellas.
 - **Abierto, y sin medir:**
-  - un refresco repartido entre los inserts, y cada cuánto: aquí va todo al final;
+  - un refresco repartido entre los inserts, y cada cuánto: aquí va todo al final (*v2.4, abajo: al doblar, en tandas*);
   - el orden contrario, para separar lo que da una cohorte de lo que da su turno;
-  - por qué las listas de la regla del lote buscan mejor, y si un refresco con más ef llega a ellas;
+  - por qué las listas de la regla del lote buscan mejor, y si un refresco con más ef llega a ellas (*mirado en v2.4, abajo: tres hipótesis, ninguna confirmada*);
   - la repetición de la corrida, y lo que recuperaría un reassign sobre el índice refrescado.
+
+### El refresco al doblar (v2.4, 2026-11-17)
+
+*De `bench-report.md`, «v2.4: refresco al doblar, en línea»: la celda de ef 80 otra vez. Cuando el corpus llega a 200 000, 400 000 y 800 000 vectores, se refrescan como en v2.3 todos los vectores cuyas aristas se construyeron con la mitad del corpus o menos: 100 000, 200 000 y 400 000. No hay refresco final. Se mide antes y después de cada tanda, al 100 % y con las aristas reconstruidas en lote sobre la misma partición, que es la referencia dentro de la corrida.*
+
+| | cargas a 0.95 | cargas a 0.99 | aristas por vector |
+|---|---|---|---|
+| tanda de 200 000: antes → después | 7.60 → 7.25 (−4.6 %) | 23.92 → 23.75 (−0.7 %) | 7.85 → 8.28 |
+| tanda de 400 000: antes → después | 8.89 → 8.67 (−2.5 %) | 36.06 → 34.47 (−4.4 %) | 8.48 → 8.95 |
+| tanda de 800 000: antes → después | 10.11 → 9.93 (−1.7 %) | 50.45 → 46.86 (−7.1 %) | 9.05 → 9.47 |
+| al 100 %, frente al lote | 10.67 (+6.1 %) | 56.88 (+7.8 %) | 9.47 |
+| referencia interna, frente al lote | 10.36 (+3.0 %) | 47.89 (−9.3 %) | 9.77 |
+
+**Cumple el criterio del usuario:** al 100 %, las cargas a 0.99 a +10 % o menos del lote.
+
+- **Por 2.2 puntos, en una corrida.** El suelo de ruido de esa medida es del 3.0 %: el margen cabe dentro.
+- **El recall a igual ef queda en el del lote,** de −0.0001 a +0.0008, y las cargas a igual ef, de un 5.7 a un 6.9 % por encima, como siempre con esta partición.
+- **Entre tandas las aristas envejecen.** Al 100 % el índice carga un 18.8 % más a 0.99 que con las aristas reconstruidas en lote sobre su misma partición.
+  - Contra el corpus actual, un vector recién refrescado tiene el 98 % de las aristas que le da la regla. Cuando el corpus dobla, el 68 %. Con un 24 % más de corpus, el 86 %.
+- **Lo que le falta a cada cohorte al final,** frente a la regla del lote: 0.22 aristas a los refrescados en la última tanda, 0.48 a los que entraron entre 400 000 y 800 000 y no se han refrescado nunca, y 0.12 a los últimos.
+
+**El coste, frente a refrescar todo al final (v2.3):**
+
+| en millones | todo al final (v2.3) | al doblar (v2.4) | |
+|---|---|---|---|
+| refrescos | 0.99 | 0.70 | −29 % |
+| cargas de posting de los refrescos | 23.0 | 15.1 | −34 % |
+| distancias por código de los refrescos | 18 318 | 11 409 | −38 % |
+| cargas de posting, con los inserts | 42.1 | 34.3 | −18.5 % |
+| distancias por código, con los inserts | 32 322 | 25 573 | −20.9 % |
+| aristas inversas escritas por los refrescos | 0.213 | 0.188 | −12 % |
+
+- **Un refresco al doblar cuesta de 19.2 a 22.6 cargas,** según el tamaño del corpus, y cambia el 93 % de las listas. Escribe 0.27 aristas inversas.
+- **Los inserts cuestan lo mismo** que sin tandas: 21.55 cargas y 4.53 aristas inversas.
+
+*Lectura mía, para el diseño:*
+
+- **El mantenimiento puede ir con el crecimiento.** No hace falta parar a refrescar todo.
+  - Con esta condición, que solo se mira al doblar, una lista llega a tener hasta cuatro veces el corpus con que se calculó: la del vector que entra justo después de una tanda. Aun así cumple.
+- **A la larga es un refresco por insert.** Cada doblado refresca la mitad del corpus, que es lo insertado desde el anterior. En lecturas, el mantenimiento se dobla: una búsqueda por insert y otra por refresco.
+- **Doblar es un disparador grueso.** El margen del criterio es estrecho, y entre tandas el índice se aleja un 18.8 % de lo que daría tener las aristas al día. Un factor menor compra margen con más refrescos; sin medir.
+- **Hace falta la edad de las aristas por vector:** con qué tamaño de corpus se calcularon. En el harness son 4 B por vector.
+- **Una tanda entera con los inserts parados es del experimento,** no del diseño. Repartida, cada refresco es una búsqueda y una escritura de lista, como un insert.
+
+**Por qué las aristas de la regla del lote buscan mejor** (parte informativa de v2.4, sobre el mismo índice):
+
+- **La diferencia se repite:** con todos los vectores refrescados, la regla del lote da 0.0008 más de recall a ef 160 y a ef 320, y 4.1 cargas menos a 0.99.
+- **Ninguna de las tres hipótesis se confirma.**
+
+| hipótesis | lo medido | lectura pre-registrada |
+|---|---|---|
+| 1, mía: el refresco falla lo que el grafo no alcanza, y el lote, por el error del código | El 84.8 % de los fallos del refresco están en postings que su búsqueda no leyó; en cuatro de cada cinco llevaba una arista a ellos y paró antes. El 89.5 % de los fallos del lote están fuera de sus 256 postings sondeados, no en el código. | a medias |
+| 2, mía: las escrituras inversas del refresco sacan vecinos | Sin su efecto, el recall baja de 0.0000 a 0.0003. Meten vecinos exactos (94 de 94 en la muestra) y sacan sobre todo aristas que no lo eran (77 de 94). | refutada |
+| 3, del usuario: los fallos del refresco se concentran en postings con pocas aristas entrantes, y los del lote no | La quinta parte con menos aristas entrantes tiene el 27.3 % de los fallos del refresco y el 22.4 % de los del lote. Los umbrales eran 30 % o más y 25 % o menos. | a medias |
+
+- **Las dos reglas fallan vecinos distintos:** de 99 004 que pide la regla en la muestra, el refresco no pone 2 172 y el lote 3 229, con 940 en común.
+- **Sigue sin explicar** que las listas del refresco tengan más vecinos exactos (0.9781 frente a 0.9674) y busquen peor.
+- **Sin hipótesis confirmada no hay arreglo que proponer.** Lo que queda anotado: el refresco pierde sus vecinos sobre todo por dónde para su búsqueda, que es el ef, y la regla del lote, por lo que no sondea.
 
 ### Dónde viven las aristas
 
