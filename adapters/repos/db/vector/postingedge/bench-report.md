@@ -6,7 +6,7 @@
 
 ## Resumen, al cierre del 2026-11-17
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición y el refresco de aristas por búsqueda (v2.3).*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición y el refresco de aristas por búsqueda (v2.3), y el punto de operación del halo (v3.0).*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -99,6 +99,16 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - El refresco entero son 1.31 veces las distancias por código de las búsquedas de todos los inserts, y 0.29 veces las de reconstruir en lote.
 - **La regla del lote da más, en la misma corrida:** con las aristas reconstruidas en lote después, un 5.9 % menos de cargas que el lote a 0.99. Sus listas tienen menos vecinos exactos que las del refresco (0.970 frente a 0.977) y buscan mejor. Sin investigar.
 
+**El halo: todo en disco, sin sidecar residente (v3.0, del 17).** dbpedia 1M en lote. Cada posting lleva un sketch de cada endpoint distinto de sus aristas, y la búsqueda ordena los postings con esos sketches en lugar de con el código completo del sidecar. Son conteos, sin ningún I/O.
+
+- **Es viable, por el criterio:** las seis celdas (sketch de 256, 384 y 512 bits, con S = 236 y con S = 1024) llegan a 0.99 con rescoreLimit 64 y con 3× o menos las cargas de su referencia: de 1.43 a 2.85 veces.
+- **Lo que cuesta está en los bytes.** Con todo en disco, una query de 0.99 lee 14.07 MB en el mejor punto (S = 236, 384 bits), 4.31 veces los 3.26 MB del modo con sidecar residente. A 0.95 son 3.33 MB frente a 0.63.
+  - Más de la mitad de lo que lee es halo.
+- **El halo pesa como el posting:** 1 318 endpoints distintos por posting de media y 2 557 en el p95. Con 256 bits son 58.0 KB junto a 57.6 KB de miembros y aristas.
+- **El sketch de cada vector está escrito 5.58 veces.** A 1M el halo quita 198 MB de RAM y añade de 243 a 420 MB de disco.
+- **S = 1024 no lo abarata:** menos cargas y más bytes, de 18.8 a 25.8 MB a 0.99.
+- **Sin medir:** podar el halo (la búsqueda puntúa una de cada cuatro a seis entradas que lee), la parada con sketch y su mantenimiento.
+
 **Limitaciones:**
 
 - **Build en lote:** `AddBatch` solo admite vectores antes de `Build`, que corre una vez; después devuelve `ErrBuilt`. El camino incremental de v2.0 vive en los tests, no en el índice.
@@ -111,7 +121,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v3.0: punto de operación del halo (pre-registro, 2026-11-17)
 
-**Estado: pre-registrado.** Escrito y commiteado el 17 a las 15:14, antes de compilar nada de esta ronda, con la corrida de v2.4 en marcha. El encargo, las celdas, las medidas, el resultado principal, el gate y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+**Estado: pre-registrado y medido el mismo día.** Escrito y commiteado el 17 a las 15:14 (`341148bd05`), antes de compilar nada de esta ronda, con la corrida de v2.4 en marcha. Las celdas corrieron de 15:21 a 15:49, y sus resultados están al final de la sección, desde «Resultados de v3.0 (2026-11-17)». El encargo, las celdas, las medidas, el resultado principal, el gate y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
@@ -218,6 +228,212 @@ Por celda:
 
 - **Cada búsqueda cuadra con sus propios conteos:** los postings que ve el gancho son los que la búsqueda dice haber cargado, con los miembros que escaneó y las aristas que encontró.
 - **Las ocho celdas pasan el gate con rescoreLimit 64,** así que el segundo barrido, con 200, no llegó a correr.
+
+### Resultados de v3.0 (2026-11-17)
+
+*Escrito el 17 por la tarde, con la corrida acabada (15:49) y la de v2.4 todavía en marcha. Las tablas completas están en `v3.0/halo-verdict.md`, de `v3.0/scripts/halo_verdict.py`. Cada celda se compara con la referencia de su build, sobre el mismo índice y con las mismas 5 000 queries.*
+
+**Veredicto, por el criterio: el halo es viable.** Las seis celdas pasan el gate de 0.99 con rescoreLimit 64, y las seis alcanzan 0.99 con 3× o menos las cargas de su referencia: de 1.43 a 2.85 veces.
+
+**S = 236,** 4 195 postings:
+
+| | referencia: código completo | sketch de 256 bits | de 384 bits | de 512 bits |
+|---|---|---|---|---|
+| bytes del código de un endpoint | 200 | 40 | 56 | 72 |
+| cargas a 0.99 | 52.77 | 150.49 (2.85x) | 90.42 (1.71x) | 78.31 (1.48x) |
+| cargas a 0.95 | 10.11 | 37.63 (3.72x) | 23.71 (2.34x) | 18.26 (1.81x) |
+| rondas a 0.99 | 12.94 | 37.37 | 22.36 | 19.33 |
+| cruza 0.99 entre ef 160 y 320, con recall | 0.9859 y 0.9908 | 0.9886 y 0.9937 | 0.9899 y 0.9940 | 0.9886 y 0.9938 |
+| recall máximo de la malla, a ef 2048 | 0.9973 | 0.9988 | 0.9986 | 0.9983 |
+| el posting en disco, de media | 57.6 KB | 115.6 KB (2.01x) | 136.6 KB (2.37x) | 157.7 KB (2.74x) |
+| **bytes leídos por query a 0.99** | 3.26 MB, con sidecar residente | **19.61 MB (6.01x)** | **14.07 MB (4.31x)** | **14.20 MB (4.35x)** |
+| **bytes leídos por query a 0.95** | 0.63 MB, con sidecar residente | **5.00 MB (7.89x)** | **3.72 MB (5.86x)** | **3.33 MB (5.25x)** |
+
+**S = 1024,** 967 postings:
+
+| | referencia: código completo | sketch de 256 bits | de 384 bits | de 512 bits |
+|---|---|---|---|---|
+| cargas a 0.99 | 20.54 | 54.23 (2.64x) | 37.56 (1.83x) | 29.35 (1.43x) |
+| cargas a 0.95 | 6.16 | 15.92 (2.59x) | 11.42 (1.86x) | 9.47 (1.54x) |
+| rondas a 0.99 | 4.88 | 13.30 | 9.14 | 7.09 |
+| cruza 0.99 entre ef 80 y 160, con recall | 0.9869 y 0.9913 | 0.9886 y 0.9939 | 0.9890 y 0.9935 | 0.9891 y 0.9933 |
+| recall máximo de la malla, a ef 2048 | 0.9985 | 0.9993 | 0.9992 | 0.9991 |
+| el posting en disco, de media | 243.2 KB | 430.9 KB (1.77x) | 499.1 KB (2.05x) | 567.4 KB (2.33x) |
+| **bytes leídos por query a 0.99** | 5.30 MB, con sidecar residente | **25.80 MB (4.87x)** | **20.90 MB (3.95x)** | **18.78 MB (3.55x)** |
+| **bytes leídos por query a 0.95** | 1.60 MB, con sidecar residente | **7.70 MB (4.80x)** | **6.40 MB (3.99x)** | **6.07 MB (3.78x)** |
+| a 0.99, frente al sidecar residente de S = 236 | 1.62x | 7.90x | 6.40x | 5.75x |
+
+Entre paréntesis, frente a la referencia de su S. Los bytes son los de los postings que carga la query. El rescore va aparte y es el mismo en los dos modos: 64 lecturas de 6.1 KB.
+
+**Lo que dice:**
+
+- **El halo cumple el criterio en las seis celdas.** La más justa es la de 256 bits con S = 236: 150.49 cargas a 0.99, con el límite en 158.30.
+- **El gate no deja a ninguna fuera.** Todas llegan a 0.99 subiendo solo ef, con rescoreLimit 64, y el segundo barrido, con 200, no corrió.
+- **Lo que cuesta el halo está en los bytes, más que en las cargas.** Con todo en disco, una query lee de 4.3 a 6.0 veces los bytes del modo con sidecar residente a 0.99, y de 5.3 a 7.9 veces a 0.95, con S = 236.
+  - **Más de la mitad de lo que lee es halo:** el 53, el 60 y el 66 % con 256, 384 y 512 bits, a 0.99.
+- **El mejor punto todo en disco a 0.99 es S = 236 con 384 bits:** 14.07 MB por query, 4.31 veces los 3.26 MB del sidecar residente. Con 512 bits empata (14.20 MB): cada posting pesa más y hacen falta menos.
+  - A 0.95 el más ligero es el de 512 bits, con 3.33 MB.
+- **Un sketch más corto se paga en cargas:** 1.48, 1.71 y 2.85 veces las de la referencia a 0.99 con 512, 384 y 256 bits, y 1.81, 2.34 y 3.72 veces a 0.95.
+- **El halo pesa como el posting.** Con S = 236 un posting tiene 1 318 endpoints distintos de media y 2 557 en el p95, 0.622 por arista. Con 256 bits son 58.0 KB de halo junto a 57.6 KB de miembros y aristas.
+- **El sketch de cada vector está escrito 5.58 veces,** una por posting que tiene una arista hacia él. Por eso el halo de 256 bits ocupa en disco más que el sidecar que quita de la RAM: 243 MB frente a 198 MB.
+- **S = 1024 no ayuda al halo.** Carga menos postings (de 29 a 54 a 0.99, frente a de 78 a 150), pero cada uno pesa cuatro veces más, y lee más bytes: de 18.8 a 25.8 MB.
+- **A igual ef, las celdas con sketch no están en el mismo punto que la referencia:** cargan de 1.6 a 3.8 veces más postings, y desde ef 40 tienen más recall que ella. El detalle está abajo.
+
+**Lo que deja para el diseño** (*mío*):
+
+- **El modo sin sidecar existe, y su precio es ancho de banda y disco.** A 1M quita 198 MB de RAM y añade de 243 a 420 MB de disco, y cada query lee al menos 4.3 veces más.
+- **El S del halo es el del índice, 236.** Un posting mayor no lo abarata.
+- **El ancho que rinde es 384 bits** si el objetivo es 0.99, y 512 si es 0.95. Con 256 se cumple el criterio y se leen más bytes que con los otros dos.
+- **Lo que pesa son las copias.** Una query de 0.99 con 384 bits lee 141 551 entradas de halo para puntuar 28 174 endpoints: cinco entradas leídas por cada una que usa. Podar el halo, o leerlo aparte y solo en parte, es la palanca, y está sin medir.
+- **La parada no está calibrada para el sketch.** Con el margen de la referencia, la búsqueda con sketch sigue cargando donde la referencia para. Sin medir cuánto se recupera ajustándola.
+- **Con mantenimiento el halo cuesta más de lo que aquí se ve:** cada arista nueva hacia un vector pide su sketch en el posting del source.
+
+### Resultados de v3.0: el posting, bloque a bloque
+
+| por posting | S = 236: media | p95 | S = 1024: media | p95 |
+|---|---|---|---|---|
+| miembros | 236.0 | 380 | 1 023.8 | 1 569 |
+| aristas | 2 118.7 | 3 665 | 7 566.2 | 13 276 |
+| **endpoints distintos** | **1 318.0** | **2 557** | **4 265.4** | **8 183** |
+| aristas por miembro | 8.98 | | 7.39 | |
+| endpoints distintos por arista | 0.622 | | 0.564 | |
+
+| bytes por posting | por unidad | S = 236: media | p95 | S = 1024: media | p95 |
+|---|---|---|---|---|---|
+| miembros | 208 B por miembro | 49.1 KB | 79.0 KB | 212.9 KB | 326.4 KB |
+| aristas | 4 B por arista | 8.5 KB | 14.7 KB | 30.3 KB | 53.1 KB |
+| halo, sketch de 256 bits | 44 B por endpoint distinto | 58.0 KB | 112.5 KB | 187.7 KB | 360.1 KB |
+| halo, sketch de 384 bits | 60 B | 79.1 KB | 153.4 KB | 255.9 KB | 491.0 KB |
+| halo, sketch de 512 bits | 76 B | 100.2 KB | 194.3 KB | 324.2 KB | 621.9 KB |
+| halo con el código completo, informativo | 204 B | 268.9 KB | 521.6 KB | 870.1 KB | 1 669.3 KB |
+
+| el posting entero | S = 236: media | p95 | S = 1024: media | p95 |
+|---|---|---|---|---|
+| miembros y aristas, con sidecar residente | 57.6 KB | 90.6 KB | 243.2 KB | 366.4 KB |
+| con halo de 256 bits | 115.6 KB (2.01x) | 189.3 KB | 430.9 KB (1.77x) | 691.8 KB |
+| con halo de 384 bits | 136.6 KB (2.37x) | 229.0 KB | 499.1 KB (2.05x) | 808.7 KB |
+| con halo de 512 bits | 157.7 KB (2.74x) | 268.7 KB | 567.4 KB (2.33x) | 940.3 KB |
+
+- **De cada diez aristas de un posting, seis llevan a un endpoint distinto** con S = 236, y algo menos con S = 1024. El resto repite un endpoint al que ya lleva otro miembro.
+- **Con el código completo el halo serían 268.9 KB por posting,** 4.7 veces lo que pesan sus miembros y sus aristas. Es lo que las simulaciones daban por negativo, y por lo que el halo va con sketch.
+- **Las colas son largas:** el p95 del halo es casi el doble de su media.
+
+**Lo que ocupa cada modo,** a 1M:
+
+| | S = 236: disco | RAM del sidecar | S = 1024: disco | RAM del sidecar |
+|---|---|---|---|---|
+| sidecar residente | 241.5 MB: 205.9 de miembros y 35.6 de aristas | 198.0 MB | 235.2 MB: 205.9 y 29.3 | 198.0 MB |
+| todo en disco, sketch de 256 bits | 484.7 MB, con 243.3 de halo | — | 416.7 MB, con 181.5 de halo | — |
+| todo en disco, sketch de 384 bits | 573.2 MB, con 331.7 de halo | — | 482.7 MB, con 247.5 de halo | — |
+| todo en disco, sketch de 512 bits | 661.7 MB, con 420.2 de halo | — | 548.7 MB, con 313.5 de halo | — |
+
+- **Los halos suman 5 528 876 entradas con S = 236 y 4 124 595 con S = 1024,** para 990 000 vectores: 5.58 y 4.17 copias del sketch de cada uno.
+- **Por vector son 246, 335 y 424 B de halo** con S = 236, frente a los 200 B del sidecar.
+- **El mapa vector→posting (4.0 MB) y los centroides quedan residentes en los dos modos.**
+
+### Resultados de v3.0: bytes leídos por query
+
+De los postings que carga cada query, bloque a bloque.
+
+**A recall 0.99:**
+
+| S | celda | modo | cargas | miembros | aristas | halo | total | frente al sidecar residente de su S | frente al de S = 236 |
+|---|---|---|---|---|---|---|---|---|---|
+| 236 | referencia | sidecar residente | 52.77 | 2.75 MB | 0.51 MB | — | 3.26 MB | 1.00x | 1.00x |
+| 236 | sketch de 256 bits | todo en disco | 150.49 | 7.80 MB | 1.46 MB | 10.35 MB | 19.61 MB | 6.01x | 6.01x |
+| 236 | sketch de 384 bits | todo en disco | 90.42 | 4.70 MB | 0.88 MB | 8.49 MB | 14.07 MB | 4.31x | 4.31x |
+| 236 | sketch de 512 bits | todo en disco | 78.31 | 4.07 MB | 0.77 MB | 9.36 MB | 14.20 MB | 4.35x | 4.35x |
+| 1024 | referencia | sidecar residente | 20.54 | 4.58 MB | 0.71 MB | — | 5.30 MB | 1.00x | 1.62x |
+| 1024 | sketch de 256 bits | todo en disco | 54.23 | 12.02 MB | 1.87 MB | 11.91 MB | 25.80 MB | 4.87x | 7.90x |
+| 1024 | sketch de 384 bits | todo en disco | 37.56 | 8.34 MB | 1.30 MB | 11.26 MB | 20.90 MB | 3.95x | 6.40x |
+| 1024 | sketch de 512 bits | todo en disco | 29.35 | 6.53 MB | 1.02 MB | 11.22 MB | 18.78 MB | 3.55x | 5.75x |
+
+**A recall 0.95:**
+
+| S | celda | modo | cargas | miembros | aristas | halo | total | frente al sidecar residente de su S | frente al de S = 236 |
+|---|---|---|---|---|---|---|---|---|---|
+| 236 | referencia | sidecar residente | 10.11 | 0.54 MB | 0.10 MB | — | 0.63 MB | 1.00x | 1.00x |
+| 236 | sketch de 256 bits | todo en disco | 37.63 | 1.96 MB | 0.37 MB | 2.67 MB | 5.00 MB | 7.89x | 7.89x |
+| 236 | sketch de 384 bits | todo en disco | 23.71 | 1.24 MB | 0.23 MB | 2.25 MB | 3.72 MB | 5.86x | 5.86x |
+| 236 | sketch de 512 bits | todo en disco | 18.26 | 0.96 MB | 0.18 MB | 2.19 MB | 3.33 MB | 5.25x | 5.25x |
+| 1024 | referencia | sidecar residente | 6.16 | 1.39 MB | 0.21 MB | — | 1.60 MB | 1.00x | 2.53x |
+| 1024 | sketch de 256 bits | todo en disco | 15.92 | 3.56 MB | 0.56 MB | 3.58 MB | 7.70 MB | 4.80x | 12.14x |
+| 1024 | sketch de 384 bits | todo en disco | 11.42 | 2.55 MB | 0.40 MB | 3.45 MB | 6.40 MB | 3.99x | 10.09x |
+| 1024 | sketch de 512 bits | todo en disco | 9.47 | 2.12 MB | 0.33 MB | 3.61 MB | 6.07 MB | 3.78x | 9.57x |
+
+- **Las dos cosas que suben los bytes van en sentidos contrarios con el ancho:** el halo de cada posting crece con el sketch, y las cargas bajan. Con S = 236 a 0.99 se compensan entre 384 y 512 bits.
+- **El modo con sidecar residente también lee más con S = 1024:** 5.30 MB frente a 3.26 a 0.99, que es lo que ya decía la Fase C de los vectores escaneados.
+- **La columna frente a S = 236 compara dos particiones,** y lleva lo que se separan dos builds, sin medir aquí.
+- **De las entradas de halo que lee, la búsqueda puntúa una parte:**
+
+| S = 236, a 0.99 | referencia | 256 bits | 384 bits | 512 bits |
+|---|---|---|---|---|
+| entradas de halo de los postings cargados | 82 381 | 235 160 | 141 551 | 123 196 |
+| endpoints puntuados | 26 630 | 36 493 | 28 174 | 28 491 |
+| entradas por endpoint puntuado | 3.1 | 6.4 | 5.0 | 4.3 |
+
+- *Mío:* las demás son de sources fuera del margen, de endpoints ya puntuados desde otro posting o de postings ya cargados. El reparto no está en los datos de esta corrida.
+
+### Resultados de v3.0: recall y cargas a igual ef
+
+Con rescoreLimit 64. Entre paréntesis, frente a la referencia en el mismo ef.
+
+**S = 236:**
+
+| ef | referencia: recall | cargas | 256 bits: recall | cargas | 384 bits: recall | cargas | 512 bits: recall | cargas |
+|---|---|---|---|---|---|---|---|---|
+| 10 | 0.9224 | 7.60 | 0.9141 (−0.0083) | 21.93 (2.89x) | 0.9176 (−0.0047) | 15.36 (2.02x) | 0.9175 (−0.0049) | 12.30 (1.62x) |
+| 20 | 0.9504 | 10.16 | 0.9443 (−0.0062) | 33.65 (3.31x) | 0.9485 (−0.0019) | 22.97 (2.26x) | 0.9495 (−0.0009) | 18.07 (1.78x) |
+| 40 | 0.9665 | 14.58 | 0.9671 (+0.0006) | 52.54 (3.60x) | 0.9698 (+0.0033) | 35.72 (2.45x) | 0.9699 (+0.0033) | 27.61 (1.89x) |
+| 80 | 0.9783 | 22.14 | 0.9804 (+0.0021) | 82.67 (3.73x) | 0.9827 (+0.0044) | 56.06 (2.53x) | 0.9818 (+0.0034) | 42.99 (1.94x) |
+| 160 | 0.9859 | 35.20 | 0.9886 (+0.0027) | 132.11 (3.75x) | 0.9899 (+0.0041) | 89.57 (2.54x) | 0.9886 (+0.0027) | 68.56 (1.95x) |
+| 320 | 0.9908 | 57.28 | 0.9937 (+0.0029) | 212.71 (3.71x) | 0.9940 (+0.0031) | 144.90 (2.53x) | 0.9938 (+0.0029) | 111.03 (1.94x) |
+| 640 | 0.9940 | 95.54 | 0.9966 (+0.0026) | 345.85 (3.62x) | 0.9965 (+0.0025) | 236.99 (2.48x) | 0.9962 (+0.0022) | 182.47 (1.91x) |
+| 1024 | 0.9960 | 136.39 | 0.9978 (+0.0018) | 480.77 (3.53x) | 0.9977 (+0.0017) | 332.30 (2.44x) | 0.9973 (+0.0013) | 256.60 (1.88x) |
+| 2048 | 0.9973 | 233.97 | 0.9988 (+0.0014) | 772.16 (3.30x) | 0.9986 (+0.0012) | 546.57 (2.34x) | 0.9983 (+0.0010) | 427.94 (1.83x) |
+
+**S = 1024:**
+
+| ef | referencia: recall | cargas | 256 bits: recall | cargas | 384 bits: recall | cargas | 512 bits: recall | cargas |
+|---|---|---|---|---|---|---|---|---|
+| 10 | 0.9512 | 6.16 | 0.9458 (−0.0053) | 14.72 (2.39x) | 0.9470 (−0.0042) | 10.86 (1.76x) | 0.9465 (−0.0046) | 8.99 (1.46x) |
+| 20 | 0.9700 | 7.99 | 0.9663 (−0.0038) | 21.65 (2.71x) | 0.9681 (−0.0019) | 15.46 (1.94x) | 0.9693 (−0.0008) | 12.61 (1.58x) |
+| 40 | 0.9797 | 10.84 | 0.9805 (+0.0008) | 32.19 (2.97x) | 0.9825 (+0.0028) | 22.77 (2.10x) | 0.9817 (+0.0019) | 18.13 (1.67x) |
+| 80 | 0.9869 | 15.48 | 0.9886 (+0.0017) | 48.47 (3.13x) | 0.9890 (+0.0021) | 34.15 (2.21x) | 0.9891 (+0.0022) | 26.83 (1.73x) |
+| 160 | 0.9913 | 23.09 | 0.9939 (+0.0026) | 73.90 (3.20x) | 0.9935 (+0.0022) | 51.98 (2.25x) | 0.9933 (+0.0020) | 40.77 (1.77x) |
+| 320 | 0.9942 | 35.39 | 0.9969 (+0.0027) | 113.17 (3.20x) | 0.9963 (+0.0021) | 80.03 (2.26x) | 0.9961 (+0.0019) | 62.75 (1.77x) |
+| 640 | 0.9963 | 55.87 | 0.9980 (+0.0017) | 172.93 (3.10x) | 0.9980 (+0.0017) | 123.93 (2.22x) | 0.9977 (+0.0014) | 97.73 (1.75x) |
+| 1024 | 0.9975 | 76.94 | 0.9987 (+0.0012) | 228.02 (2.96x) | 0.9988 (+0.0013) | 166.32 (2.16x) | 0.9985 (+0.0010) | 132.38 (1.72x) |
+| 2048 | 0.9985 | 124.05 | 0.9993 (+0.0008) | 335.78 (2.71x) | 0.9992 (+0.0007) | 253.19 (2.04x) | 0.9991 (+0.0006) | 205.97 (1.66x) |
+
+- **Con sketch, un mismo ef carga muchos más postings:** de 1.6 a 3.8 veces con S = 236. El umbral de parada es el mismo, el del scan con código completo, y las estimaciones de los endpoints son más ruidosas: más postings parecen estar por debajo de él.
+- **Desde ef 40 esas cargas de más dan más recall que la referencia,** de 0.0006 a 0.0044. Por debajo de ef 40 dan menos, de 0.0009 a 0.0083, aun cargando más.
+- **Por eso las celdas se leen a igual recall y no a igual ef.** A 0.99 la referencia y las tres celdas de S = 236 cruzan entre ef 160 y ef 320, con las celdas más cerca de ef 160.
+
+### Lo que v3.0 no mide, visto el resultado
+
+- **Qué parte del halo hace falta.** La búsqueda puntúa una de cada cuatro a seis entradas que lee.
+- **La parada con sketch.** El margen es el de la referencia, y a igual ef las celdas cargan de más.
+- **Un ancho entre 256 y 384 bits,** que es donde el criterio pasa de justo a holgado, y un S menor que 236.
+- **El coste del halo en mantenimiento,** que v2.0 a v2.4 miden sin él.
+- **La repetición.** Es una corrida por S, sin suelo de ruido propio.
+- **Ningún I/O,** 10M ni otro dataset.
+
+### Datos y reproducción de v3.0
+
+En `testdata/bench/v3.0/`:
+
+- `dbpedia-1m-halo-s236.json` y `dbpedia-1m-halo-s1024.json`: un build cada uno, con su trabajo (`build`), lo que tiene cada posting (`layout`, con miembros, aristas y endpoints distintos de cada uno en `counts`) y sus cuatro celdas (`cells`). Cada punto de una celda lleva el recall y, por query, las cargas y lo que suman los postings cargados: `membersMean`, `edgesMean` y `entriesMean`.
+- `halo-verdict.md`: las tablas, de `scripts/halo_verdict.py`, que aplica el modelo de bytes.
+- `scripts/run_v30_halo.sh`: los dos builds, uno detrás de otro, y el veredicto.
+
+```bash
+go test -tags postingedgebench -c -o <dir>/postingedge-v30.test ./adapters/repos/db/vector/postingedge/
+WORK=<dir con postingedge-v30.test> caffeinate -s -i v3.0/scripts/run_v30_halo.sh
+python3 v3.0/scripts/halo_verdict.py v3.0 > v3.0/halo-verdict.md
+```
+
+El binario es el del commit `fdeefc8cc1`. Corrió de 15:21 a 15:49, con la cadena de v2.4 en marcha: los builds tardaron 9 min 29 s y 9 min 1 s, indicativo.
 
 ## v2.4: refresco al doblar, en línea (pre-registro, 2026-11-17)
 

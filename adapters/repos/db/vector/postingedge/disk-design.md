@@ -1,6 +1,6 @@
 # Índice posting+edges: notas para el diseño de la versión en disco
 
-**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento, y el ef de inserción que deja v2.1. El resto del diseño de disco no está escrito aquí.
+**Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento, y el ef de inserción que deja v2.1. "El halo" (2026-11-17) tiene el modo sin sidecar residente y lo que cuesta, de v3.0. El resto del diseño de disco no está escrito aquí.
 
 Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
 
@@ -193,6 +193,45 @@ Lo que queda por medir:
 - **El último bloque de cada posting va a medias:** 236 son 7 bloques llenos y 12 códigos, y el bloque incompleto cuesta como uno lleno.
 - **Construir las tablas de la query,** que en el prototipo sin optimizar cuesta 15.8 µs a 768 bits.
 
+## El halo: los códigos de los endpoints dentro del posting (v3.0, 2026-11-17)
+
+*De `bench-report.md`, «v3.0: punto de operación del halo»: dbpedia 1M en lote, con S = 236 y con S = 1024. Sobre cada build, la referencia ordena los postings con el código completo de los endpoints, que es lo que hace el sidecar residente, y tres celdas los ordenan con un sketch de 256, 384 y 512 bits. El scan lleva el código completo en todas. Son conteos y un modelo de bytes; ningún I/O está medido. Lo que es lectura mía va marcado.*
+
+**Qué es.** En los cuatro layouts de arriba queda residente el sidecar: el código completo de cada vector, 200 B a 1536d. El halo lo quita. Cada posting lleva un tercer bloque, con el id y un sketch de cada endpoint distinto de las aristas de sus miembros, y la búsqueda ordena los postings sin cargar con lo que traen los que ya cargó. Los centroides y el mapa vector→posting, de 4 B por vector, siguen residentes.
+
+**El modelo de bytes** (*mío*): 208 B por miembro (id y código completo), 4 B por arista, y 4 B de id más el sketch por entrada de halo: 44, 60 y 76 B con 256, 384 y 512 bits. Sin alineación a página ni cabeceras.
+
+| S = 236, frente al sidecar residente | sidecar residente | halo de 256 bits | de 384 bits | de 512 bits |
+|---|---|---|---|---|
+| cargas a 0.99 | 52.77 | 2.85x | 1.71x | 1.48x |
+| cargas a 0.95 | 10.11 | 3.72x | 2.34x | 1.81x |
+| rondas a 0.99 | 12.94 | 37.37 | 22.36 | 19.33 |
+| un posting en disco, de media | 57.6 KB | 115.6 KB | 136.6 KB | 157.7 KB |
+| bytes de posting por query a 0.99 | 3.26 MB | 19.61 MB (6.01x) | 14.07 MB (4.31x) | 14.20 MB (4.35x) |
+| bytes de posting por query a 0.95 | 0.63 MB | 5.00 MB (7.89x) | 3.72 MB (5.86x) | 3.33 MB (5.25x) |
+| disco, a 1M | 241 MB | 485 MB | 573 MB | 662 MB |
+| RAM del sidecar, a 1M | 198 MB | — | — | — |
+
+**El halo es viable, por el criterio del usuario:** alguna celda alcanza 0.99 con 3× o menos las cargas de la referencia. Lo cumplen las seis, de 1.43 a 2.85 veces, todas con rescoreLimit 64 y subiendo solo ef.
+
+- **Lo que cuesta es ancho de banda y disco.** Una query lee al menos 4.3 veces más bytes de posting a 0.99 y 5.3 veces más a 0.95, y el índice ocupa de 2.0 a 2.7 veces en disco.
+- **Un posting tiene 1 318 endpoints distintos de media y 2 557 en el p95,** 0.622 por arista. Su halo pesa lo que sus miembros y sus aristas juntos con 256 bits, y 1.7 veces eso con 512.
+- **El sketch de cada vector está escrito 5.58 veces,** una por posting con una arista hacia él. Por vector son 246, 335 y 424 B de halo, frente a los 200 B del sidecar: el halo no ahorra bytes, los cambia de RAM a disco.
+- **El ancho se paga por los dos lados.** Un sketch más corto pide más cargas, y uno más largo, más bytes por carga. A 0.99 se compensan entre 384 y 512 bits; a 0.95 gana 512.
+- **S = 1024 no ayuda:** de 1.43 a 2.64 veces las cargas de su referencia, pero de 18.8 a 25.8 MB por query a 0.99, y su modo con sidecar residente ya lee 5.30 MB.
+- **La búsqueda usa una parte de lo que lee:** a 0.99 con 384 bits, 141 551 entradas de halo leídas para 28 174 endpoints puntuados.
+- **A igual ef, con sketch se cargan de 1.6 a 3.8 veces más postings,** con algo más de recall desde ef 40. El umbral de parada es el del scan, y las estimaciones de los endpoints son más ruidosas.
+
+*Lectura mía, para el diseño:*
+
+- **Hay dos modos, y el sidecar residente es el barato en I/O.** El halo es para cuando el sidecar no cabe: a 100M y 1536d son de 10 a 20 GB de RAM.
+- **El halo iría con S = 236 y 384 bits** si el objetivo es 0.99, y con 512 si es 0.95.
+- **El término que crece es el de las rondas,** que en disco van en serie: de 12.9 a entre 19 y 37 a 0.99.
+- **La palanca es no leer todo el halo.** Cuatro de cada cinco entradas leídas no se puntúan. Un halo podado, o en un bloque aparte que se lee solo para los sources dentro del margen, está sin medir.
+- **La parada pide su propia calibración con sketch.** El margen de 0.06 se calibró con el código completo.
+- **El mantenimiento se encarece.** Una arista nueva hacia un vector mete su sketch en el posting del source: las 4.5 aristas inversas de un insert y la lista propia de un refresco tocan halos de otros postings. Sin medir.
+- **Abierto:** el sidecar paginado, que guarda cada código una vez y lo lee por páginas, es el otro punto sin RAM. Aquí no está medido; en las simulaciones no era operable por lecturas aleatorias.
+
 ## Open for phase 2
 
 *Añadido al cierre del 2026-11-13 como punto de partida del lunes. Son las cuatro preguntas abiertas, sin resolver. Cada una dice qué hay hoy en el índice en memoria y qué queda por decidir.*
@@ -276,6 +315,7 @@ Abierto:
 Abierto:
 
 - **Si cabe residente a la escala objetivo,** o hace falta un sidecar capado, con lo que eso le quita al routing: con 256 bits para todo, 3.0x cargas a igual recall.
+  - *Medido el 17 (v3.0; el detalle, en «El halo»):* con el scan a código completo y solo el ruteo capado, son 2.85, 1.71 y 1.48 veces las cargas a 0.99 con 256, 384 y 512 bits. Sin sidecar, con esos sketches dentro de los postings, una query lee de 4.3 a 6.0 veces más bytes.
 - **Su relación con el layout (c):** el refinado lee el sidecar por cada candidato refinado.
 - **Cómo se mantiene con inserciones, deletes y movimientos de posting,** que depende del punto 1.
 - **Qué memoria deja el modo disco,** con el sidecar y los centroides residentes, frente a HNSW y a HFresh.
