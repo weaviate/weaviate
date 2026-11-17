@@ -2283,3 +2283,118 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 		test_utils.AssertNestedPropsMatch(t, pA.NestedProperties, pB.NestedProperties)
 	}
 }
+
+// racedSchemaManager models a class that a concurrent request created after
+// the batch read its schema snapshot: AddClass fails as it does on the leader,
+// and a fresh read returns the class (0-weaviate-issues#679).
+type racedSchemaManager struct {
+	fakeSchemaManager
+	existing      map[string]*models.Class // keyed by the name a read resolves
+	version       uint64
+	addClassCalls int
+}
+
+func (r *racedSchemaManager) AddClass(_ context.Context, _ *models.Principal,
+	class *models.Class,
+) (*models.Class, uint64, error) {
+	r.addClassCalls++
+	return nil, 0, fmt.Errorf("class name %s already exists", class.Class)
+}
+
+func (r *racedSchemaManager) GetCachedClassNoAuth(_ context.Context, names ...string,
+) (map[string]versioned.Class, error) {
+	res := map[string]versioned.Class{}
+	for _, name := range names {
+		if class, ok := r.existing[name]; ok {
+			res[name] = versioned.Class{Class: class, Version: r.version}
+		}
+	}
+	return res, nil
+}
+
+func (r *racedSchemaManager) AddClassProperty(_ context.Context, _ *models.Principal,
+	className string, _ bool, props ...*models.Property,
+) (*models.Class, uint64, error) {
+	class := *r.existing[className]
+	class.Properties = append(slices.Clone(class.Properties), props...)
+	r.existing[className] = &class
+	r.version++
+	return &class, r.version, nil
+}
+
+func Test_autoSchemaManager_autoSchema_classCreatedConcurrently(t *testing.T) {
+	const className = "Movie"
+	titleOnly := func(name string) *models.Class {
+		return &models.Class{
+			Class:      name,
+			Properties: []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+		}
+	}
+	tests := []struct {
+		name      string
+		existing  map[string]*models.Class
+		wantErr   string
+		wantProps []string
+	}{
+		{
+			name:      "class created by a concurrent request",
+			existing:  map[string]*models.Class{className: titleOnly(className)},
+			wantProps: []string{"title", "director", "genre"},
+		},
+		{
+			name:    "create failed and the class does not exist",
+			wantErr: "auto-schema: create collection: class name Movie already exists",
+		},
+		{
+			name:     "name resolves to a different class",
+			existing: map[string]*models.Class{className: titleOnly("Film")},
+			wantErr:  "auto-schema: create collection: class name Movie already exists",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const fetchedAt = 7
+			sm := &racedSchemaManager{existing: tt.existing, version: fetchedAt}
+			logger, _ := test.NewNullLogger()
+			m := &AutoSchemaManager{
+				schemaManager: sm,
+				objectFinder:  &fakeObjectFinder{},
+				config: config.AutoSchema{
+					Enabled:       runtime.NewDynamicValue(true),
+					DefaultString: schema.DataTypeText.String(),
+				},
+				logger: logger,
+			}
+
+			// The batch read its snapshot before the class existed.
+			classes := map[string]versioned.Class{}
+			var maxVersion uint64
+			var err error
+			for _, props := range []map[string]interface{}{
+				{"title": "Heat", "director": "Mann"},
+				{"title": "Ronin", "genre": "thriller"},
+			} {
+				var version uint64
+				version, err = m.autoSchema(context.Background(), &models.Principal{}, true, classes,
+					&models.Object{Class: className, Properties: props})
+				if err != nil {
+					break
+				}
+				maxVersion = max(maxVersion, version)
+			}
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 1, sm.addClassCalls, "later objects must use the class that now exists")
+			assert.GreaterOrEqual(t, maxVersion, uint64(fetchedAt))
+			var gotProps []string
+			for _, p := range classes[className].Properties {
+				gotProps = append(gotProps, p.Name)
+			}
+			assert.ElementsMatch(t, tt.wantProps, gotProps)
+		})
+	}
+}
