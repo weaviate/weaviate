@@ -207,7 +207,7 @@ func TestRankHalvesARequestTheAPIRejectsForItsSize(t *testing.T) {
 		f.probabilities = distinctProbabilities(documents)
 		logger, hook := test.NewNullLogger()
 		logger.SetLevel(logrus.DebugLevel)
-		c := New(defaultFakeKey, testTimeout, DefaultMaxConcurrentRequests, logger)
+		c := New(defaultFakeKey, testTimeout, MaxConcurrentRequests, logger)
 
 		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
 
@@ -1360,7 +1360,7 @@ func TestNewRaisesACapBelowOneToOne(t *testing.T) {
 		{name: "zero", maxConcurrentRequests: 0, wantCap: 1},
 		{name: "negative", maxConcurrentRequests: -3, wantCap: 1},
 		{name: "one", maxConcurrentRequests: 1, wantCap: 1},
-		{name: "the default", maxConcurrentRequests: DefaultMaxConcurrentRequests, wantCap: 16},
+		{name: "the default", maxConcurrentRequests: MaxConcurrentRequests, wantCap: 16},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1511,7 +1511,7 @@ func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 			logger, hook := test.NewNullLogger()
 			logger.SetLevel(logrus.DebugLevel)
-			c := New(defaultFakeKey, testTimeout, DefaultMaxConcurrentRequests, logger)
+			c := New(defaultFakeKey, testTimeout, MaxConcurrentRequests, logger)
 
 			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
 
@@ -1649,7 +1649,7 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func newTestClient(apiKey string) *client {
-	return New(apiKey, testTimeout, DefaultMaxConcurrentRequests, nullLogger())
+	return New(apiKey, testTimeout, MaxConcurrentRequests, nullLogger())
 }
 
 // documentsOf gives the value at position i the ID

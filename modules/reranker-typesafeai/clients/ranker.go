@@ -35,12 +35,11 @@ import (
 )
 
 const (
-	// DefaultMaxConcurrentRequests is the default size of each of the two
-	// pools of the client, so a process has up to twice as many requests in
-	// flight. A request with images holds two to four times their base64
-	// while it holds a slot, up to 24 MiB of base64 per request.
-	DefaultMaxConcurrentRequests = 16
-	MaxConcurrentRequestsLimit   = 256
+	// MaxConcurrentRequests is 16: the size of each of the two pools of the
+	// client, so a process has up to 32 requests in flight. A request with
+	// images holds two to four times their base64 while it holds a slot, up to
+	// 24 MiB of base64 per request.
+	MaxConcurrentRequests = 16
 
 	// The API does not publish its request size limit: 141,000 characters
 	// were accepted and 149,000 rejected. A batch closes before the bytes of
@@ -50,7 +49,11 @@ const (
 	// text holds fewer characters than the limit. Beyond 50 documents a
 	// request saves almost no tokens and answers more slowly than two sent in
 	// parallel.
-	MaxBatchDocuments  = 50
+	//
+	// MaxBatchDocuments is 50 documents per request.
+	MaxBatchDocuments = 50
+	// MaxBatchCharacters is 100,000 bytes of documents and questions per
+	// request.
 	MaxBatchCharacters = 100_000
 
 	apiPath       = "/v1/systemone"
@@ -60,8 +63,11 @@ const (
 	baseURLHeader = "X-Typesafeai-Baseurl"
 	// tooLargeError is the error_type of the 400 the API answers to a request
 	// above its token limit.
-	tooLargeError        = "max_tokens_exceeded"
-	maxErrorBodyBytes    = 512
+	tooLargeError = "max_tokens_exceeded"
+	// maxErrorBodyBytes is 512 bytes: the most of a reply body an error quotes.
+	maxErrorBodyBytes = 512
+	// maxResponseBodyBytes is 1 MiB (1,048,576 bytes): the largest reply body
+	// the client reads.
 	maxResponseBodyBytes = 1 << 20
 )
 

@@ -13,11 +13,7 @@ package modrerankertypesafeai
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"strconv"
-
-	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -28,15 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const (
-	Name = config.ModuleName
-
-	// maxConcurrentRequestsEnv sizes each of the two pools of the client: one
-	// for the requests to class and default hosts, one for the requests to
-	// hosts a request header names. A process has up to twice the value in
-	// flight.
-	maxConcurrentRequestsEnv = "RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS"
-)
+const Name = config.ModuleName
 
 func New() *ReRankerTypeSafeAIModule {
 	return &ReRankerTypeSafeAIModule{}
@@ -73,29 +61,11 @@ func (m *ReRankerTypeSafeAIModule) ValidateRerankQuery(query string) error {
 func (m *ReRankerTypeSafeAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	maxConcurrentRequests, err := maxConcurrentRequestsFromEnv()
-	if err != nil {
-		return errors.Wrap(err, "init reranker")
-	}
-
 	apiKey := os.Getenv("TYPESAFEAI_APIKEY")
-	client := clients.New(apiKey, params.GetConfig().ModuleHttpClientTimeout, maxConcurrentRequests, params.GetLogger())
+	client := clients.New(apiKey, params.GetConfig().ModuleHttpClientTimeout, clients.MaxConcurrentRequests, params.GetLogger())
 	m.reranker = client
 	m.additionalPropertiesProvider = rerankeradditional.NewPropertyRankerProvider(client)
 	return nil
-}
-
-func maxConcurrentRequestsFromEnv() (int, error) {
-	v := os.Getenv(maxConcurrentRequestsEnv)
-	if v == "" {
-		return clients.DefaultMaxConcurrentRequests, nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > clients.MaxConcurrentRequestsLimit {
-		return 0, fmt.Errorf("%s must be a whole number between 1 and %d, got %q",
-			maxConcurrentRequestsEnv, clients.MaxConcurrentRequestsLimit, v)
-	}
-	return n, nil
 }
 
 func (m *ReRankerTypeSafeAIModule) MetaInfo() (map[string]any, error) {

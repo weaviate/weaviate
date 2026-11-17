@@ -31,16 +31,23 @@ const (
 	formatPNG              = "png"
 	formatJPEG             = "jpeg"
 
+	// maxImageBytes is 16 MiB (16,777,216 bytes) per decoded image.
 	maxImageBytes = 16 << 20
+	// maxImageChars is 22,369,624 characters: the base64 of 16 MiB.
 	maxImageChars = (maxImageBytes + 2) / 3 * 4
-	minImageSide  = 280
-	maxImageSide  = 1568
+	// minImageSide and maxImageSide are 280 and 1,568 pixels per side.
+	minImageSide = 280
+	maxImageSide = 1568
 
 	// An image costs about one token per 375 pixels plus 270, and the state
 	// of a request counts against the 32k tokens one question may see, so
 	// four of the largest fit. 24 MiB of base64 leaves room for the JSON in
 	// the API's 32 MiB body limit.
-	MaxBatchImages     = 4
+	//
+	// MaxBatchImages is 4 images per request.
+	MaxBatchImages = 4
+	// MaxBatchImageChars is 24 MiB (25,165,824 characters) of base64 per
+	// request.
 	MaxBatchImageChars = 24 << 20
 )
 

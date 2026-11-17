@@ -33,35 +33,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
-	tests := []struct {
-		name    string
-		value   string
-		want    int
-		wantErr string
-	}{
-		{name: "unset or empty", value: "", want: 16},
-		{name: "lower bound", value: "1", want: 1},
-		{name: "upper bound", value: "256", want: 256},
-		{name: "zero", value: "0", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`},
-		{name: "above the limit", value: "257", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "257"`},
-		{name: "negative", value: "-4", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "-4"`},
-		{name: "not a number", value: "many", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "many"`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(maxConcurrentRequestsEnv, tt.value)
-			got, err := maxConcurrentRequestsFromEnv()
-			if tt.wantErr != "" {
-				require.EqualError(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestRerankPropertyDataTypes(t *testing.T) {
 	assert.Equal(t, []schema.DataType{schema.DataTypeText, schema.DataTypeBlob}, New().RerankPropertyDataTypes())
 }
@@ -80,36 +51,14 @@ func TestValidateClassRejectsAWrongSetting(t *testing.T) {
 	assert.Contains(t, err.Error(), "model")
 }
 
-func TestInit(t *testing.T) {
-	tests := []struct {
-		name    string
-		value   string
-		wantErr bool
-	}{
-		{name: "unset"},
-		{name: "a valid cap", value: "8"},
-		{name: "zero", value: "0", wantErr: true},
-		{name: "not a number", value: "abc", wantErr: true},
-		{name: "above the limit", value: "257", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(maxConcurrentRequestsEnv, tt.value)
-			logger, _ := test.NewNullLogger()
-			m := New()
+func TestInitCreatesTheClient(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m := New()
 
-			err := m.Init(context.Background(), moduletools.NewInitParams("", nil, &config.Config{}, logger, nil))
+	err := m.Init(context.Background(), moduletools.NewInitParams("", nil, &config.Config{}, logger, nil))
 
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), maxConcurrentRequestsEnv)
-				assert.Nil(t, m.reranker)
-				return
-			}
-			require.NoError(t, err)
-			assert.NotNil(t, m.reranker)
-		})
-	}
+	require.NoError(t, err)
+	assert.NotNil(t, m.reranker)
 }
 
 func TestValidateRerankQuery(t *testing.T) {
@@ -144,7 +93,6 @@ func TestValidateRerankQuery(t *testing.T) {
 }
 
 func TestInitGivesTheClientTheHTTPTimeout(t *testing.T) {
-	t.Setenv(maxConcurrentRequestsEnv, "")
 	t.Setenv("TYPESAFEAI_APIKEY", "test-key")
 	release := make(chan struct{})
 	var call sync.WaitGroup
