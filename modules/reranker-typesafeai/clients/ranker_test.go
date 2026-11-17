@@ -306,13 +306,25 @@ func TestRankWithEveryDocumentEmpty(t *testing.T) {
 }
 
 func TestRankRequiresAQuery(t *testing.T) {
-	f := newFake(t)
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "no query", query: ""},
+		{name: "a space", query: " "},
+		{name: "whitespace", query: " \t\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
 
-	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), "", "text",
-		documentsOf(noRefund), classConfig(f.url(), nil))
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), tt.query, "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
 
-	require.EqualError(t, err, "rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
-	assert.Empty(t, f.received())
+			require.EqualError(t, err, "rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
+			assert.Empty(t, f.received())
+		})
+	}
 }
 
 func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {

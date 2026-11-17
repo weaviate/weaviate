@@ -211,7 +211,14 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 			{
 				name:         "a missing query fails before any request",
 				property:     "text",
-				wantErr:      []string{"rerank.query is required by reranker-typesafeai"},
+				wantErr:      []string{"rerank: query is required"},
+				wantRequests: 0,
+			},
+			{
+				name:         "a query too long to repeat in a request fails before any request",
+				property:     "text",
+				query:        new(strings.Repeat("q", 100_000)),
+				wantErr:      []string{"rerank.query is 100000 bytes"},
 				wantRequests: 0,
 			},
 			{
@@ -252,20 +259,16 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 			})
 		}
 
-		// The rank call does not run for a search without objects, so the
-		// query is checked before the search.
+		// The rank call does not run for a search without objects. The gRPC
+		// search rejects a blank query before the search.
 		rejectedQueries := []struct {
 			name    string
 			query   *string
 			wantErr string
 		}{
-			{name: "a missing query", wantErr: "rerank.query is required by reranker-typesafeai"},
-			{name: "an empty query", query: new(""), wantErr: "rerank.query is required by reranker-typesafeai"},
-			{
-				name:    "a query too long to repeat in a request",
-				query:   new(strings.Repeat("q", 100_000)),
-				wantErr: "rerank.query is 100000 bytes",
-			},
+			{name: "a missing query", wantErr: "rerank: query is required"},
+			{name: "an empty query", query: new(""), wantErr: "rerank: query is required"},
+			{name: "a query of whitespace", query: new("  "), wantErr: "rerank: query is required"},
 		}
 		for _, tt := range rejectedQueries {
 			t.Run(tt.name+" fails a search without objects", func(t *testing.T) {

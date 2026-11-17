@@ -17,7 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/reranker-typesafeai/clients"
 	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
@@ -48,16 +47,6 @@ func (m *ReRankerTypeSafeAIModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2TextReranker
 }
 
-func (m *ReRankerTypeSafeAIModule) RerankPropertyDataTypes() []schema.DataType {
-	return []schema.DataType{schema.DataTypeText, schema.DataTypeBlob}
-}
-
-// ValidateRerankQuery applies the rule of the rank call, which the GraphQL
-// search reaches without this check.
-func (m *ReRankerTypeSafeAIModule) ValidateRerankQuery(query string) error {
-	return clients.ValidateQuery(query)
-}
-
 func (m *ReRankerTypeSafeAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
@@ -81,6 +70,4 @@ var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
-	_ = modulecapabilities.RerankPropertyDataTypes(New())
-	_ = modulecapabilities.RerankQueryValidator(New())
 )

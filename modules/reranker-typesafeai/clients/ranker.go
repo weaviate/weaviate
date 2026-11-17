@@ -105,14 +105,16 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 	}
 }
 
-// ValidateQuery returns the error of a rerank.query the module does not rank
-// with: an empty one, and one whose question for a document does not fit in
-// a request.
-func ValidateQuery(query string) error {
-	if query == "" {
+// validateQuery returns the error of a rerank.query the module does not rank
+// with: a blank one, and one whose question for a document does not fit in a
+// request. The gRPC search rejects a blank query before the search; GraphQL
+// reaches this check only. The API answers 400 to an empty query and scores
+// the documents against a query of whitespace.
+func (c *client) validateQuery(query string) error {
+	if strings.TrimSpace(query) == "" {
 		return errors.New("rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
 	}
-	if questionBytes(query) >= MaxBatchCharacters {
+	if c.questionBytes(query) >= MaxBatchCharacters {
 		return fmt.Errorf("rerank.query is %d bytes; reranker-typesafeai repeats it for every document within %d bytes per request",
 			len(query), MaxBatchCharacters)
 	}
@@ -121,7 +123,7 @@ func ValidateQuery(query string) error {
 
 // questionBytes is the size of the longest question a request repeats the
 // query in.
-func questionBytes(query string) int {
+func (c *client) questionBytes(query string) int {
 	return len("In "+documentKey(MaxBatchDocuments-1)+": ") + len(query)
 }
 
@@ -131,10 +133,10 @@ func questionBytes(query string) int {
 func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	if err := ValidateQuery(query); err != nil {
+	if err := c.validateQuery(query); err != nil {
 		return nil, err
 	}
-	image, err := propertyInput(cfg, property)
+	image, err := c.propertyInput(cfg, property)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +162,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		pending = append(pending, i)
 	}
 	if image {
-		if err := checkImages(documents, pending); err != nil {
+		if err := c.checkImages(documents, pending); err != nil {
 			return nil, err
 		}
 	}
@@ -173,7 +175,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		url: endpointURL, apiKey: apiKey, hostFromHeader: hostFromHeader,
 		model: settings.Model(), query: query, image: image,
 	}
-	requestBatches := batches(pending, documents, maxDocuments, maxCharacters, questionBytes(query))
+	requestBatches := c.batches(pending, documents, maxDocuments, maxCharacters, c.questionBytes(query))
 	scores := make([]float64, len(documents))
 	usages := make([]typesafeaiUsage, len(requestBatches))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
@@ -224,7 +226,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 // propertyInput says whether the documents of the property are images. The
 // gRPC parser runs the same check before the search; GraphQL has none and
 // reaches this one only.
-func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, err error) {
+func (c *client) propertyInput(cfg moduletools.ClassConfig, property string) (image bool, err error) {
 	if cfg == nil {
 		return false, errors.New("no class config")
 	}
@@ -243,7 +245,7 @@ func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, er
 // maxDocuments documents and maxCharacters bytes, in order. A document costs
 // its bytes plus questionBytes. A document that costs more than maxCharacters
 // goes alone.
-func batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacters, questionBytes int) [][]int {
+func (c *client) batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacters, questionBytes int) [][]int {
 	var out [][]int
 	var batch []int
 	characters := 0
@@ -305,7 +307,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 	if err != nil {
 		return nil, typesafeaiUsage{}, err
 	}
-	return values, typesafeaiUsage{InputTokens: inputTokens(response.Usage), requests: 1}, nil
+	return values, typesafeaiUsage{InputTokens: response.inputTokens(), requests: 1}, nil
 }
 
 // slots returns the pool a request to the host takes its slot from.
@@ -332,7 +334,7 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Docum
 		return typesafeaiResponse{}, false, ctx.Err()
 	}
 
-	request, err := newRequest(r, documents)
+	request, err := r.request(documents)
 	if err != nil {
 		return typesafeaiResponse{}, false, err
 	}
@@ -361,7 +363,7 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return typesafeaiResponse{}, false, transportError(ctx, "send TypeSafe AI request",
+		return typesafeaiResponse{}, false, c.transportError(ctx, "send TypeSafe AI request",
 			"no HTTP response from the host named by "+baseURLHeader, err, hostFromHeader)
 	}
 	defer res.Body.Close()
@@ -378,7 +380,7 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 
 	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
 	if err != nil {
-		return typesafeaiResponse{}, false, transportError(ctx, "read TypeSafe AI response",
+		return typesafeaiResponse{}, false, c.transportError(ctx, "read TypeSafe AI response",
 			"incomplete response from the host named by "+baseURLHeader, err, hostFromHeader)
 	}
 	if len(responseBody) > maxResponseBodyBytes {
@@ -392,13 +394,13 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
 			typeErr.Struct, typeErr.Field = "", ""
 		}
-		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
+		return typesafeaiResponse{}, false, c.withBody(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
 			responseBody, hostFromHeader)
 	}
 	// The shape of an error in a 200 is not documented, so the body is the
 	// provider's message.
 	if len(response.Answers) == 0 {
-		return typesafeaiResponse{}, false, withBody(errors.New("TypeSafe AI response has no answers"),
+		return typesafeaiResponse{}, false, c.withBody(errors.New("TypeSafe AI response has no answers"),
 			responseBody, hostFromHeader)
 	}
 	return response, false, nil
@@ -409,7 +411,7 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 // quote bytes the host sent, and a dial or read error names the address it
 // resolved to. An error of the context or of the client timeout stays
 // identifiable with errors.Is.
-func transportError(ctx context.Context, action, headerHostMessage string, err error, hostFromHeader bool) error {
+func (c *client) transportError(ctx context.Context, action, headerHostMessage string, err error, hostFromHeader bool) error {
 	if !hostFromHeader {
 		return fmt.Errorf("%s: %w", action, err)
 	}
@@ -426,7 +428,7 @@ func transportError(ctx context.Context, action, headerHostMessage string, err e
 
 // withBody appends the start of the body to err, unless the request header
 // named the host.
-func withBody(err error, body []byte, hostFromHeader bool) error {
+func (c *client) withBody(err error, body []byte, hostFromHeader bool) error {
 	if hostFromHeader || len(body) == 0 {
 		return err
 	}
@@ -506,16 +508,16 @@ type typesafeaiQuestion struct {
 	Instructions string `json:"instructions"`
 }
 
-// newRequest asks about a single document with the query alone. Several
+// request asks about a single document with the query alone. Several
 // documents become a map with one question per document, which names the
 // document it is about. An image is an asset and the state holds its
 // reference.
-func newRequest(r judgeRequest, documents []ent.Document) (typesafeaiRequest, error) {
+func (r judgeRequest) request(documents []ent.Document) (typesafeaiRequest, error) {
 	var values []string
 	var assets map[string]imageAsset
 	if r.image {
 		var err error
-		assets, values, err = assetsOf(documents)
+		assets, values, err = r.assets(documents)
 		if err != nil {
 			return typesafeaiRequest{}, err
 		}
@@ -569,11 +571,11 @@ type typesafeaiUsage struct {
 
 // inputTokens returns the input tokens of a usage, truncated to a whole
 // number, or 0 when the usage holds no number of them.
-func inputTokens(usage json.RawMessage) int64 {
+func (r typesafeaiResponse) inputTokens() int64 {
 	var u struct {
 		InputTokens json.Number `json:"input_tokens"`
 	}
-	if json.Unmarshal(usage, &u) != nil {
+	if json.Unmarshal(r.Usage, &u) != nil {
 		return 0
 	}
 	tokens, err := u.InputTokens.Float64()

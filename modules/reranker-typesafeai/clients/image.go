@@ -175,7 +175,7 @@ func jpegSize(data []byte) (width, height int, err error) {
 	return 0, 0, errors.New("JPEG without a frame header")
 }
 
-func checkImages(documents []ent.Document, positions []int) error {
+func (c *client) checkImages(documents []ent.Document, positions []int) error {
 	for _, position := range positions {
 		if err := checkImage(documents[position].Value); err != nil {
 			return fmt.Errorf("object %s: image: %w", documents[position].ID, err)
@@ -184,9 +184,9 @@ func checkImages(documents []ent.Document, positions []int) error {
 	return nil
 }
 
-// assetsOf returns the documents of a request as assets and the references
+// assets returns the documents of a request as assets and the references
 // the state holds, image_i for the i-th document.
-func assetsOf(documents []ent.Document) (map[string]imageAsset, []string, error) {
+func (r judgeRequest) assets(documents []ent.Document) (map[string]imageAsset, []string, error) {
 	assets := make(map[string]imageAsset, len(documents))
 	references := make([]string, len(documents))
 	for i, document := range documents {

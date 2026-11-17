@@ -91,7 +91,7 @@ func TestCheckImage(t *testing.T) {
 }
 
 func TestAssetsOfNamesTheObjectOfAnImageItCannotRead(t *testing.T) {
-	_, _, err := assetsOf(documentsOf(encodedImage(t, "png", 300, 300), "!!!!"))
+	_, _, err := judgeRequest{}.assets(documentsOf(encodedImage(t, "png", 300, 300), "!!!!"))
 
 	require.EqualError(t, err, "object 00000000-0000-0000-0000-000000000001: image: not base64")
 }

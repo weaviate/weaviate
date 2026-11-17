@@ -68,7 +68,7 @@ func (cs *classSettings) CheckSettings() error {
 			return fmt.Errorf("%s must be a non-empty string", name)
 		}
 		if name == "baseURL" {
-			if err := CheckBaseURL(s); err != nil {
+			if _, err := NormalizeBaseURL(s); err != nil {
 				return fmt.Errorf("baseURL %w", err)
 			}
 		}
@@ -76,16 +76,10 @@ func (cs *classSettings) CheckSettings() error {
 	return nil
 }
 
-// CheckBaseURL fails unless raw is an absolute http or https URL that names a
-// host. A URL with a port and no host, such as https://:443, dials the local
-// host.
-func CheckBaseURL(raw string) error {
-	_, err := NormalizeBaseURL(raw)
-	return err
-}
-
-// NormalizeBaseURL drops a trailing slash and a trailing /v1, which SDKs
-// write into the base URL; the client appends /v1 itself.
+// NormalizeBaseURL fails unless raw is an absolute http or https URL that
+// names a host. A URL with a port and no host, such as https://:443, dials the
+// local host. It drops a trailing slash and a trailing /v1, which SDKs write
+// into the base URL; the client appends /v1 itself.
 func NormalizeBaseURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
