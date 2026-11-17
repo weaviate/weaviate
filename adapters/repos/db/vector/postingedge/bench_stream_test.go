@@ -57,6 +57,9 @@ var (
 	benchStreamMinEdgeRecall = flag.Float64("bench.streamminedgerecall", 0.90, "with a -bench.stream cell: the edge recall "+
 		"at insertion below which the cell stops at a checkpoint, the guard of the edge builder (the pre-registered 0.90 "+
 		"of the amendment; lower only for a smoke)")
+	benchStreamRebuild = flag.Bool("bench.streamrebuild", false, "with a -bench.stream cell that ends at 100: after "+
+		"its last checkpoint, rebuild in batch the edges of every vector over the partition as it is and measure again, "+
+		"and then rebuild the centroid graph too and measure a third time (v2.2, the diagnostic)")
 	benchStreamReference = flag.Bool("bench.streamreference", false, "with a -bench.stream cell: build the batch "+
 		"reference over the whole train set first, measure it, and time its frontier and the cell's at the end with "+
 		"the plan of -bench.sweep")
@@ -129,7 +132,23 @@ type streamResult struct {
 	BatchBuild  *buildWork         `json:"batchBuild,omitempty"`
 	Checkpoints []streamCheckpoint `json:"checkpoints"`
 	Guards      []streamGuard      `json:"guards,omitempty"`
-	Stopped     string             `json:"stopped,omitempty"`
+	// Rebuilt is the diagnostic of v2.2, with -bench.streamrebuild.
+	Rebuilt *streamRebuild `json:"rebuilt,omitempty"`
+	Stopped string         `json:"stopped,omitempty"`
+}
+
+// streamRebuild is the cell at its end with the edges of every vector rebuilt
+// in batch over the partition as it is, and then with the centroid graph
+// rebuilt as well: what the inserts lost in their edges, in their graph, and
+// what is left, which is the partition's.
+type streamRebuild struct {
+	// Work is what rebuilding the edges took, and Seconds how long.
+	Work    rebuiltEdges `json:"work"`
+	Seconds float64      `json:"seconds"`
+	// Edges is the cell measured as a checkpoint is once its edges are
+	// rebuilt, and Graph once its centroid graph is too.
+	Edges *streamCheckpoint `json:"edges,omitempty"`
+	Graph *streamCheckpoint `json:"graph,omitempty"`
 }
 
 // buildWork is the work of a batch build, in counts, and the postings it
@@ -384,10 +403,15 @@ func TestStream(t *testing.T) {
 	}
 	cohortBounds := []int{0, built}
 
-	measure := func(percent, upto int, insertSec float64, atInsert edgeCounts) {
+	// measureAs measures the cell as it is: at is how the log names the
+	// measurement, file what its own file adds to the name of the cell's, and
+	// keep puts it in the result.
+	measureAs := func(at, file string, percent, upto int, insertSec float64, atInsert edgeCounts,
+		keep func(streamCheckpoint),
+	) {
 		cp := streamCheckpoint{Percent: percent, Live: s.liveCount, InsertSec: insertSec, AtInsert: atInsert}
 		if err := s.cleanCentroidGraph(); err != nil {
-			t.Logf("checkpoint %d%%: cleaning the centroid graph failed, measured with its tombstones: %v", percent, err)
+			t.Logf("%s: cleaning the centroid graph failed, measured with its tombstones: %v", at, err)
 		}
 		// With what the cleanup took.
 		cp.Stats = s.stats.clone()
@@ -395,8 +419,8 @@ func TestStream(t *testing.T) {
 		cp.Coverage = "complete"
 		if err := s.checkCoverage(); err != nil {
 			cp.Coverage = err.Error()
-			result.Checkpoints = append(result.Checkpoints, cp)
-			result.Stopped = fmt.Sprintf("coverage at %d%%: %v", percent, err)
+			keep(cp)
+			result.Stopped = fmt.Sprintf("coverage at %s: %v", at, err)
 			write()
 			t.Fatalf("stop and report: %s", result.Stopped)
 		}
@@ -412,7 +436,7 @@ func TestStream(t *testing.T) {
 		data.truth, fallbacks = liveTruthOf(t, data, live, *benchK)
 		cp.TruthFallbacks = fallbacks
 		cpResult := &benchResult{Arm: "postingedge", Dataset: data.name, Vectors: s.liveCount, Queries: len(data.queries), K: *benchK, Config: config}
-		runPostingEdgePlan(t, s.ix, data, gridUC, grid, cpResult, fmt.Sprintf("%s-cp%d.json", base, percent))
+		runPostingEdgePlan(t, s.ix, data, gridUC, grid, cpResult, fmt.Sprintf("%s-%s.json", base, file))
 		cp.Points = cpResult.Points
 
 		cp.Batch, err = s.edgeRecall(ctx, logger, batchSample)
@@ -422,31 +446,36 @@ func TestStream(t *testing.T) {
 			cp.Inserted, err = s.edgeRecall(ctx, logger, inserted)
 			require.NoError(t, err)
 		}
-		result.Checkpoints = append(result.Checkpoints, cp)
+		keep(cp)
 		write()
 		perInsert := 0.0
 		if s.stats.Inserted > 0 {
 			perInsert = float64(insertSec) * 1e6 / float64(s.stats.Inserted)
 		}
-		t.Logf("checkpoint %d%%: %d live in %d postings (mean %.1f, p50 %d, p95 %d, max %d) | edge recall at insert %.4f "+
+		t.Logf("%s: %d live in %d postings (mean %.1f, p50 %d, p95 %d, max %d) | edge recall at insert %.4f "+
 			"(postings %.4f, %d sampled), now: inserted %.4f (postings %.4f, degree %.2f), batch %.4f (postings %.4f, degree %.2f) "+
 			"| splits %d (failed %d), non-nearest %.4f, inverse edges %d, repaired %d, sibling edges %d | %.0f us per insert",
-			percent, cp.Live, cp.Postings, cp.SizeMean, cp.SizeP50, cp.SizeP95, cp.SizeMax,
+			at, cp.Live, cp.Postings, cp.SizeMean, cp.SizeP50, cp.SizeP95, cp.SizeMax,
 			cp.AtInsert.recall(), cp.AtInsert.postingRecall(), cp.AtInsert.Vectors,
 			cp.Inserted.recall(), cp.Inserted.postingRecall(), cp.Inserted.degree(),
 			cp.Batch.recall(), cp.Batch.postingRecall(), cp.Batch.degree(), s.stats.Splits, s.stats.SplitsFailed,
 			float64(s.stats.NonNearest)/float64(max(s.stats.Inserted, 1)), s.stats.InverseEdges, s.stats.Repaired,
 			s.stats.SiblingEdges, perInsert)
-		logInsertSearch(t, fmt.Sprintf("checkpoint %d%%", percent), s.stats)
+		logInsertSearch(t, at, s.stats)
 		for _, c := range cp.Cohorts {
-			t.Logf("checkpoint %d%%: the vectors that entered at %d to %d: %d with %.2f edges each",
-				percent, c.From, c.To, c.Vectors, float64(c.Edges)/float64(max(c.Vectors, 1)))
+			t.Logf("%s: the vectors that entered at %d to %d: %d with %.2f edges each",
+				at, c.From, c.To, c.Vectors, float64(c.Edges)/float64(max(c.Vectors, 1)))
 		}
 		if atInsert.Vectors > 0 && atInsert.recall() < *benchStreamMinEdgeRecall {
 			result.Stopped = fmt.Sprintf("edge recall at insert %.4f in the stretch to %d%%", atInsert.recall(), percent)
 			write()
 			t.Fatalf("stop and report: %s", result.Stopped)
 		}
+	}
+	// measure takes a checkpoint of the cell.
+	measure := func(percent, upto int, insertSec float64, atInsert edgeCounts) {
+		measureAs(fmt.Sprintf("checkpoint %d%%", percent), fmt.Sprintf("cp%d", percent), percent, upto, insertSec, atInsert,
+			func(cp streamCheckpoint) { result.Checkpoints = append(result.Checkpoints, cp) })
 	}
 	// guard is what a stop does that is not a checkpoint: the two stops of
 	// the cell, and the counts.
@@ -517,6 +546,26 @@ func TestStream(t *testing.T) {
 		} else {
 			guard(percent, insertTime.Seconds(), atInsert)
 		}
+	}
+
+	if *benchStreamRebuild {
+		// The diagnostic of v2.2: the same partition with the edges a batch
+		// build gives it, and then with a centroid graph built at once too.
+		require.Equal(t, n, s.liveCount, "the edges are rebuilt over the whole train set")
+		begin := time.Now()
+		work, err := s.rebuildEdges(ctx, logger, uc.BuildProbe, uc.RescueLimit)
+		require.NoError(t, err)
+		result.Rebuilt = &streamRebuild{Work: work, Seconds: time.Since(begin).Seconds()}
+		write()
+		t.Logf("edges rebuilt: %d vectors in %d postings, %d edges, in %s | %d not with their nearest centroid, "+
+			"%d of them outside their probes | %d postings probed, %d candidates scored, %d rescored, %d distances of the assignment",
+			work.Vectors, work.Postings, work.Edges, time.Since(begin).Round(time.Second), work.NotNearest, work.OutsideProbes,
+			work.PostingsProbed, work.CandidatesScored, work.CandidatesRescored, work.AssignDistances)
+		measureAs("edges rebuilt", "rebuilt-edges", 100, n, insertTime.Seconds(), edgeCounts{},
+			func(cp streamCheckpoint) { result.Rebuilt.Edges = &cp })
+		require.NoError(t, s.rebuildCentroidGraph(ctx))
+		measureAs("edges and centroid graph rebuilt", "rebuilt-graph", 100, n, insertTime.Seconds(), edgeCounts{},
+			func(cp streamCheckpoint) { result.Rebuilt.Graph = &cp })
 	}
 
 	if batchReference == nil {

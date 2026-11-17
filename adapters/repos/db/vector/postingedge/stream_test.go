@@ -14,6 +14,7 @@ package postingedge
 import (
 	"context"
 	"math"
+	"path/filepath"
 	"slices"
 	"sort"
 	"sync/atomic"
@@ -777,6 +778,174 @@ func (s *streamIndex) cleanCentroidGraph() error {
 	err := s.st.centroids.graph.CleanUpTombstonedNodes(func() bool { return false })
 	s.stats.CleanDistances += s.centroidCount() - counted
 	return err
+}
+
+// rebuiltEdges is what rebuilding the edges took, in the counts of a batch
+// build, and what its exact assignment saw of the partition on the way.
+type rebuiltEdges struct {
+	Vectors  int `json:"vectors"`
+	Postings int `json:"postings"`
+	Edges    int `json:"edges"`
+	// NotNearest counts the vectors whose posting is not that of their
+	// nearest centroid: what a reassignment would move. OutsideProbes counts
+	// those whose posting is not even among the probe nearest; it took the
+	// place of the farthest of them.
+	NotNearest    int `json:"notNearest"`
+	OutsideProbes int `json:"outsideProbes"`
+	// The work of the edge builder, as BuildStats counts it, and the
+	// distances of the brute-force assignment that gives it its probes.
+	PostingsProbed     int64 `json:"postingsProbed"`
+	CandidatesScored   int64 `json:"candidatesScored"`
+	CandidatesRescored int64 `json:"candidatesRescored"`
+	AssignDistances    int64 `json:"assignDistances"`
+}
+
+// rebuildEdges gives every live vector the edges the batch builder gives it
+// over the partition as it is. The postings, their members, their centroids,
+// the codes and the centroid graph stay: only the edge lists change. It is
+// the diagnostic of v2.2 (bench-report.md, "Diagnóstico: aristas o
+// partición"): what an index grown by inserts gets back with it was lost in
+// its edges, and what it does not, in its partition.
+//
+// The builder is the batch one, with its inputs: the candidates of a vector
+// are the members of the postings of its probe nearest live centroids, found
+// by brute force, ranked by code, the best rescue re-ranked exactly, and of
+// the nearest neighbors those outside the vector's posting become its edges.
+// A batch build puts a vector in the posting of its nearest centroid, so its
+// own posting leads its probes; here it may not, and a vector whose posting
+// is not among its probes at all gets it in place of the farthest one.
+func (s *streamIndex) rebuildEdges(ctx context.Context, logger logrus.FieldLogger, probe, rescue int,
+) (rebuiltEdges, error) {
+	st := s.st
+	// The live postings, numbered as a build numbers them, without gaps.
+	compact := make([]uint32, len(st.postings.lists))
+	var alive []uint32
+	var centroids [][]float32
+	for p := range st.postings.lists {
+		compact[p] = noCentroid
+		if s.retired[p] {
+			continue
+		}
+		compact[p] = uint32(len(alive))
+		alive = append(alive, uint32(p))
+		centroids = append(centroids, st.centroids.vectors[p])
+	}
+	// The live vectors in doc id order: the input of the build.
+	docIDs := make([]uint64, 0, s.liveCount)
+	inputOf := make([]uint32, len(s.live))
+	for docID, live := range s.live {
+		if live {
+			inputOf[docID] = uint32(len(docIDs))
+			docIDs = append(docIDs, uint64(docID))
+		}
+	}
+	if len(docIDs) == 0 {
+		return rebuiltEdges{}, errors.New("no live vector to rebuild the edges of")
+	}
+	vectors := make([][]float32, len(docIDs))
+	for i, docID := range docIDs {
+		vectors[i] = s.vectorOf(docID)
+	}
+
+	assigned, err := assign(ctx, logger, vectors, centroids, probe)
+	if err != nil {
+		return rebuiltEdges{}, errors.Wrap(err, "the nearest centroids of every vector")
+	}
+	out := rebuiltEdges{
+		Vectors: len(docIDs), Postings: len(alive),
+		AssignDistances: int64(len(docIDs)) * int64(len(centroids)),
+	}
+	for i, docID := range docIDs {
+		own := compact[st.side.postingOf[docID]]
+		if own == noCentroid {
+			return rebuiltEdges{}, errors.Errorf("doc %d is in posting %d, which is not live", docID, st.side.postingOf[docID])
+		}
+		if assigned.primary[i] == own {
+			continue
+		}
+		out.NotNearest++
+		if probes := assigned.probesOf(i); !slices.Contains(probes, own) {
+			out.OutsideProbes++
+			probes[len(probes)-1] = own
+		}
+		assigned.primary[i] = own
+	}
+
+	// The builder works by slot: the vectors in posting order, with their
+	// codes, which are the ones the postings hold.
+	layout := newSlotLayout(assigned.primary, len(centroids))
+	words := st.side.codeWords
+	codes := make([]uint64, len(docIDs)*words)
+	for slot, input := range layout.order {
+		copy(codes[slot*words:(slot+1)*words], st.side.code(uint32(docIDs[input])))
+	}
+	edgeStart, edges, work, err := buildEdges(ctx, logger, edgeInput{
+		vectors:   vectors,
+		layout:    layout,
+		assign:    assigned,
+		side:      &sidecar{codeWords: words, codes: codes, postingOf: postingOfSlots(layout.start)},
+		quantizer: st.quantizer,
+		provider:  s.ix.provider,
+		probe:     probe,
+		neighbors: s.neighbors,
+		rescue:    rescue,
+	})
+	if err != nil {
+		return rebuiltEdges{}, errors.Wrap(err, "build the edges")
+	}
+	out.Edges = len(edges)
+	out.PostingsProbed, out.CandidatesScored, out.CandidatesRescored = work.probed, work.scored, work.rescored
+
+	// Back to the lists: every member's new edges, by doc id.
+	for _, p := range alive {
+		l := &st.postings.lists[p]
+		rebuilt := make([]uint32, 0, len(l.edges))
+		starts := make([]uint32, 1, len(l.docIDs)+1)
+		for _, docID := range l.docIDs {
+			slot := layout.slotOf[inputOf[docID]]
+			for _, endpoint := range edges[edgeStart[slot]:edgeStart[slot+1]] {
+				rebuilt = append(rebuilt, uint32(docIDs[layout.order[endpoint]]))
+			}
+			starts = append(starts, uint32(len(rebuilt)))
+		}
+		l.edges, l.edgeStart = rebuilt, starts
+	}
+	return out, nil
+}
+
+// rebuildCentroidGraph replaces the centroid graph with one built at once
+// over the live centroids, as a batch build builds its own: the centroids
+// stay the same vectors under the same posting ids, and the graph that grew
+// with the splits, with its deleted nodes cleaned up along the way, is gone.
+func (s *streamIndex) rebuildCentroidGraph(ctx context.Context) error {
+	st := s.st
+	var alive []uint64
+	for p := range st.postings.lists {
+		if !s.retired[p] {
+			alive = append(alive, uint64(p))
+		}
+	}
+	// An empty graph, which reads the centroids it is given afterwards.
+	fresh, err := newCentroidIndex(ctx, &s.ix.cfg, filepath.Join(s.ix.dir(), "rebuilt"), nil)
+	if err != nil {
+		return err
+	}
+	fresh.vectors = st.centroids.vectors
+	err = parallelChunks(ctx, s.ix.cfg.Logger, len(alive), 16, func(_, start, end int) error {
+		for _, p := range alive[start:end] {
+			if err := fresh.graph.Add(ctx, p, fresh.vectors[p]); err != nil {
+				return errors.Wrapf(err, "add centroid %d", p)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		_ = fresh.shutdown(ctx)
+		return err
+	}
+	old := st.centroids
+	st.centroids = fresh
+	return old.shutdown(ctx)
 }
 
 // cohortDegree counts the edges of the live vectors of one cohort: those

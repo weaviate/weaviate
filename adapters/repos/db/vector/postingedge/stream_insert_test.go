@@ -990,3 +990,266 @@ func TestStreamDegreeByCohort(t *testing.T) {
 		})
 	}
 }
+
+// batchRuleEdges returns the edges the batch rule gives every live vector
+// over the partition of s as it is, counted on its own by sorting: of the
+// neighbors nearest to a vector among the members of its probe nearest live
+// postings, with its own posting in the place of the farthest when it is not
+// one of them, those outside its posting, nearest first. Every candidate is
+// compared exactly, as a build does with a rescue limit above their number.
+// With them, the vectors whose posting is not that of their nearest
+// centroid, and those whose posting is not among the probe nearest.
+func batchRuleEdges(t *testing.T, s *streamIndex, all [][]float32, probe int,
+) (edges map[uint64][]uint32, notNearest, outside int) {
+	t.Helper()
+	provider := distancer.NewL2SquaredProvider()
+	type cand struct {
+		id   uint64
+		dist float32
+	}
+	byDistance := func(cands []cand) {
+		sort.SliceStable(cands, func(i, j int) bool {
+			if cands[i].dist != cands[j].dist {
+				return cands[i].dist < cands[j].dist
+			}
+			return cands[i].id < cands[j].id
+		})
+	}
+	var alive []uint32
+	for p := range s.st.postings.lists {
+		if !s.retired[p] {
+			alive = append(alive, uint32(p))
+		}
+	}
+	edges = map[uint64][]uint32{}
+	for docID := range uint64(len(all)) {
+		if !s.live[docID] {
+			continue
+		}
+		own := s.st.side.postingOf[docID]
+		near := make([]cand, 0, len(alive))
+		for _, p := range alive {
+			dist, err := provider.SingleDist(all[docID], s.st.centroids.vectors[p])
+			require.NoError(t, err)
+			near = append(near, cand{id: uint64(p), dist: dist})
+		}
+		byDistance(near)
+		if uint32(near[0].id) != own {
+			notNearest++
+		}
+		near = near[:min(probe, len(near))]
+		if !slices.ContainsFunc(near, func(c cand) bool { return uint32(c.id) == own }) {
+			outside++
+			near[len(near)-1].id = uint64(own)
+		}
+		var cands []cand
+		for _, c := range near {
+			for _, other := range s.st.postings.lists[c.id].docIDs {
+				if other == docID {
+					continue
+				}
+				dist, err := provider.SingleDist(all[docID], all[other])
+				require.NoError(t, err)
+				cands = append(cands, cand{id: other, dist: dist})
+			}
+		}
+		byDistance(cands)
+		list := []uint32{}
+		for _, c := range cands[:min(s.neighbors, len(cands))] {
+			if s.st.side.postingOf[c.id] != own {
+				list = append(list, uint32(c.id))
+			}
+		}
+		edges[docID] = list
+	}
+	return edges, notNearest, outside
+}
+
+// Rebuilding the edges gives every live vector what the batch builder gives
+// it over the partition as it is, and touches nothing else. Over the
+// partition of a batch build that is the edges the build left. Over one
+// grown by inserts it is the batch rule, counted here on its own, whatever
+// the inserts and their inverse edges had left there. And the inserts go on
+// afterwards.
+func TestStreamRebuildEdges(t *testing.T) {
+	const batch, total = 1200, 2400
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 613)
+
+	tests := []struct {
+		name string
+		// buildProbe and rescue are the build's, and the rebuild's rescue.
+		buildProbe, rescue int
+		// upto is how far the inserts go before the rebuild, and probe the
+		// probe of the rebuild.
+		upto, probe int
+		// asBuilt: the edges are those of before the rebuild.
+		asBuilt bool
+		// noEdges: no vector gets any.
+		noEdges bool
+	}{
+		{name: "a batch build that probed every posting", buildProbe: 64, rescue: 64, upto: batch, probe: 64, asBuilt: true},
+		{name: "a batch build that probed some", buildProbe: 16, rescue: 64, upto: batch, probe: 16, asBuilt: true},
+		{name: "a batch build, exactly", buildProbe: 16, rescue: total, upto: batch, probe: 16, asBuilt: true},
+		{name: "grown by inserts, every posting probed", buildProbe: 16, rescue: total, upto: 2200, probe: 4096},
+		{name: "grown by inserts, a few postings probed", buildProbe: 16, rescue: total, upto: 2200, probe: 6},
+		{name: "grown by inserts, one posting probed", buildProbe: 16, rescue: total, upto: 2200, probe: 1, noEdges: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			uc.BuildProbe, uc.RescueLimit = tt.buildProbe, tt.rescue
+			s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: true})
+			// No empty centroid was dropped: the probes of the build are the
+			// nearest live centroids, as those of the rebuild.
+			require.Equal(t, batch/uc.TargetPostingSize, s.st.build.Postings)
+			uc.Distance, uc.EF = "l2-squared", 64
+			require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+			for id := uint64(batch); id < uint64(tt.upto); id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.cleanCentroidGraph())
+			require.NoError(t, s.checkCoverage())
+
+			before := edgesByDoc(s)
+			var members [][]uint64
+			var codes [][]uint64
+			for _, l := range s.st.postings.lists {
+				members = append(members, slices.Clone(l.docIDs))
+				codes = append(codes, slices.Clone(l.codes))
+			}
+			postingOf := slices.Clone(s.st.side.postingOf)
+			retired := slices.Clone(s.retired)
+			graph, centroids := s.st.centroids, len(s.st.centroids.vectors)
+			stats := s.stats.clone()
+
+			want, notNearest, outside := batchRuleEdges(t, s, all, tt.probe)
+			out, err := s.rebuildEdges(ctx, testLogger(), tt.probe, tt.rescue)
+			require.NoError(t, err)
+
+			// Nothing but the edges changed.
+			require.NoError(t, s.checkCoverage())
+			for p, l := range s.st.postings.lists {
+				require.Equal(t, members[p], l.docIDs, "the members of posting %d", p)
+				require.Equal(t, codes[p], l.codes, "the codes of posting %d", p)
+			}
+			require.Equal(t, postingOf, s.st.side.postingOf)
+			require.Equal(t, retired, s.retired)
+			require.Same(t, graph, s.st.centroids)
+			require.Len(t, s.st.centroids.vectors, centroids)
+			require.Equal(t, stats, s.stats, "a rebuild is no insert")
+
+			got := edgesByDoc(s)
+			require.Len(t, got, s.liveCount)
+			edges := 0
+			for docID, list := range got {
+				edges += len(list)
+				switch {
+				case tt.asBuilt:
+					require.Truef(t, slices.Equal(before[docID], list), "doc %d: %v before, %v rebuilt", docID, before[docID], list)
+				case tt.noEdges:
+					require.Empty(t, list, "doc %d", docID)
+				}
+				if tt.rescue >= total {
+					require.Truef(t, slices.Equal(want[docID], list), "doc %d: %v by the rule, %v rebuilt", docID, want[docID], list)
+				}
+			}
+
+			live := 0
+			for p := range s.st.postings.lists {
+				if !s.retired[p] {
+					live++
+				}
+			}
+			assert.Equal(t, s.liveCount, out.Vectors)
+			assert.Equal(t, live, out.Postings)
+			assert.Equal(t, edges, out.Edges)
+			assert.Equal(t, int64(s.liveCount)*int64(live), out.AssignDistances)
+			assert.Equal(t, int64(s.liveCount)*int64(min(tt.probe, live)), out.PostingsProbed)
+			assert.Equal(t, notNearest, out.NotNearest)
+			assert.Equal(t, outside, out.OutsideProbes)
+			if tt.rescue >= total {
+				// Every candidate but the vector itself is compared exactly.
+				assert.Equal(t, out.CandidatesScored-int64(s.liveCount), out.CandidatesRescored)
+			}
+			switch {
+			case tt.asBuilt:
+				assert.Zero(t, out.NotNearest, "a batch build puts every vector with its nearest centroid")
+				assert.Positive(t, edges)
+			case tt.noEdges:
+				assert.Positive(t, out.NotNearest, "inserts and splits leave vectors away from their nearest centroid")
+				assert.Equal(t, out.NotNearest, out.OutsideProbes, "with one probe, the nearest centroid is all there is")
+				assert.Zero(t, edges, "a vector that sees its own posting alone has no neighbor outside it")
+			default:
+				assert.Positive(t, out.NotNearest, "inserts and splits leave vectors away from their nearest centroid")
+				assert.NotEqual(t, before, got, "the edges of the inserts are not those of the batch rule")
+			}
+			if tt.probe >= live && tt.rescue >= total {
+				// The exact edges of every vector: nothing is missing.
+				docIDs := make([]uint64, 0, s.liveCount)
+				for docID := range got {
+					docIDs = append(docIDs, docID)
+				}
+				counts, err := s.edgeRecall(ctx, testLogger(), docIDs)
+				require.NoError(t, err)
+				assert.Equal(t, counts.Wanted, counts.Captured)
+				assert.Equal(t, counts.PostingsWanted, counts.PostingsCaptured)
+				assert.Equal(t, edges, counts.Edges)
+			}
+
+			for id := uint64(tt.upto); id < total; id++ {
+				require.NoError(t, s.insert(ctx, id, all[id]))
+			}
+			require.NoError(t, s.checkCoverage())
+			assert.Equal(t, total, s.liveCount)
+		})
+	}
+}
+
+// A rebuilt centroid graph holds the live centroids and only them, under
+// their posting ids, finds them, and serves the inserts that follow. The
+// postings and their edges are not touched.
+func TestStreamRebuildCentroidGraph(t *testing.T) {
+	const batch, total = 1200, 2400
+	ctx := context.Background()
+	all := clusteredVectors(total, 24, 30, 271)
+	uc := smallConfig()
+	s := newStreamTestIndex(t, all, batch, uc, streamConfig{threshold: 60, inverse: true})
+	uc.Distance, uc.EF = "l2-squared", 64
+	require.NoError(t, s.ix.UpdateUserConfig(uc, func() {}))
+	for id := uint64(batch); id < 2000; id++ {
+		require.NoError(t, s.insert(ctx, id, all[id]))
+	}
+	require.Positive(t, s.stats.Splits)
+	// With its deleted centroids still in the graph: the rebuild leaves them
+	// out without a cleanup.
+	old, edges, postingOf := s.st.centroids, edgesByDoc(s), slices.Clone(s.st.side.postingOf)
+
+	require.NoError(t, s.rebuildCentroidGraph(ctx))
+	require.NotSame(t, old, s.st.centroids)
+	require.NoError(t, s.checkCoverage(), "the graph holds the live postings and none of the retired ones")
+	assert.Equal(t, edges, edgesByDoc(s))
+	assert.Equal(t, postingOf, s.st.side.postingOf)
+
+	live, found := 0, 0
+	for p := range s.st.postings.lists {
+		if s.retired[p] {
+			continue
+		}
+		live++
+		ids, err := s.st.centroids.nearest(ctx, s.st.centroids.vectors[p], 1)
+		require.NoError(t, err)
+		require.Len(t, ids, 1)
+		require.False(t, s.retired[ids[0]], "the graph returned posting %d, which is retired", ids[0])
+		if ids[0] == uint64(p) {
+			found++
+		}
+	}
+	assert.GreaterOrEqual(t, found*10, live*9, "%d of %d centroids find themselves", found, live)
+
+	for id := uint64(2000); id < total; id++ {
+		require.NoError(t, s.insert(ctx, id, all[id]))
+	}
+	require.NoError(t, s.checkCoverage())
+	assert.Equal(t, total, s.liveCount)
+}
