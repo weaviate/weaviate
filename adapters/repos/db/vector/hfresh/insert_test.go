@@ -263,9 +263,8 @@ func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
 	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	originalMax := tf.Index.maxPostingSize
+	// not restored: queued child splits read it until Shutdown
 	tf.Index.maxPostingSize = 3
-	defer func() { tf.Index.maxPostingSize = originalMax }()
 
 	vectorID := uint64(10_000)
 	version := VectorVersion(1)
@@ -279,7 +278,8 @@ func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
 	require.True(t, ok)
 
 	require.False(t, tf.Index.Centroids.Exists(postingID))
-	require.Equal(t, int64(0), tf.Index.taskQueue.splitQueue.Size())
+	// only the oversized children may be queued, never the split posting
+	require.False(t, tf.Index.taskQueue.splitList.Contains(postingID))
 
 	size, err := tf.Index.PostingSizes.Get(t.Context(), postingID)
 	require.NoError(t, err)
