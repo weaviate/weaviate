@@ -64,6 +64,15 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		return errors.Errorf("no destination postings for vector %d", op.VectorID)
 	}
 
+	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(q))
+	// with no centroid left, appending nowhere would drop the vector
+	if replicas.Len() == 0 {
+		replicas, err = h.ensureInitialPosting(q, compressed)
+		if err != nil {
+			return errors.Wrap(err, "failed to create initial posting")
+		}
+	}
+
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.
 	version, err = h.VersionMap.Increment(ctx, op.VectorID, version)
@@ -77,7 +86,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	}
 
 	// create a new vector with the updated version
-	newVector := NewVector(op.VectorID, version, h.quantizer.CompressedBytes(h.quantizer.Encode(q)))
+	newVector := NewVector(op.VectorID, version, compressed)
 
 	// append the vector to each replica
 	requeued, err := h.appendReassignReplicas(ctx, newVector, replicas)

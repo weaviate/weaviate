@@ -151,7 +151,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	idStore := NewDurableBucketStore(bucket, newBucketRef(store, postingsBucketName(cfg.ID)))
+	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +168,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
+
+	h.repairOrphanPostings()
 
 	h.taskQueue.Register()
 
