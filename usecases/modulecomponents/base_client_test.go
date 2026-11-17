@@ -180,9 +180,29 @@ func TestNewBaseHttpClientWithIdleConns(t *testing.T) {
 	}
 
 	t.Run("keeps a connection per concurrent request between rounds", func(t *testing.T) {
+		const requests = 8
 		var opened atomic.Int32
+		// The server answers the requests of a round only once all of them have
+		// arrived, so a round holds one connection per request whatever the
+		// timing.
+		var (
+			lock      sync.Mutex
+			waiting   int
+			gathering = make(chan struct{})
+		)
 		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(20 * time.Millisecond)
+			lock.Lock()
+			gathered := gathering
+			waiting++
+			if waiting == requests {
+				close(gathering)
+				gathering, waiting = make(chan struct{}), 0
+			}
+			lock.Unlock()
+			select {
+			case <-gathered:
+			case <-r.Context().Done():
+			}
 		}))
 		server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 			if state == http.StateNew {
@@ -191,11 +211,11 @@ func TestNewBaseHttpClientWithIdleConns(t *testing.T) {
 		}
 		server.Start()
 		defer server.Close()
-		client := NewBaseHttpClientWithIdleConns(30*time.Second, 8)
+		client := NewBaseHttpClientWithIdleConns(30*time.Second, requests)
 
 		round := func() {
 			var wg sync.WaitGroup
-			for range 8 {
+			for range requests {
 				wg.Go(func() {
 					assert.NoError(t, get(t, client, server.URL))
 				})
@@ -203,11 +223,10 @@ func TestNewBaseHttpClientWithIdleConns(t *testing.T) {
 			wg.Wait()
 		}
 		round()
-		first := opened.Load()
-		require.Greater(t, first, int32(2))
+		require.Equal(t, int32(requests), opened.Load())
 		round()
 
-		assert.Equal(t, first, opened.Load())
+		assert.Equal(t, int32(requests), opened.Load())
 	})
 
 	t.Run("leaves the shared default transport as it is", func(t *testing.T) {

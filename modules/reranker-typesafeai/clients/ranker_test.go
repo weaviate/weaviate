@@ -151,7 +151,7 @@ func TestRankBatchesByCountAndCharacters(t *testing.T) {
 }
 
 func TestRankRejectsAQueryTooLongToRepeatInARequest(t *testing.T) {
-	longest := MaxBatchCharacters - len("In document_49: ")
+	longest := maxBatchCharacters - len("In document_49: ")
 	tests := []struct {
 		name      string
 		query     string
@@ -792,6 +792,10 @@ func TestRankRejectsAClassBaseURLThatIsNotAnAbsoluteURL(t *testing.T) {
 	}
 }
 
+// unexpectedHeaderHostReply is the error of a 200 reply the client cannot use
+// from a host the request header named.
+const unexpectedHeaderHostReply = "unexpected TypeSafe AI response from the host named by X-Typesafeai-Baseurl"
+
 // Anyone who may query can name a host in the base URL header, so the errors
 // quote nothing of its replies.
 func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
@@ -844,7 +848,7 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			name:       "a 200 without answers from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: banner},
 			fromHeader: true,
-			wantErr:    "TypeSafe AI response has no answers",
+			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
 			name:    "a 200 that is not JSON from the class base URL",
@@ -855,7 +859,34 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			name:       "a 200 that is not JSON from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: "not json"},
 			fromHeader: true,
-			wantErr:    "parse TypeSafe AI response: invalid character 'o' in literal null (expecting 'u')",
+			wantErr:    unexpectedHeaderHostReply,
+		},
+		{
+			name:       "an answer of another type from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"q":{"type":"internal banner","noul":0.5}}}`},
+			fromHeader: true,
+			wantErr:    unexpectedHeaderHostReply,
+		},
+		{
+			name:       "a probability outside 0 to 1 from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"q":{"type":"noul","noul":7.25}}}`},
+			fromHeader: true,
+			wantErr:    unexpectedHeaderHostReply,
+		},
+		{
+			name: "two answers for one document from the header base URL",
+			reply: fakeReply{
+				status: http.StatusOK,
+				body:   `{"answers":{"q":{"type":"noul","noul":0.5},"internal":{"type":"noul","noul":0.5}}}`,
+			},
+			fromHeader: true,
+			wantErr:    unexpectedHeaderHostReply,
+		},
+		{
+			name:       "an answer under another key from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"internal":{"type":"noul","noul":0.5}}}`},
+			fromHeader: true,
+			wantErr:    unexpectedHeaderHostReply,
 		},
 	}
 	for _, tt := range tests {
@@ -1343,7 +1374,9 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 // open most of them again.
 func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 	f := newFake(t)
-	f.delay = 50 * time.Millisecond
+	// The fake answers the ten requests of a query only once all ten have
+	// arrived, so a query holds ten connections at once whatever the timing.
+	f.together = 10
 	documents := make([]string, 20)
 	for i := range documents {
 		// Two of these fill a request, so the page needs ten at once.
@@ -1357,7 +1390,7 @@ func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
 
 	rank()
 	opened := f.opened.Load()
-	require.Greater(t, opened, int64(2), "the first query must send requests at once")
+	require.Equal(t, int64(10), opened, "the first query must send its ten requests at once")
 	rank()
 
 	assert.Equal(t, opened, f.opened.Load(), "the second query opened new connections")
@@ -1793,6 +1826,9 @@ type fakeTypeSafeAI struct {
 	// request above its token limit.
 	tooLarge func(documents int) bool
 	delay    time.Duration
+	// together, when set, holds each handler until that many requests are in
+	// their handlers, so every one of them needs a connection of its own.
+	together int
 	// release, when set, holds every handler until it is closed.
 	release  chan struct{}
 	handlers sync.WaitGroup
@@ -1804,6 +1840,10 @@ type fakeTypeSafeAI struct {
 	requests []fakeRequest
 	inFlight int
 	maxSeen  int
+	// gathering closes when together requests have arrived; waiting counts
+	// the requests that wait for it.
+	gathering chan struct{}
+	waiting   int
 }
 
 func newFake(t *testing.T) *fakeTypeSafeAI {
@@ -1863,6 +1903,18 @@ func (f *fakeTypeSafeAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.requests = append(f.requests, received)
 	f.inFlight++
 	f.maxSeen = max(f.maxSeen, f.inFlight)
+	var gathered chan struct{}
+	if f.together > 0 {
+		if f.gathering == nil {
+			f.gathering = make(chan struct{})
+		}
+		gathered = f.gathering
+		f.waiting++
+		if f.waiting == f.together {
+			close(f.gathering)
+			f.gathering, f.waiting = nil, 0
+		}
+	}
 	f.lock.Unlock()
 	defer func() {
 		f.lock.Lock()
@@ -1871,6 +1923,12 @@ func (f *fakeTypeSafeAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	time.Sleep(f.delay)
+	if gathered != nil {
+		select {
+		case <-gathered:
+		case <-r.Context().Done():
+		}
+	}
 	if f.release != nil {
 		<-f.release
 	}
@@ -2092,6 +2150,10 @@ func TestRankCutsTheDecodeErrorOfALongNumber(t *testing.T) {
 				documentsOf(noRefund), classConfig(classServer.url(), nil))
 
 			require.Error(t, err)
+			if fromHeader {
+				assert.Equal(t, unexpectedHeaderHostReply, err.Error())
+				return
+			}
 			assert.Contains(t, err.Error(), "parse TypeSafe AI response: ")
 			assert.LessOrEqual(t, len(err.Error()), 1_200)
 		})
@@ -2147,17 +2209,14 @@ func TestRankKeepsReplyValuesOutOfTheDecodeError(t *testing.T) {
 			name: "4,096 nines from a header host", fromHeader: true,
 			body: answer("q", `{"type":"noul","noul":`+strings.Repeat("9", 4_096)+`}`),
 			check: func(t *testing.T, err string) {
-				assert.NotContains(t, err, "99")
-				assert.Contains(t, err, "float64")
-				assert.Less(t, len(err), 300)
+				assert.Equal(t, unexpectedHeaderHostReply, err)
 			},
 		},
 		{
 			name: "1e999 from a header host", fromHeader: true,
 			body: answer("q", `{"type":"noul","noul":1e999}`),
 			check: func(t *testing.T, err string) {
-				assert.NotContains(t, err, "1e999")
-				assert.Contains(t, err, "float64")
+				assert.Equal(t, unexpectedHeaderHostReply, err)
 			},
 		},
 		{
@@ -2172,23 +2231,21 @@ func TestRankKeepsReplyValuesOutOfTheDecodeError(t *testing.T) {
 			name: "a key of the answers with a string for the probability", fromHeader: true,
 			body: answer("secret text in a key", `{"noul":"x"}`),
 			check: func(t *testing.T, err string) {
-				assert.NotContains(t, err, "secret text")
-				assert.Contains(t, err, "float64")
+				assert.Equal(t, unexpectedHeaderHostReply, err)
 			},
 		},
 		{
 			name: "a key of the answers with a string for the answer", fromHeader: true,
 			body: answer("secret text in a key", `"v"`),
 			check: func(t *testing.T, err string) {
-				assert.NotContains(t, err, "secret text")
+				assert.Equal(t, unexpectedHeaderHostReply, err)
 			},
 		},
 		{
 			name: "a key of 2,000 characters", fromHeader: true,
 			body: answer(strings.Repeat("K", 2_000), `{"noul":true}`),
 			check: func(t *testing.T, err string) {
-				assert.NotContains(t, err, "KK")
-				assert.Less(t, len(err), 300)
+				assert.Equal(t, unexpectedHeaderHostReply, err)
 			},
 		},
 	}

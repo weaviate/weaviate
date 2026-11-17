@@ -82,6 +82,10 @@ func testRerankerTypeSafeAI(restURI, grpcURI string) func(t *testing.T) {
 
 		white := grayPNG(t, 400, 0xff)
 		cross := crossPNG(t, 400)
+		// The scores come from the model, so the assertions on their order
+		// need a wide margin. Three runs on 2026-11-17 with jev-latest gave
+		// 0.63, 0.49 to 0.52 and 0.11 to 0.13 for the tickets, and 0.93 and
+		// 0.02 to 0.03 for the images.
 		tests := []struct {
 			name       string
 			tickets    []ticket

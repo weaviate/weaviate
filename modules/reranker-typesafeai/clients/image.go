@@ -31,6 +31,15 @@ const (
 	formatPNG              = "png"
 	formatJPEG             = "jpeg"
 
+	// pngMagic and jpegMagic are the first bytes of a PNG and of a JPEG.
+	pngMagic  = "\x89PNG"
+	jpegMagic = "\xff\xd8\xff"
+	// magicChars is 16 base64 characters: the first 12 bytes of an image.
+	magicChars = 16
+	// pngHeaderBytes is 24 bytes: the PNG signature and the IHDR chunk up to
+	// the width and the height.
+	pngHeaderBytes = 24
+
 	// maxImageBytes is 16 MiB (16,777,216 bytes) per decoded image.
 	maxImageBytes = 16 << 20
 	// maxImageChars is 22,369,624 characters: the base64 of 16 MiB.
@@ -44,11 +53,11 @@ const (
 	// four of the largest fit. 24 MiB of base64 leaves room for the JSON in
 	// the API's 32 MiB body limit.
 	//
-	// MaxBatchImages is 4 images per request.
-	MaxBatchImages = 4
-	// MaxBatchImageChars is 24 MiB (25,165,824 characters) of base64 per
+	// maxBatchImages is 4 images per request.
+	maxBatchImages = 4
+	// maxBatchImageChars is 24 MiB (25,165,824 characters) of base64 per
 	// request.
-	MaxBatchImageChars = 24 << 20
+	maxBatchImageChars = 24 << 20
 )
 
 type imageAsset struct {
@@ -57,15 +66,10 @@ type imageAsset struct {
 	Format     string `json:"format"`
 }
 
-var (
-	pngMagic  = []byte("\x89PNG")
-	jpegMagic = []byte("\xff\xd8\xff")
-)
-
 // imageFormat sniffs the format from the first bytes, without decoding the
 // whole image.
 func imageFormat(encoded string) (string, error) {
-	head := encoded[:min(len(encoded), 16)]
+	head := encoded[:min(len(encoded), magicChars)]
 	decoded, err := base64.StdEncoding.DecodeString(head)
 	if err != nil {
 		// A prefix cut inside a quad decodes once trimmed to whole quads.
@@ -75,9 +79,9 @@ func imageFormat(encoded string) (string, error) {
 		}
 	}
 	switch {
-	case bytes.HasPrefix(decoded, pngMagic):
+	case bytes.HasPrefix(decoded, []byte(pngMagic)):
 		return formatPNG, nil
-	case bytes.HasPrefix(decoded, jpegMagic):
+	case bytes.HasPrefix(decoded, []byte(jpegMagic)):
 		return formatJPEG, nil
 	default:
 		return "", errors.New("not a PNG or JPEG image")
@@ -124,7 +128,7 @@ func imageSizeError(size int) error {
 // pngSize reads the IHDR chunk. An animated PNG carries an acTL chunk before
 // its image data.
 func pngSize(data []byte) (width, height int, err error) {
-	if len(data) < 24 || string(data[12:16]) != "IHDR" {
+	if len(data) < pngHeaderBytes || string(data[12:16]) != "IHDR" {
 		return 0, 0, errors.New("PNG without an IHDR chunk")
 	}
 	width = int(binary.BigEndian.Uint32(data[16:20]))

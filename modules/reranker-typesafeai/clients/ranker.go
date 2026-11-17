@@ -44,17 +44,17 @@ const (
 	// The API does not publish its request size limit: 141,000 characters
 	// were accepted and 149,000 rejected. A batch closes before the bytes of
 	// its documents plus their questions, each of which repeats the query,
-	// would pass MaxBatchCharacters. One document above the limit is sent
+	// would pass maxBatchCharacters. One document above the limit is sent
 	// alone. A non-ASCII character takes several bytes, so a batch of such
 	// text holds fewer characters than the limit. Beyond 50 documents a
 	// request saves almost no tokens and answers more slowly than two sent in
 	// parallel.
 	//
-	// MaxBatchDocuments is 50 documents per request.
-	MaxBatchDocuments = 50
-	// MaxBatchCharacters is 100,000 bytes of documents and questions per
+	// maxBatchDocuments is 50 documents per request.
+	maxBatchDocuments = 50
+	// maxBatchCharacters is 100,000 bytes of documents and questions per
 	// request.
-	MaxBatchCharacters = 100_000
+	maxBatchCharacters = 100_000
 
 	apiPath       = "/v1/systemone"
 	questionKey   = "q"
@@ -114,9 +114,9 @@ func (c *client) validateQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
 		return errors.New("rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
 	}
-	if c.questionBytes(query) >= MaxBatchCharacters {
+	if c.questionBytes(query) >= maxBatchCharacters {
 		return fmt.Errorf("rerank.query is %d bytes; reranker-typesafeai repeats it for every document within %d bytes per request",
-			len(query), MaxBatchCharacters)
+			len(query), maxBatchCharacters)
 	}
 	return nil
 }
@@ -124,7 +124,7 @@ func (c *client) validateQuery(query string) error {
 // questionBytes is the size of the longest question a request repeats the
 // query in.
 func (c *client) questionBytes(query string) int {
-	return len("In "+documentKey(MaxBatchDocuments-1)+": ") + len(query)
+	return len("In "+documentKey(maxBatchDocuments-1)+": ") + len(query)
 }
 
 // RankProperty returns, per document, the probability that the query holds
@@ -167,9 +167,9 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		}
 	}
 
-	maxDocuments, maxCharacters := MaxBatchDocuments, MaxBatchCharacters
+	maxDocuments, maxCharacters := maxBatchDocuments, maxBatchCharacters
 	if image {
-		maxDocuments, maxCharacters = MaxBatchImages, MaxBatchImageChars
+		maxDocuments, maxCharacters = maxBatchImages, maxBatchImageChars
 	}
 	request := judgeRequest{
 		url: endpointURL, apiKey: apiKey, hostFromHeader: hostFromHeader,
@@ -305,7 +305,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 	}
 	values, err := response.values(len(documents))
 	if err != nil {
-		return nil, typesafeaiUsage{}, err
+		return nil, typesafeaiUsage{}, c.replyError(err, nil, r.hostFromHeader)
 	}
 	return values, typesafeaiUsage{InputTokens: response.inputTokens(), requests: 1}, nil
 }
@@ -346,8 +346,9 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Docum
 }
 
 // send does not retry a status: a 429 or a 5xx fails the call. The transport
-// sends the request again when a reused connection breaks before a response
-// arrives, so the API can receive a request twice. tooLarge says the API
+// sends the request again, up to twice, when a reused connection breaks before
+// a response arrives, so the API can receive a request three times. tooLarge
+// says the API
 // rejected the request for its size.
 func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []byte, images, hostFromHeader bool,
 ) (response typesafeaiResponse, tooLarge bool, err error) {
@@ -394,13 +395,13 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
 			typeErr.Struct, typeErr.Field = "", ""
 		}
-		return typesafeaiResponse{}, false, c.withBody(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
+		return typesafeaiResponse{}, false, c.replyError(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
 			responseBody, hostFromHeader)
 	}
 	// The shape of an error in a 200 is not documented, so the body is the
 	// provider's message.
 	if len(response.Answers) == 0 {
-		return typesafeaiResponse{}, false, c.withBody(errors.New("TypeSafe AI response has no answers"),
+		return typesafeaiResponse{}, false, c.replyError(errors.New("TypeSafe AI response has no answers"),
 			responseBody, hostFromHeader)
 	}
 	return response, false, nil
@@ -426,10 +427,15 @@ func (c *client) transportError(ctx context.Context, action, headerHostMessage s
 	return fmt.Errorf("%s: %s", action, headerHostMessage)
 }
 
-// withBody appends the start of the body to err, unless the request header
-// named the host.
-func (c *client) withBody(err error, body []byte, hostFromHeader bool) error {
-	if hostFromHeader || len(body) == 0 {
+// replyError is the error of a 200 reply the client cannot use. For the class
+// or default host it is err with the start of the body. For a host the request
+// header named it is a fixed message: err can quote the reply, such as the
+// type or the probability of an answer.
+func (c *client) replyError(err error, body []byte, hostFromHeader bool) error {
+	if hostFromHeader {
+		return errors.New("unexpected TypeSafe AI response from the host named by " + baseURLHeader)
+	}
+	if len(body) == 0 {
 		return err
 	}
 	return fmt.Errorf("%w: %s", err, truncate(body))
