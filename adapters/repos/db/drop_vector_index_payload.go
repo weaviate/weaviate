@@ -85,8 +85,8 @@ type DropVectorIndexTaskPayload struct {
 	// "owed nothing" — the conservative reading, and the one that keeps the
 	// closed-epoch fence.
 	//
-	// A FAILED or CANCELLED round owes more than this list: the shards whose
-	// units did not complete are owed too (see ResolvedByShardDeletion).
+	// For a FAILED or CANCELLED round, owedShards also counts as owed each
+	// shard whose units did not all complete.
 	//
 	// Size: mirrors CleanedShards (one name per shard, no per-replica blowup);
 	// a drop on a 100k-tenant collection with most tenants cold carries the
@@ -109,22 +109,13 @@ type DropVectorIndexTaskPayload struct {
 // shards or nodes, so it stays hidden until it is listed here.
 var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId", "verifyOnly"}
 
-// ResolvedByShardDeletion reports whether the round stripped every shard in
-// shards while a shard it still OWED has since disappeared — i.e. the drop's
-// outstanding work did not get done, it ceased to exist along with its tenant.
-// Such a chain is complete for the collection as it now stands, so the marker
-// can be removed without re-stripping shards that are already clean.
+// ResolvedByShardDeletion reports whether a shard the round still OWED has
+// since disappeared — i.e. the drop's outstanding work did not get done, it
+// ceased to exist along with its tenant.
 //
 // A true result alone does not make the marker removable. Both callers also
-// require EpochCoveredShards to span shards, because this credits a FAILED or
-// CANCELLED round's inherited CleanedShards and EpochCoveredShards does not.
-//
-// A round owes the shards it deferred and, when it ended FAILED or CANCELLED,
-// the shards whose units did not all complete: a tenant deleted mid-strip
-// fails its unit, and that work vanished exactly like a deleted deferred
-// tenant's. Such a round is credited only with what it provably stripped —
-// its inherited cleaned set and its completed units — never with a shard
-// whose unit failed.
+// require EpochCoveredShards to span shards: the round's epoch must have
+// stripped every shard that still exists.
 //
 // A round that owed nothing returns false even with full coverage: that is
 // the closed-epoch residue shape (a finalized drop's records beside a
@@ -133,15 +124,11 @@ var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dr
 // Deterministic over its inputs: the enqueuer and the FSM removal gate both
 // call it, so they read a round the same way.
 func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(task *distributedtask.Task, shards []string) bool {
-	stripped, owed := p.strippedAndOwedShards(task)
-	if len(owed) == 0 || len(ShardsNotCovered(shards, stripped)) > 0 {
-		return false
-	}
 	current := make(map[string]struct{}, len(shards))
 	for _, shard := range shards {
 		current[shard] = struct{}{}
 	}
-	for _, shard := range owed {
+	for _, shard := range p.owedShards(task) {
 		if _, stillThere := current[shard]; !stillThere {
 			return true
 		}
@@ -149,26 +136,25 @@ func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(task *distributedta
 	return false
 }
 
-// strippedAndOwedShards splits the shards a terminal round knew about into the
-// ones it proves stripped and the ones it left unstripped.
-func (p *DropVectorIndexTaskPayload) strippedAndOwedShards(task *distributedtask.Task) (stripped map[string]struct{}, owed []string) {
+// owedShards returns the shards a terminal round left unstripped. A FAILED or
+// CANCELLED round owes the shards of its unfinished units too, because a
+// tenant deleted mid-strip fails its unit.
+func (p *DropVectorIndexTaskPayload) owedShards(task *distributedtask.Task) []string {
 	if !terminalWithPartialWork(task.Status) {
-		return p.CoveredShards(), p.DeferredShards
+		return p.DeferredShards
 	}
-	stripped = make(map[string]struct{}, len(p.UnitToShard)+len(p.CleanedShards))
-	for _, shard := range p.CleanedShards {
+	completed := CompletedUnitShards(task, p)
+	stripped := make(map[string]struct{}, len(completed))
+	for _, shard := range completed {
 		stripped[shard] = struct{}{}
 	}
-	for _, shard := range CompletedUnitShards(task, p) {
-		stripped[shard] = struct{}{}
-	}
-	owed = append(owed, p.DeferredShards...)
+	owed := append([]string(nil), p.DeferredShards...)
 	for _, shard := range p.UnitToShard {
 		if _, ok := stripped[shard]; !ok {
 			owed = append(owed, shard)
 		}
 	}
-	return stripped, owed
+	return owed
 }
 
 // SameTargetSet reports whether two target lists contain the same names with
@@ -413,9 +399,7 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 // newestDropEpoch returns the epoch of the newest record of the drop
 // (collection, targets). Newest is by raft-assigned Version, which is monotonic
 // and deterministic, unlike node wall clocks. ok is false when the drop has no
-// record or its newest record carries no epoch. The enqueuer and the removal
-// gate both read the epoch here: records of an older epoch say nothing about
-// the rows the newest one still has pending.
+// record or its newest record carries no epoch.
 func newestDropEpoch(tasks []*distributedtask.Task, collection string, targets []string,
 	logger logrus.FieldLogger,
 ) (epoch string, ok bool) {

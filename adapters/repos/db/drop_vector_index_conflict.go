@@ -210,24 +210,20 @@ func (p *DropVectorIndexDetector) completedDropVoucher(className, targetVector s
 }
 
 // deletionResolvedDropVoucher reports whether a terminal round of this drop
-// proves the cleanup is done for the collection as it now stands: it stripped
-// every current shard, and it recorded owing a shard that no longer exists.
+// proves the cleanup is done for the collection as it now stands: it owed a
+// shard that no longer exists, and its epoch stripped every current shard.
 //
-// This is the one case where a non-SWAPPING record may remove a marker.
-// A FAILED or CANCELLED round owes the shards it deferred and the shards whose
-// units did not complete. An earlier round of a finalized drop can owe a shard
-// too, so a finalized drop's records could vouch for a new marker. The purge of
-// the previous drop's records that cluster/schema/manager.go runs when a marker
-// is introduced is what prevents that.
+// This is the one case where a non-SWAPPING record may remove a marker. A
+// finalized drop's earlier rounds can have owed a shard that is now deleted.
+// The purge of the previous drop's records when a marker is introduced
+// (cluster/schema/manager.go) keeps those rounds from vouching for a new
+// marker.
 //
 // Only a round of the drop's newest epoch vouches (newestDropEpoch), the epoch
 // the enqueuer reads. An older epoch was closed because a shard had to be
-// stripped again, so its records prove nothing about that shard.
-//
-// The round's epoch must also span every current shard (EpochCoveredShards).
-// That stops a class update removing the marker on a round's CleanedShards
-// when no record of its epoch still backs them. Every removal the enqueuer
-// proposes already passes both checks.
+// stripped again, so its records prove nothing about that shard. The round's
+// epoch must also span every current shard (EpochCoveredShards), as
+// ResolvedByShardDeletion asks of its callers.
 //
 // Accepts the proof an older leader's enqueuer finalizes on directly, so
 // those removals still apply during a rolling upgrade. The enqueuer here asks
