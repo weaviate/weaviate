@@ -67,6 +67,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - Lo paga la query de recall alto: frente a ef 320, un 4 % más de cargas a 0.95 y de un 16 a un 20 % más a 0.99.
   - La condición de 0.99 la cumple por 0.2 puntos, dentro del ruido. Con ef 160 son 34.6 cargas por insert, y cumple con margen.
   - Por debajo no hay dónde ir: ef 40 carga un 23 % más que el lote a 0.99, y con ef 20 el constructor baja de 0.90 de recall de arista.
+  - Queda como parámetro del índice, sin repetir la celda (decisión del usuario del 17): 80 por la regla, y 160 si el objetivo de recall es 0.99.
 - **La representación por docID cuesta un 15 % de QPS** con 8 threads, con los docIDs barajados.
 
 **Limitaciones:**
@@ -353,6 +354,7 @@ Al 100 %, con 1 thread y sin cronometrar. Entre paréntesis, frente al lote:
 ### Lo que v2.1 no mide
 
 - **La repetición de la celda de ef 80.** Su tercera condición está a 0.2 puntos del umbral, con un suelo del 3.0 %. Una corrida más no la decide; harían falta varias, o un ef intermedio entre 80 y 160, que no está en el barrido.
+  - *Decisión del usuario del 17:* no se repite. El ef de inserción queda como parámetro del índice: 80 por la regla, y 160 si el objetivo de recall es 0.99.
 - **Más allá de doblar el corpus.** El déficit de un ef bajo está medido con la mitad del corpus insertada.
 - **La celda 6 y la variante fiel al lote.** Quedan abiertas por decisión del usuario: el aporte de la celda 6 va mezclado con un grado un 53 % mayor, y los hermanos con la regla del lote dirían cuánto es reparación y cuánto es grado. No se miden ahora.
 - **Cualquier I/O.** Las cargas son conteos en memoria.

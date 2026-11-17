@@ -436,9 +436,10 @@ Datos en `testdata/bench/phase2/`:
 - **El ef de inserción cambia lecturas del insert por lecturas de la query.** De 160 a 80, cada insert se ahorra 12.8 cargas, y cada query carga 0.32 más a 0.95 y 6.9 más a 0.99. Un índice que sirve más de dos queries a 0.99 por insert lee más en total con 80 que con 160. A 0.95 hacen falta cuarenta.
 - **De 320 a 160 casi no hay nada que pagar:** 22 cargas menos por insert, por 0.1 más por query a 0.95 y de 1.3 a 2.8 más a 0.99.
 - **El default que sale de la regla es 80, y 160 si el objetivo de recall es 0.99.** Es un parámetro del índice, no una constante.
+  - *Decisión del usuario del 17:* queda así, como parámetro del índice, y la celda de ef 80 no se repite.
 - **La guardia del constructor en 0.90 no avisa de dónde se rompe el criterio:** ef 40 la pasa con 0.94 y no cumple. Con aristas inversas, la frontera está entre 0.94 y 0.96 de recall de arista al insertar.
 
-**Sin medir:** la repetición de la celda de ef 80, un ef intermedio entre 80 y 160, y el déficit de un ef bajo más allá de una duplicación.
+**Sin medir:** un ef intermedio entre 80 y 160, y el déficit de un ef bajo más allá de una duplicación. La celda de ef 80 no se repite, por decisión del usuario del 17.
 
 ### Dónde viven las aristas
 
