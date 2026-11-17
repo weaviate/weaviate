@@ -117,6 +117,98 @@ func TestFusionOrderRelative(t *testing.T) {
 	}
 }
 
+func TestComputeAdaptiveAlpha(t *testing.T) {
+	cases := []struct {
+		name          string
+		scores        []float32
+		fallbackAlpha float64
+		expectLow     bool // expect alpha pulled toward 0 (favor keyword)
+		expectHigh    bool // expect alpha pulled toward 1 (favor vector)
+		expectDefault bool // expect fallbackAlpha returned unchanged
+	}{
+		{
+			name:          "no results falls back to caller-provided alpha",
+			scores:        nil,
+			fallbackAlpha: 0.42,
+			expectDefault: true,
+		},
+		{
+			name:          "single sharp result is treated as maximally confident",
+			scores:        []float32{9.5},
+			fallbackAlpha: 0.5,
+			expectLow:     true,
+		},
+		{
+			name:          "one dominant score among many is confident, favors keyword",
+			scores:        []float32{20, 0.1, 0.1, 0.1, 0.1},
+			fallbackAlpha: 0.5,
+			expectLow:     true,
+		},
+		{
+			name:          "near-uniform scores are unconfident, favors vector",
+			scores:        []float32{1, 1.01, 0.99, 1.02, 0.98},
+			fallbackAlpha: 0.5,
+			expectHigh:    true,
+		},
+		{
+			name:          "all-zero scores treated as maximally uncertain, favors vector",
+			scores:        []float32{0, 0, 0},
+			fallbackAlpha: 0.5,
+			expectHigh:    true,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			var results []*search.Result
+			for i, score := range tt.scores {
+				docId := uint64(i)
+				results = append(results, &search.Result{Score: score, DocID: &docId, ID: strfmt.UUID(fmt.Sprint(i))})
+			}
+
+			alpha := ComputeAdaptiveAlpha(results, tt.fallbackAlpha)
+
+			require.GreaterOrEqual(t, alpha, autoTuneAlphaMin)
+			require.LessOrEqual(t, alpha, autoTuneAlphaMax)
+
+			switch {
+			case tt.expectDefault:
+				assert.Equal(t, tt.fallbackAlpha, alpha)
+			case tt.expectLow:
+				assert.Less(t, alpha, 0.5)
+			case tt.expectHigh:
+				assert.Greater(t, alpha, 0.5)
+			}
+		})
+	}
+}
+
+func TestNormalizedBM25Entropy(t *testing.T) {
+	cases := []struct {
+		name     string
+		scores   []float32
+		expected float64
+	}{
+		{name: "empty", scores: nil, expected: -1},
+		{name: "single result is zero entropy", scores: []float32{5}, expected: 0},
+		{name: "uniform scores are maximum entropy", scores: []float32{2, 2, 2, 2}, expected: 1},
+		{name: "all-zero scores default to maximum entropy", scores: []float32{0, 0, 0}, expected: 1},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			var results []*search.Result
+			for i, score := range tt.scores {
+				docId := uint64(i)
+				results = append(results, &search.Result{Score: score, DocID: &docId, ID: strfmt.UUID(fmt.Sprint(i))})
+			}
+
+			entropy := normalizedBM25Entropy(results)
+			assert.InDelta(t, tt.expected, entropy, 0.0001)
+		})
+	}
+}
+
 func TestFusionOrderRanked(t *testing.T) {
 	docId1 := uint64(1)
 	docId2 := uint64(2)
