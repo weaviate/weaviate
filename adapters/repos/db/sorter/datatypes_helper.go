@@ -67,3 +67,14 @@ func (h *dataTypesHelper) hasFilterableIndex(propName string) bool {
 
 	return false
 }
+
+// filterableDisabled reports an explicit IndexFilterable false. An enable-filterable
+// reindex keeps it false until every node has swapped in the rebuilt bucket.
+func (h *dataTypesHelper) filterableDisabled(propName string) bool {
+	for _, property := range h.class.Properties {
+		if property.Name == propName {
+			return property.IndexFilterable != nil && !*property.IndexFilterable
+		}
+	}
+	return false
+}

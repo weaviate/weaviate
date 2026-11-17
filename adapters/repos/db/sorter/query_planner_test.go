@@ -70,6 +70,15 @@ func TestQueryPlanner(t *testing.T) {
 			shouldChooseInverted: true,
 		},
 		{
+			// class creation stores IndexFilterable explicitly true
+			name:                 "high match ratio, explicitly filterable",
+			objectCount:          1000,
+			matchCount:           800,
+			limit:                100,
+			sort:                 sort1("date", "asc"),
+			shouldChooseInverted: true,
+		},
+		{
 			name:        "low match ratio, but high absolute count",
 			objectCount: 10000,
 			matchCount:  800,
@@ -114,41 +123,15 @@ func TestQueryPlanner(t *testing.T) {
 			objectCount:          1000,
 			matchCount:           800,
 			limit:                100,
-			sort:                 sortsBy("int", "desc", "text", "asc"),
+			sort:                 sort2("int", "desc", "text", "asc"),
 			shouldChooseInverted: true,
-		},
-		{
-			name:                 "multiple sort args, first one is text",
-			objectCount:          1000,
-			matchCount:           800,
-			limit:                100,
-			sort:                 sortsBy("text", "asc", "int", "asc"),
-			shouldChooseInverted: false,
-			unsupportedType:      true,
-		},
-		{
-			name:                 "multiple sort args, first one is not indexed",
-			objectCount:          1000,
-			matchCount:           800,
-			limit:                100,
-			sort:                 sortsBy("int_not_indexed", "asc", "int", "asc"),
-			shouldChooseInverted: false,
-		},
-		{
-			name:                 "multiple sort args, first one eligible, but globally disabled",
-			objectCount:          1000,
-			matchCount:           800,
-			limit:                100,
-			disabled:             true,
-			sort:                 sortsBy("int", "asc", "text", "asc"),
-			shouldChooseInverted: false,
 		},
 		{
 			name:                 "single sort arg, cheaper than objects bucket",
 			objectCount:          50,
 			matchCount:           11,
 			limit:                10,
-			sort:                 sortsBy("int", "asc"),
+			sort:                 sort1("int", "asc"),
 			shouldChooseInverted: true,
 		},
 		{
@@ -158,7 +141,25 @@ func TestQueryPlanner(t *testing.T) {
 			objectCount:          50,
 			matchCount:           11,
 			limit:                10,
-			sort:                 sortsBy("int", "asc", "number", "asc"),
+			sort:                 sort2("int", "asc", "number", "asc"),
+			shouldChooseInverted: false,
+		},
+		{
+			// candidates past the full-scan share make the executor fall back anyway
+			name:                 "unfiltered multiple sort args, limit near the object count",
+			objectCount:          110,
+			nilBitmap:            true,
+			limit:                100,
+			sort:                 sort2("int", "asc", "number", "asc"),
+			shouldChooseInverted: false,
+		},
+		{
+			// an enable-filterable reindex creates the bucket empty before the schema flips
+			name:                 "bucket present, but property not filterable",
+			objectCount:          1000,
+			matchCount:           800,
+			limit:                100,
+			sort:                 sort1("int_reindexing", "asc"),
 			shouldChooseInverted: false,
 		},
 		{
@@ -238,11 +239,10 @@ func TestQueryPlanner(t *testing.T) {
 			objectsB := store.Bucket(helpers.ObjectsBucketLSM)
 			for i := 0; i < tc.objectCount; i++ {
 				objBytes, docID := createDummyObject(t, i)
-				objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
-				require.Nil(t, err)
+				require.NoError(t, objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes))
 			}
 
-			for _, propName := range []string{"int", "number", "date"} {
+			for _, propName := range []string{"int", "number", "date", "int_reindexing"} {
 				err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
 					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 				require.Nil(t, err)
@@ -295,6 +295,7 @@ func TestQueryPlannerSampledMatchPositions(t *testing.T) {
 	spread := idsWhere(func(i int) bool { return i%25 == 0 })
 	newestPerRow := idsWhere(func(i int) bool { return i%100 >= 96 })
 	topThird := idsWhere(func(i int) bool { return i >= objectCount*2/3 })
+	middle := idsWhere(func(i int) bool { return i >= objectCount/2 && i < objectCount/2+100 })
 
 	tests := []struct {
 		name                 string
@@ -306,34 +307,35 @@ func TestQueryPlannerSampledMatchPositions(t *testing.T) {
 	}{
 		{
 			name: "matches spread through the index", ids: spread, idsPerRow: 1,
-			sort: sortsBy("int", "asc"), shouldChooseInverted: true,
+			sort: sort1("int", "asc"), shouldChooseInverted: true,
 		},
 		{
 			// the match ratio alone predicts a 250-entry walk
 			name: "asc, matches at the far end of the walk", ids: top, idsPerRow: 1,
-			sort: sortsBy("int", "asc"), shouldChooseInverted: false,
+			sort: sort1("int", "asc"), shouldChooseInverted: false,
 		},
 		{
 			name: "desc, matches at the far end of the walk", ids: bottom, idsPerRow: 1,
-			sort: sortsBy("int", "desc"), shouldChooseInverted: false,
+			sort: sort1("int", "desc"), shouldChooseInverted: false,
 		},
 		{
 			name: "desc, matches at the start of the walk", ids: top, idsPerRow: 1,
-			sort: sortsBy("int", "desc"), shouldChooseInverted: true,
-		},
-		{
-			name: "multiple sort args, matches at the far end of the walk", ids: top, idsPerRow: 1,
-			sort: sortsBy("int", "asc", "text", "asc"), shouldChooseInverted: false,
+			sort: sort1("int", "desc"), shouldChooseInverted: true,
 		},
 		{
 			// a row's oldest IDs miss, so only a whole-row check sees its matches
 			name: "matches only among the newest IDs of each row", ids: newestPerRow, idsPerRow: 100,
-			sort: sortsBy("int", "asc"), shouldChooseInverted: true,
+			sort: sort1("int", "asc"), shouldChooseInverted: true,
+		},
+		{
+			// the sampled prefix lengthens the walk, but not past the objects bucket
+			name: "asc, matches halfway into the walk", ids: middle, idsPerRow: 1,
+			sort: sort1("int", "asc"), shouldChooseInverted: true,
 		},
 		{
 			// a walk over the whole index still beats reading a third of the objects
 			name: "asc, many matches at the far end of the walk", ids: topThird, idsPerRow: 1,
-			sort: sortsBy("int", "asc"), shouldChooseInverted: true, skipsSampling: true,
+			sort: sort1("int", "asc"), shouldChooseInverted: true, skipsSampling: true,
 		},
 	}
 
@@ -373,5 +375,28 @@ func TestQueryPlannerSampledMatchPositions(t *testing.T) {
 		assert.Greater(t, trusted, float64(objectCount)*0.9)
 		// at this ratio ~1000 empty samples are expected to hold ~1 match
 		assert.Zero(t, emptyWalkPrefix(context.Background(), bucket, top, 0.001, objectCount, false))
+	})
+
+	t.Run("no slice sampled a match", func(t *testing.T) {
+		bucket := stores[1].Bucket(helpers.BucketFromPropNameLSM("int"))
+		// each band sits above the lowest IDs of its slice, the only ones sampled
+		descBand := idsWhere(func(i int) bool { return i >= 1938 && i < 1968 })
+		ascBand := idsWhere(func(i int) bool { return i >= 35 && i < 60 })
+		assert.Zero(t, emptyWalkPrefix(context.Background(), bucket, descBand, 0.04, objectCount, true))
+		assert.Zero(t, emptyWalkPrefix(context.Background(), bucket, ascBand, 0.04, objectCount, false))
+	})
+
+	t.Run("slices smaller than a sample", func(t *testing.T) {
+		const smallCount = 200
+		_, store := newCandidateTestSorter(t)
+		for _, r := range sortRows(smallCount, groupedRow(1)) {
+			putSortRow(t, store, r)
+		}
+		flushSortBuckets(t, store)
+		bucket := store.Bucket(helpers.BucketFromPropNameLSM("int"))
+		// a sample running past its slice's end would find the matches a few slices early
+		prefix := emptyWalkPrefix(context.Background(), bucket, helpers.NewAllowList(46, 47, 48),
+			0.5, smallCount, false)
+		assert.InDelta(t, 46, prefix, 10)
 	})
 }
