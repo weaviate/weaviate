@@ -814,6 +814,8 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	return s.swapBucketPointer(targetName, sourceName, true)
 }
 
+// InstallOrSwapBucketPointer is [Store.SwapBucketPointer] for a migration that adds an index: no bucket serves the
+// target name until the swap, so the source is installed there and the returned old bucket is nil.
 func (s *Store) InstallOrSwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
 	return s.swapBucketPointer(targetName, sourceName, false)
 }
