@@ -414,6 +414,7 @@ Con rescoreLimit 64. Entre paréntesis, frente a la referencia en el mismo ef.
 
 - **Qué parte del halo hace falta.** La búsqueda puntúa una de cada cuatro a seis entradas que lee.
 - **La parada con sketch.** El margen es el de la referencia, y a igual ef las celdas cargan de más.
+  - Las dos quedan anotadas como abiertas, sin medir ahora, en `disk-design.md`, «El halo» (indicación del usuario, del 17). Allí está también el contexto frente a HFresh.
 - **Un ancho entre 256 y 384 bits,** que es donde el criterio pasa de justo a holgado, y un S menor que 236.
 - **El coste del halo en mantenimiento,** que v2.0 a v2.4 miden sin él.
 - **La repetición.** Es una corrida por S, sin suelo de ruido propio.

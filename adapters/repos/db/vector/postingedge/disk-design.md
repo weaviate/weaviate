@@ -222,15 +222,71 @@ Lo que queda por medir:
 - **La búsqueda usa una parte de lo que lee:** a 0.99 con 384 bits, 141 551 entradas de halo leídas para 28 174 endpoints puntuados.
 - **A igual ef, con sketch se cargan de 1.6 a 3.8 veces más postings,** con algo más de recall desde ef 40. El umbral de parada es el del scan, y las estimaciones de los endpoints son más ruidosas.
 
+### Contexto: frente a HFresh, en dbpedia 1M
+
+*Las dos filas de HFresh son de `findings.md`, las simulaciones del 4 y el 5 de noviembre (rama `hfresh-filtered-lab`, `cmd/hfreshedges/`): un índice HFresh por defecto de este mismo dataset, con réplicas (replicas = 4, posting máximo de 227 entradas, RQ-1), y ese mismo índice con cada vector solo en su posting primario. Las de posting-edge son las de v3.0, con S = 236. Ninguna cifra está ajustada: lo que no se puede comparar se dice debajo.*
+
+| a recall 0.95 | de dónde sale | cargas por query | rondas | bytes de posting por query | disco de postings | RAM de códigos |
+|---|---|---|---|---|---|---|
+| HFresh con réplicas | simulación, sobre el índice real | 114 | 1 | 4.17 MB | 925 MB | — |
+| HFresh, nprobe sin réplicas | simulación, sobre ese índice sin sus réplicas | 357 | 1 | 2.46 MB | 207 MB | — |
+| posting-edge, sidecar residente | medido en v3.0 | 10.11 | 2.28 | 0.63 MB | 241 MB | 198 MB |
+| posting-edge, halo de 512 bits | medido en v3.0, con el modelo de bytes de arriba | 18.26 | 4.32 | 3.33 MB | 662 MB | — |
+| posting-edge, halo de 384 bits | igual | 23.71 | 5.68 | 3.72 MB | 573 MB | — |
+| posting-edge, halo de 256 bits | igual | 37.63 | 9.16 | 5.00 MB | 485 MB | — |
+
+**Qué viene de simulación:**
+
+- **Las dos filas de HFresh, enteras.** El índice es real: 26 002 postings y 4 423 717 entradas, con un factor de replicación de 4.47. La búsqueda no lo es: se cargan los k postings de centroide más cercano, en orden exacto, y el recall es el de los vecinos exactos que caen en ellos. No modela el código RQ-1 ni el rescore. Son 1 000 queries.
+- **«nprobe sin réplicas» no es una configuración de HFresh.** Es la partición del índice con réplicas, 26 002 postings pensados para 4.47 copias, con cada vector dejado solo en su posting primario. Quedan postings de 38 vectores de media.
+- **En las filas de posting-edge, las cargas, las rondas y el recall son de la búsqueda del índice,** con el código RQ1 en el scan y en los endpoints, la parada por ef y el rescore de 64, sobre 5 000 queries. Los bytes y el disco son esos conteos por el modelo de bytes. El halo no existe en el índice: es el estado montado en los tests.
+
+**Diferencias de contabilidad:**
+
+| | HFresh, en `findings.md` | posting-edge, en v3.0 | ¿se puede comparar? |
+|---|---|---|---|
+| tamaño de un posting | 170 entradas de media con réplicas y 38 sin ellas, de 209 B: 35.5 KB y 8 KB | 236 miembros de 208 B y 8.98 aristas de 4 B por miembro: 57.6 KB. Con halo, de 116 a 158 KB | **Las cargas, no.** Una carga pesa de 7 KB a 182 KB según la fila. |
+| cómo se llega a 0.95 | un k igual para todas las queries | la media de las cargas en el ef que da 0.95, con parada por query | No como número de cargas. |
+| rondas | todas las cargas a la vez, con el orden conocido de antemano | rondas en serie, de hasta 4 postings | No: unas cargas son paralelas y las otras no. |
+| qué recall es | el de los vecinos exactos dentro de lo cargado, sin error de código y sin rescore | el de la búsqueda, con el código RQ1 y el rescore de 64 | **No del todo.** La cifra de HFresh es un suelo: su búsqueda real necesita eso o más. Cuánto más, sin medir. |
+| qué se cuenta como leído | las entradas de los postings cargados, a 209 B | los miembros, las aristas y, con halo, las entradas de halo de los postings cargados | Sí, con la reserva de arriba: son bytes de posting en los dos lados. |
+| el rescore | fuera: la simulación no lo tiene. HFresh hace 350 lecturas al bucket de objetos por defecto | fuera: 64 lecturas de 6.1 KB, 0.39 MB | No está en la tabla, y no es el mismo en los dos. |
+| disco | los postings: entradas por 209 B | los postings: miembros, aristas y halo | Sí. Ninguno cuenta los vectores exactos. |
+| centroides | 26 002, sin contar | 4 195, sin contar | Fuera de la tabla. |
+| lo residente | nada de los postings | el sidecar, 198 MB, en su modo; el mapa vector→posting, 4 MB, en los dos | El disco se lee junto con la RAM. |
+
+**Lo que se puede decir, con esas reservas:**
+
+- **En bytes de posting por query, el modo con sidecar residente lee 0.63 MB** donde la simulación de HFresh lee 4.17 MB con réplicas y 2.46 MB sin ellas.
+- **El halo queda en el territorio de las réplicas:** 3.33 MB con 512 bits, 3.72 con 384 y 5.00 con 256, frente a 4.17 MB. Lee más que la partición sin réplicas en los tres anchos.
+- **En disco de postings,** el modo residente son 241 MB, más 198 MB de RAM, frente a 925 MB con réplicas. El halo son de 485 a 662 MB sin esa RAM. La partición sin réplicas ni aristas son 207 MB.
+
+**Lo que no se puede decir:**
+
+- **Cuántas veces menos cargas hace posting-edge.** Las cargas no pesan lo mismo ni van igual: no doy la razón.
+- **Una razón de bytes contra un HFresh real.** El lado de HFresh no tiene error de código ni rescore, y la dirección del sesgo va a su favor.
+- **Que v3.0 confirme las simulaciones.** Aquellas estimaban 0.50 MB con sidecar residente y unos 3 MB con un halo de 32 B, y v3.0 mide 0.63 y de 3.33 a 5.00 MB. Coinciden en el orden, sobre otra partición (postings de 38 vectores, aristas del oráculo exacto) y con otra búsqueda.
+
 *Lectura mía, para el diseño:*
 
 - **Hay dos modos, y el sidecar residente es el barato en I/O.** El halo es para cuando el sidecar no cabe: a 100M y 1536d son de 10 a 20 GB de RAM.
 - **El halo iría con S = 236 y 384 bits** si el objetivo es 0.99, y con 512 si es 0.95.
 - **El término que crece es el de las rondas,** que en disco van en serie: de 12.9 a entre 19 y 37 a 0.99.
-- **La palanca es no leer todo el halo.** Cuatro de cada cinco entradas leídas no se puntúan. Un halo podado, o en un bloque aparte que se lee solo para los sources dentro del margen, está sin medir.
-- **La parada pide su propia calibración con sketch.** El margen de 0.06 se calibró con el código completo.
+- **Las dos palancas están en «Abierto, sin medir ahora», abajo:** podar el halo, y recalibrar el margen y la parada.
 - **El mantenimiento se encarece.** Una arista nueva hacia un vector mete su sketch en el posting del source: las 4.5 aristas inversas de un insert y la lista propia de un refresco tocan halos de otros postings. Sin medir.
-- **Abierto:** el sidecar paginado, que guarda cada código una vez y lo lee por páginas, es el otro punto sin RAM. Aquí no está medido; en las simulaciones no era operable por lecturas aleatorias.
+- **El otro punto sin RAM es el sidecar paginado,** que guarda cada código una vez y lo lee por páginas. Aquí no está medido; en las simulaciones no era operable por lecturas aleatorias.
+
+### Abierto, sin medir ahora
+
+*Anotado el 17, por indicación del usuario. Ninguna de las dos está medida.*
+
+- **Podar el halo.** La query usa el 20 % de lo que lee.
+  - A 0.99 con 384 bits son 141 551 entradas de halo leídas para 28 174 endpoints puntuados. Con 256 y 512 bits, el 16 y el 23 %. A 0.95 son las mismas proporciones.
+  - Por saber: qué entradas no se usan, si se pueden dejar fuera sin cambiar qué postings se cargan, y si el halo se puede leer aparte, solo para los sources dentro del margen.
+- **Recalibrar el margen y la parada para el modo con sketch.**
+  - Las celdas corrieron con el margen de source de la referencia, 0.06, y con su umbral de parada: el ef-ésimo candidato del scan con código completo.
+  - A igual ef cargan de 1.6 a 3.8 veces más postings que la referencia, con algo más de recall desde ef 40.
+  - Por saber: cuántas cargas quita, a igual recall, un margen y una parada propios del sketch.
 
 ## Open for phase 2
 
@@ -317,6 +373,7 @@ Abierto:
 - **Si cabe residente a la escala objetivo,** o hace falta un sidecar capado, con lo que eso le quita al routing: con 256 bits para todo, 3.0x cargas a igual recall.
   - *Medido el 17 (v3.0; el detalle, en «El halo»):* con el scan a código completo y solo el ruteo capado, son 2.85, 1.71 y 1.48 veces las cargas a 0.99 con 256, 384 y 512 bits. Sin sidecar, con esos sketches dentro de los postings, una query lee de 4.3 a 6.0 veces más bytes.
 - **Su relación con el layout (c):** el refinado lee el sidecar por cada candidato refinado.
+- **Con halo, en lugar de sidecar:** podar el halo, y recalibrar el margen y la parada para el sketch. Están anotadas en «El halo», «Abierto, sin medir ahora».
 - **Cómo se mantiene con inserciones, deletes y movimientos de posting,** que depende del punto 1.
 - **Qué memoria deja el modo disco,** con el sidecar y los centroides residentes, frente a HNSW y a HFresh.
 
