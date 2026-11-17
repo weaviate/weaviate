@@ -1802,6 +1802,7 @@ func deferringDropTaskCovering(id, collection string, shards, deferred []string,
 		panic(err)
 	}
 	payload.DeferredShards = deferred
+	payload.DropEpochID = "E1"
 	enc, err := payload.encode()
 	if err != nil {
 		panic(err)
@@ -1921,6 +1922,30 @@ func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
 				deferringDropTaskCovering("t1", "C", []string{"s1"}, []string{"s3"}, "v1"),
 			})
 		require.Error(t, err)
+	})
+
+	t.Run("inherited cleaned shard has no record of the epoch behind it: refused", func(t *testing.T) {
+		// The round claims s1 as cleaned by an earlier round, but no record of
+		// its epoch stripped s1.
+		payload := &DropVectorIndexTaskPayload{
+			Collection: "C", Targets: []string{"v1"}, OpID: "E1", DropEpochID: "E1",
+			UnitToShard:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
+			CleanedShards: []string{"s1"},
+		}
+		enc, err := payload.encode()
+		require.NoError(t, err)
+		err = p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{{
+				Namespace:      DropVectorIndexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
+				Payload:        enc,
+				Status:         distributedtask.TaskStatusFailed,
+				Units: map[string]*distributedtask.Unit{
+					"s2__n1": {Status: distributedtask.UnitStatusCompleted},
+					"s3__n1": {Status: distributedtask.UnitStatusFailed},
+				},
+			}})
+		require.ErrorContains(t, err, "only the completing cleanup task")
 	})
 }
 

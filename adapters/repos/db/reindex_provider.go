@@ -2524,11 +2524,15 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 }
 
 // ShardReplicaOwnershipForMT returns shard ownership for the named tenants
-// (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
+// (all, if empty) that still need work, or every one if none do; [ErrTenantsNotHot] if any of those isn't HOT: a COLD
 // tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
-func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
+func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTaskPayload, property string,
+	tenantNames []string, tasks []*distributedtask.Task,
+) (map[string][]string, error) {
+	className := target.Collection
+	_, paid, _ := ReindexMigratedTenants(ReindexRuns(tasks), property, target)
 	result := make(map[string][]string)
-	notHot := false
+	notHot := 0
 	tenantSet := make(map[string]struct{}, len(tenantNames))
 	for _, tn := range tenantNames {
 		tenantSet[tn] = struct{}{}
@@ -2539,18 +2543,27 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 
+		inScope := func(shardName string) bool {
+			_, ok := tenantSet[shardName]
+			return ok || len(tenantSet) == 0
+		}
+		rerunAll := true
+		for shardName := range state.Physical {
+			if _, isPaid := paid[shardName]; inScope(shardName) && !isPaid {
+				rerunAll = false
+				break
+			}
+		}
+
 		for shardName, shard := range state.Physical {
-			// Filter by tenant names if specified.
-			if len(tenantSet) > 0 {
-				if _, ok := tenantSet[shardName]; !ok {
-					continue
-				}
+			if _, isPaid := paid[shardName]; !inScope(shardName) || (isPaid && !rerunAll) {
+				continue
 			}
 
 			switch entschema.ActivityStatus(shard.Status) {
 			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 			default:
-				notHot = true
+				notHot++
 				continue
 			}
 
@@ -2566,8 +2579,8 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
-	if notHot {
-		return nil, ErrTenantsNotHot
+	if notHot > 0 {
+		return nil, &TenantsNotHotError{Count: notHot}
 	}
 
 	// Sort shard names per node for determinism.
@@ -2583,6 +2596,12 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 // tenants. A tenant mid freeze or unfreeze rejects a HOT update until done.
 var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
 	"once any freeze or unfreeze in progress finishes, set them to HOT")
+
+// TenantsNotHotError counts the target tenants that still need work and are not HOT.
+type TenantsNotHotError struct{ Count int }
+
+func (e *TenantsNotHotError) Error() string { return ErrTenantsNotHot.Error() }
+func (e *TenantsNotHotError) Unwrap() error { return ErrTenantsNotHot }
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one
 // entry per replica. Unlike ShardOwnership (which assigns each shard to one
