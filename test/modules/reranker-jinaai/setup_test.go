@@ -31,15 +31,13 @@ func TestRerankerNvidia(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
-
-	t.Run("reranker-jinaai", testRerankerJinaAI(endpoint))
+	t.Run("reranker-jinaai", testRerankerJinaAI(compose.GetWeaviate().URI(), compose.GetWeaviate().GrpcURI()))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(apiKey).
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return compose, err
 }

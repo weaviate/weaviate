@@ -11,6 +11,20 @@
 
 package rank
 
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+)
+
+// rerankDataTypes are the property types a rerank reads. string is the text
+// type deprecated in v1.19 that old classes still store.
+var rerankDataTypes = []schema.DataType{schema.DataTypeText, schema.DataTypeString, schema.DataTypeBlob}
+
 type Params struct {
 	Property *string
 	Query    *string
@@ -36,4 +50,26 @@ func (n Params) GetPropertiesToExtract() []string {
 		return []string{property}
 	}
 	return []string{}
+}
+
+// Validate rejects a rerank that no reranker can rank: a blank query, a
+// property the class does not have, and a property that is neither text nor
+// blob. The gRPC search calls it before the search, so the request fails
+// whether or not the search returns objects.
+func (n Params) Validate(class *models.Class) error {
+	if strings.TrimSpace(n.GetQuery()) == "" {
+		return errors.New("rerank: query is required")
+	}
+	property := n.GetProperty()
+	for _, prop := range class.Properties {
+		if prop.Name != property {
+			continue
+		}
+		if len(prop.DataType) == 1 && slices.Contains(rerankDataTypes, schema.DataType(prop.DataType[0])) {
+			return nil
+		}
+		return fmt.Errorf("rerank: property %q of collection %q is of type %s; a rerank reads a text or blob property",
+			property, class.Class, strings.Join(prop.DataType, ", "))
+	}
+	return fmt.Errorf("rerank: property %q does not exist in collection %q", property, class.Class)
 }

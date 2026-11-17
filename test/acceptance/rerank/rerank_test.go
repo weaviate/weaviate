@@ -153,31 +153,49 @@ func TestRerankCorePath(t *testing.T) {
 		}
 	})
 
-	t.Run("rejected properties", func(t *testing.T) {
+	t.Run("rejected requests", func(t *testing.T) {
+		query, blank := "any", "  "
 		tests := []struct {
 			name     string
 			property string
+			query    *string
 			errParts []string
 		}{
 			{
 				name:     "text array is rejected",
 				property: "tags",
-				errParts: []string{"is of type text[]", "reranks text, blob properties"},
+				query:    &query,
+				errParts: []string{"is of type text[]", "a rerank reads a text or blob property"},
 			},
 			{
 				name:     "int is rejected",
 				property: "count",
+				query:    &query,
 				errParts: []string{"is of type int"},
 			},
 			{
 				name:     "unknown property is rejected",
 				property: "nope",
+				query:    &query,
 				errParts: []string{`does not exist in collection "RerankDummy"`},
+			},
+			{
+				name:     "a rerank without a query is rejected",
+				property: "text",
+				errParts: []string{"rerank: query is required"},
+			},
+			{
+				name:     "a query of whitespace is rejected",
+				property: "text",
+				query:    &blank,
+				errParts: []string{"rerank: query is required"},
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				_, err := grpcClient.Search(ctx, searchRequest([]float32{1, 0}, tt.property))
+				req := searchRequest([]float32{1, 0}, tt.property)
+				req.Rerank.Query = tt.query
+				_, err := grpcClient.Search(ctx, req)
 				require.Error(t, err)
 				// The search handler returns a request validation error
 				// without a status, which gRPC reports as Unknown.
@@ -189,14 +207,6 @@ func TestRerankCorePath(t *testing.T) {
 		}
 	})
 
-	t.Run("reranker-dummy accepts a rerank without a query", func(t *testing.T) {
-		req := searchRequest([]float32{1, 0}, "text")
-		req.Rerank.Query = nil
-		reply, err := grpcClient.Search(ctx, req)
-		require.NoError(t, err)
-		assert.Equal(t, []string{idDDDDDD, idAAAA, idBB, idCC}, resultIDs(reply.Results))
-	})
-
 	t.Run("a limit above the maximum is rejected by the search", func(t *testing.T) {
 		req := searchRequest([]float32{1, 0}, "text")
 		req.Limit = 10001
@@ -205,13 +215,34 @@ func TestRerankCorePath(t *testing.T) {
 		assert.ErrorContains(t, err, "query maximum results exceeded")
 	})
 
-	t.Run("the property check runs before the search", func(t *testing.T) {
-		req := searchRequest([]float32{1, 0}, "tags")
-		req.Limit = 10001
-		_, err := grpcClient.Search(ctx, req)
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "is of type text[]")
-		assert.NotContains(t, err.Error(), "query maximum results exceeded")
+	t.Run("the rerank check runs before the search", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			request func(*pb.SearchRequest)
+			wantErr string
+		}{
+			{
+				name:    "a text array property",
+				request: func(req *pb.SearchRequest) { req.Rerank.Property = "tags" },
+				wantErr: "is of type text[]",
+			},
+			{
+				name:    "no query",
+				request: func(req *pb.SearchRequest) { req.Rerank.Query = nil },
+				wantErr: "rerank: query is required",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req := searchRequest([]float32{1, 0}, "text")
+				req.Limit = 10001
+				tt.request(req)
+				_, err := grpcClient.Search(ctx, req)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.wantErr)
+				assert.NotContains(t, err.Error(), "query maximum results exceeded")
+			})
+		}
 	})
 }
 
