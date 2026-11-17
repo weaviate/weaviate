@@ -249,9 +249,11 @@ func TestRaftNamespaceEndpoints_HomeNode(t *testing.T) {
 		wantLen    int
 	}{
 		{name: "min 2 max 2 auto-picks two of three", minFactor: 2, maxFactor: 2, wantLen: 2},
+		{name: "min 1 max 2 auto-picks two of three", minFactor: 1, maxFactor: 2, wantLen: 2},
 		{name: "min 2 refuses an explicit one-entry list", minFactor: 2, homeNodes: []string{"n1"}, wantErr: []string{"home_nodes has 1 entries"}},
 		{name: "min 3 refuses an auto-pick from two candidates", minFactor: 3, maxFactor: 3, candidates: []string{"n1", "n2"}, wantErr: []string{"only 2 storage node(s)"}},
 		{name: "negative maximum refuses an empty create", maxFactor: -1, wantErr: []string{"REPLICATION_MAXIMUM_FACTOR"}},
+		{name: "unset maximum refuses an empty create", maxFactor: 0, wantErr: []string{"REPLICATION_MAXIMUM_FACTOR"}},
 	}
 	for _, tc := range factorRows {
 		t.Run(tc.name, func(t *testing.T) {
