@@ -80,6 +80,98 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
 
+## v2.2: crecer desde el 10 %, sobre H1 (pre-registro, 2026-11-17)
+
+**Estado: pre-registrado.** Escrito y commiteado a las 06:34 del 17, antes de compilar nada de esta ronda. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### Qué se mide
+
+En v2.0 y v2.1 el corpus se dobla: el lote construye la mitad y los inserts ponen la otra. Queda sin medir si la deriva crece con el tramo insertado. v2.2 construye en lote el 10 % e inserta el 90 % restante: el corpus se multiplica por diez, y casi todos los postings del final salen de un split.
+
+### Protocolo
+
+- **dbpedia-openai 1M en el orden barajado de v2.0.** Lote sobre el primer 10 % (99 000 vectores) y los otros 891 000 insertados con el mecanismo de H1: aristas inversas, k=16, ef de centroides 8 y split por 2-means sin reparación.
+- **Celdas:** ef de inserción 160 y 80.
+- **Checkpoints al 20, 40, 60, 80 y 100 %,** además del 10 % de partida. En cada uno:
+  - la cobertura;
+  - la guardia del constructor, sobre una muestra de 2 000 inserts del tramo que acaba ahí;
+  - el tamaño de posting: media, p50, p95 y máximo;
+  - las métricas de aristas: recall de arista al insertar, recall de arista contra el corpus actual (de los insertados y de los vectores del lote) y grado;
+  - la malla de búsqueda de 10 a 1024, sin cronometrar.
+- **La comparación contra el lote se hace al 100 %,** con la referencia de v2.0 (`v2.0/dbpedia-1m-stream-principal-reference.json`). No se reconstruye para medir recall.
+  - Los checkpoints intermedios no tienen referencia en lote. Su recall y sus cargas se guardan como informativos.
+- **Sin cronometrar.** Son conteos, así que las dos celdas corren en paralelo, cada una en su proceso. Los µs por insert se guardan como indicativos, con esa contención.
+
+*Diferencias con las celdas de v2.1 (mío):*
+
+- **El grafo de centroides se limpia de lápidas en cada checkpoint,** cinco veces. En v2.1 se limpiaba una, al 100 %. Al crecer diez veces se retiran unos 3 700 postings; sin limpiar, casi la mitad de los nodos del grafo serían lápidas al final.
+- **Los tramos son más largos:** el primero es el 10 % del corpus y los demás el 20 %, frente al 10 % de v2.0 y v2.1. La muestra de la guardia sigue siendo de 2 000 inserts por tramo.
+- **Al 10 % el ground truth enviado no alcanza.** Lleva los 100 vecinos de cada query sobre el corpus entero, y con un 10 % vivo cerca de la mitad de las queries tienen menos de 10 vivos entre ellos. Para esas se calcula por fuerza bruta sobre los vivos, y se cuentan (`truthFallbacks`).
+
+### El umbral de split
+
+**Regla del usuario:** empieza en 360. Si el tamaño medio final se sale de ±15 % del lote, se recalibra y se reporta.
+
+*Mío, para aplicarla:*
+
+- **La banda:** el lote del 100 % tiene 4 195 postings, 236.0 vectores de media (el build de conteos de abajo lo confirma). ±15 % es de 200.6 a 271.4.
+- **Si la media final de alguna de las dos celdas cae fuera,** se recalibra con el modo que solo asigna y parte, sin aristas, desde el 10 %:
+  - umbrales T' = 360 × 236.0 / media final, redondeado a la decena, y T' ± 10 %;
+  - se elige el que deje la media final más cerca de 236.0, y las dos celdas se repiten con él;
+  - el veredicto sale de la corrida recalibrada, y la de 360 se reporta entera.
+- **Si la corrida recalibrada vuelve a caer fuera,** se reporta y se para ahí. No hay tercera corrida.
+- *Lo que espero, que no es criterio:* en la calibración de v2.0 la media final fue 0.66 veces el umbral con los cinco umbrales probados. Con 360 serían unos 238, dentro de la banda.
+
+### Criterio
+
+El de v2.1, por celda:
+
+| pre-registro | umbral |
+|---|---|
+| una celda cumple | al 100 %: recall a igual ef a 0.005 o menos del lote en cada ef de la malla de búsqueda; cargas a 0.95 un 15 % o menos por encima del lote; y cargas a 0.99 un 10 % o menos por encima del lote |
+| guardia del constructor | recall de arista al insertar por debajo de 0.90 en un tramo: esa celda se corta en ese checkpoint y se reporta. La otra sigue |
+| cobertura | stop, por celda |
+
+*Mío, para lo que la regla no dice:*
+
+- **No hay ef elegido en esta ronda.** El ef de inserción es un parámetro (decisión del usuario del 17); aquí se dice si cada uno de los dos aguanta crecer diez veces.
+- **Una celda cortada no cumple.**
+- **Suelo de ruido:** el de v2.0 al 100 %, de las dos corridas de H1 con ef 320. Es hasta 0.0009 de recall, un 0.5 % en cargas a 0.95 y un 3.0 % en cargas a 0.99. Una condición que se cumpla o falle por menos que ese suelo se marca como no distinguible del ruido.
+
+### Lo que se reporta además
+
+- **La tasa de asignaciones no-nearest,** por tramo y acumulada. Al final casi todos los centroides salen de un split, y no de la partición del lote.
+- **La tendencia por tramo** de las escrituras de aristas inversas (media, p95 y postings distintos) y del grado.
+  - *Mío:* el grado se da de dos formas. Al insertar, de la muestra del tramo. Y exacto por cohorte en cada checkpoint: el grado medio de los vectores del lote y de los inserts de cada tramo, contado sobre todos ellos y no sobre una muestra.
+- **Las cargas de posting por insert,** por tramo: el conteo directo de su búsqueda, como en v2.1.
+- **La diferencia frente a la H1 de 50 → 100 %,** al mismo ef de inserción: las celdas de ef 160 y de ef 80 de v2.1. Al 100 %: recall a igual ef, cargas y endpoints a 0.95 y a 0.99, recall de arista contra el corpus actual, grado, escrituras inversas y no-nearest.
+  - *Mío:* digo que la deriva crece con el tramo insertado si la celda de v2.2 queda peor que la de v2.1 por más que el suelo de ruido, en recall o en cargas.
+- **El trabajo total del build incremental, en conteos, frente al del lote.**
+
+### El trabajo de un build, en conteos (mío)
+
+Tres unidades, para el lote del 100 % y para cada celda (su lote del 10 % más sus 891 000 inserts):
+
+| unidad | en el lote | en el camino incremental |
+|---|---|---|
+| cargas de posting | los postings que el constructor de aristas sondea: P=256 por vector | las del lote del 10 %, más las de la búsqueda de cada insert |
+| distancias por código | los candidatos que el constructor de aristas ordena por código | las del lote del 10 %, más los vectores escaneados y los endpoints puntuados de cada búsqueda |
+| distancias exactas, a 1536d | el 2-means de la partición, la asignación exacta (n·k), el rescore de las aristas (R=64 por vector) y la construcción del grafo de centroides | las del lote del 10 %; por insert, la búsqueda en el grafo de centroides, el rescore y la comprobación de las aristas inversas; por split, el 2-means, las distancias de cada miembro a las dos medias y las dos altas en el grafo; y la limpieza de lápidas de cada checkpoint |
+
+- **Las cargas del lote son visitas, no lecturas.** El constructor en lote recorre los vectores por posting, y los vecinos de posting comparten casi todos sus sondeos. En disco no leería 256 postings por vector. Sus cargas son una cota superior de lo que leería; la comparación que se sostiene es la de distancias.
+- **Fuera de la cuenta:** la comprobación del centroide exacto de cada insert, que solo sirve al informe (da la tasa de no-nearest); la fuerza bruta de la guardia y de las métricas de aristas; las búsquedas de los checkpoints; y el entrenamiento y la codificación.
+- **Cómo se cuenta:**
+  - `BuildStats` gana los conteos que le faltan: las distancias de la partición y de la asignación, los postings sondeados y los candidatos rescoreados. Los candidatos ordenados por código ya estaban.
+  - Las distancias del grafo de centroides se cuentan con un proveedor de distancia que cuenta, puesto en el grafo solo desde el benchmark.
+  - Las estadísticas del streaming ganan las distancias de la asignación y del split.
+- **El lote del 100 % se construye una vez más, solo para contar.** Es el mismo build que la referencia de v2.0 (mismo orden, misma semilla), sin ninguna búsqueda. Corre en un tercer proceso, a la vez que las dos celdas. La referencia de recall sigue siendo el fichero de v2.0.
+
+### Lo que el binario añade (mío)
+
+- **El punto de partida del lote, como flag.** Hasta ahora era la mitad del corpus, fija en el código.
+- **El grado exacto por cohorte** en cada checkpoint.
+- **Los conteos del trabajo del build** de la sección anterior, y un modo que construye el lote y solo escribe sus conteos y sus tamaños de posting.
+
 ## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado a las 21:06, antes de compilar nada de esta ronda. Las cuatro celdas corrieron de 21:13 a 22:38, y sus resultados están al final de la sección, desde «Resultados de v2.1 (2026-11-16)». Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
