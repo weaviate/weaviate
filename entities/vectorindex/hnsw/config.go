@@ -150,6 +150,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 	uc := UserConfig{}
 	uc.SetDefaults()
 
+	// a multi-vector vectorizer implies a multi-vector index, even without a
+	// "multivector" block for parseMultivectorMap to see
+	if isMultiVector {
+		uc.Multivector.Enabled = true
+	}
+
 	if input == nil {
 		return uc, nil
 	}

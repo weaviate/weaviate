@@ -13,10 +13,8 @@ package backup
 
 import (
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -331,7 +329,7 @@ func (s *ShardDescriptor) ClearTemporary() {
 	s.PropLengthTracker = nil
 }
 
-func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndID, rootPath string) error {
+func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndID, src FileSource) error {
 	if len(shardBaseDescrs) == 0 {
 		s.Files = files
 		return nil
@@ -341,11 +339,7 @@ FilesLoop:
 	for _, file := range files {
 		for _, shardBaseDescr := range shardBaseDescrs {
 			if info, ok := shardBaseDescr.ShardDesc.BigFilesChunk[file]; ok {
-				absPath, err := diskio.SanitizeFilePathJoin(rootPath, file)
-				if err != nil {
-					return fmt.Errorf("sanitize file path %v: %w", file, err)
-				}
-				infoNew, err := os.Stat(absPath)
+				infoNew, err := src.Stat(file)
 				if err != nil {
 					return fmt.Errorf("stat big file %v: %w", file, err)
 				}
@@ -503,7 +497,8 @@ type ClassDescriptor struct {
 	// aliases
 	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
-	StagingDir              string             `json:"-"` // non-serialized; staging dir for hard-linked snapshot files
+	StagingDir              string             `json:"-"` // holds one flat dir per shard, which the uploader reads, so a class with shards must set it
+	StagingNameMax          int                `json:"-"` // the byte length StagedFilePath cuts this class's staged names to, set from StagedNameMax
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }

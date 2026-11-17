@@ -31,7 +31,7 @@ func TestPreApplyFilter_CollectionCap(t *testing.T) {
 
 	newManager := func(t *testing.T, cap int) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager(nodeID, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager(nodeID, nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetCollectionLimit(func() int { return cap }, nil)
 		return sm
 	}

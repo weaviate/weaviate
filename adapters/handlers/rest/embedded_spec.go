@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.41.0-dev"
+    "version": "1.41.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -3170,7 +3170,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
         "tags": [
           "namespaces"
         ],
@@ -3185,7 +3185,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "description": "Required body. ` + "`" + `home_nodes` + "`" + ` replaces the namespace's list.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3217,7 +3217,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or the namespace being in the ` + "`" + `deleting` + "`" + ` state). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, or a body that sets neither also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3246,7 +3246,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "description": "Optional body. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -3283,7 +3283,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, or a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6370,7 +6370,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6454,7 +6454,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid index, property or collection provided.",
+            "description": "Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6510,7 +6510,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED or PREPARING task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -6531,7 +6531,7 @@ func init() {
             }
           },
           "409": {
-            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel. In the first two cases the task is still in flight and will reach a terminal state on its own. In the third it isn't possible to tell whether the task moved into a coordination phase or already reached a terminal state, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
+            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6635,7 +6635,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9928,18 +9928,25 @@ func init() {
             "blockmax"
           ]
         },
+        "migratedTenants": {
+          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
+        },
         "progress": {
           "type": "number",
           "format": "float"
         },
         "status": {
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
             "indexing",
             "pending",
             "failed",
-            "cancelled"
+            "cancelled",
+            "partial"
           ]
         },
         "targetAlgorithm": {
@@ -9954,11 +9961,16 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `partial` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
           "type": "string"
+        },
+        "totalTenants": {
+          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
         },
         "type": {
           "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
@@ -10195,8 +10207,17 @@ func init() {
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. Holds the first entry of ` + "`" + `home_nodes` + "`" + `.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         },
         "name": {
           "description": "The unique name of the namespace.",
@@ -10215,12 +10236,21 @@ func init() {
       }
     },
     "NamespaceCreateRequest": {
-      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "description": "Optional body for namespace creation. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -10234,13 +10264,20 @@ func init() {
     "NamespaceUpdateRequest": {
       "description": "Update payload for an existing namespace.",
       "type": "object",
-      "required": [
-        "home_node"
-      ],
       "properties": {
         "home_node": {
-          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true,
+          "x-nullable": true
+        },
+        "home_nodes": {
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -13313,7 +13350,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.41.0-dev"
+    "version": "1.41.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -16423,7 +16460,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
         "tags": [
           "namespaces"
         ],
@@ -16438,7 +16475,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "description": "Required body. ` + "`" + `home_nodes` + "`" + ` replaces the namespace's list.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -16470,7 +16507,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or the namespace being in the ` + "`" + `deleting` + "`" + ` state). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, or a body that sets neither also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16499,7 +16536,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "description": "Optional body. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -16536,7 +16573,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, or a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19733,7 +19770,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19817,7 +19854,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid index, property or collection provided.",
+            "description": "Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19873,7 +19910,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED or PREPARING task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -19894,7 +19931,7 @@ func init() {
             }
           },
           "409": {
-            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel. In the first two cases the task is still in flight and will reach a terminal state on its own. In the third it isn't possible to tell whether the task moved into a coordination phase or already reached a terminal state, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
+            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19998,7 +20035,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -23438,18 +23475,25 @@ func init() {
             "blockmax"
           ]
         },
+        "migratedTenants": {
+          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
+        },
         "progress": {
           "type": "number",
           "format": "float"
         },
         "status": {
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
             "indexing",
             "pending",
             "failed",
-            "cancelled"
+            "cancelled",
+            "partial"
           ]
         },
         "targetAlgorithm": {
@@ -23464,11 +23508,16 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `partial` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
           "type": "string"
+        },
+        "totalTenants": {
+          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
         },
         "type": {
           "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
@@ -23705,8 +23754,17 @@ func init() {
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. Holds the first entry of ` + "`" + `home_nodes` + "`" + `.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         },
         "name": {
           "description": "The unique name of the namespace.",
@@ -23725,12 +23783,21 @@ func init() {
       }
     },
     "NamespaceCreateRequest": {
-      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "description": "Optional body for namespace creation. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -23744,13 +23811,20 @@ func init() {
     "NamespaceUpdateRequest": {
       "description": "Update payload for an existing namespace.",
       "type": "object",
-      "required": [
-        "home_node"
-      ],
       "properties": {
         "home_node": {
-          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true,
+          "x-nullable": true
+        },
+        "home_nodes": {
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

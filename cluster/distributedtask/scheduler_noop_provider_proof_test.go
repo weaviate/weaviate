@@ -38,9 +38,7 @@ func TestNoopProviderFrameworkGaps(t *testing.T) {
 		ft := &fakeForceTerminator{}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -120,9 +118,7 @@ func TestNoopProviderFrameworkGaps(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		// Create a FAILED task before scheduler starts (simulates restart).

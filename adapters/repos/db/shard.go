@@ -120,7 +120,7 @@ type ShardLike interface {
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -434,6 +434,8 @@ type Shard struct {
 	migrationRecords *MigrationRecordStore
 
 	migrationMirrors migrationMirrorRegistry
+	// Held by the retry goroutine, not its caller, so a lift arriving during a stuck retry is refused.
+	liftRetry sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -776,6 +778,10 @@ func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	}
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
+	s.retirePropertyOverlayLocked(propName, indexType)
+}
+
+func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
 	entry, ok := s.propertyOverlay[propName]
 	if !ok {
 		return

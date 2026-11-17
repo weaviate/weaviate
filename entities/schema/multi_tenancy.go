@@ -52,3 +52,7 @@ func ActivityStatus(status string) string {
 	}
 	return status
 }
+
+func TenantIsFrozenOrFreezing(status string) bool {
+	return status == models.TenantActivityStatusFROZEN || status == models.TenantActivityStatusFREEZING
+}

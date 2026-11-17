@@ -635,7 +635,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return nil
 			default:
 				// avoid footprint of empty shards
-				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+				if i.skipLoadingEmptyShard(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
@@ -786,6 +786,11 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 	return err == nil && count == 0
 }
 
+// skipLoadingEmptyShard keeps a never-written tenant shard unloaded, except when only async replication in maintenance can refill it.
+func (i *Index) skipLoadingEmptyShard(shardName string) bool {
+	return i.partitioningEnabled && !i.asyncReplicationRunsInMaintenance() && i.unloadedShardIsEmpty(shardName)
+}
+
 // warmupCandidate reports whether the startup sweep should load this shard, and
 // where it should not, the outcome naming why. An object count it cannot read
 // answers true, so no shard is left cold on a number nobody could take.
@@ -811,8 +816,7 @@ func (i *Index) warmupDecisionLocked(shardName string, shard ShardLike) (bool, m
 		return false, monitoring.WarmupSkippedAlreadyLoaded
 	}
 
-	// avoid footprint of empty shards
-	if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+	if i.skipLoadingEmptyShard(shardName) {
 		return false, monitoring.WarmupSkippedEmpty
 	}
 
@@ -895,8 +899,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 		return monitoring.WarmupSkippedAlreadyLoaded, nil
 	}
 
-	// avoid footprint of empty shards
-	if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+	if i.skipLoadingEmptyShard(shardName) {
 		return monitoring.WarmupSkippedEmpty, nil
 	}
 
@@ -1127,6 +1130,17 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 
 func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
+}
+
+// asyncReplicationBlockedByMaintenance reports whether maintenance mode pauses async replication on this node.
+func (i *Index) asyncReplicationBlockedByMaintenance() bool {
+	return i.maintenanceModeEnabled() && !i.asyncReplicationRunsInMaintenance()
+}
+
+// asyncReplicationRunsInMaintenance reports whether this node is in maintenance mode with async replication still running.
+func (i *Index) asyncReplicationRunsInMaintenance() bool {
+	return i.maintenanceModeEnabled() &&
+		i.globalreplicationConfig != nil && i.globalreplicationConfig.AsyncReplicationInMaintenanceEnabled.Get()
 }
 
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown

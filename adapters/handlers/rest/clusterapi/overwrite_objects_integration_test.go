@@ -118,6 +118,7 @@ func TestOverwriteObjectsClientServerIntegration(t *testing.T) {
 		cap,
 		clusterapi.NewNoopAuthHandler(),
 		func() bool { return false },
+		func() bool { return false },
 		logger,
 		func() bool { return true },
 	)

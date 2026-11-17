@@ -82,24 +82,35 @@ func RolePoliciesVisibleToPrincipal(ctx context.Context, authorizer authorizatio
 }
 
 // AuthorizeRolePermissions returns an error unless the caller holds every
-// permission the roles grant. A confined caller is checked against each
-// permission as projected into targetNamespace, where the roles apply.
+// permission the roles grant a subject in targetNamespace, projected into it.
+// A permission bound to another namespace grants that subject nothing.
 func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
-	var namespace string
-	if CallerConfined(namespacesEnabled, principal) {
-		namespace = targetNamespace
+	if !namespacesEnabled {
+		targetNamespace = ""
 	}
 	var errs error
 	for _, policies := range roles {
-		errs = errors.Join(errs, AuthorizePolicies(ctx, authorizer, principal, namespace, policies))
+		for _, policy := range policies {
+			// A role with no permissions carries this placeholder, which grants nothing.
+			if policy.Resource == conv.InternalPlaceHolder {
+				continue
+			}
+			resource, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
+			if errors.Is(err, namespacing.ErrForeignNamespace) {
+				continue
+			}
+			if err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
+		}
 	}
 	return errs
 }
 
 // AuthorizePolicies returns an error unless the caller holds every permission
 // the policies grant, projecting each resource into a non-empty namespace first.
-// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*".
-// A wildcard passes both, and so can a pattern that excludes names, such as "[^a]*".
 func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, namespace string, policies []authorization.Policy) error {
 	var errs error
 	for _, policy := range policies {
@@ -114,18 +125,24 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 			errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
 			continue
 		}
-		wildcard := regexSegmentsToWildcard(resource)
-		// A caller pattern such as ".." matches the text ".*" without holding
-		// every name, so the stored text must pass as well.
-		if wildcard != resource {
-			if err := authorizePolicy(ctx, authorizer, principal, policy.Verb, resource); err != nil {
-				errs = errors.Join(errs, err)
-				continue
-			}
-		}
-		errs = errors.Join(errs, authorizePolicy(ctx, authorizer, principal, policy.Verb, wildcard))
+		errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
 	}
 	return errs
+}
+
+// authorizeResource returns an error unless the caller holds verb on resource.
+// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*".
+// A wildcard passes both, and so can a pattern that excludes names, such as "[^a]*".
+func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
+	wildcard := regexSegmentsToWildcard(resource)
+	// A caller pattern such as ".." matches the text ".*" without holding
+	// every name, so the stored text must pass as well.
+	if wildcard != resource {
+		if err := authorizePolicy(ctx, authorizer, principal, verb, resource); err != nil {
+			return err
+		}
+	}
+	return authorizePolicy(ctx, authorizer, principal, verb, wildcard)
 }
 
 // regexSyntax lists the regex characters a stored pattern can carry besides

@@ -751,9 +751,9 @@ func (_c *MockShardLike_CreateAsyncCheckpoint_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, stagingRoot, gate
-func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error) {
-	ret := _m.Called(ctx, sd, stagingRoot, gate)
+// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, shardStaging, gate
+func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error) {
+	ret := _m.Called(ctx, sd, shardStaging, gate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateBackupSnapshot")
@@ -761,19 +761,19 @@ func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.Sh
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string, reindexGate) ([]string, error)); ok {
-		return rf(ctx, sd, stagingRoot, gate)
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) ([]string, error)); ok {
+		return rf(ctx, sd, shardStaging, gate)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string, reindexGate) []string); ok {
-		r0 = rf(ctx, sd, stagingRoot, gate)
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) []string); ok {
+		r0 = rf(ctx, sd, shardStaging, gate)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, string, reindexGate) error); ok {
-		r1 = rf(ctx, sd, stagingRoot, gate)
+	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) error); ok {
+		r1 = rf(ctx, sd, shardStaging, gate)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -789,15 +789,15 @@ type MockShardLike_CreateBackupSnapshot_Call struct {
 // CreateBackupSnapshot is a helper method to define mock.On call
 //   - ctx context.Context
 //   - sd *backup.ShardDescriptor
-//   - stagingRoot string
+//   - shardStaging backup.ShardStaging
 //   - gate reindexGate
-func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, stagingRoot interface{}, gate interface{}) *MockShardLike_CreateBackupSnapshot_Call {
-	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, stagingRoot, gate)}
+func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, shardStaging interface{}, gate interface{}) *MockShardLike_CreateBackupSnapshot_Call {
+	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, shardStaging, gate)}
 }
 
-func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate)) *MockShardLike_CreateBackupSnapshot_Call {
+func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate)) *MockShardLike_CreateBackupSnapshot_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(string), args[3].(reindexGate))
+		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(backup.ShardStaging), args[3].(reindexGate))
 	})
 	return _c
 }
@@ -807,7 +807,7 @@ func (_c *MockShardLike_CreateBackupSnapshot_Call) Return(_a0 []string, _a1 erro
 	return _c
 }
 
-func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, string, reindexGate) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
+func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }

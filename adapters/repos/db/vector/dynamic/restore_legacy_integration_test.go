@@ -119,7 +119,9 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 	// Snapshot index.db the way Shard.CreateBackupSnapshot does
 	// (shardmeta.DB.Snapshot), then close the live index.
 	backupDir := t.TempDir()
-	relPath, err := srcMeta.Snapshot(rootPath, backupDir)
+	relPath, err := srcMeta.Snapshot(rootPath, func(relPath string) string {
+		return filepath.Join(backupDir, relPath)
+	})
 	require.NoError(t, err)
 	require.Equal(t, "index.db", relPath)
 	backupDBPath := filepath.Join(backupDir, relPath)
