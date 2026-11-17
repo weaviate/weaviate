@@ -46,7 +46,7 @@ func AssertRerankRequestChecks(t *testing.T, collection, textProperty, textArray
 		{
 			name:    "a rerank about a property the collection does not have",
 			rerank:  &pb.Rerank{Property: "notAProperty", Query: &query},
-			wantErr: `property "notAProperty" does not exist in collection`,
+			wantErr: "rerank: no such prop with name 'notAProperty' found in class",
 		},
 	}
 	for _, tt := range tests {

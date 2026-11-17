@@ -52,10 +52,12 @@ func (n Params) GetPropertiesToExtract() []string {
 	return []string{}
 }
 
-// Validate rejects a rerank that no reranker can rank: a blank query, a
-// property the class does not have, and a property that is neither text nor
-// blob. The gRPC search calls it before the search, so the request fails
-// whether or not the search returns objects.
+// Validate rejects a blank query, a property the class does not have, and a
+// property that is neither text nor blob. The gRPC search calls it before the
+// search, so such a request fails whether or not the search returns objects.
+//
+// The property is matched by its exact name: a rerank reads a first-level
+// property, and schema.GetPropertyByName also accepts the path of a nested one.
 func (n Params) Validate(class *models.Class) error {
 	if strings.TrimSpace(n.GetQuery()) == "" {
 		return errors.New("rerank: query is required")
@@ -71,5 +73,5 @@ func (n Params) Validate(class *models.Class) error {
 		return fmt.Errorf("rerank: property %q of collection %q is of type %s; a rerank reads a text or blob property",
 			property, class.Class, strings.Join(prop.DataType, ", "))
 	}
-	return fmt.Errorf("rerank: property %q does not exist in collection %q", property, class.Class)
+	return fmt.Errorf("rerank: "+schema.ErrorNoSuchProperty, property, class.Class)
 }

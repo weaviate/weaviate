@@ -32,6 +32,10 @@ func TestParamsValidate(t *testing.T) {
 			{Name: "day", DataType: schema.DataTypeDate.PropString()},
 			{Name: "ref", DataType: schema.DataTypeUUID.PropString()},
 			{Name: "photoHash", DataType: schema.DataTypeBlobHash.PropString()},
+			{
+				Name: "meta", DataType: schema.DataTypeObject.PropString(),
+				NestedProperties: []*models.NestedProperty{{Name: "isbn", DataType: schema.DataTypeText.PropString()}},
+			},
 			{Name: "owner", DataType: []string{"Users"}},
 			{Name: "owners", DataType: []string{"Users", "Teams"}},
 		},
@@ -53,11 +57,11 @@ func TestParamsValidate(t *testing.T) {
 		{name: "a query of whitespace", property: "text", query: &blank, wantErr: "rerank: query is required"},
 		{
 			name: "a property the class does not have", property: "nope", query: &query,
-			wantErr: `rerank: property "nope" does not exist in collection "Tickets"`,
+			wantErr: `rerank: no such prop with name 'nope' found in class 'Tickets' in the schema. Check your schema files for which properties in this class are available`,
 		},
 		{
 			name: "no property", property: "", query: &query,
-			wantErr: `rerank: property "" does not exist in collection "Tickets"`,
+			wantErr: `rerank: no such prop with name '' found in class 'Tickets' in the schema. Check your schema files for which properties in this class are available`,
 		},
 		{
 			name: "a text array", property: "tags", query: &query,
@@ -78,6 +82,18 @@ func TestParamsValidate(t *testing.T) {
 		{
 			name: "a blob hash", property: "photoHash", query: &query,
 			wantErr: `rerank: property "photoHash" of collection "Tickets" is of type blobHash; a rerank reads a text or blob property`,
+		},
+		{
+			name: "the path of a nested property", property: "meta.isbn", query: &query,
+			wantErr: `rerank: no such prop with name 'meta.isbn' found in class 'Tickets' in the schema. Check your schema files for which properties in this class are available`,
+		},
+		{
+			name: "a path under a text property", property: "text.isbn", query: &query,
+			wantErr: `rerank: no such prop with name 'text.isbn' found in class 'Tickets' in the schema. Check your schema files for which properties in this class are available`,
+		},
+		{
+			name: "an object", property: "meta", query: &query,
+			wantErr: `rerank: property "meta" of collection "Tickets" is of type object; a rerank reads a text or blob property`,
 		},
 		{
 			name: "a reference", property: "owner", query: &query,

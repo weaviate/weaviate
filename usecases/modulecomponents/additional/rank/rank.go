@@ -42,6 +42,9 @@ type PropertyReRankerClient interface {
 	RankProperty(ctx context.Context, query, property string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
+// textOnly rejects a blob property in the rank call. The check before the
+// search does not know which client serves the class, so this rejection runs
+// after the search and only when the search returned objects.
 type textOnly struct{ ReRankerClient }
 
 func (t textOnly) RankProperty(ctx context.Context, query, property string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error) {

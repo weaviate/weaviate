@@ -177,7 +177,7 @@ func TestRerankCorePath(t *testing.T) {
 				name:     "unknown property is rejected",
 				property: "nope",
 				query:    &query,
-				errParts: []string{`does not exist in collection "RerankDummy"`},
+				errParts: []string{"rerank: no such prop with name 'nope' found in class 'RerankDummy'"},
 			},
 			{
 				name:     "a rerank without a query is rejected",
