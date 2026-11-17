@@ -250,6 +250,12 @@ Por celda:
 
 **Datos:** `v3.1/dbpedia-1m-haloprune-s236.json`, de `v3.1/scripts/run_v31_prune.sh`, y el veredicto en `v3.1/prune-verdict.md`, de `v3.1/scripts/prune_verdict.py`.
 
+*Smoke después del pre-registro (22:26):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos. No predice 1M y no cambia nada de lo escrito arriba.
+
+- **Las tres podas pasan su comprobación,** y cada búsqueda cuadra con sus propios conteos sobre las aristas podadas.
+- **Las 24 celdas pasan el gate con rescoreLimit 64,** así que el segundo barrido, con 200, no llegó a correr.
+- **No dice nada del criterio:** con 128 postings, las dos bases ya leen menos que el listón.
+
 ## v3.0: punto de operación del halo (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado el 17 a las 15:14 (`341148bd05`), antes de compilar nada de esta ronda, con la corrida de v2.4 en marcha. Las celdas corrieron de 15:21 a 15:49, y sus resultados están al final de la sección, desde «Resultados de v3.0 (2026-11-17)». El encargo, las celdas, las medidas, el resultado principal, el gate y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.

@@ -162,6 +162,61 @@ func haloSearch(ctx context.Context, index *Index, query []float32, k int, posti
 	return ids, read, nil
 }
 
+// Pruning the halo, v3.1 (bench-report.md, "v3.1: podar el halo"). The
+// entries of the halo of a posting are the distinct endpoints of the edges of
+// its members, so a posting with fewer edges carries a shorter halo. The
+// edges of a build are pruned with the two filters that were measured before
+// on the layout with the resident sidecar: one edge per target posting
+// (onePerTarget, v1.6) and a cap on the degree (capDegree, v1.5). Neither is
+// a parameter of the index.
+
+// pruneEdges applies to the edges of a build the filter of one edge per
+// target posting, if asked, and then a cap on the degree, if one is given.
+// With both, a vector keeps its nearest edge into each of the first degree
+// postings its edges reach. Without either the arrays come back as given.
+func pruneEdges(edgeStart, edges, postingOf []uint32, onePer bool, degree int) (start, kept []uint32) {
+	start, kept = edgeStart, edges
+	if onePer {
+		start, kept = onePerTarget(start, kept, postingOf)
+	}
+	return capDegree(start, kept, degree)
+}
+
+// checkPruned tells whether the pruned edges are what the two filters leave
+// of the full ones. Every row is built again from the full row, edge by
+// edge, without the code of the filters.
+func checkPruned(fullStart, full, start, kept, postingOf []uint32, onePer bool, degree int) error {
+	if len(start) != len(fullStart) {
+		return errors.Errorf("%d edge offsets, the full edges have %d", len(start), len(fullStart))
+	}
+	if len(start) == 0 {
+		return nil
+	}
+	n := len(start) - 1
+	if start[0] != 0 || int(start[n]) != len(kept) {
+		return errors.Errorf("edge offsets span [%d, %d), the edges [0, %d)", start[0], start[n], len(kept))
+	}
+	var want []uint32
+	for slot := 0; slot < n; slot++ {
+		want = want[:0]
+		for _, endpoint := range full[fullStart[slot]:fullStart[slot+1]] {
+			if degree > 0 && len(want) == degree {
+				break
+			}
+			if onePer && slices.ContainsFunc(want, func(nearer uint32) bool {
+				return postingOf[nearer] == postingOf[endpoint]
+			}) {
+				continue
+			}
+			want = append(want, endpoint)
+		}
+		if got := kept[start[slot]:start[slot+1]]; !slices.Equal(got, want) {
+			return errors.Errorf("slot %d keeps the edges %v, expected %v", slot, got, want)
+		}
+	}
+	return nil
+}
+
 // A state laid over the index with the codec of the index itself searches as
 // the index does: the same results, distances and work. With a shorter code
 // for the endpoints the scan is the same and the ranking of the postings is
@@ -444,4 +499,273 @@ func TestHaloSearch(t *testing.T) {
 	}
 	_, _, err = haloSearch(ctx, index, queries[0], 10, wrong)
 	require.ErrorContains(t, err, "the search counted")
+}
+
+func TestPruneEdges(t *testing.T) {
+	// Ten slots in four postings.
+	postingOf := []uint32{0, 0, 1, 1, 1, 2, 2, 3, 3, 3}
+	rows := [][]uint32{
+		{2, 3, 5, 4, 6, 7},
+		{7, 8, 9},
+		{},
+		{9, 0, 5, 1, 6, 8},
+		{2},
+	}
+
+	tests := []struct {
+		name   string
+		onePer bool
+		degree int
+		want   [][]uint32
+		// given: the arrays come back as they were given, not as a copy.
+		given bool
+	}{
+		{name: "neither filter", want: rows, given: true},
+		{
+			name: "one edge per target posting", onePer: true,
+			want: [][]uint32{{2, 5, 7}, {7}, {}, {9, 0, 5}, {2}},
+		},
+		{
+			name: "a cap of 2", degree: 2,
+			want: [][]uint32{{2, 3}, {7, 8}, {}, {9, 0}, {2}},
+		},
+		{
+			name: "a cap no row reaches", degree: 8,
+			want: rows,
+		},
+		{
+			name: "both: the cap counts target postings", onePer: true, degree: 2,
+			want: [][]uint32{{2, 5}, {7}, {}, {9, 0}, {2}},
+		},
+		{
+			name: "both, with a cap of 1", onePer: true, degree: 1,
+			want: [][]uint32{{2}, {7}, {}, {9}, {2}},
+		},
+		{
+			name: "both, with a cap no filtered row reaches", onePer: true, degree: 3,
+			want: [][]uint32{{2, 5, 7}, {7}, {}, {9, 0, 5}, {2}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			edgeStart, edges := csrOf(rows)
+			startBefore, edgesBefore := slices.Clone(edgeStart), slices.Clone(edges)
+
+			start, kept := pruneEdges(edgeStart, edges, postingOf, tt.onePer, tt.degree)
+			require.Len(t, start, len(rows)+1)
+			require.Equal(t, uint32(len(kept)), start[len(rows)])
+			for slot, want := range tt.want {
+				got := kept[start[slot]:start[slot+1]]
+				require.Truef(t, slices.Equal(want, got), "row %d: %v, expected %v", slot, got, want)
+				if tt.degree > 0 {
+					require.LessOrEqual(t, len(got), tt.degree)
+				}
+				if tt.onePer {
+					targets := map[uint32]bool{}
+					for _, endpoint := range got {
+						require.Falsef(t, targets[postingOf[endpoint]], "row %d has two edges into posting %d", slot, postingOf[endpoint])
+						targets[postingOf[endpoint]] = true
+					}
+				}
+			}
+			require.Equal(t, startBefore, edgeStart, "the given offsets are left as they are")
+			require.Equal(t, edgesBefore, edges, "the given edges are left as they are")
+			if tt.given {
+				require.Same(t, &edges[0], &kept[0])
+			} else if len(kept) > 0 {
+				require.NotSame(t, &edges[0], &kept[0])
+			}
+
+			require.NoError(t, checkPruned(edgeStart, edges, start, kept, postingOf, tt.onePer, tt.degree))
+		})
+	}
+
+	// With both filters a row is a prefix of the row the first one leaves.
+	edgeStart, edges := csrOf(rows)
+	oneStart, one := pruneEdges(edgeStart, edges, postingOf, true, 0)
+	bothStart, both := pruneEdges(edgeStart, edges, postingOf, true, 2)
+	for slot := range rows {
+		filtered, capped := one[oneStart[slot]:oneStart[slot+1]], both[bothStart[slot]:bothStart[slot+1]]
+		require.Equal(t, filtered[:min(2, len(filtered))], capped, "row %d", slot)
+	}
+}
+
+func TestCheckPruned(t *testing.T) {
+	postingOf := []uint32{0, 0, 1, 1, 1, 2, 2, 3, 3, 3}
+	fullStart, full := csrOf([][]uint32{{2, 3, 5, 4, 6, 7}, {7, 8, 9}, {}})
+
+	tests := []struct {
+		name    string
+		rows    [][]uint32
+		onePer  bool
+		degree  int
+		wantErr string
+	}{
+		{name: "the full edges, unpruned", rows: [][]uint32{{2, 3, 5, 4, 6, 7}, {7, 8, 9}, {}}},
+		{name: "one per target", rows: [][]uint32{{2, 5, 7}, {7}, {}}, onePer: true},
+		{name: "a cap", rows: [][]uint32{{2, 3, 5}, {7, 8, 9}, {}}, degree: 3},
+		{name: "both", rows: [][]uint32{{2, 5}, {7}, {}}, onePer: true, degree: 2},
+		{
+			name: "a target posting is lost", rows: [][]uint32{{2, 5}, {7}, {}}, onePer: true,
+			wantErr: "slot 0 keeps the edges [2 5], expected [2 5 7]",
+		},
+		{
+			name: "an edge into a posting twice", rows: [][]uint32{{2, 3, 5, 7}, {7}, {}}, onePer: true,
+			wantErr: "slot 0 keeps the edges [2 3 5 7]",
+		},
+		{
+			name: "not the nearest edge into the posting", rows: [][]uint32{{3, 5, 7}, {7}, {}}, onePer: true,
+			wantErr: "slot 0 keeps the edges [3 5 7], expected [2 5 7]",
+		},
+		{
+			name: "a row above the cap", rows: [][]uint32{{2, 3, 5}, {7, 8, 9}, {}}, degree: 2,
+			wantErr: "slot 0 keeps the edges [2 3 5], expected [2 3]",
+		},
+		{
+			name: "a row cut short of the cap", rows: [][]uint32{{2, 3}, {7, 8}, {}}, degree: 3,
+			wantErr: "slot 0 keeps the edges [2 3], expected [2 3 5]",
+		},
+		{
+			name: "the cap taken before the filter", rows: [][]uint32{{2}, {7}, {}}, onePer: true, degree: 2,
+			wantErr: "slot 0 keeps the edges [2], expected [2 5]",
+		},
+		{name: "a row too few", rows: [][]uint32{{2, 3, 5, 4, 6, 7}, {7, 8, 9}}, wantErr: "3 edge offsets, the full edges have 4"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, kept := csrOf(tt.rows)
+			err := checkPruned(fullStart, full, start, kept, postingOf, tt.onePer, tt.degree)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+
+	t.Run("offsets that do not span the edges", func(t *testing.T) {
+		start, kept := csrOf([][]uint32{{2, 3, 5, 4, 6, 7}, {7, 8, 9}, {}})
+		require.ErrorContains(t, checkPruned(fullStart, full, start, kept[:len(kept)-1], postingOf, false, 0), "edge offsets span")
+	})
+	t.Run("no vectors", func(t *testing.T) {
+		require.NoError(t, checkPruned(nil, nil, nil, nil, postingOf, true, 8))
+	})
+}
+
+// Over a state with a sketch, pruned edges leave every posting the halo of
+// the edges that remain, and every search still adds up with its own counts,
+// whatever the source margin cuts.
+func TestHaloPruned(t *testing.T) {
+	const n = 3000
+	ctx := context.Background()
+	all := clusteredVectors(n, 64, 6, 733)
+	queries := clusteredVectors(30, 64, 6, 734)
+	uc := smallConfig()
+	uc.Distance, uc.EF = "l2-squared", 10
+	index, err := New(testConfig(t, all, 0, distancer.NewL2SquaredProvider()), uc)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
+	require.NoError(t, index.AddBatch(ctx, sequentialIDs(n, 0), all))
+	require.NoError(t, index.Build(ctx))
+	built := index.state.Load()
+	routing, err := built.quantizer.withBits(64)
+	require.NoError(t, err)
+	halo, err := haloState(ctx, testLogger(), built, routing, func(id uint64) []float32 { return all[id] })
+	require.NoError(t, err)
+	fullStart, full := built.postings.edgeStart, built.postings.edges
+	postingOf := built.side.postingOf
+	fullPostings, err := haloPostings(built)
+	require.NoError(t, err)
+	fullTargets := edgeRedundancyOf(fullStart, full, postingOf)
+	require.Positive(t, fullTargets.Shared, "the fixture must have vectors with several edges into one posting")
+
+	tests := []struct {
+		name   string
+		onePer bool
+		degree int
+	}{
+		{name: "every edge"},
+		{name: "one edge per target posting", onePer: true},
+		{name: "a cap of 4", degree: 4},
+		{name: "both", onePer: true, degree: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, kept := pruneEdges(fullStart, full, postingOf, tt.onePer, tt.degree)
+			require.NoError(t, checkPruned(fullStart, full, start, kept, postingOf, tt.onePer, tt.degree))
+			pruned := tt.onePer || tt.degree > 0
+			if pruned {
+				require.Less(t, len(kept), len(full), "the filter must take edges out of the fixture")
+			}
+			got := edgeRedundancyOf(start, kept, postingOf)
+			if tt.onePer {
+				require.Zero(t, got.Shared)
+			}
+			if tt.onePer && tt.degree == 0 {
+				require.Equal(t, fullTargets.Targets, got.Targets, "no vector loses a target posting")
+			}
+
+			index.state.Store(halo)
+			t.Cleanup(func() { index.state.Store(built) })
+			if pruned {
+				require.NoError(t, index.replaceEdges(start, kept))
+			}
+			st := index.state.Load()
+			require.Same(t, halo.side, st.side, "the sketches stay")
+			require.Equal(t, halo.scanQuantizer, st.scanQuantizer)
+
+			postings, err := haloPostings(st)
+			require.NoError(t, err)
+			edges, shorter := 0, false
+			for p, counted := range postings {
+				seen := map[uint32]bool{}
+				ownEdges := 0
+				for slot := st.postings.start[p]; slot < st.postings.start[p+1]; slot++ {
+					row := kept[start[slot]:start[slot+1]]
+					ownEdges += len(row)
+					for _, endpoint := range row {
+						seen[endpoint] = true
+					}
+				}
+				require.Equal(t, haloPosting{Members: fullPostings[p].Members, Edges: ownEdges, Distinct: len(seen)}, counted, "posting %d", p)
+				require.LessOrEqual(t, counted.Distinct, fullPostings[p].Distinct, "posting %d", p)
+				shorter = shorter || counted.Distinct < fullPostings[p].Distinct
+				edges += counted.Edges
+			}
+			require.Equal(t, len(kept), edges)
+			require.Equal(t, pruned, shorter, "a halo is shorter only with fewer edges")
+
+			// No margin, one that cuts nearly every source once the search
+			// has ef candidates, and one that cuts none.
+			for _, margin := range []float32{0, 1e-6, 1e6} {
+				marginUC := uc
+				marginUC.SourceMargin = margin
+				require.NoError(t, index.UpdateUserConfig(marginUC, func() {}))
+				cut, followed := 0, 0
+				for _, q := range queries {
+					// haloSearch fails unless what it read adds up.
+					ids, read, err := haloSearch(ctx, index, q, 10, postings)
+					require.NoError(t, err)
+					require.Len(t, ids, 10)
+					require.Equal(t, read.Edges, read.Stats.EdgesFollowed+read.Stats.EdgesCut)
+					require.LessOrEqual(t, read.Stats.EndpointsScored, read.Entries)
+					cut += read.Stats.EdgesCut
+					followed += read.Stats.EdgesFollowed
+				}
+				require.Positive(t, followed)
+				if margin == 1e-6 {
+					require.Positive(t, cut, "the margin must cut sources")
+				} else {
+					require.Zero(t, cut)
+				}
+			}
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+
+			// The full layout is not that of pruned edges.
+			if pruned {
+				_, _, err = haloSearch(ctx, index, queries[0], 10, fullPostings)
+				require.ErrorContains(t, err, "the search counted")
+			}
+		})
+	}
 }
