@@ -534,23 +534,14 @@ func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardL
 }
 
 // The flip needs a canonical bucket to point at; a waiting promotion opened none.
-func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context,
+func (t *ShardReindexTaskGeneric) refuseClosedCanonicalBuckets(ctx context.Context,
 	shard ShardLike, props []string,
 ) error {
 	concrete, err := unwrapShard(ctx, shard)
 	if err != nil {
-		return fmt.Errorf("open the canonical buckets this completion advertises: %w", err)
+		return fmt.Errorf("check the canonical buckets this completion advertises: %w", err)
 	}
-	closed := make([]string, 0, len(props))
 	for _, propName := range props {
-		if concrete.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
-			closed = append(closed, propName)
-		}
-	}
-	if len(closed) == 0 {
-		return nil
-	}
-	for _, propName := range closed {
 		name := t.strategy.SourceBucketName(propName)
 		if concrete.store.Bucket(name) == nil {
 			return fmt.Errorf("refusing to report migration complete for property %q: its canonical bucket %q "+
@@ -563,7 +554,7 @@ func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context
 func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+	if err := t.refuseClosedCanonicalBuckets(ctx, shard, props); err != nil {
 		return err
 	}
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
@@ -883,7 +874,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if err = t.requireCanonicalHoldsMigratedData(shard, rec); err != nil {
 			return zerotime, err
 		}
-		if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+		if err = t.refuseClosedCanonicalBuckets(ctx, shard, props); err != nil {
 			return zerotime, err
 		}
 		// Same ordering contract as runtimeSwap (see there for reasoning):

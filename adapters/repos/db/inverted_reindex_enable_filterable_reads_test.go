@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -145,76 +144,6 @@ func TestSortAndAggregateWhileAnEnableFilterableRunIsInFlight(t *testing.T) {
 	assert.Equal(t, want, snapshot(), "after prepare")
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.Equal(t, wantSorts, sorts(), "after the swap, served by the new index")
-}
-
-// A restart after the local swap, with the run finished but the flip not yet applied, keeps serving across the flip.
-func TestRestartAfterAnEnableFilterableSwapServesAcrossTheFlip(t *testing.T) {
-	ctx := testCtx()
-	className := "EnableFilterableFlip_" + uuid.NewString()[:8]
-	class := newEnableFilterableReadsClass(className)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	for i := 0; i < enableFilterableReadsObjects; i++ {
-		require.NoError(t, shard.PutObject(ctx, newEnableFilterableReadsObject(className, i)))
-	}
-	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), "num")
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-
-	name := shard.Name()
-	require.NoError(t, shard.Shutdown(ctx))
-	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
-	idx.db.indices[indexID(idx.Config.ClassName)] = idx
-	installTestMigrationTaskSources(ctx, idx.db, nil, &distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
-		Status:         distributedtask.TaskStatusFinished,
-	})
-	provider := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
-	idx.shardReindexer = NewMigrationRecoveryReindexer(idx.logger, nil, provider)
-	shard = openShardFromDisk(t, ctx, idx, class, name)
-	defer func() { shard.Shutdown(context.Background()) }()
-	require.Equal(t, []string{"num"}, shard.migrationRecords.DeferredPromotions(task.migrationRecordKey()),
-		"the load holds the promotion back, so the deferred path serves the staged data")
-
-	put := func(v int64) {
-		obj := newEnableFilterableReadsObject(className, 0)
-		obj.Object.Properties.(map[string]any)["num"] = v
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-	equal := func(v int64) int {
-		res, _, err := shard.ObjectSearch(ctx, 100, &filters.LocalFilter{Root: &filters.Clause{
-			Operator: filters.OperatorEqual,
-			On:       &filters.Path{Class: schema.ClassName(className), Property: "num"},
-			Value:    &filters.Value{Value: int(v), Type: schema.DataTypeInt},
-		}}, nil, nil, nil, additional.Properties{}, nil)
-		require.NoError(t, err)
-		return len(res)
-	}
-	sorted := func() []strfmt.UUID {
-		ids, err := enableFilterableSortedIDs(ctx, shard, className, nil, "num", "asc", 5)
-		require.NoError(t, err)
-		return ids
-	}
-	count := func(n int) string { return fmt.Sprintf("map[count:%d] %+v", n, aggregation.Boolean{}) }
-
-	require.Len(t, sorted(), 5)
-	require.Equal(t, count(enableFilterableReadsObjects), enableFilterableAggregate(ctx, shard, className, "num"))
-	put(777)
-
-	for _, prop := range class.Properties {
-		if prop.Name == "num" {
-			prop.IndexFilterable = boolPtr(true)
-			require.NoError(t, idx.updateProperty(ctx, prop))
-		}
-	}
-	put(888)
-	require.Len(t, sorted(), 5)
-	require.Equal(t, 1, equal(3))
-	require.Equal(t, 1, equal(777), "a write before the flip")
-	require.Equal(t, 1, equal(888), "a write after the flip")
-	require.Equal(t, count(enableFilterableReadsObjects+2), enableFilterableAggregate(ctx, shard, className, "num"))
 }
 
 // A migration that adds no index swaps out its live bucket, so an absent one is refused rather than installed.

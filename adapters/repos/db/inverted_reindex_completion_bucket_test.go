@@ -111,10 +111,10 @@ func TestTheCompletionGateRefusesAClosedBucket(t *testing.T) {
 			canonical := tt.canonical(tt.propName)
 			props := []string{tt.propName}
 
-			require.NoError(t, task.ensureCanonicalBucketsOpen(ctx, shard, props))
+			require.NoError(t, task.refuseClosedCanonicalBuckets(ctx, shard, props))
 
 			require.NoError(t, shard.store.ShutdownBucket(ctx, canonical))
-			err := task.ensureCanonicalBucketsOpen(ctx, shard, props)
+			err := task.refuseClosedCanonicalBuckets(ctx, shard, props)
 			require.ErrorContains(t, err, "refusing to report migration complete")
 			require.ErrorContains(t, err, canonical)
 			require.Nil(t, shard.store.Bucket(canonical))
