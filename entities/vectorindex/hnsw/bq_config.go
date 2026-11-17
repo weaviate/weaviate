@@ -16,7 +16,7 @@ import "github.com/weaviate/weaviate/entities/vectorindex/common"
 const (
 	DefaultBQEnabled = false
 	// DefaultBQRescoreLimit is what RescoreLimitAuto resolves to.
-	DefaultBQRescoreLimit = 256
+	DefaultBQRescoreLimit = 512
 	// DefaultBQRescoreFactor is what RescoreFactorAuto resolves to. One bit
 	// per dimension ranks candidates coarsely, so BQ keeps more headroom.
 	DefaultBQRescoreFactor = 4.0
