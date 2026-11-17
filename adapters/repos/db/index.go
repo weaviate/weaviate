@@ -3748,21 +3748,39 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 		return 0, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if err := i.ensureShardLocallyReady(shard); err != nil {
-		return 0, err
-	}
-	var size int64
-	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-		size += queue.Size()
-		return nil
-	})
-	return size, nil
+	_, size, err := i.readyShardStatusNoWait(shard)
+	return size, err
 }
 
 var errShardBusy = stderrors.New("shard is busy")
 
+// shardStatusNoWait reads a pinned shard's status and vector queue size without waiting behind a vector-index drop.
+func shardStatusNoWait(shard ShardLike) (status storagestate.Status, queueSize int64, err error) {
+	s, ok := shard.(*Shard)
+	if !ok {
+		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueSize += queue.Size()
+			return nil
+		})
+		return shard.GetStatus(), queueSize, nil
+	}
+	if status, queueSize, ok = s.tryGetStatus(); !ok {
+		return "", 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard: %w", s.Name(), errShardBusy))
+	}
+	return status, queueSize, nil
+}
+
+// readyShardStatusNoWait is shardStatusNoWait with the check of ensureShardLocallyReady.
+func (i *Index) readyShardStatusNoWait(shard ShardLike) (storagestate.Status, int64, error) {
+	status, queueSize, err := shardStatusNoWait(shard)
+	if err == nil && status == storagestate.StatusLoading && i.replicationEnabled() {
+		return "", 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
+	}
+	return status, queueSize, err
+}
+
 // shardForStatusRead pins the local shard for a status or queue-size read without loading it or waiting on its
-// locks. cold reports a lazy shard that is not loaded yet, also while it loads, and a loaded shard held by an unload, freeze or vector-index drop is errShardBusy.
+// locks. cold reports a lazy shard that is not loaded yet, also while it loads, and a loaded shard held by an unload or freeze is errShardBusy.
 func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool, release func(), err error) {
 	if err := i.enterRead(); err != nil {
 		return nil, false, func() {}, fmt.Errorf("local shard %q: %w", shardName, err)
@@ -3788,9 +3806,6 @@ func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool
 	}
 	if shard == nil {
 		return nil, false, func() {}, nil
-	}
-	if s, ok := shard.(*Shard); ok && !s.statusReadable() {
-		return nil, false, func() {}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard: %w", shardName, errShardBusy))
 	}
 	release, err = shard.preventShutdown()
 	if err != nil {
@@ -3893,7 +3908,8 @@ func (i *Index) localShardStatus(shardName string) (string, error) {
 	if shard == nil {
 		return "", nil
 	}
-	return shard.GetStatus().String(), nil
+	status, _, err := shardStatusNoWait(shard)
+	return status.String(), err
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
@@ -3910,10 +3926,8 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 		return "", fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if err := i.ensureShardLocallyReady(shard); err != nil {
-		return "", err
-	}
-	return shard.GetStatus().String(), nil
+	status, _, err := i.readyShardStatusNoWait(shard)
+	return status.String(), err
 }
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {

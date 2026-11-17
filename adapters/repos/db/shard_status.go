@@ -104,18 +104,41 @@ func (s *Shard) getStatusUnlocked() storagestate.Status {
 	return status
 }
 
-// statusReadable reports whether GetStatus and the vector queues can be read now: a vector-index drop holds
-// vectorIndexMu for the whole drop, and a GetStatus waiting on it holds statusLock.
-func (s *Shard) statusReadable() bool {
+// tryGetStatus is GetStatus plus the vector queue size, read without waiting: a vector-index drop holds
+// vectorIndexMu for the whole drop, and a GetStatus waiting on it holds statusLock. ok is false while either is held.
+func (s *Shard) tryGetStatus() (status storagestate.Status, queueSize int64, ok bool) {
 	if !s.statusLock.TryLock() {
-		return false
+		return "", 0, false
 	}
 	defer s.statusLock.Unlock()
 	if !s.vectorIndexMu.TryRLock() {
-		return false
+		return "", 0, false
 	}
+	for _, queue := range s.queues {
+		if queue != nil {
+			queueSize += queue.Size()
+		}
+	}
+	if s.queue != nil {
+		queueSize += s.queue.Size()
+	}
+	hasVectorIndex := len(s.vectorIndexes) > 0 || s.vectorIndex != nil
 	s.vectorIndexMu.RUnlock()
-	return true
+	status = s.status.Status
+	if status != storagestate.StatusReady && status != storagestate.StatusIndexing || !hasVectorIndex {
+		return status, queueSize, true
+	}
+	status = storagestate.StatusReady
+	if queueSize > 0 {
+		status = storagestate.StatusIndexing
+	}
+	_ = s.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
+		if queue.Size() > 0 {
+			status = storagestate.StatusIndexing
+		}
+		return nil
+	})
+	return status, queueSize, true
 }
 
 func (s *Shard) GetStatusReason() string {
