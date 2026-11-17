@@ -131,26 +131,7 @@ func (h *hnsw) checkAndCompress() error {
 				defer h.Unlock()
 				h.compressed.Store(true)
 				if h.cache != nil {
-
-					data := h.cache.All()
-					if singleVector {
-						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-							func(index uint64) {
-								if len(data[index]) == 0 {
-									return
-								}
-								h.compressor.Preload(index, data[index])
-							})
-					} else {
-						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-							func(index uint64) {
-								if len(data[index]) == 0 {
-									return
-								}
-								docID, relativeID := h.cache.GetKeys(index)
-								h.compressor.PreloadPassage(index, docID, relativeID, data[index])
-							})
-					}
+					h.preloadCompressorFromCache(singleVector)
 					// the field stays set: readers that checked h.compressed
 					// before the flip hold no lock against us and must find a
 					// dropped cache, not nil

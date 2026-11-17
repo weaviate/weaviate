@@ -616,6 +616,10 @@ func (s *shardedLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
 	panic("not implemented")
 }
 
+func (s *shardedLockCache[T]) GetKeysNoLock(id uint64) (uint64, uint64) {
+	panic("not implemented")
+}
+
 func (s *shardedLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
 	panic("not implemented")
 }
