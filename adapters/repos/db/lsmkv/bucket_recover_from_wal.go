@@ -17,7 +17,6 @@ import (
 	errors2 "errors"
 	"hash/crc32"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -257,15 +256,15 @@ func (b *Bucket) writeOutReplay(run *recoveredRun, mt *Memtable, walPath string)
 	// the tail commits with the chunks, so a crash between the two cannot leave
 	// one mounted without the other
 	if err := run.stage(mt); err != nil {
-		run.discardStaged(b.logger)
+		discardReplayStaging(run.stagedPaths[run.committed:], run.walName, run.chunkingAllowed, b.logger)
 		b.logAbandonedReplay(walPath, run.committed, "write the tail", err)
 		return errors.Wrapf(err, "write the tail of write-ahead-log %q", walPath)
 	}
 
 	if err := run.commit(); err != nil {
-		// the chunks already renamed keep their final names, and discardStaged
-		// removes the staged spelling, which is no longer theirs
-		run.discardStaged(b.logger)
+		// Keep the staging links of committed chunks: they prove ownership on
+		// retry. Uncommitted staging files can be discarded immediately.
+		discardReplayStaging(run.stagedPaths[run.committed:], run.walName, run.chunkingAllowed, b.logger)
 		b.logAbandonedReplay(walPath, run.committed, "commit the replay", err)
 		return errors.Wrapf(err, "commit the replay of write-ahead-log %q", walPath)
 	}
@@ -283,18 +282,18 @@ func (b *Bucket) logAbandonedReplay(walPath string, committed int, stage string,
 			stage, walPath, committed, err)
 }
 
-// recoveredRun collects the segments one WAL replay has written. Each is staged under
-// DeleteMarkerSuffix, which newSegmentGroup's mount loop deletes rather than opens, so
-// a replay interrupted before commit leaves nothing mounted. commit's rename loop is
-// itself interruptible, and removeSegmentsOfSurvivingWALs is what covers that window.
+// recoveredRun collects the segments one WAL replay has written. A durable
+// ownership link records the source WAL while commit consumes a temporary alias.
+// Startup can identify exactly which published files a surviving WAL owns.
 type recoveredRun struct {
-	sg  *SegmentGroup
-	dir string
+	sg      *SegmentGroup
+	dir     string
+	walName string
 	// baseSegmentID is the id chunk 0 takes, and chunk n takes baseSegmentID+n.
 	baseSegmentID int64
 	stagedPaths   []string
-	// chunkingAllowed reports whether this WAL's name can derive chunk ids the
-	// cleanup walk would follow. A run that may chunk still writes one segment
+	// chunkingAllowed reports whether this WAL's name can derive numeric chunk
+	// IDs. A run that may chunk still writes one segment
 	// when neither threshold fires.
 	chunkingAllowed bool
 	// avgPropLength and propLengthCount carry the inverted corpus across the run's
@@ -302,8 +301,8 @@ type recoveredRun struct {
 	// chunk would encode its block bounds against the corpus standing before it.
 	avgPropLength   float64
 	propLengthCount uint64
-	// committed counts the chunks already renamed into place; a commit that fails
-	// part-way leaves them on disk, and only the surviving WAL marks them provisional
+	// committed counts the chunks already renamed into place. Ownership links
+	// survive a failed commit until startup removes the provisional final names.
 	committed int
 }
 
@@ -325,9 +324,17 @@ func (r *recoveredRun) stage(mt *Memtable) error {
 		segment = chunkSegmentPath(r.dir, r.baseSegmentID, len(r.stagedPaths))
 	}
 
-	path, err := mt.writeSegmentTo(segment, DeleteMarkerSuffix)
+	suffix := replayOwnershipSuffix(r.walName, r.chunkingAllowed)
+	owner, err := mt.writeSegmentTo(segment, suffix)
 	if err != nil {
 		return err
+	}
+
+	// The ownership name is already durable. Commit consumes this temporary
+	// alias, without ever moving or replacing the proof used by startup.
+	path := strings.TrimSuffix(owner, suffix) + DeleteMarkerSuffix
+	if err := os.Link(owner, path); err != nil {
+		return errors2.Join(err, os.Remove(owner))
 	}
 
 	// the write blended this chunk's rows into the pair, so the next chunk is
@@ -341,49 +348,84 @@ func (r *recoveredRun) stage(mt *Memtable) error {
 	return nil
 }
 
-// discardStaged removes the chunks of a run that will not be committed. A failed
-// remove is not an error: the mount loop deletes the leftovers on the next start.
-func (r *recoveredRun) discardStaged(logger logrus.FieldLogger) {
-	for _, staged := range r.stagedPaths {
-		if err := os.Remove(staged); err != nil && !os.IsNotExist(err) {
-			logger.WithField("action", "lsm_recover_from_active_wal_discard_chunk").
-				WithField("path", staged).
-				Warnf("could not remove the staged chunk of an abandoned replay: %v", err)
+const replayOwnershipMarker = ".replay-"
+
+func replayOwnershipSuffix(walName string, chunkingAllowed bool) string {
+	if !chunkingAllowed {
+		// A whole-WAL replay retains its original stem. Do not repeat it in
+		// the suffix: compatibility names can already approach NAME_MAX.
+		return ".owner"
+	}
+	return replayOwnershipMarker + walName + ".owner"
+}
+
+// replayOwnershipFiles decodes ownership without normalizing the WAL's spelling.
+// Whole-WAL staging retains its dot-free source stem; writeSegmentTo appends any
+// level/strategy information after it. Chunked runs need the explicit source WAL.
+func replayOwnershipFiles(name string) (final, walName string, ok bool) {
+	if strings.HasSuffix(name, ".db.owner") {
+		final = strings.TrimSuffix(name, ".owner")
+		stem, _, _ := strings.Cut(final, ".")
+		return final, stem + ".wal", true
+	}
+
+	final, owner, ok := strings.Cut(name, ".db"+replayOwnershipMarker)
+	if !ok || !strings.HasSuffix(owner, ".wal.owner") {
+		return "", "", false
+	}
+	return name[:len(final)+len(".db")], strings.TrimSuffix(owner, ".owner"), true
+}
+
+// discardReplayStaging removes unpublished staging and ownership links. Published
+// ownership remains until the source WAL's absence is durable.
+func discardReplayStaging(paths []string, walName string, chunkingAllowed bool, logger logrus.FieldLogger) {
+	suffix := replayOwnershipSuffix(walName, chunkingAllowed)
+	for _, staged := range paths {
+		for _, path := range []string{staged, strings.TrimSuffix(staged, DeleteMarkerSuffix) + suffix} {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				logger.WithField("action", "lsm_recover_from_active_wal_discard_chunk").
+					WithField("path", path).
+					Warnf("could not remove the staged chunk of an abandoned replay: %v", err)
+			}
 		}
 	}
 }
 
-// commit renames every staged segment into place. The caller may dispose of the
-// WAL only once this returns, because until then the run is indistinguishable
-// from one that never ran.
+// commit consumes staging paths in order, retaining a separate durable hard link
+// that proves ownership of every published segment until its WAL is removed.
+// Like staging, commit requires one writer to the bucket directory.
 func (r *recoveredRun) commit() error {
+	if len(r.stagedPaths) == 0 {
+		return nil
+	}
+
+	// Match IDs, not just the spelling this replay writes: compaction can leave
+	// a different level or strategy at the same ID.
+	entries, err := os.ReadDir(r.dir)
+	if err != nil {
+		return err
+	}
+	occupied := make(map[string]struct{})
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".db") {
+			occupied[segmentID(entry.Name())] = struct{}{}
+		}
+	}
 	for _, staged := range r.stagedPaths {
 		final := strings.TrimSuffix(staged, DeleteMarkerSuffix)
-
-		// a chunk id is the WAL's id plus its position and nothing reserves those
-		// ids, so a clock that stepped back can leave a live segment where this run
-		// is about to write. os.Rename would replace it silently.
-		if _, err := os.Stat(final); err == nil {
+		if _, found := occupied[segmentID(final)]; found {
 			return errors.Errorf("commit recovered segment %q: a segment already exists at that id", final)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return errors.Wrapf(err, "look for an existing segment at %q", final)
 		}
 
 		if err := os.Rename(staged, final); err != nil {
 			return errors.Wrapf(err, "commit recovered segment %q", final)
 		}
-		// counted on the rename, not the fsync below: the file already carries its
-		// final name, so a failed fsync leaves it behind like any committed chunk
+		// Count publication even if the following fsync fails.
 		r.committed++
-
-		// each rename is durable before the next is issued, so an interrupted commit
-		// leaves a prefix of the run rather than an arbitrary subset of it. The next
-		// start's cleanup walk relies on that to stop at the first missing id.
 		if err := diskio.Fsync(r.dir); err != nil {
 			return errors.Wrapf(err, "fsync segment directory %q", r.dir)
 		}
 	}
-
 	return nil
 }
 
@@ -454,7 +496,7 @@ func (b *Bucket) recoverFromWAL(sg *SegmentGroup, fname string, walSize int64,
 		// returning the error aborts startup, so the next start is the next
 		// crashloop iteration. Remove the chunks now rather than leaving them on a
 		// disk that has just filled up.
-		run.discardStaged(b.logger)
+		discardReplayStaging(run.stagedPaths[run.committed:], run.walName, run.chunkingAllowed, b.logger)
 
 		// the index is the one stage would derive next, so it names the chunk the
 		// write was on whichever of writeChunk's two failure points fired
@@ -507,6 +549,23 @@ func (b *Bucket) recoverFromWAL(sg *SegmentGroup, fname string, walSize int64,
 			return errors.Wrap(err, "delete commit log file")
 		}
 
+		if len(run.stagedPaths) > 0 {
+			// Make the WAL's absence durable before dropping ownership, then
+			// retire that ownership durably before a later WAL can reuse its ID.
+			if err := diskio.Fsync(b.dir); err != nil {
+				return errors.Wrap(err, "fsync WAL removal")
+			}
+			suffix := replayOwnershipSuffix(run.walName, run.chunkingAllowed)
+			for _, staged := range run.stagedPaths {
+				if err := os.Remove(strings.TrimSuffix(staged, DeleteMarkerSuffix) + suffix); err != nil && !os.IsNotExist(err) {
+					return errors.Wrap(err, "retire replay ownership link")
+				}
+			}
+			if err := diskio.Fsync(b.dir); err != nil {
+				return errors.Wrap(err, "fsync replay ownership removal")
+			}
+		}
+
 		if err := run.mount(); err != nil {
 			// the log is already unlinked, so an operator looking for it finds
 			// nothing and the segments are easy to mistake for lost
@@ -556,12 +615,12 @@ func (b *Bucket) newWALParser(sg *SegmentGroup, cl *commitLogger, mt *Memtable,
 	})
 	parser := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt)
 
-	// chunking a name removeSegmentsOfSurvivingWALs declines would put chunks at
-	// ids nothing ever cleans up, so both ask isSegmentWALName
+	// Keep noncanonical WAL names on the whole-WAL path; only canonical
+	// segment timestamps derive numeric chunk IDs.
 	baseID, canonical := canonicalSegmentTimestamp(fname)
 
 	run := &recoveredRun{
-		sg: sg, dir: b.dir, baseSegmentID: baseID,
+		sg: sg, dir: b.dir, walName: fname, baseSegmentID: baseID,
 		chunkingAllowed: canonical && isSegmentWALName(fname),
 	}
 	run.avgPropLength, run.propLengthCount = sg.GetAveragePropertyLength()

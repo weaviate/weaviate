@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -1103,9 +1104,7 @@ func TestRecoverFromWAL_SecondaryKeysDoNotDelayTheCut(t *testing.T) {
 	}
 }
 
-// A failure renaming a chunk into place abandons the chunks the commit had not
-// reached yet, and leaves the ones it had. The operator learns how many from the
-// log or not at all.
+// A failed commit reports its published prefix and retains the WAL for retry.
 func TestRecoverFromWAL_CommitFailureDiscardsTheRun(t *testing.T) {
 	tc := chunkedWALCaseFor(t, StrategySetCollection)
 
@@ -1355,9 +1354,7 @@ func TestRecoverFromWAL_RewrittenKeysDoNotCutAChunk(t *testing.T) {
 	}
 }
 
-// A replay interrupted between two renames must leave a committed prefix, never
-// a suffix: the cleanup walk breaks at the first missing id, so chunks above a
-// gap would be mounted beside a WAL that is about to be replayed again.
+// An interrupted commit preserves a durable prefix and consumes its staging paths.
 func TestRecoveredRunCommit(t *testing.T) {
 	const walTimestamp = 1771258130098421000
 
@@ -1541,6 +1538,42 @@ func TestRecoverFromWAL_NameThatCannotNameItsChunksIsReplayedWhole(t *testing.T)
 		tc.read(t, control, 0, chunkTestEntries, chunkTestPayload),
 		tc.read(t, b, 0, chunkTestEntries, chunkTestPayload),
 		"the uncut replay holds what the cut one holds")
+
+	// Compatibility names can be long, but writing them out must not require
+	// a filename longer than the staging path an ordinary replay uses.
+	t.Run("long-name", func(t *testing.T) {
+		source := newChunkTestDir(t, tc, 2, 64)
+		wal, err := os.ReadFile(filepath.Join(source, filesWithExt(t, source, ".wal")[0]))
+		require.NoError(t, err)
+		control := openChunkTestBucket(t, source, tc.strategy, 0)
+		want := tc.read(t, control, 0, 2, 64)
+		closeChunkTestBucket(t, ctx, control)
+		name := "segment-" + strings.Repeat("0", 120) + "1771258130098421000.wal"
+		for _, infoNames := range []bool{false, true} {
+			for _, newest := range []bool{false, true} {
+				t.Run(fmt.Sprintf("segment-info-%t/newest-%t", infoNames, newest), func(t *testing.T) {
+					dir := t.TempDir()
+					data := wal
+					if newest {
+						// A damaged tail prevents adoption of the newest WAL.
+						data = append(append([]byte(nil), wal...), 0xff)
+					} else {
+						require.NoError(t, os.WriteFile(filepath.Join(dir, "zz-later.wal"), wal, 0o600))
+					}
+					require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
+					for range 2 {
+						b := openChunkTestBucket(t, dir, tc.strategy, 0,
+							WithWriteSegmentInfoIntoFileName(infoNames))
+						require.Equal(t, want, tc.read(t, b, 0, 2, 64))
+						require.Len(t, filesWithExt(t, dir, ".db"), 1)
+						require.NoFileExists(t, filepath.Join(dir, name))
+						require.Empty(t, filesWithExt(t, dir, ".owner"))
+						closeChunkTestBucket(t, ctx, b)
+					}
+				})
+			}
+		}
+	})
 }
 
 // A WAL whose name carries no segment id cannot name chunks, so its replay
@@ -1935,4 +1968,157 @@ func TestRecoverFromWAL_IncumbentAfterCommittedRun(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(strings.Repeat("v", 64)), got)
 	}
+}
+
+func TestRemoveReplaySegments(t *testing.T) {
+	const baseID = 1771258130098421000
+	const chunks = 3
+	walName := fmt.Sprintf("segment-%d.wal", baseID)
+	for published := 0; published < 1<<chunks; published++ {
+		for _, walSurvives := range []bool{true, false} {
+			if !walSurvives && published != (1<<chunks)-1 {
+				continue // the WAL can only be removed after every link is durable
+			}
+			for removed := 0; removed < 1<<chunks; removed++ {
+				t.Run(fmt.Sprintf("published-%d/wal-%t/cleaned-%d", published, walSurvives, removed), func(t *testing.T) {
+					dir := t.TempDir()
+					walBytes := []byte("source WAL")
+					if walSurvives {
+						require.NoError(t, os.WriteFile(filepath.Join(dir, walName), walBytes, 0o666))
+					}
+					// The ledger is built as files are created, independently of the
+					// startup classifier. Only this run's published files are provisional.
+					committed := map[string][]byte{}
+					var provisional []string
+					for chunk := range chunks {
+						final := filepath.Base(chunkSegmentPath(dir, baseID, chunk)) + ".db"
+						staged := final + replayOwnershipSuffix(walName, true)
+						data := []byte(fmt.Sprintf("chunk-%d", chunk))
+						if removed&(1<<chunk) == 0 {
+							require.NoError(t, os.WriteFile(filepath.Join(dir, staged), data, 0o666))
+						}
+						if published&(1<<chunk) != 0 && (removed&(1<<chunk) == 0 || !walSurvives) {
+							if removed&(1<<chunk) == 0 {
+								require.NoError(t, os.Link(filepath.Join(dir, staged), filepath.Join(dir, final)))
+							} else {
+								require.NoError(t, os.WriteFile(filepath.Join(dir, final), data, 0o666))
+							}
+							if walSurvives {
+								provisional = append(provisional, final)
+							} else {
+								committed[final] = data
+							}
+						}
+					}
+					incumbentChunk := chunks
+					if published == 0 {
+						// Staging does not reserve an occupied ID:
+						// these files have equal names/bytes, but different owners.
+						incumbentChunk = 1
+					}
+					incumbent := filepath.Base(chunkSegmentPath(dir, baseID, incumbentChunk)) + ".db"
+					committed[incumbent] = []byte("independent committed segment")
+					require.NoError(t, os.WriteFile(filepath.Join(dir, incumbent), committed[incumbent], 0o666))
+					// Another replay already unlinked its WAL but left its staging link.
+					// Adjacency and a staging link alone do not make that file ours.
+					otherWAL := fmt.Sprintf("segment-%d.wal", baseID+incumbentChunk)
+					require.NoError(t, os.Link(filepath.Join(dir, incumbent),
+						filepath.Join(dir, incumbent+replayOwnershipSuffix(otherWAL, true))))
+
+					for range 2 {
+						files, _, err := diskio.GetFileWithSizes(dir)
+						require.NoError(t, err)
+						require.NoError(t, removeSegmentsOfSurvivingWALs(dir, files, nullLogger()))
+						for name, want := range committed {
+							got, err := os.ReadFile(filepath.Join(dir, name))
+							require.NoError(t, err)
+							require.Equal(t, want, got, "committed segment bytes must survive cleanup")
+						}
+						for _, name := range provisional {
+							require.NoFileExists(t, filepath.Join(dir, name))
+						}
+						if walSurvives {
+							got, err := os.ReadFile(filepath.Join(dir, walName))
+							require.NoError(t, err)
+							require.Equal(t, walBytes, got)
+						}
+						require.Empty(t, filesWithExt(t, dir, ".owner"))
+					}
+				})
+			}
+		}
+	}
+	for _, infoNames := range []bool{false, true} {
+		for _, walSurvives := range []bool{false, true} {
+			t.Run(fmt.Sprintf("whole-WAL/segment-info-%t/wal-%t", infoNames, walSurvives), func(t *testing.T) {
+				dir := t.TempDir()
+				wal := "segment-" + strings.Repeat("0", 120) + "1771258130098421000.wal"
+				walBytes := []byte("source WAL")
+				if walSurvives {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, wal), walBytes, 0o600))
+				}
+				final := strings.TrimSuffix(wal, ".wal")
+				if infoNames {
+					final += ".l0.s0"
+				}
+				final = filepath.Join(dir, final+".db")
+				data := []byte("whole-WAL segment")
+				require.NoError(t, os.WriteFile(final, data, 0o600))
+				require.NoError(t, os.Link(final, final+".owner"))
+				for range 2 {
+					files, _, err := diskio.GetFileWithSizes(dir)
+					require.NoError(t, err)
+					require.NoError(t, removeSegmentsOfSurvivingWALs(dir, files, nullLogger()))
+					if walSurvives {
+						require.NoFileExists(t, final)
+						got, err := os.ReadFile(filepath.Join(dir, wal))
+						require.NoError(t, err)
+						require.Equal(t, walBytes, got)
+					} else {
+						got, err := os.ReadFile(final)
+						require.NoError(t, err)
+						require.Equal(t, data, got)
+					}
+					require.NoFileExists(t, final+".owner")
+				}
+			})
+		}
+	}
+}
+
+// A replay must retire its ownership before a later memtable can reuse the WAL
+// name. A failed unlink cannot be logged and ignored after the WAL is gone.
+func TestRecoverFromWAL_StagingRetirementFailure(t *testing.T) {
+	ctx := context.Background()
+	tc := chunkedWALCaseFor(t, StrategyReplace)
+	source := newChunkTestDir(t, tc, 1, 64)
+	wal := filesWithExt(t, source, ".wal")[0]
+	data, err := os.ReadFile(filepath.Join(source, wal))
+	require.NoError(t, err)
+	dir := t.TempDir()
+	b := openChunkTestBucket(t, dir, StrategyReplace, 0)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, wal), data, 0o666))
+	id, err := parseSegmentTimestamp(wal)
+	require.NoError(t, err)
+	var staged string
+	err = b.recoverFromWAL(b.disk, wal, int64(len(data)), false, 0,
+		func(_ string, ids []string) error {
+			require.Len(t, ids, 1)
+			staged = segmentPathForID(dir, id) + ".db" + replayOwnershipSuffix(wal, true)
+			// Substitute a nonempty directory at the unlink boundary to produce a
+			// deterministic filesystem failure, without a new production hook.
+			require.NoError(t, os.Remove(staged))
+			require.NoError(t, os.Mkdir(staged, 0o755))
+			return os.WriteFile(filepath.Join(staged, "cannot-unlink"), nil, 0o600)
+		})
+	require.ErrorContains(t, err, "retire replay ownership link")
+	require.NoFileExists(t, filepath.Join(dir, wal))
+	require.Empty(t, b.disk.segments, "failed retirement must not publish the run")
+	require.NoError(t, os.RemoveAll(staged))
+	closeChunkTestBucket(t, ctx, b)
+	b = openChunkTestBucket(t, dir, StrategyReplace, 0)
+	defer closeChunkTestBucket(t, ctx, b)
+	control := openChunkTestBucket(t, source, StrategyReplace, 0)
+	defer closeChunkTestBucket(t, ctx, control)
+	require.Equal(t, tc.read(t, control, 0, 1, 64), tc.read(t, b, 0, 1, 64))
 }

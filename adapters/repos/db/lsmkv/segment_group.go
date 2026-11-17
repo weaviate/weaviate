@@ -628,14 +628,18 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	return sg, nil
 }
 
-// removeSegmentsOfSurvivingWALs removes every segment a write-ahead-log has
-// already been written out to. Unlinking the WAL is a replay's single commit
-// point, so while segment-<T>.wal is there, segment-<T> and the chunks after it
-// are provisional. recoveredRun.commit renames them in ascending order, so the
-// walk stops at the first id with no segment.
+// removeSegmentsOfSurvivingWALs removes replay output only while its source WAL
+// survives. New replays keep WAL-specific ownership links as ownership evidence.
+// Unmarked runs retain the legacy adjacency walk for upgrade compatibility;
+// their files do not carry the ownership evidence written by new replays.
 func removeSegmentsOfSurvivingWALs(dir string, files map[string]int64,
 	logger logrus.FieldLogger,
 ) error {
+	markedWALs, err := removeReplaySegments(dir, files, logger)
+	if err != nil {
+		return err
+	}
+
 	walNames := make([]string, 0, len(files))
 	for entry, size := range files {
 		// mayRecoverFromCommitLogs unlinks a zero-length WAL and replays nothing, so
@@ -647,11 +651,11 @@ func removeSegmentsOfSurvivingWALs(dir string, files map[string]int64,
 	slices.Sort(walNames)
 
 	for _, walName := range walNames {
+		if _, marked := markedWALs[walName]; marked {
+			continue
+		}
 		ids := chunkedSegmentIDs(walName, files)
 
-		// highest first, so an interruption always leaves a prefix of the run with
-		// chunk 0 in it. A suffix would read on the next start as a run that wrote
-		// no chunk 0, and the segments above it would be mounted and replayed over.
 		for i := len(ids) - 1; i >= 0; i-- {
 			if err := removeSegmentsWithID(dir, files, ids[i], walName, logger); err != nil {
 				return err
@@ -664,6 +668,66 @@ func removeSegmentsOfSurvivingWALs(dir string, files map[string]int64,
 	}
 
 	return nil
+}
+
+// removeReplaySegments runs before the generic delete-marker sweep. A matching
+// inode proves that the final name was published by this WAL's replay. Keep that
+// proof until deleting the final name has been synced, so cleanup itself can be
+// interrupted at any file, without depending on a contiguous prefix.
+func removeReplaySegments(dir string, files map[string]int64,
+	logger logrus.FieldLogger,
+) (map[string]struct{}, error) {
+	var markedWALs map[string]struct{}
+	for name := range files {
+		final, walName, ok := replayOwnershipFiles(name)
+		if !ok {
+			continue
+		}
+		if markedWALs == nil {
+			markedWALs = map[string]struct{}{}
+		}
+		markedWALs[walName] = struct{}{}
+
+		if _, walSurvives := files[walName]; walSurvives {
+			ownershipInfo, err := os.Stat(filepath.Join(dir, name))
+			if err != nil {
+				return nil, fmt.Errorf("stat replay ownership file %q: %w", name, err)
+			}
+			finalInfo, err := os.Stat(filepath.Join(dir, final))
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("stat replay segment %q: %w", final, err)
+			}
+			if err == nil && os.SameFile(ownershipInfo, finalInfo) {
+				if err := removeProvisionalSegment(dir, files, final, walName, logger); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if len(markedWALs) == 0 {
+		return nil, nil
+	}
+
+	// Publish every observed WAL/final absence before dropping any proof.
+	// Keeping all ownership links until this shared barrier also makes a
+	// partial cleanup retryable without a directory sync for every chunk.
+	if err := diskio.Fsync(dir); err != nil {
+		return nil, fmt.Errorf("fsync replay cleanup directory: %w", err)
+	}
+	for name := range files {
+		if _, _, ok := replayOwnershipFiles(name); !ok {
+			continue
+		}
+
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			return nil, fmt.Errorf("remove replay ownership file %q: %w", name, err)
+		}
+		delete(files, name)
+	}
+	if err := diskio.Fsync(dir); err != nil {
+		return nil, fmt.Errorf("fsync replay ownership removal: %w", err)
+	}
+	return markedWALs, nil
 }
 
 // chunkedSegmentIDs lists the segment ids a replay of walName may have written:
@@ -706,6 +770,12 @@ func removeSegmentsWithID(dir string, files map[string]int64, id, walName string
 		return nil
 	}
 
+	return removeProvisionalSegment(dir, files, segName, walName, logger)
+}
+
+func removeProvisionalSegment(dir string, files map[string]int64, segName, walName string,
+	logger logrus.FieldLogger,
+) error {
 	// the file map is a snapshot, so a file already gone is the outcome wanted
 	if err := os.Remove(filepath.Join(dir, segName)); err != nil &&
 		!errors.Is(err, fs.ErrNotExist) {
@@ -720,7 +790,7 @@ func removeSegmentsWithID(dir string, files map[string]int64, id, walName string
 		Info("discarded a provisional LSM segment, because an active WAL it was " +
 			"written from was found. A recovery from the WAL will follow.")
 
-	return removeSegmentDerivedFiles(dir, files, id)
+	return removeSegmentDerivedFiles(dir, files, segmentID(segName))
 }
 
 // removeSegmentDerivedFiles drops the sidecars a discarded segment left behind,
