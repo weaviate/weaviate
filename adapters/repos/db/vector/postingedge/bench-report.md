@@ -79,6 +79,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El grado de un vector queda fijado cuando entra:** 7.63 aristas en los del lote del 10 % y 9.47 en los del último tramo, frente a 8.98 de media en el lote del 100 %.
 - **Lo que hace un insert depende del tamaño del corpus, no de la historia:** en el último tramo, 36.8 cargas con ef 160 y 23.1 con ef 80, y 4.8 escrituras inversas.
 - **El build incremental hace menos trabajo que el lote:** 0.55 veces sus distancias por código con ef 160 y 0.39 con ef 80, y 0.10 veces las exactas, porque el 94 % de las del lote es la asignación n·k.
+  - Un insert buscaba dos veces en el grafo de centroides con la misma query. La segunda, el 28 % de sus distancias exactas, está quitada desde el 17, sin volver a medir a 1M.
 - **El déficit a 0.99 es de las aristas, no de la partición (diagnóstico del 17).** Con las aristas reconstruidas en lote sobre la partición que dejan los inserts, el índice carga un 0.8 % menos que el lote a 0.99, y su recall a igual ef queda por encima en todos los ef.
   - Lo que queda de la partición: un 3.0 % más de cargas a 0.95 y un 9 % más de aristas. El 17.3 % de los vectores no está en el posting de su centroide más cercano.
   - Las aristas que faltaban son las de los vectores viejos: los del lote del 10 % pasan de 7.63 a 10.26, y los del último tramo, de 9.44 a 9.57.
@@ -190,6 +191,7 @@ Tres unidades, para el lote del 100 % y para cada celda (su lote del 10 % más s
 *Smoke después del pre-registro (06:43):* para validar el binario, la cadena y el script de veredicto corrí la cadena entera con 30 000 vectores, fuera del directorio de datos. No predice 1M y no cambia nada de lo escrito arriba. Enseñó una cosa de la cuenta:
 
 - **Un insert busca dos veces en el grafo de centroides con la misma query:** una para su posting y otra para la entrada de su búsqueda de aristas, que pide el mismo centroide más cercano. Las dos se cuentan, por separado, y en los resultados se dice cuánto es la repetida.
+  - *Quitada el 17, después del diagnóstico:* «La búsqueda repetida en el grafo de centroides, quitada».
 
 ### Resultados de v2.2 (2026-11-17)
 
@@ -689,7 +691,7 @@ python3 v2.2/scripts/growth_verdict.py v2.2 v2.0 v2.1 > v2.2/growth-verdict.md
 | distancias exactas, todas | 4 116 | 4 411.6 | 460 |
 
 - **La reconstrucción ordena un 23 % más de candidatos por código que el lote del 100 %,** con los mismos sondeos. Los postings que sondea miden 248.5 de media y los del lote, 201.3, con tamaños medios de 241.8 y 236.0.
-  - Sin investigar por qué en el lote los postings sondeados son más pequeños que la media.
+  - Sin investigar por qué en el lote los postings sondeados son más pequeños que la media. *Mío, sin comprobar:* en el lote, los centroides de los clusters más dispersos quedan cerca de muchos vectores y sus postings son los pequeños. Con splits por umbral, el tamaño de un posting no depende de eso.
 - **Tardó 558 s,** indicativo y con el proceso solo. El build de conteos del lote tardó 747 s con tres procesos a la vez.
 - **Por vector son 63 625 distancias por código y 4 094 exactas.** La búsqueda de un insert de esta celda hace 15 709 por código (5 476 de scan y 10 233 de endpoints), 64 de rescore y 127 exactas por búsqueda en el grafo de centroides.
 
@@ -754,6 +756,30 @@ python3 v2.2/scripts/rebuild_verdict.py v2.2 v2.0 v2.2 80 > v2.2/rebuild-verdict
 ```
 
 El binario es el del commit `216325a9bd`, con las dos búsquedas en el grafo de centroides por insert.
+
+### La búsqueda repetida en el grafo de centroides, quitada (2026-11-17)
+
+*Después del diagnóstico, no antes (decisión del usuario). Los datos de v2.2 y del diagnóstico son de binarios con las dos búsquedas.*
+
+- **Qué había:** un insert preguntaba al grafo de centroides por el centroide más cercano, para su posting. Su búsqueda de aristas volvía a preguntar lo mismo, para saber por dónde entrar.
+- **Qué hay ahora:** el insert pregunta una vez. Lo que devuelve el grafo es su posting y también la entrada de su búsqueda de aristas (`searchFrom`, en `search.go`).
+  - Una búsqueda de query no cambia: sin entrada dada, pregunta al grafo como antes.
+  - Si el índice entra por más de un posting (`entryPostings`), el insert los pide de una vez, y su posting es el primero.
+- **Lo que quita, por los conteos de 1M: el 28 % de las distancias exactas de un insert.**
+
+| distancias exactas por insert | ef 160 | ef 80 | ef 80, repetida |
+|---|---|---|---|
+| con las dos búsquedas | 445.0 | 438.6 | 448.3 |
+| la búsqueda repetida | 124.7 | 122.2 | 126.6 |
+| sin ella | 320.3 | 316.4 | 321.6 |
+
+- **Las dos búsquedas no eran idénticas al bit:** en las tres corridas se separan en 18, 8 y 4 distancias, de unos 110 millones. La segunda volvía a normalizar la query, y el redondeo cambia algún paso del grafo.
+- **Sin volver a medir a 1M.** El smoke de 30 000 vectores con ef 80, antes y después del cambio: 15.3 cargas por insert en los dos, 108 418 y 108 417 aristas inversas, y 110 y 111 splits. Después del cambio son 53.7 distancias para encontrar el posting, y ninguna segunda búsqueda.
+  - *Mío:* el índice que sale no es idéntico al bit al de antes, por ese mismo redondeo. No espero que mueva nada de lo medido, y no está medido.
+- **Tests:**
+  - `TestSearchFromEntryPostings`: con las entradas que da el grafo, `searchFrom` devuelve los mismos ids, distancias y conteos que una búsqueda, sin calcular ninguna distancia en el grafo. Sin entradas, pregunta como cualquier búsqueda. Un posting fuera de rango se rechaza.
+  - `TestStreamInsertWorkOutsideTheSearch`: cada distancia del grafo se carga a un paso, una sola vez, y la búsqueda de aristas no carga ninguna.
+- **Los datos:** hasta aquí, `stats` lleva la segunda búsqueda como `searchCentroidDistances`. Las corridas nuevas no llevan el campo, y `growth_verdict.py` lo lee como cero.
 
 ## v2.1: el ef de inserción, sobre H1 (pre-registro, 2026-11-16)
 

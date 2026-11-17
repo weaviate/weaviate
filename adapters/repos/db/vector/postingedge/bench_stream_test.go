@@ -597,11 +597,10 @@ func logInsertSearch(t *testing.T, at string, stats streamStats) {
 	t.Logf("%s: the search of an insert: %.1f loads, %.1f rounds, %.0f scanned, %.0f endpoints, %.1f rescored",
 		at, float64(stats.SearchLoads)*per, float64(stats.SearchRounds)*per, float64(stats.SearchScanned)*per,
 		float64(stats.SearchEndpoints)*per, float64(stats.SearchRescored)*per)
-	t.Logf("%s: the exact distances of an insert: %.1f to find its posting, %.1f for the entry postings of its search, "+
-		"%.1f for its inverse edges, %.1f in splits and %.1f in the centroid graph for them, %.1f in cleanups",
-		at, float64(stats.AssignDistances)*per, float64(stats.SearchCentroidDistances)*per,
-		float64(stats.InverseDistances)*per, float64(stats.SplitDistances)*per, float64(stats.SplitGraphDistances)*per,
-		float64(stats.CleanDistances)*per)
+	t.Logf("%s: the exact distances of an insert: %.1f to find its posting, %.1f for its inverse edges, "+
+		"%.1f in splits and %.1f in the centroid graph for them, %.1f in cleanups",
+		at, float64(stats.AssignDistances)*per, float64(stats.InverseDistances)*per, float64(stats.SplitDistances)*per,
+		float64(stats.SplitGraphDistances)*per, float64(stats.CleanDistances)*per)
 }
 
 // calibrateStream runs the assignment and the split alone, without edges or

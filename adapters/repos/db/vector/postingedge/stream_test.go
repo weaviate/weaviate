@@ -162,14 +162,15 @@ type streamStats struct {
 	SplitDistances int64 `json:"splitDistances"`
 	// The distances the centroid graph computed, by what for. They are
 	// counted only with streamConfig.centroidDistances, and are zero without:
-	// AssignDistances for the search that gives an insert its posting,
-	// SearchCentroidDistances for the entry postings of its edge search,
-	// SplitGraphDistances for the two centroids a split adds and the one it
-	// deletes, and CleanDistances for the cleanups of the deleted ones.
-	AssignDistances         int64 `json:"assignDistances"`
-	SearchCentroidDistances int64 `json:"searchCentroidDistances"`
-	SplitGraphDistances     int64 `json:"splitGraphDistances"`
-	CleanDistances          int64 `json:"cleanDistances"`
+	// AssignDistances for the search that gives an insert its posting, which
+	// is where its edge search enters too, SplitGraphDistances for the two
+	// centroids a split adds and the one it deletes, and CleanDistances for
+	// the cleanups of the deleted ones. Up to v2.2 the edge search of an
+	// insert asked the graph again for its entry postings, and the data of
+	// those runs has that second search as searchCentroidDistances.
+	AssignDistances     int64 `json:"assignDistances"`
+	SplitGraphDistances int64 `json:"splitGraphDistances"`
+	CleanDistances      int64 `json:"cleanDistances"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	NearestTime time.Duration `json:"nearestCheckNs"` // only the report needs it
@@ -362,7 +363,10 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 
 	clock := time.Now()
 	counted := s.centroidCount()
-	entry, err := st.centroids.nearest(ctx, vector, 1)
+	// The graph is asked once: the nearest centroid is the posting of the
+	// vector, and what it returns is where the search for its edges enters,
+	// as many postings as any search of the index enters through.
+	entry, err := st.centroids.nearest(ctx, vector, max(int(s.ix.entryPostings.Load()), 1))
 	if err != nil {
 		return err
 	}
@@ -388,13 +392,11 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	var dists []float32
 	if !s.cfg.assignOnly {
 		clock = time.Now()
-		counted = s.centroidCount()
 		var work SearchStats
-		neighbors, dists, err = s.ix.search(ctx, vector, s.neighbors, nil, &work)
+		neighbors, dists, err = s.ix.searchFrom(ctx, vector, s.neighbors, nil, entry, &work)
 		if err != nil {
 			return errors.Wrapf(err, "search the neighbors of doc %d", docID)
 		}
-		s.stats.SearchCentroidDistances += s.centroidCount() - counted
 		// SpreadTime is what a search spends on its stats alone.
 		s.stats.EdgeTime += time.Since(clock) - work.SpreadTime
 		s.stats.countSearch(work)

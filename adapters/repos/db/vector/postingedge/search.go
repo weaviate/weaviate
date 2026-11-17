@@ -147,6 +147,17 @@ func (ix *Index) SearchByVectorWithStats(ctx context.Context, vector []float32, 
 func (ix *Index) search(ctx context.Context, vector []float32, k int, allow helpers.AllowList,
 	stats *SearchStats,
 ) ([]uint64, []float32, error) {
+	return ix.searchFrom(ctx, vector, k, allow, nil, stats)
+}
+
+// searchFrom is the search from the given entry postings. Without any it
+// starts where every search does, at the postings the centroid graph finds
+// for the query. A caller gives them when it has asked the graph already: an
+// insert finds the posting of its vector there, and the search for the
+// vector's edges enters through it instead of asking a second time.
+func (ix *Index) searchFrom(ctx context.Context, vector []float32, k int, allow helpers.AllowList,
+	entryIDs []uint64, stats *SearchStats,
+) ([]uint64, []float32, error) {
 	st := ix.state.Load()
 	if st == nil {
 		return nil, nil, ErrNotBuilt
@@ -190,15 +201,24 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 	search := st.newPostingSearch(sc, query, stop, margin, stats)
 
 	var clock time.Time
-	if stats != nil {
-		clock = time.Now()
-	}
-	entryIDs, err := st.centroids.nearest(ctx, query, entries)
-	if err != nil {
-		return nil, nil, err
-	}
-	if stats != nil {
-		stats.CentroidTime = time.Since(clock)
+	if len(entryIDs) == 0 {
+		if stats != nil {
+			clock = time.Now()
+		}
+		var err error
+		entryIDs, err = st.centroids.nearest(ctx, query, entries)
+		if err != nil {
+			return nil, nil, err
+		}
+		if stats != nil {
+			stats.CentroidTime = time.Since(clock)
+		}
+	} else {
+		for _, p := range entryIDs {
+			if p >= uint64(st.postings.postings()) {
+				return nil, nil, errors.Errorf("entry posting %d, the index holds %d postings", p, st.postings.postings())
+			}
+		}
 	}
 	for _, p := range entryIDs {
 		sc.markLoaded(uint32(p))

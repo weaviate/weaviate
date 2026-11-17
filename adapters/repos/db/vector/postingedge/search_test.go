@@ -16,6 +16,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -868,6 +869,87 @@ func TestRescoreSpread(t *testing.T) {
 			postings, elsewhere := st.rescoreSpread(&searchScratch{touched: tt.loaded}, candidates)
 			require.Equal(t, tt.wantPostings, postings)
 			require.Equal(t, tt.wantElsewhere, elsewhere)
+		})
+	}
+}
+
+// A search that is given its entry postings is the search that finds them
+// itself, when they are the ones the centroid graph returns for the query:
+// the same results, distances and work, with nothing asked of the graph.
+// Given none, it asks, as any search does. From other postings it still
+// searches, and postings the index does not hold are refused.
+func TestSearchFromEntryPostings(t *testing.T) {
+	const k = 10
+	ctx := context.Background()
+	all := clusteredVectors(2030, 24, 30, 419)
+	vectors, queries := all[:2000], all[2000:]
+
+	tests := []struct {
+		name     string
+		provider distancer.Provider
+		distance string
+		entries  int
+	}{
+		{name: "l2, one entry posting", provider: distancer.NewL2SquaredProvider(), distance: "l2-squared", entries: 1},
+		{name: "l2, three entry postings", provider: distancer.NewL2SquaredProvider(), distance: "l2-squared", entries: 3},
+		{name: "cosine, one entry posting", provider: distancer.NewCosineDistanceProvider(), distance: "cosine", entries: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			uc.Distance, uc.EntryPostings, uc.EF = tt.distance, tt.entries, 40
+			config := testConfig(t, vectors, 0, tt.provider)
+			count := new(atomic.Int64)
+			config.centroidProvider = countingProvider{Provider: distancer.NewL2SquaredProvider(), count: count}
+			index, err := New(config, uc)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
+			require.NoError(t, index.AddBatch(ctx, sequentialIDs(len(vectors), 0), vectors))
+			require.NoError(t, index.Build(ctx))
+			st := index.state.Load()
+
+			for q, query := range queries {
+				before := count.Load()
+				ids, dists, stats, err := index.SearchByVectorWithStats(ctx, query, k, nil)
+				require.NoError(t, err)
+				asked := count.Load() - before
+				require.Positive(t, asked, "query %d: a search asks the graph for its entry postings", q)
+
+				entries, err := st.centroids.nearest(ctx, index.normalized(query), tt.entries)
+				require.NoError(t, err)
+				require.Len(t, entries, tt.entries)
+				before = count.Load()
+				var given SearchStats
+				gotIDs, gotDists, err := index.searchFrom(ctx, query, k, nil, entries, &given)
+				require.NoError(t, err)
+				require.Zero(t, count.Load()-before, "query %d: given its entry postings, a search asks the graph nothing", q)
+				require.Equal(t, ids, gotIDs, "query %d", q)
+				require.Equal(t, dists, gotDists, "query %d", q)
+				require.Equal(t, withoutTimes(stats), withoutTimes(given), "query %d", q)
+				require.Zero(t, given.CentroidTime)
+
+				before = count.Load()
+				var asks SearchStats
+				gotIDs, gotDists, err = index.searchFrom(ctx, query, k, nil, nil, &asks)
+				require.NoError(t, err)
+				require.Equal(t, asked, count.Load()-before, "query %d: given none, it asks as any search", q)
+				require.Equal(t, ids, gotIDs, "query %d", q)
+				require.Equal(t, dists, gotDists, "query %d", q)
+				require.Equal(t, withoutTimes(stats), withoutTimes(asks), "query %d", q)
+			}
+
+			// From the posting farthest down the list of the graph the
+			// search still runs, through other postings.
+			far, err := st.centroids.nearest(ctx, index.normalized(queries[0]), st.postings.postings())
+			require.NoError(t, err)
+			var other SearchStats
+			ids, _, err := index.searchFrom(ctx, queries[0], k, nil, far[len(far)-1:], &other)
+			require.NoError(t, err)
+			require.Len(t, ids, k)
+			require.Positive(t, other.PostingsLoaded)
+
+			_, _, err = index.searchFrom(ctx, queries[0], k, nil, []uint64{uint64(st.postings.postings())}, nil)
+			require.ErrorContains(t, err, "entry posting")
 		})
 	}
 }

@@ -367,7 +367,7 @@ def main(d, v20, v21, suffix=''):
         def insert_parts(st):
             return [('cargas de posting', st['searchLoads']), ('distancias por código', st['searchScanned'] + st['searchEndpoints']),
                     ('exactas: asignación por el grafo', st['assignDistances']),
-                    ('exactas: entrada de la búsqueda, por el grafo', st['searchCentroidDistances']),
+                    ('exactas: entrada de la búsqueda, por el grafo', st.get('searchCentroidDistances', 0)),
                     ('exactas: rescore de la búsqueda', st['searchRescored']), ('exactas: comprobar las aristas inversas', st['inverseDistances']),
                     ('exactas: 2-means y medias de los splits', st['splitDistances']), ('exactas: altas y bajas de centroides en el grafo', st['splitGraphDistances']),
                     ('exactas: limpieza de lápidas', st['cleanDistances'])]

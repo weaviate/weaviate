@@ -857,9 +857,10 @@ func TestCountingProvider(t *testing.T) {
 
 // The work of the inserts outside their edge search, in counts: every
 // distance the centroid graph computes after its build is charged to the step
-// that asked for it, and to one step only; a split is charged its 2-means and
-// the distances of its members to the two means; and without a count of the
-// graph's distances nothing is charged for the graph.
+// that asked for it, and to one step only; an insert asks the graph once, for
+// its posting, and its edge search asks nothing of it; a split is charged its
+// 2-means and the distances of its members to the two means; and without a
+// count of the graph's distances nothing is charged for the graph.
 func TestStreamInsertWorkOutsideTheSearch(t *testing.T) {
 	const batch, total, threshold = 1200, 2400, 60
 	ctx := context.Background()
@@ -906,22 +907,18 @@ func TestStreamInsertWorkOutsideTheSearch(t *testing.T) {
 
 			if !tt.counted {
 				assert.Zero(t, got.AssignDistances)
-				assert.Zero(t, got.SearchCentroidDistances)
 				assert.Zero(t, got.SplitGraphDistances)
 				assert.Zero(t, got.CleanDistances)
 				return
 			}
+			// The edge search of an insert computes none: it enters through
+			// the posting its insert found, so the sum has no term for it.
 			assert.Equal(t, s.centroidCount()-built,
-				got.AssignDistances+got.SearchCentroidDistances+got.SplitGraphDistances+got.CleanDistances,
+				got.AssignDistances+got.SplitGraphDistances+got.CleanDistances,
 				"every distance of the graph is charged, once")
 			assert.GreaterOrEqual(t, got.AssignDistances, int64(got.Inserted), "an insert finds its posting in the graph")
 			assert.Positive(t, got.SplitGraphDistances, "a split adds two centroids to the graph")
 			assert.Positive(t, got.CleanDistances, "a cleanup reconnects the neighbors of the deleted centroids")
-			if tt.cfg.assignOnly {
-				assert.Zero(t, got.SearchCentroidDistances, "no edge search, no entry postings")
-			} else {
-				assert.GreaterOrEqual(t, got.SearchCentroidDistances, int64(got.Inserted), "an edge search enters through the graph")
-			}
 		})
 	}
 }

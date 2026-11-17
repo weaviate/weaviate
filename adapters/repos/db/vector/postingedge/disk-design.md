@@ -496,6 +496,7 @@ Datos en `testdata/bench/phase2/`:
 - **Falta saber qué arreglar.** v2.2 no separa cuánto del déficit es de las aristas (viejas, y con el grado de cuando entraron) y cuánto de la partición (todos los postings salen de un 2-means). Lo separa reconstruir en lote las aristas sobre la partición final de una celda, sin cronometrar.
   - *Medido el mismo día:* es de las aristas. Está en la sección siguiente.
 - **La búsqueda en el grafo de centroides se puede hacer una vez por insert.** Hoy el harness la hace dos, con la misma query: es el 28 % de las distancias exactas de un insert.
+  - *Hecho el 17, después del diagnóstico:* el insert pregunta una vez, y su búsqueda de aristas entra por el posting que le da el grafo. Quedan unas 320 distancias exactas por insert, de 445 con ef 160. Sin volver a medir a 1M.
 - **La comparación de trabajo sirve para dimensionar un insert, no para sustituir el lote:** el incremental cuesta menos y deja un índice que no es el del lote.
 
 ### Aristas o partición (diagnóstico de v2.2, 2026-11-17)
