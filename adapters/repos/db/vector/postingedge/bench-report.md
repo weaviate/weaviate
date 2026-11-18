@@ -153,6 +153,148 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v5.0: inserts en disco (pre-registro, 2026-11-18)
+
+**Estado: pre-registrado.** Escrito el 18 a las 14:00, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el camino de escritura, la validación, las medidas y el pre-registro son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. La propuesta de almacenamiento es mía: el usuario la pidió.
+
+### Qué se mide
+
+El camino de escritura de v2.x, llevado a disco, sobre el prototipo de v4.0: dbpedia 1M, S = 236, en el modo con códigos de ruteo de 512 bits en RAM. El halo va después, sobre el mismo camino.
+
+### Camino de escritura (del usuario)
+
+- **Asignación por el grafo de centroides.**
+- **Aristas por búsqueda leyendo de disco,** con ef de inserción 160.
+- **Aristas inversas.**
+- **Split simple propio, con T = 360.**
+- **Mapa vector→posting persistido.**
+- **Sin refresco y sin deletes.**
+
+*Mío, para escribirlo: es el insert de `stream_test.go`, con las mismas reglas.*
+
+- **Un insert,** en este orden: pregunta al grafo de centroides una vez; busca sus vecinos entrando por ahí, 16, con ef 160; se escribe en el posting del centroide más cercano que dio el grafo, con las aristas hacia los vecinos de fuera de su posting; entra en la lista de cada vecino cuya peor arista mejora, en su sitio por distancia, y la peor sale; y si su posting pasa de 360 miembros, se parte.
+- **El split** es el 2-means de la partición del lote sobre los vectores exactos de los miembros. Los dos hijos son postings nuevos, el viejo se retira, y cambian el mapa y el grafo de centroides. Ninguna arista cambia, porque las aristas van por id de vector.
+- **Un solo escritor.** Los inserts van en serie, y ninguna búsqueda corre mientras corre un insert, como en v2.x.
+- **La búsqueda de un insert lee de disco** lo que lee cualquier búsqueda: las filas de miembros y de aristas de los postings que carga, y los vectores exactos de su rescore. Puntúa los endpoints con los códigos de 512 bits, que están en RAM.
+
+### Almacenamiento: la propuesta (mía)
+
+**Encaja en `lsmkv` sin tocarlo.** Es la forma en que HFresh guarda sus postings: un bucket de estrategia Set donde cada elemento se añade con `SetAdd`, sin leer ni reescribir lo que ya hay, y una función que deja a la compactación tirar las filas que ya no valen (`WithShouldSkipKeyFunction`).
+
+| qué | dónde | clave | valor | quién lo escribe |
+|---|---|---|---|---|
+| miembros de un posting | bucket Set de postings | posting y bloque 0 | un valor por miembro: id y código completo, 208 B | el insert, uno; el split, los dos hijos |
+| aristas de un posting | el mismo bucket | posting y bloque 1 | un valor por miembro: su id y su lista, 4 B por arista | el insert, la suya; cada arista inversa, la lista nueva del vecino y la lápida de la vieja; el split, los dos hijos |
+| mapa vector→posting | bucket Replace | id de vector | posting, 4 B | el insert, uno; el split, uno por miembro |
+| código de ruteo | bucket Replace | id de vector | el código de 512 bits, 72 B | el insert |
+| distancias de las aristas | bucket Replace | id de vector | una distancia exacta por arista, 4 B | el insert; cada arista inversa |
+| vectores exactos | fichero propio | posición = id de vector | 6 144 B | el insert |
+| grafo de centroides | su commit log, como en v4.0 | — | — | el split |
+
+- **Escritura por elemento, sin reescribir el bloque:** el elemento es la lista de aristas de un miembro. Una arista inversa escribe dos valores en la fila de aristas del posting del vecino: la lista nueva y la lápida de la vieja, unos 100 B entre los dos. No lee el bloque: la lista vieja ya la trajo la búsqueda del insert.
+- **Un posting retirado por un split no se borra valor a valor.** Sus dos filas quedan sin leer, y la compactación las tira con la función de salto, como hace HFresh con las versiones viejas de un posting.
+- **Las lápidas de las listas viejas se van en la compactación que incluye el segmento más antiguo.** Hasta entonces una carga las lee.
+- **Lo que cuesta en lectura, por construcción:** `lsmkv` enmarca cada valor de un Set con 9 B. Un miembro son 9 B más en su fila, y 13 B más en la de aristas, con su id. Son 22 B por miembro sobre los 208 B y los 4 B por arista del modelo: **un 9 % más de bytes por carga** con 8.6 aristas por vector. El criterio de lectura del usuario deja un 10 %: el formato solo ya se lleva casi todo.
+- **Dos lecturas por carga,** como en v4.0: una fila de miembros y una de aristas. Antes de compactar, una fila puede estar en varios segmentos, y cada uno es una lectura.
+
+**Las alternativas, con `lsmkv` igual de intacto:**
+
+| | de más por miembro, al leer | lecturas por carga | lo que escribe una arista inversa | lo que queda hasta compactar |
+|---|---|---|---|---|
+| **propuesta:** aristas en su fila, Set con lápida | 22 B, un 9 % | 2 | unos 100 B | la lista vieja y su lápida, hasta que se juntan; la lápida, hasta la compactación del segmento más antiguo |
+| aristas en su fila, estrategia Map con el id del miembro como clave | 26 B, un 10.7 % | 2 | unos 55 B, sin lápida | la lista vieja, hasta que se junta con la nueva |
+| aristas dentro del elemento del miembro, una sola fila | 10 B, un 4 % | 1 | unos 520 B: el elemento entero, con su código, y su lápida | lo mismo que la propuesta, con valores de 260 B |
+
+- **Elijo la primera** porque mantiene los bloques de v4.0, cada uno con su clave, y porque es la que menos escribe por arista inversa sin pasar del 10 % en lectura.
+- **La tercera lee menos y con la mitad de lecturas,** y escribe cinco veces más por arista inversa. Si el usuario la prefiere, cambia el formato y no el camino.
+
+**La distancia guardada** (*mía; es lo único que el insert de disco hace distinto del de v2.x*):
+
+- **En v2.x, la comprobación de una arista inversa recalcula las distancias exactas del vecino a todas sus aristas.** En disco serían unas 170 lecturas de vector exacto por insert.
+- **Aquí cada arista guarda su distancia,** en un bucket por vector que solo leen los inserts: 16 lecturas pequeñas por insert, y las búsquedas no las leen nunca.
+- **No cambia ninguna decisión:** la distancia guardada es la misma que v2.x recalcula, bit a bit, porque el producto escalar da lo mismo en los dos sentidos. Lo comprueba la equivalencia de abajo. Si no saliera idéntico, se vuelve a recalcular como en v2.x y se dice.
+
+### Validación, sin cronometrar (del usuario)
+
+Crecer del 10 % al 100 % en disco.
+
+- **Cobertura completa en cada checkpoint. Es stop.**
+- **El índice crecido en disco devuelve lo mismo que el crecido en memoria con la misma secuencia.** Si no puede ser idéntico, se explica por qué y se comparan recall y cargas.
+
+*Mío, para aplicarla:*
+
+- **La secuencia** es la de v2.x: el train barajado con la semilla 1, el lote sobre el primer 10 % y el resto insertado en ese orden. **Checkpoints** al 20, 40, 60, 80 y 100 %.
+- **Cobertura,** en disco: cada vector está en un posting vivo y solo en uno, donde dice el mapa persistido; cada posting vivo tiene un centroide en el grafo; ninguna arista apunta a un vector que no está. Se comprueba leyendo el store, no la RAM.
+- **El gemelo en memoria** es el índice de v2.x con la misma configuración, que ordena los postings con los códigos de 512 bits. Crece en el mismo proceso, insert a insert.
+- **Los dos comparten el grafo de centroides,** y lo dice aquí antes de medir: HFresh y este índice usan un grafo HNSW cuyos niveles salen de una fuente aleatoria sin semilla, y dos grafos crecidos por separado no son el mismo grafo. Con dos grafos, los índices no podrían ser idénticos. Con uno, el gemelo le pregunta lo mismo que el de disco, y solo el de disco lo modifica en un split.
+- **Qué es «lo mismo»:**
+  - en cada insert, la búsqueda de aristas devuelve desde disco los mismos vecinos, distancias y trabajo que en memoria;
+  - en cada checkpoint, el estado es el mismo: los miembros de cada posting y su orden, la lista de aristas de cada vector, y el mapa;
+  - al 100 %, tras cerrar el índice de disco y reabrirlo desde sus ficheros, las 5 000 queries devuelven los mismos ids, distancias y trabajo que el gemelo, en los puntos de 0.95 y 0.99.
+- **Si algo difiere, stop,** con la primera diferencia.
+- **Antes de 1M, lo mismo a pequeña escala,** en los tests del paquete, con splits forzados.
+
+### Medidas (del usuario)
+
+- **Por insert:** lecturas y escrituras, en número y en bytes, separadas en miembro, aristas propias, inversas y splits.
+- **Tamaño del store y amplificación de escritura tras compactar.**
+- **Cronometrado, con las condiciones de siempre:** inserts por segundo, y latencia de búsqueda en frío y en caliente sobre el índice crecido, frente al escrito en lote de v4.0.
+
+*Mío, para escribirlas:*
+
+- **Lecturas de un insert:** las del store en modo pread, que es donde las cuenta, por tramo entre checkpoints. Se separan en la búsqueda de aristas (filas de postings y vectores del rescore), la comprobación de las inversas (distancias de los vecinos) y el split (las dos filas del posting y los vectores exactos de sus miembros).
+- **Escrituras de un insert,** lo que se le entrega al store, en valores y en bytes:
+  - **miembro:** su valor en la fila de miembros, su entrada del mapa, su código de ruteo y su vector exacto;
+  - **aristas propias:** su lista y sus distancias;
+  - **inversas:** por cada una, la lista nueva, la lápida de la vieja y las distancias;
+  - **splits:** las filas de los dos hijos y las entradas del mapa de sus miembros, repartidas entre los inserts del tramo.
+- **Lo que el store escribe de verdad:** los bytes del log, de los segmentos al volcar la memtable y de las compactaciones, que el store ya cuenta.
+- **Volcado y compactación:** los umbrales por defecto de `lsmkv` (10 MB de memtable). Sus ciclos se llaman cada 1 000 inserts, en vez de dejarlos en segundo plano, para que la corrida sea repetible. Al 100 %, una compactación completa.
+- **Amplificación de escritura:** los bytes que el store escribió en toda la corrida, entre los que ocupa al final, compactado. Se da también entre los bytes que se le entregaron.
+- **Tamaño del store:** por bucket, antes y después de la compactación final, frente a la celda de 512 bits en lote de v4.0 (243 MB).
+- **Inserts por segundo:** otra corrida, solo de disco y sin gemelo, del 10 al 100 %, con el store leyendo por su mapping. Por tramo entre checkpoints y en total. Un escritor.
+- **Latencia de búsqueda:** sobre el índice de esa corrida cronometrada, tras su compactación completa, en sus puntos de 0.95 y 0.99, con 1 y 8 threads, en caliente y en frío, como en v4.0. En la misma sesión se vuelve a cronometrar la celda de 512 bits en lote de v4.0.
+- **El índice cronometrado no es bit a bit el validado:** su grafo de centroides sale con otros niveles. Se dice junto a sus cifras, con su recall y sus cargas.
+- **Las condiciones de siempre:** de noche, la máquina despierta, 15 minutos sin teclado ni trackpad, sin commits. Las dos curvas de búsqueda van en dos rondas, con el registro de actividad por tramo de la enmienda 5 de v4.0. La corrida de inserts es una, con su registro.
+
+### Pre-registro (del usuario)
+
+1. **La búsqueda sobre el índice crecido lee a 0.95 como mucho un 10 % más que el crecido en memoria.**
+2. **Su latencia en frío a 0.95 queda a un 20 % o menos de la del índice en lote.**
+3. **El coste por insert se reporta sin umbral.**
+
+*Mío, para aplicarlos:*
+
+- **El 1 se lee en bytes de posting por query:** los que el store lee de verdad para el índice crecido en disco, en modo pread y tras la compactación completa, entre los del gemelo en memoria por el modelo de v3.0 (208 B por miembro y 4 B por arista de los postings que carga). Los dos en su punto de 0.95, que es el mismo si los índices son idénticos. Se cumple si la razón es 1.10 o menos.
+  - Se da también en número de lecturas, y antes de compactar.
+  - **Lo esperado, antes de medir:** 1.09 por el formato.
+- **El 2 se lee con el p50 y 1 thread,** en la primera ronda: el del índice crecido entre el de la celda de 512 bits en lote, medidos en la misma sesión. Se cumple si es 1.20 o menos. Se dan al lado el p95, el p99 y los 8 threads.
+  - **Lo que ya se sabe:** en v2.2, el índice crecido diez veces cargaba un 6.3 % más que el lote a 0.95, en memoria y ordenando con el código completo.
+- **El 3:** las tablas de «Medidas», por tramo.
+
+### Lo que no mide
+
+- **El halo en este camino, el refresco y los deletes.**
+- **Inserts concurrentes,** y búsquedas durante los inserts.
+- **Durabilidad:** qué se pierde si el proceso muere entre dos escrituras de un insert, y la recuperación.
+- **La tercera forma de guardar las aristas,** salvo por la aritmética de arriba.
+- **Linux, otro disco, 10M y otro dataset.**
+
+### Lo que el binario añade (mío)
+
+- **En el índice:** nada.
+- **En ficheros de test de posting-edge:** el formato con escritura por elemento, el insert y el split sobre el store, la búsqueda sobre ese formato, la comprobación de cobertura leyendo el store, y sus tests de equivalencia con el gemelo. Un test de benchmark que crece, comprueba, cuenta y cronometra.
+- **En `stream_test.go`:** el modo con códigos de ruteo de 512 bits, y un gancho para que el gemelo deje al de disco los cambios del grafo de centroides.
+
+### Orden de trabajo
+
+1. Formato, escritura por elemento y búsqueda sobre él, con sus tests.
+2. El insert y el split en disco, con el gemelo y la equivalencia a pequeña escala.
+3. La validación a 1M, sin cronometrar, con las medidas por insert.
+4. La sesión cronometrada.
+
+Se reporta al cerrar cada paso.
+
 ## v4.0: primer prototipo que lee de disco (pre-registro, 2026-11-18)
 
 **Estado: medido el 18.** Los datos sin cronometrar y la sesión cronometrada de día (de 10:50 a 12:21) están abajo, en «Resultados de v4.0». Cinco curvas marcadas se repiten esa noche. El pre-registro se escribió el 18 a las 07:13, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el formato, las celdas, la lectura, la corrección, las medidas, los cuatro puntos del pre-registro, las condiciones y el orden de trabajo son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
