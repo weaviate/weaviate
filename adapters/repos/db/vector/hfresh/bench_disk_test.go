@@ -123,6 +123,14 @@ func diskDocIDKey(id uint64) []byte {
 	return key
 }
 
+// diskQuiet turns off the mutex profile the tests of this package run with
+// (TestMain samples every contended unlock, with a walk of the stack each):
+// it is not part of the index, and a timed search would pay for it.
+func diskQuiet(t *testing.T) {
+	previous := runtime.SetMutexProfileFraction(0)
+	t.Cleanup(func() { runtime.SetMutexProfileFraction(previous) })
+}
+
 // openDiskBench opens the index under dir, creating it if the directory is
 // empty. With train the index reads its exact vectors from memory, which is
 // how it is built: a split reads the vector of every member of a posting.
@@ -493,6 +501,7 @@ func TestHFreshDiskBuild(t *testing.T) {
 		t.Skip("no -bench.hfresh.dataset and -bench.hfresh.dir given")
 	}
 	require.NotEmpty(t, *diskManifest)
+	diskQuiet(t)
 	ctx := context.Background()
 	raw, truth := diskLoad(t, true)
 	n, dims := len(raw.Train), raw.Dims
@@ -644,6 +653,7 @@ func TestHFreshDiskCount(t *testing.T) {
 		t.Skip("no -bench.hfresh.dataset and -bench.hfresh.dir given")
 	}
 	require.NotEmpty(t, *diskOut)
+	diskQuiet(t)
 	ctx := context.Background()
 	manifest := diskReadManifest(t)
 	raw, _ := diskLoad(t, false)
@@ -785,6 +795,7 @@ func TestHFreshDiskTimed(t *testing.T) {
 		t.Skip("no -bench.hfresh.dataset and -bench.hfresh.dir given")
 	}
 	require.NotEmpty(t, *diskOut)
+	diskQuiet(t)
 	ctx := context.Background()
 	manifest := diskReadManifest(t)
 	raw, _ := diskLoad(t, false)

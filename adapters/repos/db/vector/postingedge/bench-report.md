@@ -146,7 +146,9 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Estado: pre-registrado.** Escrito el 18 a las 07:13, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el formato, las celdas, la lectura, la corrección, las medidas, los cuatro puntos del pre-registro, las condiciones y el orden de trabajo son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
 
-**Pendiente del usuario: espacio en disco.** La corrida de 1M pide de 25 a 30 GB y el disco tenía 554 MB libres al empezar (2.6 GB tras borrar mis binarios viejos). Los pasos de formato, escritura, lectura y tests no lo necesitan. Las comprobaciones a 1M, el HFresh real y la sesión cronometrada, sí.
+**Espacio en disco, resuelto el 18 a las 08:21.** La corrida de 1M pide de 25 a 30 GB y el disco tenía 554 MB libres al empezar. El usuario eligió borrar la caché de builds de wiki-dpr de v1.4 a v1.6 (`~/Documents/datasets/postingedge-buildcache`, 25 GB). Los scripts de aquellas rondas la rehacen si se vuelven a lanzar.
+
+**Pendiente del usuario: cómo medir el frío** (enmienda 1). Hasta entonces no se cronometra nada.
 
 ### Qué se mide
 
@@ -199,7 +201,7 @@ Un posting son tres bloques con clave propia: miembros (ids y código completo),
 - **La mejor poda de v3.1** es la de su mejor celda de 512 bits a 0.95: las dos podas y M = 0.08.
 - **El resto de la búsqueda, con sus defaults:** una entrada, lotes de 4 postings, ef de centroides 8 y rescoreLimit 64.
 - **HFresh, a nivel de índice,** en un binario de test del paquete `hfresh`, como posting-edge en el suyo. Sin servidor.
-  - **Cuál:** el de este branch, que no ha tocado `hfresh` ni `lsmkv`. Sale de main en `0be45f9b64` (10 de noviembre). Main, en `a33c0ef138`, difiere en `hfresh` solo en dos firmas de backup, y en `lsmkv`, en el contador de lecturas de los cursores y en la lectura del WAL de RoaringSet, que la búsqueda no usa.
+  - **Cuál:** el de este branch, que no ha tocado `hfresh` ni `lsmkv`. *Corregido en la enmienda 3: el branch sí cambia el kernel de distancia que usa HFresh.* Sale de main en `0be45f9b64` (10 de noviembre). Main, en `a33c0ef138`, difiere en `hfresh` solo en dos firmas de backup, y en `lsmkv`, en el contador de lecturas de los cursores y en la lectura del WAL de RoaringSet, que la búsqueda no usa.
   - **Configuración por defecto:** réplicas 4, posting máximo de 48 KB (227 entradas a 1536d, mínimo 75), searchProbe 256, distancia cosine.
   - **Códigos:** RQ de 1 bit, que es el único que admite. Una entrada son 209 B: id, versión y un código de 200 B.
   - **Rescore:** los 350 mejores candidatos, con el vector exacto de cada uno, pedidos en paralelo.
@@ -404,6 +406,69 @@ Una lectura aleatoria en frío de un fichero recién remontado, a través de la 
 - **El vector exacto de HFresh cuesta más de lo que dice esa tabla:** leídos de uno en uno tras tirar la caché, de 0.6 a 1.0 ms cada uno, y alguno de los primeros, 5 ms. No sé de dónde sale la diferencia. *Sospecha mía, sin comprobar:* su bucket se escribe con flushes y compactaciones, y queda más repartido dentro de la imagen que un fichero escrito de una vez.
 - **Lo que se reporta además, por eso:** la primera query de cada tanda en frío aparte de las demás.
 - **Lo que no cambia:** el rescore de posting-edge lee con `pread` de su fichero, como está pre-registrado, y el de HFresh por el store. Van aparte en las tablas.
+
+### Enmienda 3 (08:48 del 18): qué HFresh corre aquí, y un bug de los kernels arm64
+
+*Motivo: el build de HFresh a 1M cayó a los dos minutos con `fatal error: unexpected signal during runtime execution`. Buscando la causa salieron dos cosas. Ninguna toca los datos de posting-edge de abajo.*
+
+**1. El HFresh de este branch no es exactamente el de main.** El pre-registro decía que el branch no había tocado `hfresh` ni `lsmkv`, y es verdad, pero no miré lo demás que HFresh usa.
+
+- **El branch lleva el kernel RQ1 de #13880,** que no está en main: `BinaryRQDistancer.Distance`, la distancia con la que HFresh escanea sus postings, hace aquí una pasada por los cinco planos de la query en lugar de cinco.
+- **Lo que cambia:** el scan de HFresh va más rápido que en main. En v1.6 ese kernel dio a posting-edge un 16 % a 0.95. No cambia qué lee HFresh ni su recall.
+- **Lo que hago:** HFresh corre con el kernel del branch, que es el mismo que usa posting-edge, como en v1.6. Si el usuario quiere el de main al pie de la letra, es otro build desde un checkout de main.
+- **También del branch, y que HFresh usa:** el arreglo de abajo.
+
+**2. Los kernels arm64 generados desde C rompían el frame pointer de quien los llama.** Está en main desde hace tiempo y es un bug del producto, no de esta ronda. Arreglado en `c0e54c57c3`.
+
+- **Qué pasa.** Un compilador de C abre una función empujando x29 y x30 por debajo del stack pointer. Go en arm64 guarda el frame pointer de una función en los 8 bytes de justo debajo de su stack pointer. Los diez kernels de `distancer/asm` generados con goat corren sobre el stack de quien los llama, y ese empuje escribía el link register encima del frame pointer guardado.
+- **Cuándo se nota.** En una corrida normal, nunca: nadie lee esa casilla. El perfil de bloqueo, el perfil de mutex y el trazador de ejecución recorren el stack por frame pointers, y al pasar por ahí el proceso muere con SIGSEGV en `runtime.fpTracebackPartialExpand`.
+- **Dónde importa.** Un servidor activa esos perfiles con `GO_BLOCK_PROFILE_RATE` y `GO_MUTEX_PROFILE_FRACTION`. Con cualquiera de los dos, en arm64, una goroutine que haya calculado una distancia y después se bloquee o espere un lock puede tirar el nodo.
+- **Por qué salió aquí.** El `TestMain` del paquete `hfresh` deja el perfil de mutex a 1, y un build de 1M con todos los cores tiene contención de sobra. Los humos de 30 000 vectores no llegaron a dar con él.
+- **El arreglo.** Los diez kernels son hojas que no usan ni x29 ni x30, así que las tres instrucciones del marco pasan a ser `nop`. Ningún resultado cambia: los tests de `distancer` y de `compressionhelpers` pasan.
+- **El test de regresión,** `TestKernelsKeepTheFramePointer`: cada kernel en un proceso propio, seguido de una espera con el perfil de bloqueo activo. Sin el arreglo, los siete kernels NEON lo tiran; con él, pasan.
+- **Lo que no he podido comprobar:** los dos kernels SVE llevan el mismo cambio, y este Mac no tiene SVE. El test los salta aquí y los corre donde lo haya.
+- **Lo que queda fuera de este branch:** llevarlo a main y a las ramas estables, que es donde hace falta.
+
+**3. El perfil de mutex del paquete, apagado en el benchmark de HFresh.** Muestrea cada unlock con contención, con un recorrido del stack cada vez. No es parte del índice, y una búsqueda cronometrada lo pagaría.
+
+### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
+
+*Escrito después de la etapa de escritura, que corrió de 08:21 a 08:35. Son conteos: nada de aquí lleva tiempo. Las tablas completas están en `v4.0/disk-verdict.md`.*
+
+**Las dos paradas pasan en las cinco celdas.**
+
+| celda | recall | ef | recall medido | queries iguales en disco y en memoria | cargas | rondas | lecturas del store | bytes del store | modelo de v3.0 | real entre modelo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| código completo en RAM | 0.95 | 20 | 0.9507 | 5 000 de 5 000 | 10.13 | 2.28 | 20.3 | 0.64 MB | 0.64 MB | 1.005 |
+| código completo en RAM | 0.99 | 284 | 0.9901 | 5 000 de 5 000 | 52.60 | 12.90 | 105.2 | 3.27 MB | 3.25 MB | 1.005 |
+| 512 bits en RAM | 0.95 | 21 | 0.9510 | 5 000 de 5 000 | 18.57 | 4.39 | 37.1 | 1.16 MB | 1.16 MB | 1.005 |
+| 512 bits en RAM | 0.99 | 188 | 0.9900 | 5 000 de 5 000 | 76.57 | 18.89 | 153.1 | 4.75 MB | 4.73 MB | 1.005 |
+| 384 bits en RAM | 0.95 | 21 | 0.9505 | 5 000 de 5 000 | 23.67 | 5.67 | 47.3 | 1.48 MB | 1.47 MB | 1.005 |
+| 384 bits en RAM | 0.99 | 164 | 0.9901 | 5 000 de 5 000 | 91.09 | 22.52 | 182.2 | 5.64 MB | 5.62 MB | 1.005 |
+| halo de 512 bits | 0.95 | 21 | 0.9510 | 5 000 de 5 000 | 18.57 | 4.39 | 55.7 | 3.40 MB | 3.39 MB | 1.002 |
+| halo de 512 bits | 0.99 | 188 | 0.9900 | 5 000 de 5 000 | 76.57 | 18.89 | 229.7 | 13.91 MB | 13.89 MB | 1.002 |
+| halo de 512 bits, podado | 0.95 | 25 | 0.9502 | 5 000 de 5 000 | 20.20 | 4.80 | 60.6 | 2.74 MB | 2.73 MB | 1.002 |
+| halo de 512 bits, podado | 0.99 | 239 | 0.9900 | 5 000 de 5 000 | 87.17 | 21.54 | 261.5 | 11.69 MB | 11.67 MB | 1.002 |
+
+- **Corrección: cada celda devuelve desde disco lo que en memoria.** Las 5 000 queries, en los dos puntos de operación de cada celda, sobre el índice reabierto de disco: los mismos ids en el mismo orden, las mismas distancias bit a bit, y las mismas cargas, rondas y endpoints puntuados.
+- **Criterio 1, se cumple: los bytes reales quedan a un 0.5 % del modelo como mucho,** donde el margen era un 25 %. Lo que hay de más son el byte de grado por miembro y los 18 B que el store pone a cada bloque.
+- **Las lecturas son dos por posting cargado, y tres con halo:** una por bloque, del tamaño exacto del bloque. El rescore, aparte, son 64 lecturas de 6 144 B, 0.39 MB.
+- **Las cinco celdas llegan a 0.99 con rescoreLimit 64,** subiendo solo ef.
+- **El halo y los 512 bits en RAM hacen la misma búsqueda:** el mismo ef, las mismas cargas y el mismo recall. Solo cambia de dónde sale el sketch de cada endpoint, y eso es lo que mide la diferencia entre las dos celdas.
+- **El punto de operación es el menor ef que llega al recall,** no una interpolación: por eso las cargas no son al dígito las de v3.1.
+
+**Lo que ocupa cada celda:**
+
+| celda | store, con los postings | lo residente, en ficheros | vectores exactos |
+|---|---|---|---|
+| código completo en RAM | 243.0 MB | 232.5 MB | 6 082.6 MB, un fichero para las cinco |
+| 512 bits en RAM | 243.0 MB | 105.7 MB | el mismo |
+| 384 bits en RAM | 243.0 MB | 89.9 MB | el mismo |
+| halo de 512 bits | 663.4 MB | 34.5 MB | el mismo |
+| halo de 512 bits, podado | 494.7 MB | 34.5 MB | el mismo |
+
+- **El store ocupa lo que decía el modelo de v3.0 más un 0.3 a un 0.6 %:** 241.5, 661.7 y 493.0 MB en el modelo.
+- **Lo residente son el código de ruteo de cada vector,** donde lo hay, y 34.5 MB comunes: los centroides con su grafo, el posting de cada vector y el slot de cada doc id.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
