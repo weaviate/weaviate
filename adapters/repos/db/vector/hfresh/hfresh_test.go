@@ -428,10 +428,10 @@ func TestSinglePostingMode(t *testing.T) {
 		defer tf.Index.taskQueue.splitQueue.Resume()
 
 		vectors := insert(t, &tf, singlePostingThreshold+1)
-		require.True(t, tf.Index.Centroids.Built())
+		require.False(t, tf.Index.Centroids.Built(), "the paused split keeps the single posting")
 
 		// pad the allow list past the flat-search cutoff so the filter goes
-		// through the centroid index
+		// through the posting scan
 		allowed := make([]uint64, 0, flatSearchCutoff+singlePostingThreshold)
 		for id := range uint64(singlePostingThreshold) {
 			allowed = append(allowed, id)
@@ -447,11 +447,9 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, len(vectors), meta.Count(), "posting map must list every vector of the single posting")
 
-		// persisted before the transition is recorded, so a restart before
-		// the first split finds it
-		persisted, err := tf.Index.PostingMap.bucket.Get(ctx, 1)
-		require.NoError(t, err)
-		require.EqualValues(t, len(vectors), persisted.Count())
+		// the entry stays in memory until the first split
+		_, err = tf.Index.PostingMap.bucket.Get(ctx, 1)
+		require.ErrorIs(t, err, ErrPostingNotFound)
 	})
 
 	t.Run("concurrent inserts across the threshold all reach the posting map", func(t *testing.T) {
@@ -481,7 +479,7 @@ func TestSinglePostingMode(t *testing.T) {
 		}
 		require.NoError(t, eg.Wait())
 
-		require.True(t, tf.Index.Centroids.Built())
+		require.False(t, tf.Index.Centroids.Built(), "the paused split keeps the single posting")
 		meta, err := tf.Index.PostingMap.Get(ctx, 1)
 		require.NoError(t, err)
 		require.EqualValues(t, total, meta.Count())
@@ -491,9 +489,8 @@ func TestSinglePostingMode(t *testing.T) {
 		setSinglePostingLimit(t, singlePostingThreshold)
 		tf := newTestIndex(t, singlePostingUserConfig(), nil)
 		vectors := insert(t, &tf, singlePostingThreshold+1)
-		require.True(t, tf.Index.Centroids.Built())
-
 		tf.Index.waitForMaintenance(t)
+		require.True(t, tf.Index.Centroids.Built())
 
 		// the cascade must reach normal posting sizes without further
 		// inserts, and the posting map is rebuilt from the postings on disk

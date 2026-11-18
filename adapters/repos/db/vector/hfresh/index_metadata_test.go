@@ -242,8 +242,8 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 
 	// the restored posting keeps counting towards the threshold
 	all = addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
-	require.True(t, index.Centroids.Built())
 	index.waitForMaintenance(t)
+	require.True(t, index.Centroids.Built())
 	require.Greater(t, index.PostingSizes.Count(), uint64(2))
 	requireSelfSearchExcept(t, index, all, 7)
 }
@@ -355,6 +355,62 @@ func TestSinglePostingRestartAllDeleted(t *testing.T) {
 	}
 }
 
+// Crossing the limit only queues the first split, which builds the graph out
+// of the two halves of the single posting.
+func TestFirstSplitBuildsCentroidGraph(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
+	require.NoError(t, index.taskQueue.reassignQueue.Pause(t.Context()))
+	all := addRestartVectors(t, index, vectors, 0, 600)
+	require.False(t, index.Centroids.Built(), "crossing the limit only queues the split")
+	requireSelfSearchExcept(t, index, all, -1)
+
+	index.taskQueue.splitQueue.Resume()
+	require.Eventually(t, index.Centroids.Built, 10*time.Second, 10*time.Millisecond)
+	require.NoError(t, index.taskQueue.splitQueue.Wait(t.Context()))
+	require.False(t, index.Centroids.Exists(1))
+	require.Zero(t, index.taskQueue.reassignQueue.Size(), "the single posting has no centroid to compare against")
+
+	index.taskQueue.reassignQueue.Resume()
+	index.waitForMaintenance(t)
+	require.Greater(t, index.PostingSizes.Count(), uint64(1))
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
+// The first split inserts its children one at a time: they stay out of sight
+// until it deletes the single posting, which still holds every vector.
+func TestFirstSplitSwapsWhenSinglePostingDeleted(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 10)
+	centroids := index.Centroids
+	searchIDs := func() []uint64 {
+		results, err := centroids.Search(all[0], 10, nil)
+		require.NoError(t, err)
+		var ids []uint64
+		for id := range results.Iter() {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+
+	require.NoError(t, centroids.Insert(1001, &Centroid{Uncompressed: all[0]}))
+	require.NoError(t, centroids.Insert(1002, &Centroid{Uncompressed: all[1]}))
+	require.False(t, centroids.Built())
+	require.True(t, centroids.Exists(1))
+	require.Equal(t, []uint64{1}, searchIDs())
+
+	require.NoError(t, centroids.MarkAsDeleted(1))
+	require.True(t, centroids.Built())
+	require.False(t, centroids.Exists(1))
+	require.ElementsMatch(t, []uint64{1001, 1002}, searchIDs())
+}
+
 // A transition cut short by a crash leaves the commit log directory, so the
 // restart reopens the graph and finishes the transition on posting 1.
 func TestInterruptedTransitionFinishedOnRestart(t *testing.T) {
@@ -419,8 +475,8 @@ func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 	all := addRestartVectors(t, index, vectors, 0, singlePostingThreshold+1)
-	require.True(t, index.Centroids.Built())
 	index.waitForMaintenance(t)
+	require.True(t, index.Centroids.Built())
 	postings := index.PostingSizes.Count()
 	require.Greater(t, postings, uint64(2))
 	require.NoError(t, index.Shutdown(t.Context()))
@@ -478,22 +534,6 @@ func TestSinglePostingReopenedWithLowerLimit(t *testing.T) {
 			requireSelfSearchExcept(t, index, all, -1)
 		})
 	}
-}
-
-func TestInterruptedTransitionFinishedByNextInsert(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
-	defer index.taskQueue.splitQueue.Resume()
-
-	addRestartVectors(t, index, vectors, 0, 300)
-	// the graph exists but the posting was never analyzed
-	require.NoError(t, index.Centroids.Build())
-
-	addRestartVectors(t, index, vectors, 300, 301)
-	require.True(t, persistedPostingEntry(t, index, 1), "the next insert must finish the transition")
 }
 
 // An index restarted before its first insert has no dimensions to restore,
