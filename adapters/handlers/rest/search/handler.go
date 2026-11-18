@@ -68,6 +68,9 @@ type HandlerConfig struct {
 	Qualifier      namespacing.Qualifier
 	DefaultLimit   int64
 	MaximumResults int64
+	// MaxSearchEF is HNSW_MAX_SEARCH_EF, the upper bound for a per-request
+	// vectorSearchParams.ef.
+	MaxSearchEF int64
 	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
 	// rejects deeper returnReferences nesting than the traverser would.
 	CrossRefDepthLimit int
@@ -83,6 +86,7 @@ type Handler struct {
 	qualifier          namespacing.Qualifier
 	defaultLimit       int64
 	maximumResults     int64
+	maxSearchEF        int64
 	crossRefDepthLimit int
 	logger             logrus.FieldLogger
 }
@@ -95,6 +99,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		qualifier:          cfg.Qualifier,
 		defaultLimit:       cfg.DefaultLimit,
 		maximumResults:     cfg.MaximumResults,
+		maxSearchEF:        cfg.MaxSearchEF,
 		crossRefDepthLimit: cfg.CrossRefDepthLimit,
 		logger:             cfg.Logger,
 	}

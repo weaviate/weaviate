@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	nearTextArgs "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
@@ -1905,4 +1906,65 @@ func TestParseConsistencyLevel(t *testing.T) {
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
+}
+
+func ptrInt64(v int64) *int64 { return &v }
+
+func TestParseVectorSearchParams(t *testing.T) {
+	h := &Handler{maxSearchEF: 10000}
+	tests := []struct {
+		name     string
+		in       *models.SearchVectorSearchParams
+		expected *searchparams.VectorSearchParams
+		status   int // 0 = ok
+		errMsg   string
+	}{
+		{"absent", nil, nil, 0, ""},
+		{"ef nil", &models.SearchVectorSearchParams{}, nil, 0, ""},
+		{"ef zero", &models.SearchVectorSearchParams{Ef: ptrInt64(0)}, nil, 0, ""},
+		{"ef 800", &models.SearchVectorSearchParams{Ef: ptrInt64(800)}, &searchparams.VectorSearchParams{EF: 800}, 0, ""},
+		{"ef equals cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10000)}, &searchparams.VectorSearchParams{EF: 10000}, 0, ""},
+		{
+			"ef above cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10001)}, nil, http.StatusUnprocessableEntity,
+			"vectorSearchParams.ef must not exceed HNSW_MAX_SEARCH_EF (10000), got 10001",
+		},
+		{
+			"ef negative", &models.SearchVectorSearchParams{Ef: ptrInt64(-1)}, nil, http.StatusUnprocessableEntity,
+			"vectorSearchParams.ef must not be negative, got -1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, apiErr := h.parseVectorSearchParams(&models.SearchCommon{VectorSearchParams: tt.in})
+			if tt.status != 0 {
+				require.NotNil(t, apiErr)
+				assert.Equal(t, tt.status, apiErr.Status)
+				assert.Equal(t, tt.errMsg, apiErr.Err.Error())
+				assert.Nil(t, got)
+				return
+			}
+			require.Nil(t, apiErr)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestBm25RejectsVectorSearchParams(t *testing.T) {
+	for name, body := range map[string]string{
+		"with ef":      `{"query":"space","vectorSearchParams":{"ef":10}}`,
+		"empty object": `{"query":"space","vectorSearchParams":{}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, apiErr := buildBm25(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Err.Error(), "vectorSearchParams is not applicable to bm25 search")
+		})
+	}
+}
+
+func TestBaseParamsMapsVectorSearchParams(t *testing.T) {
+	searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"vectorSearchParams":{"ef":42}}`)
+	require.Nil(t, apiErr)
+	assert.Equal(t, &searchparams.VectorSearchParams{EF: 42}, searcher.lastParams.VectorSearchParams)
 }

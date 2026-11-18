@@ -291,6 +291,7 @@ func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[strin
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
 		MaximumResults:     10000,
+		MaxSearchEF:        10000,
 		Logger:             logrus.New(),
 	})
 	return deps

@@ -4383,6 +4383,22 @@
         "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
           "$ref": "#/definitions/SearchRerank"
+        },
+        "vectorSearchParams": {
+          "description": "Per-request vector search tuning. Applies to vector-based searches (near-text, near-object, hybrid); rejected on bm25 search.",
+          "$ref": "#/definitions/SearchVectorSearchParams"
+        }
+      }
+    },
+    "SearchVectorSearchParams": {
+      "description": "Per-request tuning of the vector index search.",
+      "type": "object",
+      "properties": {
+        "ef": {
+          "description": "HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
         }
       }
     },

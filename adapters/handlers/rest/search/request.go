@@ -77,7 +77,35 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	}
 	out.Pagination = pagination
 
+	vectorSearchParams, apiErr := h.parseVectorSearchParams(common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.VectorSearchParams = vectorSearchParams
+
 	return out, nil
+}
+
+// parseVectorSearchParams maps the per-request vectorSearchParams. An absent
+// object, an omitted ef or ef 0 all mean "use the collection's configured
+// value" and yield nil. ef is bounded by HNSW_MAX_SEARCH_EF (inclusive).
+func (h *Handler) parseVectorSearchParams(common *models.SearchCommon) (*searchparams.VectorSearchParams, *APIError) {
+	if common.VectorSearchParams == nil || common.VectorSearchParams.Ef == nil {
+		return nil, nil
+	}
+	ef := *common.VectorSearchParams.Ef
+	if ef < 0 {
+		return nil, newAPIError(http.StatusUnprocessableEntity,
+			"vectorSearchParams.ef must not be negative, got %d", ef)
+	}
+	if ef == 0 {
+		return nil, nil
+	}
+	if ef > h.maxSearchEF {
+		return nil, newAPIError(http.StatusUnprocessableEntity,
+			"vectorSearchParams.ef must not exceed HNSW_MAX_SEARCH_EF (%d), got %d", h.maxSearchEF, ef)
+	}
+	return &searchparams.VectorSearchParams{EF: int(ef)}, nil
 }
 
 // fillSelectionAndFilter fills the fields every search type shares: the
@@ -154,6 +182,11 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
+	// vectorSearchParams tunes the vector index; a keyword search has none
+	if common.VectorSearchParams != nil {
+		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
+			"vectorSearchParams is not applicable to bm25 search")
+	}
 	out, apiErr := h.baseParams(className, common)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr

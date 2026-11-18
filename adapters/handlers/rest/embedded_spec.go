@@ -12080,6 +12080,10 @@ func init() {
           "description": "The tenant to search in a multi-tenant collection.",
           "type": "string"
         },
+        "vectorSearchParams": {
+          "description": "Per-request vector search tuning. Applies to vector-based searches (near-text, near-object, hybrid); rejected on bm25 search.",
+          "$ref": "#/definitions/SearchVectorSearchParams"
+        },
         "where": {
           "description": "A conditional filter to limit the objects that are searched.",
           "$ref": "#/definitions/WhereFilter"
@@ -12466,6 +12470,18 @@ func init() {
         },
         "lastUpdateTime": {
           "description": "The referenced object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        }
+      }
+    },
+    "SearchVectorSearchParams": {
+      "description": "Per-request tuning of the vector index search.",
+      "type": "object",
+      "properties": {
+        "ef": {
+          "description": "HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
@@ -25827,6 +25843,10 @@ func init() {
           "description": "The tenant to search in a multi-tenant collection.",
           "type": "string"
         },
+        "vectorSearchParams": {
+          "description": "Per-request vector search tuning. Applies to vector-based searches (near-text, near-object, hybrid); rejected on bm25 search.",
+          "$ref": "#/definitions/SearchVectorSearchParams"
+        },
         "where": {
           "description": "A conditional filter to limit the objects that are searched.",
           "$ref": "#/definitions/WhereFilter"
@@ -26213,6 +26233,18 @@ func init() {
         },
         "lastUpdateTime": {
           "description": "The referenced object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        }
+      }
+    },
+    "SearchVectorSearchParams": {
+      "description": "Per-request tuning of the vector index search.",
+      "type": "object",
+      "properties": {
+        "ef": {
+          "description": "HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
