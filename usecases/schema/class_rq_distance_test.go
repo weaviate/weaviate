@@ -339,3 +339,43 @@ func TestRQDefaultUnderCompressionAllowList(t *testing.T) {
 		require.NotNil(t, stored)
 	})
 }
+
+// TestDefaultQuantizationOutsideAllowListIsNotApplied: an allow-list pushed
+// at runtime can exclude the server default, which must then not be applied.
+func TestDefaultQuantizationOutsideAllowListIsNotApplied(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		allow      []string
+		compressed bool
+	}{
+		{name: "no allow-list", allow: nil, compressed: true},
+		{name: "allow-list holds the default", allow: []string{"rq-4", "rq-8"}, compressed: true},
+		{name: "allow-list excludes the default", allow: []string{"rq-8"}, compressed: false},
+	} {
+		for _, shape := range rqClassShapes {
+			t.Run(tt.name+"/"+shape.name, func(t *testing.T) {
+				handler, manager := newTestHandlerAndManagerWithRealVectorConfigParser(t)
+				handler.config.DefaultQuantization = runtime.NewDynamicValue("rq-4")
+				handler.config.Restrictions.AllowedCompressionTypes = runtime.NewDynamicValue(tt.allow)
+				var stored *models.Class
+				manager.On("AddClass", mock.Anything, mock.Anything).
+					Run(func(args mock.Arguments) { stored = args.Get(0).(*models.Class) }).
+					Return(nil)
+
+				class := shape.class("hnsw", rqIndexConfig("hnsw", "", "cosine", nil))
+				class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+				_, _, err := handler.AddClass(context.Background(), nil, class)
+				require.NoError(t, err)
+				require.NotNil(t, stored)
+
+				cfg := stored.VectorIndexConfig
+				if shape.name == "named" {
+					cfg = stored.VectorConfig["v"].VectorIndexConfig
+				}
+				for arm, state := range rqEnabledArms(t, cfg.(schemaConfig.VectorIndexConfig)) {
+					require.Equal(t, tt.compressed, state[0], "arm %q: rq enabled", arm)
+				}
+			})
+		}
+	}
+}

@@ -45,7 +45,11 @@ type Config struct {
 	WaitForCachePrefill               bool
 	FlatSearchConcurrency             int
 	AcornFilterRatio                  float64
-	MakeBucketOptions                 lsmkv.MakeBucketOptions
+	// SkipQueryDimensionCheck lets SearchByVector take a query that is not
+	// the indexed length. hfresh searches its centroids with the vectors
+	// RQ decodes, which are padded to the rotation's output dimension.
+	SkipQueryDimensionCheck bool
+	MakeBucketOptions       lsmkv.MakeBucketOptions
 
 	// metadata for monitoring
 	ShardName string

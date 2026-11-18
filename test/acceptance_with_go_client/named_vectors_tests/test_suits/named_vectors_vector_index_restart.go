@@ -58,12 +58,16 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 			"hnsw_8bit_rq":    1600,
 		}
 
+		// the vectors compressed later in the test must start uncompressed: an
+		// index keeps the compression it was created with, the server default
+		// included
 		vectorConfig := map[string]models.VectorConfig{
 			"uncompressed": {
 				Vectorizer: map[string]any{
 					"none": map[string]any{},
 				},
-				VectorIndexType: "hnsw",
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: uncompressed(),
 			},
 			"hnsw_bq": {
 				Vectorizer: map[string]any{
@@ -76,13 +80,15 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 				Vectorizer: map[string]any{
 					"none": map[string]any{},
 				},
-				VectorIndexType: "hnsw",
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: uncompressed(),
 			},
 			"hnsw_sq": {
 				Vectorizer: map[string]any{
 					"none": map[string]any{},
 				},
-				VectorIndexType: "hnsw",
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: uncompressed(),
 			},
 			"flat": {
 				Vectorizer: map[string]any{
@@ -119,13 +125,15 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 				Vectorizer: map[string]any{
 					"none": map[string]any{},
 				},
-				VectorIndexType: "hnsw",
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: uncompressed(),
 			},
 			"hnsw_8bit_rq": {
 				Vectorizer: map[string]any{
 					"none": map[string]any{},
 				},
-				VectorIndexType: "hnsw",
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: uncompressed(),
 			},
 		}
 
