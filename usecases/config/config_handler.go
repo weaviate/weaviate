@@ -494,13 +494,14 @@ func (c *Config) validateOIDCNamespaceClaims() error {
 	return nil
 }
 
-// validateUsageLimitsReplicationLinkage enforces the RF=1 precondition for the
-// object/tenant/shard usage limits: only the RF=1 deployment shape is
-// supported, so when any of those caps is set we require
-// REPLICATION_MAXIMUM_FACTOR=1 so per-class RF cannot exceed 1. The collection
-// cap is excluded because it predates this PR and tying it would be a breaking
-// change for existing operators.
+// validateUsageLimitsReplicationLinkage requires REPLICATION_MAXIMUM_FACTOR=1
+// when NAMESPACES_ENABLED is false and an object, tenant or shard cap is set,
+// because those caps need RF=1 there (docs/usage_limits.md). The collection
+// cap is left out, so nodes whose operators already set it still start.
 func (c *Config) validateUsageLimitsReplicationLinkage() error {
+	if c.Namespaces.Enabled {
+		return nil
+	}
 	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
 		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
 		dynamicIntSet(c.UsageLimits.MaxShardsPerCollection)

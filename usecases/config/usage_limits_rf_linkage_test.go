@@ -27,12 +27,13 @@ func TestValidateUsageLimitsReplicationLinkage(t *testing.T) {
 	set := runtime.NewDynamicValue(10)
 
 	tests := []struct {
-		name      string
-		objects   *runtime.DynamicValue[int]
-		tenants   *runtime.DynamicValue[int]
-		shards    *runtime.DynamicValue[int]
-		maxFactor int
-		wantErr   bool
+		name       string
+		objects    *runtime.DynamicValue[int]
+		tenants    *runtime.DynamicValue[int]
+		shards     *runtime.DynamicValue[int]
+		maxFactor  int
+		namespaces bool
+		wantErr    bool
 	}{
 		{name: "no limits, no cap", objects: unset, tenants: unset, shards: unset, maxFactor: 0, wantErr: false},
 		{name: "no limits, MaximumFactor=1", objects: unset, tenants: unset, shards: unset, maxFactor: 1, wantErr: false},
@@ -45,6 +46,7 @@ func TestValidateUsageLimitsReplicationLinkage(t *testing.T) {
 		{name: "tenants set, MaximumFactor unset", objects: unset, tenants: set, shards: unset, maxFactor: 0, wantErr: true},
 		{name: "shards set, MaximumFactor=2", objects: unset, tenants: unset, shards: set, maxFactor: 2, wantErr: true},
 		{name: "nil DynamicValue treated as unset", objects: nil, tenants: nil, shards: nil, maxFactor: 0, wantErr: false},
+		{name: "namespaces enabled, objects set, MaximumFactor=3", objects: set, tenants: unset, shards: unset, maxFactor: 3, namespaces: true, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -55,6 +57,7 @@ func TestValidateUsageLimitsReplicationLinkage(t *testing.T) {
 					MaxShardsPerCollection:  tt.shards,
 				},
 				Replication: replication.GlobalConfig{MaximumFactor: tt.maxFactor},
+				Namespaces:  Namespaces{Enabled: tt.namespaces},
 			}
 			err := c.validateUsageLimitsReplicationLinkage()
 			if tt.wantErr {

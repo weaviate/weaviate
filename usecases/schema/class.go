@@ -347,7 +347,7 @@ func refusePlacement(entry logrus.FieldLogger, err error) error {
 
 // checkNamespaceFactor refuses a factor above the HomeNodes count of ns.
 func (h *Handler) checkNamespaceFactor(ns api.Namespace, factor int64) error {
-	if err := ns.CheckReplicationFactor(factor); err != nil {
+	if err := ns.CheckReplicationFactor(factor, int64(h.config.Replication.MinimumFactor)); err != nil {
 		h.logger.WithField("namespace", ns.Name).Warnf("refusing replication factor: %v", err)
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}

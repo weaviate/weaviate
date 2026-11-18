@@ -54,10 +54,10 @@ type GlobalConfig struct {
 	// refuses a namespace create or update whose home_nodes is shorter than it.
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
-	// MaximumFactor caps the replication factor allowed on any class. A value
-	// <= 0 means "no cap". Set via REPLICATION_MAXIMUM_FACTOR. Used by the
-	// usage-limits guardrails: when any object/tenant/shard cap is set,
-	// MaximumFactor must be 1 (only the RF=1 deployment shape is supported).
+	// MaximumFactor caps the replication factor allowed on any class, set via
+	// REPLICATION_MAXIMUM_FACTOR. A value <= 0 means "no cap". With
+	// NAMESPACES_ENABLED, a namespace create without home_nodes picks this many
+	// home nodes, and a value <= 0 refuses that create.
 	MaximumFactor int `json:"maximum_factor" yaml:"maximum_factor"`
 
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
