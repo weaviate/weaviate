@@ -255,13 +255,19 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 	t.Run("recall non-decreasing", func(t *testing.T) {
 		createSingleVectorCollection(t, "EfRecall", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
 		prev := -1.0
+		recalls := map[uint32]float64{}
 		for _, ef := range []uint32{10, 50, 200, 1000} {
 			r := meanRecall(t, grpcClient, ds, "EfRecall", u32(ef), nil, nil)
 			t.Logf("ef=%d recall@%d=%.3f", ef, k, r)
 			assert.GreaterOrEqual(t, r, prev, "recall must not decrease when ef grows to %d", ef)
 			prev = r
+			recalls[ef] = r
 		}
 		assert.GreaterOrEqual(t, prev, 0.95, "recall at ef=1000")
+		// The collection default ef already reaches ~1.0 recall, so only a low
+		// ef distinguishes "ef reached HNSW" from "ef was silently dropped".
+		assert.Less(t, recalls[10], recalls[1000], "ef=10 must be strictly worse than ef=1000")
+		assert.Less(t, recalls[10], 0.95, "ef=10 recall")
 	})
 
 	t.Run("ef below limit", func(t *testing.T) {
@@ -298,10 +304,9 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 
 	t.Run("hybrid dense leg", func(t *testing.T) {
 		createSingleVectorCollection(t, "EfHybrid", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
-		for qi, q := range ds.queries[:10] {
-			nv := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, k, u32(1000)))
-			alpha := float32(1)
-			hybrid := searchIDs(t, grpcClient, &pb.SearchRequest{
+		alpha := float32(1)
+		hybridIDs := func(q []float32, ef uint32) []string {
+			return searchIDs(t, grpcClient, &pb.SearchRequest{
 				Collection: "EfHybrid",
 				Limit:      k,
 				Metadata:   &pb.MetadataRequest{Uuid: true},
@@ -314,10 +319,23 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 						VectorBytes: byteops.Fp32SliceToBytes(q),
 					}},
 				},
-				VectorSearchParams: efParams(u32(1000)),
+				VectorSearchParams: efParams(u32(ef)),
 				Uses_127Api:        true,
 			})
-			require.Equal(t, nv, hybrid, "query %d", qi)
+		}
+		// ef=1000: the dense leg must match near-vector exactly.
+		for qi, q := range ds.queries[:10] {
+			nv := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, k, u32(1000)))
+			require.Equal(t, nv, hybridIDs(q, 1000), "ef 1000 query %d", qi)
+		}
+		// ef=10: hybrid sub-searches fetch max(limit, QUERY_HYBRID_MAXIMUM_RESULTS=100)
+		// candidates, so the dense leg's beam is max(10, 100) = 100. The matching
+		// near-vector request is therefore the top 10 of a limit-100, ef=10 search
+		// (NOT limit 10, whose beam would be 10). Note this cannot detect a
+		// dropped ef: the hybrid beam floor of 100 already gives ~1.0 recall.
+		for qi, q := range ds.queries[:10] {
+			nv := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, 100, u32(10)))
+			require.Equal(t, nv[:k], hybridIDs(q, 10), "ef 10 query %d", qi)
 		}
 	})
 
@@ -485,15 +503,23 @@ func TestVectorSearchParamsEF_Replicated(t *testing.T) {
 	for node := 1; node <= 3; node++ {
 		t.Run(fmt.Sprintf("node %d", node), func(t *testing.T) {
 			c := newGRPC(t, compose.GetWeaviateNode(node).GrpcURI())
-			matches := 0
-			for _, q := range ds.queries {
-				got := searchIDs(t, c, nearVectorRequest("EfReplicated", q, k, u32(1000)))
-				if recallOf(got, ds.exactTopK(q, nil)) == 1 {
-					matches++
+			// With RF=3 every node holds a replica and the per-request ef crosses
+			// the node-to-node payload: a node ignoring it would return the
+			// exhaustive result at both ef values.
+			count := func(ef uint32) int {
+				matches := 0
+				for _, q := range ds.queries {
+					got := searchIDs(t, c, nearVectorRequest("EfReplicated", q, k, u32(ef)))
+					if recallOf(got, ds.exactTopK(q, nil)) == 1 {
+						matches++
+					}
 				}
+				return matches
 			}
-			t.Logf("node %d: %d/%d queries match brute force", node, matches, len(ds.queries))
-			assert.GreaterOrEqual(t, matches, 28)
+			high, low := count(1000), count(10)
+			t.Logf("node %d: ef=1000 %d/%d, ef=10 %d/%d queries match brute force", node, high, len(ds.queries), low, len(ds.queries))
+			assert.GreaterOrEqual(t, high, 28)
+			assert.Less(t, low, high, "ef=10 must match brute force on fewer queries than ef=1000")
 		})
 	}
 }
