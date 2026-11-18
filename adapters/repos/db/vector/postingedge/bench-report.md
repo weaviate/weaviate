@@ -309,6 +309,34 @@ Se reporta al cerrar cada paso.
 - **Lo que cambia de la propuesta:** donde decía «encaja en `lsmkv` sin tocarlo», encaja con el arreglo de un bug suyo. El diseño es el mismo.
   - La segunda alternativa de la tabla, la estrategia Map, no escribe lápidas y no habría tropezado con él.
 
+### Enmienda 2 (14:58 del 18, del usuario): se sigue con la propuesta, y se mide cuánto pesa la basura
+
+*Antes de ningún dato de 1M. Las dos decisiones son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.*
+
+**Del usuario:**
+
+- **Se sigue con la propuesta de almacenamiento:** las aristas en su fila, en un Set con lápida.
+- **Se añaden a las medidas las lecturas y los bytes por carga antes y después de compactar,** para ver cuánto pesa la basura acumulada.
+- **Si el criterio de lectura fallara solo por el enmarcado del Set, se dice así:** sería coste del formato, no del algoritmo.
+
+*Mío, para aplicarlo:*
+
+- **Qué se vio al parar la primera validación,** que llevaba 200 000 inserts de 891 000 y ningún checkpoint: con la compactación forzada que HFresh pone en su bucket de postings (`WithForceCompaction`), y que yo había copiado, el bucket estaba en un solo segmento de 79 MB. El store junta cada volcado con lo que haya, y no queda basura que medir. Lo paga reescribiendo el bucket.
+  - De esa corrida no sale ninguna medida. Lo demás que vi de ella: 805 splits y 4.26 aristas inversas por insert.
+- **`lsmkv` tiene dos políticas,** y se miden las dos:
+  - **por niveles, la que tiene por defecto:** solo junta dos segmentos del mismo nivel. La basura se acumula entre compactaciones, y las lápidas solo se van cuando entra el segmento más antiguo;
+  - **forzada, la del bucket de postings de HFresh:** junta además los segmentos que sobran.
+- **La validación va con la política por niveles,** que es donde hay basura que pesar. **La corrida cronometrada va con la forzada,** la de HFresh. Cada una dice con cuál va. El criterio 1 se lee compactado, y el 2 sobre el índice cronometrado compactado: ninguno depende de la política.
+- **Al 100 %, la validación mide las búsquedas en tres estados:**
+  1. como lo dejan los ciclos del store, con lo último todavía en la memtable;
+  2. con las memtables volcadas y sin compactar más: todo en segmentos, con su basura;
+  3. tras la compactación completa, que es forzada.
+- **Por carga, en cada estado:** las lecturas del store, sus bytes, y los segmentos del bucket. Se dan junto a lo que la carga pesa por el modelo.
+- **Lo que pesa la basura** son los bytes que el store lee de más en el estado 2 sobre el estado 3: listas reemplazadas, sus lápidas, y las filas repartidas en varios segmentos.
+- **El criterio 1, partido en formato y algoritmo.** Compactado, lo que el store lee de más sobre el modelo se reparte en: el id del miembro en su lista (4 B), el marco de cada valor (9 B, dos valores por miembro), y la cabecera de cada fila. El algoritmo es lo que quede: las cargas son las del gemelo, así que debe ser cero.
+  - Si la razón pasa de 1.10 y ese resto es cero, el veredicto dice: **NO se cumple, por el formato y no por el algoritmo.**
+- **El coste por insert se reporta de la validación,** con la política por niveles, y la amplificación de escritura, de las dos corridas.
+
 ### Pasos 1 y 2, cerrados: el formato, el insert y el split, y la equivalencia a pequeña escala (14:19 del 18)
 
 **Qué hay:**
