@@ -306,6 +306,12 @@ Se reporta al cerrar cada paso.
   - **HFresh no está afectado:** su bucket de postings nunca borra un valor suelto.
 - **El arreglo,** en `compactor_set.go`: cuando se limpian lápidas y la clave trae alguna, sus valores pasan antes por el decodificador, sobre una copia. Sin lápidas, o cuando las lápidas se conservan, nada cambia.
 - **El test de regresión,** `compactor_set_deleted_value_test.go`: los 9 casos del Set pasan con el arreglo. Las estrategias vecinas, con la misma forma (escrito y borrado entre dos volcados, bajo una clave que solo tiene el segmento nuevo), ya se portaban bien: Map, RoaringSet y Replace. **Sin comprobar:** Inverted y RoaringSetRange.
+- **A main, en su propio PR** (añadido el 18 por la tarde, a petición del usuario): el borrador weaviate/weaviate#13950, con el arreglo y tres tests. Lo que ese trabajo encontró, y corrige de lo dicho arriba:
+  - **Reproducido de punta a punta, por el shard.** Tras una compactación, el conjunto de doc ids de un filtro por `id` conserva el doc id viejo de un objeto borrado, o de uno actualizado con un doc id nuevo. De sus 6 casos, 4 fallan sin el arreglo.
+  - **Llega a todas las clases,** no solo a buckets heredados: el bucket `_id` de cada clase es de estrategia Set y nunca se migra.
+  - **Lo que ve un usuario:** la búsqueda devuelve los objetos correctos, porque el doc id viejo ya no resuelve a ningún objeto. Lo que queda mal es el conjunto de doc ids del filtro. Si los doc ids se reutilizaran, esa entrada apuntaría a otro objeto.
+  - **Inverted y RoaringSetRange, comprobadas:** mantienen lo borrado como borrado, con y sin el arreglo.
+  - **Lo que el arreglo no hace:** quitar un doc id que una compactación ya haya devuelto. Se queda hasta que ese índice se reconstruya.
 - **Lo que cambia de la propuesta:** donde decía «encaja en `lsmkv` sin tocarlo», encaja con el arreglo de un bug suyo. El diseño es el mismo.
   - La segunda alternativa de la tabla, la estrategia Map, no escribe lápidas y no habría tropezado con él.
 
