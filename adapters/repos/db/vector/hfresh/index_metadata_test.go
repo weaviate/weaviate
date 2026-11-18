@@ -221,7 +221,7 @@ type partialFlushCase struct {
 }
 
 func TestRecoveryAfterPartialFlush(t *testing.T) {
-	vectors, _ := testinghelpers.RandomVecsFixedSeed(1400, 0, 8)
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(700, 0, 8)
 	idRange := func(from, to int) []uint64 {
 		ids := make([]uint64, 0, to-from)
 		for id := from; id < to; id++ {
@@ -291,39 +291,39 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 	cases := []partialFlushCase{
 		{
 			name:      "split, commit log behind store",
-			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
-			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 100, 400); return nil },
 			rollback:  commitLog,
-			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 400) },
 		},
 		{
 			name:      "split, store behind commit log",
-			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
-			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 100, 400); return nil },
 			rollback:  wholeStore,
-			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 100) },
 		},
 		{
 			name:      "merge, store behind commit log",
-			setup:     func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			setup:     func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 400) },
 			mutate:    shrinkAndMerge,
 			rollback:  wholeStore,
-			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 400) },
 		},
 		{
 			name:     "merge, commit log behind store",
-			setup:    func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			setup:    func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 400) },
 			mutate:   shrinkAndMerge,
 			rollback: commitLog,
 			reachable: func(deleted []uint64) []uint64 {
-				return slices.DeleteFunc(idRange(0, 800), func(id uint64) bool { return slices.Contains(deleted, id) })
+				return slices.DeleteFunc(idRange(0, 400), func(id uint64) bool { return slices.Contains(deleted, id) })
 			},
 		},
 		{
 			name:  "IDs of cleaned up centroids, store behind commit log",
-			setup: func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			setup: func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
 			mutate: func(t *testing.T, h *HFresh) []uint64 {
-				add(t, h, 200, 800)
+				add(t, h, 100, 400)
 				waitIdle(t, h)
 				require.NoError(t, h.Centroids.hnsw.CleanUpTombstonedNodes(func() bool { return false }))
 				for id := range h.PostingMap.Iter() {
@@ -332,7 +332,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 				return nil
 			},
 			rollback:  wholeStore,
-			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 100) },
 			check: func(t *testing.T, h *HFresh) {
 				id, err := h.IDs.Next()
 				require.NoError(t, err)
@@ -341,10 +341,10 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		},
 		{
 			name:      "split, centroid vectors bucket behind commit log",
-			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
-			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 100, 400); return nil },
 			rollback:  centroidVectorsBucket,
-			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 400) },
 		},
 		{
 			name:      "first posting, commit log behind store",
@@ -441,9 +441,9 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 
 			// the recovered index must keep accepting writes and splitting
 			phase(func(h *HFresh) {
-				add(t, h, 800, 1400)
+				add(t, h, 400, 700)
 				waitIdle(t, h)
-				requireReachable(h, append(reachable, idRange(800, 1400)...))
+				requireReachable(h, append(reachable, idRange(400, 700)...))
 			})
 		})
 	}

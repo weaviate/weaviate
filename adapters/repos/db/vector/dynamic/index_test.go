@@ -705,13 +705,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			fuc := flatent.UserConfig{}
 			fuc.SetDefaults()
 			tt.setupFlatConfig(&fuc)
-			hnswuc := hnswent.UserConfig{
-				MaxConnections:        30,
-				EFConstruction:        64,
-				EF:                    32,
-				VectorCacheMaxObjects: 1_000_000,
-			}
-			hnswuc.SetDefaults()
+			hnswuc := smallHNSWUserConfig()
 			tt.setupHNSWConfig(&hnswuc, threshold)
 
 			config := Config{
@@ -1239,13 +1233,7 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 	fuc.SetDefaults()
 	// BQ on the flat side matches the bq_dynamic scenario in the failing CI test.
 	fuc.BQ = flatent.CompressionUserConfig{Enabled: true, Cache: true}
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        16,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 
 	indexID := "stale-cl-test"
 	makeConfig := func() Config {
@@ -1631,8 +1619,7 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{MaxConnections: 16, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	uc := ent.UserConfig{Threshold: threshold, Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
 
 	indexID := "node-id-limit"

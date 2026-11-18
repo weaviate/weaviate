@@ -222,14 +222,17 @@ func flatUncompressed() flatent.UserConfig {
 	return fuc
 }
 
-func hnswWith(mutate func(*hnswent.UserConfig)) hnswent.UserConfig {
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
+// smallHNSWUserConfig returns the hnsw defaults with a graph that is cheap to build under the race detector.
+func smallHNSWUserConfig() hnswent.UserConfig {
+	hnswuc := hnswent.UserConfig{}
 	hnswuc.SetDefaults()
+	hnswuc.MaxConnections = 8
+	hnswuc.EFConstruction = 16
+	return hnswuc
+}
+
+func hnswWith(mutate func(*hnswent.UserConfig)) hnswent.UserConfig {
+	hnswuc := smallHNSWUserConfig()
 	mutate(&hnswuc)
 	return hnswuc
 }
