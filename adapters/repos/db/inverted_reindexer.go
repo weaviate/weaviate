@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -125,8 +126,14 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		// TODO verify if property indeed need reindex before creating buckets
 		// (is filterable / is searchable / null or prop length index enabled)
 		bucketsToReindex[i] = r.bucketName(reindexProperty.PropertyName, reindexProperty.IndexType)
+		options := reindexProperty.BucketOptions
+		if reindexProperty.IndexType == IndexTypePropValue {
+			// ReplaceBuckets keeps the temp bucket's options on the filterable bucket.
+			options = append(slices.Clone(options), lsmkv.WithPread(
+				r.shard.Index().Config.filterableUsesPread(reindexProperty.PropertyName)))
+		}
 		if err := r.createTempBucket(ctx, bucketsToReindex[i], reindexProperty.DesiredStrategy,
-			reindexProperty.BucketOptions...); err != nil {
+			options...); err != nil {
 			r.logError(err, "failed creating temporary bucket")
 			return err
 		}

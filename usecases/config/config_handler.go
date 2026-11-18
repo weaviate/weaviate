@@ -1128,10 +1128,12 @@ type Persistence struct {
 	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
 	LSMSkipWriteClassNameEnabled        bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
-	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	// Properties whose rangeable index keeps its segments in memory, per
-	// collection. Read only when IndexRangeableInMemory is false.
-	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	// collection, or under AllCollections for every collection.
+	IndexRangeableInMemoryProps map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	// IndexFilterableMMapProps lists, keyed as IndexRangeableInMemoryProps, the properties
+	// whose filterable bucket reads through mmap when PERSISTENCE_LSM_ACCESS_STRATEGY=pread.
+	IndexFilterableMMapProps       map[string][]string `json:"indexFilterableMMapProps" yaml:"indexFilterableMMapProps"`
 	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
@@ -1198,19 +1200,32 @@ func (p Persistence) Validate() error {
 		return fmt.Errorf("persistence.dataPath must be set")
 	}
 
-	// A config file writes this field past the environment parser's refusals.
-	for collection, props := range p.IndexRangeableInMemoryProps {
+	// A config file writes these fields past the environment parser's refusals.
+	if err := validateCollectionProps("persistence.indexRangeableInMemoryProps",
+		p.IndexRangeableInMemoryProps); err != nil {
+		return err
+	}
+	return validateCollectionProps("persistence.indexFilterableMMapProps",
+		p.IndexFilterableMMapProps)
+}
+
+func validateCollectionProps(field string, collectionProps map[string][]string) error {
+	for collection, props := range collectionProps {
+		if collection == AllCollections {
+			if !slices.Equal(props, []string{AllProperties}) {
+				return fmt.Errorf("%s names %q with %q: every collection takes only %q",
+					field, collection, props, AllProperties)
+			}
+			continue
+		}
 		if _, err := schema.ValidateClassName(collection); err != nil {
-			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q: %w",
-				collection, err)
+			return fmt.Errorf("%s names %q: %w", field, collection, err)
 		}
 		if len(props) == 0 {
-			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q with no "+
-				"properties: list them, or write %q for every rangeable property it has",
-				collection, AllProperties)
+			return fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+				"for every property it has", field, collection, AllProperties)
 		}
 	}
-
 	return nil
 }
 
