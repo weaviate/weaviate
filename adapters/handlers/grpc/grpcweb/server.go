@@ -16,6 +16,7 @@
 package grpcweb
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -34,7 +36,8 @@ import (
 // existing gRPC server. It carries its own CORS layer (grpc-web is routed
 // outside the REST middleware chain; see Mount) and exposes the gRPC trailer
 // headers so browsers can read the RPC status. tracker sits under the CORS
-// layer, so the 503 it returns while draining carries CORS headers.
+// layer, so the 503 it returns while draining carries CORS headers. A query is
+// bounded by the server's write timeout; see withQueryDeadline.
 func NewHandler(grpcServer *grpc.Server, state *state.State, tracker *Tracker) (http.Handler, error) {
 	opts := []vanguard.ServiceOption{}
 	opts = append(opts, vanguard.WithMaxMessageBufferBytes(msgBufferLimit(state.ServerConfig.Config.GRPC.MaxMsgSize)))
@@ -42,7 +45,30 @@ func NewHandler(grpcServer *grpc.Server, state *state.State, tracker *Tracker) (
 	if err != nil {
 		return nil, fmt.Errorf("build grpc-web transcoder: %w", err)
 	}
-	return cors.New(corsOptions(state.ServerConfig.Config.CORS)).Handler(tracker.wrap(transcoder)), nil
+	return cors.New(corsOptions(state.ServerConfig.Config.CORS)).Handler(tracker.wrap(withQueryDeadline(transcoder))), nil
+}
+
+// withQueryDeadline bounds a Search or Aggregate request by the write timeout
+// of the server that accepted it, as a response that takes longer cannot be
+// written. A browser client often sets no timeout of its own, and a remote
+// aggregation without a deadline is cut off by the cluster's per-request query
+// timeout instead; under a deadline it can use all the time the response has.
+// A client timeout shorter than the write timeout still applies.
+func withQueryDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv, ok := r.Context().Value(http.ServerContextKey).(*http.Server)
+		if !ok || srv.WriteTimeout <= 0 || !isQueryMethod(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), srv.WriteTimeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func isQueryMethod(urlPath string) bool {
+	return urlPath == pb.Weaviate_Search_FullMethodName || urlPath == pb.Weaviate_Aggregate_FullMethodName
 }
 
 // corsOptions builds the CORS config for the grpc-web handler: the

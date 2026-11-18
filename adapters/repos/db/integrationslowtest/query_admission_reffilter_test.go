@@ -561,14 +561,12 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond, "used budget did not drain to zero")
 }
 
-// TestQueryAdmissionAggregateRefFilterSheds pins that an aggregation is
-// reachable by admission through a cross-reference filter: resolving the
-// reference runs a nested object search that takes a grant, so under
-// saturation the aggregation itself surfaces ErrOverloaded (the ingress
-// mappings depend on this identity). A plain-filter aggregation never
-// touches the gate, pinning the documented "aggregations are not gated"
-// scope.
-func TestQueryAdmissionAggregateRefFilterSheds(t *testing.T) {
+// TestQueryAdmissionAggregateSheds pins that every shard aggregation takes a
+// grant, so under saturation the aggregation surfaces ErrOverloaded (the
+// ingress mappings depend on this identity). A cross-reference filter resolves
+// the reference through a nested object search on the same grant, so it
+// drains under a budget of one instead of wedging.
+func TestQueryAdmissionAggregateSheds(t *testing.T) {
 	const (
 		budget     = 1
 		maxQueue   = 1
@@ -584,20 +582,26 @@ func TestQueryAdmissionAggregateRefFilterSheds(t *testing.T) {
 		On:       &filters.Path{Class: "Article", Property: "title"},
 		Value:    &filters.Value{Value: "*", Type: schema.DataTypeText},
 	}}
+	titleCount := []aggregation.ParamProperty{{
+		Name:        "title",
+		Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+	}}
 
 	tests := []struct {
-		name     string
-		filter   *filters.LocalFilter
-		wantShed bool
+		name       string
+		filter     *filters.LocalFilter
+		properties []aggregation.ParamProperty
 	}{
-		{"ref filter reaches admission and sheds", articleRefNameLike("*a*"), true},
-		{"plain filter never touches admission", plainFilter, false},
+		{name: "ref filter", filter: articleRefNameLike("*a*")},
+		{name: "plain filter", filter: plainFilter},
+		{name: "unfiltered property scan", properties: titleCount},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := aggregation.Params{
 				ClassName:        "Article",
 				Filters:          tt.filter,
+				Properties:       tt.properties,
 				IncludeMetaCount: true,
 			}
 
@@ -631,12 +635,8 @@ func TestQueryAdmissionAggregateRefFilterSheds(t *testing.T) {
 
 			require.Empty(t, other, "aggregations must succeed or shed, nothing else")
 			require.Positive(t, ok.Load(), "at least one aggregation must drain through the budget")
-			if tt.wantShed {
-				require.Positive(t, shed.Load(),
-					"a ref-filtered aggregation must surface ErrOverloaded under budget=1/queue=1 at %d concurrent", numQueries)
-			} else {
-				require.Zero(t, shed.Load(), "a plain-filtered aggregation is not gated and must never shed")
-			}
+			require.Positive(t, shed.Load(),
+				"an aggregation must surface ErrOverloaded under budget=1/queue=1 at %d concurrent", numQueries)
 			require.Eventually(t, func() bool {
 				return readAdmissionGauge(reg, "query_admission_used_budget") == 0
 			}, 5*time.Second, 10*time.Millisecond, "used budget did not drain to zero")

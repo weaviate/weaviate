@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -136,6 +137,14 @@ func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 
 func (i *HNSWIndex) Exists(id uint64) bool {
 	return i.hnsw.ContainsDoc(id)
+}
+
+// VectorMissing reports whether a centroid's stored vector is gone, as a
+// crash that saves the commit log but not the compressed vectors leaves it.
+func (i *HNSWIndex) VectorMissing(id uint64) bool {
+	_, err := hnsw.GetCompressedVector[byte](i.hnsw, id)
+	var notFound storobj.ErrNotFound
+	return errors.As(err, &notFound)
 }
 
 func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {

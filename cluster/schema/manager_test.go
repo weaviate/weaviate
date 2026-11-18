@@ -709,6 +709,9 @@ type recordingMutationGuard struct {
 	lastShards  []string
 	rejectWith  error
 
+	proposeCalled     int
+	rejectProposeWith error
+
 	migrationCalls      int
 	lastRun             cmd.MigrationRun
 	rejectMigrationWith error
@@ -745,6 +748,14 @@ func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedV
 	g.lastRemoved = removedVectors
 	g.lastShards = shards
 	return g.rejectWith
+}
+
+func (g *recordingMutationGuard) CheckVectorConfigRemovalAtPropose(class string, removedVectors, shards []string) error {
+	g.proposeCalled++
+	g.lastClass = class
+	g.lastRemoved = removedVectors
+	g.lastShards = shards
+	return g.rejectProposeWith
 }
 
 // TestSchemaManager_UpdateProperty_MutationGuard pins the cross-FSM
@@ -1118,6 +1129,110 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 		require.Equal(t, []string{"vecB"}, guard.lastRemoved)
 		require.Empty(t, deleter.targetCalls, "no purge may run on a rejected apply")
 	})
+}
+
+// TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate pins the leader-side
+// check: a class update that removes a dropped VectorConfig entry asks the
+// propose-time gate before it is appended, and the apply never asks it.
+func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
+	none := models.VectorConfig{VectorIndexType: "none"}
+	hnsw := models.VectorConfig{VectorIndexType: "hnsw"}
+	withVectors := func(names ...string) *models.Class {
+		class := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		for _, name := range names {
+			class.VectorConfig[name] = hnsw
+		}
+		return class
+	}
+
+	tests := []struct {
+		name        string
+		class       string
+		updated     *models.Class
+		subCommand  []byte
+		reject      error
+		wantCalled  int
+		wantRemoved []string
+		wantErr     bool
+	}{
+		{
+			name:        "removing a dropped entry asks the gate",
+			class:       "C",
+			updated:     withVectors("keep"),
+			wantCalled:  1,
+			wantRemoved: []string{"vec1"},
+		},
+		{
+			name:        "the gate's refusal stops the propose",
+			class:       "C",
+			updated:     withVectors("keep"),
+			reject:      fmt.Errorf("not drained"),
+			wantCalled:  1,
+			wantRemoved: []string{"vec1"},
+			wantErr:     true,
+		},
+		{
+			name:  "keeping the dropped entry does not ask the gate",
+			class: "C",
+			updated: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+				"keep": hnsw, "vec1": none,
+			}},
+			reject: fmt.Errorf("should not be reached"),
+		},
+		{
+			name:    "unknown class is left for the apply to reject",
+			class:   "Other",
+			updated: withVectors("keep"),
+			reject:  fmt.Errorf("should not be reached"),
+		},
+		{
+			name:       "unreadable update is left for the apply to reject",
+			class:      "C",
+			subCommand: []byte("not json"),
+			reject:     fmt.Errorf("should not be reached"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(tt.updated, nil)
+			sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
+			guard := &recordingMutationGuard{rejectProposeWith: tt.reject}
+			sm.SetMutationGuard(guard)
+			initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none}}
+			require.NoError(t, sm.schema.addClass(initial, &sharding.State{Physical: map[string]sharding.Physical{
+				"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"},
+			}}, 1))
+
+			sub := tt.subCommand
+			if sub == nil {
+				var err error
+				sub, err = json.Marshal(&cmd.UpdateClassRequest{Class: tt.updated})
+				require.NoError(t, err)
+			}
+			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_CLASS, Class: tt.class, Version: 2, SubCommand: sub}
+
+			err := sm.PreApplyFilter(req)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrBadRequest)
+				require.ErrorIs(t, err, tt.reject)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.wantCalled, guard.proposeCalled)
+			if tt.wantCalled > 0 {
+				require.Equal(t, tt.wantRemoved, guard.lastRemoved)
+				require.Equal(t, []string{"shardA", "shardB"}, guard.lastShards)
+			}
+			require.Zero(t, guard.called, "the propose must not ask the apply-time gate")
+
+			if tt.class == "C" && tt.subCommand == nil && !tt.wantErr {
+				proposeCalls := guard.proposeCalled
+				require.NoError(t, sm.UpdateClass(req, "test-node", true, false))
+				require.Equal(t, proposeCalls, guard.proposeCalled, "the apply must not ask the propose-time gate")
+			}
+		})
+	}
 }
 
 // TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
