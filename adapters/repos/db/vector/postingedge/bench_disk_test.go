@@ -611,10 +611,57 @@ func TestDiskTimed(t *testing.T) {
 		"files %.1f MB", cell.Spec.Name, float64(mem.HeapInuse)/1e6, float64(footprint)/1e6,
 		float64(files["store"])/1e6, float64(files["vectors"])/1e6, float64(files["resident"])/1e6)
 
+	timeDisk(ctx, t, &timedRun{
+		name: "cell " + cell.Spec.Name, disk: disk, open: func() timedDisk { return open() },
+		storeDir: filepath.Join(dir, diskStoreDir), points: cell.Points, uc: uc, queries: queries, truth: truth, k: k,
+		logger: logger, keep: func(timed diskTimedPoint) {
+			result.Points = append(result.Points, timed)
+			write()
+		},
+	})
+}
+
+// timedDisk is an index on disk as the timed tests see it: the one written
+// in batch of v4.0 and the one that grows of v5.0.
+type timedDisk interface {
+	search(ctx context.Context, vector []float32, k int, stats *diskSearchStats) ([]uint64, []float32, error)
+	close(ctx context.Context) error
+	// tunables returns the index that holds the search tunables.
+	tunables() *Index
+}
+
+func (d *diskIndex) tunables() *Index { return d.ix }
+
+func (g *growIndex) tunables() *Index { return g.ix }
+
+// timedRun is what timeDisk times: an index that is open, how to open it
+// again after the cache was dropped, and the operating points.
+type timedRun struct {
+	// name is how the log calls the index.
+	name string
+	disk timedDisk
+	open func() timedDisk
+	// storeDir is where the segments of its store live.
+	storeDir string
+	points   []diskPoint
+	uc       UserConfig
+	queries  [][]float32
+	truth    [][]uint64
+	k        int
+	logger   logrus.FieldLogger
+	// keep takes every point once it is timed.
+	keep func(diskTimedPoint)
+}
+
+// timeDisk times an index at each of its operating points, with 1 and with
+// 8 threads: warm and, when -bench.diskdrop is given, cold. It closes the
+// index when it is done.
+func timeDisk(ctx context.Context, t *testing.T, r *timedRun) {
+	disk, queries, truth, k, logger := r.disk, r.queries, r.truth, r.k, r.logger
 	// run searches the given queries with the given number of threads, each
 	// thread taking the next query, and tells the latency and the stats of
 	// each and the time of all.
-	run := func(disk *diskIndex, which []int, threads int) ([]time.Duration, []diskSearchStats, int, time.Duration) {
+	run := func(disk timedDisk, which []int, threads int) ([]time.Duration, []diskSearchStats, int, time.Duration) {
 		latencies := make([]time.Duration, len(which))
 		stats := make([]diskSearchStats, len(which))
 		var next, hits atomic.Int64
@@ -662,14 +709,14 @@ func TestDiskTimed(t *testing.T) {
 		all[i] = i
 	}
 
-	for _, point := range cell.Points {
+	for _, point := range r.points {
 		if !point.Reached {
-			t.Logf("cell %s does not reach recall %.2f: nothing to time there", cell.Spec.Name, point.Target)
+			t.Logf("%s does not reach recall %.2f: nothing to time there", r.name, point.Target)
 			continue
 		}
-		pointUC := uc
+		pointUC := r.uc
 		pointUC.EF, pointUC.RescoreLimit = point.EF, point.RescoreLimit
-		require.NoError(t, disk.ix.UpdateUserConfig(pointUC, func() {}))
+		require.NoError(t, disk.tunables().UpdateUserConfig(pointUC, func() {}))
 		for _, threads := range []int{1, 8} {
 			timed := diskTimedPoint{Target: point.Target, EF: point.EF, Threads: threads}
 			// Warm: after a pass that nobody times.
@@ -681,8 +728,8 @@ func TestDiskTimed(t *testing.T) {
 				timed.Warm = append(timed.Warm, diskLatenciesOf(latencies, stats, wall))
 			}
 			warm := timed.Warm[len(timed.Warm)/2]
-			t.Logf("cell %s at recall %.2f (ef %d), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
-				"fetch %.3f ms, visit %.3f, rescore %.3f, centroids %.3f", cell.Spec.Name, point.Target, point.EF, threads,
+			t.Logf("%s at recall %.2f (ef %d), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
+				"fetch %.3f ms, visit %.3f, rescore %.3f, centroids %.3f", r.name, point.Target, point.EF, threads,
 				warm.P50, warm.P95, warm.P99, warm.QPS, warm.FetchMs, warm.VisitMs, warm.RescoreMs, warm.CentroidMs)
 
 			if *benchDiskDrop != "" {
@@ -707,9 +754,9 @@ func TestDiskTimed(t *testing.T) {
 					out, err := exec.CommandContext(ctx, "sh", "-c", *benchDiskDrop).CombinedOutput()
 					require.NoErrorf(t, err, "drop the cache: %s", out)
 					begin := time.Now()
-					disk = open()
-					require.NoError(t, disk.ix.UpdateUserConfig(pointUC, func() {}))
-					timed.IndexBytes, err = warmSegmentIndexes(filepath.Join(dir, diskStoreDir))
+					disk = r.open()
+					require.NoError(t, disk.tunables().UpdateUserConfig(pointUC, func() {}))
+					timed.IndexBytes, err = warmSegmentIndexes(r.storeDir)
 					require.NoError(t, err)
 					reopen += time.Since(begin)
 
@@ -754,14 +801,13 @@ func TestDiskTimed(t *testing.T) {
 				timed.ColdRepeated = float64(repeated) / float64(loads)
 				timed.ColdRecall = float64(hits) / float64(len(latencies)*k)
 				timed.ReopenMs = ms(reopen) / float64(timed.ColdBatches)
-				t.Logf("cell %s at recall %.2f (ef %d), %d threads, cold: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
+				t.Logf("%s at recall %.2f (ef %d), %d threads, cold: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
 					"fetch %.3f ms, visit %.3f, rescore %.3f | %d batches of %d, %.1f%% of the loads repeat a posting, "+
-					"halves at p50 %.3f and %.3f ms | reopened in %.0f ms", cell.Spec.Name, point.Target, point.EF, threads,
+					"halves at p50 %.3f and %.3f ms | reopened in %.0f ms", r.name, point.Target, point.EF, threads,
 					cold.P50, cold.P95, cold.P99, cold.QPS, cold.FetchMs, cold.VisitMs, cold.RescoreMs, timed.ColdBatches,
 					batch, 100*timed.ColdRepeated, timed.ColdHalves[0].P50, timed.ColdHalves[1].P50, timed.ReopenMs)
 			}
-			result.Points = append(result.Points, timed)
-			write()
+			r.keep(timed)
 		}
 	}
 	require.NoError(t, disk.close(ctx))

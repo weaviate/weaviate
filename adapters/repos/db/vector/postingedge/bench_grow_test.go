@@ -21,11 +21,13 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -52,6 +54,13 @@ import (
 // is compared with the twin: either failing stops the run. It leaves what an
 // insert reads and writes, the size of the store, and what a search reads
 // from it before and after it is compacted.
+//
+// TestGrowTimedInserts and TestGrowTimedSearch are the timed session. The
+// first grows an index of its own, alone, with the store reading through its
+// mapping, and times the inserts; it then compacts the store, finds the
+// operating points of the index and leaves a manifest. The second times the
+// searches over that index, warm and cold, as TestDiskTimed times a cell of
+// v4.0.
 
 var (
 	benchGrowDir = flag.String("bench.growdir", "", "the inserts on disk of v5.0 (TestGrowValidate): the directory the "+
@@ -64,6 +73,8 @@ var (
 	benchGrowInsertEF  = flag.Int("bench.growinsertef", 160, "with TestGrowValidate: the ef of the search for a new vector's edges")
 	benchGrowBits      = flag.Int("bench.growbits", 512, "with TestGrowValidate: the bits of the code the endpoints are "+
 		"ranked by, which stays in memory")
+	benchGrowManifest = flag.String("bench.growmanifest", "", "what TestGrowTimedInserts leaves for TestGrowTimedSearch: "+
+		"the index it grew, its operating points and the ground truth. It must not live under -bench.growdir")
 )
 
 // growStoreWrites returns what the store has written to its files so far,
@@ -563,4 +574,350 @@ func TestGrowValidate(t *testing.T) {
 	measure("opened again")
 	result.Reopened = "the same as the twin"
 	write()
+}
+
+// growStretch is the inserts between two checkpoints of the timed run. Its
+// stats are those of the whole run so far.
+type growStretch struct {
+	Percent   int       `json:"percent"`
+	Inserts   int       `json:"inserts"`
+	Seconds   float64   `json:"seconds"`
+	PerSecond float64   `json:"perSecond"`
+	Postings  int       `json:"postings"`
+	Stats     growStats `json:"stats"`
+}
+
+// growManifest is what the timed run of the inserts leaves: how fast it
+// grew, the index it left, and where to search it.
+type growManifest struct {
+	Dataset     string         `json:"dataset"`
+	Vectors     int            `json:"vectors"`
+	Queries     int            `json:"queries"`
+	K           int            `json:"k"`
+	Start       int            `json:"start"`
+	Threshold   int            `json:"threshold"`
+	InsertEF    int            `json:"insertEF"`
+	RoutingBits int            `json:"routingBits"`
+	Config      map[string]any `json:"config"`
+	Procs       int            `json:"gomaxprocs"`
+	// Stretches are the timed inserts, and Seconds and PerSecond all of
+	// them together.
+	Stretches []growStretch `json:"stretches"`
+	Inserts   int           `json:"inserts"`
+	Seconds   float64       `json:"seconds"`
+	PerSecond float64       `json:"perSecond"`
+	Coverage  string        `json:"coverage"`
+	// The store before and after it is compacted for good, untimed.
+	FilesBefore       map[string]int64  `json:"filesBefore"`
+	SegmentsBefore    map[string]int    `json:"segmentsBefore"`
+	CompactionRounds  int               `json:"compactionRounds"`
+	CompactionSeconds float64           `json:"compactionSeconds"`
+	Files             map[string]int64  `json:"files"`
+	Segments          map[string]int    `json:"segments"`
+	Written           map[string]growIO `json:"written"`
+	Meta              growMeta          `json:"meta"`
+	Points            []diskPoint       `json:"points"`
+	MaxRecall         float64           `json:"maxRecall"`
+	Truth             [][]uint64        `json:"truth"`
+}
+
+// TestGrowTimedInserts is the timed run of the inserts: the base built and
+// written untimed, and then the index alone, from the start to the whole
+// train set, one insert after another, with the flushes and the compactions
+// of the store in the time.
+func TestGrowTimedInserts(t *testing.T) {
+	if *benchDatasetDir == "" || *benchGrowDir == "" || *benchGrowManifest == "" {
+		t.Skip("no -bench.dataset, -bench.growdir and -bench.growmanifest given")
+	}
+	ctx := context.Background()
+	data := loadBenchData(t, *benchDatasetDir, *benchLimit, *benchQueries, *benchK, false)
+	if *benchLimit > 0 {
+		data.neighbors = bruteNeighbors(data, streamTruthDepth)
+	}
+	require.NotNil(t, data.neighbors, "the ground truth is drawn from the shipped one")
+	n, k := len(data.train), *benchK
+	order := make([]uint64, n)
+	for i := range order {
+		order[i] = uint64(i)
+	}
+	rand.New(rand.NewPCG(1, 1)).Shuffle(n, func(i, j int) { order[i], order[j] = order[j], order[i] })
+	built := n * *benchGrowStart / 100
+	var stops []int
+	for _, field := range strings.Split(*benchGrowCheckpoints, ",") {
+		percent, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err)
+		stops = append(stops, percent)
+	}
+	require.Equal(t, 100, stops[len(stops)-1], "the last checkpoint is the whole train set")
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	provider := distancer.NewCosineDistanceProvider()
+	vectorOf := func(id uint64) []float32 { return data.train[id] }
+
+	uc := NewDefaultUserConfig()
+	uc.TargetPostingSize = *benchPosting
+	uc.BuildProbe = *benchProbe
+	uc.RescueLimit = *benchRescue
+	uc.TrainingLimit = *benchTraining
+	manifest := &growManifest{
+		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
+		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits,
+		Procs: runtime.GOMAXPROCS(0),
+		Config: map[string]any{
+			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
+			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
+			"sourceMargin": uc.SourceMargin, "cycleEvery": growCycleEvery,
+		},
+	}
+	write := func() {
+		raw, err := json.MarshalIndent(manifest, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(*benchGrowManifest, raw, 0o644))
+	}
+
+	// The base, untimed. Its index in memory goes once it is written.
+	_, tempVectorForID := benchThunks(data)
+	index, err := New(Config{
+		ID:                           "grow-base",
+		RootPath:                     t.TempDir(),
+		Logger:                       logger,
+		DistanceProvider:             provider,
+		TempVectorForIDWithViewThunk: tempVectorForID,
+		GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
+		Seed:                         1,
+	}, uc)
+	require.NoError(t, err)
+	const chunk = 10000
+	for from := 0; from < built; from += chunk {
+		to := min(from+chunk, built)
+		vectors := make([][]float32, to-from)
+		for i, id := range order[from:to] {
+			vectors[i] = data.train[id]
+		}
+		require.NoError(t, index.AddBatch(ctx, order[from:to], vectors))
+	}
+	require.NoError(t, index.Build(ctx))
+	st := index.state.Load()
+	if *benchGrowBits > 0 {
+		routing, err := st.quantizer.withBits(*benchGrowBits)
+		require.NoError(t, err)
+		st, err = haloState(ctx, logger, st, routing, vectorOf)
+		require.NoError(t, err)
+	}
+	dir := *benchGrowDir
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	cfg := growConfig{keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1}
+	require.NoError(t, writeGrowIndex(ctx, logger, dir, st, cfg, provider, vectorOf))
+	require.NoError(t, index.Shutdown(ctx))
+	runtime.GC()
+
+	insertUC := uc
+	insertUC.EF = *benchGrowInsertEF
+	g, err := openGrowIndex(ctx, logger, dir, provider, insertUC, nil, false)
+	require.NoError(t, err)
+	defer func() {
+		if g != nil {
+			require.NoError(t, g.close(ctx))
+		}
+	}()
+	t.Logf("the base: %d vectors in %d postings. The timed inserts start", g.meta.Live, g.meta.Postings)
+
+	inserted := built
+	total := time.Duration(0)
+	for _, percent := range stops {
+		upto := n * percent / 100
+		from := inserted
+		begin := time.Now()
+		for ; inserted < upto; inserted++ {
+			id := order[inserted]
+			if err := g.insert(ctx, id, data.train[id]); err != nil {
+				t.Fatalf("insert %d, doc %d: %v", inserted, id, err)
+			}
+		}
+		took := time.Since(begin)
+		total += took
+		stretch := growStretch{
+			Percent: percent, Inserts: inserted - from, Seconds: took.Seconds(),
+			PerSecond: float64(inserted-from) / took.Seconds(), Postings: g.meta.Postings, Stats: g.stats,
+		}
+		manifest.Stretches = append(manifest.Stretches, stretch)
+		manifest.Inserts, manifest.Seconds = inserted-built, total.Seconds()
+		manifest.PerSecond = float64(inserted-built) / total.Seconds()
+		write()
+		s := &g.stats
+		t.Logf("to %d %%: %d inserts in %s, %.0f a second | so far %.0f a second | of the time so far: search %.0f %%, "+
+			"write %.1f %%, inverse edges %.1f %%, splits %.1f %%, cycles of the store %.1f %%, the centroid graph %.1f %%",
+			percent, stretch.Inserts, took.Round(time.Second), stretch.PerSecond, manifest.PerSecond,
+			100*s.SearchTime.Seconds()/total.Seconds(), 100*s.WriteTime.Seconds()/total.Seconds(),
+			100*s.InverseTime.Seconds()/total.Seconds(), 100*s.SplitTime.Seconds()/total.Seconds(),
+			100*s.CycleTime.Seconds()/total.Seconds(), 100*s.AssignTime.Seconds()/total.Seconds())
+	}
+
+	// Untimed from here: what the run left, checked and compacted.
+	require.NoError(t, g.cleanCentroidGraph())
+	manifest.Coverage = "complete"
+	if err := g.checkCoverage(); err != nil {
+		manifest.Coverage = err.Error()
+	}
+	require.NoError(t, g.sync())
+	manifest.FilesBefore, manifest.SegmentsBefore, err = growFiles(dir)
+	require.NoError(t, err)
+	write()
+	require.Equal(t, "complete", manifest.Coverage, "STOP: the coverage of the index the timed run grew")
+	begin := time.Now()
+	manifest.CompactionRounds, err = g.compactAll()
+	require.NoError(t, err)
+	manifest.CompactionSeconds = time.Since(begin).Seconds()
+	require.NoError(t, g.sync())
+	manifest.Files, manifest.Segments, err = growFiles(dir)
+	require.NoError(t, err)
+	manifest.Written, err = growStoreWrites()
+	require.NoError(t, err)
+	manifest.Meta = g.meta
+	t.Logf("compacted in %d rounds and %.0f s: the postings bucket from %.1f to %.1f MB", manifest.CompactionRounds,
+		manifest.CompactionSeconds, float64(manifest.FilesBefore[growBucketPostings])/1e6,
+		float64(manifest.Files[growBucketPostings])/1e6)
+
+	// The operating points of the index, from its own searches.
+	manifest.Truth = liveTruth(t, data, nil, k)
+	recalls := make(map[int]float64)
+	recall := func(ef int) float64 {
+		if _, done := recalls[ef]; done {
+			return recalls[ef]
+		}
+		searchUC := uc
+		searchUC.EF = ef
+		require.NoError(t, g.ix.UpdateUserConfig(searchUC, func() {}))
+		var hits, next atomic.Int64
+		eg := enterrors.NewErrorGroupWrapper(logger)
+		for range 8 {
+			eg.Go(func() error {
+				for {
+					q := int(next.Add(1)) - 1
+					if q >= len(data.queries) {
+						return nil
+					}
+					ids, _, err := g.search(ctx, data.queries[q], k, nil)
+					if err != nil {
+						return err
+					}
+					found := 0
+					for _, want := range manifest.Truth[q] {
+						if slices.Contains(ids, want) {
+							found++
+						}
+					}
+					hits.Add(int64(found))
+				}
+			})
+		}
+		require.NoError(t, eg.Wait())
+		recalls[ef] = float64(hits.Load()) / float64(len(data.queries)*k)
+		t.Logf("ef %d: recall %.4f", ef, recalls[ef])
+		return recalls[ef]
+	}
+	manifest.Points = make([]diskPoint, len(diskTargets))
+	for i, target := range diskTargets {
+		manifest.Points[i] = diskPoint{Target: target, RescoreLimit: uc.RescoreLimit}
+		low := 0
+		for _, ef := range diskGrid {
+			r := recall(ef)
+			manifest.MaxRecall = max(manifest.MaxRecall, r)
+			if r >= target {
+				high := ef
+				for high-low > 1 {
+					middle := (low + high) / 2
+					if middle < k || recall(middle) < target {
+						low = middle
+					} else {
+						high = middle
+					}
+				}
+				manifest.Points[i].Reached, manifest.Points[i].EF, manifest.Points[i].Recall = true, high, recall(high)
+				break
+			}
+			low = ef
+		}
+	}
+	write()
+}
+
+// growTimedResult is the searches over the index the timed run grew.
+type growTimedResult struct {
+	Dataset        string           `json:"dataset"`
+	Meta           growMeta         `json:"meta"`
+	Queries        int              `json:"queries"`
+	K              int              `json:"k"`
+	Budget         int              `json:"budget"`
+	Procs          int              `json:"gomaxprocs"`
+	Access         string           `json:"access"`
+	Drop           string           `json:"drop"`
+	HeapBytes      uint64           `json:"heapBytes"`
+	FootprintBytes int64            `json:"footprintBytes"`
+	Files          map[string]int64 `json:"files"`
+	Points         []diskTimedPoint `json:"points"`
+}
+
+// TestGrowTimedSearch times the searches over the index TestGrowTimedInserts
+// grew and compacted: at each of its operating points, with 1 and with 8
+// threads, warm and, when -bench.diskdrop is given, cold, as TestDiskTimed
+// times a cell written in batch. It loads the queries and the manifest, not
+// the corpus.
+func TestGrowTimedSearch(t *testing.T) {
+	if *benchDatasetDir == "" || *benchGrowDir == "" || *benchGrowManifest == "" {
+		t.Skip("no -bench.dataset, -bench.growdir and -bench.growmanifest given")
+	}
+	require.NotEmpty(t, *benchOut, "TestGrowTimedSearch writes its results to -bench.out")
+	ctx := context.Background()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	raw, err := os.ReadFile(*benchGrowManifest)
+	require.NoError(t, err)
+	var manifest growManifest
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+	require.NotEmpty(t, manifest.Points, "the manifest has the operating points of the index")
+	data := loadBenchData(t, *benchDatasetDir, 0, manifest.Queries, manifest.K, true)
+	require.Len(t, data.queries, len(manifest.Truth))
+	dir := *benchGrowDir
+	provider := distancer.NewCosineDistanceProvider()
+	uc := NewDefaultUserConfig()
+
+	open := func() *growIndex {
+		g, err := openGrowIndex(ctx, logger, dir, provider, uc, nil, false)
+		require.NoError(t, err)
+		return g
+	}
+	g := open()
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	var usage syscall.Rusage
+	require.NoError(t, syscall.Getrusage(syscall.RUSAGE_SELF, &usage))
+	footprint := int64(usage.Maxrss)
+	if runtime.GOOS == "linux" {
+		footprint *= 1024 // kilobytes there, bytes on darwin
+	}
+	files, _, err := growFiles(dir)
+	require.NoError(t, err)
+	result := &growTimedResult{
+		Dataset: manifest.Dataset, Meta: g.meta, Queries: len(data.queries), K: manifest.K, Budget: *benchDiskBudget,
+		Procs: runtime.GOMAXPROCS(0), Access: "mmap", Drop: *benchDiskDrop, HeapBytes: mem.HeapInuse,
+		FootprintBytes: footprint, Files: files,
+	}
+	write := func() {
+		raw, err := json.MarshalIndent(result, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(*benchOut, raw, 0o644))
+	}
+	write()
+	t.Logf("cell grown: heap in use %.1f MB after opening, footprint %.1f MB | postings bucket %.1f MB",
+		float64(mem.HeapInuse)/1e6, float64(footprint)/1e6, float64(files[growBucketPostings])/1e6)
+	timeDisk(ctx, t, &timedRun{
+		name: "cell grown", disk: g, open: func() timedDisk { return open() },
+		storeDir: filepath.Join(dir, diskStoreDir), points: manifest.Points, uc: uc, queries: data.queries,
+		truth: manifest.Truth, k: manifest.K, logger: logger, keep: func(timed diskTimedPoint) {
+			result.Points = append(result.Points, timed)
+			write()
+		},
+	})
 }
