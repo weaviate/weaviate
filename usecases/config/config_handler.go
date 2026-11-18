@@ -309,8 +309,10 @@ type Config struct {
 	// A value of 0 means use the cluster node count (default behavior).
 	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
 
-	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
-	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
+	// QueryBitmapBufsMaxMemory is nil when unset, so QueryBitmapBufsIdleBudget derives the budget.
+	// A set 0 turns the in-memory tier off.
+	QueryBitmapBufsMaxMemory  *int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
+	QueryBitmapBufsMaxBufSize int  `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
 
 	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
 	// not consider inverted sorting, even when the query planner thinks this is
@@ -453,7 +455,20 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateQueryBitmapBufsMaxMemory(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
+}
+
+// validateQueryBitmapBufsMaxMemory refuses a negative config-file value, which
+// the environment parser already refuses.
+func (c *Config) validateQueryBitmapBufsMaxMemory() error {
+	if c.QueryBitmapBufsMaxMemory == nil {
+		return nil
+	}
+	return validateNonNegativeInt(*c.QueryBitmapBufsMaxMemory, queryBitmapBufsMaxMemoryEnv)
 }
 
 // validateOIDCNamespaceClaims requires the namespace + global-principal
