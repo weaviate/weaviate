@@ -301,15 +301,80 @@ func openCentroidGraph(ctx context.Context, logger logrus.FieldLogger, dir strin
 	return index, nil
 }
 
+// writeCentroidGraph builds the graph over the centroids into an empty
+// directory, with its commit log, and closes it.
+func writeCentroidGraph(ctx context.Context, logger logrus.FieldLogger, dir string, vectors [][]float32) error {
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return err
+	}
+	graph, err := openCentroidGraph(ctx, logger, dir, vectors)
+	if err != nil {
+		return err
+	}
+	for id, vector := range vectors {
+		if err := graph.graph.Add(ctx, uint64(id), vector); err != nil {
+			_ = graph.shutdown(ctx)
+			return errors.Wrapf(err, "add centroid %d", id)
+		}
+	}
+	if err := graph.graph.Flush(); err != nil {
+		_ = graph.shutdown(ctx)
+		return errors.Wrap(err, "flush the centroid graph")
+	}
+	return errors.Wrap(graph.shutdown(ctx), "close the centroid graph")
+}
+
+// writeDiskVectors writes the exact vector of every doc id, in the order
+// given, which is the order of the slots.
+func writeDiskVectors(path string, dims int, docIDs []uint64, vectorOf func(docID uint64) []float32) (err error) {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := file.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	w := bufio.NewWriterSize(file, 1<<20)
+	buf := make([]byte, 4*dims)
+	for _, id := range docIDs {
+		vector := vectorOf(id)
+		if len(vector) != dims {
+			return errors.Errorf("vector of doc %d has length %d, expected %d", id, len(vector), dims)
+		}
+		for i, value := range vector {
+			putFloat32(buf[4*i:], value)
+		}
+		if _, err := w.Write(buf); err != nil {
+			return err
+		}
+	}
+	return w.Flush()
+}
+
+// diskWriteOptions says how a state is written.
+type diskWriteOptions struct {
+	// Halo puts the code of the endpoints into a block of every posting.
+	// Without it the code goes into the file a reader loads into memory.
+	Halo bool
+	// ShareFrom is the directory of an index written from the same build,
+	// whose vectors are in the same slots and whose centroids are the same.
+	// The vectors are then a hard link to its file, which is by far the
+	// largest of an index, and the centroid graph a copy of its graph, so
+	// that the two indexes enter a search through the same postings. Empty,
+	// the index gets vectors and a graph of its own.
+	ShareFrom string
+}
+
 // writeDiskIndex writes a built index to an empty directory. st is the state
 // to write: that of the build, or one laid over it with another code for the
-// endpoints (haloState) or other edges (replaceEdges). With halo the code of
-// the endpoints goes into a block of every posting, and otherwise into the
-// file a reader loads into memory. vectorOf gives the vector of a doc id as
-// the index reads it for the rescore.
-func writeDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, st *state, halo bool,
+// endpoints (haloState) or other edges (replaceEdges). vectorOf gives the
+// vector of a doc id as the index reads it for the rescore.
+func writeDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, st *state, opts diskWriteOptions,
 	provider distancer.Provider, vectorOf func(docID uint64) []float32,
 ) (*diskMeta, error) {
+	halo := opts.Halo
 	if st == nil {
 		return nil, ErrNotBuilt
 	}
@@ -373,54 +438,20 @@ func writeDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 	// The graph over the centroids is built here, with a commit log, and
 	// not copied from the index, whose graph logs nothing.
 	graphDir := path(diskGraphDir)
-	if err := os.Mkdir(graphDir, 0o755); err != nil {
-		return nil, err
-	}
-	graph, err := openCentroidGraph(ctx, logger, graphDir, st.centroids.vectors)
-	if err != nil {
-		return nil, err
-	}
-	for id, vector := range st.centroids.vectors {
-		if err := graph.graph.Add(ctx, uint64(id), vector); err != nil {
-			_ = graph.shutdown(ctx)
-			return nil, errors.Wrapf(err, "add centroid %d", id)
+	if opts.ShareFrom != "" {
+		if err := os.CopyFS(graphDir, os.DirFS(filepath.Join(opts.ShareFrom, diskGraphDir))); err != nil {
+			return nil, errors.Wrap(err, "copy the centroid graph")
 		}
-	}
-	if err := graph.graph.Flush(); err != nil {
-		_ = graph.shutdown(ctx)
-		return nil, errors.Wrap(err, "flush the centroid graph")
-	}
-	if err := graph.shutdown(ctx); err != nil {
-		return nil, errors.Wrap(err, "close the centroid graph")
+	} else if err := writeCentroidGraph(ctx, logger, graphDir, st.centroids.vectors); err != nil {
+		return nil, err
 	}
 
 	// The exact vectors, in posting order.
-	err = func() (err error) {
-		file, err := os.Create(path(diskVectorFile))
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if closeErr := file.Close(); err == nil {
-				err = closeErr
-			}
-		}()
-		w := bufio.NewWriterSize(file, 1<<20)
-		buf := make([]byte, 4*st.dims)
-		for _, id := range store.docIDs {
-			vector := vectorOf(id)
-			if len(vector) != st.dims {
-				return errors.Errorf("vector of doc %d has length %d, expected %d", id, len(vector), st.dims)
-			}
-			for i, value := range vector {
-				putFloat32(buf[4*i:], value)
-			}
-			if _, err := w.Write(buf); err != nil {
-				return err
-			}
-		}
-		return w.Flush()
-	}()
+	if opts.ShareFrom != "" {
+		err = os.Link(filepath.Join(opts.ShareFrom, diskVectorFile), path(diskVectorFile))
+	} else {
+		err = writeDiskVectors(path(diskVectorFile), st.dims, store.docIDs, vectorOf)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "write the vectors")
 	}
@@ -840,6 +871,10 @@ type diskSearchStats struct {
 	// came in, the entry postings aside.
 	Postings int
 	Rounds   int
+	// Loaded lists the postings in the order they were loaded, when
+	// KeepLoaded asks for it.
+	KeepLoaded bool
+	Loaded     []uint32
 	// Rescored counts the exact vectors read, one read each.
 	Rescored     int
 	CentroidTime time.Duration
@@ -930,6 +965,11 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 		}
 		stats.VisitTime += time.Since(clock)
 		stats.Postings += len(picks)
+		if stats.KeepLoaded {
+			for _, pick := range picks {
+				stats.Loaded = append(stats.Loaded, uint32(pick.id))
+			}
+		}
 		return nil
 	}
 
@@ -977,4 +1017,43 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 		stats.Work.Rescored = len(candidates)
 	}
 	return topResults(sc.result.sorted(), k)
+}
+
+// warmSegmentIndexes reads the index of every segment under dir, so that the
+// system has it cached: the tree a lookup walks to find where a key lives,
+// which the store maps and never loads. After the cache of the files has been
+// dropped it leaves the data cold and the lookups warm, which is how a store
+// that has been serving stands. It tells how many bytes it read.
+func warmSegmentIndexes(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || filepath.Ext(path) != ".db" {
+			return err
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		// The header of a segment ends with where its index starts.
+		header := make([]byte, 16)
+		if _, err := file.ReadAt(header, 0); err != nil {
+			return errors.Wrapf(err, "read the header of %s", filepath.Base(path))
+		}
+		start := int64(binary.LittleEndian.Uint64(header[8:]))
+		if start < int64(len(header)) || start > info.Size() {
+			return errors.Errorf("%s: the index starts at %d, the segment has %d bytes", filepath.Base(path), start, info.Size())
+		}
+		buf := make([]byte, info.Size()-start)
+		if _, err := file.ReadAt(buf, start); err != nil && len(buf) > 0 {
+			return errors.Wrapf(err, "read the index of %s", filepath.Base(path))
+		}
+		total += int64(len(buf))
+		return nil
+	})
+	return total, err
 }

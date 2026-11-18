@@ -303,6 +303,59 @@ Se reporta al cerrar cada paso.
 - **En ficheros de test de posting-edge:** el formato, el escritor, el lector y la búsqueda desde disco, con sus tests de equivalencia, y un test de benchmark que construye, escribe, comprueba y cronometra.
 - **En un fichero de test de `hfresh`,** con la etiqueta de los benchmarks: el build de HFresh sobre un store real y su medida.
 
+### Paso 1, cerrado: formato, escritura, lectura y equivalencia (2026-11-18, 07:33)
+
+*Escrito al cerrar el paso. No hay ningún dato de 1M todavía: falta el espacio en disco.*
+
+**Lo que hay** (`c6a9fdadc6` y el commit de esta nota):
+
+- **El formato y el camino de lectura,** en `disk_test.go`: los tres bloques por posting en un bucket Replace de `lsmkv`, el escritor, el lector y la búsqueda desde disco, que pide a la vez todos los bloques de una ronda.
+- **El único cambio en el índice,** en `search.go`: la carga de un posting partida en traerlo (`load`) y procesarlo (`visit`), y un gancho opcional para puntuar los endpoints con otra cosa que el sidecar, que el índice no usa.
+- **El benchmark,** en `bench_disk_test.go`: `TestDiskWrite` construye, escribe las celdas, busca sus puntos de operación y aplica las dos paradas; `TestDiskTimed` cronometra una celda por proceso, en caliente y en frío.
+- **Las cinco celdas comparten el fichero de vectores,** con un enlace duro, y el grafo de centroides, con una copia. Sin eso serían 6.1 GB de vectores por celda, y cada celda entraría por postings algo distintos.
+
+**La equivalencia, en los tests** (`TestDiskSearchEqualsMemory`): 9 celdas (código completo, sketch en RAM, halo, halo podado, halo de códigos completos, aristas podadas; l2 y cosine) por 2 modos de acceso del store por 10 configuraciones de búsqueda, 40 queries cada una. Cada búsqueda desde disco devuelve los mismos ids, las mismas distancias bit a bit y el mismo trabajo que su equivalente en memoria.
+
+- **El test tiene dientes:** rota a propósito de seis formas (visitar la ronda al revés, el sketch de la entrada vecina, el vector del slot vecino, marcar al visitar, las aristas corridas un miembro, sin umbral de parada), falla en las seis.
+- **Lo que lee cuadra con lo que el posting tiene,** bloque a bloque, y en modo pread con lo que cuenta el store: una lectura por bloque, del bloque más 18 B.
+- **El grafo de centroides vuelve igual de su commit log** las veces que se reabra.
+
+**Humo con dbpedia, 30 000 vectores** (no predice 1M): las cinco celdas pasan las dos paradas.
+
+- **Equivalencia:** las 500 queries, en los dos puntos de operación de cada celda, devuelven desde disco lo que en memoria.
+- **Bytes reales frente al modelo:** el store cuenta de 1.002 a 1.005 veces los bytes del modelo de v3.0. La diferencia son el byte de grado por miembro y los 18 B por bloque.
+- **El cronometraje corre entero,** en caliente y en frío con remontaje. Sus tiempos no se dan: son de un índice de 128 postings.
+
+### Enmienda 1 (07:33 del 18): la imagen de disco atiende las lecturas de una en una
+
+*Motivo: en el humo, el índice en frío no iba más rápido con 8 threads que con 1 (109 frente a 103 QPS). Medido aparte, antes de ningún dato de 1M.*
+
+Lecturas aleatorias de 16 KB sobre ficheros que no han pasado por la caché, por segundo:
+
+| threads | imagen de disco dispersa | imagen de disco plana | SSD interno |
+|---|---|---|---|
+| 1 | 5 037 (199 µs por lectura) | 6 981 (143 µs) | 7 940 (126 µs) |
+| 2 | 7 241 | 7 715 | 14 841 |
+| 4 | 7 296 | 6 934 | 31 237 |
+| 8 | 6 512 | 6 631 | 56 852 |
+| 16 | 6 356 | 6 732 | 84 935 |
+
+- **La imagen no escala:** unas 7 000 lecturas por segundo con cualquier número de threads, dispersa o plana. El SSD interno escala casi lineal hasta 8.
+- **Lo que cambia.** El único control de caché que tengo sin root quita el paralelismo de las lecturas. En frío, a través de la imagen:
+  - pedir en paralelo las cargas de una ronda no gana nada, ni el rescore en paralelo de ninguno de los dos índices;
+  - la latencia en frío pasa a ser, a primer orden, el número de lecturas frías por lo que tarda una;
+  - 8 threads no dan más QPS que 1.
+- **Sobre los criterios 2 y 3.** *Estimación mía, sin medir:* un dispositivo en serie perjudica más a posting-edge que a HFresh, porque le quita justo lo que su lectura reparte en rondas. Los dos criterios, medidos así, serían conservadores para posting-edge.
+- **Lo que no cambia:** la equivalencia, las lecturas reales frente al modelo, el caliente, la RAM y el disco.
+
+**Opciones, a decidir por el usuario antes de cronometrar nada:**
+
+1. **Seguir con la imagen.** El frío se mide en un dispositivo en serie y se dice. La medida con paralelismo queda para Linux, con el script.
+2. **Un volumen APFS propio en el disco interno,** desmontado y montado entre tandas. Es el SSD de verdad, con sus lecturas en paralelo. Añade un volumen al disco del usuario, que se quita después, y puede pedir su contraseña. Sin probar.
+3. **`purge` con root,** si el usuario lanza la sesión cronometrada con sudo.
+
+Hasta que se decida, no se cronometra nada.
+
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado el 17 a las 22:20 (`242297c34f`), antes de compilar nada de esta ronda y antes de ningún dato suyo. La corrida fue de 22:27 a 22:53, y sus resultados están al final de la sección, desde «Resultados de v3.1 (2026-11-17)». El encargo, las celdas, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.

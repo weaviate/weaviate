@@ -241,7 +241,7 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 			layout, err := haloPostings(st)
 			require.NoError(t, err)
 			dir := t.TempDir()
-			meta, err := writeDiskIndex(ctx, testLogger(), dir, st, cell.halo, f.provider,
+			meta, err := writeDiskIndex(ctx, testLogger(), dir, st, diskWriteOptions{Halo: cell.halo}, f.provider,
 				func(id uint64) []float32 { return f.raw[id] })
 			require.NoError(t, err)
 			require.Equal(t, cell.halo, meta.Halo)
@@ -297,6 +297,11 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 									entries += layout[p].Distinct
 								}
 								require.Equal(t, len(loaded), stats.Postings)
+								require.Nil(t, stats.Loaded)
+								kept := &diskSearchStats{KeepLoaded: true}
+								_, _, err = disk.search(ctx, query, search.k, kept)
+								require.NoError(t, err)
+								require.Equal(t, loaded, kept.Loaded, "the postings loaded, in order")
 								require.Equal(t, stats.Work.PostingsLoaded, stats.Postings)
 								require.Equal(t, members*8*(1+meta.ScanCodeWords), stats.MemberBytes)
 								require.Equal(t, members+4*edges, stats.EdgeBytes)
@@ -361,7 +366,7 @@ func TestDiskFormat(t *testing.T) {
 			st := f.cell(t, tt.bits, false, tt.degree)
 			store := st.postings
 			dir := t.TempDir()
-			meta, err := writeDiskIndex(ctx, testLogger(), dir, st, tt.halo, f.provider,
+			meta, err := writeDiskIndex(ctx, testLogger(), dir, st, diskWriteOptions{Halo: tt.halo}, f.provider,
 				func(id uint64) []float32 { return f.raw[id] })
 			require.NoError(t, err)
 
@@ -487,7 +492,7 @@ func TestDiskCentroidGraphReopens(t *testing.T) {
 	ctx := context.Background()
 	f := newDiskFixture(t, 3000, 64, 8, 821, false)
 	dir := t.TempDir()
-	_, err := writeDiskIndex(ctx, testLogger(), dir, f.built, false, f.provider,
+	_, err := writeDiskIndex(ctx, testLogger(), dir, f.built, diskWriteOptions{}, f.provider,
 		func(id uint64) []float32 { return f.raw[id] })
 	require.NoError(t, err)
 	require.Greater(t, f.built.postings.postings(), 20)
@@ -527,15 +532,15 @@ func TestDiskIndexErrors(t *testing.T) {
 	f := newDiskFixture(t, 1500, 24, 6, 831, false)
 	vectorOf := func(id uint64) []float32 { return f.raw[id] }
 	written := t.TempDir()
-	_, err := writeDiskIndex(ctx, testLogger(), written, f.built, false, f.provider, vectorOf)
+	_, err := writeDiskIndex(ctx, testLogger(), written, f.built, diskWriteOptions{}, f.provider, vectorOf)
 	require.NoError(t, err)
 
 	t.Run("writing", func(t *testing.T) {
-		_, err := writeDiskIndex(ctx, testLogger(), t.TempDir(), nil, false, f.provider, vectorOf)
+		_, err := writeDiskIndex(ctx, testLogger(), t.TempDir(), nil, diskWriteOptions{}, f.provider, vectorOf)
 		require.ErrorIs(t, err, ErrNotBuilt)
-		_, err = writeDiskIndex(ctx, testLogger(), written, f.built, false, f.provider, vectorOf)
+		_, err = writeDiskIndex(ctx, testLogger(), written, f.built, diskWriteOptions{}, f.provider, vectorOf)
 		require.ErrorContains(t, err, "is not empty")
-		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), f.built, false, f.provider,
+		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), f.built, diskWriteOptions{}, f.provider,
 			func(uint64) []float32 { return make([]float32, 3) })
 		require.ErrorContains(t, err, "has length 3, expected 24")
 
@@ -545,7 +550,7 @@ func TestDiskIndexErrors(t *testing.T) {
 		require.NoError(t, err)
 		capped := withCentroids(short.built, short.built.centroids)
 		capped.scanQuantizer = routing
-		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), capped, false, short.provider, vectorOf)
+		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), capped, diskWriteOptions{}, short.provider, vectorOf)
 		require.ErrorContains(t, err, "the format writes the full code")
 	})
 
@@ -553,7 +558,7 @@ func TestDiskIndexErrors(t *testing.T) {
 		stream := newDiskFixture(t, 1500, 24, 6, 835, false)
 		_, err := newStreamIndex(stream.index, 1500, streamConfig{threshold: 60}, func(id uint64) []float32 { return stream.raw[id] })
 		require.NoError(t, err)
-		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), stream.index.state.Load(), false, stream.provider, vectorOf)
+		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), stream.index.state.Load(), diskWriteOptions{}, stream.provider, vectorOf)
 		require.ErrorContains(t, err, "keyed by doc id")
 	})
 
@@ -673,7 +678,7 @@ func TestDiskScoreHalo(t *testing.T) {
 	f := newDiskFixture(t, 2000, 64, 5, 841, false)
 	st := f.cell(t, 64, false, 0)
 	dir := t.TempDir()
-	_, err := writeDiskIndex(ctx, testLogger(), dir, st, true, f.provider, func(id uint64) []float32 { return f.raw[id] })
+	_, err := writeDiskIndex(ctx, testLogger(), dir, st, diskWriteOptions{Halo: true}, f.provider, func(id uint64) []float32 { return f.raw[id] })
 	require.NoError(t, err)
 	disk, err := openDiskIndex(ctx, testLogger(), dir, f.provider, f.uc, nil, false)
 	require.NoError(t, err)
@@ -703,4 +708,100 @@ func TestDiskScoreHalo(t *testing.T) {
 		require.ErrorContains(t, err, "is not in the halo")
 	}
 	require.Positive(t, estimated)
+}
+
+// An index written next to another of the same build shares its vectors, as
+// one file, and its centroid graph, as a copy: the two enter every search
+// through the same postings, and each still returns what its state in memory
+// returns.
+func TestDiskShareFrom(t *testing.T) {
+	ctx := context.Background()
+	f := newDiskFixture(t, 3000, 64, 6, 851, false)
+	vectorOf := func(id uint64) []float32 { return f.raw[id] }
+	first := t.TempDir()
+	_, err := writeDiskIndex(ctx, testLogger(), first, f.built, diskWriteOptions{}, f.provider, vectorOf)
+	require.NoError(t, err)
+	base, err := openDiskIndex(ctx, testLogger(), first, f.provider, f.uc, nil, false)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, base.close(ctx)) }()
+
+	tests := []struct {
+		name   string
+		bits   int
+		halo   bool
+		onePer bool
+	}{
+		{name: "a sketch in memory", bits: 64},
+		{name: "a halo over pruned edges", bits: 64, halo: true, onePer: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := f.cell(t, tt.bits, tt.onePer, 0)
+			dir := t.TempDir()
+			// A vectorOf that fails: the vectors are not written again.
+			_, err := writeDiskIndex(ctx, testLogger(), dir, st, diskWriteOptions{Halo: tt.halo, ShareFrom: first},
+				f.provider, func(uint64) []float32 { return nil })
+			require.NoError(t, err)
+			mine, err := os.Stat(filepath.Join(dir, diskVectorFile))
+			require.NoError(t, err)
+			theirs, err := os.Stat(filepath.Join(first, diskVectorFile))
+			require.NoError(t, err)
+			require.True(t, os.SameFile(mine, theirs), "the vectors are one file")
+
+			disk, err := openDiskIndex(ctx, testLogger(), dir, f.provider, f.uc, nil, false)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, disk.close(ctx)) }()
+			f.index.state.Store(withCentroids(st, disk.st.centroids))
+			defer f.index.state.Store(f.built)
+			for i, query := range f.queries {
+				want, err := base.st.centroids.nearest(ctx, query, 4)
+				require.NoError(t, err)
+				got, err := disk.st.centroids.nearest(ctx, query, 4)
+				require.NoError(t, err)
+				require.Equal(t, want, got, "the entries of query %d", i)
+				difference, _, err := diskDifference(ctx, f.index, disk, query, 10)
+				require.NoError(t, err)
+				require.Emptyf(t, difference, "query %d", i)
+			}
+		})
+	}
+
+	t.Run("nothing to share from", func(t *testing.T) {
+		_, err := writeDiskIndex(ctx, testLogger(), t.TempDir(), f.built, diskWriteOptions{ShareFrom: t.TempDir()},
+			f.provider, vectorOf)
+		require.ErrorContains(t, err, "copy the centroid graph")
+	})
+}
+
+// The index of the segment of a written index is a tail of its file, a few
+// dozen bytes per block.
+func TestWarmSegmentIndexes(t *testing.T) {
+	ctx := context.Background()
+	f := newDiskFixture(t, 2000, 64, 5, 861, false)
+	dir := t.TempDir()
+	meta, err := writeDiskIndex(ctx, testLogger(), dir, f.built, diskWriteOptions{}, f.provider,
+		func(id uint64) []float32 { return f.raw[id] })
+	require.NoError(t, err)
+
+	read, err := warmSegmentIndexes(filepath.Join(dir, diskStoreDir))
+	require.NoError(t, err)
+	blocks := int64(2 * meta.Postings)
+	// A node of the tree is the key, where its block starts and ends, and
+	// two children: 36 bytes and the key.
+	require.GreaterOrEqual(t, read, blocks*(36+diskKeyBytes))
+	require.Less(t, read, blocks*(36+diskKeyBytes)+4096)
+	require.Less(t, read, (meta.MemberBytes+meta.EdgeBytes)/10, "the index is a small part of the segment")
+
+	// A directory without segments has nothing to read.
+	read, err = warmSegmentIndexes(t.TempDir())
+	require.NoError(t, err)
+	require.Zero(t, read)
+	// A file that is not a segment is refused.
+	broken := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(broken, "segment-1.db"), make([]byte, 64), 0o644))
+	_, err = warmSegmentIndexes(broken)
+	require.ErrorContains(t, err, "the index starts at 0")
+	require.NoError(t, os.WriteFile(filepath.Join(broken, "segment-1.db"), make([]byte, 4), 0o644))
+	_, err = warmSegmentIndexes(broken)
+	require.ErrorContains(t, err, "read the header")
 }
