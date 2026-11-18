@@ -386,7 +386,12 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 	if err != nil {
 		return 0, nil, errors.Wrapf(err, "read posting %d", initialPostingID)
 	}
-	if len(posting) == 0 {
+	// a deleted entry's object is gone, so only a live one can give the centroid
+	live, err := posting.GarbageCollect(h.VersionMap)
+	if err != nil {
+		return 0, nil, errors.Wrapf(err, "filter live entries of posting %d", initialPostingID)
+	}
+	if len(live) == 0 {
 		return 0, nil, nil
 	}
 
@@ -406,7 +411,7 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 		defer h.tempVectors.Put(slice)
 	}
 
-	centroid, err := h.clusteringVector(h.ctx, posting[0].ID(), slice, view)
+	centroid, err := h.clusteringVector(h.ctx, live[0].ID(), slice, view)
 	if err != nil {
 		return 0, nil, errors.Wrapf(err, "fetch centroid vector for posting %d", initialPostingID)
 	}
@@ -416,7 +421,7 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 		return 0, nil, errors.Wrap(err, "persist recovered single posting")
 	}
 	h.logger.WithField("postingID", initialPostingID).
-		Warnf("recovered single posting record with %d vectors", len(posting))
+		Warnf("recovered single posting record with %d live vectors", len(live))
 
 	return initialPostingID, centroid, nil
 }
