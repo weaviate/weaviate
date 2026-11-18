@@ -44,12 +44,13 @@ const (
 
 // This file tests the namespace checks on both sides of the RAFT log. Every
 // ApplyRequest type belongs to exactly one of the maps below. The namespace
-// lifecycle commands stay ungated, so a suspended namespace can still be resumed
-// or deleted.
+// lifecycle commands other than UPDATE_NAMESPACE stay ungated, so a suspended
+// namespace can still be resumed or deleted.
 //
-// Only the types in bothSidesApplyTypes and selfGatedApplyTypes are gated in
-// the apply switch. Every other check runs before the append, so a committed
-// entry applies on every binary. Store.admitPropose says why.
+// Only the types in bothSidesApplyTypes, selfGatedApplyTypes and
+// refuseDeletingProposeTypes are gated at apply as well. Every other check runs
+// before the append, so a committed entry applies on every binary.
+// Store.admitPropose says why.
 //
 // The maps record intent, not behaviour. The switch in store_apply.go is the
 // authority, so a type listed here but wired to a different check still leaves
@@ -114,7 +115,6 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_USER:                                                {},
 	api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:                                  {},
 	api.ApplyRequest_TYPE_ADD_NAMESPACE:                                              {},
-	api.ApplyRequest_TYPE_UPDATE_NAMESPACE:                                           {},
 	api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:                                     {},
 	api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:                                    {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:                         {},
@@ -154,6 +154,12 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_CLUSTER_ID_SET:                                             {},
 }
 
+// Commands refused by namespaces.AdmitNamespaceUpdate at propose time, in
+// store.admitNamespaceUpdate, and by Controller.Update at apply.
+var refuseDeletingProposeTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_UPDATE_NAMESPACE: {},
+}
+
 // Commands carrying no single namespace, which check the ones they reference
 // themselves inside the apply handler.
 var selfGatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
@@ -170,6 +176,7 @@ var applyTypeBuckets = []struct {
 	{"bothSidesApplyTypes", bothSidesApplyTypes},
 	{"destructiveApplyTypes", destructiveApplyTypes},
 	{"ungatedApplyTypes", ungatedApplyTypes},
+	{"refuseDeletingProposeTypes", refuseDeletingProposeTypes},
 	{"selfGatedApplyTypes", selfGatedApplyTypes},
 }
 
@@ -1213,6 +1220,30 @@ func TestExecuteGate_RejectsUserCreateOutsideItsNamespace(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// namespaceUpdateCommand is built as Raft.UpdateNamespace builds it, with no
+// Class, so the check must read the namespace off the subcommand.
+var namespaceUpdateCommand = proposeCommand{
+	name:    "TYPE_UPDATE_NAMESPACE",
+	cmdType: api.ApplyRequest_TYPE_UPDATE_NAMESPACE,
+	jsonSub: api.UpdateNamespaceRequest{
+		Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}},
+		Version:   api.NamespaceLatestCommandPolicyVersion,
+	},
+}
+
+func TestExecuteGate_RefusesNamespaceUpdateWhileDeleting(t *testing.T) {
+	assertProposeRefuses(t, namespaceUpdateCommand, inactiveNamespaceCase{
+		seed:    alphaAt(api.NamespaceStateDeleting),
+		wantErr: namespaces.ErrNamespaceDeleting,
+	})
+}
+
+// TestExecuteGate_AdmitsNamespaceUpdateWhileSuspended pins that the check is
+// not RequireActive's, because Controller.Update accepts a suspended namespace.
+func TestExecuteGate_AdmitsNamespaceUpdateWhileSuspended(t *testing.T) {
+	assertProposeAdmits(t, namespaceUpdateCommand, alphaAt(api.NamespaceStateSuspended))
 }
 
 // TestExecuteGate_RejectsShardStatusApplyType drives the manual shard status

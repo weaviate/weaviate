@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -1535,6 +1536,42 @@ func Test_UpdateClass(t *testing.T) {
 					tt.trackDefaultQuantization(updated.VectorConfig["example"].VectorIndexConfig),
 					tt.trackDefaultQuantization(initial.VectorConfig["example"].VectorIndexConfig),
 					"trackDefaultQuantization")
+			})
+		}
+	})
+
+	t.Run("changing the vector index type of a named vector is rejected", func(t *testing.T) {
+		configs := map[string]any{
+			"hnsw":    hnsw.NewDefaultUserConfig(),
+			"flat":    flat.NewDefaultUserConfig(),
+			"dynamic": dynamic.NewDefaultUserConfig(),
+			"hfresh":  hfresh.NewDefaultUserConfig(),
+		}
+		for _, tt := range []struct{ from, to string }{
+			{from: "hnsw", to: "flat"},
+			{from: "hnsw", to: "dynamic"},
+			{from: "flat", to: "hnsw"},
+			{from: "flat", to: "dynamic"},
+			{from: "dynamic", to: "hnsw"},
+			{from: "dynamic", to: "flat"},
+			{from: "hfresh", to: "hnsw"},
+			{from: "hfresh", to: "flat"},
+			{from: "hfresh", to: "dynamic"},
+		} {
+			t.Run(tt.from+" to "+tt.to, func(t *testing.T) {
+				vectorConfig := func(indexType string) map[string]models.VectorConfig {
+					return map[string]models.VectorConfig{"example": {
+						VectorIndexType:   indexType,
+						VectorIndexConfig: configs[indexType],
+						Vectorizer:        map[string]any{"none": map[string]any{}},
+					}}
+				}
+				initial := &models.Class{Class: "Immutable", VectorConfig: vectorConfig(tt.from)}
+				updated := &models.Class{Class: "Immutable", VectorConfig: vectorConfig(tt.to)}
+
+				var err error
+				require.NotPanics(t, func() { err = validateImmutableFields(initial, updated, nil, nil) })
+				require.Error(t, err, "validation should fail")
 			})
 		}
 	})

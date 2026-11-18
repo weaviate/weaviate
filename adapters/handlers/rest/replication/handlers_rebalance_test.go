@@ -13,6 +13,7 @@ package replication
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -56,16 +57,19 @@ func (a *fakeRebalanceAuthorizer) Authorize(_ context.Context, _ *models.Princip
 type fakeRebalanceManager struct {
 	plan       *rebalance.Plan
 	leaderPlan *rebalance.Plan
+	draftTasks []rebalance.DraftTask
 	leaderErr  error
 	createErr  error
 	stopErr    error
 	deleteErr  error
 
 	// calls counts every manager call. localReads counts ReadRebalancePlan
-	// calls. leaderReads counts QueryRebalancePlan calls.
+	// calls. leaderReads counts QueryRebalancePlan calls. draftReads counts
+	// RebalanceDraftTasks calls.
 	calls       int
 	localReads  int
 	leaderReads int
+	draftReads  int
 	created     *rebalance.CreatePlanRequest
 	stopped     []string
 	deleted     []string
@@ -105,6 +109,12 @@ func (m *fakeRebalanceManager) QueryRebalancePlan(context.Context) (*rebalance.P
 		return nil, m.leaderErr
 	}
 	return m.leaderPlan, nil
+}
+
+func (m *fakeRebalanceManager) RebalanceDraftTasks() []rebalance.DraftTask {
+	m.calls++
+	m.draftReads++
+	return m.draftTasks
 }
 
 type fakeRebalanceNodes struct {
@@ -395,6 +405,7 @@ func TestRebalanceHandlers(t *testing.T) {
 							ReplicationWorkers:    10,
 						}, {Node: "node-2", Error: "measurement unavailable"}},
 						Baseline: []*models.ReplicationRebalancePlanBaselineItems0{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+						Drafting: []*models.ReplicationRebalancePlanDraftingItems0{},
 					}, response.(*replication.GetRebalancePlanOK).Payload)
 				},
 			},
@@ -540,6 +551,123 @@ func TestRebalanceHandlers(t *testing.T) {
 					if tt.check != nil {
 						tt.check(t, response, hook)
 					}
+				})
+			}
+		}
+	})
+
+	// Each read path puts the plan only in the store that path reads. A handler
+	// that reads the wrong store finds no plan and returns 404.
+	type readPath struct {
+		name    string
+		call    operation
+		manager func(plan *rebalance.Plan, tasks []rebalance.DraftTask) *fakeRebalanceManager
+	}
+	readPaths := []readPath{
+		{"local read", get, func(plan *rebalance.Plan, tasks []rebalance.DraftTask) *fakeRebalanceManager {
+			return &fakeRebalanceManager{plan: plan, draftTasks: tasks}
+		}},
+		{"consistency true", getWithConsistency(true), func(plan *rebalance.Plan, tasks []rebalance.DraftTask) *fakeRebalanceManager {
+			return &fakeRebalanceManager{leaderPlan: plan, draftTasks: tasks}
+		}},
+	}
+	// Sources then targets give c, a, d, b, e: neither sorted nor reverse-sorted.
+	listedPlan := func(state rebalance.PlanState) *rebalance.Plan {
+		return &rebalance.Plan{
+			ID:          "plan-1",
+			State:       state,
+			SourceNodes: []string{"node-c", "node-a"},
+			TargetNodes: []string{"node-d", "node-b", "node-e"},
+		}
+	}
+	allUnits := func(status rebalance.DraftUnitStatus) map[string]rebalance.DraftUnitStatus {
+		return map[string]rebalance.DraftUnitStatus{
+			"node-a": status, "node-b": status, "node-c": status, "node-d": status, "node-e": status,
+		}
+	}
+	// node-e has no unit.
+	current := rebalance.DraftTask{PlanID: "plan-1", Version: 2, Units: map[string]rebalance.DraftUnitStatus{
+		"node-c": rebalance.DraftUnitCompleted,
+		"node-a": rebalance.DraftUnitFailed,
+		"node-d": rebalance.DraftUnitInProgress,
+		"node-b": rebalance.DraftUnitPending,
+	}}
+	older := rebalance.DraftTask{PlanID: "plan-1", Version: 1, Terminal: true, Units: allUnits(rebalance.DraftUnitCompleted)}
+	otherPlan := rebalance.DraftTask{PlanID: "plan-0", Version: 7, Units: allUnits(rebalance.DraftUnitCompleted)}
+
+	t.Run("get renders per-node drafting status while planning", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			tasks []rebalance.DraftTask
+		}{
+			{"another plan's task is listed first", []rebalance.DraftTask{otherPlan, current}},
+			{"the highest version wins over an older one listed after it", []rebalance.DraftTask{current, older}},
+			{"the highest version wins over an older one listed before it", []rebalance.DraftTask{older, otherPlan, current}},
+		}
+		want := []*models.ReplicationRebalancePlanDraftingItems0{
+			{Node: "node-c", Status: models.ReplicationRebalancePlanDraftingItems0StatusREPORTED},
+			{Node: "node-a", Status: models.ReplicationRebalancePlanDraftingItems0StatusFAILED},
+			{Node: "node-d", Status: models.ReplicationRebalancePlanDraftingItems0StatusDRAFTING},
+			{Node: "node-b", Status: models.ReplicationRebalancePlanDraftingItems0StatusDRAFTING},
+			{Node: "node-e", Status: models.ReplicationRebalancePlanDraftingItems0StatusDRAFTING},
+		}
+		for _, path := range readPaths {
+			for _, tt := range tests {
+				t.Run(fmt.Sprintf("%s on %s", tt.name, path.name), func(t *testing.T) {
+					manager := path.manager(listedPlan(rebalance.PlanStatePlanning), tt.tasks)
+					handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+
+					response := path.call(handler)
+
+					require.IsType(t, &replication.GetRebalancePlanOK{}, response)
+					assert.Equal(t, want, response.(*replication.GetRebalancePlanOK).Payload.Drafting)
+					assert.Equal(t, 1, manager.draftReads, "draft task reads")
+				})
+			}
+		}
+	})
+
+	t.Run("get renders an empty drafting list outside drafting", func(t *testing.T) {
+		populated := []rebalance.DraftTask{{PlanID: "plan-1", Version: 1, Units: allUnits(rebalance.DraftUnitCompleted)}}
+		localRead := readPaths[:1]
+		// Every non-PLANNING row holds the plan's draft task. Only the PLANNING
+		// check in latestDraftTask keeps its draft reads at zero. One
+		// non-PLANNING row also runs on consistency true, so both read paths
+		// cover that check.
+		tests := []struct {
+			name       string
+			state      rebalance.PlanState
+			tasks      []rebalance.DraftTask
+			paths      []readPath
+			draftReads int
+		}{
+			{"proposed", rebalance.PlanStateProposed, populated, localRead, 0},
+			{"not needed", rebalance.PlanStateNotNeeded, populated, localRead, 0},
+			{"no acceptable plan", rebalance.PlanStateNoAcceptablePlan, populated, localRead, 0},
+			{"planning failed", rebalance.PlanStatePlanningFailed, populated, localRead, 0},
+			{"running", rebalance.PlanStateRunning, populated, localRead, 0},
+			{"stopping", rebalance.PlanStateStopping, populated, localRead, 0},
+			{"stopped", rebalance.PlanStateStopped, populated, localRead, 0},
+			{"completed", rebalance.PlanStateCompleted, populated, readPaths, 0},
+			{"failed", rebalance.PlanStateFailed, populated, localRead, 0},
+			{"planning with no draft task", rebalance.PlanStatePlanning, nil, readPaths, 1},
+			{"planning with only another plan's draft task", rebalance.PlanStatePlanning, []rebalance.DraftTask{otherPlan}, readPaths, 1},
+		}
+		for _, tt := range tests {
+			for _, path := range tt.paths {
+				t.Run(fmt.Sprintf("%s on %s", tt.name, path.name), func(t *testing.T) {
+					manager := path.manager(listedPlan(tt.state), tt.tasks)
+					handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+
+					response := path.call(handler)
+
+					require.IsType(t, &replication.GetRebalancePlanOK{}, response)
+					body, err := json.Marshal(response.(*replication.GetRebalancePlanOK).Payload)
+					require.NoError(t, err)
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(body, &fields))
+					assert.Equal(t, `[]`, string(fields["drafting"]))
+					assert.Equal(t, tt.draftReads, manager.draftReads, "draft task reads")
 				})
 			}
 		}

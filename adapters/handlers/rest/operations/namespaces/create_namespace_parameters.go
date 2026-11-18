@@ -45,7 +45,7 @@ type CreateNamespaceParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Optional body. When omitted, `home_node` is picked automatically.
+	/*Optional body. When neither `home_nodes` nor `home_node` is set, the cluster picks the home nodes.
 	  In: body
 	*/
 	Body *models.NamespaceCreateRequest

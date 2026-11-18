@@ -140,16 +140,16 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 	addObject(t, ctx, repo, deleteTestClass, "backed up")
 	addObject(t, ctx, repo, deleteTestOtherClass, "bystander")
 
-	var staged []string
+	var descs []backup.ClassDescriptor
+	stagedFiles := 0
 	for d := range repo.BackupDescriptors(ctx, deleteTestBackupID, []string{deleteTestClass}, nil, nil) {
 		require.NoError(t, d.Error)
+		descs = append(descs, d)
 		for _, shard := range d.Shards {
-			for _, f := range shard.Files {
-				staged = append(staged, filepath.Join(d.StagingDir, f))
-			}
+			stagedFiles += len(shard.Files)
 		}
 	}
-	require.NotEmpty(t, staged)
+	require.NotZero(t, stagedFiles, "the backup must have staged files to outlive the delete")
 
 	var dropErr error
 	requireNoHang(t, "delete of a class with an open backup", func() {
@@ -180,8 +180,14 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 	id := indexID(schema.ClassName(deleteTestClass))
 	assert.NoDirExists(t, filepath.Join(repo.config.RootPath, id))
 	assert.NoDirExists(t, filepath.Join(repo.config.RootPath, backup.DeleteMarker+id))
-	for _, f := range staged {
-		assert.FileExists(t, f, "the delete must leave the backup's staged files")
+	for _, d := range descs {
+		for _, shard := range d.Shards {
+			src := d.ShardFileSource(shard.Name)
+			for _, relPath := range shard.Files {
+				_, err := src.Stat(relPath)
+				assert.NoError(t, err, "the delete must leave the backup's staged files")
+			}
+		}
 	}
 
 	staging := backupStagingDir(repo.config.RootPath, deleteTestBackupID, schema.ClassName(deleteTestClass))

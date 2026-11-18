@@ -415,6 +415,9 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, err)
 		return index
 	}
+	dstUnder := func(dir string) func(string) string {
+		return func(relPath string) string { return filepath.Join(dir, relPath) }
+	}
 
 	t.Run("staged copy is independent of post-snapshot setDimensions write", func(t *testing.T) {
 		rootPath := t.TempDir()
@@ -426,7 +429,7 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, index.Add(ctx, 1, []float32{1, 2, 3}))
 
 		staging := t.TempDir()
-		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, dstUnder(staging))
 		require.NoError(t, err)
 		require.Equal(t, []string{"meta.db"}, relPaths)
 
@@ -460,7 +463,7 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, index.Add(ctx, 1, []float32{1, 2, 3, 4}))
 
 		staging := t.TempDir()
-		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, dstUnder(staging))
 		require.NoError(t, err)
 		require.Equal(t, []string{"meta.db"}, relPaths)
 
@@ -492,7 +495,7 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, index.Add(ctx, 1, []float32{1, 2}))
 
 		staging := t.TempDir()
-		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, dstUnder(staging))
 		require.NoError(t, err)
 		require.Equal(t, []string{"meta_custom.db"}, relPaths)
 
@@ -514,7 +517,7 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.Nil(t, index.metadata, "precondition: metadata handle is closed")
 
 		staging := t.TempDir()
-		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, dstUnder(staging))
 		require.NoError(t, err)
 		require.Equal(t, []string{"meta.db"}, relPaths)
 		require.Nil(t, index.metadata, "snapshot must not assign a handle to index.metadata")
@@ -533,7 +536,7 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, os.Remove(filepath.Join(rootPath, "meta.db")))
 
 		staging := t.TempDir()
-		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, dstUnder(staging))
 		require.NoError(t, err)
 		require.Nil(t, relPaths)
 	})

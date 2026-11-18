@@ -93,7 +93,7 @@ func searchableSchema(t *testing.T, name string) clusterSchema.SchemaReader {
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logger)
 
 	class := &models.Class{
 		Class:      name,

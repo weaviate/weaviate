@@ -53,9 +53,7 @@ func TestSchedulerStartTaskRetry(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -114,9 +112,7 @@ func TestSchedulerStartTaskRetry(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -168,9 +164,7 @@ func TestStaleTaskDetection(t *testing.T) {
 		ft := &fakeForceTerminator{}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -377,9 +371,7 @@ func TestStaleTaskDetection(t *testing.T) {
 		ft := &fakeForceTerminator{}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -462,9 +454,7 @@ func TestTerminalCleanupRefire(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -541,9 +531,7 @@ func TestTerminalCleanupRefire(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -638,9 +626,7 @@ func TestTerminalCleanupRefire(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		scheduler := NewScheduler(SchedulerParams{
@@ -714,9 +700,7 @@ func TestTerminalCleanupRefire(t *testing.T) {
 		}
 
 		manager := NewManager(ManagerParameters{
-			Clock:            clock,
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		// Task is already FAILED before scheduler starts (restart scenario).

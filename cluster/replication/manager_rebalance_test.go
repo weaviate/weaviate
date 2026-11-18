@@ -39,8 +39,20 @@ func TestManager_CreateRebalancePlan(t *testing.T) {
 	newManager := func() (*replication.Manager, *int) {
 		m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
 		calls := 0
-		m.SetPlanCreated(func() { calls++ })
+		m.SetPlanChanged(func() { calls++ })
 		return m, &calls
+	}
+	stopCommand := func(t *testing.T, planID string) *api.ApplyRequest {
+		t.Helper()
+		subCommand, err := json.Marshal(&replication.StopPlanRequest{PlanID: planID})
+		require.NoError(t, err)
+		return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REBALANCE_STOP, SubCommand: subCommand}
+	}
+	deleteCommand := func(t *testing.T, planID string) *api.ApplyRequest {
+		t.Helper()
+		subCommand, err := json.Marshal(&replication.DeletePlanRequest{PlanID: planID})
+		require.NoError(t, err)
+		return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REBALANCE_DELETE, SubCommand: subCommand}
 	}
 
 	t.Run("a stored plan calls the hook", func(t *testing.T) {
@@ -72,6 +84,64 @@ func TestManager_CreateRebalancePlan(t *testing.T) {
 		require.ErrorIs(t, err, replication.ErrBadRequest)
 		assert.Zero(t, *calls)
 	})
+
+	t.Run("a stop calls the hook", func(t *testing.T) {
+		m, calls := newManager()
+		require.NoError(t, m.CreateRebalancePlan(createCommand(t, "plan-1")))
+		before := *calls
+
+		require.NoError(t, m.StopRebalancePlan(stopCommand(t, "plan-1")))
+
+		assert.Equal(t, before+1, *calls)
+	})
+
+	t.Run("a delete calls the hook", func(t *testing.T) {
+		m, calls := newManager()
+		require.NoError(t, m.CreateRebalancePlan(createCommand(t, "plan-1")))
+		require.NoError(t, m.StopRebalancePlan(stopCommand(t, "plan-1")))
+		before := *calls
+
+		require.NoError(t, m.DeleteRebalancePlan(deleteCommand(t, "plan-1")))
+
+		assert.Equal(t, before+1, *calls)
+	})
+
+	noPlan := func(*testing.T, *replication.Manager) {}
+	planning := func(t *testing.T, m *replication.Manager) {
+		require.NoError(t, m.CreateRebalancePlan(createCommand(t, "plan-1")))
+	}
+	stopped := func(t *testing.T, m *replication.Manager) {
+		planning(t, m)
+		require.NoError(t, m.StopRebalancePlan(stopCommand(t, "plan-1")))
+	}
+	stop := func(t *testing.T, m *replication.Manager) error {
+		return m.StopRebalancePlan(stopCommand(t, "plan-1"))
+	}
+	deletePlan := func(t *testing.T, m *replication.Manager) error {
+		return m.DeleteRebalancePlan(deleteCommand(t, "plan-1"))
+	}
+	for _, tc := range []struct {
+		name    string
+		setup   func(*testing.T, *replication.Manager)
+		apply   func(*testing.T, *replication.Manager) error
+		wantErr error
+	}{
+		{name: "a stop of an unknown plan does not call the hook", setup: noPlan, apply: stop, wantErr: replication.ErrPlanNotFound},
+		{name: "a stop of a stopped plan does not call the hook", setup: stopped, apply: stop, wantErr: replication.ErrPlanTransition},
+		{name: "a delete of an unknown plan does not call the hook", setup: noPlan, apply: deletePlan, wantErr: replication.ErrPlanNotFound},
+		{name: "a delete of a planning plan does not call the hook", setup: planning, apply: deletePlan, wantErr: replication.ErrPlanTransition},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, calls := newManager()
+			tc.setup(t, m)
+			before := *calls
+
+			err := tc.apply(t, m)
+
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Equal(t, before, *calls)
+		})
+	}
 }
 
 func TestManager_GetRebalancePlan(t *testing.T) {

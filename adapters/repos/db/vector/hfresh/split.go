@@ -183,12 +183,13 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	h.postingLocks.Unlock(postingID)
 	h.taskQueue.SplitDone(postingID)
 
-	// a child of the bootstrap split is still far above the limit
-	for i := range 2 {
-		if uint32(len(result[i].Posting)) > h.maxPostingSize {
-			err = h.taskQueue.EnqueueSplit(newPostingIDs[i])
+	// a posting that outgrew twice the limit before its split ran leaves
+	// oversized children, and no append may come to split them
+	for i, id := range newPostingIDs {
+		if len(result[i].Posting) > int(h.maxPostingSize) {
+			err = h.taskQueue.EnqueueSplit(id)
 			if err != nil {
-				return errors.Wrapf(err, "failed to enqueue split for oversized posting %d", newPostingIDs[i])
+				return errors.Wrapf(err, "failed to enqueue split for oversized posting %d", id)
 			}
 		}
 	}

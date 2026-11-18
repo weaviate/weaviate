@@ -80,6 +80,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -230,13 +231,13 @@ func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardRe
 
 // rebalanceMeasure builds the RebalanceMeasure func. For a node missing from
 // cluster membership it returns an error, never a zero measurement with a nil error.
-func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string) (replicationTypes.RebalanceNodeMeasurement, error) {
-	return func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error) {
+func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string, string, uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
+	return func(ctx context.Context, node, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
 		host, ok := nodeHostname(node)
 		if !ok {
 			return replicationTypes.RebalanceNodeMeasurement{}, fmt.Errorf("resolve host of node %q: node not in cluster membership", node)
 		}
-		return client.GetRebalanceMeasurement(ctx, host)
+		return client.GetRebalanceDraft(ctx, host, taskID, version)
 	}
 }
 
@@ -551,6 +552,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		Replication: replication.GlobalConfig{
 			MinimumFactor:                             1,
 			AsyncReplicationDisabled:                  appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationInMaintenanceEnabled:      appState.ServerConfig.Config.Replication.AsyncReplicationInMaintenanceEnabled,
 			AsyncReplicationSchedulerWorkers:          appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers,
 			AsyncReplicationHashtreeInitConcurrency:   appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency,
 			AsyncReplicationHashtreeHeight:            appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight,
@@ -716,10 +718,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DynamicUserController:       appState.APIKey.Dynamic,
 		NamespacesController:        namespacesController,
 		NamespacesEnabled:           appState.ServerConfig.Config.Namespaces.Enabled,
+		Replication:                 appState.ServerConfig.Config.Replication,
 		ReplicaCopier:               replicaCopier,
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
-		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
@@ -903,23 +905,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	// Discover in-flight runtime reindex tasks from disk so the static
-	// ShardReindexerV3 can re-register their double-write callbacks via
-	// OnAfterLsmInit during shard load — BEFORE any post-restart write
-	// reaches the shard. Without this, writes between shard init and the
-	// deferred swap go only to the old main bucket and are silently lost.
-	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
-		appState.ServerConfig.Config.Persistence.DataPath,
-		appState.ServerConfig.Config.RuntimeReindexEnabled,
+	reindexProvider := db.NewReindexProvider(
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
+		appState.Cluster.LocalName(),
+		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
+		serverShutdownCtx,
+	)
+	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
+	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
 		appState.Logger,
 		appState.SchemaManager,
-	)
-	if recoveryErr != nil {
-		appState.Logger.WithError(recoveryErr).
-			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
-	}
-	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
-	repo.SetReindexer(reindexer)
+		reindexProvider,
+	))
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1105,7 +1102,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
+	initReindexAndDistributedTasks(appState, repo, providers, reindexProvider, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1170,31 +1167,15 @@ func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
 	providers map[string]distributedtask.Provider,
-	recoveredReindexes []db.RecoveredReindex,
+	reindexProvider *db.ReindexProvider,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
-	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
-		appState.Cluster.LocalName(),
-		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
-		serverShutdownCtx,
-	)
-	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
-	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
-	// to load already-loaded ingest buckets.
-	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
 	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
-
-	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
-	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
-	enterrors.GoWrapper(func() {
-		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
-	}, appState.Logger)
 
 	// The drop-vector-index provider. Its guards are registered separately,
 	// in the rConfig DistributedTask*Detectors maps in MakeAppState.
@@ -1221,6 +1202,18 @@ func initReindexAndDistributedTasks(
 		},
 	)
 	providers[db.DropVectorIndexNamespace] = dropVectorProvider
+
+	// Registered even when the rebalance flag is off. With the flag off,
+	// nothing creates tasks in this namespace.
+	providers[replicationTypes.RebalanceDraftNamespace] = db.NewRebalanceDraftProvider(
+		repo,
+		func() []*models.Class { return appState.SchemaManager.ReadOnlySchema().Classes },
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.Cluster.LocalName(),
+		appState.Logger,
+		serverShutdownCtx,
+	)
+
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
@@ -1230,11 +1223,6 @@ func initReindexAndDistributedTasks(
 			appState.ClusterService.IsLeader, dropVectorReconcileNudge,
 		)
 	}, appState.Logger)
-
-	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
-		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
-			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
-	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1257,22 +1245,6 @@ func initReindexAndDistributedTasks(
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
 	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
-}
-
-func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
-	// All reindex operations are now triggered via the REST API
-	// (DTM-based). The V3 startup reindexer is no longer used for
-	// kicking off new reindexes — but we still need it for restart
-	// recovery: in-flight runtime reindex tasks discovered on disk
-	// register here so that OnAfterLsmInit fires during shard load and
-	// re-installs the double-write callbacks before any post-restart
-	// write reaches the shard.
-	if len(recovered) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-	logger.WithField("count", len(recovered)).
-		Info("reindex recovery: registering in-flight tasks discovered on disk")
-	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state
@@ -1304,8 +1276,10 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 	case enabled && !lsmSkipWriteClassNameEnabled:
 		return fmt.Errorf("internal invariant violated: NAMESPACES_ENABLED=true but LSMSkipWriteClassNameEnabled=false; env-var wiring in usecases/config/environment.go is broken")
 	case enabled && maxReplicationFactor != 1:
-		// Each namespace's shards are pinned to a single home_node; RF>1
-		// would either leave replicas off-namespace or contradict the pin.
+		// The leader does not yet check a namespaced class's factor or a
+		// tenant's nodes against its own home_nodes, so above factor 1 a node
+		// that lags a home_nodes or factor change can propose placements those
+		// home_nodes no longer allow.
 		return fmt.Errorf("NAMESPACES_ENABLED=true requires REPLICATION_MAXIMUM_FACTOR=1; got %d", maxReplicationFactor)
 	case enabled && nonNamespacedCount > 0:
 		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)

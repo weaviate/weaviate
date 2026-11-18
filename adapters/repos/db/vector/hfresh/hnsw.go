@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -67,6 +68,7 @@ type centroidIndex interface {
 	Insert(id uint64, centroid *Centroid) error
 	Delete(id uint64) error
 	Exists(id uint64) bool
+	VectorMissing(id uint64) bool
 	Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error)
 	MaxID() uint64
 	Shutdown(ctx context.Context) error
@@ -187,6 +189,10 @@ func (c *CentroidIndex) Exists(id uint64) bool {
 	return c.current().Exists(id)
 }
 
+func (c *CentroidIndex) VectorMissing(id uint64) bool {
+	return c.current().VectorMissing(id)
+}
+
 func (c *CentroidIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
 	start := time.Now()
 	defer c.metrics.CentroidSearchDuration(start)
@@ -272,6 +278,10 @@ func (s *singleCentroid) Exists(id uint64) bool {
 	return s.id != 0 && id == s.id
 }
 
+// VectorMissing is always false: the single centroid is held in memory and
+// restored at startup, it has no stored vector to lose.
+func (s *singleCentroid) VectorMissing(id uint64) bool { return false }
+
 // Search ignores the allow list: the posting scan applies it per entry.
 func (s *singleCentroid) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
 	s.mu.RLock()
@@ -356,6 +366,14 @@ func (g *hnswCentroids) Delete(id uint64) error {
 
 func (g *hnswCentroids) Exists(id uint64) bool {
 	return g.hnsw.ContainsDoc(id)
+}
+
+// VectorMissing reports whether a centroid's stored vector is gone, as a
+// crash that saves the commit log but not the compressed vectors leaves it.
+func (g *hnswCentroids) VectorMissing(id uint64) bool {
+	_, err := hnsw.GetCompressedVector[byte](g.hnsw, id)
+	var notFound storobj.ErrNotFound
+	return errors.As(err, &notFound)
 }
 
 func (g *hnswCentroids) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {

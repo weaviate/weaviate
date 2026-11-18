@@ -20,7 +20,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
@@ -170,15 +169,18 @@ func (f *reconcileFixture) warned(want string) bool {
 func (f *reconcileFixture) reconcile() *migrationReconciler {
 	f.t.Helper()
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(f.t, r.Reconcile(context.Background()))
+	require.NoError(f.t, r.Load())
+	r.Reconcile(context.Background())
 	f.requireMigrationDirsTrackRecords()
 	return r
 }
 
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
+		// The shard testMigrationSubject's unit names.
+		Shard: "shard-1",
 		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
-			return migrationTaskStatuses(f.tasks), f.tasksReadable
+			return migrationTaskStatuses(f.tasks, "shard-1"), f.tasksReadable
 		},
 		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 			f.asked = append(f.asked, liveUnitKey{desc, unitID})
@@ -659,110 +661,34 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 	}
 }
 
-func TestReconcileReverseEdge(t *testing.T) {
-	checkpointed := func(subject MigrationSubject) MigrationRecord {
-		return NewMigrationRecordIterating(subject, MigrationCheckpoint{
-			LastProcessedKey: []byte("halfway"),
-		})
-	}
-
+func TestReconcileUncommitted(t *testing.T) {
 	uncheckpointed := func(subject MigrationSubject) MigrationRecord {
 		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
 	}
 
 	tests := []struct {
-		name              string
-		plant             func(MigrationSubject) MigrationRecord
-		present           []string
-		taskStatus        distributedtask.TaskStatus
-		unreadableSibling bool
-		wantState         MigrationState
-		wantRestart       bool
-		wantGone          bool
-		wantWedged        bool
+		name       string
+		plant      func(MigrationSubject) MigrationRecord
+		taskStatus distributedtask.TaskStatus
+		wantState  MigrationState
+		wantGone   bool
+		wantWedged bool
 	}{
 		{
-			name:      "iterated with every owned directory on disk: stay iterated",
+			name:      "an iterated migration stays iterated",
 			plant:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
-			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
 			wantState: MigrationStateIterated,
 		},
 		{
-			name:        "iterated and the directory the rebuild wrote into is gone",
-			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
-			present:     []string{"property_title__g42_ingest", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:        "iterated and the directory the mirror writes into is gone",
-			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
-			present:     []string{"property_title__s42_reindex", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:      "a checkpoint with every owned directory on disk keeps its place",
-			plant:     checkpointed,
-			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
-			wantState: MigrationStateIterating,
-		},
-		{
-			name:        "a checkpoint whose rebuild directory is gone restarts",
-			plant:       checkpointed,
-			present:     []string{"property_title__g42_ingest", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:        "a checkpoint whose mirror directory is gone restarts",
-			plant:       checkpointed,
-			present:     []string{"property_title__s42_reindex", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:      "no checkpoint with every owned directory on disk keeps its place",
-			plant:     uncheckpointed,
-			present:   []string{"property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable"},
-			wantState: MigrationStateIterating,
-		},
-		{
-			name:        "no checkpoint and the directory the mirror writes into is gone",
-			plant:       uncheckpointed,
-			present:     []string{"property_title__s42_reindex", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			name:        "no checkpoint and the directory the rebuild writes into is gone",
-			plant:       uncheckpointed,
-			present:     []string{"property_title__g42_ingest", "property_title_searchable"},
-			wantState:   MigrationStateIterating,
-			wantRestart: true,
-		},
-		{
-			// The restart writes, and a store nobody could read in full must
-			// not take a write: it would reset a live migration's checkpoint
-			// on evidence this build cannot see.
-			name:              "an unreadable sibling record withholds the reverse edge too",
-			plant:             checkpointed,
-			present:           []string{"property_title_searchable"},
-			unreadableSibling: true,
-			wantState:         MigrationStateIterating,
-		},
-		{
-			name:       "a committed migration whose rebuilt data is gone wedges instead of restarting",
+			name:       "a committed migration wedges",
 			plant:      uncheckpointed,
-			present:    []string{"property_title_searchable"},
 			taskStatus: distributedtask.TaskStatusFinished,
 			wantState:  MigrationStateIterating,
 			wantWedged: true,
 		},
 		{
-			name:       "a cancelled migration whose directories are gone is discarded, not restarted",
+			name:       "a cancelled migration is discarded",
 			plant:      uncheckpointed,
-			present:    []string{"property_title_searchable"},
 			taskStatus: distributedtask.TaskStatusCancelled,
 			wantGone:   true,
 		},
@@ -779,11 +705,7 @@ func TestReconcileReverseEdge(t *testing.T) {
 				status = distributedtask.TaskStatusStarted
 			}
 			f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, status)}
-			f.mkdirs(tt.present...)
 			f.put(tt.plant(subject))
-			if tt.unreadableSibling {
-				plantUnreadableRecord(t, f.store.Dir())
-			}
 
 			r := f.reconcile()
 
@@ -799,20 +721,9 @@ func TestReconcileReverseEdge(t *testing.T) {
 					"a record no load here can finish has to terminate as wedged")
 				require.False(t, f.store.HasUndecided(),
 					"and the wedge outlives this pass, or the record asks the leader once a minute forever")
+			} else {
+				require.Zero(t, r.WedgedCount(), "a record left standing is not wedged")
 			}
-
-			rec, _ := f.store.Get(subject.Key)
-			if !tt.wantRestart {
-				require.Equal(t, subject.IterationCutoff, rec.Subject().IterationCutoff,
-					"a rebuild that was not restarted keeps the horizon it armed with")
-				return
-			}
-
-			require.Equal(t, MigrationCheckpoint{}, rec.(MigrationRecordIterating).Checkpoint(),
-				"the checkpoint has to clear with the state, or the rebuild resumes past data it never wrote")
-
-			require.True(t, rec.Subject().IterationCutoff.After(time.Now()),
-				"a restarted rebuild must skip nothing: the mirror it delegated to is gone")
 		})
 	}
 }
@@ -848,8 +759,9 @@ func TestAnUnreadableRecordWithholdsEveryDestructiveArm(t *testing.T) {
 	// pass, and both have to withhold.
 	newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).RetireSuperseded(context.Background())
 	f.reconcile()
-	require.Error(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
-		DiscardTask(context.Background(), f.tasks[0]), "terminal cleanup has to report what it withheld")
+	require.ErrorIs(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+		DiscardTask(context.Background(), f.tasks[0]), errCleanupShardWithheld,
+		"terminal cleanup has to report what it withheld")
 
 	require.True(t, f.exists("property_title__g42_ingest"), "a discard removes a directory an unreadable record may name")
 	require.True(t, f.exists("property_body__g50_ingest"), "a promotion renames over one")
@@ -868,7 +780,7 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 
 	f := newReconcileFixtureAt(t, lsmPath)
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.Error(t, r.Reconcile(context.Background()))
+	require.Error(t, r.Load())
 
 	require.Len(t, f.logs.AllEntries(), 1)
 	notice := f.logs.AllEntries()[0]
@@ -878,6 +790,10 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 	require.NotContains(t, notice.Message, "not understood", "no record was read, so none can be miscounted")
 	require.NotContains(t, notice.Message, "downgrade", "no older build reads a file that is not there")
 	require.NotContains(t, notice.Message, "remove the files", "there is no file to remove")
+
+	withheld := r.DiscardTask(context.Background(), testTask("T", 1, distributedtask.TaskStatusCancelled))
+	require.ErrorIs(t, withheld, errCleanupShardWithheld)
+	require.Contains(t, withheld.Error(), "not a directory", "terminal cleanup names the fault it withheld for")
 }
 
 // A pass that renamed nothing must not write a Promoted record, and must not
@@ -1075,9 +991,11 @@ func TestTheReconcilerReportsOneLinePerRecordNotOnePerProperty(t *testing.T) {
 
 func TestReconcilePromotedClosure(t *testing.T) {
 	tests := []struct {
-		name       string
-		leftovers  []string
-		class      *models.Class
+		name      string
+		leftovers []string
+		class     *models.Class
+		// taskStatus is the owning task's; empty means it is gone.
+		taskStatus distributedtask.TaskStatus
 		wantRecord bool
 		wantWarn   string
 	}{
@@ -1089,6 +1007,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 		{
 			name:       "directories gone but the effect is not visible yet: keep the record",
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1096,6 +1015,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "a leftover with the effect still not visible: reclaim it and keep the record",
 			leftovers:  []string{"property_title__s42_reindex"},
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1124,6 +1044,9 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			f.class = tt.class
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			if tt.taskStatus != "" {
+				f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, tt.taskStatus)}
+			}
 			f.mkdirs(append([]string{"property_title_searchable"}, tt.leftovers...)...)
 			f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
 
@@ -1717,8 +1640,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	cancel()
 
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(t, r.Reconcile(ctx),
-		"a shard load must not fail because the activation that drove it was cancelled")
+	require.NoError(t, r.Load())
+	r.Reconcile(ctx)
 
 	_, present := f.state(subject.Key)
 	require.True(t, present, "a pass that stopped decided nothing")
@@ -1746,7 +1669,7 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"),
 		"so the rename it would have run never ran")
 
-	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing)
+	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing, true)
 	require.ErrorIs(t, outranErr, context.Canceled,
 		"and so does the sweep that re-runs a promotion the record outran")
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"))

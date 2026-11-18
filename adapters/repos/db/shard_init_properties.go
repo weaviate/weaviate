@@ -83,6 +83,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	var geoProps []*models.Property
 
 	for _, prop := range props {
+		prop = s.withMigratedIndexes(prop)
 		propCopy := *prop // prevent loop variable capture
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
@@ -182,6 +183,9 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
 		}()
 		for _, indexType := range disabledIndexTypes(prop) {
+			if s.migratedIndexStands(prop.Name, indexType) {
+				continue
+			}
 			// The whole loop runs inside the RAFT apply, once per shard. Every
 			// shard still queued for it drops out here rather than sweeping its
 			// own directories for an apply that is already failing.
@@ -263,12 +267,12 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// Only an unlistable dir fails the shard: any other unreadable record set
+	// Only an unlistable dir withholds this shard's cleanup: any other unreadable record set
 	// preserves every sidecar, and the sweep summary's count reports it.
 	records, faults, err := migrationRecordsAt(s.pathLSM(), s.index.logger)
 	dirs.chargeUnreadableRecordSet(s.pathLSM(), faults, err)
 	if err != nil {
-		return fmt.Errorf("partial-reindex cleanup: %w", err)
+		return &cleanupWithheldError{faults: faults}
 	}
 	committed := migrationPreservedStateFromRecords(records, faults)
 

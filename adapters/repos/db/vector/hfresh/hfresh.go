@@ -206,7 +206,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	idStore := NewDurableBucketStore(bucket, newBucketRef(store, postingsBucketName(cfg.ID)))
+	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +231,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 			return nil, err
 		}
 	}
+
+	h.repairOrphanPostings()
 
 	h.taskQueue.Register()
 
@@ -392,7 +395,7 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	return h.Centroids.ResumeAfterBackup(ctx)
 }
 
-func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, nil
 }
 

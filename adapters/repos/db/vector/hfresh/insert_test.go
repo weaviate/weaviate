@@ -263,9 +263,8 @@ func TestAppendEnqueuesSplitWhenPostingFarAboveThreshold(t *testing.T) {
 	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	originalMax := tf.Index.maxPostingSize
+	// not restored: queued child splits read it until Shutdown
 	tf.Index.maxPostingSize = 3
-	defer func() { tf.Index.maxPostingSize = originalMax }()
 
 	vectorID := uint64(10_000)
 	version := VectorVersion(1)

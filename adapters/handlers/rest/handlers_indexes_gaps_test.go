@@ -47,7 +47,7 @@ import (
 
 // TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins that a
 // stamped-blockmax property derives StrategyInverted, not StrategyMapCollection,
-// after its migration task ages out.
+// while the class flag is off.
 func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
 	tr := true
 	class := &models.Class{
@@ -61,11 +61,10 @@ func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
 			SearchableBlockmax: &tr, // durably stamped blockmax
 		}},
 	}
-	// nil task list == the FINISHED migration task has aged out of the DTM.
-	strategy, err := validateTokenizationChange(class, "text", models.PropertyTokenizationWhitespace, nil)
+	strategy, err := validateTokenizationChange(class, "text", models.PropertyTokenizationWhitespace)
 	require.NoError(t, err)
 	require.Equal(t, lsmkv.StrategyInverted, strategy,
-		"stamped-blockmax property must keep StrategyInverted after its migration task ages out")
+		"stamped-blockmax property must keep StrategyInverted")
 }
 
 // -----------------------------------------------------------------------------
@@ -843,7 +842,9 @@ func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
 		"node-2": {"shard-b", "shard-a"},
 		"node-1": {"shard-a"},
 	})
-	raw, err := json.Marshal(buildReindexPayload(nil, "C", nil, upsertPlan{}, nil, unitToShard, unitToNode))
+	payload := buildReindexPayload(nil, "C", nil, upsertPlan{}, nil)
+	payload.UnitToShard, payload.UnitToNode = unitToShard, unitToNode
+	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
 	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]

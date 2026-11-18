@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -526,6 +527,38 @@ func TestSplitMuveraPostingClustersOnStoredFDEs(t *testing.T) {
 			mean[j] /= float32(len(result.Posting))
 			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
 				"centroid coordinate %d must be the mean of the members' stored FDEs", j)
+		}
+	}
+}
+
+// A posting that grew past twice the limit before its split ran yields
+// children that are still oversized, and nothing else would split them.
+func TestSplitResplitsOversizedChildren(t *testing.T) {
+	tf := createHFreshIndex(t)
+	rng := rand.New(rand.NewSource(7))
+	vectors := make([][]float32, 1000)
+	for i := range vectors {
+		vectors[i] = make([]float32, 8)
+		for j := range vectors[i] {
+			vectors[i][j] = rng.Float32()
+		}
+	}
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 0)
+	tf.Index.maxPostingSize = 200
+	require.NoError(t, tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: vectors[0],
+		Compressed:   tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(vectors[0])),
+	}))
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, posting))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, posting))
+
+	require.NoError(t, tf.Index.doSplit(t.Context(), postingID, false))
+	require.Eventually(t, func() bool { return tf.Index.taskQueue.Size() == 0 },
+		30*time.Second, 10*time.Millisecond)
+
+	for id, md := range tf.Index.PostingMap.Iter() {
+		if tf.Index.Centroids.Exists(id) {
+			require.LessOrEqual(t, md.Count(), tf.Index.maxPostingSize, "posting %d", id)
 		}
 	}
 }

@@ -606,13 +606,6 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 		}).Warn("class left out of the backup, not all of its shards uploaded")
 	}
 
-	// Determine source path: use staging dir (hard-linked snapshot) if available,
-	// otherwise fall back to live data path for backward compatibility.
-	sourcePath := u.backend.SourceDataPath()
-	if cdesc.StagingDir != "" {
-		sourcePath = cdesc.StagingDir
-	}
-
 	u.log.WithField("class", cu.desc.Name).Info("start uploading files")
 
 	nShards := len(cu.desc.Shards)
@@ -632,7 +625,7 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 					cu.finish()
 				}
 			}()
-			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, sourcePath)
+			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, cdesc.ShardFileSource(shard.Name))
 		})
 	}
 	return cu
@@ -640,14 +633,14 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 
 // uploadShard compresses one shard into chunks and records them on its class.
 func (u *uploader) uploadShard(ctx context.Context, cu *classUpload, shard *backup.ShardDescriptor,
-	overrideBucket, overridePath, sourcePath string,
+	overrideBucket, overridePath string, src backup.FileSource,
 ) error {
 	// a failing job cancels ctx, but jobs already queued behind it still start
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	chunks, err := u.processShard(ctx, shard, cu.desc.Name, &cu.lastChunk, overrideBucket, overridePath, sourcePath)
+	chunks, err := u.processShard(ctx, shard, cu.desc.Name, &cu.lastChunk, overrideBucket, overridePath, src)
 	if err != nil {
 		return err
 	}
@@ -678,9 +671,10 @@ func (u *uploader) processShard(
 	shard *backup.ShardDescriptor,
 	className string,
 	lastChunk *atomic.Int32,
-	overrideBucket, overridePath, sourcePath string,
+	overrideBucket, overridePath string,
+	src backup.FileSource,
 ) ([]chunkShards, error) {
-	filesInShard, err := u.createFileList(shard, sourcePath)
+	filesInShard, err := u.createFileList(shard, src)
 	if err != nil {
 		return nil, fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
 	}
@@ -689,7 +683,7 @@ func (u *uploader) processShard(
 	firstChunk := true
 	for {
 		chunk := lastChunk.Add(1)
-		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath, sourcePath)
+		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath, src)
 		if err != nil {
 			return results, err
 		}
@@ -711,7 +705,7 @@ func (u *uploader) compress(ctx context.Context,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
 	fileSizeExceededWrite *SplitFile, // if not nil, continue from previous split
 	overrideBucket, overridePath string, // bucket name and path
-	sourcePath string, // root path for reading source files (staging dir or live data path)
+	src backup.FileSource, // resolves shard.Files to the files the class staged
 ) (*SplitFile, int64, error) {
 	var (
 		chunkKey           = chunkKey(class, chunk)
@@ -723,7 +717,7 @@ func (u *uploader) compress(ctx context.Context,
 	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
 	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
 	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
+	zip, reader, err := NewZip(src, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
@@ -792,16 +786,14 @@ func (u *uploader) compress(ctx context.Context,
 // FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist.
-func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
-	sourceDataPath := sourcePath
+func (u *uploader) createFileList(shard *backup.ShardDescriptor, src backup.FileSource) (*backup.FileList, error) {
 	files := shard.Files
 	fileSizes := make(map[string]int64, len(files))
 
 	for _, relPath := range files {
-		fullPath := filepath.Join(sourceDataPath, relPath)
-		info, err := os.Stat(fullPath)
+		info, err := src.Stat(relPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to stat file %q: %w", fullPath, err)
+			return nil, fmt.Errorf("stat file: %w", err)
 		}
 		fileSizes[relPath] = info.Size()
 	}
