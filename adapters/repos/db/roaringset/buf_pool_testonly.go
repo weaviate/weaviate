@@ -72,6 +72,18 @@ func (p *BitmapBufPoolTrackingForTests) CloneToBuf(bm *sroar.Bitmap) (cloned *sr
 	return cloneToBuf(p, bm)
 }
 
+func (p *BitmapBufPoolTrackingForTests) CloneToBufWithHeadroom(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return cloneToBufWithHeadroom(p, bm)
+}
+
+func (p *BitmapBufPoolTrackingForTests) ZeroedLayoutToBuf(bm *sroar.Bitmap) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayoutToBuf(p, bm)
+}
+
+func (p *BitmapBufPoolTrackingForTests) ZeroedLayoutToBufWithHeadroom(bm *sroar.Bitmap) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayoutToBufWithHeadroom(p, bm)
+}
+
 func (p *BitmapBufPoolTrackingForTests) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
 	return cloneBytesToBuf(p, src)
 }

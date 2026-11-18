@@ -1067,6 +1067,18 @@ func (p *dirtyTrackingPool) CloneToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func())
 	return cloneToBuf(p, bm)
 }
 
+func (p *dirtyTrackingPool) CloneToBufWithHeadroom(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return cloneToBufWithHeadroom(p, bm)
+}
+
+func (p *dirtyTrackingPool) ZeroedLayoutToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return zeroedLayoutToBuf(p, bm)
+}
+
+func (p *dirtyTrackingPool) ZeroedLayoutToBufWithHeadroom(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return zeroedLayoutToBufWithHeadroom(p, bm)
+}
+
 func (p *dirtyTrackingPool) CloneBytesToBuf(src []byte) (*sroar.Bitmap, func()) {
 	return cloneBytesToBuf(p, src)
 }
