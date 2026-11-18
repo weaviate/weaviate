@@ -289,19 +289,7 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 	result *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
 	merged := false
-	entriesCh := make(chan *cursorEntry)
-
-	errors.GoWrapper(func() {
-		defer close(entriesCh)
-		for bit, layer, ok := r.cursor.Next(); ok; bit, layer, ok = r.cursor.Next() {
-			if ctx.Err() != nil {
-				break
-			}
-			entriesCh <- &cursorEntry{bit: bit, layer: layer}
-		}
-	}, nil)
-
-	for entry := range entriesCh {
+	for entry := range r.layers(ctx) {
 		bitSet := value&(1<<(entry.bit-1)) != 0
 		merged = mergeLayer(result, entry.layer.Additions, bitSet, merged, conc)
 	}
@@ -318,19 +306,7 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 ) (*sroar.Bitmap, error) {
 	mergedMin := false
 	mergedMax := false
-	entriesCh := make(chan *cursorEntry)
-
-	errors.GoWrapper(func() {
-		defer close(entriesCh)
-		for bit, layer, ok := r.cursor.Next(); ok; bit, layer, ok = r.cursor.Next() {
-			if ctx.Err() != nil {
-				break
-			}
-			entriesCh <- &cursorEntry{bit: bit, layer: layer}
-		}
-	}, nil)
-
-	for entry := range entriesCh {
+	for entry := range r.layers(ctx) {
 		var b uint64 = 1 << (entry.bit - 1)
 		mergedMin = mergeLayer(resultMin, entry.layer.Additions, valueMinInc&b != 0, mergedMin, conc)
 		mergedMax = mergeLayer(resultMax, entry.layer.Additions, valueMaxExc&b != 0, mergedMax, conc)
@@ -343,6 +319,21 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 	resultMin.AndNotConc(resultMax, conc)
 
 	return resultMin, nil
+}
+
+// layers sends the cursor's bit layers after layer 0 until the cursor or ctx ends.
+func (r *SegmentReader) layers(ctx context.Context) <-chan cursorEntry {
+	entriesCh := make(chan cursorEntry)
+	errors.GoWrapper(func() {
+		defer close(entriesCh)
+		for bit, layer, ok := r.cursor.Next(); ok; bit, layer, ok = r.cursor.Next() {
+			if ctx.Err() != nil {
+				break
+			}
+			entriesCh <- cursorEntry{bit: bit, layer: layer}
+		}
+	}, nil)
+	return entriesCh
 }
 
 type cursorEntry struct {
