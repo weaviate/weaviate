@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -648,6 +649,8 @@ func TestUpgrade_InProgressUntilCompressed(t *testing.T) {
 
 	require.True(t, afterInstall, "between the swap and the compression")
 	require.True(t, afterCompress, "until the upgrade returns")
-	require.False(t, idx.UpgradeInProgress(), "once the upgrade returned")
+	// hnsw clears its compressing flag just after the compression callback
+	require.Eventually(t, func() bool { return !idx.UpgradeInProgress() },
+		5*time.Second, time.Millisecond, "once the upgrade returned")
 	require.True(t, idx.Compressed())
 }
