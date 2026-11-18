@@ -994,3 +994,18 @@ func (s *schema) deleteAlias(alias string) error {
 func (s *schema) unsafeResolveClass(class string) *metaClass {
 	return s.classes[class]
 }
+
+func (s *schema) requireShard(class, shard string) error {
+	s.mu.RLock()
+	meta := s.classes[class]
+	s.mu.RUnlock()
+	if meta == nil {
+		return fmt.Errorf("%w: %s", ErrClassNotFound, class)
+	}
+	return meta.RLockGuard(func(_ *models.Class, ss *sharding.State) error {
+		if _, ok := ss.Physical[shard]; !ok {
+			return fmt.Errorf("%w: %s", ErrShardNotFound, shard)
+		}
+		return nil
+	})
+}

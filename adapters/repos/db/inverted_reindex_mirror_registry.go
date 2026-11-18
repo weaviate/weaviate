@@ -22,8 +22,6 @@ type migrationMirrorRegistry struct {
 	disarms map[migrationMirrorKey]func()
 	// held lists the tasks a load or lift failed to arm and could not stamp Unmirrored, plus those a teardown kept from a lift.
 	held []*ShardReindexTaskGeneric
-	// The steps still wait after a retry settled the held set, until a status write makes the shard writable.
-	heldSettled bool
 	// counted is whether this shard is in the node's held-shard gauge; closed stops a late arm from re-adding it after teardown.
 	counted, closed bool
 }
@@ -92,29 +90,20 @@ func (r *migrationMirrorRegistry) holdUnarmed(tasks []*ShardReindexTaskGeneric) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.countHeldLocked(len(tasks) > 0)
-	r.held, r.heldSettled = tasks, false
+	r.held = tasks
 }
 
 func (r *migrationMirrorRegistry) heldUnarmed() []*ShardReindexTaskGeneric {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.heldSettled {
-		return nil
-	}
 	return r.held
-}
-
-func (r *migrationMirrorRegistry) markHeldSettled() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.heldSettled = len(r.held) > 0
 }
 
 func (r *migrationMirrorRegistry) releaseHeld() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.countHeldLocked(false)
-	r.held, r.heldSettled = nil, false
+	r.held = nil
 }
 
 func (r *migrationMirrorRegistry) stopCountingHeld() {

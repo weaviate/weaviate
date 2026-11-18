@@ -458,10 +458,6 @@ func removeDirIfExists(parentDir, dirName string) error {
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	if createsGeoIndex(prop) {
 		return s.initGeoProp(prop)
 	}
@@ -532,10 +528,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	// some datatypes are not added to the inverted index, so we can skip them here
 	switch schema.DataType(prop.DataType[0]) {
 	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
@@ -553,10 +545,6 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameNullLSM(prop.Name),
 		makeBucketOptions(lsmkv.StrategyRoaringSet)...,
@@ -564,10 +552,6 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		s.makeDefaultBucketOptions(lsmkv.StrategySetCollection)...,
@@ -579,9 +563,6 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
 	return s.loadDimensionsBucket(ctx, name)
 }
 
@@ -600,10 +581,6 @@ func (s *Shard) loadDimensionsBucket(ctx context.Context, name string) error {
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	// a usage scan that takes the shard for unloaded must not open the bucket meanwhile
 	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
 	if err != nil {
@@ -625,10 +602,6 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	if err := s.addCreationTimeUnixProperty(ctx); err != nil {
 		return fmt.Errorf("create creation time property: %w", err)
 	}
