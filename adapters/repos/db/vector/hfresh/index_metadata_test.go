@@ -411,9 +411,8 @@ func TestFirstSplitSwapsWhenSinglePostingDeleted(t *testing.T) {
 	require.ElementsMatch(t, []uint64{1001, 1002}, searchIDs())
 }
 
-// A first split cut short by a crash leaves posting 1 holding every vector:
-// before the graph exists the children are leftovers, after it posting 1 is
-// left without a centroid.
+// A first split cut short by a crash leaves postings without a centroid:
+// the children before the graph exists, posting 1 after it.
 func TestFirstSplitCutShortRecoversOnRestart(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -448,17 +447,31 @@ func TestFirstSplitCutShortRecoversOnRestart(t *testing.T) {
 			index = makeHFreshWithConfig(t, store, cfg, uc)
 			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
 			if leftover != 0 {
-				require.Zero(t, index.taskQueue.reassignQueue.Size(), "posting 1 still holds the leftover's vectors")
-				_, err := index.PostingMap.Get(t.Context(), leftover)
-				require.ErrorIs(t, err, ErrPostingNotFound)
-				posting, err := index.PostingStore.Get(t.Context(), leftover)
-				require.NoError(t, err)
-				require.Empty(t, posting)
+				require.Positive(t, index.taskQueue.reassignQueue.Size(), "the leftover's vectors are reassigned")
 			}
 			index.waitForMaintenance(t)
 			requireSelfSearchExcept(t, index, all, -1)
 		})
 	}
+}
+
+// A backup taken while the first split runs holds the split's postings but
+// not the new graph's commit log directory, whose only file is still active.
+func TestFirstSplitSurvivesLostCommitLogDirectory(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 600)
+	index.waitForMaintenance(t)
+	require.True(t, index.Centroids.Built())
+	require.NoError(t, index.Shutdown(t.Context()))
+	hnswCfg := cfg.Centroids.HNSWConfig
+	require.NoError(t, os.RemoveAll(filepath.Join(hnswCfg.RootPath, hnswCfg.ID+".hnsw.commitlog.d")))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	index.waitForMaintenance(t)
+	requireSelfSearchExcept(t, index, all, -1)
 }
 
 // The queued first split sits in its own queue file, which a crash can lose;
