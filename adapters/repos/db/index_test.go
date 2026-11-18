@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,8 +48,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -837,4 +840,112 @@ func TestIndexDropLocalShard(t *testing.T) {
 		}
 		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
 	})
+}
+
+// Each local shard must see the mark when it searches, so setting it after the
+// searches finish fails here too.
+func TestIndex_SearchFanOutSharesContainsHashes(t *testing.T) {
+	const className = "ContainsKeysFanOut"
+	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("remote-host", true).Maybe()
+	_, idx := testShardWithSettings(t, t.Context(), &models.Class{Class: className},
+		enthnsw.NewDefaultUserConfig(), false, false, false, func(i *Index) {
+			i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
+			i.remote = sharding.NewRemoteIndex(className, i.getSchema, nodeResolver, &FakeRemoteClient{})
+		})
+	// The helper's router answers with a fixed plan, so this test installs its own.
+	router := types.NewMockRouter(t)
+	idx.router = router
+	localNode := idx.replicator.LocalNodeName()
+
+	var (
+		mu   sync.Mutex
+		seen []bool
+		plan types.ReadRoutingPlan
+	)
+	recordMark := func(filter *filters.LocalFilter) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, filter.Root.Value.ContainsHashesShared())
+	}
+	router.EXPECT().BuildReadRoutingPlan(mock.Anything).RunAndReturn(
+		func(types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) { return plan, nil }).Maybe()
+	router.EXPECT().GetReadReplicasLocation(mock.Anything, mock.Anything, mock.Anything).Return(
+		types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: localNode}}}, nil).Maybe()
+
+	for _, name := range []string{"local1", "local2"} {
+		shard := NewMockShardLike(t)
+		shard.On("preventShutdown").Return(func() {}, nil).Maybe()
+		shard.On("ID").Return(name).Maybe()
+		shard.On("GetStatus").Return(storagestate.StatusReady).Maybe()
+		shard.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) { recordMark(args.Get(2).(*filters.LocalFilter)) }).
+			Return(nil, nil, nil).Maybe()
+		shard.On("ObjectVectorSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) { recordMark(args.Get(5).(*filters.LocalFilter)) }).
+			Return(nil, nil, nil).Maybe()
+		idx.shards.Store(name, shard)
+		t.Cleanup(func() { idx.shards.LoadAndDelete(name) })
+	}
+
+	searches := []struct {
+		name string
+		run  func(t *testing.T, filter *filters.LocalFilter) error
+	}{
+		{"objectSearchByShard", func(t *testing.T, filter *filters.LocalFilter) error {
+			_, _, err := idx.objectSearchByShard(t.Context(), 10, filter, nil, nil, nil,
+				additional.Properties{}, "", plan, nil)
+			return err
+		}},
+		{"objectVectorSearch", func(t *testing.T, filter *filters.LocalFilter) error {
+			_, _, err := idx.objectVectorSearch(t.Context(), []models.Vector{[]float32{1, 2, 3}},
+				[]string{""}, 0, 10, filter, nil, nil, additional.Properties{}, nil, "", nil, nil)
+			return err
+		}},
+	}
+	local := func(shard string) types.Replica { return types.Replica{ShardName: shard, NodeName: localNode} }
+	remote := func(shard string) types.Replica {
+		return types.Replica{ShardName: shard, NodeName: "other-node", HostAddr: "remote-host"}
+	}
+	plans := []struct {
+		name       string
+		replicas   []types.Replica
+		wantShared bool
+		wantLocal  int
+		// The remote shards exist in no schema, so their searches fail. The group has no
+		// context and Wait returns after every goroutine, so every local shard still runs.
+		wantRemoteErr bool
+	}{
+		{"two local shards", []types.Replica{local("local1"), local("local2")}, true, 2, false},
+		{"one local shard", []types.Replica{local("local1")}, false, 1, false},
+		{"one local and one remote shard", []types.Replica{local("local1"), remote("remote1")}, false, 1, true},
+		{"remote shards only", []types.Replica{remote("remote1"), remote("remote2")}, false, 0, true},
+	}
+
+	for _, search := range searches {
+		for _, tt := range plans {
+			t.Run(search.name+"/"+tt.name, func(t *testing.T) {
+				plan = types.ReadRoutingPlan{
+					LocalHostname: localNode,
+					ReplicaSet:    types.ReadReplicaSet{Replicas: tt.replicas},
+				}
+				seen = nil
+				value := &filters.Value{}
+				err := search.run(t, &filters.LocalFilter{Root: &filters.Clause{Value: value}})
+				if tt.wantRemoteErr {
+					require.ErrorContains(t, err, "no physical shard")
+				} else {
+					require.NoError(t, err)
+				}
+
+				require.Equal(t, tt.wantShared, value.ContainsHashesShared())
+				require.Len(t, seen, tt.wantLocal)
+				for _, shared := range seen {
+					require.Equal(t, tt.wantShared, shared, "a local shard searched with the wrong mark")
+				}
+			})
+		}
+	}
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -226,8 +227,9 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := helpers.InitSlowQueryDetails(ctx)
-			pv, err := s.extractContains(ctx, containsPath(tt.prop),
-				containsValue(tt.propType, tt.value), tt.operator, f.class)
+			value := containsValue(tt.propType, tt.value)
+			(&filters.LocalFilter{Root: &filters.Clause{Value: value}}).ShareContainsHashes()
+			pv, err := s.extractContains(ctx, containsPath(tt.prop), value, tt.operator, f.class)
 			require.NoError(t, err)
 			require.NotNil(t, pv)
 			require.Nil(t, pv.children, "eligible shape must resolve batched, not desugared")
@@ -249,6 +251,29 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, len(want), pv.containsKeys.Len(),
 				"one key per distinct value")
 			require.Equal(t, want, collectKeys(pv.containsKeys))
+			wantHashes := tt.operator != filters.ContainsAll
+			for i := range want {
+				h, ok := pv.containsKeys.HashAt(i)
+				require.Equalf(t, wantHashes, ok, "key %d's hash presence", i)
+				if wantHashes {
+					require.Equalf(t, bloomhash.Sum(want[i]), h, "key %d's hash", i)
+				}
+			}
+		})
+	}
+}
+
+// A value no fan-out marked has to come back without hashes, whatever its operator.
+func TestExtractContainsBatch_UnsharedValueGetsNoHashes(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	for _, operator := range []filters.Operator{filters.ContainsAny, filters.ContainsNone, filters.ContainsAll} {
+		t.Run(operator.Name(), func(t *testing.T) {
+			pv, err := f.searcher.extractContains(context.Background(), containsPath("prop-int"),
+				containsValue(schema.DataTypeInt, []interface{}{float64(1), float64(2)}), operator, f.class)
+			require.NoError(t, err)
+			require.Equal(t, 2, pv.containsKeys.Len())
+			_, ok := pv.containsKeys.HashAt(0)
+			require.False(t, ok, "only a marked value may carry hashes")
 		})
 	}
 }
