@@ -58,6 +58,7 @@ import (
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
+	modrerankerdigitalocean "github.com/weaviate/weaviate/modules/reranker-digitalocean"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
@@ -460,6 +461,12 @@ func (d *Compose) WithRerankerJinaAI(apiKey string) *Compose {
 func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerDigitalOcean(apiKey string) *Compose {
+	d.weaviateEnvs["DIGITALOCEAN_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankerdigitalocean.Name)
 	return d
 }
 
