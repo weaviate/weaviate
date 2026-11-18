@@ -142,6 +142,167 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
 
+## v4.0: primer prototipo que lee de disco (pre-registro, 2026-11-18)
+
+**Estado: pre-registrado.** Escrito el 18 a las 07:13, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el formato, las celdas, la lectura, la corrección, las medidas, los cuatro puntos del pre-registro, las condiciones y el orden de trabajo son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
+
+**Pendiente del usuario: espacio en disco.** La corrida de 1M pide de 25 a 30 GB y el disco tenía 554 MB libres al empezar (2.6 GB tras borrar mis binarios viejos). Los pasos de formato, escritura, lectura y tests no lo necesitan. Las comprobaciones a 1M, el HFresh real y la sesión cronometrada, sí.
+
+### Qué se mide
+
+Hasta aquí todo es en memoria, con conteos y un modelo de bytes. v4.0 es el primer prototipo que lee de disco, y solo el camino de lectura: el índice se construye en lote como hoy, se escribe a disco y se consulta desde disco. Los inserts y el refresco en disco vienen después.
+
+Mide tres cosas: que el índice en disco devuelve lo que el de memoria, que lo que lee de verdad es lo que decía el modelo de v3.0, y lo que tarda frente a un HFresh real sobre el mismo store. Dataset: dbpedia 1M, S = 236.
+
+### Formato (del usuario)
+
+Un posting son tres bloques con clave propia: miembros (ids y código completo), aristas, y halo opcional. Va en el mismo store LSM que usa HFresh para sus postings, para que la comparación tenga el mismo motor debajo. Si reutilizarlo exige un cambio grande, paro y doy las opciones.
+
+**Cómo lo leo, para escribirlo** (*mío*):
+
+- **Reutilizar el store no exige ningún cambio en `lsmkv`.** Se usa por su API pública: un `Store` sobre un directorio y un bucket por celda.
+- **Estrategia Replace, un valor por bloque.** HFresh usa SetCollection, con una entrada por vector. Las dos acaban en la misma lectura del segmento (`copyNode`): filtro de bloom en RAM, índice del segmento sobre el mmap y una copia del nodo entero.
+- **La clave son 5 B:** el posting, en 4 B big-endian, y el bloque, en 1 B. Los bloques de un posting quedan contiguos en el segmento.
+- **Un solo segmento por bucket,** escrito con un único flush, sin compactar.
+- **Los bloques,** con enteros little-endian:
+
+  | bloque | contenido | bytes |
+  |---|---|---|
+  | miembros | los ids de los n miembros, y después sus n códigos completos | n × (8 + 200) |
+  | aristas | el grado de cada miembro (1 B), y después los endpoints de todas, por slot | n + 4 por arista |
+  | halo, opcional | los slots de los endpoints distintos, en orden, y después sus sketches | 4 + 72 por entrada, con 512 bits |
+
+  - Frente al modelo de v3.0, el bloque de aristas lleva de más el byte de grado por miembro. El store añade 18 B por bloque al nodo.
+- **Residente en RAM,** cargado al abrir desde ficheros planos: los centroides y su grafo, el posting de cada vector (4 B), el slot de cada doc id (4 B; hace falta para leer su vector exacto) y, en las celdas de códigos en RAM, el código de ruteo de cada vector.
+  - **El grafo de centroides se guarda con su commit log** y se reabre de él, para que el índice que se cronometra entre por los mismos postings que el que se comprobó. Reconstruido, no entra igual.
+- **Los vectores exactos,** en un fichero propio en orden de posting: 6 144 B por vector, por slot.
+- **Dónde vive el código.** El formato, la escritura, la lectura y la búsqueda desde disco van en ficheros de test, como el halo: nada pasa a ser parte del índice. El único cambio en el índice es partir en dos la carga de un posting (traerlo y procesarlo), sin cambiar lo que hace.
+
+### Celdas (del usuario)
+
+1. Códigos de ruteo en RAM: completo, 512 bits y 384 bits.
+2. Halo en disco de 512 bits: base, y con la mejor poda de v3.1.
+3. HFresh real, el de main con su configuración por defecto, sobre el mismo dataset y en la misma sesión. Digo con qué códigos y qué rescore corre.
+
+**Cómo las leo** (*mío*):
+
+| celda | en disco, por posting | código de ruteo | aristas | M |
+|---|---|---|---|---|
+| completo en RAM | miembros y aristas | completo, 200 B por vector, en RAM | todas | 0.06 |
+| 512 bits en RAM | miembros y aristas | sketch de 72 B por vector, en RAM | todas | 0.06 |
+| 384 bits en RAM | miembros y aristas | sketch de 56 B por vector, en RAM | todas | 0.06 |
+| halo de 512 bits | miembros, aristas y halo | el halo del posting cargado | todas | 0.06 |
+| halo de 512 bits, podado | miembros, aristas y halo | el halo del posting cargado | una por posting de destino y cap 8 | 0.08 |
+| HFresh | sus postings | — | — | — |
+
+- **Un build de posting-edge para las cinco celdas:** S = 236, P = 256, R = 64, código completo. El scan lleva el código completo en todas.
+- **La mejor poda de v3.1** es la de su mejor celda de 512 bits a 0.95: las dos podas y M = 0.08.
+- **El resto de la búsqueda, con sus defaults:** una entrada, lotes de 4 postings, ef de centroides 8 y rescoreLimit 64.
+- **HFresh, a nivel de índice,** en un binario de test del paquete `hfresh`, como posting-edge en el suyo. Sin servidor.
+  - **Cuál:** el de este branch, que no ha tocado `hfresh` ni `lsmkv`. Sale de main en `0be45f9b64` (10 de noviembre). Main, en `a33c0ef138`, difiere en `hfresh` solo en dos firmas de backup, y en `lsmkv`, en el contador de lecturas de los cursores y en la lectura del WAL de RoaringSet, que la búsqueda no usa.
+  - **Configuración por defecto:** réplicas 4, posting máximo de 48 KB (227 entradas a 1536d, mínimo 75), searchProbe 256, distancia cosine.
+  - **Códigos:** RQ de 1 bit, que es el único que admite. Una entrada son 209 B: id, versión y un código de 200 B.
+  - **Rescore:** los 350 mejores candidatos, con el vector exacto de cada uno, pedidos en paralelo.
+  - **Su store:** el bucket de postings (SetCollection), el compartido, y un bucket `objects` de donde lee los vectores exactos, como en producción: Replace, con el doc id como clave secundaria. El valor es solo el vector, 6 144 B. Un objeto real lleva además sus propiedades, así que es un suelo.
+  - **El build:** inserts en paralelo, espera a que acabe su mantenimiento (splits, merges y reasignaciones), flush, y compactación hasta que no quede nada que compactar. Se dice cuántos segmentos quedan.
+  - **Su parámetro de calidad es searchProbe,** los postings que lee. Se barre con el rescore por defecto.
+
+### Lectura (del usuario)
+
+Las cargas de una ronda se piden en paralelo. Los vectores exactos del rescore van en un fichero propio en orden de posting. El rescore se reporta aparte en los dos índices, porque no leen del mismo sitio.
+
+*Mío:*
+
+- **Una ronda pide a la vez todos los bloques de sus postings,** hasta 4 postings de 2 o 3 bloques, y los procesa después en el orden de siempre. El posting de entrada va solo.
+- **El rescore de posting-edge son 64 lecturas de 6 144 B** del fichero de vectores, una por candidato, con `pread`.
+- **El mismo presupuesto de concurrencia por query en los dos índices: 8.** Posting-edge lo usa en las lecturas del rescore y HFresh en las suyas. HFresh lee sus postings uno detrás de otro: es como busca hoy, y no se toca.
+- **Modo de acceso del store: mmap,** que es el default y con el que corre un HFresh por defecto. Las dos familias de celdas van igual.
+- **El modo pread no se cronometra.** Se usa para contar, abajo.
+
+### Corrección, antes de cronometrar (del usuario)
+
+**Cada celda en disco devuelve los mismos resultados que su equivalente en memoria. Si no, stop.**
+
+*Mío, para aplicarlo:*
+
+- **El equivalente en memoria** es el índice del build con el estado de esa celda: el código completo, o el sidecar con el sketch, y las aristas de la celda. Usa el mismo grafo de centroides, reabierto de su commit log.
+- **Los mismos resultados** son, para las 5 000 queries y en los dos puntos de operación de la celda: los mismos ids en el mismo orden, las mismas distancias bit a bit, y las mismas cargas, rondas y endpoints puntuados.
+- **Se comprueba sobre el índice reabierto de disco,** no sobre el que se acaba de escribir.
+- **Además, en los tests,** con índices pequeños y en más configuraciones de búsqueda.
+- **HFresh no tiene equivalente en memoria.** Su comprobación es su recall.
+
+### Medidas (del usuario)
+
+A 0.95 y a 0.99, con 1 y con 8 threads: latencia (p50, p95 y p99) y QPS; lecturas reales por query, en número y en bytes, sacadas del store, frente al modelo de v3.0; RAM residente y disco. En caliente y en frío, diciendo qué control de la caché del sistema he podido usar en el Mac y qué no.
+
+*Mío, para escribirlo:*
+
+- **Punto de operación:** por celda, el menor ef cuyo recall llega al objetivo sobre las 5 000 queries, buscado sin cronometrar. En HFresh, el menor searchProbe. No se interpola: se cronometra en ese punto, y se da su recall.
+- **Gate de 0.99, como siempre:** ef hasta 2048 con rescoreLimit 64 y, si no llega, otra vez con 200.
+- **Lecturas reales:** el store solo cuenta lecturas en modo pread, donde cada bloque es un `ReadAt` del tamaño exacto del nodo. Se cuentan en una pasada aparte, en ese modo, sobre las mismas queries y en los mismos puntos. Es un contador global del proceso, y por eso va una celda por proceso.
+  - En modo mmap el store no cuenta nada: lo que entra son fallos de página.
+  - El recorrido del índice del segmento va por mmap en los dos modos, y no se cuenta.
+  - En HFresh el contador suma postings y rescore. El rescore se cuenta en su thunk y se resta.
+- **Frente al modelo de v3.0:** los bytes de posting que lee cada query, contra 208 B por miembro, 4 B por arista y 76 B por entrada de halo de los postings que carga. El rescore, aparte: 64 lecturas de 6 144 B.
+- **RAM residente:** el heap de Go en uso tras abrir el índice y forzar una recolección, en un proceso que solo abre esa celda. La caché del sistema no cuenta. Se da también la huella del proceso.
+- **Disco:** lo que ocupan los ficheros de la celda, con el store, los vectores y lo residente por separado.
+- **En caliente:** tras una pasada completa sin cronometrar, tres pasadas de las 5 000 queries. Se da la mediana de las tres.
+- **En frío,** en el Mac:
+  - **El control que hay:** los índices viven en una imagen de disco APFS, y desmontarla y volverla a montar tira la caché de sus ficheros. Probado antes de este pre-registro: una lectura aleatoria de 16 KB pasa de 2 µs a unos 150 µs, y el remontaje tarda 0.45 s. No pide root.
+  - **Lo que no hay:** `purge` pide root. No hay forma de tirar la caché de un fichero suelto, ni de leer sin caché a través del store, que es quien abre sus ficheros. El contador de bloques leídos del proceso no ve las lecturas a través de la imagen.
+  - **Qué es frío aquí:** los datos de los postings y los vectores, fríos. Lo residente, cargado. El índice de cada segmento del store, ya en caché, leído tras cada remontaje: en un servidor en marcha está caliente, y si no, las primeras queries de cada tanda pagarían su recorrido.
+  - **Tandas:** remontar, reabrir el índice y lanzar una tanda de queries; así hasta 500 queries por punto. Con 1 thread, tandas de 10. Con 8 threads, de 16.
+  - **Dentro de una tanda la caché se va llenando.** Se reporta qué parte de las lecturas de bloque repiten un bloque ya leído desde el remontaje.
+  - **El p99 en frío sale de 5 queries de 500.** Se da, con esa reserva.
+- **El rescore aparte,** en los dos índices: sus lecturas, sus bytes y su parte de la latencia.
+
+### Pre-registro (del usuario)
+
+1. **Los bytes leídos reales quedan a un 25 % o menos del modelo. Si no, stop, y se explica la diferencia.**
+2. **El modo con códigos de 512 bits en RAM tiene menos latencia en frío que HFresh a 0.95, y llega a 0.99.**
+3. **El halo no es más lento que HFresh a 0.95 en frío.**
+4. **Se reporta hasta qué recall llega el HFresh real.**
+
+*Mío, para aplicarlos:*
+
+- **El 1 se mira antes de cronometrar,** con la pasada en modo pread: por celda de posting-edge, a 0.95 y a 0.99, los bytes de posting reales entre los del modelo, entre 0.75 y 1.25. Si alguna queda fuera, no se cronometra nada.
+- **El 2 y el 3 se deciden con el p50 y 1 thread.** Se dan al lado el p95, el p99 y los 8 threads, y si alguno va en sentido contrario, se dice.
+- **«Llega a 0.99»** es pasar el gate.
+- **El 3 se lee en las dos celdas de halo.** Se cumple si alguna no es más lenta que HFresh, y se dice cuál.
+- **Si dos medianas quedan a menos de lo que se separan las dos mitades de las tandas de una misma celda,** se dice que no se separan.
+- **El 4:** searchProbe de 16 hasta todos los postings, de doble en doble, con el rescore por defecto de 350. Se da el recall máximo y con qué searchProbe llega a 0.95 y a 0.99, si llega.
+- **Si HFresh no llega a 0.95,** el 2 y el 3 quedan sin veredicto a 0.95. Se comparan, a título informativo, al mayor recall que alcance.
+
+### Condiciones (del usuario)
+
+- **Los tiempos, de noche y con la máquina despierta, como siempre:** desde las 23:00, bajo `caffeinate -s -i`, sin otro binario de benchmark, con 15 minutos sin teclado ni trackpad, y sin commits mientras corre.
+- **Los números absolutos del Mac no valen para producción:** solo la comparación entre índices. Las lecturas pasan además por la imagen de disco. Se dice en el informe.
+- **Un script único y un README corto** para repetir la corrida en Linux. Allí la caché de un fichero se tira sin root con `posix_fadvise`, y no hace falta la imagen.
+- *Mío:* el build, la escritura, las comprobaciones de corrección y la pasada de lecturas no se cronometran, y pueden ir de día.
+
+### Orden de trabajo (del usuario)
+
+1. Formato, escritura, lectura y tests de equivalencia.
+2. HFresh real funcionando.
+3. La sesión cronometrada, al final.
+
+Se reporta al cerrar cada paso.
+
+### Lo que no mide
+
+- **Inserts, refresco, deletes y splits en disco.**
+- **El modo pread cronometrado,** y la lectura sin caché.
+- **Un formato afinado:** alineación a página, bloques comprimidos, los tres bloques en una sola lectura.
+- **HFresh con otra configuración que la suya por defecto,** y HFresh dentro de un servidor.
+- **Linux, otro disco, 10M y otro dataset.**
+- **Varias corridas.** Es una sesión.
+
+### Lo que el binario añade (mío)
+
+- **En el índice:** la carga de un posting partida en traerlo y procesarlo. Nada más.
+- **En ficheros de test de posting-edge:** el formato, el escritor, el lector y la búsqueda desde disco, con sus tests de equivalencia, y un test de benchmark que construye, escribe, comprueba y cronometra.
+- **En un fichero de test de `hfresh`,** con la etiqueta de los benchmarks: el build de HFresh sobre un store real y su medida.
+
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado el 17 a las 22:20 (`242297c34f`), antes de compilar nada de esta ronda y antes de ningún dato suyo. La corrida fue de 22:27 a 22:53, y sus resultados están al final de la sección, desde «Resultados de v3.1 (2026-11-17)». El encargo, las celdas, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
