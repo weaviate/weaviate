@@ -469,22 +469,24 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
 
 ### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
 
-*Escrito después de la etapa de escritura, que corrió de 08:21 a 08:35. Son conteos: nada de aquí lleva tiempo. Las tablas completas están en `v4.0/disk-verdict.md`.*
+*Escrito después de la corrida sin cronometrar sobre el volumen APFS, de 09:07 a 09:59. Son conteos: nada de aquí lleva tiempo. Las tablas completas están en `v4.0/disk-verdict.md`.*
+
+*Los índices se escribieron dos veces: a las 08:21 en la imagen de disco y, tras la decisión de la enmienda 4, a las 09:07 en el volumen. Las cifras son las de la segunda, que es la que se cronometra. La primera dio lo mismo, con un ef de diferencia en una celda (188 en lugar de 187), porque cada escritura construye su grafo de centroides.*
 
 **Las dos paradas pasan en las cinco celdas.**
 
 | celda | recall | ef | recall medido | queries iguales en disco y en memoria | cargas | rondas | lecturas del store | bytes del store | modelo de v3.0 | real entre modelo |
 |---|---|---|---|---|---|---|---|---|---|---|
-| código completo en RAM | 0.95 | 20 | 0.9507 | 5 000 de 5 000 | 10.13 | 2.28 | 20.3 | 0.64 MB | 0.64 MB | 1.005 |
-| código completo en RAM | 0.99 | 284 | 0.9901 | 5 000 de 5 000 | 52.60 | 12.90 | 105.2 | 3.27 MB | 3.25 MB | 1.005 |
-| 512 bits en RAM | 0.95 | 21 | 0.9510 | 5 000 de 5 000 | 18.57 | 4.39 | 37.1 | 1.16 MB | 1.16 MB | 1.005 |
-| 512 bits en RAM | 0.99 | 188 | 0.9900 | 5 000 de 5 000 | 76.57 | 18.89 | 153.1 | 4.75 MB | 4.73 MB | 1.005 |
-| 384 bits en RAM | 0.95 | 21 | 0.9505 | 5 000 de 5 000 | 23.67 | 5.67 | 47.3 | 1.48 MB | 1.47 MB | 1.005 |
-| 384 bits en RAM | 0.99 | 164 | 0.9901 | 5 000 de 5 000 | 91.09 | 22.52 | 182.2 | 5.64 MB | 5.62 MB | 1.005 |
-| halo de 512 bits | 0.95 | 21 | 0.9510 | 5 000 de 5 000 | 18.57 | 4.39 | 55.7 | 3.40 MB | 3.39 MB | 1.002 |
-| halo de 512 bits | 0.99 | 188 | 0.9900 | 5 000 de 5 000 | 76.57 | 18.89 | 229.7 | 13.91 MB | 13.89 MB | 1.002 |
-| halo de 512 bits, podado | 0.95 | 25 | 0.9502 | 5 000 de 5 000 | 20.20 | 4.80 | 60.6 | 2.74 MB | 2.73 MB | 1.002 |
-| halo de 512 bits, podado | 0.99 | 239 | 0.9900 | 5 000 de 5 000 | 87.17 | 21.54 | 261.5 | 11.69 MB | 11.67 MB | 1.002 |
+| código completo en RAM | 0.95 | 20 | 0.9506 | 5 000 de 5 000 | 10.14 | 2.29 | 20.3 | 0.64 MB | 0.64 MB | 1.005 |
+| código completo en RAM | 0.99 | 284 | 0.9901 | 5 000 de 5 000 | 52.61 | 12.91 | 105.2 | 3.27 MB | 3.26 MB | 1.005 |
+| 512 bits en RAM | 0.95 | 21 | 0.9513 | 5 000 de 5 000 | 18.59 | 4.40 | 37.2 | 1.16 MB | 1.16 MB | 1.005 |
+| 512 bits en RAM | 0.99 | 187 | 0.9900 | 5 000 de 5 000 | 76.30 | 18.83 | 152.6 | 4.73 MB | 4.71 MB | 1.005 |
+| 384 bits en RAM | 0.95 | 21 | 0.9500 | 5 000 de 5 000 | 23.68 | 5.67 | 47.4 | 1.48 MB | 1.47 MB | 1.005 |
+| 384 bits en RAM | 0.99 | 164 | 0.9901 | 5 000 de 5 000 | 91.10 | 22.53 | 182.2 | 5.64 MB | 5.62 MB | 1.005 |
+| halo de 512 bits | 0.95 | 21 | 0.9513 | 5 000 de 5 000 | 18.59 | 4.40 | 55.8 | 3.40 MB | 3.39 MB | 1.002 |
+| halo de 512 bits | 0.99 | 187 | 0.9900 | 5 000 de 5 000 | 76.30 | 18.83 | 228.9 | 13.86 MB | 13.84 MB | 1.002 |
+| halo de 512 bits, podado | 0.95 | 25 | 0.9503 | 5 000 de 5 000 | 20.22 | 4.81 | 60.7 | 2.74 MB | 2.74 MB | 1.002 |
+| halo de 512 bits, podado | 0.99 | 239 | 0.9900 | 5 000 de 5 000 | 87.18 | 21.55 | 261.5 | 11.70 MB | 11.67 MB | 1.002 |
 
 - **Corrección: cada celda devuelve desde disco lo que en memoria.** Las 5 000 queries, en los dos puntos de operación de cada celda, sobre el índice reabierto de disco: los mismos ids en el mismo orden, las mismas distancias bit a bit, y las mismas cargas, rondas y endpoints puntuados.
 - **Criterio 1, se cumple: los bytes reales quedan a un 0.5 % del modelo como mucho,** donde el margen era un 25 %. Lo que hay de más son el byte de grado por miembro y los 18 B que el store pone a cada bloque.
@@ -505,6 +507,83 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
 
 - **El store ocupa lo que decía el modelo de v3.0 más un 0.3 a un 0.6 %:** 241.5, 661.7 y 493.0 MB en el modelo.
 - **Lo residente son el código de ruteo de cada vector,** donde lo hay, y 34.5 MB comunes: los centroides con su grafo, el posting de cada vector y el slot de cada doc id.
+
+### Resultados de v4.0, sin cronometrar: el HFresh real a 1M (2026-11-18)
+
+*De la misma corrida. Son recall y conteos del store: nada lleva tiempo.*
+
+**El índice,** con su configuración por defecto:
+
+- **28 466 postings y 5 194 013 entradas,** 5.25 por vector, de 209 B. Un posting tiene 182 entradas de media, entre 75 y 227.
+- **El build:** inserts en 115 s y mantenimiento en 82 s, con 422 compactaciones del store.
+- **Lo que queda en disco, 7.53 GB:** el bucket de postings, 1 135 MB en 2 segmentos; el de objetos, con los vectores exactos, 6 222 MB en 34; el compartido, 68 MB; y los centroides, 93 MB de códigos y 8 MB de grafo.
+
+**Criterio 4: hasta qué recall llega.**
+
+- **Con su configuración por defecto, searchProbe 256 y rescoreLimit 350, da un recall de 0.9674.**
+- **Subiendo solo searchProbe llega a 0.9989,** leyendo todos sus postings. Pasa de 0.95 con searchProbe 145 y de 0.99 con 928.
+- **Con un rescore más corto tiene techo:** 0.9751 con rescoreLimit 64 y 0.9890 con 100, leyendo todos los postings. Con ninguno de los dos llega a 0.99.
+
+Recall por searchProbe, con cada rescoreLimit:
+
+| searchProbe | rescoreLimit 64 | 100 | 200 | 350, el de por defecto | queries |
+|---|---|---|---|---|---|
+| 16 | 0.8322 | 0.8384 | 0.8408 | 0.8410 | 5 000 |
+| 32 | 0.8725 | 0.8804 | 0.8843 | 0.8847 | 5 000 |
+| 64 | 0.8996 | 0.9091 | 0.9140 | 0.9148 | 5 000 |
+| 128 | 0.9275 | 0.9383 | 0.9444 | 0.9456 | 5 000 |
+| 256, el de por defecto | 0.9471 | 0.9588 | 0.9659 | **0.9674** | 5 000 |
+| 512 | 0.9606 | 0.9731 | 0.9807 | 0.9824 | 5 000 |
+| 1 024 | 0.9683 | 0.9814 | 0.9893 | 0.9911 | 5 000 |
+| 2 048 | 0.9729 | 0.9863 | 0.9945 | 0.9963 | 5 000 |
+| 4 096 | 0.9748 | 0.9881 | — | 0.9983 | 5 000 |
+| 8 192 | 0.9750 | 0.9890 | — | 0.9988 | 1 000 |
+| 16 384 | 0.9750 | 0.9889 | — | 0.9988 | 1 000 |
+| 28 466, todos los postings | 0.9751 | 0.9890 | — | 0.9989 | 1 000 |
+
+Un hueco es un searchProbe que no hizo falta medir: el barrido de un rescoreLimit para cuando llega a 0.99.
+
+**Las candidatas y la mejor** (enmienda 4): por rescoreLimit, el menor searchProbe que llega a cada recall, con lo que cuenta el store por query.
+
+| recall | rescoreLimit | searchProbe | recall medido | lecturas por query | de postings | bytes | del rescore | bytes | |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.95 | 64 | 284 | 0.9500 | 386.7 | 322.7 | 11.55 MB | 64 | 0.40 MB | |
+| 0.95 | 100 | 185 | 0.9500 | **310.2** | 210.2 | 7.52 MB | 100 | 0.62 MB | **la mejor a 0.95** |
+| 0.95 | 200 | 151 | 0.9501 | 371.5 | 171.5 | 6.14 MB | 200 | 1.24 MB | |
+| 0.95 | 350 | 145 | 0.9501 | 514.7 | 164.7 | 5.90 MB | 350 | 2.16 MB | |
+| 0.99 | 64 | no llega | — | — | — | — | — | — | |
+| 0.99 | 100 | no llega | — | — | — | — | — | — | |
+| 0.99 | 200 | 1 080 | 0.9900 | 1 424.9 | 1 224.9 | 44.04 MB | 200 | 1.24 MB | |
+| 0.99 | 350 | 928 | 0.9900 | **1 402.9** | 1 052.9 | 37.84 MB | 350 | 2.16 MB | **la mejor a 0.99** |
+| por defecto, 0.9674 | 350 | 256 | 0.9674 | 640.9 | 290.9 | 10.41 MB | 350 | 2.16 MB | |
+
+- **La mejor a 0.95 es searchProbe 185 con rescoreLimit 100:** 310.2 lecturas por query. La que menos bytes lee es otra, la de rescoreLimit 200, con 7.38 MB frente a 8.14: la regla del usuario elige por lecturas.
+- **La mejor a 0.99 es searchProbe 928 con rescoreLimit 350:** 1 402.9 lecturas y 40.0 MB por query.
+- **HFresh hace 1.14 lecturas por posting, no una:** su bucket de postings queda en 2 segmentos tras compactar, y el 14 % de los postings tiene entradas en los dos.
+- **Un posting leído son 40.7 KB de media.**
+
+**Lo que lee cada índice por query,** postings y rescore juntos. Son conteos, no tiempos:
+
+| índice | recall | lecturas de postings | del rescore | en total | bytes de postings | del rescore | en total |
+|---|---|---|---|---|---|---|---|
+| código completo en RAM | 0.95 | 20.3 | 64 | 84.3 | 0.64 MB | 0.39 MB | 1.03 MB |
+| 512 bits en RAM | 0.95 | 37.2 | 64 | 101.2 | 1.16 MB | 0.39 MB | 1.56 MB |
+| 384 bits en RAM | 0.95 | 47.4 | 64 | 111.4 | 1.48 MB | 0.39 MB | 1.87 MB |
+| halo de 512 bits | 0.95 | 55.8 | 64 | 119.8 | 3.40 MB | 0.39 MB | 3.79 MB |
+| halo de 512 bits, podado | 0.95 | 60.7 | 64 | 124.7 | 2.74 MB | 0.39 MB | 3.13 MB |
+| **HFresh, la mejor** | 0.95 | 210.2 | 100 | 310.2 | 7.52 MB | 0.62 MB | 8.14 MB |
+| código completo en RAM | 0.99 | 105.2 | 64 | 169.2 | 3.27 MB | 0.39 MB | 3.66 MB |
+| 512 bits en RAM | 0.99 | 152.6 | 64 | 216.6 | 4.73 MB | 0.39 MB | 5.12 MB |
+| 384 bits en RAM | 0.99 | 182.2 | 64 | 246.2 | 5.64 MB | 0.39 MB | 6.04 MB |
+| halo de 512 bits | 0.99 | 228.9 | 64 | 292.9 | 13.86 MB | 0.39 MB | 14.25 MB |
+| halo de 512 bits, podado | 0.99 | 261.5 | 64 | 325.5 | 11.70 MB | 0.39 MB | 12.09 MB |
+| **HFresh, la mejor** | 0.99 | 1 052.9 | 350 | 1 402.9 | 37.84 MB | 2.16 MB | 40.00 MB |
+| HFresh por defecto | 0.9674 | 290.9 | 350 | 640.9 | 10.41 MB | 2.16 MB | 12.58 MB |
+
+- **A 0.95, la mejor configuración de HFresh hace de 2.5 a 3.7 veces las lecturas de una celda de posting-edge,** y lee de 2.2 a 7.9 veces sus bytes.
+- **A 0.99, de 4.3 a 8.3 veces las lecturas** y de 2.8 a 10.9 veces los bytes.
+- **Las lecturas de un posting no son la misma cosa en los dos índices:** las de posting-edge son bloques de un posting, dos o tres por carga, y van juntas dentro de una ronda; las de HFresh son postings enteros, uno detrás de otro. Lo que cuesta cada una lo dice la sesión cronometrada.
+- **La simulación de `findings.md` daba 114 cargas y 4.17 MB a 0.95 para HFresh con réplicas.** El índice real necesita 145 postings con su rescore de 350, que son 164.7 lecturas y 5.90 MB de postings, más el rescore. Era un suelo, como quedó dicho en `disk-design.md`: aquella cuenta no tenía error de código ni rescore.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 

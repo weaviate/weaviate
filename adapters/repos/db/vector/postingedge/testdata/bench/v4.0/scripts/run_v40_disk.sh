@@ -83,7 +83,10 @@ export GOMEMLIMIT="${GOMEMLIMIT:-24GiB}"
 case "$COLD" in
   volume)  [ -n "${VOLUME_DEV:-}" ] && [ -n "${VOLUME_MOUNT:-}" ] || { echo "== COLD=volume needs VOLUME_DEV and VOLUME_MOUNT"; exit 1; }
            case "$DISK/" in "$VOLUME_MOUNT"/*) ;; *) echo "== DISK must be under $VOLUME_MOUNT"; exit 1 ;; esac
-           DROP="diskutil unmount '$VOLUME_MOUNT' > /dev/null && diskutil mount '$VOLUME_DEV' > /dev/null" ;;
+           # The unmount is tried a few times: the system may be reading the
+           # volume. If it never goes, the command fails, and so does the run:
+           # a batch that was not dropped would be timed as cold.
+           DROP="ok=0; for try in 1 2 3 4 5; do diskutil unmount '$VOLUME_MOUNT' > /dev/null 2>&1 && ok=1 && break; sleep 2; done; [ \$ok = 1 ] && diskutil mount '$VOLUME_DEV' > /dev/null" ;;
   image)   DROP="hdiutil detach '$DISK' -quiet && hdiutil attach '$IMAGE' -mountpoint '$DISK' -nobrowse -quiet" ;;
   fadvise) DROP="python3 -I -B '$HERE/drop_cache.py' '$DISK'" ;;
   cmd)     [ -n "${DROP:-}" ] || { echo "== COLD=cmd needs DROP"; exit 1; } ;;
