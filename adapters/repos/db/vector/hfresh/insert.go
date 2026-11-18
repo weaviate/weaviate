@@ -240,12 +240,14 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	if !reassigned {
 		// analyze tasks are not queued for the single posting: each one
 		// would read the whole posting
-		if !h.Centroids.Built() && count <= h.bootstrapThreshold {
+		if !h.Centroids.Built() {
+			if h.singlePostingFull(count) {
+				err = h.taskQueue.EnqueueSplit(centroidID)
+				if err != nil {
+					return false, err
+				}
+			}
 			return true, nil
-		}
-		err = h.leaveSinglePostingMode(ctx)
-		if err != nil {
-			return false, err
 		}
 
 		// If the posting is too big, split it asynchronously.
@@ -283,34 +285,11 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	return true, nil
 }
 
-// leaveSinglePostingMode builds the centroid graph around the single posting
-// and analyzes it. Building creates the commit log directory, so a split never
-// runs on an index that would restart in single-posting mode, and the analyze
-// persists posting 1's map entry, which tells a restart the transition
-// finished. It is idempotent and retried by the next insert if it fails.
-func (h *HFresh) leaveSinglePostingMode(ctx context.Context) error {
-	if h.transitionDone.Load() {
-		return nil
-	}
-
-	err := h.Centroids.Build()
-	if err != nil {
-		return errors.Wrap(err, "build centroid index")
-	}
-	// hand the seed centroid to the commit log file before the map entry
-	err = h.Centroids.Flush()
-	if err != nil {
-		return errors.Wrap(err, "flush centroid index")
-	}
-	// persists the posting's map entry, which only lived in memory, and
-	// queues the first split
-	err = h.doAnalyze(ctx, singlePostingID)
-	if err != nil {
-		return errors.Wrapf(err, "analyze single posting %d", singlePostingID)
-	}
-
-	h.transitionDone.Store(true)
-	return nil
+// singlePostingFull reports whether the single posting is due for its first
+// split, which builds the centroid graph. A posting below the max posting
+// size cannot split, so it stays single until it grows.
+func (h *HFresh) singlePostingFull(count uint32) bool {
+	return count > max(h.bootstrapThreshold, h.maxPostingSize)
 }
 
 func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {

@@ -53,6 +53,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			Trace("centroid not found, skipping split operation")
 		return nil
 	}
+	// the single posting's split builds the centroid graph
+	firstSplit := !h.Centroids.Built()
 
 	// load the posting from disk
 	p, err := h.PostingStore.Get(ctx, postingID)
@@ -194,7 +196,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		}
 	}
 
-	if !reassign {
+	// the single posting has no centroid to compare its vectors against
+	if !reassign || firstSplit {
 		return nil
 	}
 

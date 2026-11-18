@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -25,7 +24,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
@@ -288,113 +286,64 @@ func (h *HFresh) centroidCommitLogExists() bool {
 	return err == nil
 }
 
-// singlePostingCentroid reads posting 1 and, when it has a live entry,
-// takes its centroid from it: a deleted entry's object is gone, and any
-// member serves while the posting holds every vector.
-func (h *HFresh) singlePostingCentroid() (Posting, []float32, error) {
-	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return nil, nil, errors.Wrapf(err, "read posting %d", singlePostingID)
-	}
-	live, err := slices.Clone(posting).GarbageCollect(h.VersionMap)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "filter live entries of posting %d", singlePostingID)
-	}
-	if len(live) == 0 {
-		return posting, nil, nil
-	}
-
-	var (
-		view  common.BucketView
-		slice *common.VectorSlice
-	)
-	if !h.muvera.Load() {
-		objectsView, releaseView, err := h.objectsBucketView()
-		if err != nil {
-			return nil, nil, err
-		}
-		defer releaseView()
-		view = objectsView
-
-		slice = h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
-		defer h.tempVectors.Put(slice)
-	}
-
-	centroid, err := h.clusteringVector(h.ctx, live[0].ID(), slice, view)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "fetch centroid vector for posting %d", singlePostingID)
-	}
-	return posting, centroid, nil
-}
-
 // restoreCentroids brings the centroid index back to its pre-restart state.
 // Building the graph creates its commit log directory, so without one the
 // index is still in single-posting mode.
 func (h *HFresh) restoreCentroids() error {
-	if !h.centroidCommitLogExists() {
-		return h.restoreSinglePosting()
+	if h.centroidCommitLogExists() {
+		return h.Centroids.Build()
 	}
-
-	err := h.Centroids.Build()
-	if err != nil {
-		return err
-	}
-	err = h.finishSinglePostingTransition()
-	if err != nil {
-		return err
-	}
-	h.transitionDone.Store(true)
-	return nil
+	return h.restoreSinglePosting()
 }
 
 // restoreSinglePosting restores posting 1 with its map entry and size, which
-// stay in memory until the transition persists them.
+// stay in memory until its first split.
 func (h *HFresh) restoreSinglePosting() error {
-	posting, centroid, err := h.singlePostingCentroid()
-	if err != nil || centroid == nil {
+	err := h.dropUnpublishedSplitChildren()
+	if err != nil {
 		return err
 	}
 
-	h.Centroids.restoreSingle(singlePostingID, centroid)
+	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return errors.Wrapf(err, "read single posting %d", singlePostingID)
+	}
+	if len(posting) == 0 {
+		return nil
+	}
+
+	h.Centroids.restoreSingle(singlePostingID)
 	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
 	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
 	return nil
 }
 
-// finishSinglePostingTransition completes a transition a crash cut short.
-// The transition ends by persisting posting 1's map entry, so live vectors in
-// posting 1 without one mean it never finished; the graph can also lack the
-// seed centroid, since the store reaches disk before the commit log.
-func (h *HFresh) finishSinglePostingTransition() error {
-	_, err := h.PostingMap.Get(h.ctx, singlePostingID)
-	if err == nil {
-		return h.requeueSinglePostingSplit()
-	}
-
-	_, centroid, err := h.singlePostingCentroid()
-	if err != nil || centroid == nil {
-		return err
-	}
-	if !h.Centroids.Exists(singlePostingID) {
-		err = h.Centroids.Insert(singlePostingID, &Centroid{Uncompressed: centroid})
-		if err != nil {
-			return errors.Wrapf(err, "restore seed centroid %d", singlePostingID)
+// dropUnpublishedSplitChildren removes the postings of a first split cut short
+// before the graph existed. Posting 1 is only emptied after that, so it still
+// holds their vectors.
+func (h *HFresh) dropUnpublishedSplitChildren() error {
+	var children []uint64
+	for postingID := range h.PostingMap.Iter() {
+		if postingID != singlePostingID {
+			children = append(children, postingID)
 		}
 	}
-	return h.doAnalyze(h.ctx, singlePostingID)
-}
 
-// requeueSinglePostingSplit queues the transition's split again: it sits in
-// its own queue file, which a crash can lose while the map entry survives.
-func (h *HFresh) requeueSinglePostingSplit() error {
-	if !h.Centroids.Exists(singlePostingID) {
-		return nil
+	for _, postingID := range children {
+		err := h.PostingStore.Put(h.ctx, postingID, Posting{})
+		if err != nil {
+			return errors.Wrapf(err, "drop unpublished split child %d", postingID)
+		}
+		err = h.setPostingVectorIDs(h.ctx, postingID, Posting{})
+		if err != nil {
+			return errors.Wrapf(err, "drop unpublished split child %d", postingID)
+		}
 	}
-	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
-	if err != nil || size <= h.maxPostingSize {
-		return err
+	if len(children) > 0 {
+		h.logger.WithField("postings", children).
+			Warn("dropped the postings of a first split cut short, the single posting still holds their vectors")
 	}
-	return h.taskQueue.EnqueueSplit(singlePostingID)
+	return nil
 }
 
 // restoreDimensions restores dimension-dependent components from persisted
@@ -585,6 +534,12 @@ func (h *HFresh) repairOrphanPostings() {
 		if !h.Centroids.Exists(postingID) || h.Centroids.VectorMissing(postingID) {
 			orphans = append(orphans, postingID)
 		}
+	}
+	// posting 1's map entry is only persisted by its first split, so a split
+	// cut short after the graph existed leaves it out of the map
+	_, err := h.PostingMap.Get(h.ctx, singlePostingID)
+	if err != nil && !h.Centroids.Exists(singlePostingID) {
+		orphans = append(orphans, singlePostingID)
 	}
 
 	for _, postingID := range orphans {

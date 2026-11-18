@@ -73,9 +73,6 @@ type HFresh struct {
 	// bootstrapThreshold is singlePostingMaxSize as a vector count, set once
 	// the dimensions are known.
 	bootstrapThreshold uint32
-	// transitionDone is set once the centroid graph exists and posting 1 was
-	// analyzed in it; the insert path checks it on every append.
-	transitionDone atomic.Bool
 
 	// needsNormalization is precomputed at construction from the configured
 	// distance: cosine-dot only equals the cosine distance on unit vectors,
@@ -226,20 +223,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
-	// after the restore, so a single posting written under another threshold
-	// moves into the graph instead of being shadowed by an empty one
-	leave := h.singlePostingMaxSize == 0
-	if !leave {
-		leave, err = h.singlePostingOverLimit()
-		if err != nil {
-			return nil, err
-		}
-	}
-	if leave {
-		err = h.leaveSinglePostingMode(h.ctx)
-		if err != nil {
-			return nil, err
-		}
+	// after the restore, so a single posting written under a higher limit
+	// splits into the graph, and an empty index gets its graph up front when
+	// the feature is off
+	err = h.startCentroidGraph()
+	if err != nil {
+		return nil, err
 	}
 
 	h.repairOrphanPostings()
@@ -249,17 +238,22 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	return &h, nil
 }
 
-// singlePostingOverLimit reports whether the restored single posting already
-// holds more vectors than a limit lowered since the last run allows.
-func (h *HFresh) singlePostingOverLimit() (bool, error) {
+func (h *HFresh) startCentroidGraph() error {
 	if h.Centroids.Built() {
-		return false, nil
+		return nil
 	}
+	if !h.Centroids.Exists(singlePostingID) {
+		if h.singlePostingMaxSize == 0 {
+			return h.Centroids.Build()
+		}
+		return nil
+	}
+
 	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
-	if err != nil {
-		return false, err
+	if err != nil || !h.singlePostingFull(size) {
+		return err
 	}
-	return size > h.bootstrapThreshold, nil
+	return h.taskQueue.EnqueueSplit(singlePostingID)
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
