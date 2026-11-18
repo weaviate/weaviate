@@ -411,21 +411,29 @@ func TestFirstSplitSwapsWhenSinglePostingDeleted(t *testing.T) {
 	require.ElementsMatch(t, []uint64{1001, 1002}, searchIDs())
 }
 
-// A transition cut short by a crash leaves the commit log directory, so the
-// restart reopens the graph and finishes the transition on posting 1.
-func TestInterruptedTransitionFinishedOnRestart(t *testing.T) {
+// A first split cut short by a crash leaves posting 1 holding every vector:
+// before the graph exists the children are leftovers, after it posting 1 is
+// left without a centroid.
+func TestFirstSplitCutShortRecoversOnRestart(t *testing.T) {
 	tests := []struct {
 		name      string
-		interrupt func(t *testing.T, index *HFresh, cfg *Config)
+		interrupt func(t *testing.T, index *HFresh, cfg *Config) (leftover uint64)
+		wantBuilt bool
 	}{
-		{"graph holds the seed", func(t *testing.T, index *HFresh, _ *Config) {
-			require.NoError(t, index.Centroids.Build())
-		}},
-		{"graph lacks the seed", func(t *testing.T, _ *HFresh, cfg *Config) {
-			// the store reaches disk before the commit log
+		{"before the graph exists", func(t *testing.T, index *HFresh, _ *Config) uint64 {
+			posting, err := index.PostingStore.Get(t.Context(), 1)
+			require.NoError(t, err)
+			child, err := index.IDs.Next()
+			require.NoError(t, err)
+			require.NoError(t, index.PostingStore.Put(t.Context(), child, posting[:50]))
+			require.NoError(t, index.setPostingVectorIDs(t.Context(), child, posting[:50]))
+			return child
+		}, false},
+		{"after the graph exists", func(t *testing.T, _ *HFresh, cfg *Config) uint64 {
 			hnswCfg := cfg.Centroids.HNSWConfig
 			require.NoError(t, os.MkdirAll(filepath.Join(hnswCfg.RootPath, hnswCfg.ID+".hnsw.commitlog.d"), os.ModePerm))
-		}},
+			return 0
+		}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -434,38 +442,41 @@ func TestInterruptedTransitionFinishedOnRestart(t *testing.T) {
 
 			index := makeHFreshWithConfig(t, store, cfg, uc)
 			all := addRestartVectors(t, index, vectors, 0, 300)
-			tt.interrupt(t, index, cfg)
+			leftover := tt.interrupt(t, index, cfg)
 			require.NoError(t, index.Shutdown(t.Context()))
 
 			index = makeHFreshWithConfig(t, store, cfg, uc)
-			require.True(t, index.Centroids.Built())
-			require.True(t, index.Centroids.Exists(1))
-			require.True(t, persistedPostingEntry(t, index, 1))
+			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
+			if leftover != 0 {
+				require.Zero(t, index.taskQueue.reassignQueue.Size(), "posting 1 still holds the leftover's vectors")
+				_, err := index.PostingMap.Get(t.Context(), leftover)
+				require.ErrorIs(t, err, ErrPostingNotFound)
+				posting, err := index.PostingStore.Get(t.Context(), leftover)
+				require.NoError(t, err)
+				require.Empty(t, posting)
+			}
 			index.waitForMaintenance(t)
-			require.Greater(t, index.PostingSizes.Count(), uint64(1), "the oversized posting must be split")
 			requireSelfSearchExcept(t, index, all, -1)
 		})
 	}
 }
 
-// The transition's split sits in its own queue file, which a crash can lose
-// while the posting's map entry survives.
-func TestTransitionSplitLostInCrashIsRequeued(t *testing.T) {
+// The queued first split sits in its own queue file, which a crash can lose;
+// the restart queues it again for a read-only tenant.
+func TestFirstSplitLostInCrashIsRequeued(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 300)
 	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
-	require.NoError(t, index.leaveSinglePostingMode(t.Context()))
-	require.True(t, persistedPostingEntry(t, index, 1))
+	all := addRestartVectors(t, index, vectors, 0, 600)
 	require.NoError(t, index.Shutdown(t.Context()))
 	require.NoError(t, os.RemoveAll(filepath.Join(cfg.RootPath, "split.queue.d")))
 	index.taskQueue.splitQueue.Resume()
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	index.waitForMaintenance(t)
-	require.Greater(t, index.PostingSizes.Count(), uint64(1), "the oversized posting must be split")
+	require.True(t, index.Centroids.Built())
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
@@ -493,29 +504,30 @@ func TestSinglePostingSurvivesRestartWithZeroThreshold(t *testing.T) {
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 300)
+	all := addRestartVectors(t, index, vectors, 0, 600)
 	require.NoError(t, index.Shutdown(t.Context()))
 
-	// a threshold of zero builds the graph up front, which must take the
-	// restored single posting along
+	// a threshold of zero splits the restored single posting into the graph
 	setSinglePostingLimit(t, 0)
 	index = makeHFreshWithConfig(t, store, cfg, uc)
+	index.waitForMaintenance(t)
 	require.True(t, index.Centroids.Built())
 	requireSelfSearchExcept(t, index, all, -1)
-
-	require.True(t, persistedPostingEntry(t, index, 1))
 }
 
 // A lowered limit must apply when the shard opens, not only on the next
-// insert, which a read-only tenant never makes.
+// insert, which a read-only tenant never makes. A posting too small to split
+// stays single until it grows.
 func TestSinglePostingReopenedWithLowerLimit(t *testing.T) {
 	tests := []struct {
 		name      string
-		limit     uint32 // when reopened, in vectors; the posting holds 300
+		vectors   int
+		limit     uint32 // when reopened, in vectors
 		wantBuilt bool
 	}{
-		{"below the posting's size", 100, true},
-		{"still above the posting's size", 500, false},
+		{"over the lowered limit", 600, 100, true},
+		{"under the lowered limit", 600, 800, false},
+		{"too small to split", 300, 100, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -523,14 +535,13 @@ func TestSinglePostingReopenedWithLowerLimit(t *testing.T) {
 			cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
 			index := makeHFreshWithConfig(t, store, cfg, uc)
-			all := addRestartVectors(t, index, vectors, 0, 300)
+			all := addRestartVectors(t, index, vectors, 0, tt.vectors)
 			require.NoError(t, index.Shutdown(t.Context()))
 
 			setSinglePostingLimit(t, tt.limit)
 			index = makeHFreshWithConfig(t, store, cfg, uc)
-			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
-			require.Equal(t, tt.wantBuilt, persistedPostingEntry(t, index, 1))
 			index.waitForMaintenance(t)
+			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
 			requireSelfSearchExcept(t, index, all, -1)
 		})
 	}
