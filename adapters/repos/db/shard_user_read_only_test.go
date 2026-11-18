@@ -39,12 +39,12 @@ const userReadOnlyError = "store is read-only due to: manually set by user"
 func userReadOnlyIndex(t *testing.T, class string) (ShardLike, *Index, *clusterschema.NodeOverlay) {
 	t.Helper()
 	ctx := context.Background()
+	overlay := &clusterschema.NodeOverlay{}
 	shard, idx := testShard(t, ctx, class, func(i *Index) {
 		i.shardResolver = resolver.NewShardResolver(class, false, i.getSchema)
+		i.db = &DB{nodeOverlay: overlay}
 	})
 	t.Cleanup(func() { _ = shard.Shutdown(ctx) })
-	overlay := &clusterschema.NodeOverlay{}
-	idx.db = &DB{nodeOverlay: overlay}
 	return shard, idx, overlay
 }
 
@@ -152,13 +152,53 @@ func TestUserReadyCannotLiftResourcePressure(t *testing.T) {
 	ctx := context.Background()
 	shard, idx, overlay := userReadOnlyIndex(t, class)
 	name := shard.Name()
-	require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+	setResourcePressure(t, idx, shard, true)
 
 	overlay.SetReadOnly(class, name, true)
 	overlay.SetReadOnly(class, name, false) // what a PUT READY does
 
 	err := idx.putObject(ctx, testObjWithTime(class, uuidLow, time.Now().UnixMilli()), &additional.ReplicationProperties{}, "", 0)
 	require.ErrorContains(t, err, "store is read-only due to: resource pressure")
+}
+
+func TestResourceRecoveryCannotLiftUserReadOnly(t *testing.T) {
+	tests := []struct {
+		name         string
+		userReadOnly func(t *testing.T, idx *Index, shard ShardLike, overlay *clusterschema.NodeOverlay)
+	}{
+		{
+			name: "set before the pressure",
+			userReadOnly: func(t *testing.T, idx *Index, shard ShardLike, overlay *clusterschema.NodeOverlay) {
+				overlay.SetReadOnly(idx.Config.ClassName.String(), shard.Name(), true)
+				setResourcePressure(t, idx, shard, true)
+			},
+		},
+		{
+			name: "set under the pressure",
+			userReadOnly: func(t *testing.T, idx *Index, shard ShardLike, overlay *clusterschema.NodeOverlay) {
+				setResourcePressure(t, idx, shard, true)
+				overlay.SetReadOnly(idx.Config.ClassName.String(), shard.Name(), true)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const class = "RecoveryKeepsUserReadOnly"
+			ctx := context.Background()
+			shard, idx, overlay := userReadOnlyIndex(t, class)
+
+			tt.userReadOnly(t, idx, shard, overlay)
+			idx.db.logger = idx.logger
+			idx.db.resourceScanState = newResourceScanState()
+			idx.db.indices = map[string]*Index{idx.ID(): idx}
+			idx.db.resourceUseRecovery(newTestMemMonitor(50, 100), diskUse{total: 100, free: 50, avail: 50})
+			require.False(t, overlay.ResourcePressure(), "the recovery ran")
+
+			err := idx.putObject(ctx, testObjWithTime(class, uuidLow, time.Now().UnixMilli()), &additional.ReplicationProperties{}, "", 0)
+			require.EqualError(t, err, userReadOnlyError)
+		})
+	}
 }
 
 func TestMigrationsIgnoreReadOnly(t *testing.T) {
@@ -181,8 +221,9 @@ func TestMigrationsIgnoreReadOnly(t *testing.T) {
 		},
 		{
 			name: "resource pressure",
-			set: func(t *testing.T, shard ShardLike, _ *clusterschema.NodeOverlay) {
-				require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+			set: func(t *testing.T, shard ShardLike, overlay *clusterschema.NodeOverlay) {
+				overlay.SetResourcePressure(true)
+				require.NoError(t, shard.syncStorePause())
 			},
 		},
 	}

@@ -332,6 +332,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	}
 	s.shut.Store(true)
 	defer s.releaseCountedStatus()
+	defer s.dropPhase()
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
@@ -424,7 +425,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	storeDurable := false
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
+		s.markShutdown()
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()

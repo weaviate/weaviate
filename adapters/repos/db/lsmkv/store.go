@@ -139,6 +139,11 @@ func (s *Store) AcquireBucketConsistentViewForRead(name string) BucketConsistent
 }
 
 func (s *Store) PauseBackgroundIO(paused bool) error {
+	return s.PauseBackgroundIOExcept(paused, nil)
+}
+
+// PauseBackgroundIOExcept pauses or resumes every bucket skip returns false for.
+func (s *Store) PauseBackgroundIOExcept(paused bool, skip func(bucket string) bool) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
@@ -152,8 +157,8 @@ func (s *Store) PauseBackgroundIO(paused bool) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	for _, b := range s.bucketsByName {
-		if b != nil {
+	for name, b := range s.bucketsByName {
+		if b != nil && (skip == nil || !skip(name)) {
 			b.PauseBackgroundIO(paused)
 		}
 	}

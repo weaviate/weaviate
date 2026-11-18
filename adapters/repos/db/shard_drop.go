@@ -62,6 +62,7 @@ func (s *Shard) drop() (err error) {
 	}
 
 	defer s.releaseCountedStatus()
+	defer s.dropPhase()
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 

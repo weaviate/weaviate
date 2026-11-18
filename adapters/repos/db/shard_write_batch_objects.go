@@ -38,7 +38,7 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWhilePaused(); err != nil {
 		return duplicateErr(err, len(objects))
 	}
 
