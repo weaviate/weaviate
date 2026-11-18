@@ -1513,7 +1513,11 @@ func Test_ResetKeepsCompressionAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 
 	withCompression := func(enable func(*ent.UserConfig)) ent.UserConfig {
-		uc := userConfig(dimensions/10, 5, 32, 64, 32, size)
+		// A beam wider than the index visits every node, so the exact top-1
+		// below does not depend on how the coarse compressed distances (PQ has
+		// 25 codes for these 50 vectors) steer a narrower search; the
+		// rescoring step then picks the stored vector itself.
+		uc := userConfig(dimensions/10, 5, 32, 64, 2*size, size)
 		uc.PQ.Enabled = false
 		enable(&uc)
 		return uc
