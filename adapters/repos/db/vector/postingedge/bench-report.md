@@ -467,6 +467,28 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
 
 **Lo que ya he visto de HFresh a 1M, para que conste.** El build de las 08:47, que paré para reescribir los índices en el volumen, llegó a imprimir su recall con rescoreLimit 350: de 0.8418 con searchProbe 16 a 0.9963 con 2 048, y 0.9663 con el de por defecto. Es de un índice que no se va a medir, porque el build de HFresh no sale igual dos veces, y no lleva ningún tiempo.
 
+### Enmienda 5 (10:34 del 18, del usuario): se cronometra ya, con segunda ronda y actividad por tramo, y menos de un 10 % es un empate
+
+*Antes de ningún dato cronometrado: sigue sin existir ninguno. Las decisiones son del usuario, a la vista de los datos sin cronometrar. Lo que dejan abierto lo fijo aquí, marcado como mío.*
+
+**Del usuario:**
+
+- **La sesión cronometrada se lanza ya,** sin esperar a las 23:00.
+- **Se mantiene el resto:** la máquina despierta, 15 minutos sin teclado ni trackpad, la segunda ronda como detector de deriva y el registro de actividad por tramo.
+- **Si una curva deriva o coincide con actividad de usuario, se marca y se repite solo esa curva esta noche.** El veredicto sale con lo que haya.
+- **Una diferencia menor del 10 % entre dos índices se reporta como empate.**
+
+*Mío, para aplicarlo:*
+
+- **Un tramo es un índice cronometrado en un proceso propio:** una celda de posting-edge, con sus dos recalls, o una configuración de HFresh. Son ocho: cinco celdas y tres configuraciones. Cada tramo es una curva.
+- **Dos rondas.** La sesión recorre los ocho tramos y después los recorre otra vez, en el mismo orden. La medida es la primera ronda; la segunda detecta deriva. Ya no hay celda repetida al final: la segunda ronda la sustituye.
+- **Los 15 minutos sin teclado ni trackpad se piden antes de arrancar.** Durante la sesión se registran, no se exigen.
+- **Una curva deriva** si alguna de sus medianas se separa un 10 % o más entre las dos rondas: el p50 de cualquiera de sus puntos, en caliente o en frío, con 1 o con 8 threads. Es el 10 % del empate: lo que no separa dos índices tampoco separa dos rondas.
+- **Una curva coincide con actividad de usuario** si hubo teclado o trackpad durante su tramo, en cualquiera de las dos rondas: al acabar el tramo, el tiempo sin entrada es menor que lo que duró. De cada tramo se guardan además su principio, su fin y lo que `pmset` registra entre los dos.
+- **Las curvas marcadas se repiten esta noche,** desde las 23:00, con las condiciones de siempre. La repetición sustituye a la primera ronda de esa curva en el veredicto, y se dice.
+- **El veredicto sale al acabar las dos rondas,** con las curvas marcadas señaladas, y se rehace tras las repeticiones.
+- **El empate, en los criterios.** El 2 pide menos latencia que HFresh: un empate no lo cumple. El 3 pide no ser más lento: un empate lo cumple. La regla de las dos mitades de las tandas queda como dato y ya no decide.
+
 ### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
 
 *Escrito después de la corrida sin cronometrar sobre el volumen APFS, de 09:07 a 09:59. Son conteos: nada de aquí lleva tiempo. Las tablas completas están en `v4.0/disk-verdict.md`.*
@@ -584,6 +606,22 @@ Un hueco es un searchProbe que no hizo falta medir: el barrido de un rescoreLimi
 - **A 0.99, de 4.3 a 8.3 veces las lecturas** y de 2.8 a 10.9 veces los bytes.
 - **Las lecturas de un posting no son la misma cosa en los dos índices:** las de posting-edge son bloques de un posting, dos o tres por carga, y van juntas dentro de una ronda; las de HFresh son postings enteros, uno detrás de otro. Lo que cuesta cada una lo dice la sesión cronometrada.
 - **La simulación de `findings.md` daba 114 cargas y 4.17 MB a 0.95 para HFresh con réplicas.** El índice real necesita 145 postings con su rescore de 350, que son 164.7 lecturas y 5.90 MB de postings, más el rescore. Era un suelo, como quedó dicho en `disk-design.md`: aquella cuenta no tenía error de código ni rescore.
+
+### Lectura del usuario de los datos sin cronometrar (2026-11-18)
+
+*Del usuario, tras ver las tablas de arriba y antes de cronometrar nada. Las cifras son las de esas tablas, redondeadas.*
+
+| a 1M, postings y rescore juntos | lecturas a 0.95 | MB a 0.95 | lecturas a 0.99 | MB a 0.99 |
+|---|---|---|---|---|
+| 512 bits en RAM | 101 | 1.6 | 217 | 5.1 |
+| halo de 512 bits, todo en disco | 120 | 3.8 | 293 | 14.3 |
+| HFresh, su mejor configuración | 310 | 8.1 | 1 403 | 40.0 |
+
+- **El modo todo en disco ya no empata con HFresh.** Lee la mitad a 0.95 y casi un tercio a 0.99, con entre 2.6 y 4.8 veces menos lecturas. El empate de v3.0 salía de comparar contra un suelo de simulación: 3.33 MB del halo frente a los 4.17 MB de `findings.md`, donde el índice real lee 8.1.
+- **Con 7 GB de RAM por cada 100M de vectores, lee 5 veces menos a 0.95 y 8 veces menos a 0.99.** Es la celda de 512 bits en RAM.
+- **Una corrección a lo que veníamos diciendo: HFresh sí llega a 0.99 a 1M.** Le cuesta 928 postings por query, cinco veces lo que gasta a 0.95. Hacia fuera se dice así: «0.99 is possible but very expensive», no «it can't».
+
+*Nota mía sobre los 7 GB:* son los códigos de ruteo, 72 B por vector. Lo que la celda carga en RAM a 1M son 105.7 MB: esos códigos (71.3 MB), el posting y el slot de cada vector (7.9 MB) y los centroides sin comprimir (25.8 MB). Escalado tal cual a 100M son unos 10.7 GB, de los que 2.6 GB serían centroides. La RAM residente medida va en la sesión cronometrada.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
