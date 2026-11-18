@@ -248,6 +248,23 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, 7)
 }
 
+// The single posting has no centroid in the graph, so the startup repair of
+// postings without a centroid must not take it for one.
+func TestSinglePostingRestartReassignsNothing(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	require.True(t, index.Centroids.Exists(1), "the repair must not delete the single centroid")
+	require.Zero(t, index.taskQueue.reassignQueue.Size())
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
 func TestSinglePostingRecoveredWithoutRecord(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
