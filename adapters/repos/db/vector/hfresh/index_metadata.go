@@ -299,11 +299,6 @@ func (h *HFresh) restoreCentroids() error {
 // restoreSinglePosting restores posting 1 with its map entry and size, which
 // stay in memory until its first split.
 func (h *HFresh) restoreSinglePosting() error {
-	err := h.dropUnpublishedSplitChildren()
-	if err != nil {
-		return err
-	}
-
 	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return errors.Wrapf(err, "read single posting %d", singlePostingID)
@@ -315,34 +310,6 @@ func (h *HFresh) restoreSinglePosting() error {
 	h.Centroids.restoreSingle(singlePostingID)
 	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
 	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
-	return nil
-}
-
-// dropUnpublishedSplitChildren removes the postings of a first split cut short
-// before the graph existed. Posting 1 is only emptied after that, so it still
-// holds their vectors.
-func (h *HFresh) dropUnpublishedSplitChildren() error {
-	var children []uint64
-	for postingID := range h.PostingMap.Iter() {
-		if postingID != singlePostingID {
-			children = append(children, postingID)
-		}
-	}
-
-	for _, postingID := range children {
-		err := h.PostingStore.Put(h.ctx, postingID, Posting{})
-		if err != nil {
-			return errors.Wrapf(err, "drop unpublished split child %d", postingID)
-		}
-		err = h.setPostingVectorIDs(h.ctx, postingID, Posting{})
-		if err != nil {
-			return errors.Wrapf(err, "drop unpublished split child %d", postingID)
-		}
-	}
-	if len(children) > 0 {
-		h.logger.WithField("postings", children).
-			Warn("dropped the postings of a first split cut short, the single posting still holds their vectors")
-	}
 	return nil
 }
 
