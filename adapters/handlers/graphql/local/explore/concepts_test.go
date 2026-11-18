@@ -735,3 +735,74 @@ func TestExplore_AdmissionShedMapsToRateLimit(t *testing.T) {
 		"raw ErrOverloaded message must not leak to the client")
 	resolver.AssertExpectations(t)
 }
+
+// Explore used to type-assert every selection to *ast.Field, so selecting
+// fields through a fragment panicked instead of resolving (gh-4050).
+func TestExplore_FragmentSelection(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		query         string
+		withCertainty bool
+	}{
+		{
+			name:  "inline fragment",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { ... on ExploreObj { beacon } } }`,
+		},
+		{
+			name:          "inline fragment next to certainty",
+			query:         `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { ... on ExploreObj { beacon } certainty } }`,
+			withCertainty: true,
+		},
+		{
+			name:  "named fragment",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { ...F } } fragment F on ExploreObj { beacon }`,
+		},
+		{
+			name:          "certainty inside inline fragment",
+			query:         `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { ... on ExploreObj { certainty } } }`,
+			withCertainty: true,
+		},
+		{
+			name:          "certainty inside named fragment",
+			query:         `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { ...F } } fragment F on ExploreObj { certainty }`,
+			withCertainty: true,
+		},
+		// certainty excluded from the response must not trigger the
+		// cosine-only certainty check
+		{
+			name:  "certainty skipped",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon certainty @skip(if: true) } }`,
+		},
+		{
+			name:  "certainty inside skipped named fragment",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon ...F @skip(if: true) } } fragment F on ExploreObj { certainty }`,
+		},
+		{
+			name:  "certainty inside excluded inline fragment",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon ... on ExploreObj @include(if: false) { certainty } } }`,
+		},
+		{
+			name:  "certainty skipped by variable",
+			query: `query ($skip: Boolean = true) { Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon certainty @skip(if: $skip) } }`,
+		},
+		{
+			name:          "certainty kept by variable",
+			query:         `query ($skip: Boolean = false) { Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon certainty @skip(if: $skip) } }`,
+			withCertainty: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := newMockResolver()
+			resolver.On("Explore", mock.MatchedBy(func(p traverser.ExploreParams) bool {
+				return p.WithCertaintyProp == tc.withCertainty
+			})).Return([]search.Result{{Beacon: "weaviate://localhost/some-uuid"}}, nil).Once()
+
+			res := resolver.Resolve(tc.query)
+
+			require.Empty(t, res.Errors)
+			resolver.AssertExpectations(t)
+		})
+	}
+}
