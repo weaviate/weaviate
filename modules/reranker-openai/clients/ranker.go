@@ -226,8 +226,8 @@ type judgeRequest struct {
 	apiKey       string
 	organization string
 	// hostFromHeader says the request header named the host. Anyone who may
-	// query can name one, so status errors quote no reply body for it. A wrong
-	// answer name or type is quoted (cut to 512 bytes) for every host.
+	// query can name one, so an error quotes nothing of its replies and names
+	// no object.
 	hostFromHeader bool
 	model          string
 	query          string
@@ -235,7 +235,8 @@ type judgeRequest struct {
 }
 
 // judge names the document's object in a 400 about the document and in a
-// rejected answer.
+// rejected answer. It names no object for a host the request header named:
+// which errors carry the name would tell what that host replied.
 func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, int64, error) {
 	response, err := c.send(ctx, r, document.Value)
 	if err != nil {
@@ -247,7 +248,10 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	}
 	score, err := response.score(questionName)
 	if err != nil {
-		return 0, 0, fmt.Errorf("object %s: %w", document.ID, c.replyError(err, r.hostFromHeader))
+		if r.hostFromHeader {
+			return 0, 0, c.replyError(err, true)
+		}
+		return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
 	}
 	return score, response.inputTokens(), nil
 }
@@ -362,12 +366,33 @@ func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromH
 }
 
 // Param and Code are any: OpenAI sends a string or null, and other servers
-// send a number as the code. A value of another type must not fail the decode
-// of the message.
+// send a number as the code.
 type apiError struct {
-	Message string `json:"message"`
-	Param   any    `json:"param"`
-	Code    any    `json:"code"`
+	Message string
+	Param   any
+	Code    any
+}
+
+// UnmarshalJSON takes the error object of OpenAI and an error that is a
+// string, which some OpenAI-compatible servers send. A message that is not a
+// string reads as no message, so that param and code are still decoded.
+func (e *apiError) UnmarshalJSON(data []byte) error {
+	var message string
+	if json.Unmarshal(data, &message) == nil {
+		e.Message = message
+		return nil
+	}
+	var fields struct {
+		Message any `json:"message"`
+		Param   any `json:"param"`
+		Code    any `json:"code"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	e.Message, _ = fields.Message.(string)
+	e.Param, e.Code = fields.Param, fields.Code
+	return nil
 }
 
 func (e apiError) message() string {
@@ -415,7 +440,7 @@ func (c *client) statusError(res *http.Response, hostFromHeader bool) error {
 	return rejectedError{
 		status:        res.StatusCode,
 		message:       apiErr.message(),
-		aboutDocument: apiErr.aboutDocument(res.StatusCode),
+		aboutDocument: !hostFromHeader && apiErr.aboutDocument(res.StatusCode),
 	}
 }
 
@@ -446,11 +471,10 @@ func (e rejectedError) Error() string {
 	return fmt.Sprintf("connection to OpenAI API failed with status %d: %s", e.status, e.message)
 }
 
+// truncate cuts s to maxErrorMessageBytes and drops the bytes that are not
+// valid UTF-8, such as those of a character the cut splits.
 func truncate(s string) string {
-	if len(s) <= maxErrorMessageBytes {
-		return s
-	}
-	return strings.ToValidUTF8(s[:maxErrorMessageBytes], "")
+	return strings.ToValidUTF8(s[:min(len(s), maxErrorMessageBytes)], "")
 }
 
 // The server's organization never goes to a host the request header named, as

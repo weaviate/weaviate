@@ -636,6 +636,22 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
 		},
 		{
+			name: "400 with a message that is not a string keeps the param and names no object",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":{"message":["Unsupported model"],"param":"model","code":"invalid_value"}}`,
+			},
+			wantErr: "connection to OpenAI API failed with status 400",
+		},
+		{
+			name: "400 with an error that is a string names the object and quotes it",
+			reply: fakeReply{
+				status: http.StatusBadRequest,
+				body:   `{"error":"Invalid input"}`,
+			},
+			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+		},
+		{
 			name: "400 with a param in the questions names no object",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
@@ -789,6 +805,11 @@ func TestRankReportsAnErrorObjectInA200(t *testing.T) {
 		{
 			name:    "an error object",
 			body:    `{"error":{"message":"The model is overloaded","type":"server_error"}}`,
+			wantErr: "OpenAI API returned an error: The model is overloaded",
+		},
+		{
+			name:    "an error that is a string",
+			body:    `{"error":"The model is overloaded"}`,
 			wantErr: "OpenAI API returned an error: The model is overloaded",
 		},
 		{
@@ -1129,7 +1150,7 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			name:       "a 400 from the header base URL",
 			reply:      fakeReply{status: http.StatusBadRequest, body: banner},
 			fromHeader: true,
-			wantErr:    "object " + firstID + ": connection to OpenAI API failed with status 400",
+			wantErr:    "connection to OpenAI API failed with status 400",
 		},
 		{
 			name:       "a 500 from the header base URL",
@@ -1180,25 +1201,25 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			name:       "a wrong answer name from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"internal banner","probability":0.5}]}`},
 			fromHeader: true,
-			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
 			name:       "an answer of another type from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"internal banner","name":"condition","probability":0.5}]}`},
 			fromHeader: true,
-			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
 			name:       "a probability outside 0 to 1 from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"condition","probability":7.25}]}`},
 			fromHeader: true,
-			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+			wantErr:    unexpectedHeaderHostReply,
 		},
 		{
 			name:       "two answers from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"condition","probability":0.5},{"type":"predicate","name":"condition","probability":0.5}]}`},
 			fromHeader: true,
-			wantErr:    "object " + firstID + ": " + unexpectedHeaderHostReply,
+			wantErr:    unexpectedHeaderHostReply,
 		},
 	}
 	for _, tt := range tests {
@@ -1242,7 +1263,7 @@ func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 			name:       "a 400 from the header base URL",
 			status:     http.StatusBadRequest,
 			fromHeader: true,
-			wantErr:    "object " + firstID + ": connection to OpenAI API failed with status 400",
+			wantErr:    "connection to OpenAI API failed with status 400",
 		},
 		{
 			name:       "a 401 from the header base URL",
@@ -1492,6 +1513,31 @@ func closedPort(t *testing.T) string {
 	require.NoError(t, err)
 	require.NoError(t, listener.Close())
 	return listener.Addr().String()
+}
+
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: ""},
+		{name: "short", in: "a 400", want: "a 400"},
+		{name: "at the limit", in: strings.Repeat("a", maxErrorMessageBytes), want: strings.Repeat("a", maxErrorMessageBytes)},
+		{name: "above the limit", in: strings.Repeat("a", maxErrorMessageBytes+1), want: strings.Repeat("a", maxErrorMessageBytes)},
+		{
+			name: "the limit splits a character",
+			in:   strings.Repeat("a", maxErrorMessageBytes-1) + "é",
+			want: strings.Repeat("a", maxErrorMessageBytes-1),
+		},
+		{name: "a short text that ends inside a character", in: "caf\xc3", want: "caf"},
+		{name: "a short text with bytes that are not UTF-8", in: "\xff\xfe not json", want: " not json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, truncate(tt.in))
+		})
+	}
 }
 
 func TestRankCutsLongErrorText(t *testing.T) {

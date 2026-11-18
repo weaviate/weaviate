@@ -28,6 +28,15 @@ const (
 	inputRoleUser  = "user"
 	inputImageType = "input_image"
 
+	// pngMagic, jpegMagic and gifMagic are the first bytes of those formats.
+	// A WebP image is a RIFF container with webpMagic at webpMagicOffset; a
+	// WAVE file shares the RIFF header.
+	pngMagic        = "\x89PNG"
+	jpegMagic       = "\xff\xd8\xff"
+	gifMagic        = "GIF8"
+	riffMagic       = "RIFF"
+	webpMagic       = "WEBP"
+	webpMagicOffset = 8
 	// magicChars is 16 base64 characters: the first 12 bytes of an image.
 	magicChars = 16
 	// maxImageBytes is 20 MiB (20,971,520 bytes). The API rejects a larger
@@ -45,15 +54,14 @@ type inputPart struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
-// WebP is a RIFF container with "WEBP" at offset 8; a WAVE file shares the RIFF header.
 var imageTypes = []struct {
 	mime   string
 	magics []magic
 }{
-	{"image/png", []magic{{0, []byte("\x89PNG")}}},
-	{"image/jpeg", []magic{{0, []byte("\xff\xd8\xff")}}},
-	{"image/gif", []magic{{0, []byte("GIF8")}}},
-	{"image/webp", []magic{{0, []byte("RIFF")}, {8, []byte("WEBP")}}},
+	{"image/png", []magic{{0, []byte(pngMagic)}}},
+	{"image/jpeg", []magic{{0, []byte(jpegMagic)}}},
+	{"image/gif", []magic{{0, []byte(gifMagic)}}},
+	{"image/webp", []magic{{0, []byte(riffMagic)}, {webpMagicOffset, []byte(webpMagic)}}},
 }
 
 type magic struct {

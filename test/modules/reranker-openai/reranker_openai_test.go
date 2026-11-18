@@ -27,6 +27,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -80,6 +81,9 @@ func testRerankerOpenAI(restURI, grpcURI string) func(t *testing.T) {
 
 		white := grayPNG(t, 400, 0xff)
 		cross := crossPNG(t, 400)
+		// The scores come from the model, so the assertions on their order
+		// need a wide margin. Three runs on 2026-11-18 with gpt-6-luna gave
+		// 0.84, 0.78 and 0.05 for the tickets, and 0.95 and 0 for the images.
 		tests := []struct {
 			name       string
 			tickets    []ticket
@@ -132,7 +136,7 @@ func testRerankerOpenAI(restURI, grpcURI string) func(t *testing.T) {
 			})
 		}
 
-		t.Run("a page of one is a request of one document", func(t *testing.T) {
+		t.Run("a page of one object has a score between 0 and 1", func(t *testing.T) {
 			createTickets(t, map[string]any{}, tickets())
 			request := rerankRequest("text", new(churn))
 			request.Limit = 1
@@ -342,6 +346,29 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			require.NoError(t, err)
 			assert.Empty(t, reply.Results)
 			assert.Empty(t, fake.received())
+		})
+
+		// The class base URL resolves to no host, so the requests reach the
+		// fake only through the base URL header. The server's organization
+		// does not go to a host the request names.
+		t.Run("the base URL and the key of the request headers are used", func(t *testing.T) {
+			const headerKey = "header-key"
+			fake.reset(allProbabilities, nil, nil)
+			createTickets(t, map[string]any{"baseURL": "http://class-base-url.invalid"}, tickets())
+			ctx := metadata.AppendToOutgoingContext(context.Background(),
+				"X-Openai-Api-Key", headerKey, "X-Openai-Baseurl", fake.baseURL())
+
+			reply, err := grpcClient.Search(ctx, rerankRequest("text", new(churn)))
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{noRefundID, chargedTwiceID, changeEmailID}, resultIDs(reply.Results))
+			requests := fake.received()
+			require.Len(t, requests, 3)
+			for _, r := range requests {
+				assert.Equal(t, "/v1/decisions", r.path)
+				assert.Equal(t, "Bearer "+headerKey, r.authorization)
+				assert.Empty(t, r.organization)
+			}
 		})
 	}
 }
