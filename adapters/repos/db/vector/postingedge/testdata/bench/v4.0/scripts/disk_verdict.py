@@ -21,12 +21,31 @@ p95, the p99 and the 8 threads are given next to it. By the user's amendment
 of the 18th HFresh is measured twice, with its default configuration and with
 the searchProbe and rescore limit that read the least for each recall, and
 the criteria are read against the second.
+
+By the fifth amendment the session has two rounds. A curve is one index timed
+in a process of its own: a cell of posting-edge, or one configuration of
+HFresh. The first round is the measure and the second tells drift: a curve
+drifts when any of its medians moves by 10 % or more between the two. A curve
+coincides with user activity when the keyboard or the trackpad were used
+during its stretch in either round. A curve marked for either reason is
+repeated at night (round "night"), and the repeat then stands for it. Under
+10 % between two indexes is a tie: it does not meet "lower than" (criterion
+2) and it meets "not slower than" (criterion 3).
 """
 import json
 import os
 import sys
 
 LABEL = 'dbpedia-1m-disk'
+# Under this, two indexes are tied and two rounds agree. Between two indexes
+# it is taken over HFresh, and between two rounds over the first.
+TIE = 0.10
+HF_CURVES = (
+    ('hfresh-best95', 'HFresh, la mejor a 0.95'),
+    ('hfresh-best99', 'HFresh, la mejor a 0.99'),
+    ('hfresh-default', 'HFresh por defecto'),
+)
+ROUND_NAMES = {'r1': 'ronda 1', 'r2': 'ronda 2', 'night': 'repetición de noche'}
 NAMES = {
     'full': 'código completo en RAM',
     'r512': '512 bits en RAM',
@@ -65,15 +84,63 @@ def point_of(result, target, threads):
     return None
 
 
-def more(x, base):
-    if x is None or not base:
-        return '—'
-    pct = 100 * (x / base - 1)
-    return 'un %.0f %% %s' % (abs(pct), 'más' if pct >= 0 else 'menos')
+def signed(rel):
+    return '%s%.1f %%' % ('+' if rel >= 0 else '−', abs(100 * rel))
 
 
 def times(x, base):
     return '—' if x is None or not base else '%.2fx' % (x / base)
+
+
+def versus(x, base):
+    """How x stands to base: 'menos', 'más', or 'empate' under TIE."""
+    rel = x / base - 1
+    if abs(rel) < TIE:
+        return 'empate'
+    return 'menos' if rel < 0 else 'más'
+
+
+def medians(result):
+    """The medians of a curve: (point, threads, state) -> p50 in ms."""
+    out = {}
+    for p in (result or {}).get('points', []):
+        point = '%.2f' % p['target'] if 'ef' in p else 'recall %.4f' % p['recall']
+        warm = middle(p.get('warm'))
+        if warm:
+            out[(point, p['threads'], 'caliente')] = warm['p50ms']
+        if p.get('cold'):
+            out[(point, p['threads'], 'frío')] = p['cold']['p50ms']
+    return out
+
+
+def read_stretches(d):
+    """What run_v40_disk.sh left about every stretch: (round, curve) -> its
+    line, the last one when a stretch was run again."""
+    path = os.path.join(d, LABEL + '-stretches.tsv')
+    out = {}
+    if not os.path.exists(path):
+        return out
+    for line in open(path):
+        f = line.rstrip('\n').split('\t')
+        if len(f) < 9 or f[0] == 'round':
+            continue
+        out[(f[0], f[1])] = {
+            'start': f[2], 'end': f[3], 'seconds': int(f[4]), 'idle0': int(f[5]), 'idle1': int(f[6]),
+            'events': int(f[7]), 'passed': f[8] == '1',
+        }
+    return out
+
+
+def used(stretch):
+    """Keyboard or trackpad during the stretch: at its end they had been idle
+    for less than it lasted. None when there is no record."""
+    if stretch is None or stretch['idle1'] < 0:
+        return None
+    return stretch['idle1'] < stretch['seconds']
+
+
+def clock(stretch):
+    return '—' if stretch is None else '%s a %s' % (stretch['start'][11:16], stretch['end'][11:16])
 
 
 def latency_row(name, param, p, lat, parts):
@@ -92,23 +159,72 @@ def main(d):
     manifest = load(d, LABEL + '-manifest.json')
     hf_manifest = load(d, LABEL + '-hfresh-manifest.json')
     hf_reads = load(d, LABEL + '-hfresh-reads.json')
-    hf = load(d, LABEL + '-hfresh.json')
     if manifest is None:
         print('no manifest: the write stage has not run')
         return
     cells = manifest['cells']
-    timed = {c['spec']['name']: load(d, '%s-%s.json' % (LABEL, c['spec']['name'])) for c in cells}
-    first = cells[0]['spec']['name']
-    again = load(d, '%s-%s-again.json' % (LABEL, first))
+    # The curves, and what every round left of each.
+    curves = [(c['spec']['name'], NAMES.get(c['spec']['name'], c['spec']['name'])) for c in cells] + list(HF_CURVES)
+    rounds = {name: {r: load(d, '%s-%s-%s.json' % (LABEL, r, name)) for r in ROUND_NAMES} for name, _ in curves}
+    stretches = read_stretches(d)
+
+    def measure(name):
+        """The round a curve is read from: its repeat at night when there is
+        one, the first round otherwise."""
+        return 'night' if rounds[name]['night'] is not None else 'r1'
+
+    def drift(name):
+        """The medians of the curve in the two rounds, and whether any moved
+        by TIE or more. None when a round is missing."""
+        a, b = medians(rounds[name]['r1']), medians(rounds[name]['r2'])
+        both = [(k, a[k], b[k], b[k] / a[k] - 1) for k in a if k in b]
+        if not both:
+            return None
+        return both, any(abs(rel) >= TIE for _, _, _, rel in both)
+
+    def activity(name):
+        """Whether the keyboard or the trackpad were used in a stretch of the
+        curve in either round: the rounds where they were, or None when a
+        round has no record."""
+        seen = [used(stretches.get((r, name))) for r in ('r1', 'r2')]
+        if any(s is None for s in seen):
+            return None
+        return [r for r, s in zip(('r1', 'r2'), seen) if s]
+
+    def marked(name):
+        d_, a_ = drift(name), activity(name)
+        why = []
+        if d_ is not None and d_[1]:
+            why.append('deriva')
+        if a_:
+            why.append('actividad')
+        return why
+
+    def tag(name):
+        """What a row of a table says of where its curve comes from."""
+        if measure(name) == 'night':
+            return ' (repetida de noche)'
+        return ' (marcada)' if marked(name) else ''
+
+    timed = {name: rounds[name][measure(name)] for name, _ in curves}
     some = next((t for t in timed.values() if t is not None), None)
+    hf_any = next((timed[name] for name, _ in HF_CURVES if timed[name] is not None), None)
 
     print('### Estado')
     print()
     print('- **Dataset:** %s, %d vectores de %d dimensiones, %d queries, k = %d.' % (
         manifest['dataset'], manifest['vectors'], manifest['dims'], manifest['queries'], manifest['k']))
     print('- **Celdas de posting-edge:** %s.' % ', '.join(NAMES.get(c['spec']['name'], c['spec']['name']) for c in cells))
-    print('- **Cronometradas:** %s.' % (', '.join(n for n, t in timed.items() if t is not None) or 'ninguna todavía'))
-    print('- **HFresh:** %s.' % ('construido%s' % (', cronometrado' if hf else ', sin cronometrar') if hf_manifest else 'sin construir'))
+    for r, label in ROUND_NAMES.items():
+        done = [name for name, _ in curves if rounds[name][r] is not None]
+        spans = [stretches[(r, name)] for name in done if (r, name) in stretches]
+        if done:
+            print('- **Cronometradas en la %s:** %s%s.' % (
+                label, ', '.join(done),
+                '' if not spans else ', de %s a %s' % (min(s['start'] for s in spans)[:16], max(s['end'] for s in spans)[11:16])))
+    if not any(t is not None for t in timed.values()):
+        print('- **Cronometradas:** ninguna todavía.')
+    print('- **HFresh:** %s.' % ('construido%s' % (', cronometrado' if hf_any else ', sin cronometrar') if hf_manifest else 'sin construir'))
     if some:
         print('- **Acceso del store:** %s. **Presupuesto de concurrencia por query:** %d. **GOMAXPROCS:** %d.' % (
             some['access'], some['budget'], some['gomaxprocs']))
@@ -163,21 +279,13 @@ def main(d):
     counts = {c['name']: c for c in (hf_reads or {}).get('counts', [])}
     best = (hf_reads or {}).get('best', {})
 
-    def hf_point(name, threads):
-        if hf is None or name is None:
-            return None
-        for p in hf['points']:
-            if p['name'] == name and p['threads'] == threads:
+    def hf_point(curve, threads):
+        for p in (timed.get(curve) or {'points': []})['points']:
+            if p['threads'] == threads:
                 return p
         return None
 
-    def hf_label(name):
-        c = next((x for x in ([hf_manifest['default']] + hf_manifest['candidates']) if x['name'] == name), None) if hf_manifest else None
-        if c is None:
-            return 'HFresh'
-        if name == 'default':
-            return 'HFresh por defecto'
-        return 'HFresh, la mejor a %.2f' % c['target']
+    hf_names = dict(HF_CURVES)
 
     print('### HFresh real')
     print()
@@ -244,6 +352,66 @@ def main(d):
                 print('- **A %.2f no llega con ningún rescoreLimit.**' % target)
         print()
 
+    print('### Las curvas: dos rondas, deriva y actividad de usuario')
+    print()
+    print('Una curva es un índice cronometrado en un proceso propio. La medida es la primera ronda; la segunda detecta deriva.')
+    print()
+    print('| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca | repetición de noche |')
+    print('|---|---|---|---|---|---|---|')
+    any_marked = []
+    for name, label in curves:
+        if rounds[name]['r1'] is None and rounds[name]['r2'] is None:
+            continue
+        seen = activity(name)
+        if seen is None:
+            act = 'sin registro'
+        elif not seen:
+            act = 'no'
+        else:
+            act = 'sí, en la %s' % ' y la '.join(ROUND_NAMES[r] for r in seen)
+        dr = drift(name)
+        if dr is None:
+            worst = 'sin segunda ronda'
+        else:
+            k, a, b, rel = max(dr[0], key=lambda x: abs(x[3]))
+            worst = '%s (%s, %d %s, en %s: %s y %s ms)' % (
+                signed(rel), k[0], k[1], 'thread' if k[1] == 1 else 'threads', k[2], ms(a), ms(b))
+        why = marked(name)
+        if why:
+            any_marked.append(name)
+        night = stretches.get(('night', name))
+        night_text = '—'
+        if rounds[name]['night'] is not None:
+            night_used = used(night)
+            night_text = '%s%s' % (clock(night), '' if not night_used else ', con teclado o trackpad')
+        print('| %s | %s | %s | %s | %s | %s | %s |' % (
+            label, clock(stretches.get(('r1', name))), clock(stretches.get(('r2', name))), act, worst,
+            '**%s**' % ' y '.join(why) if why else '—', night_text))
+    print()
+    print('- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.')
+    print('- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.')
+    if any_marked:
+        pending = [n for n in any_marked if rounds[n]['night'] is None]
+        print('- **Curvas marcadas: %s.**%s' % (
+            ', '.join(dict(curves)[n] for n in any_marked),
+            ' Por repetir esta noche: %s.' % ', '.join(dict(curves)[n] for n in pending) if pending else ' Todas repetidas.'))
+    elif any(rounds[name]['r2'] is not None for name, _ in curves):
+        print('- **Ninguna curva marcada.**')
+    print('- **Una curva repetida de noche se lee de su repetición,** que viene de otra sesión que las curvas con las que se compara.')
+    print()
+    print('**Las medianas de cada curva en cada ronda, en ms:**')
+    print()
+    print('| curva | punto | threads | estado | ronda 1 | ronda 2 | diferencia | repetición de noche |')
+    print('|---|---|---|---|---|---|---|---|')
+    for name, label in curves:
+        a, b, n = medians(rounds[name]['r1']), medians(rounds[name]['r2']), medians(rounds[name]['night'])
+        for k in a or b or n:
+            rel = None if k not in a or k not in b else b[k] / a[k] - 1
+            diff = '—' if rel is None else ('**%s**' if abs(rel) >= TIE else '%s') % signed(rel)
+            print('| %s | %s | %d | %s | %s | %s | %s | %s |' % (
+                label, k[0], k[1], k[2], ms(a.get(k)), ms(b.get(k)), diff, ms(n.get(k))))
+    print()
+
     for state, key in (('en caliente', 'warm'), ('en frío', 'cold')):
         print('### Latencia y QPS, %s' % state)
         print()
@@ -264,15 +432,31 @@ def main(d):
                     if p is None:
                         continue
                     lat = middle(p['warm']) if key == 'warm' else p.get('cold')
-                    print(latency_row(NAMES.get(name, name), 'ef %d' % p['ef'], p, lat, PE_PARTS))
-                for name in (best.get('%.2f' % target), 'default'):
-                    p = hf_point(name, threads)
+                    print(latency_row(NAMES.get(name, name) + tag(name), 'ef %d' % p['ef'], p, lat, PE_PARTS))
+                for curve in ('hfresh-best%d' % round(100 * target), 'hfresh-default'):
+                    p = hf_point(curve, threads)
                     if p is None:
                         continue
                     lat = middle(p['warm']) if key == 'warm' else p.get('cold')
-                    label = hf_label(name) + ('' if name != 'default' else ', recall %.4f' % p['recall'])
+                    label = hf_names[curve] + ('' if curve != 'hfresh-default' else ', recall %.4f' % p['recall']) + tag(curve)
                     print(latency_row(label, 'searchProbe %d, rescoreLimit %d' % (p['searchProbe'], p['rescoreLimit']), p, lat, HF_PARTS))
                 print()
+        # every cell over the best HFresh of each recall
+        print('**Cada celda frente a la mejor configuración de HFresh para ese recall, %s:** su p50 entre el de HFresh. Menos de un 10 %% de diferencia es un empate.' % state)
+        print()
+        print('| celda | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |')
+        print('|---|---|---|---|---|')
+        for c in cells:
+            name = c['spec']['name']
+            row = []
+            for target in (0.95, 0.99):
+                for threads in (1, 8):
+                    p, h = point_of(timed[name], target, threads), hf_point('hfresh-best%d' % round(100 * target), threads)
+                    a = None if p is None else (middle(p['warm']) if key == 'warm' else p.get('cold'))
+                    b = None if h is None else (middle(h['warm']) if key == 'warm' else h.get('cold'))
+                    row.append('—' if not a or not b else '%s, %s' % (times(a['p50ms'], b['p50ms']), versus(a['p50ms'], b['p50ms'])))
+            print('| %s | %s |' % (NAMES.get(name, name) + tag(name), ' | '.join(row)))
+        print()
         if key == 'cold':
             print('**Las tandas en frío:**')
             print()
@@ -286,12 +470,13 @@ def main(d):
                     print('| %s | %.2f | %d | %d | %d | %.0f %% | %s y %s | %.0f |' % (
                         NAMES.get(name, name), p['target'], p['threads'], p['coldBatches'], p['coldBatch'],
                         100 * p['coldRepeated'], ms(p['coldHalves'][0]['p50ms']), ms(p['coldHalves'][1]['p50ms']), p['reopenms']))
-            for p in (hf or {'points': []})['points']:
-                if not p.get('cold'):
-                    continue
-                print('| %s | %.4f | %d | %d | %d | — | %s y %s | %.0f |' % (
-                    hf_label(p['name']), p['recall'], p['threads'], p['coldBatches'], p['coldBatch'],
-                    ms(p['coldHalves'][0]['p50ms']), ms(p['coldHalves'][1]['p50ms']), p['reopenms']))
+            for curve, label in HF_CURVES:
+                for p in (timed[curve] or {'points': []})['points']:
+                    if not p.get('cold'):
+                        continue
+                    print('| %s | %.4f | %d | %d | %d | — | %s y %s | %.0f |' % (
+                        label, p['recall'], p['threads'], p['coldBatches'], p['coldBatch'],
+                        ms(p['coldHalves'][0]['p50ms']), ms(p['coldHalves'][1]['p50ms']), p['reopenms']))
             print()
             print('**La primera query de cada tanda frente a las demás,** con 1 thread. La primera es la que menos encuentra en la caché:')
             print()
@@ -306,20 +491,22 @@ def main(d):
                     print('| %s | %.2f | %s | %s | %s | %s | %s | %s |' % (
                         name, p['target'], ms(a['p50ms']), ms(a['meanms']), ms(b['p50ms']), ms(b['meanms']),
                         ms(a['rescorems']), ms(b['rescorems'])))
-            for p in (hf or {'points': []})['points']:
-                if not p.get('coldFirst'):
-                    continue
-                a, b = p['coldFirst'], p['coldRest']
-                print('| %s | %.4f | %s | %s | %s | %s | %s | %s |' % (
-                    hf_label(p['name']), p['recall'], ms(a['p50ms']), ms(a['meanms']), ms(b['p50ms']), ms(b['meanms']),
-                    ms(a['rescorems']), ms(b['rescorems'])))
+            for curve, label in HF_CURVES:
+                for p in (timed[curve] or {'points': []})['points']:
+                    if not p.get('coldFirst'):
+                        continue
+                    a, b = p['coldFirst'], p['coldRest']
+                    print('| %s | %.4f | %s | %s | %s | %s | %s | %s |' % (
+                        label, p['recall'], ms(a['p50ms']), ms(a['meanms']), ms(b['p50ms']), ms(b['meanms']),
+                        ms(a['rescorems']), ms(b['rescorems'])))
             print()
 
     print('### Criterios 2 y 3: en frío, frente a HFresh, a 0.95')
     print()
-    print('Se leen contra la mejor configuración de HFresh a 0.95 (enmienda 4). La de por defecto va al lado.')
+    print('Se leen contra la mejor configuración de HFresh a 0.95 (enmienda 4), por el p50 con 1 thread. '
+          'Menos de un 10 % de diferencia, sobre HFresh, es un empate (enmienda 5): no cumple «menos latencia» y sí cumple «no más lento».')
     print()
-    hf95 = hf_point(best.get('0.95'), 1)
+    hf95 = hf_point('hfresh-best95', 1)
     if hf95 is None or not hf95.get('cold'):
         if hf_reads is not None and '0.95' not in best:
             print('**Sin veredicto a 0.95:** HFresh no llega a 0.95 con ningún rescoreLimit.')
@@ -328,13 +515,14 @@ def main(d):
         print()
     else:
         base = hf95['cold']
-        spread_hf = abs(hf95['coldHalves'][0]['p50ms'] - hf95['coldHalves'][1]['p50ms'])
-        print('- **HFresh, la mejor a 0.95** (searchProbe %d, rescoreLimit %d, recall %.4f), en frío con 1 thread: p50 %s ms, p95 %s, p99 %s. Sus dos mitades de tandas se separan %s ms.' % (
-            hf95['searchProbe'], hf95['rescoreLimit'], hf95['recall'], ms(base['p50ms']), ms(base['p95ms']), ms(base['p99ms']), ms(spread_hf)))
-        dflt = hf_point('default', 1)
+        print('- **HFresh, la mejor a 0.95**%s (searchProbe %d, rescoreLimit %d, recall %.4f), en frío con 1 thread: p50 %s ms, p95 %s, p99 %s. Sus dos mitades de tandas: %s y %s ms.' % (
+            tag('hfresh-best95'), hf95['searchProbe'], hf95['rescoreLimit'], hf95['recall'], ms(base['p50ms']), ms(base['p95ms']), ms(base['p99ms']),
+            ms(hf95['coldHalves'][0]['p50ms']), ms(hf95['coldHalves'][1]['p50ms'])))
+        dflt = hf_point('hfresh-default', 1)
         if dflt is not None and dflt.get('cold'):
-            print('- **HFresh por defecto** (searchProbe %d, rescoreLimit %d, recall %.4f): p50 %s ms, p95 %s, p99 %s.' % (
-                dflt['searchProbe'], dflt['rescoreLimit'], dflt['recall'], ms(dflt['cold']['p50ms']), ms(dflt['cold']['p95ms']), ms(dflt['cold']['p99ms'])))
+            print('- **HFresh por defecto**%s (searchProbe %d, rescoreLimit %d, recall %.4f): p50 %s ms, p95 %s, p99 %s.' % (
+                tag('hfresh-default'), dflt['searchProbe'], dflt['rescoreLimit'], dflt['recall'], ms(dflt['cold']['p50ms']),
+                ms(dflt['cold']['p95ms']), ms(dflt['cold']['p99ms'])))
         print()
 
         def against(name):
@@ -342,15 +530,26 @@ def main(d):
             if p is None or not p.get('cold'):
                 return None
             cold = p['cold']
-            spread = max(spread_hf, abs(p['coldHalves'][0]['p50ms'] - p['coldHalves'][1]['p50ms']))
-            apart = abs(cold['p50ms'] - base['p50ms']) > spread
-            others = []
+            others = ['sus mitades de tandas, %s y %s ms' % (ms(p['coldHalves'][0]['p50ms']), ms(p['coldHalves'][1]['p50ms']))]
             for label, k in (('p95', 'p95ms'), ('p99', 'p99ms')):
                 others.append('%s %s frente a %s' % (label, ms(cold[k]), ms(base[k])))
-            p8, h8 = point_of(timed.get(name), 0.95, 8), hf_point(best.get('0.95'), 8)
+            p8, h8 = point_of(timed.get(name), 0.95, 8), hf_point('hfresh-best95', 8)
             if p8 and h8 and p8.get('cold') and h8.get('cold'):
-                others.append('con 8 threads, p50 %s frente a %s' % (ms(p8['cold']['p50ms']), ms(h8['cold']['p50ms'])))
-            return cold['p50ms'], apart, '; '.join(others)
+                others.append('con 8 threads, p50 %s frente a %s (%s, %s)' % (
+                    ms(p8['cold']['p50ms']), ms(h8['cold']['p50ms']), times(p8['cold']['p50ms'], h8['cold']['p50ms']),
+                    versus(p8['cold']['p50ms'], h8['cold']['p50ms'])))
+            notes = []
+            if measure(name) != measure('hfresh-best95'):
+                notes.append('las dos curvas vienen de sesiones distintas (%s y %s)' % (
+                    ROUND_NAMES[measure(name)], ROUND_NAMES[measure('hfresh-best95')]))
+            pending = [dict(curves)[n] for n in (name, 'hfresh-best95') if marked(n) and measure(n) != 'night']
+            if pending:
+                notes.append('curva marcada y sin repetir: %s' % ', '.join(pending))
+            return cold['p50ms'], versus(cold['p50ms'], base['p50ms']), '; '.join(others), notes
+
+        def said(a):
+            return '%s ms frente a %s de HFresh (%s): %s' % (ms(a[0]), ms(base['p50ms']), times(a[0], base['p50ms']), {
+                'menos': 'menos latencia', 'más': 'más latencia', 'empate': 'empate'}[a[1]])
 
         r512 = against('r512')
         cell512 = next((c for c in cells if c['spec']['name'] == 'r512'), None)
@@ -358,23 +557,21 @@ def main(d):
             print('- **Criterio 2:** sin medida de la celda de 512 bits en RAM.')
         else:
             reaches = cell512['points'][-1]['reached']
-            lower = r512[0] < base['p50ms']
-            verdict = 'se cumple' if lower and reaches else 'NO se cumple'
-            print('- **Criterio 2, la celda de 512 bits en RAM: %s.** p50 de %s ms frente a %s de HFresh (%s)%s. %s 0.99%s. Además: %s.' % (
-                verdict, ms(r512[0]), ms(base['p50ms']), times(r512[0], base['p50ms']),
-                '' if r512[1] else ', que no se separan de lo que se separan las mitades de las tandas',
-                'Llega a' if reaches else 'No llega a', '' if not reaches else ' con ef %d' % cell512['points'][-1]['ef'], r512[2]))
+            verdict = 'se cumple' if r512[1] == 'menos' and reaches else 'NO se cumple'
+            print('- **Criterio 2, la celda de 512 bits en RAM: %s.** p50 de %s. %s 0.99%s. Además: %s.%s' % (
+                verdict, said(r512), 'Llega a' if reaches else 'No llega a',
+                '' if not reaches else ' con ef %d' % cell512['points'][-1]['ef'], r512[2],
+                ''.join(' **Ojo:** %s.' % n for n in r512[3])))
         halos = [(n, against(n)) for n in ('halo512', 'halo512p')]
         halos = [(n, a) for n, a in halos if a is not None]
         if not halos:
             print('- **Criterio 3:** sin medida de las celdas de halo.')
         else:
-            ok = [n for n, a in halos if a[0] <= base['p50ms']]
+            ok = [n for n, a in halos if a[1] in ('menos', 'empate')]
             print('- **Criterio 3, el halo: %s.**' % ('se cumple, con %s' % ' y '.join(NAMES[n] for n in ok) if ok else 'NO se cumple'))
             for n, a in halos:
-                print('  - %s: p50 de %s ms frente a %s (%s)%s. Además: %s.' % (
-                    NAMES[n].capitalize(), ms(a[0]), ms(base['p50ms']), times(a[0], base['p50ms']),
-                    '' if a[1] else ', que no se separan', a[2]))
+                print('  - %s: p50 de %s. Además: %s.%s' % (
+                    NAMES[n].capitalize(), said(a), a[2], ''.join(' **Ojo:** %s.' % x for x in a[3])))
         print()
 
     print('### RAM residente y disco')
@@ -395,7 +592,7 @@ def main(d):
         store = sum(v for k, v in files.items() if k.startswith('bucket ') and k != 'bucket objects')
         rest = sum(v for k, v in files.items() if not k.startswith('bucket '))
         print('| HFresh | %s | %s | %s | %s | %s | %s |' % (
-            mb(hf['heapBytes']) if hf else '—', mb(hf['footprintBytes']) if hf else '—', mb(store), mb(vectors), mb(rest),
+            mb(hf_any['heapBytes']) if hf_any else '—', mb(hf_any['footprintBytes']) if hf_any else '—', mb(store), mb(vectors), mb(rest),
             mb(sum(files.values()))))
     print()
     print('- **Las celdas de posting-edge comparten un solo fichero de vectores,** enlazado: en disco está una vez.')
@@ -403,25 +600,11 @@ def main(d):
     print('- **En HFresh, «vectores exactos» es su bucket `objects`,** y «store» sus otros buckets.')
     print()
 
-    if again is not None and timed.get(first) is not None:
-        print('### Deriva: la primera celda otra vez, al final')
-        print()
-        print('| recall | threads | p50 al principio, ms | al final | QPS al principio | al final |')
-        print('|---|---|---|---|---|---|')
-        for p in timed[first]['points']:
-            q = point_of(again, p['target'], p['threads'])
-            if q is None:
-                continue
-            a, b = middle(p['warm']), middle(q['warm'])
-            print('| %.2f | %d | %s | %s (%s) | %.0f | %.0f (%s) |' % (
-                p['target'], p['threads'], ms(a['p50ms']), ms(b['p50ms']), more(b['p50ms'], a['p50ms']),
-                a['qps'], b['qps'], more(b['qps'], a['qps'])))
-        print()
-
     print('### Lo que vale y lo que no')
     print()
     print('- **Los números absolutos de esta máquina no valen para producción.** Vale la comparación entre índices, medidos igual.')
-    print('- **Es una sesión,** sin repetir.')
+    print('- **Es una sesión de dos rondas.** La medida es la primera; la segunda dice qué curvas derivaron.')
+    print('- **Menos de un 10 % entre dos índices es un empate.**')
     print('- **El p99 en frío sale de las 5 queries más lentas de 500.**')
 
 

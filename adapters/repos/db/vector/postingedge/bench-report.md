@@ -488,6 +488,8 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
 - **Las curvas marcadas se repiten esta noche,** desde las 23:00, con las condiciones de siempre. La repetición sustituye a la primera ronda de esa curva en el veredicto, y se dice.
 - **El veredicto sale al acabar las dos rondas,** con las curvas marcadas señaladas, y se rehace tras las repeticiones.
 - **El empate, en los criterios.** El 2 pide menos latencia que HFresh: un empate no lo cumple. El 3 pide no ser más lento: un empate lo cumple. La regla de las dos mitades de las tandas queda como dato y ya no decide.
+- **Sobre qué se mide el 10 %** (añadido a las 10:45, todavía sin ningún dato cronometrado): entre dos índices, sobre HFresh; entre dos rondas, sobre la primera.
+- **Una curva repetida de noche viene de otra sesión que las curvas con las que se compara.** El veredicto lo dice en cada comparación donde pase.
 
 ### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
 

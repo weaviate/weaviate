@@ -29,7 +29,7 @@ It runs six stages in order; any of them can be named to run alone
 | `write` | builds posting-edge in batch, writes its five cells under `$DISK/pe`, and applies the two checks that stop the run: disk returns what memory returns, and the bytes the store reads are within 25 % of the byte model | no |
 | `hfresh` | builds HFresh with its default configuration under `$DISK/hf` and sweeps `searchProbe` with rescore limits of 64, 100, 200 and 350 | no |
 | `count` | counts what the store reads per query for HFresh, and picks for each recall the configuration that reads the least | no |
-| `timed` | times every cell and HFresh (its default and its best for each recall), warm and cold, one process each | yes |
+| `timed` | times every curve, warm and cold, one process each: the five cells, and HFresh with its default configuration and with its best for each recall. Two rounds, all the curves and then all of them again | yes |
 | `verdict` | writes `$OUT/disk-verdict.md` | no |
 
 The results are JSON files in `$OUT`, and the logs and binaries in `$WORK`
@@ -81,5 +81,30 @@ DISK=/mnt/nvme/v40-smoke OUT=/tmp/v40-smoke QUERIES=500 COLDQ=40 \
 - The HFresh package starts a pprof server on 127.0.0.1:6060 and a metrics
   server on :2112 in every test binary: do not run two of its binaries at
   once.
-- Time on a quiet machine. `NIGHT=1` (macOS) waits for 23:00 with the machine
-  awake and idle.
+- Time on a quiet machine. On macOS `IDLE=900` waits for 15 minutes without
+  keyboard or trackpad, and `NIGHT=1` for 23:00 besides.
+
+## Two rounds, and the curves the verdict marks
+
+A curve is one index timed in a process of its own: a cell, or one
+configuration of HFresh. The timed stage runs all of them (`r1`) and then all
+of them again in the same order (`r2`). The first round is the measure. The
+second tells drift: a curve drifts when any of its medians, warm or cold,
+with 1 or with 8 threads, moves by 10 % or more between the two.
+
+On macOS the stage also leaves, in `$OUT/dbpedia-1m-disk-stretches.tsv`, when
+every curve of every round ran and how long the keyboard and the trackpad had
+been idle at its end: if less than the curve took, somebody was using the
+machine. On Linux there is no such record, and the verdict says so.
+
+The verdict marks the curves that drift or coincide with user activity. To
+repeat only those, in a round of their own that then stands for them:
+
+```bash
+ROUNDS=night CURVES="r512 hfresh-best95" NIGHT=1 DISK=... OUT=... \
+  adapters/repos/db/vector/postingedge/testdata/bench/v4.0/scripts/run_v40_disk.sh timed verdict
+```
+
+The curves are the cells (`full`, `r512`, `r384`, `halo512`, `halo512p`) and
+`hfresh-default`, `hfresh-best95` and `hfresh-best99`. Under 10 % between the
+medians of two indexes the verdict calls a tie.

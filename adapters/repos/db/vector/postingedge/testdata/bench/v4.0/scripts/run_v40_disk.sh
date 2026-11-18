@@ -18,9 +18,14 @@
 #   count    counts what the store reads per query for HFresh, with its
 #            default configuration and with every candidate of the sweep, and
 #            picks for each recall the one that reads the least. Untimed.
-#   timed    times every cell and HFresh (its default and its best for each
-#            recall), one process each: warm and, unless COLD=none, cold. Then
-#            the first cell again, warm, to see drift.
+#   timed    times every curve, one process each, warm and, unless COLD=none,
+#            cold: the five cells, and HFresh with its default configuration
+#            and with its best for each recall. All of them once and then all
+#            of them again, in the same order: the first round is the
+#            measure and the second tells drift (the fifth amendment in
+#            bench-report.md). Of every curve of every round it leaves when
+#            it ran and whether the keyboard or the trackpad were used
+#            meanwhile (macOS), in $OUT/dbpedia-1m-disk-stretches.tsv.
 #   verdict  writes disk-verdict.md from what the stages left in $OUT.
 #
 # usage: [VAR=value ...] run_v40_disk.sh [stage ...]
@@ -50,9 +55,16 @@
 #              cmd      the command in $DROP, e.g. as root
 #                       'sync; echo 3 > /proc/sys/vm/drop_caches', or 'purge'.
 #              none     no cold measure.
+#   IDLE     the timed stage waits until the keyboard and the trackpad have
+#            been idle for this many seconds with no other benchmark running,
+#            and then wants the machine fully awake (macOS). Default 0.
 #   NIGHT    1 makes the timed stage wait for the window of 23:00 to 03:00
-#            with the machine awake, 15 minutes without keyboard or trackpad
-#            and no other benchmark running (macOS). Default 0.
+#            besides, and IDLE default to 900 (macOS). Default 0.
+#   ROUNDS   the rounds of the timed stage, by name. Default "r1 r2". The
+#            repeat of the curves the verdict marks, on the same night:
+#            ROUNDS=night CURVES="..." NIGHT=1 run_v40_disk.sh timed verdict
+#   CURVES   the curves of the timed stage. Default: every cell of $CELLS,
+#            then hfresh-default, hfresh-best95 and hfresh-best99.
 #   EXTRA_PE, EXTRA_HF  more flags for the two binaries. A smoke:
 #            EXTRA_PE="-bench.limit 30000 -bench.queries 500"
 #            EXTRA_HF="-bench.hfresh.limit 30000 -bench.hfresh.queries 500" COLDQ=40
@@ -68,6 +80,8 @@ DATASET="${DATASET:-$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin}"
 QUERIES="${QUERIES:-5000}"
 COLDQ="${COLDQ:-500}"
 NIGHT="${NIGHT:-0}"
+if [ "$NIGHT" = 1 ]; then IDLE="${IDLE:-900}"; else IDLE="${IDLE:-0}"; fi
+ROUNDS="${ROUNDS:-r1 r2}"
 OS="$(uname)"
 if [ "$OS" = Darwin ]; then COLD="${COLD:-image}"; else COLD="${COLD:-fadvise}"; fi
 IMAGE="${IMAGE:-$WORK/v40.sparseimage}"
@@ -77,6 +91,9 @@ CELLS="${CELLS:-full r512 r384 halo512 halo512p}"
 PE="$WORK/postingedge-v40.test"
 HF="$WORK/hfresh-v40.test"
 LABEL="dbpedia-1m-disk"
+HF_CURVES="hfresh-default hfresh-best95 hfresh-best99"
+CURVES="${CURVES:-$CELLS $HF_CURVES}"
+STRETCHES="$OUT/$LABEL-stretches.tsv"
 mkdir -p "$WORK" "$OUT" || exit 1
 export GOMEMLIMIT="${GOMEMLIMIT:-24GiB}"
 
@@ -149,26 +166,80 @@ stage_count() {
   passed "$WORK/$LABEL-hfresh-count.log" || { echo "== the count stage did not pass: see $WORK/$LABEL-hfresh-count.log"; exit 1; }
 }
 
-# timed_cell <cell> <result name> <drop command>
+# timed_cell <cell> <round>: one cell of posting-edge, at its two recalls
 timed_cell() {
-  date "+== %H:%M posting-edge, cell $1"
   (cd "$PKG" && "$PE" -test.run 'TestDiskTimed$' -test.timeout 0 -test.v -bench.dataset "$DATASET" \
     -bench.queries "$QUERIES" -bench.diskdir "$DISK/pe" -bench.diskmanifest "$OUT/$LABEL-manifest.json" \
-    -bench.diskcell "$1" -bench.diskdrop "$3" -bench.diskcold "$COLDQ" -bench.out "$OUT/$LABEL-$2.json" \
-    > "$WORK/$LABEL-$2.log" 2>&1)
-  lines "$WORK/$LABEL-$2.log" "cell "
-  passed "$WORK/$LABEL-$2.log" || echo "== cell $1 did not pass: see $WORK/$LABEL-$2.log"
+    -bench.diskcell "$1" -bench.diskdrop "$DROP" -bench.diskcold "$COLDQ" -bench.out "$OUT/$LABEL-$2-$1.json" \
+    > "$WORK/$LABEL-$2-$1.log" 2>&1)
+  lines "$WORK/$LABEL-$2-$1.log" "cell "
+  passed "$WORK/$LABEL-$2-$1.log"
+}
+
+# timed_hfresh <curve> <round>: one configuration of HFresh
+timed_hfresh() {
+  local which
+  case "$1" in
+    hfresh-default) which=default ;;
+    hfresh-best95)  which=0.95 ;;
+    hfresh-best99)  which=0.99 ;;
+  esac
+  (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HF" -test.run 'TestHFreshDiskTimed$' -test.timeout 0 -test.v \
+    -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$DISK/hf" \
+    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-manifest.json" -bench.hfresh.reads "$OUT/$LABEL-hfresh-reads.json" \
+    -bench.hfresh.points "$which" -bench.hfresh.drop "$DROP" -bench.hfresh.cold "$COLDQ" \
+    -bench.hfresh.out "$OUT/$LABEL-$2-$1.json" > "$WORK/$LABEL-$2-$1.log" 2>&1)
+  lines "$WORK/$LABEL-$2-$1.log" "bench_disk_test"
+  passed "$WORK/$LABEL-$2-$1.log"
+}
+
+# stretch <round> <curve>: times one curve and leaves a line about its
+# stretch in $STRETCHES: when it ran, how long the keyboard and the trackpad
+# had been idle at its start and at its end, and how many events of power or
+# of user activity the system logged meanwhile, which go to the .log next to
+# it. The keyboard or the trackpad were used during the stretch when at its
+# end they have been idle for less than it lasted.
+stretch() {
+  local round="$1" curve="$2" start begin secs ok=1 idle0=-1 idle1=-1 events=0 logged
+  [ -e "$STRETCHES" ] || printf 'round\tcurve\tstart\tend\tseconds\tidle at start\tidle at end\tevents\tpassed\n' > "$STRETCHES"
+  [ "$OS" != Darwin ] || idle0=$(hid_idle)
+  start="$(date '+%Y-%m-%d %H:%M:%S')"
+  begin=$(date +%s)
+  date "+== %H:%M $round, $curve"
+  case "$curve" in
+    hfresh-*) timed_hfresh "$curve" "$round" || ok=0 ;;
+    *)        timed_cell "$curve" "$round" || ok=0 ;;
+  esac
+  secs=$(( $(date +%s) - begin ))
+  if [ "$OS" = Darwin ]; then
+    idle1=$(hid_idle)
+    logged="$(power_log_since "$start")"
+    [ -z "$logged" ] || events=$(printf '%s\n' "$logged" | wc -l | tr -d ' ')
+    { echo "== $round, $curve: from $start, $secs s"; [ -z "$logged" ] || printf '%s\n' "$logged"; } >> "${STRETCHES%.tsv}.log"
+    [ "$idle1" -ge "$secs" ] || echo "-- keyboard or trackpad used during $round, $curve: idle for $idle1 s at its end, and it took $secs s"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$round" "$curve" "$start" "$(date '+%Y-%m-%d %H:%M:%S')" \
+    "$secs" "$idle0" "$idle1" "$events" "$ok" >> "$STRETCHES"
+  [ "$ok" = 1 ] || echo "== $round, $curve did not pass: see $WORK/$LABEL-$round-$curve.log"
 }
 
 stage_timed() {
   attach_image
+  for curve in $CURVES; do
+    case " $CELLS $HF_CURVES " in *" $curve "*) ;; *) echo "== unknown curve $curve"; exit 1 ;; esac
+  done
   if [ "$OS" = Darwin ]; then
     # shellcheck source=/dev/null
     source "$HERE/../../v1.6/scripts/v16_queue.sh"
-    if [ "$NIGHT" = 1 ]; then
-      date "+== %Y-%m-%d %H:%M waiting for the window of 23:00 to 03:00"
-      until in_window 2300 0300 && ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test' > /dev/null \
-        && [ "$(hid_idle)" -ge 900 ]; do
+    if [ "$NIGHT" = 1 ] || [ "$IDLE" -gt 0 ]; then
+      if [ "$NIGHT" = 1 ]; then
+        date "+== %Y-%m-%d %H:%M waiting for the window of 23:00 to 03:00 and $IDLE s without keyboard or trackpad"
+      else
+        date "+== %Y-%m-%d %H:%M waiting for $IDLE s without keyboard or trackpad"
+      fi
+      until { [ "$NIGHT" != 1 ] || in_window 2300 0300; } \
+        && ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test' > /dev/null \
+        && [ "$(hid_idle)" -ge "$IDLE" ]; do
         sleep 60
       done
       if ! awake; then
@@ -180,22 +251,15 @@ stage_timed() {
     power_state
   fi
   START="$(date '+%Y-%m-%d %H:%M:%S')"
-  date "+== %Y-%m-%d %H:%M the timed session starts, cold: $COLD"
-  first=""
-  for cell in $CELLS; do
-    [ -n "$first" ] || first="$cell"
-    timed_cell "$cell" "$cell" "$DROP"
+  date "+== %Y-%m-%d %H:%M the timed session starts, cold: $COLD, rounds: $ROUNDS, curves: $CURVES"
+  for round in $ROUNDS; do
+    date "+== %Y-%m-%d %H:%M round $round"
+    for curve in $CURVES; do
+      stretch "$round" "$curve"
+    done
+    # what there is so far: the session may be read before it ends
+    stage_verdict
   done
-  date "+== %H:%M hfresh"
-  (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HF" -test.run 'TestHFreshDiskTimed$' -test.timeout 0 -test.v \
-    -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$DISK/hf" \
-    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-manifest.json" -bench.hfresh.reads "$OUT/$LABEL-hfresh-reads.json" \
-    -bench.hfresh.drop "$DROP" -bench.hfresh.cold "$COLDQ" \
-    -bench.hfresh.out "$OUT/$LABEL-hfresh.json" > "$WORK/$LABEL-hfresh.log" 2>&1)
-  lines "$WORK/$LABEL-hfresh.log" "bench_disk_test"
-  passed "$WORK/$LABEL-hfresh.log" || echo "== hfresh did not pass: see $WORK/$LABEL-hfresh.log"
-  # The first cell again, warm only: what the machine drifted in between.
-  timed_cell "$first" "$first-again" ""
   date "+== %Y-%m-%d %H:%M the timed session ends"
   if [ "$OS" = Darwin ]; then
     power_state

@@ -91,6 +91,8 @@ var (
 		"searchProbe is swept with, to find for every recall the configuration that reads the least")
 	diskReads = flag.String("bench.hfresh.reads", "", "what TestHFreshDiskCount left, for TestHFreshDiskTimed: the reads "+
 		"of every configuration and the one that reads the least for every recall")
+	diskPoints = flag.String("bench.hfresh.points", "", "with TestHFreshDiskTimed: the configurations to time, "+
+		"comma-separated: default, and 0.95 or 0.99 for the one that reads the least for that recall (empty = all)")
 )
 
 var diskTargets = []float64{0.95, 0.99}
@@ -894,6 +896,7 @@ type diskTimedResult struct {
 // warm and, when
 // -bench.hfresh.drop is given, cold, as TestDiskTimed of the posting-edge
 // package times a cell. The store reads through its mapping, the default.
+// -bench.hfresh.points times only some of the configurations.
 func TestHFreshDiskTimed(t *testing.T) {
 	if *diskDataset == "" || *diskDir == "" {
 		t.Skip("no -bench.hfresh.dataset and -bench.hfresh.dir given")
@@ -911,8 +914,24 @@ func TestHFreshDiskTimed(t *testing.T) {
 	require.NoError(t, err)
 	var counts diskCountFile
 	require.NoError(t, json.Unmarshal(rawCounts, &counts))
-	points := []diskPoint{manifest.Default}
+	// -bench.hfresh.points keeps some of them, so that a configuration can
+	// be timed in a process of its own.
+	var only []string
+	if *diskPoints != "" {
+		only = strings.Split(*diskPoints, ",")
+		for _, which := range only {
+			require.Containsf(t, []string{"default", diskTargetKey(0.95), diskTargetKey(0.99)}, which,
+				"-bench.hfresh.points: %q is not default, 0.95 or 0.99", which)
+		}
+	}
+	var points []diskPoint
+	if only == nil || slices.Contains(only, "default") {
+		points = append(points, manifest.Default)
+	}
 	for _, target := range diskTargets {
+		if only != nil && !slices.Contains(only, diskTargetKey(target)) {
+			continue
+		}
 		name, found := counts.Best[diskTargetKey(target)]
 		if !found {
 			t.Logf("recall %.2f is not reached with any rescore limit: nothing to time there", target)
