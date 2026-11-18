@@ -148,7 +148,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Espacio en disco, resuelto el 18 a las 08:21.** La corrida de 1M pide de 25 a 30 GB y el disco tenía 554 MB libres al empezar. El usuario eligió borrar la caché de builds de wiki-dpr de v1.4 a v1.6 (`~/Documents/datasets/postingedge-buildcache`, 25 GB). Los scripts de aquellas rondas la rehacen si se vuelven a lanzar.
 
-**Pendiente del usuario: cómo medir el frío** (enmienda 1). Hasta entonces no se cronometra nada.
+**Cómo medir el frío, decidido por el usuario el 18** (enmienda 4): en un volumen APFS propio del disco interno.
 
 ### Qué se mide
 
@@ -430,6 +430,42 @@ Una lectura aleatoria en frío de un fichero recién remontado, a través de la 
 - **Lo que queda fuera de este branch:** llevarlo a main y a las ramas estables, que es donde hace falta.
 
 **3. El perfil de mutex del paquete, apagado en el benchmark de HFresh.** Muestrea cada unlock con contención, con un recorrido del stack cada vez. No es parte del índice, y una búsqueda cronometrada lo pagaría.
+
+### Enmienda 4 (08:59 del 18, del usuario): el frío en un volumen APFS del disco interno, y HFresh con dos configuraciones
+
+*Antes de ningún dato cronometrado: no existe ninguno, ni de posting-edge ni de HFresh. Las dos decisiones son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.*
+
+**1. El frío se mide en un volumen APFS propio del disco interno,** no en la imagen de disco del pre-registro. Es `v40bench` (`disk3s7`), y su caché se tira desmontándolo y montándolo. Los índices se reescriben allí.
+
+El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si alguna fallaba. Las dos pasan:
+
+| lecturas aleatorias de 16 KB en frío, por segundo | 1 thread | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| `pread`, cada medida tras desmontar y montar | 7 792 | 15 016 | 28 284 | 54 365 | 82 495 |
+| copia desde el mmap, igual | 6 504 | 12 250 | 23 473 | 40 663 | 43 157 |
+| el SSD interno, de la enmienda 1 | 7 940 | 14 841 | 31 237 | 56 852 | 84 935 |
+
+- **Tras desmontar y montar, la primera lectura es fría de verdad.** Las mismas 2 000 posiciones: 123 µs de mediana la primera pasada y 1 µs la segunda. Tras otro remontaje, otras 2 000 posiciones dan 134 µs, y las primeras vuelven a 125 µs.
+- **Las lecturas escalan con los threads como en el SSD interno** con `pread`: 7.0 veces con 8 threads. Por el mmap, que es como lee el store, 6.3 veces con 8, y se aplana en 16.
+- **Bloques de 48 KB, en frío:** 163 µs de mediana por `pread` y 173 µs por el mmap con 1 thread; con 8 threads, 40 106 y 32 172 por segundo.
+- **El remontaje tarda 1.2 s** y no pide root.
+- **Lo que deja de valer de las enmiendas 1 y 2:** el dispositivo en serie y los 0.2 ms por lectura eran de la imagen. Lo que cronometre la sesión es del SSD.
+- **Lo que sigue igual:** qué es frío (datos fríos, lo residente cargado, el índice de los segmentos leído tras cada remontaje), las tandas, y la primera query de cada tanda aparte.
+
+**2. HFresh, dos configuraciones.** La de por defecto, y la mejor que se encuentre barriendo searchProbe y el rescoreLimit (64, 100, 200 y 350), eligiendo para 0.95 y para 0.99 la que menos lecturas hace. Se reportan las dos. **Los criterios del pre-registro se leen contra la mejor.**
+
+*Mío, para aplicarlo:*
+
+- **La de por defecto es un punto:** searchProbe 256 y rescoreLimit 350, tal cual, con el recall que dé. Se cronometra como las demás.
+- **La mejor, por recall:** para cada rescoreLimit, el menor searchProbe que llega al recall; de esos cuatro, el que menos lecturas hace por query.
+  - **Las lecturas son las que cuenta el store** en modo pread, postings y rescore juntos. A igualdad de lecturas, menos bytes.
+  - Si un rescoreLimit no llega a un recall, no entra. Si no llega ninguno, HFresh queda sin mejor configuración a ese recall, y se dice.
+- **Se cronometran tres puntos de HFresh:** el de por defecto, la mejor a 0.95 y la mejor a 0.99.
+- **Los criterios 2 y 3 se leen contra la mejor a 0.95.** El de por defecto va al lado.
+- **El criterio 4, hasta qué recall llega,** se da con el rescore por defecto, 350, y searchProbe hasta todos los postings. Con searchProbe por encima de 4 096 el recall se mide sobre las primeras 1 000 queries, porque leer todos los postings son unos 28 000 por query.
+- **El barrido del pre-registro,** searchProbe con el rescore por defecto, es una de las cuatro columnas de este.
+
+**Lo que ya he visto de HFresh a 1M, para que conste.** El build de las 08:47, que paré para reescribir los índices en el volumen, llegó a imprimir su recall con rescoreLimit 350: de 0.8418 con searchProbe 16 a 0.9963 con 2 048, y 0.9663 con el de por defecto. Es de un índice que no se va a medir, porque el build de HFresh no sale igual dos veces, y no lleva ningún tiempo.
 
 ### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
 
