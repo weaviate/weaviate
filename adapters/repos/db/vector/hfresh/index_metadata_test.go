@@ -395,24 +395,61 @@ func TestSinglePostingRecoveredWithoutRecordAllDeleted(t *testing.T) {
 	}
 }
 
-func TestInterruptedTransitionSurvivesRestart(t *testing.T) {
+// A transition cut short by a crash leaves the commit log directory, so the
+// restart reopens the graph and finishes the transition on posting 1.
+func TestInterruptedTransitionFinishedOnRestart(t *testing.T) {
+	tests := []struct {
+		name      string
+		interrupt func(t *testing.T, index *HFresh, cfg *Config)
+	}{
+		{"graph holds the seed", func(t *testing.T, index *HFresh, _ *Config) {
+			require.NoError(t, index.Centroids.Build())
+		}},
+		{"graph lacks the seed", func(t *testing.T, _ *HFresh, cfg *Config) {
+			// the store reaches disk before the commit log
+			hnswCfg := cfg.Centroids.HNSWConfig
+			require.NoError(t, os.MkdirAll(filepath.Join(hnswCfg.RootPath, hnswCfg.ID+".hnsw.commitlog.d"), os.ModePerm))
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := testinghelpers.NewDummyStore(t)
+			cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+			index := makeHFreshWithConfig(t, store, cfg, uc)
+			all := addRestartVectors(t, index, vectors, 0, 300)
+			tt.interrupt(t, index, cfg)
+			require.NoError(t, index.Shutdown(t.Context()))
+
+			index = makeHFreshWithConfig(t, store, cfg, uc)
+			require.True(t, index.Centroids.Built())
+			require.True(t, index.Centroids.Exists(1))
+			require.True(t, persistedPostingEntry(t, index, 1))
+			index.waitForMaintenance(t)
+			require.Greater(t, index.PostingSizes.Count(), uint64(1), "the oversized posting must be split")
+			requireSelfSearchExcept(t, index, all, -1)
+		})
+	}
+}
+
+// The transition's split sits in its own queue file, which a crash can lose
+// while the posting's map entry survives.
+func TestTransitionSplitLostInCrashIsRequeued(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
-	addRestartVectors(t, index, vectors, 0, 300)
-	// the graph was built and logged, but the transition stopped before the
-	// posting map and the built flag were written
-	require.NoError(t, index.Centroids.Build())
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
+	require.NoError(t, index.leaveSinglePostingMode(t.Context()))
+	require.True(t, persistedPostingEntry(t, index, 1))
 	require.NoError(t, index.Shutdown(t.Context()))
+	require.NoError(t, os.RemoveAll(filepath.Join(cfg.RootPath, "split.queue.d")))
+	index.taskQueue.splitQueue.Resume()
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
-	require.False(t, index.Centroids.Built())
-
-	all := addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
-	require.True(t, index.Centroids.Built())
 	index.waitForMaintenance(t)
-	require.Greater(t, index.PostingSizes.Count(), uint64(2))
+	require.Greater(t, index.PostingSizes.Count(), uint64(1), "the oversized posting must be split")
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
@@ -487,24 +524,7 @@ func TestSinglePostingReopenedWithLowerLimit(t *testing.T) {
 	}
 }
 
-func TestBuiltFlagWithoutSeedCentroidIsRepairedOnRestart(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 300)
-	// store writes reach disk before the centroid commit log: a crash can
-	// leave the flag without the graph holding the seed centroid
-	require.NoError(t, index.IndexMetadata.SetCentroidsBuilt())
-	require.NoError(t, index.Shutdown(t.Context()))
-
-	index = makeHFreshWithConfig(t, store, cfg, uc)
-	require.True(t, index.Centroids.Built())
-	require.True(t, index.Centroids.Exists(1))
-	requireSelfSearchExcept(t, index, all, -1)
-}
-
-func TestInterruptedTransitionRetriesTheBuiltFlag(t *testing.T) {
+func TestInterruptedTransitionFinishedByNextInsert(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
@@ -513,13 +533,11 @@ func TestInterruptedTransitionRetriesTheBuiltFlag(t *testing.T) {
 	defer index.taskQueue.splitQueue.Resume()
 
 	addRestartVectors(t, index, vectors, 0, 300)
-	// the graph exists but the flag write never happened
+	// the graph exists but the posting was never analyzed
 	require.NoError(t, index.Centroids.Build())
 
 	addRestartVectors(t, index, vectors, 300, 301)
-	built, err := NewIndexMetadataStore(index.IndexMetadata.bucket).CentroidsBuilt()
-	require.NoError(t, err)
-	require.True(t, built, "the next insert must finish the transition")
+	require.True(t, persistedPostingEntry(t, index, 1), "the next insert must finish the transition")
 }
 
 // An index restarted before its first insert has no dimensions to restore,
