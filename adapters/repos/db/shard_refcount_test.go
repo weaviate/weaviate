@@ -283,7 +283,7 @@ func TestShardRefCountArity(t *testing.T) {
 			},
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				found, err := idx.multiObjectByID(t.Context(),
-					[]multi.Identifier{{ID: readableObjectID, ClassName: className}}, "")
+					[]multi.Identifier{{ID: readableObjectID, ClassName: className}}, nil, additional.Properties{}, "")
 				if err != nil {
 					return err
 				}
@@ -302,7 +302,7 @@ func TestShardRefCountArity(t *testing.T) {
 			},
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, err := idx.multiObjectByID(t.Context(),
-					[]multi.Identifier{{ID: undecodableObjectID, ClassName: className}}, "")
+					[]multi.Identifier{{ID: undecodableObjectID, ClassName: className}}, nil, additional.Properties{}, "")
 				return err
 			},
 		},
@@ -310,7 +310,7 @@ func TestShardRefCountArity(t *testing.T) {
 			name: "multiObjectByID forwarded", remote: true, wantErr: true,
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, err := idx.multiObjectByID(t.Context(),
-					[]multi.Identifier{{ID: uuid.NewString(), ClassName: className}}, "")
+					[]multi.Identifier{{ID: uuid.NewString(), ClassName: className}}, nil, additional.Properties{}, "")
 				return err
 			},
 		},

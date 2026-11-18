@@ -14,6 +14,7 @@ package refcache
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -31,7 +32,7 @@ type Resolver struct {
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties, groupByIdx search.SelectPropertiesIndex) error
+	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, groupByIdx search.SelectPropertiesIndex) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -49,22 +50,21 @@ func NewResolverWithGroup(cacher cacher, groupByProps search.SelectProperties) *
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
-	properties search.SelectProperties, additional additional.Properties,
+	properties search.SelectProperties,
 ) ([]search.Result, error) {
-	if err := r.cacher.Build(ctx, objects, properties, additional, r.groupByIdx); err != nil {
+	if err := r.cacher.Build(ctx, objects, properties, r.groupByIdx); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 
-	return r.parseObjects(objects, properties, additional)
+	return r.parseObjects(objects, properties)
 }
 
 func (r *Resolver) parseObjects(objects []search.Result, properties search.SelectProperties,
-	additional additional.Properties,
 ) ([]search.Result, error) {
 	// same properties apply to every object; index once here
 	idx := properties.Indexed()
 	for i, obj := range objects {
-		parsed, err := r.parseObject(obj, idx, additional)
+		parsed, err := r.parseObject(obj, idx)
 		if err != nil {
 			return nil, errors.Wrapf(err, "parse at position %d", i)
 		}
@@ -76,7 +76,6 @@ func (r *Resolver) parseObjects(objects []search.Result, properties search.Selec
 }
 
 func (r *Resolver) parseObject(object search.Result, idx search.SelectPropertiesIndex,
-	additional additional.Properties,
 ) (search.Result, error) {
 	if object.Schema == nil {
 		return object, nil
@@ -220,8 +219,9 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 	}
 
 	out.Class = res.ClassName
-	schema := res.Schema.(map[string]interface{})
-	nested, err := r.parseSchema(schema, innerIdx)
+	// every path reaching this object gets its own copy of the cached fields,
+	// because each writes its own resolved refs and additional fields into it
+	nested, err := r.parseSchema(maps.Clone(res.Schema.(map[string]interface{})), innerIdx)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve nested ref")
 	}

@@ -2541,6 +2541,67 @@ func (_c *MockShardLike_MultiObjectByID_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// MultiObjectByIDWithProps provides a mock function with given fields: ctx, query, props, addl
+func (_m *MockShardLike) MultiObjectByIDWithProps(ctx context.Context, query []multi.Identifier, props []string, addl additional.Properties) ([]*storobj.Object, error) {
+	ret := _m.Called(ctx, query, props, addl)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MultiObjectByIDWithProps")
+	}
+
+	var r0 []*storobj.Object
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []multi.Identifier, []string, additional.Properties) ([]*storobj.Object, error)); ok {
+		return rf(ctx, query, props, addl)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []multi.Identifier, []string, additional.Properties) []*storobj.Object); ok {
+		r0 = rf(ctx, query, props, addl)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*storobj.Object)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []multi.Identifier, []string, additional.Properties) error); ok {
+		r1 = rf(ctx, query, props, addl)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_MultiObjectByIDWithProps_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MultiObjectByIDWithProps'
+type MockShardLike_MultiObjectByIDWithProps_Call struct {
+	*mock.Call
+}
+
+// MultiObjectByIDWithProps is a helper method to define mock.On call
+//   - ctx context.Context
+//   - query []multi.Identifier
+//   - props []string
+//   - addl additional.Properties
+func (_e *MockShardLike_Expecter) MultiObjectByIDWithProps(ctx interface{}, query interface{}, props interface{}, addl interface{}) *MockShardLike_MultiObjectByIDWithProps_Call {
+	return &MockShardLike_MultiObjectByIDWithProps_Call{Call: _e.mock.On("MultiObjectByIDWithProps", ctx, query, props, addl)}
+}
+
+func (_c *MockShardLike_MultiObjectByIDWithProps_Call) Run(run func(ctx context.Context, query []multi.Identifier, props []string, addl additional.Properties)) *MockShardLike_MultiObjectByIDWithProps_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]multi.Identifier), args[2].([]string), args[3].(additional.Properties))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_MultiObjectByIDWithProps_Call) Return(_a0 []*storobj.Object, _a1 error) *MockShardLike_MultiObjectByIDWithProps_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_MultiObjectByIDWithProps_Call) RunAndReturn(run func(context.Context, []multi.Identifier, []string, additional.Properties) ([]*storobj.Object, error)) *MockShardLike_MultiObjectByIDWithProps_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Name provides a mock function with no fields
 func (_m *MockShardLike) Name() string {
 	ret := _m.Called()
@@ -5949,7 +6010,8 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

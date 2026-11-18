@@ -330,16 +330,19 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, props []string, addl additional.Properties,
 ) ([]*storobj.Object, error) {
-	idsBytes, err := json.Marshal(ids)
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal selectProps props")
+	params := url.Values{}
+	for name, value := range map[string]any{"ids": ids, "props": props, "additional": addl} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, errors.Wrapf(err, "marshal %s", name)
+		}
+		params.Set(name, base64.StdEncoding.EncodeToString(encoded))
 	}
-	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName),
-		url.Values{"ids": []string{idsEncoded}}.Encode(),
+		params.Encode(),
 		nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "open http request")

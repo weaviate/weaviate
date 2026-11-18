@@ -488,7 +488,7 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, props []string, addl additional.Properties,
 ) ([]*storobj.Object, error) {
 	return nil, nil
 }
