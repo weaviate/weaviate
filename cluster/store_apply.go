@@ -144,6 +144,8 @@ func refuseUnknownFields(req *api.ApplyRequest) error {
 // rolling update and again on every replay of that entry. Refusing before the
 // append means no node ever sees a committed entry it has to reject, so the set
 // of commands checked here can grow without becoming a compatibility event.
+// SchemaManager.AddTenants and UpdateTenants check a tenant node list against
+// the class's factor at apply.
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
