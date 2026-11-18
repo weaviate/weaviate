@@ -167,9 +167,8 @@ func buildReferences(value any, prop search.SelectProperty, principal *models.Pr
 }
 
 // buildRefProperties renders a referenced object's selected non-reference
-// properties. The storage layer hands over every property of the referenced
-// object, so selecting here is what keeps unselected (possibly blob) fields
-// out of the reply.
+// properties. Storage can return unselected ones too, since one read serves
+// every reference to the class and a remote node may ignore the selection.
 func buildRefProperties(fields map[string]any, props search.SelectProperties) map[string]models.JSONObject {
 	out := make(map[string]models.JSONObject, len(props))
 	for _, prop := range props {

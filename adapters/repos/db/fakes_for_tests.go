@@ -343,7 +343,7 @@ func (f *FakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *FakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, props []string, addl additional.Properties,
 ) ([]*storobj.Object, error) {
 	return nil, nil
 }

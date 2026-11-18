@@ -272,6 +272,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, res := range refProp {
 				parsed, ok := res.(search.LocalRef)
 				require.True(t, ok)
+				assert.NotContains(t, parsed.Fields, "int_property", "the read decodes only the selected properties")
 				refPayload = append(refPayload, map[string]interface{}{
 					"description": parsed.Fields["description"],
 				})

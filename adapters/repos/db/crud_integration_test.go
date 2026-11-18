@@ -673,7 +673,11 @@ func TestCRUD(t *testing.T) {
 				ClassName: "TheBestThingClass",
 			},
 		}
-		res, err := repo.MultiGet(context.Background(), query, additional.Properties{}, "")
+		selections := map[string]search.SelectClass{"TheBestThingClass": {
+			ClassName:     "TheBestThingClass",
+			RefProperties: search.SelectProperties{{Name: "stringProp"}, {Name: "location"}},
+		}}
+		res, err := repo.MultiGet(context.Background(), query, selections, "")
 		require.Nil(t, err)
 		require.Len(t, res, 2, "length must match even with nil-items")
 

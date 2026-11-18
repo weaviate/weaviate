@@ -104,8 +104,10 @@ func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroup
 	index.IncomingDeleteObjectsExpired(ctx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
+// MultiGet reads each object of class c with the properties and vectors
+// selections[c] selects.
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
-	additional additional.Properties, tenant string,
+	selections map[string]search.SelectClass, tenant string,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 	db.indexLock.RLock()
@@ -128,7 +130,13 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
+		index := db.indices[indexID]
+		sel, ok := selections[index.Config.ClassName.String()]
+		if !ok {
+			return nil, fmt.Errorf("index %q: no selection for its class", indexID)
+		}
+		indexRes, err := index.multiObjectByID(ctx, queries,
+			sel.RefProperties.GetPropertyNames(), sel.AdditionalProperties, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
@@ -137,7 +145,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 			if obj == nil {
 				continue
 			}
-			res := obj.SearchResult(additional, tenant)
+			res := obj.SearchResult(sel.AdditionalProperties, tenant)
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
@@ -227,14 +235,14 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	if r == nil {
 		return nil, nil
 	}
-	return db.enrichRefsForSingle(ctx, r, props, addl, tenant)
+	return db.enrichRefsForSingle(ctx, r, props, tenant)
 }
 
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props search.SelectProperties, additional additional.Properties, tenant string,
+	props search.SelectProperties, tenant string,
 ) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
-		Do(ctx, []search.Result{*obj}, props, additional)
+		Do(ctx, []search.Result{*obj}, props)
 	if err != nil {
 		return nil, fmt.Errorf("resolve cross-refs: %w", err)
 	}

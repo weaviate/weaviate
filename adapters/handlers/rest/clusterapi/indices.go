@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -151,7 +152,7 @@ type shards interface {
 	MergeObject(ctx context.Context, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
-		id []strfmt.UUID) ([]*storobj.Object, error)
+		id []strfmt.UUID, props []string, addl additional.Properties) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
 		vectors []models.Vector, targetVectors []string, distance float32, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
@@ -499,47 +500,18 @@ func (i *indices) getObject() http.Handler {
 			return
 		}
 
-		additionalEncoded := r.URL.Query().Get("additional")
-		if additionalEncoded == "" {
-			http.Error(w, "missing required url param 'additional'",
-				http.StatusBadRequest)
-			return
-		}
-
-		additionalBytes, err := base64.StdEncoding.DecodeString(additionalEncoded)
-		if err != nil {
-			http.Error(w, "base64 decode 'additional' param: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
-		selectPropertiesEncoded := r.URL.Query().Get("selectProperties")
-		if selectPropertiesEncoded == "" {
-			http.Error(w, "missing required url param 'selectProperties'",
-				http.StatusBadRequest)
-			return
-		}
-
-		selectPropertiesBytes, err := base64.StdEncoding.
-			DecodeString(selectPropertiesEncoded)
-		if err != nil {
-			http.Error(w, "base64 decode 'selectProperties' param: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
+		query := r.URL.Query()
 		var additional additional.Properties
-		if err := json.Unmarshal(additionalBytes, &additional); err != nil {
-			http.Error(w, "unmarshal 'additional' param from json: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
 		var selectProperties search.SelectProperties
-		if err := json.Unmarshal(selectPropertiesBytes, &selectProperties); err != nil {
-			http.Error(w, "unmarshal 'selectProperties' param from json: "+err.Error(),
-				http.StatusBadRequest)
-			return
+		for name, dst := range map[string]any{"additional": &additional, "selectProperties": &selectProperties} {
+			if query.Get(name) == "" {
+				http.Error(w, "missing required url param '"+name+"'", http.StatusBadRequest)
+				return
+			}
+			if err := decodeQueryParam(query, name, dst); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		if !i.db.StartupComplete() {
 			http.Error(w, "startup is not complete", http.StatusServiceUnavailable)
@@ -692,25 +664,23 @@ func (i *indices) getObjectsMulti() http.Handler {
 
 		defer r.Body.Close()
 
-		idsEncoded := r.URL.Query().Get("ids")
-		if idsEncoded == "" {
+		query := r.URL.Query()
+		if query.Get("ids") == "" {
 			http.Error(w, "missing required url param 'ids'",
 				http.StatusBadRequest)
 			return
 		}
 
-		idsBytes, err := base64.StdEncoding.DecodeString(idsEncoded)
-		if err != nil {
-			http.Error(w, "base64 decode 'ids' param: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
-		var ids []strfmt.UUID
-		if err := json.Unmarshal(idsBytes, &ids); err != nil {
-			http.Error(w, "unmarshal 'ids' param from json: "+err.Error(),
-				http.StatusBadRequest)
-			return
+		var (
+			ids   []strfmt.UUID
+			props []string
+			addl  additional.Properties
+		)
+		for name, dst := range map[string]any{"ids": &ids, "props": &props, "additional": &addl} {
+			if err := decodeQueryParam(query, name, dst); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 
 		i.logger.WithFields(logrus.Fields{
@@ -718,7 +688,7 @@ func (i *indices) getObjectsMulti() http.Handler {
 			"action": "MultiGetObjects",
 		}).Debug("get multiple objects ...")
 
-		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
+		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids, props, addl)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -733,6 +703,23 @@ func (i *indices) getObjectsMulti() http.Handler {
 		shared.IndicesPayloads.ObjectList.SetContentTypeHeader(w)
 		w.Write(objsBytes)
 	})
+}
+
+// decodeQueryParam unmarshals the base64-encoded JSON of query param name into
+// dst, and leaves dst unchanged when the param is absent.
+func decodeQueryParam(query url.Values, name string, dst any) error {
+	encoded := query.Get(name)
+	if encoded == "" {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return fmt.Errorf("base64 decode '%s' param: %w", name, err)
+	}
+	if err := json.Unmarshal(decoded, dst); err != nil {
+		return fmt.Errorf("unmarshal '%s' param from json: %w", name, err)
+	}
+	return nil
 }
 
 func (i *indices) postSearchObjects() http.Handler {

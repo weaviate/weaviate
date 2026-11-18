@@ -467,6 +467,15 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
+func (l *LazyLoadShard) MultiObjectByIDWithProps(ctx context.Context, query []multi.Identifier,
+	props []string, addl additional.Properties,
+) ([]*storobj.Object, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.MultiObjectByIDWithProps(ctx, query, props, addl)
+}
+
 func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

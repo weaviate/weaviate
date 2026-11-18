@@ -12,7 +12,6 @@
 package clusterapi
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -1074,17 +1073,9 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		idsBytes, err := base64.StdEncoding.DecodeString(idsEncoded)
-		if err != nil {
-			http.Error(w, "base64 decode 'ids' param: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
 		var ids []strfmt.UUID
-		if err := json.Unmarshal(idsBytes, &ids); err != nil {
-			http.Error(w, "unmarshal 'ids' param from json: "+err.Error(),
-				http.StatusBadRequest)
+		if err := decodeQueryParam(r.URL.Query(), "ids", &ids); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 

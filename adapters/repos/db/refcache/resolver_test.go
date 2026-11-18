@@ -32,7 +32,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("with nil input", func(t *testing.T) {
 		r := NewResolver(newFakeCacher())
-		res, err := r.Do(context.Background(), nil, nil, additional.Properties{})
+		res, err := r.Do(context.Background(), nil, nil)
 		require.Nil(t, err)
 		assert.Nil(t, res)
 	})
@@ -47,7 +47,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := input
-		res, err := r.Do(context.Background(), input, nil, additional.Properties{})
+		res, err := r.Do(context.Background(), input, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -69,7 +69,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := input
-		res, err := r.Do(context.Background(), input, nil, additional.Properties{})
+		res, err := r.Do(context.Background(), input, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -147,11 +147,11 @@ func TestResolver(t *testing.T) {
 			}
 		}
 		// ask for vector in ref property
-		res, err := getResolver().Do(context.Background(), getInput(), getSelectProps(true), additional.Properties{})
+		res, err := getResolver().Do(context.Background(), getInput(), getSelectProps(true))
 		require.Nil(t, err)
 		assert.Equal(t, getExpectedResult(true), res)
 		// don't ask for vector in ref property
-		res, err = getResolver().Do(context.Background(), getInput(), getSelectProps(false), additional.Properties{})
+		res, err = getResolver().Do(context.Background(), getInput(), getSelectProps(false))
 		require.Nil(t, err)
 		assert.Equal(t, getExpectedResult(false), res)
 	})
@@ -225,7 +225,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := getResolver().Do(context.Background(), getInput(), selectProps, additional.Properties{})
+		res, err := getResolver().Do(context.Background(), getInput(), selectProps)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -286,7 +286,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := r.Do(context.Background(), input, selectProps, additional.Properties{})
+		res, err := r.Do(context.Background(), input, selectProps)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -391,7 +391,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := r.Do(context.Background(), input, selectProps, additional.Properties{})
+		res, err := r.Do(context.Background(), input, selectProps)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -524,11 +524,11 @@ func TestResolver(t *testing.T) {
 			}
 		}
 		// ask for vector in ref property
-		res, err := getResolver().Do(context.Background(), getInput(), getSelectProps(true), additional.Properties{})
+		res, err := getResolver().Do(context.Background(), getInput(), getSelectProps(true))
 		require.Nil(t, err)
 		assert.Equal(t, getExpectedResult(true), res)
 		// don't ask for vector in ref property
-		res, err = getResolver().Do(context.Background(), getInput(), getSelectProps(false), additional.Properties{})
+		res, err = getResolver().Do(context.Background(), getInput(), getSelectProps(false))
 		require.Nil(t, err)
 		assert.Equal(t, getExpectedResult(false), res)
 	})
@@ -554,7 +554,7 @@ func TestResolver(t *testing.T) {
 			search.SelectProperty{Name: "refProp"},
 		}
 
-		res, err := NewResolver(newFakeCacher()).Do(context.Background(), input, selectProps, additional.Properties{})
+		res, err := NewResolver(newFakeCacher()).Do(context.Background(), input, selectProps)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1)
@@ -573,7 +573,7 @@ type fakeCacher struct {
 }
 
 func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties search.SelectProperties,
-	additional additional.Properties, groupByIdx search.SelectPropertiesIndex,
+	groupByIdx search.SelectPropertiesIndex,
 ) error {
 	return nil
 }

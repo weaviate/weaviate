@@ -66,7 +66,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
-		ids []strfmt.UUID) ([]*storobj.Object, error)
+		ids []strfmt.UUID, props []string, addl additional.Properties) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
 		vectors []models.Vector, targetVectors []string, distance float32, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
@@ -215,14 +215,14 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, props []string, addl additional.Properties,
 ) ([]*storobj.Object, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
-	return index.IncomingMultiGetObjects(ctx, shardName, ids)
+	return index.IncomingMultiGetObjects(ctx, shardName, ids, props, addl)
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
