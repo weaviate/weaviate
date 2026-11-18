@@ -242,6 +242,7 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		disabled   bool // namespaces off, with a global principal
 		exister    fakeNamespacesExister
 		factor     int64
+		minFactor  int      // REPLICATION_MINIMUM_FACTOR
 		storage    []string // defaults to allCandidates
 		wantOwners []string // the one shard's BelongsToNodes, in order
 		wantErr    string
@@ -257,7 +258,13 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		},
 		{
 			name:    "NS enabled: RF above the home-node count refused",
-			exister: homeNodes("node-1", "node-2"), factor: 3, wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace",
+			exister: homeNodes("node-1", "node-2"), factor: 3, minFactor: 2,
+			wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace; lower the collection's replication factor to at most 2",
+		},
+		{
+			name:    "NS enabled: no lower factor suggested below the minimum",
+			exister: homeNodes("node-1", "node-2"), factor: 3, minFactor: 3,
+			wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace; an administrator must add home nodes",
 		},
 		{name: "NS disabled: placed on the storage candidates", disabled: true, factor: 1, wantOwners: []string{"node-1"}},
 	}
@@ -275,6 +282,7 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				sm.storageCandidates = tt.storage
 			}
 			handler.namespacesExister = tt.exister
+			handler.config.Replication.MinimumFactor = tt.minFactor
 
 			var capturedState *sharding.State
 			sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {

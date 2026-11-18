@@ -326,11 +326,9 @@ function main() {
 
   if $run_acceptance_only_python_namespaces
   then
-    # Dedicated 3-node namespaces-enabled cluster on ports 8190/8191/8192
-    # (HTTP) + 50190/50191/50192 (gRPC). Kept separate from the standard
-    # docker-compose-test.yml flow because NAMESPACES_ENABLED forces
-    # DISABLE_GRAPHQL=true and REPLICATION_MAXIMUM_FACTOR=1, which the rest
-    # of the python suite isn't built to assume.
+    # docker-compose-namespaces-test.yml runs its own 3-node cluster, apart from
+    # docker-compose-test.yml, because NAMESPACES_ENABLED forces DISABLE_GRAPHQL=true,
+    # which the rest of the python suite is not built to assume.
     echo_green "acceptance — python-namespaces: building weaviate/test-server image..."
     GIT_REVISION=$(git rev-parse --short HEAD)
     GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -343,8 +341,7 @@ function main() {
     docker compose -f docker-compose-namespaces-test.yml up -d
 
     # Poll each node's /v1/.well-known/ready. RAFT bootstrap waits on all
-    # three nodes (REPLICATION_MAXIMUM_FACTOR=1 still requires the cluster
-    # to be quorate at start), so give each a generous window.
+    # three nodes, so give each a generous window.
     for port in 8190 8191 8192; do
       echo_green "acceptance — python-namespaces: waiting for node on :$port..."
       ready=false
