@@ -21,7 +21,7 @@ import (
 )
 
 // singleNode is the shared single-node Weaviate (REST + gRPC) used by all
-// tests except the replicated one, which starts its own cluster.
+// tests except the cluster and dynamic ones, which start their own containers.
 var singleNode *docker.DockerCompose
 
 func TestMain(m *testing.M) {
