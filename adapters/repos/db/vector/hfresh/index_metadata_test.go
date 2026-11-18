@@ -248,6 +248,58 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, 7)
 }
 
+// persistedPostingEntry reports whether the posting's map entry reached the
+// store, which for the single posting only the transition's analyze does.
+func persistedPostingEntry(t *testing.T, index *HFresh, id uint64) bool {
+	t.Helper()
+	_, err := index.PostingMap.bucket.Get(t.Context(), id)
+	if err == nil {
+		return true
+	}
+	require.ErrorIs(t, err, ErrPostingNotFound)
+	return false
+}
+
+func TestSinglePostingRestartKeepsMapEntryInMemory(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	addRestartVectors(t, index, vectors, 0, 300)
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	metadata, err := index.PostingMap.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 300, metadata.Count())
+	require.False(t, persistedPostingEntry(t, index, 1))
+}
+
+// A restart finds the single posting by its fixed id, even when the ID
+// sequence was already past it before the first insert.
+func TestSinglePostingKeepsIDOne(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	// a crash after reserving an ID range restarts the sequence above it
+	for range 5 {
+		_, err := index.IDs.Next()
+		require.NoError(t, err)
+	}
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	require.True(t, index.Centroids.Exists(1))
+	next, err := index.IDs.Next()
+	require.NoError(t, err)
+	require.Greater(t, next, uint64(1), "no later posting may take the single posting's id")
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.True(t, index.Centroids.Exists(1))
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
 // The single posting has no centroid in the graph, so the startup repair of
 // postings without a centroid must not take it for one.
 func TestSinglePostingRestartReassignsNothing(t *testing.T) {
