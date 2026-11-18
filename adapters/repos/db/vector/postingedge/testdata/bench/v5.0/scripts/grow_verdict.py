@@ -351,19 +351,26 @@ def validation(v):
         print('| lo demás | %s | %s |' % (kb(rest), signed(rest / model)))
         print('| **lo que lee el store** | **%s** | **%s** |' % (kb(at95['storeBytes']), signed(ratio - 1)))
         print()
+        format_ratio = (model + ids + frames + rows) / model
         format_only = abs(rest / model) < 0.005
         if ratio <= 1.10:
             verdict = 'se cumple'
         elif format_only:
             verdict = 'NO se cumple, por el formato y no por el algoritmo'
+        elif format_ratio <= 1.10:
+            verdict = 'NO se cumple, por lo que el store deja sin compactar encima del formato, y no por el algoritmo'
         else:
-            verdict = 'NO se cumple'
+            verdict = 'NO se cumple, por el formato y por lo que el store deja sin compactar, y no por el algoritmo'
         print('**Criterio 1, %s:** a 0.95, compactado, el store lee %.3f veces lo que el gemelo en memoria por el modelo; el límite es 1.10.' % (verdict, ratio))
         print()
         print('- **El algoritmo no pone nada:** las cargas son las del gemelo, %.2f por query, y en cada una de las %s queries el índice de disco devuelve sus mismos ids, distancias y trabajo.' % (
             at95['loads'], num(at95['compared'])))
-        print('- **%s**' % ('Todo lo que lee de más es formato: el marco del Set y el id de cada lista.' if format_only
-                            else 'Queda un resto que el formato no explica: %s por query.' % mb(rest)))
+        print('- **El formato solo son %.3f veces:** el marco del Set, el id de cada lista y las cabeceras de fila.' % format_ratio)
+        if format_only:
+            print('- **Todo lo que lee de más es formato.**')
+        else:
+            print('- **Lo demás, un %s, es lo que la compactación del store deja:** el bucket queda en %d segmentos y una carga lee %.2f filas en vez de 2. `lsmkv` no junta dos segmentos de tamaños muy distintos, y lo que el segundo reemplaza del primero se lee de los dos, con sus lápidas.' % (
+                signed(rest / model).lstrip('+'), at95.get('segments', 0), at95['storeReads'] / at95['loads']))
         print('- **A 0.99,** %s.' % ('%.3f veces' % (at('compacted', 0.99)['storeBytes'] / at('compacted', 0.99)['modelBytes'])
                                      if at('compacted', 0.99) else 'sin punto'))
     print()

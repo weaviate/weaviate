@@ -90,7 +90,10 @@ passed() { [ "$(tail -1 "$1")" = PASS ]; }
 lines() { grep -E "$2" "$1" | sed -E 's/.*_test.go:[0-9]+: //' | cut -c1-500; }
 
 # wait_quiet: the gate of a timed stage. Nothing else of these benchmarks may
-# be running, an earlier session included.
+# be running, an earlier session included. The window is asked for once: a
+# stage that follows another of the same run starts when the first is done,
+# whatever the hour.
+IN_SESSION=0
 wait_quiet() {
   [ "$OS" = Darwin ] || return 0
   if [ "$NIGHT" = 1 ] || [ "$IDLE" -gt 0 ]; then
@@ -99,7 +102,7 @@ wait_quiet() {
     else
       date "+== %Y-%m-%d %H:%M waiting for $IDLE s without keyboard or trackpad"
     fi
-    until { [ "$NIGHT" != 1 ] || in_window 2300 0300; } \
+    until { [ "$NIGHT" != 1 ] || [ "$IN_SESSION" = 1 ] || in_window 2300 0300; } \
       && ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test|run_v40_disk\.sh' > /dev/null \
       && [ "$(hid_idle)" -ge "$IDLE" ]; do
       sleep 60
@@ -110,6 +113,7 @@ wait_quiet() {
     fi
     awake || { date "+== %H:%M not fully awake, nothing timed"; power_state; exit 1; }
   fi
+  IN_SESSION=1
   power_state
 }
 
