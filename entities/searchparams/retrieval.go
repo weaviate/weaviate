@@ -30,6 +30,24 @@ type Selection struct {
 	MMR *SelectionMMR `json:"mmr,omitempty"`
 }
 
+// VectorSearchParams carries per-request overrides for the vector index search.
+// It is set on a single search request and takes precedence over the
+// collection-level configuration. EF overrides vectorIndexConfig.ef for HNSW
+// only; other index types ignore it. A zero EF, or a nil *VectorSearchParams,
+// means the collection default is used. The struct crosses nodes as JSON
+// (see the "ef" tag), so new fields must keep the zero value meaning "default".
+type VectorSearchParams struct {
+	EF int `json:"ef,omitempty"`
+}
+
+// EFOrZero returns the per-request ef, or 0 when unset or when p is nil.
+func (p *VectorSearchParams) EFOrZero() int {
+	if p == nil {
+		return 0
+	}
+	return p.EF
+}
+
 type NearVector struct {
 	Certainty     float64         `json:"certainty"`
 	Distance      float64         `json:"distance"`
