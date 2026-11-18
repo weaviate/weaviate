@@ -13,6 +13,9 @@ package roaringsetrange
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -240,107 +243,118 @@ func TestSegmentInMemoryReader(t *testing.T) {
 	reader := readers[0]
 
 	t.Run("read valid operators", func(t *testing.T) {
-		testCases := []struct {
-			name     string
+		type testCase struct {
 			value    uint64
 			operator filters.Operator
 			expected []uint64
-		}{
-			{
-				name:     "equal 0",
-				value:    0,
-				operator: filters.OperatorEqual,
-				expected: []uint64{10, 20},
-			},
-			{
-				name:     "equal 13",
-				value:    13,
-				operator: filters.OperatorEqual,
-				expected: []uint64{113, 213},
-			},
-			{
-				name:     "equal 8",
-				value:    8,
-				operator: filters.OperatorEqual,
-				expected: []uint64{},
-			},
-			{
-				name:     "not equal 0",
-				value:    0,
-				operator: filters.OperatorNotEqual,
-				expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
-			},
-			{
-				name:     "not equal 13",
-				value:    13,
-				operator: filters.OperatorNotEqual,
-				expected: []uint64{10, 20, 14, 24, 15, 25, 117, 217, 119, 219},
-			},
-			{
-				name:     "not equal 8",
-				value:    8,
-				operator: filters.OperatorNotEqual,
-				expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
-			},
-			{
-				name:     "greater than equal 0",
-				value:    0,
-				operator: filters.OperatorGreaterThanEqual,
-				expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
-			},
-			{
-				name:     "greater than equal 13",
-				value:    13,
-				operator: filters.OperatorGreaterThanEqual,
-				expected: []uint64{113, 213, 117, 217, 119, 219},
-			},
-			{
-				name:     "greater than 0",
-				value:    0,
-				operator: filters.OperatorGreaterThan,
-				expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
-			},
-			{
-				name:     "greater than 13",
-				value:    13,
-				operator: filters.OperatorGreaterThan,
-				expected: []uint64{117, 217, 119, 219},
-			},
-			{
-				name:     "less than equal 0",
-				value:    0,
-				operator: filters.OperatorLessThanEqual,
-				expected: []uint64{10, 20},
-			},
-			{
-				name:     "less than equal 13",
-				value:    13,
-				operator: filters.OperatorLessThanEqual,
-				expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213},
-			},
-			{
-				name:     "less than 0",
-				value:    0,
-				operator: filters.OperatorLessThan,
-				expected: []uint64{},
-			},
-			{
-				name:     "less than 13",
-				value:    13,
-				operator: filters.OperatorLessThan,
-				expected: []uint64{10, 20, 14, 24, 15, 25},
-			},
 		}
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				layer, release, err := reader.Read(context.Background(), tc.value, tc.operator)
-				require.NoError(t, err)
-				defer release()
+		// the segment stores values 0, 4, 5, 13, 17 and 19
+		testCases := []testCase{
+			{value: 0, operator: filters.OperatorEqual, expected: []uint64{10, 20}},
+			{value: 0, operator: filters.OperatorNotEqual, expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 0, operator: filters.OperatorLessThan, expected: []uint64{}},
+			{value: 0, operator: filters.OperatorLessThanEqual, expected: []uint64{10, 20}},
+			{value: 0, operator: filters.OperatorGreaterThan, expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 0, operator: filters.OperatorGreaterThanEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
 
-				assert.ElementsMatch(t, tc.expected, layer.Additions.ToArray())
-				assert.Nil(t, layer.Deletions)
-			})
+			{value: 1, operator: filters.OperatorEqual, expected: []uint64{}},
+			{value: 1, operator: filters.OperatorNotEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 1, operator: filters.OperatorLessThan, expected: []uint64{10, 20}},
+			{value: 1, operator: filters.OperatorLessThanEqual, expected: []uint64{10, 20}},
+			{value: 1, operator: filters.OperatorGreaterThan, expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 1, operator: filters.OperatorGreaterThanEqual, expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+
+			{value: 4, operator: filters.OperatorEqual, expected: []uint64{14, 24}},
+			{value: 4, operator: filters.OperatorNotEqual, expected: []uint64{10, 20, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 4, operator: filters.OperatorLessThan, expected: []uint64{10, 20}},
+			{value: 4, operator: filters.OperatorLessThanEqual, expected: []uint64{10, 20, 14, 24}},
+			{value: 4, operator: filters.OperatorGreaterThan, expected: []uint64{15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 4, operator: filters.OperatorGreaterThanEqual, expected: []uint64{14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+
+			{value: 8, operator: filters.OperatorEqual, expected: []uint64{}},
+			{value: 8, operator: filters.OperatorNotEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: 8, operator: filters.OperatorLessThan, expected: []uint64{10, 20, 14, 24, 15, 25}},
+			{value: 8, operator: filters.OperatorLessThanEqual, expected: []uint64{10, 20, 14, 24, 15, 25}},
+			{value: 8, operator: filters.OperatorGreaterThan, expected: []uint64{113, 213, 117, 217, 119, 219}},
+			{value: 8, operator: filters.OperatorGreaterThanEqual, expected: []uint64{113, 213, 117, 217, 119, 219}},
+
+			{value: 13, operator: filters.OperatorEqual, expected: []uint64{113, 213}},
+			{value: 13, operator: filters.OperatorNotEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 117, 217, 119, 219}},
+			{value: 13, operator: filters.OperatorLessThan, expected: []uint64{10, 20, 14, 24, 15, 25}},
+			{value: 13, operator: filters.OperatorLessThanEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213}},
+			{value: 13, operator: filters.OperatorGreaterThan, expected: []uint64{117, 217, 119, 219}},
+			{value: 13, operator: filters.OperatorGreaterThanEqual, expected: []uint64{113, 213, 117, 217, 119, 219}},
+
+			{value: math.MaxUint64, operator: filters.OperatorEqual, expected: []uint64{}},
+			{value: math.MaxUint64, operator: filters.OperatorNotEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: math.MaxUint64, operator: filters.OperatorLessThan, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: math.MaxUint64, operator: filters.OperatorLessThanEqual, expected: []uint64{10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219}},
+			{value: math.MaxUint64, operator: filters.OperatorGreaterThan, expected: []uint64{}},
+			{value: math.MaxUint64, operator: filters.OperatorGreaterThanEqual, expected: []uint64{}},
+		}
+
+		memMax := NewMemtable(logger)
+		memMax.Insert(0, []uint64{1})
+		memMax.Insert(math.MaxUint64-1, []uint64{2})
+		memMax.Insert(math.MaxUint64, []uint64{3})
+
+		maxCases := []testCase{
+			{value: math.MaxUint64 - 1, operator: filters.OperatorEqual, expected: []uint64{2}},
+			{value: math.MaxUint64 - 1, operator: filters.OperatorNotEqual, expected: []uint64{1, 3}},
+			{value: math.MaxUint64 - 1, operator: filters.OperatorLessThan, expected: []uint64{1}},
+			{value: math.MaxUint64 - 1, operator: filters.OperatorLessThanEqual, expected: []uint64{1, 2}},
+			{value: math.MaxUint64 - 1, operator: filters.OperatorGreaterThan, expected: []uint64{3}},
+			{value: math.MaxUint64 - 1, operator: filters.OperatorGreaterThanEqual, expected: []uint64{2, 3}},
+			{value: math.MaxUint64, operator: filters.OperatorEqual, expected: []uint64{3}},
+			{value: math.MaxUint64, operator: filters.OperatorNotEqual, expected: []uint64{1, 2}},
+			{value: math.MaxUint64, operator: filters.OperatorLessThan, expected: []uint64{1, 2}},
+			{value: math.MaxUint64, operator: filters.OperatorLessThanEqual, expected: []uint64{1, 2, 3}},
+			{value: math.MaxUint64, operator: filters.OperatorGreaterThan, expected: []uint64{}},
+			{value: math.MaxUint64, operator: filters.OperatorGreaterThanEqual, expected: []uint64{3}},
+		}
+
+		var emptyCases []testCase
+		for _, op := range segmentReaderOperators {
+			for _, value := range []uint64{0, 5, math.MaxUint64} {
+				emptyCases = append(emptyCases, testCase{value: value, operator: op})
+			}
+		}
+
+		segments := []struct {
+			name  string
+			seg   *SegmentInMemory
+			cases []testCase
+		}{
+			{name: "stored small values", seg: seg, cases: testCases},
+			{name: "stored max values", seg: newSegmentInMemoryFrom(t, memMax), cases: maxCases},
+			{name: "empty", seg: NewSegmentInMemory(logger), cases: emptyCases},
+		}
+
+		// the ranged pool hands out spare capacity and dirty buffers, the noop pool neither
+		pools := map[string]roaringset.BitmapBufPool{
+			"noop":   roaringset.NewBitmapBufPoolNoop(),
+			"ranged": newRangedBufPool(t),
+		}
+
+		for _, s := range segments {
+			for poolName, pool := range pools {
+				readers, releaseReaders := s.seg.Readers(pool)
+				for _, tc := range s.cases {
+					t.Run(fmt.Sprintf("%s, %s pool, %s %d", s.name, poolName, tc.operator.Name(), tc.value), func(t *testing.T) {
+						layer, release, err := readers[0].Read(context.Background(), tc.value, tc.operator)
+						require.NoError(t, err)
+						defer release()
+
+						assert.ElementsMatch(t, tc.expected, layer.Additions.ToArray())
+						assert.Nil(t, layer.Deletions)
+						// CombinedReader merges into a read's result in place, so zeroing it
+						// fails every later case if a read returned a segment bitmap
+						layer.Additions.AndConc(sroar.NewBitmap(), 1)
+					})
+				}
+				releaseReaders()
+			}
 		}
 	})
 
@@ -419,102 +433,127 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 
 	waitUntilMemtablesMerged(t, seg)
 
-	bufPool := roaringset.NewBitmapBufPoolTrackingForTests()
-	readers, release := seg.Readers(bufPool)
-	defer release()
+	// copies is how many pooled bitmaps a read builds, held how many its result keeps
+	testCases := []struct {
+		value    uint64
+		operator filters.Operator
+		copies   int64
+		held     int64
+	}{
+		{value: 0, operator: filters.OperatorEqual, copies: 1, held: 1},
+		{value: 13, operator: filters.OperatorEqual, copies: 1, held: 1},
+		{value: 8, operator: filters.OperatorEqual, copies: 1, held: 1},
+		{value: math.MaxUint64, operator: filters.OperatorEqual, copies: 1, held: 1},
+		{value: 0, operator: filters.OperatorNotEqual, copies: 2, held: 1},
+		{value: 13, operator: filters.OperatorNotEqual, copies: 2, held: 1},
+		{value: 8, operator: filters.OperatorNotEqual, copies: 2, held: 1},
+		{value: math.MaxUint64, operator: filters.OperatorNotEqual, copies: 2, held: 1},
+		{value: 0, operator: filters.OperatorGreaterThanEqual, copies: 1, held: 1},
+		{value: 13, operator: filters.OperatorGreaterThanEqual, copies: 1, held: 1},
+		{value: math.MaxUint64, operator: filters.OperatorGreaterThanEqual, copies: 1, held: 1},
+		{value: 0, operator: filters.OperatorGreaterThan, copies: 2, held: 1},
+		{value: 13, operator: filters.OperatorGreaterThan, copies: 1, held: 1},
+		{value: math.MaxUint64, operator: filters.OperatorGreaterThan, copies: 0, held: 0},
+		{value: 0, operator: filters.OperatorLessThanEqual, copies: 1, held: 1},
+		{value: 13, operator: filters.OperatorLessThanEqual, copies: 2, held: 1},
+		{value: math.MaxUint64, operator: filters.OperatorLessThanEqual, copies: 1, held: 1},
+		{value: 0, operator: filters.OperatorLessThan, copies: 0, held: 0},
+		{value: 13, operator: filters.OperatorLessThan, copies: 2, held: 1},
+		{value: math.MaxUint64, operator: filters.OperatorLessThan, copies: 2, held: 1},
+	}
 
-	require.Len(t, readers, 1)
-	reader := readers[0]
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%s %d", tc.operator.Name(), tc.value), func(t *testing.T) {
+			bufPool := roaringset.NewBitmapBufPoolTrackingForTests()
+			readers, releaseReaders := seg.Readers(bufPool)
+			defer releaseReaders()
+			require.Len(t, readers, 1)
 
-	t.Run("all but one bufs are returned to the pull on read", func(t *testing.T) {
-		testCases := []struct {
-			name     string
-			value    uint64
-			operator filters.Operator
-		}{
-			{
-				name:     "equal 0",
-				value:    0,
-				operator: filters.OperatorEqual,
-			},
-			{
-				name:     "equal 13",
-				value:    13,
-				operator: filters.OperatorEqual,
-			},
-			{
-				name:     "equal 8",
-				value:    8,
-				operator: filters.OperatorEqual,
-			},
-			{
-				name:     "not equal 0",
-				value:    0,
-				operator: filters.OperatorNotEqual,
-			},
-			{
-				name:     "not equal 13",
-				value:    13,
-				operator: filters.OperatorNotEqual,
-			},
-			{
-				name:     "not equal 8",
-				value:    8,
-				operator: filters.OperatorNotEqual,
-			},
-			{
-				name:     "greater than equal 0",
-				value:    0,
-				operator: filters.OperatorGreaterThanEqual,
-			},
-			{
-				name:     "greater than equal 13",
-				value:    13,
-				operator: filters.OperatorGreaterThanEqual,
-			},
-			{
-				name:     "greater than 0",
-				value:    0,
-				operator: filters.OperatorGreaterThan,
-			},
-			{
-				name:     "greater than 13",
-				value:    13,
-				operator: filters.OperatorGreaterThan,
-			},
-			{
-				name:     "less than equal 0",
-				value:    0,
-				operator: filters.OperatorLessThanEqual,
-			},
-			{
-				name:     "less than equal 13",
-				value:    13,
-				operator: filters.OperatorLessThanEqual,
-			},
-			{
-				name:     "less than 0",
-				value:    0,
-				operator: filters.OperatorLessThan,
-			},
-			{
-				name:     "less than 13",
-				value:    13,
-				operator: filters.OperatorLessThan,
-			},
+			_, release, err := readers[0].Read(context.Background(), tc.value, tc.operator)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.held, bufPool.Outstanding(), "a scratch bitmap was not released")
+			release()
+			assert.Zero(t, bufPool.Outstanding())
+			assert.Equal(t, tc.copies, bufPool.PeakOutstanding())
+		})
+	}
+}
+
+// Pins a read's result taking memtable rows at new keys and in its containers'
+// tails without moving its keys node or growing its buffer.
+func TestSegmentInMemoryReaderResultHeadroom(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const docsPerKey = 100
+
+	mem := NewMemtable(logger)
+	for key := uint64(0); key < 4; key++ {
+		for i := uint64(0); i < docsPerKey; i++ {
+			value := i % 20
+			if value == 19 {
+				value = math.MaxUint64
+			}
+			mem.Insert(value, []uint64{key<<16 + i})
 		}
+	}
+	seg := newSegmentInMemoryFrom(t, mem)
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				_, release, err := reader.Read(context.Background(), tc.value, tc.operator)
-				require.NoError(t, err)
-
-				assert.GreaterOrEqual(t, int64(1), bufPool.Outstanding())
-				release()
-				assert.Zero(t, bufPool.Outstanding())
-			})
+	// every operator below matches one of these values
+	values := []uint64{0, 13, math.MaxUint64}
+	active := NewMemtable(logger)
+	for i, value := range values {
+		for _, docID := range []uint64{20 << 16, 30 << 16, docsPerKey, 3<<16 + docsPerKey} {
+			active.Insert(value, []uint64{docID + uint64(i)})
 		}
-	})
+	}
+
+	// covers each site that builds a returned result, and each route into one
+	testCases := []struct {
+		value    uint64
+		operator filters.Operator
+	}{
+		{value: 13, operator: filters.OperatorEqual},
+		{value: math.MaxUint64, operator: filters.OperatorEqual},
+		{value: 13, operator: filters.OperatorNotEqual},
+		{value: math.MaxUint64, operator: filters.OperatorNotEqual},
+		{value: 13, operator: filters.OperatorLessThan},
+		{value: 13, operator: filters.OperatorLessThanEqual},
+		{value: 0, operator: filters.OperatorLessThanEqual},
+		{value: math.MaxUint64, operator: filters.OperatorLessThanEqual},
+		{value: 13, operator: filters.OperatorGreaterThan},
+		{value: 0, operator: filters.OperatorGreaterThan},
+		{value: 13, operator: filters.OperatorGreaterThanEqual},
+		{value: 0, operator: filters.OperatorGreaterThanEqual},
+	}
+
+	bufPool := newRangedBufPool(t)
+	ctx := context.Background()
+	keysNodeSize := func(bm *sroar.Bitmap) uint64 { return binary.LittleEndian.Uint64(bm.ToBuffer()) }
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%s %d", tc.operator.Name(), tc.value), func(t *testing.T) {
+			readers, releaseReaders := seg.Readers(bufPool)
+			defer releaseReaders()
+			require.Len(t, readers, 1)
+
+			alone, releaseAlone, err := readers[0].Read(ctx, tc.value, tc.operator)
+			require.NoError(t, err)
+			defer releaseAlone()
+
+			memLayer, _, err := NewMemtableReader(active).Read(ctx, tc.value, tc.operator)
+			require.NoError(t, err)
+			require.False(t, memLayer.Additions.IsEmpty(), "memtable must add rows or the case tests nothing")
+
+			combined := NewCombinedReader([]InnerReader{readers[0], NewMemtableReader(active)}, noopRelease, 1, logger)
+			bm, release, err := combined.Read(ctx, tc.value, tc.operator)
+			require.NoError(t, err)
+			defer release()
+
+			assert.Subset(t, bm.ToArray(), memLayer.Additions.ToArray())
+			assert.Equal(t, alone.Additions.CapInBytes(), bm.CapInBytes(), "result buffer grew")
+			assert.Equal(t, keysNodeSize(alone.Additions), keysNodeSize(bm), "result keys node moved")
+		})
+	}
 }
 
 // Pins weaviate/weaviate#12199: folding segments out of order (newest before
@@ -574,6 +613,45 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 		assert.Equal(t, []uint64{docX}, equalDocIDs(t, seg, valOld))
 		assert.NotContains(t, equalDocIDs(t, seg, valNew), docX)
 	})
+}
+
+func BenchmarkSegmentInMemoryReader(b *testing.B) {
+	bufPool := newRangedBufPool(b)
+	ctx := context.Background()
+	for _, data := range newRangeBenchData(b) {
+		readers, releaseReaders := newSegmentInMemoryFrom(b, data.mem).Readers(bufPool)
+		for _, val := range data.values {
+			for _, op := range segmentReaderOperators {
+				b.Run(fmt.Sprintf("%s/%s/%s", data.name, val.name, op.Name()), func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						_, release, err := readers[0].Read(ctx, val.value, op)
+						if err != nil {
+							b.Fatal(err)
+						}
+						release()
+					}
+				})
+			}
+		}
+		releaseReaders()
+	}
+}
+
+func newSegmentInMemoryFrom(tb testing.TB, mem *Memtable) *SegmentInMemory {
+	tb.Helper()
+	logger, _ := test.NewNullLogger()
+	seg := NewSegmentInMemory(logger)
+	require.NoError(tb, seg.MergeSegmentByCursor(newFakeSegmentCursor(mem)))
+	return seg
+}
+
+// newRangedBufPool returns the production pool, whose buckets round sizes up.
+func newRangedBufPool(tb testing.TB) roaringset.BitmapBufPool {
+	logger, _ := test.NewNullLogger()
+	pool, closePool := roaringset.NewBitmapBufPoolDefault(logger, nil, 0, 0)
+	tb.Cleanup(closePool)
+	return pool
 }
 
 func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[int][]uint64) {
