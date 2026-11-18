@@ -1595,14 +1595,14 @@ func FromEnv(config *Config) error {
 	}
 	config.QuerySlowLogThreshold = configRuntime.NewDynamicValue(querySlowLogThreshold)
 
-	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
-	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
+	envName := queryBitmapBufsMaxMemoryEnv
 	if v := os.Getenv(envName); v != "" {
 		bytes, err := parseResourceString(v)
 		if err != nil {
 			return fmt.Errorf("%s: %w", envName, err)
 		}
-		config.QueryBitmapBufsMaxMemory = int(bytes)
+		budget := int(bytes)
+		config.QueryBitmapBufsMaxMemory = &budget
 	}
 
 	envName = "QUERY_BITMAP_BUFS_MAX_BUF_SIZE"
@@ -2063,8 +2063,34 @@ const (
 	DefaultQueryCrossReferenceDepthLimit = 5
 
 	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
-	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB of idle buffers kept across all pooled sizes above 1MB
+
+	// QueryBitmapBufsMaxMemoryMemLimitPercent sizes an unset QueryBitmapBufsMaxMemory
+	// as this share of GOMEMLIMIT, kept between the floor and the cap.
+	QueryBitmapBufsMaxMemoryMemLimitPercent = 1
+	QueryBitmapBufsMaxMemoryFloor           = 1 << 27 // 128MB of idle buffers kept across all pooled sizes above 1MB
+	QueryBitmapBufsMaxMemoryCap             = 1 << 30 // 1GB
+
+	queryBitmapBufsMaxMemoryEnv = "QUERY_BITMAP_BUFS_MAX_MEMORY"
 )
+
+// QueryBitmapBufsIdleBudget returns the bitmap buffer pool's idle budget and
+// its source, which is "configured" for a set value, else "derived", "floor" or "cap".
+func QueryBitmapBufsIdleBudget(configured *int, memLimit int64) (budget int, source string) {
+	if configured != nil {
+		return *configured, "configured"
+	}
+	if memLimit == math.MaxInt64 {
+		return QueryBitmapBufsMaxMemoryFloor, "floor"
+	}
+	derived := memLimit / 100 * QueryBitmapBufsMaxMemoryMemLimitPercent
+	if derived < QueryBitmapBufsMaxMemoryFloor {
+		return QueryBitmapBufsMaxMemoryFloor, "floor"
+	}
+	if derived > QueryBitmapBufsMaxMemoryCap {
+		return QueryBitmapBufsMaxMemoryCap, "cap"
+	}
+	return int(derived), "derived"
+}
 
 const (
 	DefaultPersistenceMemtablesFlushDirtyAfter = 60

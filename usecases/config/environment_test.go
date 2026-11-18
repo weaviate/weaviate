@@ -475,6 +475,103 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 	}
 }
 
+func intPtr(v int) *int { return &v }
+
+func TestEnvironmentQueryBitmapBufsMaxMemory(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected *int
+	}{
+		{"unset leaves nil for the budget to derive", "", nil},
+		{"zero is kept to turn the tier off", "0", intPtr(0)},
+		{"set is parsed", "256MiB", intPtr(256 << 20)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(queryBitmapBufsMaxMemoryEnv, tt.value)
+
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			assert.Equal(t, tt.expected, conf.QueryBitmapBufsMaxMemory)
+		})
+	}
+}
+
+func TestConfigFileQueryBitmapBufsMaxMemorySurvivesFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileName string
+		content  string
+		env      string
+		expected *int
+		errMsg   string
+	}{
+		{name: "yaml missing key", fileName: "c.yaml", content: "query_bitmap_bufs_max_buf_size: 1\n"},
+		{name: "yaml zero", fileName: "c.yaml", content: "query_bitmap_bufs_max_memory: 0\n", expected: intPtr(0)},
+		{name: "json zero", fileName: "c.json", content: `{"query_bitmap_bufs_max_memory": 0}`, expected: intPtr(0)},
+		{
+			name: "env overrides the file", fileName: "c.yaml", content: "query_bitmap_bufs_max_memory: 0\n",
+			env: "256MiB", expected: intPtr(256 << 20),
+		},
+		{
+			name: "negative is refused", fileName: "c.yaml", content: "query_bitmap_bufs_max_memory: -1\n",
+			expected: intPtr(-1), errMsg: "QUERY_BITMAP_BUFS_MAX_MEMORY must be an integer greater than or equal 0. Got -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(queryBitmapBufsMaxMemoryEnv, tt.env)
+
+			conf, err := (&WeaviateConfig{}).parseConfigFile([]byte(tt.content), tt.fileName)
+			require.NoError(t, err)
+			require.NoError(t, FromEnv(&conf))
+			assert.Equal(t, tt.expected, conf.QueryBitmapBufsMaxMemory)
+
+			err = conf.validateQueryBitmapBufsMaxMemory()
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestQueryBitmapBufsIdleBudget(t *testing.T) {
+	const (
+		mib = int64(1) << 20
+		gib = int64(1) << 30
+	)
+	tests := []struct {
+		name           string
+		configured     *int
+		memLimit       int64
+		expectedBudget int
+		expectedSource string
+	}{
+		{"configured zero turns the tier off", intPtr(0), 100 * gib, 0, "configured"},
+		{"configured below the floor", intPtr(1 << 20), 100 * gib, 1 << 20, "configured"},
+		{"configured above the cap", intPtr(2 << 30), 100 * gib, 2 << 30, "configured"},
+		{"no soft limit", nil, math.MaxInt64, 1 << 27, "floor"},
+		{"share below the floor", nil, 4 * gib, 1 << 27, "floor"},
+		{"share exactly the floor", nil, 12800 * mib, 1 << 27, "derived"},
+		{"share between floor and cap", nil, 50 * gib, 512 << 20, "derived"},
+		{"share exactly the cap", nil, 100 * gib, 1 << 30, "derived"},
+		{"share above the cap", nil, 400 * gib, 1 << 30, "cap"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			budget, source := QueryBitmapBufsIdleBudget(tt.configured, tt.memLimit)
+			assert.Equal(t, tt.expectedBudget, budget)
+			assert.Equal(t, tt.expectedSource, source)
+		})
+	}
+}
+
 func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
 	tests := []struct {
 		name        string
