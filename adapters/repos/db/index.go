@@ -416,9 +416,7 @@ func (i *Index) debugLoggingEnabled() bool {
 // the shards that are local to a node
 // NewIndex builds an index and every shard it owns. db is the owning DB, wired
 // in here rather than by the caller because the shards built below read state
-// off it while they come up (e.g. the resource-pressure read-only flag, see
-// [Shard.inheritResourcePressureReadOnly]) - assigning it after this returns
-// would leave those reads racing the assignment.
+// off it while they come up ([Shard.NotifyReady]); assigning it after this returns races those reads.
 func NewIndex(
 	ctx context.Context,
 	db *DB,
@@ -1856,6 +1854,9 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
+	if err := i.refuseUserReadOnly(targetShard.Shard); err != nil {
+		return err
+	}
 	if i.shardHasMultipleReplicasWrite(tenantName, targetShard.Shard) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, targetShard.Shard, object, cl, schemaVersion); err != nil {
@@ -2492,7 +2493,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			// Therefore, we can safely use the tenant from any object in the group.
 			tenantName := group.objects[0].Object.Tenant
 			var errs []error
-			if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
+			if err := i.refuseUserReadOnly(shardName); err != nil {
+				errs = duplicateErr(err, len(group.objects))
+			} else if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
@@ -2612,7 +2615,9 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		// Therefore, we can safely use the tenant from any reference in the group.
 		tenantName := group.refs[0].Tenant
 		var errs []error
-		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
+		if err := i.refuseUserReadOnly(shardName); err != nil {
+			errs = duplicateErr(err, len(group.refs))
+		} else if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			err := i.withShardOrRemote(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion,
@@ -3549,6 +3554,9 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		}
 	}
 
+	if err := i.refuseUserReadOnly(shardName); err != nil {
+		return err
+	}
 	if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
@@ -3975,6 +3983,9 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 // owns the pin lifetime, so a caller cannot leak one and leave inUseCounter
 // non-zero, blocking the shard from unloading.
 func (i *Index) withShardForWrite(ctx context.Context, shardName string, f func(shard shardWriter) error) error {
+	if err := i.refuseUserReadOnly(shardName); err != nil {
+		return err
+	}
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	defer release()
 	if err != nil {
@@ -4115,6 +4126,9 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		}
 	}
 
+	if err := i.refuseUserReadOnly(shardName); err != nil {
+		return err
+	}
 	if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
@@ -4895,7 +4909,7 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 		return "", err
 	}
 	if cold {
-		return storagestate.StatusLazyLoading.String(), nil
+		return i.reportedStatus(shardName, storagestate.StatusLazyLoading), nil
 	}
 	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
 	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
@@ -4907,7 +4921,7 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 	if shard == nil {
 		return "", nil
 	}
-	return shard.GetStatus().String(), nil
+	return i.reportedStatus(shardName, shard.GetStatus()), nil
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
@@ -4917,7 +4931,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	}
 	defer release()
 	if cold {
-		return storagestate.StatusLazyLoading.String(), nil
+		return i.reportedStatus(shardName, storagestate.StatusLazyLoading), nil
 	}
 
 	if shard == nil {
@@ -4927,32 +4941,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	if err := i.ensureShardLocallyReady(shard); err != nil {
 		return "", err
 	}
-	return shard.GetStatus().String(), nil
-}
-
-func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
-	isOwner := false
-	if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
-		if state != nil {
-			isOwner = state.IsLocalShard(shardName)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if !isOwner {
-		return nil
-	}
-
-	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
-		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
-	})
-}
-
-func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
-		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
-	})
+	return i.reportedStatus(shardName, shard.GetStatus()), nil
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
@@ -5060,7 +5049,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
-			if i.shardHasMultipleReplicasWrite(tenant, shardName) {
+			if err := i.refuseUserReadOnly(shardName); err != nil {
+				objs = objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+			} else if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {

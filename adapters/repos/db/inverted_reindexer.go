@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -104,6 +103,20 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		return err
 	}
 
+	held := true
+	defer func() {
+		if !held {
+			return
+		}
+		// Otherwise the shard refuses writes until a restart.
+		logger := r.logger.WithField("action", "inverted_reindex").WithField("shard", r.shard.Name())
+		if err := r.shard.Store().ResumeCompaction(context.Background()); err != nil {
+			logger.Errorf("resume compaction after a failed reindex: %v", err)
+		}
+		if err := r.shard.setReindexing(false); err != nil {
+			logger.Errorf("release the store after a failed reindex: %v", err)
+		}
+	}()
 	if err := r.pauseStoreActivity(ctx); err != nil {
 		r.logError(err, "failed pausing store activity")
 		return err
@@ -145,23 +158,28 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 	}
 
 	for i := range bucketsToReindex {
-		if err := r.checkContextExpired(ctx, "replacing buckets stopped due to context canceled"); err != nil {
-			return err
-		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
 		tempBucket, releaseTempBucket := r.shard.Store().AcquireBucketForRead(tempBucketName)
 		if tempBucket == nil {
 			return fmt.Errorf("temp bucket %q: %w", tempBucketName, lsmkv.ErrBucketNotFound)
 		}
 		tempBucket.FlushMemtable()
-		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 		// released before the rename/replace below: both take
 		// bucketAccessLock for write, and the store's order is
 		// bucketAccessLock OUTER -> lifetimeLock INNER. Holding the pin
 		// across them inverts it, which is exactly what the teardown
 		// invariant on AcquireBucketForRead exists to rule out.
 		releaseTempBucket()
+	}
+	if err := r.shard.setReindexSwapping(); err != nil {
+		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", r.shard.ID())
+	}
 
+	for i := range bucketsToReindex {
+		if err := r.checkContextExpired(ctx, "replacing buckets stopped due to context canceled"); err != nil {
+			return err
+		}
+		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
 		if reindexProperties[i].NewIndex {
 			if err := r.shard.Store().RenameBucket(ctx, tempBucketName, bucketsToReindex[i]); err != nil {
 				r.logError(err, "failed renaming buckets")
@@ -193,6 +211,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		return err
 	}
 
+	held = false
 	if err := r.resumeStoreActivity(ctx, task); err != nil {
 		r.logError(err, "failed resuming store activity")
 		return err
@@ -208,7 +227,7 @@ func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
 	if err := r.shard.Store().FlushMemtables(ctx); err != nil {
 		return errors.Wrapf(err, "failed flushing memtables for shard '%s'", r.shard.Name())
 	}
-	if err := r.shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly); err != nil {
+	if err := r.shard.setReindexing(true); err != nil {
 		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", r.shard.ID())
 	}
 
@@ -224,7 +243,7 @@ func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context, task S
 	if err := r.shard.Store().ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.Name())
 	}
-	if err := r.shard.Store().UpdateBucketsStatus(storagestate.StatusReady); err != nil {
+	if err := r.shard.setReindexing(false); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.ID())
 	}
 	if err := task.OnPostResumeStore(ctx, r.shard); err != nil {

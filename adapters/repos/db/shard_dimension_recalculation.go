@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -114,7 +115,7 @@ func (i *Index) openUnloadedShard(ctx context.Context, class *models.Class, name
 		index:         i,
 		class:         class,
 		name:          name,
-		status:        ShardStatus{Status: storagestate.StatusReady},
+		phase:         clusterschema.NewShardPhase(storagestate.StatusReady),
 		bitmapBufPool: i.bitmapBufPool,
 	}
 	// the options of a MapCollection bucket depend on the shard version
