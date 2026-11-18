@@ -27,6 +27,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -42,6 +44,9 @@ import (
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
+
+// bulkTransferCompression gzips the file and change-log streams; the source mirrors the request's compressor on its responses.
+var bulkTransferCompression = grpc.UseCompressor(gzip.Name)
 
 type FileReplicationServiceClient protocol.FileReplicationServiceClient
 
@@ -346,7 +351,7 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			IndexName: meta.IndexName,
 			OpId:      string(opID),
 			FileName:  meta.FileName,
-		})
+		}, bulkTransferCompression)
 		if err != nil {
 			return fmt.Errorf("failed to send GetFile request for %s: %w", meta.FileName, err)
 		}

@@ -62,7 +62,7 @@ func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardNa
 		ShardName: shardName,
 		OpId:      opID,
 		UntilLsn:  untilLSN,
-	})
+	}, bulkTransferCompression)
 	if err != nil {
 		return 0, fmt.Errorf("open change-log stream on %s: %w", srcNodeId, err)
 	}

@@ -105,6 +105,7 @@ func TestCopyReplicaFiles(t *testing.T) {
 				OpId:      string(opID),
 				FileName:  f.rel,
 			},
+			mock.Anything,
 		).Return(stream, nil)
 	}
 

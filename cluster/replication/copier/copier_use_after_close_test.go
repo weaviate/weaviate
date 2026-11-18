@@ -74,7 +74,7 @@ func TestDownloadWorkerStreamErrorDoesNotUseClosedFD(t *testing.T) {
 	}, nil).Once()
 	stream.EXPECT().Recv().Return(nil, status.Error(codes.Unavailable, "injected mid-stream error")).Once()
 
-	mockClient.EXPECT().GetReplicaSnapshotFile(mock.Anything, mock.Anything).Return(stream, nil)
+	mockClient.EXPECT().GetReplicaSnapshotFile(mock.Anything, mock.Anything, mock.Anything).Return(stream, nil)
 
 	fakeSelector := fakes.NewFakeClusterState("node1")
 	logger, _ := logrusTest.NewNullLogger()
