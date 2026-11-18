@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/bits"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -225,23 +226,25 @@ func (r *segmentInMemoryReader) Read(ctx context.Context, value uint64, operator
 }
 
 func (r *segmentInMemoryReader) readEqual(value uint64, conc int) (roaringset.BitmapLayer, func()) {
-	// max reads faster as GreaterThanEqual, and 0 through mergeEqual (BenchmarkSegmentInMemoryReader).
-	if value == math.MaxUint64 {
-		return r.readGreaterThanEqual(value, conc)
+	var eq *sroar.Bitmap
+	var eqRelease func()
+	if value == 0 {
+		eq, eqRelease = r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+	} else {
+		eq, eqRelease = r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], 0)
 	}
-
-	eq, eqRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
 	r.mergeEqual(value, eq, conc)
 	return roaringset.BitmapLayer{Additions: eq}, eqRelease
 }
 
 func (r *segmentInMemoryReader) readNotEqual(value uint64, conc int) (roaringset.BitmapLayer, func()) {
-	// max reads faster as LessThan, and 0 through mergeEqual (BenchmarkSegmentInMemoryReader).
-	if value == math.MaxUint64 {
-		return r.readLessThan(value, conc)
+	var eq *sroar.Bitmap
+	var eqRelease func()
+	if value == 0 {
+		eq, eqRelease = r.bufPool.Clone(r.bitmaps[0])
+	} else {
+		eq, eqRelease = r.bufPool.ZeroedLayout(r.bitmaps[0])
 	}
-
-	eq, eqRelease := r.bufPool.Clone(r.bitmaps[0])
 	defer eqRelease()
 	r.mergeEqual(value, eq, conc)
 
@@ -305,29 +308,35 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 }
 
 // mergeGreaterThanEqual fills result, an empty bitmap laid out like layer 0,
-// with layer 0's rows whose value is >= value. value must be above 0.
+// with layer 0's rows whose value is >= value. value must be above 0, or the
+// lowest set bit indexes past the layers and it panics.
 func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, result *sroar.Bitmap, conc int) {
-	merged := false
-	for bit := 1; bit < len(r.bitmaps); bit++ {
-		bitSet := value&(1<<(bit-1)) != 0
-		switch {
-		case bitSet && !merged:
-			// every layer is a subset of layer 0, so ORing it into the empty
-			// result equals ANDing layer 0 with it
-			result.OrConc(r.bitmaps[bit], conc)
-			merged = true
-		case bitSet:
+	// every layer is a subset of layer 0, so ORing one into the empty result
+	// equals ANDing layer 0 with it
+	first := bits.TrailingZeros64(value) + 1
+	result.OrConc(r.bitmaps[first], conc)
+	for bit := first + 1; bit < len(r.bitmaps); bit++ {
+		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
-		case merged:
+		} else {
 			result.OrConc(r.bitmaps[bit], conc)
 		}
 	}
 }
 
-// mergeEqual keeps the rows of result that are in every layer of value's set
-// bits and in no layer of its unset bits.
+// mergeEqual keeps layer 0's rows that are in every layer of value's set bits
+// and in no layer of its unset bits. result holds a copy of layer 0 for value 0,
+// and an empty bitmap laid out like layer 0 otherwise.
 func (r *segmentInMemoryReader) mergeEqual(value uint64, result *sroar.Bitmap, conc int) {
+	first := 0
+	if value != 0 {
+		first = bits.TrailingZeros64(value) + 1
+		result.OrConc(r.bitmaps[first], conc)
+	}
 	for bit := 1; bit < len(r.bitmaps); bit++ {
+		if bit == first {
+			continue
+		}
 		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
 		} else {

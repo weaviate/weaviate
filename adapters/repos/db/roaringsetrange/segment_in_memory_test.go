@@ -314,6 +314,20 @@ func TestSegmentInMemoryReader(t *testing.T) {
 			{value: math.MaxUint64, operator: filters.OperatorGreaterThanEqual, expected: []uint64{3}},
 		}
 
+		// ints encode 0 as 1<<63, so a value's lowest set bit can sit above bit 31
+		memHigh := NewMemtable(logger)
+		memHigh.Insert(0, []uint64{1})
+		memHigh.Insert(1<<62, []uint64{2})
+		memHigh.Insert(1<<63, []uint64{3})
+
+		highCases := []testCase{
+			{value: 1 << 63, operator: filters.OperatorEqual, expected: []uint64{3}},
+			{value: 1 << 63, operator: filters.OperatorNotEqual, expected: []uint64{1, 2}},
+			{value: 1 << 63, operator: filters.OperatorLessThan, expected: []uint64{1, 2}},
+			{value: 1 << 63, operator: filters.OperatorGreaterThanEqual, expected: []uint64{3}},
+			{value: 1 << 62, operator: filters.OperatorGreaterThanEqual, expected: []uint64{2, 3}},
+		}
+
 		var emptyCases []testCase
 		for _, op := range segmentReaderOperators {
 			for _, value := range []uint64{0, 5, math.MaxUint64} {
@@ -328,6 +342,7 @@ func TestSegmentInMemoryReader(t *testing.T) {
 		}{
 			{name: "stored small values", seg: seg, cases: testCases},
 			{name: "stored max values", seg: newSegmentInMemoryFrom(t, memMax), cases: maxCases},
+			{name: "stored values with high lowest bits", seg: newSegmentInMemoryFrom(t, memHigh), cases: highCases},
 			{name: "empty", seg: NewSegmentInMemory(logger), cases: emptyCases},
 		}
 
