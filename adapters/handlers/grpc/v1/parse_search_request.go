@@ -47,6 +47,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type generativeParser interface {
@@ -480,7 +482,7 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, maxEF int64) (*searchp
 	}
 	ef := in.GetEf()
 	if int64(ef) > maxEF {
-		return nil, fmt.Errorf("vector_search_params.ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", ef, maxEF)
+		return nil, status.Errorf(codes.InvalidArgument, "vector_search_params.ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", ef, maxEF)
 	}
 	return &searchparams.VectorSearchParams{EF: int(ef)}, nil
 }

@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -69,7 +71,7 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 		{
 			name:    "ef above cap",
 			req:     &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorSearchParams: vsp(10001)},
-			wantErr: "HNSW_MAX_SEARCH_EF",
+			wantErr: "vector_search_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
 			// No vector search runs, so the value is harmless; gRPC has no
@@ -89,6 +91,7 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 			out, err := parser.Search(tt.req, cfg)
 			if tt.wantErr != "" {
 				require.Error(t, err)
+				require.Equal(t, codes.InvalidArgument, status.Code(err))
 				require.Contains(t, err.Error(), tt.wantErr)
 				return
 			}
