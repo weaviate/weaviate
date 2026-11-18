@@ -313,6 +313,11 @@ type postingSearch struct {
 	stop      *topK
 	margin    float32 // source margin, 0 for none
 	stats     *SearchStats
+	// scoreEndpoints, when set, estimates the distance to the endpoints of
+	// the posting being visited in place of the sidecar: the given slots,
+	// into dists. A layout that keeps the codes of the endpoints with the
+	// posting sets it; the index never does.
+	scoreEndpoints func(post *posting, slots []uint32, dists []float32) error
 }
 
 // newPostingSearch prepares the search of one query. With codes of their own
@@ -346,11 +351,20 @@ func (s *postingSearch) sourceCut() float32 {
 	return s.stop.worst() + s.margin
 }
 
-// load scans a posting into the candidate set and ranks the postings its
-// edges lead to. The posting must already be marked as loaded.
+// load fetches a posting from the store of the index and visits it. The
+// posting must already be marked as loaded.
 func (s *postingSearch) load(p uint32) error {
-	sc := s.sc
 	post := s.st.postings.load(p)
+	return s.visit(p, &post)
+}
+
+// visit scans a fetched posting into the candidate set and ranks the postings
+// its edges lead to. It reads nothing but the posting it is given, the
+// sidecar and the posting map, so a posting fetched from anywhere else is
+// visited like one of the store. The posting must already be marked as
+// loaded.
+func (s *postingSearch) visit(p uint32, post *posting) error {
+	sc := s.sc
 	words := s.st.postings.codeWords
 
 	var clock time.Time
@@ -405,22 +419,26 @@ func (s *postingSearch) load(p uint32) error {
 		}
 		if tr := s.stats.trace; tr != nil {
 			tr.picked(sc, p)
-			tr.predict(sc, side.postingOf, &post, cut)
+			tr.predict(sc, side.postingOf, post, cut)
 		}
 		if hook := s.stats.loadHook; hook != nil {
-			hook(sc, &post, cut)
+			hook(sc, post, cut)
 		}
 		clock = time.Now()
 	}
 
-	sc.collectEndpoints(side.postingOf, &post, cut)
+	sc.collectEndpoints(side.postingOf, post, cut)
 
 	// Scored as one batch, then folded into the ranks of their postings.
 	if cap(sc.unscoredDist) < len(sc.unscored) {
 		sc.unscoredDist = make([]float32, len(sc.unscored))
 	}
 	dists := sc.unscoredDist[:len(sc.unscored)]
-	if err := side.score(s.estimator, sc.unscored, dists); err != nil {
+	if s.scoreEndpoints != nil {
+		if err := s.scoreEndpoints(post, sc.unscored, dists); err != nil {
+			return err
+		}
+	} else if err := side.score(s.estimator, sc.unscored, dists); err != nil {
 		return err
 	}
 	sc.rankPostings(side.postingOf, dists)
