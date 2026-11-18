@@ -106,9 +106,7 @@ func (r *SegmentReader) firstLayer() (roaringset.BitmapLayer, bool) {
 
 func (r *SegmentReader) readEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
-	if value == 0 {
-		return r.readLessThanEqual(ctx, value, conc)
-	}
+	// max reads faster as GreaterThanEqual, and 0 through mergeEqual (BenchmarkSegmentReader).
 	if value == math.MaxUint64 {
 		return r.readGreaterThanEqual(ctx, value, conc)
 	}
@@ -118,9 +116,7 @@ func (r *SegmentReader) readEqual(ctx context.Context, value uint64, conc int,
 		return firstLayer, nil
 	}
 
-	startMin := firstLayer.Additions.ZeroedLayout()
-	startMax := firstLayer.Additions.ZeroedLayout()
-	eq, err := r.mergeBetween(ctx, value, value+1, startMin, startMax, conc)
+	eq, err := r.mergeEqual(ctx, value, firstLayer.Additions.Clone(), conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -133,9 +129,7 @@ func (r *SegmentReader) readEqual(ctx context.Context, value uint64, conc int,
 
 func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
-	if value == 0 {
-		return r.readGreaterThan(ctx, value, conc)
-	}
+	// max reads faster as LessThan, and 0 through mergeEqual (BenchmarkSegmentReader).
 	if value == math.MaxUint64 {
 		return r.readLessThan(ctx, value, conc)
 	}
@@ -146,9 +140,7 @@ func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64, conc int
 	}
 
 	neq := firstLayer.Additions.Clone()
-	startMin := firstLayer.Additions.ZeroedLayout()
-	startMax := firstLayer.Additions.ZeroedLayout()
-	eq, err := r.mergeBetween(ctx, value, value+1, startMin, startMax, conc)
+	eq, err := r.mergeEqual(ctx, value, firstLayer.Additions.Clone(), conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -190,6 +182,11 @@ func (r *SegmentReader) readLessThan(ctx context.Context, value uint64, conc int
 
 func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
+	// <= 0 is Equal 0, which reads faster through mergeEqual (BenchmarkSegmentReader).
+	if value == 0 {
+		return r.readEqual(ctx, value, conc)
+	}
+
 	firstLayer, ok := r.firstLayer()
 	if !ok {
 		return firstLayer, nil
@@ -216,6 +213,11 @@ func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64, con
 
 func (r *SegmentReader) readGreaterThan(ctx context.Context, value uint64, conc int,
 ) (roaringset.BitmapLayer, error) {
+	// > 0 is NotEqual 0, which reads faster through mergeEqual (BenchmarkSegmentReader).
+	if value == 0 {
+		return r.readNotEqual(ctx, value, conc)
+	}
+
 	firstLayer, ok := r.firstLayer()
 	if !ok {
 		return firstLayer, nil
@@ -264,34 +266,25 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64, 
 	}, nil
 }
 
-// mergeLayer folds one bit layer into result and reports whether any layer was
-// folded in so far.
-func mergeLayer(result, additions *sroar.Bitmap, bitSet, merged bool, conc int) bool {
-	if !merged {
-		if !bitSet {
-			return false
-		}
-		// result starts empty and every layer is a subset of all rows,
-		// so this equals ANDing all rows with the layer
-		result.OrConc(additions, conc)
-		return true
-	}
-
-	if bitSet {
-		result.AndConc(additions, conc)
-	} else {
-		result.OrConc(additions, conc)
-	}
-	return true
-}
-
+// mergeGreaterThanEqual fills result, an empty bitmap laid out like layer 0,
+// with layer 0's rows whose value is >= value. value must be above 0.
 func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 	result *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
 	merged := false
 	for entry := range r.layers(ctx) {
 		bitSet := value&(1<<(entry.bit-1)) != 0
-		merged = mergeLayer(result, entry.layer.Additions, bitSet, merged, conc)
+		switch {
+		case bitSet && !merged:
+			// every layer is a subset of layer 0, so ORing it into the empty
+			// result equals ANDing layer 0 with it
+			result.OrConc(entry.layer.Additions, conc)
+			merged = true
+		case bitSet:
+			result.AndConc(entry.layer.Additions, conc)
+		case merged:
+			result.OrConc(entry.layer.Additions, conc)
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -301,24 +294,24 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 	return result, nil
 }
 
-func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxExc uint64,
-	resultMin, resultMax *sroar.Bitmap, conc int,
+// mergeEqual keeps the rows of result that are in every layer of value's set
+// bits and in no layer of its unset bits.
+func (r *SegmentReader) mergeEqual(ctx context.Context, value uint64,
+	result *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
-	mergedMin := false
-	mergedMax := false
 	for entry := range r.layers(ctx) {
-		var b uint64 = 1 << (entry.bit - 1)
-		mergedMin = mergeLayer(resultMin, entry.layer.Additions, valueMinInc&b != 0, mergedMin, conc)
-		mergedMax = mergeLayer(resultMax, entry.layer.Additions, valueMaxExc&b != 0, mergedMax, conc)
+		if value&(1<<(entry.bit-1)) != 0 {
+			result.AndConc(entry.layer.Additions, conc)
+		} else {
+			result.AndNotConc(entry.layer.Additions, conc)
+		}
 	}
 
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	resultMin.AndNotConc(resultMax, conc)
-
-	return resultMin, nil
+	return result, nil
 }
 
 // layers sends the cursor's bit layers after layer 0 until the cursor or ctx ends.
