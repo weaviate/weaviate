@@ -295,6 +295,46 @@ Crecer del 10 % al 100 % en disco.
 
 Se reporta al cerrar cada paso.
 
+### Enmienda 1 (14:19 del 18): un bug del compactador de Set de `lsmkv`, y lo que cambia de la propuesta
+
+*Antes de ningún dato de v5.0. Lo encontró el test de equivalencia a pequeña escala.*
+
+- **Qué se vio:** tras una compactación, un miembro tenía dos listas de aristas en su posting: la nueva, y la vieja, que ya estaba borrada con su lápida. Antes de compactar la lectura era correcta.
+- **La hipótesis, confirmada y aislada:** el fallo es del compactador de Set de `lsmkv`, sin nada de este índice. Un test nuevo en `lsmkv` lo reproduce con dos valores: de sus 9 casos, 5 fallaban.
+- **La causa:** cuando una clave está en solo uno de los dos segmentos que se compactan, `compactorSet.processKey` mandaba sus valores directamente a la limpieza de lápidas, sin pasar por el decodificador, que es donde un valor y su lápida se anulan. En la compactación que incluye el segmento más antiguo, esa limpieza tira las lápidas. Un valor añadido y borrado entre dos volcados perdía la lápida y se quedaba: el valor borrado volvía, para siempre.
+- **A quién llega en el producto:** al índice invertido. `Shard.deleteFromPropertySetBucket` borra con `SetDeleteSingle` el id de un objeto de los buckets de propiedades de estrategia Set. Un objeto añadido y borrado entre dos volcados puede volver a salir en un filtro. *No lo he reproducido de punta a punta a través del shard: lo reproducido es el bucket.*
+  - **HFresh no está afectado:** su bucket de postings nunca borra un valor suelto.
+- **El arreglo,** en `compactor_set.go`: cuando se limpian lápidas y la clave trae alguna, sus valores pasan antes por el decodificador, sobre una copia. Sin lápidas, o cuando las lápidas se conservan, nada cambia.
+- **El test de regresión,** `compactor_set_deleted_value_test.go`: los 9 casos del Set pasan con el arreglo. Las estrategias vecinas, con la misma forma (escrito y borrado entre dos volcados, bajo una clave que solo tiene el segmento nuevo), ya se portaban bien: Map, RoaringSet y Replace. **Sin comprobar:** Inverted y RoaringSetRange.
+- **Lo que cambia de la propuesta:** donde decía «encaja en `lsmkv` sin tocarlo», encaja con el arreglo de un bug suyo. El diseño es el mismo.
+  - La segunda alternativa de la tabla, la estrategia Map, no escribe lápidas y no habría tropezado con él.
+
+### Pasos 1 y 2, cerrados: el formato, el insert y el split, y la equivalencia a pequeña escala (14:19 del 18)
+
+**Qué hay:**
+
+- **`grow_test.go`:** el índice que crece en disco. Escribe una base construida en lote, la abre, busca sobre ella, inserta con aristas inversas, parte un posting, y comprueba la cobertura leyendo el store.
+- **`grow_equiv_test.go`:** el gemelo en memoria y sus tests.
+- **En `disk_test.go`,** el bucle de búsqueda de v4.0 pasa a una pieza común a los dos índices de disco. Sus tests de equivalencia siguen pasando.
+- **En `stream_test.go`,** el índice de v2.x admite códigos de ruteo distintos de los del scan, y puede seguir un grafo de centroides que no es suyo.
+- **En `lsmkv`,** el arreglo de la enmienda 1 y su test.
+
+**Lo que comprueban los tests,** con 2 200 vectores de 64 dimensiones, 1 000 de ellos en la base:
+
+| test | qué |
+|---|---|
+| `TestGrowInsertsEqualMemory` | cinco configuraciones: código completo, sketch de 64 bits, sketch de 128 con coseno, todo en la memtable, y pocos splits. Con volcados cada 29 a 53 inserts, compactación completa cada 97 a 211, y en dos de ellas un cierre y una reapertura a mitad, tras la que el índice sigue creciendo |
+| | en cada insert: el mismo posting, las mismas aristas, y las mismas cuentas de splits, de aristas inversas y de cargas que el gemelo |
+| | cada 300 inserts, al reabrir y al final: la cobertura de los dos, el mismo estado (miembros y su orden, códigos, aristas, mapa y códigos de ruteo) y las mismas respuestas a 40 queries, en ids, distancias y trabajo |
+| `TestGrowCompactionDropsWhatNothingReads` | compactado, el store no guarda filas de postings retirados ni listas reemplazadas, y cada posting vivo tiene una lista por miembro |
+| `TestGrowCoverageCatches` | ocho roturas hechas en el store a espaldas del índice, y la comprobación de cobertura las ve todas |
+| `TestGrowIndexErrors` | lo que no se puede escribir ni abrir |
+
+- **Idéntico en las cinco,** insert a insert, con más de 10 splits donde T = 60.
+- **La distancia guardada no cambia ninguna decisión.** El insert no lee ningún vector exacto de más ni vuelve a leer ninguna lista: los vecinos salen de postings que su búsqueda cargó, y sus vectores, de su rescore. Los tests lo exigen.
+  - **Una precisión sobre lo pre-registrado:** la distancia de una arista no se toma de la búsqueda, cuya query se normaliza otra vez, sino que se calcula con la misma llamada que v2.x, sobre los vectores que el rescore acaba de leer.
+- **El orden de los miembros de un posting es el de llegada,** que el store conserva al volcar y al compactar. El split depende de él, y los tests lo fijan.
+
 ## v4.0: primer prototipo que lee de disco (pre-registro, 2026-11-18)
 
 **Estado: medido el 18.** Los datos sin cronometrar y la sesión cronometrada de día (de 10:50 a 12:21) están abajo, en «Resultados de v4.0». Cinco curvas marcadas se repiten esa noche. El pre-registro se escribió el 18 a las 07:13, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el formato, las celdas, la lectura, la corrección, las medidas, los cuatro puntos del pre-registro, las condiciones y el orden de trabajo son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.

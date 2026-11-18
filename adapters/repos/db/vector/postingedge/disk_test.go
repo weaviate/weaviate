@@ -708,6 +708,11 @@ type diskPosting struct {
 	edgeStart []uint32
 	haloSlots []uint32
 	haloCodes []uint64
+	// lists and listOf are of a posting of the index that grows (v5.0,
+	// grow_test.go), whose edges come as one list per member: the lists as
+	// the store returned them, and which one is of each member.
+	lists  [][]byte
+	listOf []int32
 	// bytes is what the store returned for its blocks.
 	bytes [3]int
 }
@@ -888,7 +893,40 @@ type diskSearchStats struct {
 // the same order. Every round is fetched whole before any of it is visited.
 func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
-	ix, st := d.ix, d.st
+	run := fetchedSearch{
+		ix: d.ix, st: d.st, rounds: &d.rounds, fetch: d.fetch, halo: d.meta.Halo, haloWords: d.meta.RoutingCodeWords,
+	}
+	return run.run(ctx, vector, k, nil, stats)
+}
+
+// fetchedSearch is the search of the index over postings that are fetched
+// from somewhere else than its store, a round at a time: what the index on
+// disk of v4.0 and the one that grows on disk of v5.0 have in common.
+type fetchedSearch struct {
+	// ix holds the search tunables and rescores; st is what the search keeps
+	// in memory.
+	ix *Index
+	st *state
+	// rounds pools the *diskRound a search fetches into.
+	rounds *sync.Pool
+	// fetch reads the given postings together and leaves each ready to be
+	// visited, in the order given.
+	fetch func(round *diskRound, picks []scored) error
+	// halo tells that the endpoints are scored from the halo of the posting
+	// that leads to them, whose codes take haloWords words.
+	halo      bool
+	haloWords int
+	// loaded, when set, is called with every posting right after its visit.
+	// The buffers of the posting are reused by the next round.
+	loaded func(p uint32, dp *diskPosting)
+}
+
+// run searches from the given entry postings. Without any it asks the
+// centroid graph, as every search does. The caller answers for the entry
+// postings it gives.
+func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryIDs []uint64, stats *diskSearchStats,
+) ([]uint64, []float32, error) {
+	ix, st := f.ix, f.st
 	if k < 1 {
 		return nil, nil, errors.Errorf("k must be positive, got %d", k)
 	}
@@ -911,8 +949,8 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 
 	sc := st.borrowScratch()
 	defer st.returnScratch(sc)
-	round := d.rounds.Get().(*diskRound)
-	defer d.rounds.Put(round)
+	round := f.rounds.Get().(*diskRound)
+	defer f.rounds.Put(round)
 
 	poolSize := max(rescoreLimit, k)
 	sc.pool.reset(poolSize)
@@ -923,19 +961,24 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 	}
 	search := st.newPostingSearch(sc, query, stop, margin, stats.Work)
 	var visiting *diskPosting
-	if d.meta.Halo {
-		words := d.meta.RoutingCodeWords
+	blocks := 2
+	if f.halo {
+		blocks = 3
+		words := f.haloWords
 		search.scoreEndpoints = func(_ *posting, slots []uint32, dists []float32) error {
 			return visiting.scoreHalo(search.estimator, words, slots, dists)
 		}
 	}
 
-	clock := time.Now()
-	entryIDs, err := st.centroids.nearest(ctx, query, entries)
-	if err != nil {
-		return nil, nil, err
+	if len(entryIDs) == 0 {
+		clock := time.Now()
+		var err error
+		entryIDs, err = st.centroids.nearest(ctx, query, entries)
+		if err != nil {
+			return nil, nil, err
+		}
+		stats.CentroidTime = time.Since(clock)
 	}
-	stats.CentroidTime = time.Since(clock)
 
 	// load fetches a set of postings together and visits them in order.
 	// All of them are marked before any is visited, so that edges between
@@ -945,7 +988,7 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 			sc.markLoaded(uint32(pick.id))
 		}
 		clock := time.Now()
-		if err := d.fetch(round, picks); err != nil {
+		if err := f.fetch(round, picks); err != nil {
 			return err
 		}
 		stats.FetchTime += time.Since(clock)
@@ -958,9 +1001,9 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 			stats.MemberBytes += visiting.bytes[diskBlockMembers]
 			stats.EdgeBytes += visiting.bytes[diskBlockEdges]
 			stats.HaloBytes += visiting.bytes[diskBlockHalo]
-			stats.Blocks += 2
-			if d.meta.Halo {
-				stats.Blocks++
+			stats.Blocks += blocks
+			if f.loaded != nil {
+				f.loaded(uint32(pick.id), visiting)
 			}
 		}
 		stats.VisitTime += time.Since(clock)
@@ -1003,7 +1046,7 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 	if rescoreLimit == 0 {
 		return topResults(candidates, k)
 	}
-	clock = time.Now()
+	clock := time.Now()
 	if err := ix.rescore(ctx, query, candidates); err != nil {
 		return nil, nil, err
 	}

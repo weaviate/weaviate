@@ -72,6 +72,13 @@ type streamConfig struct {
 	assignOnly bool
 	// seed seeds the 2-means of the splits.
 	seed uint64
+	// followGraph tells that the centroid graph belongs to another index,
+	// one that grows in step with this one and makes the same splits: this
+	// one asks the graph and never changes it. It is how the index that grows
+	// on disk (v5.0, grow_test.go) is checked against this one, insert by
+	// insert: the graph draws its levels at random, so two graphs grown apart
+	// are not the same graph.
+	followGraph bool
 	// centroidDistances, when set, is the count of the distances the
 	// centroid graph of the index computes: the index was created with a
 	// countingProvider over it (Config.centroidProvider). The inserts read it
@@ -262,13 +269,14 @@ func newStreamIndex(ix *Index, keys int, cfg streamConfig, vectorOf func(uint64)
 		return nil, ErrNotBuilt
 	case batch.postings.lists != nil:
 		return nil, errors.New("the index is keyed by doc id already")
-	case batch.scanQuantizer != nil:
-		return nil, errors.New("postings with codes of their own are not supported")
 	case cfg.threshold < 2:
 		return nil, errors.Errorf("a split threshold of %d leaves nothing to split", cfg.threshold)
 	}
-	store, words := batch.postings, batch.postings.codeWords
-	side := &sidecar{codeWords: words, codes: make([]uint64, keys*words), postingOf: make([]uint32, keys)}
+	// The postings keep the codes the scan reads, and the sidecar those the
+	// endpoints are ranked by: the same ones, unless the postings have codes
+	// of their own (state.scanQuantizer).
+	store, words, sideWords := batch.postings, batch.postings.codeWords, batch.side.codeWords
+	side := &sidecar{codeWords: sideWords, codes: make([]uint64, keys*sideWords), postingOf: make([]uint32, keys)}
 	for i := range side.postingOf {
 		side.postingOf[i] = unplaced
 	}
@@ -295,9 +303,8 @@ func newStreamIndex(ix *Index, keys int, cfg streamConfig, vectorOf func(uint64)
 			for e, endpoint := range edges {
 				keyed[e] = uint32(store.docIDs[endpoint])
 			}
-			code := batch.side.code(slot)
-			lists[p].append(docID, code, keyed)
-			copy(side.codes[int(docID)*words:], code)
+			lists[p].append(docID, store.codes[int(slot)*words:(int(slot)+1)*words], keyed)
+			copy(side.codes[int(docID)*sideWords:], batch.side.code(slot))
 			side.postingOf[docID] = uint32(p)
 			s.live[docID] = true
 			s.liveCount++
@@ -315,13 +322,14 @@ func newStreamIndex(ix *Index, keys int, cfg streamConfig, vectorOf func(uint64)
 	s.capacity = len(lists) + 2*keys
 
 	st := &state{
-		dims:      batch.dims,
-		quantizer: batch.quantizer,
-		centroids: batch.centroids,
-		postings:  &postingStore{codeWords: words, lists: lists},
-		side:      side,
-		visited:   visited.NewPool(keys),
-		build:     batch.build,
+		dims:          batch.dims,
+		quantizer:     batch.quantizer,
+		scanQuantizer: batch.scanQuantizer,
+		centroids:     batch.centroids,
+		postings:      &postingStore{codeWords: words, lists: lists},
+		side:          side,
+		visited:       visited.NewPool(keys),
+		build:         batch.build,
 	}
 	capacity := s.capacity
 	st.scratch.New = func() any { return newSearchScratch(capacity) }
@@ -432,8 +440,12 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 	code := st.quantizer.Encode(vector)
 	words := st.side.codeWords
 	copy(st.side.codes[int(docID)*words:(int(docID)+1)*words], code)
+	scanCode := code
+	if st.scanQuantizer != nil {
+		scanCode = st.scanQuantizer.Encode(vector)
+	}
 	edges := s.outside(neighbors, p)
-	st.postings.lists[p].append(docID, code, edges)
+	st.postings.lists[p].append(docID, scanCode, edges)
 	st.side.postingOf[docID] = p
 	s.live[docID] = true
 	s.liveCount++
@@ -610,7 +622,7 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 		return errors.Errorf("posting %d would pass the capacity of %d postings", first+1, s.capacity)
 	}
 	children := [2]postingList{newPostingList(), newPostingList()}
-	words := st.side.codeWords
+	words := st.postings.codeWords
 	for i, docID := range old.docIDs {
 		children[sideOf[i]].append(docID, old.codes[i*words:(i+1)*words], old.edgesOf(i))
 		st.side.postingOf[docID] = first + uint32(sideOf[i])
@@ -620,16 +632,18 @@ func (s *streamIndex) split(ctx context.Context, p uint32) error {
 	s.retired = append(s.retired, false, false)
 	s.retired[p] = true
 
-	centroids := st.centroids
-	centroids.vectors = append(centroids.vectors, means[0], means[1])
 	counted := s.centroidCount()
-	for c := range 2 {
-		if err := centroids.graph.Add(ctx, uint64(first)+uint64(c), means[c]); err != nil {
-			return errors.Wrap(err, "add a centroid")
+	if !s.cfg.followGraph {
+		centroids := st.centroids
+		centroids.vectors = append(centroids.vectors, means[0], means[1])
+		for c := range 2 {
+			if err := centroids.graph.Add(ctx, uint64(first)+uint64(c), means[c]); err != nil {
+				return errors.Wrap(err, "add a centroid")
+			}
 		}
-	}
-	if err := centroids.graph.Delete(uint64(p)); err != nil {
-		return errors.Wrap(err, "delete the centroid")
+		if err := centroids.graph.Delete(uint64(p)); err != nil {
+			return errors.Wrap(err, "delete the centroid")
+		}
 	}
 	s.stats.SplitGraphDistances += s.centroidCount() - counted
 	s.stats.Splits++
@@ -991,7 +1005,7 @@ func (s *streamIndex) repeatedEdges() int {
 // retired ones.
 func (s *streamIndex) checkCoverage() error {
 	st := s.st
-	words := st.side.codeWords
+	words := st.postings.codeWords
 	count := make([]uint8, len(s.live))
 	if len(s.retired) != len(st.postings.lists) {
 		return errors.Errorf("%d postings and %d retired flags", len(st.postings.lists), len(s.retired))
@@ -1021,7 +1035,9 @@ func (s *streamIndex) checkCoverage() error {
 			if st.side.postingOf[docID] != uint32(p) {
 				return errors.Errorf("posting %d holds doc %d, which the map puts in %d", p, docID, st.side.postingOf[docID])
 			}
-			if !slices.Equal(l.codes[i*words:(i+1)*words], st.side.code(uint32(docID))) {
+			// With codes of their own the postings and the sidecar hold
+			// different codes of the vector.
+			if st.scanQuantizer == nil && !slices.Equal(l.codes[i*words:(i+1)*words], st.side.code(uint32(docID))) {
 				return errors.Errorf("doc %d has another code in posting %d than in the sidecar", docID, p)
 			}
 			count[docID]++
