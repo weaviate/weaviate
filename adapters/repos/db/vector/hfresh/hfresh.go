@@ -73,6 +73,9 @@ type HFresh struct {
 	// bootstrapThreshold is singlePostingMaxSize as a vector count, set once
 	// the dimensions are known.
 	bootstrapThreshold uint32
+	// transitionDone is set once the centroid graph exists and posting 1 was
+	// analyzed in it; the insert path checks it on every append.
+	transitionDone atomic.Bool
 
 	// needsNormalization is precomputed at construction from the configured
 	// distance: cosine-dot only equals the cosine distance on unit vectors,
@@ -252,11 +255,7 @@ func (h *HFresh) singlePostingOverLimit() (bool, error) {
 	if h.Centroids.Built() {
 		return false, nil
 	}
-	id, _, err := h.IndexMetadata.GetSinglePosting()
-	if err != nil || id == 0 {
-		return false, err
-	}
-	size, err := h.PostingSizes.Get(h.ctx, id)
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
 	if err != nil {
 		return false, err
 	}

@@ -317,47 +317,9 @@ func TestSinglePostingRestartReassignsNothing(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
-func TestSinglePostingRecoveredWithoutRecord(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 300)
-
-	// an index written before the record existed has posting 1 on disk only
-	bucket, release, err := index.IndexMetadata.bucket.acquire()
-	require.NoError(t, err)
-	require.NoError(t, bucket.Delete(index.IndexMetadata.key(singlePostingKey)))
-	release()
-	require.NoError(t, index.Shutdown(t.Context()))
-
-	index = makeHFreshWithConfig(t, store, cfg, uc)
-	require.False(t, index.Centroids.Built())
-	size, err := index.PostingSizes.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.EqualValues(t, 300, size)
-	requireSelfSearchExcept(t, index, all, -1)
-
-	all = addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
-	require.True(t, index.Centroids.Built())
-	index.waitForMaintenance(t)
-	require.Greater(t, index.PostingSizes.Count(), uint64(2))
-	requireSelfSearchExcept(t, index, all, -1)
-}
-
-// deleteSinglePostingRecord leaves posting 1 on disk without its record, as
-// a crash before the record's flush does.
-func deleteSinglePostingRecord(t *testing.T, index *HFresh) {
-	t.Helper()
-	bucket, release, err := index.IndexMetadata.bucket.acquire()
-	require.NoError(t, err)
-	defer release()
-	require.NoError(t, bucket.Delete(index.IndexMetadata.key(singlePostingKey)))
-}
-
 // Deletes only bump versions, so the posting keeps entries whose objects are
-// gone, and the recovery must take its centroid from a live one.
-func TestSinglePostingRecoveredWithoutRecordSkipsDeletedEntries(t *testing.T) {
+// gone, and the restart must take its centroid from a live one.
+func TestSinglePostingRestartSkipsDeletedEntries(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
@@ -365,7 +327,6 @@ func TestSinglePostingRecoveredWithoutRecordSkipsDeletedEntries(t *testing.T) {
 	all := addRestartVectors(t, index, vectors, 0, 300)
 	require.NoError(t, index.Delete(0))
 	vectors.remove(0)
-	deleteSinglePostingRecord(t, index)
 	require.NoError(t, index.Shutdown(t.Context()))
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
@@ -373,7 +334,7 @@ func TestSinglePostingRecoveredWithoutRecordSkipsDeletedEntries(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, 0)
 }
 
-func TestSinglePostingRecoveredWithoutRecordAllDeleted(t *testing.T) {
+func TestSinglePostingRestartAllDeleted(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
@@ -383,7 +344,6 @@ func TestSinglePostingRecoveredWithoutRecordAllDeleted(t *testing.T) {
 		require.NoError(t, index.Delete(id))
 		vectors.remove(id)
 	}
-	deleteSinglePostingRecord(t, index)
 	require.NoError(t, index.Shutdown(t.Context()))
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
@@ -487,9 +447,7 @@ func TestSinglePostingSurvivesRestartWithZeroThreshold(t *testing.T) {
 	require.True(t, index.Centroids.Built())
 	requireSelfSearchExcept(t, index, all, -1)
 
-	built, err := index.IndexMetadata.CentroidsBuilt()
-	require.NoError(t, err)
-	require.True(t, built)
+	require.True(t, persistedPostingEntry(t, index, 1))
 }
 
 // A lowered limit must apply when the shard opens, not only on the next
@@ -515,9 +473,7 @@ func TestSinglePostingReopenedWithLowerLimit(t *testing.T) {
 			setSinglePostingLimit(t, tt.limit)
 			index = makeHFreshWithConfig(t, store, cfg, uc)
 			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
-			built, err := index.IndexMetadata.CentroidsBuilt()
-			require.NoError(t, err)
-			require.Equal(t, tt.wantBuilt, built)
+			require.Equal(t, tt.wantBuilt, persistedPostingEntry(t, index, 1))
 			index.waitForMaintenance(t)
 			requireSelfSearchExcept(t, index, all, -1)
 		})
@@ -541,7 +497,7 @@ func TestInterruptedTransitionFinishedByNextInsert(t *testing.T) {
 }
 
 // An index restarted before its first insert has no dimensions to restore,
-// yet must come back in the mode its built flag records.
+// yet must come back in the mode its commit log directory records.
 func TestEmptyIndexReopenKeepsCentroidMode(t *testing.T) {
 	tests := []struct {
 		name          string

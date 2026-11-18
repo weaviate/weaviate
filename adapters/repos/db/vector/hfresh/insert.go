@@ -183,6 +183,11 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, err
 		}
+		if !h.Centroids.Built() {
+			// restarts find the single posting by its fixed id; the sequence
+			// still advanced, so no later posting takes it
+			postingID = singlePostingID
+		}
 		// use the vector as the centroid and register it in the SPTAG
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
@@ -191,12 +196,6 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
-		}
-		if !h.Centroids.Built() {
-			err = h.IndexMetadata.SetSinglePosting(postingID, v)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to persist single posting %d", postingID)
-			}
 		}
 		// return the new posting ID
 		targets = NewResultSet(1)
@@ -284,43 +283,33 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	return true, nil
 }
 
-// leaveSinglePostingMode builds the centroid graph around the single posting.
-// The flag is persisted before any split can be queued, so a split never runs
-// on an index that would restart in single-posting mode. It is idempotent and
-// retried by the next insert if it fails.
+// leaveSinglePostingMode builds the centroid graph around the single posting
+// and analyzes it. Building creates the commit log directory, so a split never
+// runs on an index that would restart in single-posting mode, and the analyze
+// persists posting 1's map entry, which tells a restart the transition
+// finished. It is idempotent and retried by the next insert if it fails.
 func (h *HFresh) leaveSinglePostingMode(ctx context.Context) error {
-	built, err := h.IndexMetadata.CentroidsBuilt()
-	if err != nil || built {
-		return err
-	}
-	id, _, err := h.IndexMetadata.GetSinglePosting()
-	if err != nil {
-		return err
+	if h.transitionDone.Load() {
+		return nil
 	}
 
-	err = h.Centroids.Build()
+	err := h.Centroids.Build()
 	if err != nil {
 		return errors.Wrap(err, "build centroid index")
 	}
-	// hand the seed centroid to the commit log file before the flag
+	// hand the seed centroid to the commit log file before the map entry
 	err = h.Centroids.Flush()
 	if err != nil {
 		return errors.Wrap(err, "flush centroid index")
 	}
-	err = h.IndexMetadata.SetCentroidsBuilt()
-	if err != nil {
-		return errors.Wrap(err, "persist centroid index built flag")
-	}
-	if id == 0 {
-		return nil
-	}
-
 	// persists the posting's map entry, which only lived in memory, and
 	// queues the first split
-	err = h.doAnalyze(ctx, id)
+	err = h.doAnalyze(ctx, singlePostingID)
 	if err != nil {
-		return errors.Wrapf(err, "analyze single posting %d", id)
+		return errors.Wrapf(err, "analyze single posting %d", singlePostingID)
 	}
+
+	h.transitionDone.Store(true)
 	return nil
 }
 

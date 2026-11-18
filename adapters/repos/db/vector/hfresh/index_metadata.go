@@ -15,9 +15,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,8 +35,6 @@ const (
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
 	muveraKey          = "muvera"
-	singlePostingKey   = "single_posting"
-	centroidsBuiltKey  = "centroids_built"
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -114,10 +112,6 @@ func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
 type IndexMetadataStore struct {
 	bucket bucketRef
-
-	// centroidsBuilt caches the built flag once it is known to be set: the
-	// insert path checks it on every append.
-	centroidsBuilt atomic.Bool
 }
 
 func NewIndexMetadataStore(bucket bucketRef) *IndexMetadataStore {
@@ -209,88 +203,6 @@ type QuantizationData struct {
 	RQ compression.RQData `msgpack:"rq"`
 }
 
-// SetSinglePosting records the posting that holds every vector while no
-// centroid index exists: its id followed by its float32 centroid.
-func (i *IndexMetadataStore) SetSinglePosting(id uint64, centroid []float32) error {
-	buf := make([]byte, 8+4*len(centroid))
-	binary.LittleEndian.PutUint64(buf, id)
-	for j, f := range centroid {
-		binary.LittleEndian.PutUint32(buf[8+4*j:], math.Float32bits(f))
-	}
-
-	bucket, release, err := i.bucket.acquire()
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	return bucket.Put(i.key(singlePostingKey), buf)
-}
-
-// GetSinglePosting returns id 0 when no single posting was recorded.
-func (i *IndexMetadataStore) GetSinglePosting() (uint64, []float32, error) {
-	bucket, release, err := i.bucket.acquire()
-	if err != nil {
-		return 0, nil, err
-	}
-	defer release()
-
-	data, err := bucket.Get(i.key(singlePostingKey))
-	if err != nil {
-		return 0, nil, errors.Wrap(err, "get single posting")
-	}
-	if data == nil {
-		return 0, nil, nil
-	}
-	if len(data) < 8 || (len(data)-8)%4 != 0 {
-		return 0, nil, fmt.Errorf("invalid single posting data length: %d", len(data))
-	}
-
-	id := binary.LittleEndian.Uint64(data)
-	centroid := make([]float32, (len(data)-8)/4)
-	for j := range centroid {
-		centroid[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[8+4*j:]))
-	}
-	return id, centroid, nil
-}
-
-func (i *IndexMetadataStore) SetCentroidsBuilt() error {
-	bucket, release, err := i.bucket.acquire()
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	err = bucket.Put(i.key(centroidsBuiltKey), []byte{1})
-	if err != nil {
-		return err
-	}
-	i.centroidsBuilt.Store(true)
-	return nil
-}
-
-func (i *IndexMetadataStore) CentroidsBuilt() (bool, error) {
-	if i.centroidsBuilt.Load() {
-		return true, nil
-	}
-
-	bucket, release, err := i.bucket.acquire()
-	if err != nil {
-		return false, err
-	}
-	defer release()
-
-	data, err := bucket.Get(i.key(centroidsBuiltKey))
-	if err != nil {
-		return false, errors.Wrap(err, "get centroids built flag")
-	}
-	built := len(data) == 1 && data[0] == 1
-	if built {
-		i.centroidsBuilt.Store(true)
-	}
-	return built, nil
-}
-
 func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
 	serialized, err := msgpack.Marshal(data)
 	if err != nil {
@@ -333,8 +245,8 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 	if dims == 0 {
-		// nothing was inserted yet, but the built flag still decides whether
-		// the centroid graph must exist
+		// nothing was inserted yet, but the commit log directory still decides
+		// whether the centroid graph must exist
 		return h.restoreCentroids()
 	}
 
@@ -376,23 +288,20 @@ func (h *HFresh) centroidCommitLogExists() bool {
 	return err == nil
 }
 
-// recoverSinglePosting rebuilds the single posting record for an index
-// that predates it. The initial posting always gets id 1 and its centroid
-// is one of its own vectors, so any entry's full-precision vector serves.
-func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
-	const initialPostingID = 1
-
-	posting, err := h.PostingStore.Get(h.ctx, initialPostingID)
-	if err != nil {
-		return 0, nil, errors.Wrapf(err, "read posting %d", initialPostingID)
+// singlePostingCentroid reads posting 1 and, when it has a live entry,
+// takes its centroid from it: a deleted entry's object is gone, and any
+// member serves while the posting holds every vector.
+func (h *HFresh) singlePostingCentroid() (Posting, []float32, error) {
+	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return nil, nil, errors.Wrapf(err, "read posting %d", singlePostingID)
 	}
-	// a deleted entry's object is gone, so only a live one can give the centroid
-	live, err := posting.GarbageCollect(h.VersionMap)
+	live, err := slices.Clone(posting).GarbageCollect(h.VersionMap)
 	if err != nil {
-		return 0, nil, errors.Wrapf(err, "filter live entries of posting %d", initialPostingID)
+		return nil, nil, errors.Wrapf(err, "filter live entries of posting %d", singlePostingID)
 	}
 	if len(live) == 0 {
-		return 0, nil, nil
+		return posting, nil, nil
 	}
 
 	var (
@@ -402,7 +311,7 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 	if !h.muvera.Load() {
 		objectsView, releaseView, err := h.objectsBucketView()
 		if err != nil {
-			return 0, nil, err
+			return nil, nil, err
 		}
 		defer releaseView()
 		view = objectsView
@@ -413,89 +322,79 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 
 	centroid, err := h.clusteringVector(h.ctx, live[0].ID(), slice, view)
 	if err != nil {
-		return 0, nil, errors.Wrapf(err, "fetch centroid vector for posting %d", initialPostingID)
+		return nil, nil, errors.Wrapf(err, "fetch centroid vector for posting %d", singlePostingID)
 	}
-
-	err = h.IndexMetadata.SetSinglePosting(initialPostingID, centroid)
-	if err != nil {
-		return 0, nil, errors.Wrap(err, "persist recovered single posting")
-	}
-	h.logger.WithField("postingID", initialPostingID).
-		Warnf("recovered single posting record with %d live vectors", len(live))
-
-	return initialPostingID, centroid, nil
+	return posting, centroid, nil
 }
 
-// restoreCentroids brings the centroid index back to its pre-restart state:
-// either the graph is reloaded from its commit log, or the single posting's
-// id and centroid are restored and its size counter, which only lives in
-// memory before the first split, is recounted from the posting on disk.
+// restoreCentroids brings the centroid index back to its pre-restart state.
+// Building the graph creates its commit log directory, so without one the
+// index is still in single-posting mode.
 func (h *HFresh) restoreCentroids() error {
-	built, err := h.IndexMetadata.CentroidsBuilt()
+	if !h.centroidCommitLogExists() {
+		return h.restoreSinglePosting()
+	}
+
+	err := h.Centroids.Build()
 	if err != nil {
 		return err
 	}
-	id, centroid, err := h.IndexMetadata.GetSinglePosting()
+	err = h.finishSinglePostingTransition()
 	if err != nil {
 		return err
 	}
-	if !built && id == 0 && h.centroidCommitLogExists() {
-		// written by a version that always builds the graph
-		err = h.IndexMetadata.SetCentroidsBuilt()
-		if err != nil {
-			return errors.Wrap(err, "persist centroid index built flag")
-		}
-		built = true
-	}
-
-	if built {
-		err = h.Centroids.Build()
-		if err != nil {
-			return err
-		}
-		if id == 0 {
-			return nil
-		}
-		return h.repairSinglePostingTransition(id, centroid)
-	}
-
-	if id == 0 {
-		id, centroid, err = h.recoverSinglePosting()
-		if err != nil || id == 0 {
-			return err
-		}
-	}
-
-	h.Centroids.restoreSingle(id, centroid)
-
-	// the single posting is never analyzed, so its persisted map entry and
-	// size lag behind the posting itself
-	posting, err := h.PostingStore.Get(h.ctx, id)
-	if err != nil {
-		return errors.Wrapf(err, "read single posting %d", id)
-	}
-	return h.setPostingVectorIDs(h.ctx, id, posting)
+	h.transitionDone.Store(true)
+	return nil
 }
 
-// repairSinglePostingTransition finishes a transition a crash cut short. The
-// built flag lives in the store, which reaches disk before the commit log, so
-// the graph can lack the seed centroid and the posting map its entry.
-func (h *HFresh) repairSinglePostingTransition(id uint64, centroid []float32) error {
-	if !h.Centroids.Exists(id) {
-		posting, err := h.PostingStore.Get(h.ctx, id)
-		if err != nil {
-			return errors.Wrapf(err, "read single posting %d", id)
-		}
-		if len(posting) == 0 {
-			return nil
-		}
-		err = h.Centroids.Insert(id, &Centroid{Uncompressed: centroid})
-		if err != nil {
-			return errors.Wrapf(err, "restore seed centroid %d", id)
-		}
+// restoreSinglePosting restores posting 1 with its map entry and size, which
+// stay in memory until the transition persists them.
+func (h *HFresh) restoreSinglePosting() error {
+	posting, centroid, err := h.singlePostingCentroid()
+	if err != nil || centroid == nil {
+		return err
 	}
 
-	return h.doAnalyze(h.ctx, id)
+	h.Centroids.restoreSingle(singlePostingID, centroid)
+	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
+	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
+	return nil
+}
+
+// finishSinglePostingTransition completes a transition a crash cut short.
+// The transition ends by persisting posting 1's map entry, so live vectors in
+// posting 1 without one mean it never finished; the graph can also lack the
+// seed centroid, since the store reaches disk before the commit log.
+func (h *HFresh) finishSinglePostingTransition() error {
+	_, err := h.PostingMap.Get(h.ctx, singlePostingID)
+	if err == nil {
+		return h.requeueSinglePostingSplit()
+	}
+
+	_, centroid, err := h.singlePostingCentroid()
+	if err != nil || centroid == nil {
+		return err
+	}
+	if !h.Centroids.Exists(singlePostingID) {
+		err = h.Centroids.Insert(singlePostingID, &Centroid{Uncompressed: centroid})
+		if err != nil {
+			return errors.Wrapf(err, "restore seed centroid %d", singlePostingID)
+		}
+	}
+	return h.doAnalyze(h.ctx, singlePostingID)
+}
+
+// requeueSinglePostingSplit queues the transition's split again: it sits in
+// its own queue file, which a crash can lose while the map entry survives.
+func (h *HFresh) requeueSinglePostingSplit() error {
+	if !h.Centroids.Exists(singlePostingID) {
+		return nil
+	}
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
+	if err != nil || size <= h.maxPostingSize {
+		return err
+	}
+	return h.taskQueue.EnqueueSplit(singlePostingID)
 }
 
 // restoreDimensions restores dimension-dependent components from persisted

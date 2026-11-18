@@ -84,6 +84,10 @@ type centroidMode struct {
 	centroidIndex
 }
 
+// singlePostingID is the posting that holds every vector before the centroid
+// graph exists.
+const singlePostingID = 1
+
 // CentroidIndex is the centroid index HFresh queries. It starts as a single
 // posting and switches to an HNSW graph on Build.
 type CentroidIndex struct {
@@ -153,7 +157,7 @@ func (c *CentroidIndex) Built() bool {
 	return ok
 }
 
-// restoreSingle reinstates the single posting recorded before a restart.
+// restoreSingle reinstates the single posting found on disk at a restart.
 func (c *CentroidIndex) restoreSingle(id uint64, centroid []float32) {
 	c.mode.Store(&centroidMode{&singleCentroid{id: id, centroid: centroid}})
 	c.counter.Store(1)
