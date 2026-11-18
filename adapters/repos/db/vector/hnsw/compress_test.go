@@ -1522,7 +1522,10 @@ func Test_ResetKeepsCompressionAcrossRestart(t *testing.T) {
 		name string
 		uc   ent.UserConfig
 	}{
-		{name: "PQ", uc: withCompression(func(uc *ent.UserConfig) { uc.PQ.Enabled = true })},
+		{name: "PQ", uc: withCompression(func(uc *ent.UserConfig) {
+			uc.PQ.Enabled = true
+			uc.PQ.RescoreLimit = ent.RescoreLimitAuto
+		})},
 		{name: "SQ", uc: withCompression(func(uc *ent.UserConfig) { uc.SQ = ent.SQConfig{Enabled: true} })},
 		{name: "BQ", uc: withCompression(func(uc *ent.UserConfig) { uc.BQ.Enabled = true })},
 		{name: "RQ 8 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 8} })},
