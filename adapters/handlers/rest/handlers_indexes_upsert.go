@@ -727,6 +727,10 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 
 	var unitIDs []string
 	unitIDs, payload.UnitToShard, payload.UnitToNode = buildUnitMaps(shardOwnership)
+	// Non-semantic submits skip AddMissingGroups, so only this check stops a replica from losing its unit.
+	if len(payload.UnitToShard) != len(unitIDs) {
+		return h.mapSubmitTaskError(principal, collection, "", distributedtask.ErrTaskUnitIDTaken)
+	}
 
 	// Human-readable task ID with a random suffix for uniqueness.
 	// Format: "Collection:migration-type:property:ab3f".
@@ -925,6 +929,10 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
+	}
+	if errors.Is(err, distributedtask.ErrTaskUnitIDTaken) {
+		return jsonResponder(http.StatusUnprocessableEntity, errorResponse(principal,
+			fmt.Sprintf("two tenant replicas of collection %q would share one reindex unit ID because a node name contains an underscore; rename the node or the tenant", collection)))
 	}
 	if errors.Is(err, distributedtask.ErrTaskTenantsNotHot) {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, db.ErrTenantsNotHot.Error()))

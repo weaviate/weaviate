@@ -1013,9 +1013,9 @@ func TestReindexDetector_AddMissingGroups(t *testing.T) {
 			tenants: map[string]sharding.Physical{"a": tenant(hot, "b__c", "n3")},
 		},
 		{
-			name:    "a unit ID that collides with an existing one is not overwritten",
+			name:    "a unit ID that collides with an existing one rejects the task",
 			tenants: map[string]sharding.Physical{"a__b": tenant(hot, "c", "n1")},
-			want:    []string{"a__b a__b__n1"},
+			wantErr: distributedtask.ErrTaskUnitIDTaken,
 		},
 		{
 			name:    "a not-HOT tenant that would get units rejects the task",
@@ -1048,31 +1048,68 @@ func TestReindexDetector_AddMissingGroups(t *testing.T) {
 	}
 }
 
-// Every node must keep the same unit whatever order it meets the two tenants in.
-func TestClaimUnitIDKeepsTheSmallerTenant(t *testing.T) {
-	x := &distributedtask.Unit{ID: MigrationUnitID("x", "y__z"), GroupID: "x"}
-	xy := &distributedtask.Unit{ID: MigrationUnitID("x__y", "z"), GroupID: "x__y"}
-	for _, order := range [][]*distributedtask.Unit{{x, xy}, {xy, x}} {
-		added := map[string]*distributedtask.Unit{}
-		for _, u := range order {
-			claimUnitID(added, u)
-		}
-		require.Equal(t, map[string]*distributedtask.Unit{"x__y__z": x}, added)
-	}
-}
-
-// Map order varies per call, so only repeated calls catch AddMissingGroups bypassing claimUnitID.
-func TestAddMissingGroupsKeepsTheSmallerTenantOnASharedUnitID(t *testing.T) {
+func TestAddMissingGroupsRejectsTwoNewTenantsOnOneUnitID(t *testing.T) {
 	state := &sharding.State{Physical: map[string]sharding.Physical{
 		"x":    {Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"y__z"}},
 		"x__y": {Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"z"}},
 	}}
-	for range 20 {
-		task := &distributedtask.Task{Units: map[string]*distributedtask.Unit{"o__n": {ID: "o__n", GroupID: "o"}}}
-		task.IndexGroups()
-		units, err := ReindexDetector{}.AddMissingGroups(task, nil, nil, state)
-		require.NoError(t, err)
-		require.Len(t, units, 1)
-		require.Equal(t, "x", units[0].GroupID)
+	task := &distributedtask.Task{Units: map[string]*distributedtask.Unit{"o__n": {ID: "o__n", GroupID: "o"}}}
+	task.IndexGroups()
+	units, err := ReindexDetector{}.AddMissingGroups(task, nil, nil, state)
+	require.ErrorIs(t, err, distributedtask.ErrTaskUnitIDTaken, "accepted %d units for 2 replicas: a replica got no unit", len(units))
+}
+
+// Through the FSM: a refused task must not be stored with a replica left out.
+func TestAddTaskRejectsReplicasSharingAUnitID(t *testing.T) {
+	hot := models.TenantActivityStatusHOT
+	// Tenant "x" on node "y__z" and tenant "x__y" on node "z" both give unit ID "x__y__z".
+	colliding := map[string]sharding.Physical{
+		"x":    {Status: hot, BelongsToNodes: []string{"y__z"}},
+		"x__y": {Status: hot, BelongsToNodes: []string{"z", "n1"}},
+		"o":    {Status: hot, BelongsToNodes: []string{"n1"}},
+	}
+	for _, tc := range []struct {
+		name  string
+		specs []*api.UnitSpec
+	}{
+		{name: "a new tenant collides with a submitted unit", specs: []*api.UnitSpec{{Id: "x__y__z", GroupId: "x"}, {Id: "o__n1", GroupId: "o"}}},
+		{name: "two new tenants collide", specs: []*api.UnitSpec{{Id: "o__n1", GroupId: "o"}}},
+		{name: "the submit itself names both", specs: []*api.UnitSpec{
+			{Id: "x__y__z", GroupId: "x"}, {Id: "x__y__z", GroupId: "x__y"}, {Id: "x__y__n1", GroupId: "x__y"}, {Id: "o__n1", GroupId: "o"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:            logger,
+				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
+				ReadShardingState: func(_ string, read func(*sharding.State)) (bool, error) {
+					read(&sharding.State{IndexID: "C", Physical: colliding})
+					return true, nil
+				},
+			})
+			m.RegisterCollectionExtractor(ReindexNamespace, ExtractReindexTaskCollection)
+			payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"p"}})
+			require.NoError(t, err)
+			sub, err := json.Marshal(&api.AddDistributedTaskRequest{
+				Namespace: ReindexNamespace, Id: "t1", Payload: payload, UnitSpecs: tc.specs,
+				NeedsPreparationBarrier: true, AddMissingGroups: true,
+			})
+			require.NoError(t, err)
+
+			err = m.AddTask(&api.ApplyRequest{SubCommand: sub}, 10)
+
+			all, listErr := m.ListDistributedTasks(t.Context())
+			require.NoError(t, listErr)
+			stored := map[string]string{}
+			for _, task := range all[ReindexNamespace] {
+				for id, u := range task.Units {
+					stored[id] = u.GroupID
+				}
+			}
+			require.ErrorIs(t, err, distributedtask.ErrTaskUnitIDTaken, "accepted with units %v: a replica got no unit", stored)
+			require.ErrorIs(t, err, distributedtask.ErrPermanentRejection)
+			require.Empty(t, all[ReindexNamespace])
+		})
 	}
 }

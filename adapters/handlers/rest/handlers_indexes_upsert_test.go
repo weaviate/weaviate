@@ -702,6 +702,37 @@ func dbWithTenants(t *testing.T, statuses map[string]string) *db.DB {
 	return database
 }
 
+// Non-semantic submits never reach AddMissingGroups, so the handler itself must refuse a shared unit ID.
+func TestSubmitReindexTaskRejectsReplicasSharingAUnitID(t *testing.T) {
+	hot := models.TenantActivityStatusHOT
+	// Tenant "x" on node "y__z" and tenant "x__y" on node "z" both give unit ID "x__y__z".
+	shardState := &sharding.State{Physical: map[string]sharding.Physical{
+		"x":    {BelongsToNodes: []string{"y__z"}, Status: hot},
+		"x__y": {BelongsToNodes: []string{"z"}, Status: hot},
+	}}
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().Read("C", true, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardState)
+		})
+	database := &db.DB{}
+	database.SetSchemaReader(reader)
+	h := &indexesHandlers{appState: &state.State{
+		Logger: logrus.New(), DB: database, ClusterService: &rCluster.Service{}, Authorizer: &collectionsOnly{},
+	}}
+	class := &models.Class{
+		Class:              "C",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
+	}
+
+	resp := h.submitReindexTask(context.Background(), nil, class, "C", "p",
+		upsertPlan{migrationType: db.ReindexTypeEnableFilterable}, nil, nil)
+
+	code, body := statusOf(t, resp)
+	require.Equal(t, http.StatusUnprocessableEntity, code, "the submit went on with one replica left without a unit: %+v", body)
+}
+
 func TestValidateTenants(t *testing.T) {
 	database := dbWithTenants(t, map[string]string{
 		"hot":  models.TenantActivityStatusHOT,
