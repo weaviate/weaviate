@@ -1400,7 +1400,8 @@ func Test_ResetKeepsCompressionAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 
 	withCompression := func(enable func(*ent.UserConfig)) ent.UserConfig {
-		uc := userConfig(dimensions/10, 5, 32, 64, 32, size)
+		// one PQ segment per dimension: fewer segments give vectors identical codes and a wrong top-1
+		uc := userConfig(dimensions, 5, 32, 64, 32, size)
 		uc.PQ.Enabled = false
 		enable(&uc)
 		return uc
