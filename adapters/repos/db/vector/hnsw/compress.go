@@ -33,7 +33,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			h.compressActionLock.Unlock()
 		}
 	}()
-	data := h.cache.All()
+	cacheLen := int(h.cache.Len())
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	rqCentered := cfg.RQ.Enabled && cfg.RQ.Centering
 	if cfg.PQ.Enabled || cfg.SQ.Enabled || rqCentered {
@@ -44,8 +44,8 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if rqCentered {
 			trainingLimit = cfg.RQ.TrainingLimit
 		}
-		cleanData := make([][]float32, 0, len(data))
-		sampler := common.NewSparseFisherYatesIterator(len(data))
+		cleanData := make([][]float32, 0, cacheLen)
+		sampler := common.NewSparseFisherYatesIterator(cacheLen)
 		for !sampler.IsDone() {
 			// Sparse Fisher Yates sampling algorithm to choose random element
 			sampledIndex := sampler.Next()
@@ -154,6 +154,19 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.checkAndCompress()
 		return nil
 	}
+	h.preloadCompressorFromCache(singleVector)
+
+	h.compressor.PersistCompression(h.commitLog)
+	h.compressed.Store(true)
+	h.cache.Drop()
+	return nil
+}
+
+func (h *hnsw) preloadCompressorFromCache(singleVector bool) {
+	h.cache.LockAll()
+	defer h.cache.UnlockAll()
+
+	data := h.cache.All()
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
@@ -162,19 +175,14 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				}
 				h.compressor.Preload(index, data[index])
 			})
-	} else {
-		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-			func(index uint64) {
-				if len(data[index]) == 0 {
-					return
-				}
-				docID, relativeID := h.cache.GetKeys(index)
-				h.compressor.PreloadPassage(index, docID, relativeID, data[index])
-			})
+		return
 	}
-
-	h.compressor.PersistCompression(h.commitLog)
-	h.compressed.Store(true)
-	h.cache.Drop()
-	return nil
+	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+		func(index uint64) {
+			if len(data[index]) == 0 {
+				return
+			}
+			docID, relativeID := h.cache.GetKeysNoLock(index)
+			h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+		})
 }
