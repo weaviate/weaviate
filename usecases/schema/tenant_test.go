@@ -639,3 +639,16 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 		sm.AssertExpectations(t)
 	})
 }
+
+func TestUpdateShardStatusOfAnUnknownShard(t *testing.T) {
+	for _, fsmErr := range []error{clusterSchema.ErrClassNotFound, clusterSchema.ErrShardNotFound} {
+		t.Run(fsmErr.Error(), func(t *testing.T) {
+			handler, sm := newTestHandler(t, &fakeDB{})
+			sm.On("UpdateShardStatus", "Movies", "shard1", "READONLY").Return(fmt.Errorf("%w: shard1", fsmErr)).Once()
+
+			_, err := handler.UpdateShardStatus(context.Background(), nil, "Movies", "shard1", "READONLY")
+
+			require.ErrorIs(t, err, ErrNotFound)
+		})
+	}
+}

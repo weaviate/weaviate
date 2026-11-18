@@ -140,6 +140,11 @@ func (s *Store) AcquireBucketConsistentViewForRead(name string) BucketConsistent
 }
 
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
+	return s.UpdateBucketsStatusBy(func(string) storagestate.Status { return targetStatus })
+}
+
+// UpdateBucketsStatusBy sets each bucket to the status statusOf returns for its name.
+func (s *Store) UpdateBucketsStatusBy(statusOf func(bucket string) storagestate.Status) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
@@ -153,9 +158,9 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	for _, b := range s.bucketsByName {
+	for name, b := range s.bucketsByName {
 		if b != nil {
-			b.UpdateStatus(targetStatus)
+			b.UpdateStatus(statusOf(name))
 		}
 	}
 

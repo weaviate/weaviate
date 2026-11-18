@@ -88,7 +88,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	t.Run("halt compaction with readonly status", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReadOnly.String(), "test readonly")
+		err := shd.Store().UpdateBucketsStatus(storagestate.StatusReadOnly)
 		require.Nil(t, err)
 
 		// give the status time to propagate
@@ -109,7 +109,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	t.Run("update shard status to ready", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReady.String(), "test ready")
+		err := shd.Store().UpdateBucketsStatus(storagestate.StatusReady)
 		require.Nil(t, err)
 
 		// the work held back while readonly has to resume, otherwise

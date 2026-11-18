@@ -261,7 +261,12 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 		return 0, err
 	}
 
-	return h.schemaManager.UpdateShardStatus(ctx, class, shard, status)
+	version, err := h.schemaManager.UpdateShardStatus(ctx, class, shard, status)
+	// A follower gets this mapping from the RPC error code.
+	if errors.Is(err, clusterSchema.ErrClassNotFound) || errors.Is(err, clusterSchema.ErrShardNotFound) {
+		return version, fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	return version, err
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,

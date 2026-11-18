@@ -77,6 +77,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
@@ -500,7 +501,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		restReplicationClient,
 		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
 	)
+	nodeOverlay := clusterSchema.NewNodeOverlay(appState.Logger)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
+		NodeOverlay:                         nodeOverlay,
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
 		MemtablesFlushDirtyAfter:            appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
@@ -768,6 +771,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
 		ReplicaMovementCleanupIncludeCancelled: appState.ServerConfig.Config.Replication.ReplicaMovementCleanupIncludeCancelled,
 		DBLoadProgress:                         repo.StartupLoadingProgress,
+		NodeOverlay:                            nodeOverlay,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
