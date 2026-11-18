@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const userReadOnlyError = "store is read-only due to: manually set by user"
@@ -101,6 +102,18 @@ func TestUserReadOnlyRefusesClientWrites(t *testing.T) {
 		overlay.SetReadOnly(class, name, false)
 		require.NoError(t, idx.putObject(ctx, object(), repl, "", 0))
 	})
+}
+
+func TestUserReadOnlyRefusesAtPrepare(t *testing.T) {
+	const class = "UserReadOnlyPrepare"
+	ctx := context.Background()
+	shard, idx, overlay := userReadOnlyIndex(t, class)
+	overlay.SetReadOnly(class, shard.Name(), true)
+
+	resp := idx.ReplicateObject(ctx, shard.Name(), "req-1", testObjWithTime(class, uuidLow, time.Now().UnixMilli()), 0)
+
+	require.Len(t, resp.Errors, 1)
+	require.Equal(t, replicaerrors.StatusUserReadOnly, resp.Errors[0].Code)
 }
 
 func TestReportedStatusShowsUserReadOnly(t *testing.T) {
