@@ -221,7 +221,9 @@ type partialFlushCase struct {
 }
 
 func TestRecoveryAfterPartialFlush(t *testing.T) {
-	vectors, _ := testinghelpers.RandomVecsFixedSeed(700, 0, 8)
+	// the final phase adds 320 vectors, more than one posting holds at the
+	// 8 KB floor and 8 dimensions (316), so even an empty recovered store splits
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(720, 0, 8)
 	idRange := func(from, to int) []uint64 {
 		ids := make([]uint64, 0, to-from)
 		for id := from; id < to; id++ {
@@ -253,22 +255,22 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 	centroidVectorsBucket := func(_ *Config, storeDir string) string {
 		return filepath.Join(storeDir, helpers.VectorsCompressedBucketLSM)
 	}
+	livePostings := func(h *HFresh) (live int, smallest uint64) {
+		var smallestCount uint32
+		for id, md := range h.PostingMap.Iter() {
+			if md.Count() == 0 || !h.Centroids.Exists(id) {
+				continue
+			}
+			live++
+			if smallestCount == 0 || md.Count() < smallestCount {
+				smallest, smallestCount = id, md.Count()
+			}
+		}
+		return live, smallest
+	}
 	// shrinkAndMerge deletes most of the smallest posting and merges it
 	shrinkAndMerge := func(t *testing.T, h *HFresh) []uint64 {
-		livePostings := func() (live int, smallest uint64) {
-			var smallestCount uint32
-			for id, md := range h.PostingMap.Iter() {
-				if md.Count() == 0 || !h.Centroids.Exists(id) {
-					continue
-				}
-				live++
-				if smallestCount == 0 || md.Count() < smallestCount {
-					smallest, smallestCount = id, md.Count()
-				}
-			}
-			return live, smallest
-		}
-		live, smallest := livePostings()
+		live, smallest := livePostings(h)
 		require.Greater(t, live, 1)
 
 		md, err := h.PostingMap.Get(t.Context(), smallest)
@@ -281,7 +283,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		}
 		require.NoError(t, h.Delete(deleted...))
 		require.NoError(t, h.doMerge(t.Context(), smallest))
-		after, _ := livePostings()
+		after, _ := livePostings(h)
 		require.Equal(t, live-1, after, "the merge must remove a posting")
 		return deleted
 	}
@@ -441,9 +443,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 
 			// the recovered index must keep accepting writes and splitting
 			phase(func(h *HFresh) {
-				add(t, h, 400, 700)
+				before, _ := livePostings(h)
+				add(t, h, 400, 720)
 				waitIdle(t, h)
-				requireReachable(h, append(reachable, idRange(400, 700)...))
+				// going from no posting to one is not a split
+				after, _ := livePostings(h)
+				require.Greater(t, after, max(before, 1), "the recovered index must split")
+				requireReachable(h, append(reachable, idRange(400, 720)...))
 			})
 		})
 	}
