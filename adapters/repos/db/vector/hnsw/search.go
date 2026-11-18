@@ -46,7 +46,14 @@ const (
 	PATHSEER
 )
 
-func (h *hnsw) searchTimeEF(k int) int {
+// searchTimeEF returns the beam width for a search of k results. A positive
+// per-request ef in params takes precedence over the collection config (it may
+// be smaller than the configured ef), but is never allowed to drop below k.
+func (h *hnsw) searchTimeEF(k int, params *searchparams.VectorSearchParams) int {
+	if reqEF := params.EFOrZero(); reqEF > 0 {
+		return max(reqEF, k)
+	}
+
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
@@ -88,13 +95,16 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
+	ef := h.searchTimeEF(k, params)
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", params.EFOrZero())
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return h.flatSearch(ctx, vector, k, ef, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+	return h.knnSearchByVector(ctx, vector, k, ef, allowList)
 }
 
 func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
@@ -134,7 +144,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return h.flatMultiSearch(ctx, vectors, k, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
+	return h.knnSearchByMultiVector(ctx, vectors, k, allowList, params)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -1262,11 +1272,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	return ids, dists, nil
 }
 
-func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime, params), allowList)
 		if err != nil {
 			return nil, nil, err
 		}

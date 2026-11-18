@@ -1,0 +1,160 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package hnsw
+
+import (
+	"context"
+	"math/rand"
+	"testing"
+
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+)
+
+func Test_searchTimeEF_Override(t *testing.T) {
+	dynamic := ent.UserConfig{
+		VectorCacheMaxObjects: 10,
+		EF:                    -1,
+		DynamicEFMin:          100,
+		DynamicEFMax:          500,
+		DynamicEFFactor:       8,
+	}
+	fixed := ent.UserConfig{VectorCacheMaxObjects: 10, EF: 64}
+
+	tests := []struct {
+		name     string
+		config   ent.UserConfig
+		k        int
+		params   *searchparams.VectorSearchParams
+		expected int
+	}{
+		{"nil params, dynamic ef", dynamic, 10, nil, 100},
+		{"zero ef, dynamic ef", dynamic, 10, &searchparams.VectorSearchParams{}, 100},
+		{"nil params, fixed ef", fixed, 10, nil, 64},
+		{"override above k", fixed, 10, &searchparams.VectorSearchParams{EF: 800}, 800},
+		{"override below collection ef", fixed, 10, &searchparams.VectorSearchParams{EF: 20}, 20},
+		{"override below k", fixed, 100, &searchparams.VectorSearchParams{EF: 10}, 100},
+		{"override with dynamic ef", dynamic, 10, &searchparams.VectorSearchParams{EF: 33}, 33},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "search-params-ef-test",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return nil, errors.Errorf("not implemented")
+				},
+				GetViewThunk: func() common.BucketView { return &dynamicEFNoopBucketView{} },
+			}, tt.config, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expected, index.searchTimeEF(tt.k, tt.params))
+			require.NoError(t, index.Drop(context.Background()))
+		})
+	}
+}
+
+func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
+	const (
+		size    = 2000
+		queries = 20
+		dims    = 16
+		k       = 10
+	)
+	ctx := context.Background()
+	vectors, queryVecs := testinghelpers.RandomVecsFixedSeed(size, queries, dims)
+
+	build := func(t *testing.T, cfg ent.UserConfig) *hnsw {
+		store := testinghelpers.NewDummyStore(t)
+		t.Cleanup(func() { store.Shutdown(ctx) })
+		index, err := New(Config{
+			RootPath:              t.TempDir(),
+			ID:                    "search-params-ef-behaviour",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewL2SquaredProvider(),
+			AllocChecker:          memwatch.NewDummyMonitor(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		}, cfg, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		t.Cleanup(func() { index.Shutdown(ctx) })
+
+		// identical graphs: deterministic levels and sequential insertion
+		r := rand.New(rand.NewSource(42))
+		index.randFunc = r.Float64
+		for id, v := range vectors {
+			require.NoError(t, index.Add(ctx, uint64(id), v))
+		}
+		return index
+	}
+
+	base := ent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        64,
+		VectorCacheMaxObjects: 100000,
+	}
+	cfgA := base
+	cfgA.EF = -1 // dynamic ef defaults
+	cfgA.DynamicEFMin, cfgA.DynamicEFMax, cfgA.DynamicEFFactor = 100, 500, 8
+	cfgB := base
+	cfgB.EF = 64
+
+	idxA := build(t, cfgA)
+	idxB := build(t, cfgB)
+
+	t.Run("request ef equals configured ef", func(t *testing.T) {
+		for i, q := range queryVecs {
+			idsA, distsA, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: 64})
+			require.NoError(t, err)
+			idsB, distsB, err := idxB.SearchByVector(ctx, q, k, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, idsB, idsA, "query %d ids", i)
+			assert.Equal(t, distsB, distsA, "query %d distances", i)
+		}
+	})
+
+	t.Run("request ef changes the beam width", func(t *testing.T) {
+		differs := 0
+		for _, q := range queryVecs {
+			idsDefault, _, err := idxA.SearchByVector(ctx, q, k, nil, nil)
+			require.NoError(t, err)
+			idsNarrow, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: k})
+			require.NoError(t, err)
+			if !assert.ObjectsAreEqual(idsDefault, idsNarrow) {
+				differs++
+			}
+		}
+		assert.Positive(t, differs, "ef=k and dynamic ef=100 should disagree on at least one query")
+	})
+
+	t.Run("ef below k still returns k results", func(t *testing.T) {
+		for i, q := range queryVecs {
+			ids, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: 3})
+			require.NoError(t, err)
+			assert.Len(t, ids, k, "query %d", i)
+		}
+	})
+}
