@@ -855,6 +855,22 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
+	// Cap for a per-request HNSW ef. Unset or 0 falls back to the resolved
+	// QUERY_MAXIMUM_RESULTS.
+	config.HNSWMaxSearchEF = config.QueryMaximumResults
+	if v := os.Getenv("HNSW_MAX_SEARCH_EF"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse HNSW_MAX_SEARCH_EF as int: %w", err)
+		}
+		if asInt < 0 {
+			return fmt.Errorf("HNSW_MAX_SEARCH_EF must not be negative")
+		}
+		if asInt > 0 {
+			config.HNSWMaxSearchEF = int64(asInt)
+		}
+	}
+
 	if v := os.Getenv("QUERY_HYBRID_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {

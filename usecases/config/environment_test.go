@@ -3181,3 +3181,39 @@ func TestEnvironmentBackupDedupeConvergenceTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentHNSWMaxSearchEF(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxResults    string
+		maxEF         string
+		expectedMaxEF int64
+		expectErr     bool
+	}{
+		{"unset follows QUERY_MAXIMUM_RESULTS default", "", "", DefaultQueryMaximumResults, false},
+		{"unset follows explicit QUERY_MAXIMUM_RESULTS", "5000", "", 5000, false},
+		{"explicit value wins", "5000", "20000", 20000, false},
+		{"zero falls back", "5000", "0", 5000, false},
+		{"negative rejected", "", "-1", 0, true},
+		{"not a number rejected", "", "abc", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.maxResults != "" {
+				t.Setenv("QUERY_MAXIMUM_RESULTS", tt.maxResults)
+			}
+			if tt.maxEF != "" {
+				t.Setenv("HNSW_MAX_SEARCH_EF", tt.maxEF)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedMaxEF, conf.HNSWMaxSearchEF)
+		})
+	}
+}
