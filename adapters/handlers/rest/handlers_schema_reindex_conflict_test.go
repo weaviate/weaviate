@@ -225,8 +225,14 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 
 			restReason := gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
-			fsmErr := db.ReindexDetector{}.
-				CheckPropertyUpdate("C", "title", loadReindexTasks(t, task))
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: {task}}})
+			require.NoError(t, err)
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:                  logrus.New(),
+				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}},
+			})
+			require.NoError(t, mgr.Restore(snapshot))
+			fsmErr := mgr.CheckPropertyUpdate("C", "title")
 
 			require.Equal(t, tc.wantBlocked, restReason != "",
 				"REST pre-flight verdict (reason=%q)", restReason)

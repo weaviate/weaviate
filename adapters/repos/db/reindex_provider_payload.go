@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
@@ -46,6 +47,9 @@ func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader,
 	var p ReindexTaskPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return nil, err
+	}
+	if p.Collection == "" || p.MigrationType == "" {
+		return nil, fmt.Errorf("reindex payload missing collection or migrationType")
 	}
 	return ReindexTaskHeader{
 		MigrationType: p.MigrationType, Class: p.Collection, Properties: p.Properties,
