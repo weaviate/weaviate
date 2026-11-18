@@ -1879,6 +1879,200 @@ func TestDequeueBatchUndecodableRecord(t *testing.T) {
 	}
 }
 
+// Pending has to see what the workers will get, in the order they get it, on chunks in
+// every state a restart can leave them, and it has to leave them there.
+func TestPending(t *testing.T) {
+	const undecodable = 99
+	secondRecord := int64(chunkHeaderSize) + 4 + 9
+
+	truncate := func(cut int64) func(t *testing.T, path string) {
+		return func(t *testing.T, path string) {
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			require.NoError(t, os.Truncate(path, info.Size()-cut))
+		}
+	}
+
+	tests := []struct {
+		name   string
+		fill   func(t *testing.T, q *DiskQueue)
+		damage func(t *testing.T, oldestChunk string)
+		panics bool
+		stopAt uint64
+		want   []uint64
+	}{
+		{name: "empty queue"},
+		{
+			name: "partial chunk",
+			fill: func(t *testing.T, q *DiskQueue) { pushMany(t, q, 1, 1, 2) },
+			want: []uint64{1, 2},
+		},
+		{
+			name: "sealed chunk",
+			fill: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1, 2)
+				sealChunk(t, q)
+			},
+			want: []uint64{1, 2},
+		},
+		{
+			name: "sealed chunks before the partial chunk",
+			fill: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1)
+				sealChunk(t, q)
+				pushMany(t, q, 1, 2)
+				sealChunk(t, q)
+				pushMany(t, q, 1, 3)
+			},
+			want: []uint64{1, 2, 3},
+		},
+		{
+			name: "stops in the first chunk",
+			fill: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1, 2)
+				sealChunk(t, q)
+				pushMany(t, q, 1, 3)
+			},
+			stopAt: 1,
+			want:   []uint64{1},
+		},
+		{
+			name: "stops in a later chunk",
+			fill: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1)
+				sealChunk(t, q)
+				pushMany(t, q, 1, 2, 3)
+			},
+			stopAt: 2,
+			want:   []uint64{1, 2},
+		},
+		{
+			name: "passes over a record it can't decode",
+			fill: func(t *testing.T, q *DiskQueue) { pushMany(t, q, 1, undecodable, 1) },
+			want: []uint64{1},
+		},
+		{
+			name:   "passes over a record the decoder panics on",
+			fill:   func(t *testing.T, q *DiskQueue) { pushMany(t, q, 1, undecodable, 1) },
+			panics: true,
+			want:   []uint64{1},
+		},
+		{
+			name:   "partial chunk torn by a crash",
+			fill:   func(t *testing.T, q *DiskQueue) { pushMany(t, q, 1, 1, 2) },
+			damage: truncate(2),
+			want:   []uint64{1},
+		},
+		{
+			name: "goes on after a sealed chunk that ends early",
+			fill: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1, 2)
+				sealChunk(t, q)
+				pushMany(t, q, 1, 3)
+			},
+			damage: truncate(2),
+			want:   []uint64{1, 3},
+		},
+		{
+			name: "goes on after a sealed chunk with a corrupt record length",
+			fill: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1, 2)
+				sealChunk(t, q)
+				pushMany(t, q, 1, 3)
+			},
+			damage: func(t *testing.T, path string) { patchFile(t, path, secondRecord, make([]byte, 4)) },
+			want:   []uint64{1, 3},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := makeScheduler(t)
+			dir := t.TempDir()
+			decoder := &undecodableKeyDecoder{key: undecodable, panics: test.panics}
+
+			q := makeQueueWith(t, s, decoder, 10_000, dir)
+			if test.fill != nil {
+				test.fill(t, q)
+			}
+			require.NoError(t, q.Close(t.Context()))
+
+			if test.damage != nil {
+				entries, err := os.ReadDir(dir)
+				require.NoError(t, err)
+				test.damage(t, filepath.Join(dir, entries[0].Name()))
+			}
+
+			q = makeQueueWith(t, s, decoder, 10_000, dir)
+			t.Cleanup(func() { require.NoError(t, q.Close(context.Background())) })
+
+			read := func() []uint64 {
+				var seen []uint64
+				require.NoError(t, q.Pending(func(task Task) bool {
+					seen = append(seen, task.Key())
+					return task.Key() != test.stopAt
+				}))
+				return seen
+			}
+
+			size := q.Size()
+			require.Equal(t, test.want, read())
+			require.Equal(t, test.want, read(), "the tasks have to stay in the queue")
+			require.Equal(t, size, q.Size())
+		})
+	}
+}
+
+// A damaged chunk has to say what is wrong with it. The record count would give most of
+// these away, but only the length check stands between a corrupt length and an
+// allocation of that size.
+func TestDecodeChunkNamesTheDamage(t *testing.T) {
+	const recordSize = 4 + 9
+	secondRecord := int64(chunkHeaderSize) + recordSize
+
+	truncate := func(cut int64) func(t *testing.T, path string) {
+		return func(t *testing.T, path string) {
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			require.NoError(t, os.Truncate(path, info.Size()-cut))
+		}
+	}
+	setLength := func(length []byte) func(t *testing.T, path string) {
+		return func(t *testing.T, path string) { patchFile(t, path, secondRecord, length) }
+	}
+
+	tests := []struct {
+		name   string
+		damage func(t *testing.T, path string)
+		want   string
+	}{
+		{"ends inside a record", truncate(2), "chunk ends mid-record"},
+		{"ends inside a record length", truncate(recordSize - 2), "chunk ends mid-record"},
+		{"record length of zero", setLength(make([]byte, 4)), "invalid record length"},
+		{"record length beyond the payload", setLength([]byte{0xff, 0xff, 0xff, 0xff}), "chunk payload is only"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := makeScheduler(t)
+			path := writeSealedChunk(t, s, t.TempDir())
+			test.damage(t, path)
+
+			c, err := openChunk(path)
+			require.NoError(t, err)
+			defer c.Close()
+
+			q := makeQueueWith(t, s, discardExecutor(), 50, t.TempDir())
+			t.Cleanup(func() { require.NoError(t, q.Close(context.Background())) })
+
+			tasks, corrupt, err := q.decodeChunk(c)
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks, "what comes before the damage is still good")
+			require.ErrorContains(t, corrupt, test.want)
+		})
+	}
+}
+
 type undecodableKeyDecoder struct {
 	mockTaskDecoder
 	key    uint64
