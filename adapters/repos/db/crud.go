@@ -128,7 +128,12 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
+		idx := db.indices[indexID]
+		indexTenant := tenant
+		if !idx.partitioningEnabled {
+			indexTenant = ""
+		}
+		indexRes, err := idx.multiObjectByID(ctx, queries, indexTenant)
 		if err != nil {
 			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
@@ -137,7 +142,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 			if obj == nil {
 				continue
 			}
-			res := obj.SearchResult(additional, tenant)
+			res := obj.SearchResult(additional, indexTenant)
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
