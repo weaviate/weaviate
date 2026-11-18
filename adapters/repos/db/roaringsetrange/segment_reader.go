@@ -73,10 +73,10 @@ func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters
 	}
 }
 
+// firstLayer returns layer 0's additions as the cursor's view, which a read
+// must not modify. The pread cursor overwrites it with later nodes, so a read
+// builds everything it needs from it before its merge calls Next().
 func (r *SegmentReader) firstLayer() (roaringset.BitmapLayer, bool) {
-	// bitmaps' cloning is necessary for both types of cursors: mmap and pread
-	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
-	// are later overwritten with nodes being read later)
 	_, layer, ok := r.cursor.First()
 	if !ok {
 		return roaringset.BitmapLayer{
@@ -99,7 +99,7 @@ func (r *SegmentReader) firstLayer() (roaringset.BitmapLayer, bool) {
 		}, false
 	}
 	return roaringset.BitmapLayer{
-		Additions: layer.Additions.Clone(),
+		Additions: layer.Additions,
 		Deletions: deletions,
 	}, true
 }
@@ -118,7 +118,9 @@ func (r *SegmentReader) readEqual(ctx context.Context, value uint64, conc int,
 		return firstLayer, nil
 	}
 
-	eq, err := r.mergeBetween(ctx, value, value+1, firstLayer.Additions, conc)
+	startMin := firstLayer.Additions.ZeroedLayout()
+	startMax := firstLayer.Additions.ZeroedLayout()
+	eq, err := r.mergeBetween(ctx, value, value+1, startMin, startMax, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -144,7 +146,9 @@ func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64, conc int
 	}
 
 	neq := firstLayer.Additions.Clone()
-	eq, err := r.mergeBetween(ctx, value, value+1, firstLayer.Additions, conc)
+	startMin := firstLayer.Additions.ZeroedLayout()
+	startMax := firstLayer.Additions.ZeroedLayout()
+	eq, err := r.mergeBetween(ctx, value, value+1, startMin, startMax, conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -172,7 +176,7 @@ func (r *SegmentReader) readLessThan(ctx context.Context, value uint64, conc int
 	}
 
 	lt := firstLayer.Additions.Clone()
-	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions, conc)
+	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions.ZeroedLayout(), conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -193,16 +197,17 @@ func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64, con
 
 	if value == math.MaxUint64 {
 		// all values are <= max uint64
+		firstLayer.Additions = firstLayer.Additions.Clone()
 		return firstLayer, nil
 	}
 
 	lte := firstLayer.Additions.Clone()
-	gte1, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions, conc)
+	gt, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions.ZeroedLayout(), conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lte.AndNotConc(gte1, conc)
+	lte.AndNotConc(gt, conc)
 	return roaringset.BitmapLayer{
 		Additions: lte,
 		Deletions: firstLayer.Deletions,
@@ -224,13 +229,13 @@ func (r *SegmentReader) readGreaterThan(ctx context.Context, value uint64, conc 
 		}, nil
 	}
 
-	gte1, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions, conc)
+	gt, err := r.mergeGreaterThanEqual(ctx, value+1, firstLayer.Additions.ZeroedLayout(), conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
 
 	return roaringset.BitmapLayer{
-		Additions: gte1,
+		Additions: gt,
 		Deletions: firstLayer.Deletions,
 	}, nil
 }
@@ -244,10 +249,11 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64, 
 
 	if value == 0 {
 		// all values are >= 0
+		firstLayer.Additions = firstLayer.Additions.Clone()
 		return firstLayer, nil
 	}
 
-	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions, conc)
+	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions.ZeroedLayout(), conc)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -258,11 +264,31 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64, 
 	}, nil
 }
 
+// mergeLayer folds one bit layer into result and reports whether any layer was
+// folded in so far.
+func mergeLayer(result, additions *sroar.Bitmap, bitSet, merged bool, conc int) bool {
+	if !merged {
+		if !bitSet {
+			return false
+		}
+		// result starts empty and every layer is a subset of all rows,
+		// so this equals ANDing all rows with the layer
+		result.OrConc(additions, conc)
+		return true
+	}
+
+	if bitSet {
+		result.AndConc(additions, conc)
+	} else {
+		result.OrConc(additions, conc)
+	}
+	return true
+}
+
 func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
-	all *sroar.Bitmap, conc int,
+	result *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
-	ANDed := false
-	result := all
+	merged := false
 	entriesCh := make(chan *cursorEntry)
 
 	errors.GoWrapper(func() {
@@ -276,15 +302,8 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 	}, nil)
 
 	for entry := range entriesCh {
-		bit := entry.bit
-		layer := entry.layer
-
-		if value&(1<<(bit-1)) != 0 {
-			ANDed = true
-			result.AndConc(layer.Additions, conc)
-		} else if ANDed {
-			result.OrConc(layer.Additions, conc)
-		}
+		bitSet := value&(1<<(entry.bit-1)) != 0
+		merged = mergeLayer(result, entry.layer.Additions, bitSet, merged, conc)
 	}
 
 	if ctx.Err() != nil {
@@ -295,12 +314,10 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 }
 
 func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxExc uint64,
-	all *sroar.Bitmap, conc int,
+	resultMin, resultMax *sroar.Bitmap, conc int,
 ) (*sroar.Bitmap, error) {
-	ANDedMin := false
-	ANDedMax := false
-	resultMin := all.Clone()
-	resultMax := all
+	mergedMin := false
+	mergedMax := false
 	entriesCh := make(chan *cursorEntry)
 
 	errors.GoWrapper(func() {
@@ -314,24 +331,9 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 	}, nil)
 
 	for entry := range entriesCh {
-		bit := entry.bit
-		layer := entry.layer
-
-		var b uint64 = 1 << (bit - 1)
-
-		if valueMinInc&b != 0 {
-			ANDedMin = true
-			resultMin.AndConc(layer.Additions, conc)
-		} else if ANDedMin {
-			resultMin.OrConc(layer.Additions, conc)
-		}
-
-		if valueMaxExc&b != 0 {
-			ANDedMax = true
-			resultMax.AndConc(layer.Additions, conc)
-		} else if ANDedMax {
-			resultMax.OrConc(layer.Additions, conc)
-		}
+		var b uint64 = 1 << (entry.bit - 1)
+		mergedMin = mergeLayer(resultMin, entry.layer.Additions, valueMinInc&b != 0, mergedMin, conc)
+		mergedMax = mergeLayer(resultMax, entry.layer.Additions, valueMaxExc&b != 0, mergedMax, conc)
 	}
 
 	resultMin.AndNotConc(resultMax, conc)
