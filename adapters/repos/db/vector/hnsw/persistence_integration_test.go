@@ -67,7 +67,7 @@ func TestHnswPersistence_IsolatedNodeSurvivesCompactionAndRestart(t *testing.T) 
 			require.NoError(t, index.Add(t.Context(), id, testVectors[id]))
 
 			for round := 0; round < 3; round++ {
-				ids, _, err := index.SearchByVector(t.Context(), testVectors[id], 1, nil)
+				ids, _, err := index.SearchByVector(t.Context(), testVectors[id], 1, nil, nil)
 				require.NoError(t, err)
 				require.Equal(t, []uint64{id}, ids, "search after %d compaction/restart rounds", round)
 				if round == 2 {

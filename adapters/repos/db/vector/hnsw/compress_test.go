@@ -131,7 +131,7 @@ func Test_CompressedEntrypointRecoveryOnRestart(t *testing.T) {
 
 	// Record the entrypoint and search results before shutdown.
 	entrypoint := index.entryPointID
-	control, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil)
+	control, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, index.Flush())
@@ -161,7 +161,7 @@ func Test_CompressedEntrypointRecoveryOnRestart(t *testing.T) {
 
 	// Search should succeed — the entrypoint's compressed vector is recovered
 	// on first access via the vectorForID fallback.
-	results, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil)
+	results, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil, nil)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, control, results, "search results should match after entrypoint recovery")
 }
@@ -646,9 +646,9 @@ func Test_NoRaceCompressNamedVectorsDoNotCollide(t *testing.T) {
 	index1.PostStartup(context.Background())
 	index2.PostStartup(context.Background())
 
-	_, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
+	_, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
 	assert.Nil(t, err)
-	_, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil)
+	_, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
 	assert.Nil(t, err)
 }
 
@@ -698,14 +698,14 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 	err = index2.compress(uc2)
 	assert.Nil(t, err)
 
-	control1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil)
+	control1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
 	assert.Nil(t, err)
-	control2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
+	control2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
 	assert.Nil(t, err)
 
-	sample1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil)
+	sample1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
 	assert.Nil(t, err)
-	sample2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
+	sample2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
 	assert.Nil(t, err)
 	assert.ElementsMatch(t, control1, sample1)
 	assert.ElementsMatch(t, control2, sample2)
@@ -721,9 +721,9 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 	index1.PostStartup(context.Background())
 	index2.PostStartup(context.Background())
 
-	sample1, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
+	sample1, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
 	assert.Nil(t, err)
-	sample2, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil)
+	sample2, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
 	assert.Nil(t, err)
 	assert.ElementsMatch(t, control1, sample1)
 	assert.ElementsMatch(t, control2, sample2)

@@ -163,7 +163,7 @@ func TestFlatRescoreBudgetDoesNotPreallocate(t *testing.T) {
 
 			var before, after runtime.MemStats
 			runtime.ReadMemStats(&before)
-			ids, _, err := index.SearchByVector(t.Context(), vectors[7], k, nil)
+			ids, _, err := index.SearchByVector(t.Context(), vectors[7], k, nil, nil)
 			runtime.ReadMemStats(&after)
 			require.NoError(t, err)
 			require.Len(t, ids, k)
@@ -215,7 +215,7 @@ func TestFlatRescoreSearch(t *testing.T) {
 			}
 			require.True(t, index.Compressed())
 
-			ids, dists, err := index.SearchByVector(t.Context(), query, k, nil)
+			ids, dists, err := index.SearchByVector(t.Context(), query, k, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, ids, k)
 			assert.Equal(t, uint64(7), ids[0], "the query vector itself is the exact nearest")

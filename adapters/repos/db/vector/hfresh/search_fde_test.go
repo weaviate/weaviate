@@ -190,7 +190,7 @@ func TestSearchByMultiVectorBackwardCompatibility(t *testing.T) {
 
 	// Search using the public API
 	k := 10
-	ids, dists, err := tf.Index.SearchByMultiVector(ctx, queryVecs, k, nil)
+	ids, dists, err := tf.Index.SearchByMultiVector(ctx, queryVecs, k, nil, nil)
 	require.NoError(t, err)
 
 	// Verify we get results
@@ -241,7 +241,7 @@ func TestSearchByVectorUnchanged(t *testing.T) {
 
 	// Search
 	k := 10
-	ids, dists, err := tf.Index.SearchByVector(ctx, query, k, nil)
+	ids, dists, err := tf.Index.SearchByVector(ctx, query, k, nil, nil)
 	require.NoError(t, err)
 
 	assert.LessOrEqual(t, len(ids), k)
@@ -350,7 +350,7 @@ func TestSearchProbeChangesResults(t *testing.T) {
 	routing, rerank := tf.Index.muveraSearchBudgets(10)
 	require.Equal(t, 16, routing)
 	require.Equal(t, 350, rerank)
-	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil)
+	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ids, 10)
 }

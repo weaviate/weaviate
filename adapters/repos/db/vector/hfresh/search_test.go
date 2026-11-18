@@ -39,7 +39,7 @@ func TestSearchTreatsPartiallyInitializedDimensionsAsEmptyIndex(t *testing.T) {
 
 	atomic.StoreUint32(&tf.Index.dims, uint32(len(vector)))
 
-	ids, dists, err := tf.Index.SearchByVector(t.Context(), vector, 10, nil)
+	ids, dists, err := tf.Index.SearchByVector(t.Context(), vector, 10, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)
@@ -65,7 +65,7 @@ func TestFlatSearchTreatsPartiallyInitializedIndexAsEmptyIndex(t *testing.T) {
 	// a small allow list routes the search through flatSearch, which must
 	// also treat the partially initialized index as empty
 	allowList := helpers.NewAllowList(0)
-	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, allowList)
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, allowList, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)
@@ -87,7 +87,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
 	// search on empty index returns 0 results and no error
-	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)
@@ -95,7 +95,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	err = index.Add(t.Context(), 0, vectors[0])
 	require.NoError(t, err)
 
-	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ids, 1)
 	require.Len(t, dists, 1)
@@ -104,7 +104,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	err = index.Delete(0)
 	require.NoError(t, err)
 
-	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)
@@ -171,7 +171,7 @@ func TestSearchCosineDistanceRescore(t *testing.T) {
 	// top result with distance ≈ 0, and the remaining results must have
 	// non-zero distances in ascending order.
 	queryID := uint64(42)
-	ids, dists, err := index.SearchByVector(t.Context(), vectors[queryID], k, nil)
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[queryID], k, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ids)
 
@@ -245,7 +245,7 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 	t.Run("single vector path", func(t *testing.T) {
 		tf, probe := populateRandomSingleVectorIndex(t, nDocs, dim, 42)
 		for _, limit := range limits {
-			ids, dists, err := tf.Index.SearchByVector(t.Context(), probe, limit, nil)
+			ids, dists, err := tf.Index.SearchByVector(t.Context(), probe, limit, nil, nil)
 			require.NoError(t, err)
 			assertLen(t, limit, ids)
 			require.Len(t, dists, len(ids), "limit=%d", limit)
@@ -261,7 +261,7 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 
 		probe := randomMultiVector(rng, 2, dim)
 		for _, limit := range limits {
-			ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), probe, limit, nil)
+			ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), probe, limit, nil, nil)
 			require.NoError(t, err)
 			assertLen(t, limit, ids)
 			require.Len(t, dists, len(ids), "limit=%d", limit)
@@ -288,14 +288,14 @@ func TestSearchByMultiVectorOnUninitializedIndex(t *testing.T) {
 	probe := [][]float32{{0.1, 0.2, 0.3, 0.4}}
 
 	t.Run("search returns empty before first indexed write", func(t *testing.T) {
-		ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+		ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil, nil)
 		require.NoError(t, err)
 		require.Empty(t, ids)
 		require.Empty(t, dists)
 	})
 
 	t.Run("distance search returns empty before first indexed write", func(t *testing.T) {
-		ids, dists, err := tf.Index.SearchByMultiVectorDistance(t.Context(), probe, 0.5, 100, nil)
+		ids, dists, err := tf.Index.SearchByMultiVectorDistance(t.Context(), probe, 0.5, 100, nil, nil)
 		require.NoError(t, err)
 		require.Empty(t, ids)
 		require.Empty(t, dists)
@@ -303,7 +303,7 @@ func TestSearchByMultiVectorOnUninitializedIndex(t *testing.T) {
 
 	t.Run("search works after first insert", func(t *testing.T) {
 		addMultiVectorToIndex(t, &tf, 0, [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}})
-		ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+		ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, ids)
 	})
@@ -319,11 +319,11 @@ func TestSearchByMultiVectorOnUninitializedIndex(t *testing.T) {
 			addMultiVectorToIndex(t, &tf2, 0, [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}})
 		}()
 		for i := 0; i < 100; i++ {
-			_, _, err := tf2.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+			_, _, err := tf2.Index.SearchByMultiVector(t.Context(), probe, 3, nil, nil)
 			require.NoError(t, err)
 		}
 		<-done
-		ids, _, err := tf2.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+		ids, _, err := tf2.Index.SearchByMultiVector(t.Context(), probe, 3, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, ids)
 	})
@@ -366,7 +366,7 @@ func TestSearchByMultiVectorMaxSimOrderingCosine(t *testing.T) {
 	addMultiVectorToIndex(t, &tf, 1, [][]float32{e0, e1}) // B
 	addMultiVectorToIndex(t, &tf, 2, [][]float32{e1, e1}) // C
 
-	ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), [][]float32{e0}, 3, nil)
+	ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), [][]float32{e0}, 3, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{0, 1, 2}, ids, "expected order A, B, C")
 
@@ -400,7 +400,7 @@ func TestSearchByMultiVectorSelfRecallCosine(t *testing.T) {
 	const samples = 50
 	for q := 0; q < samples; q++ {
 		id := uint64(sampleRng.Intn(nDocs))
-		ids, _, err := tf.Index.SearchByMultiVector(t.Context(), docs[id], 1, nil)
+		ids, _, err := tf.Index.SearchByMultiVector(t.Context(), docs[id], 1, nil, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, ids)
 		require.Equal(t, id, ids[0],
@@ -523,7 +523,7 @@ func TestConfigUpdateDoesNotRaceSearch(t *testing.T) {
 		}
 	}()
 	for i := 0; i < rounds; i++ {
-		_, _, err := tf.Index.SearchByVector(t.Context(), probe, 10, nil)
+		_, _, err := tf.Index.SearchByVector(t.Context(), probe, 10, nil, nil)
 		require.NoError(t, err)
 		_, _ = tf.Index.muveraSearchBudgets(10)
 	}
@@ -630,7 +630,7 @@ func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
 	// no budget in ctx: fan-out up to 2*GOMAXPROCS allowed
 	cur.Store(0)
 	maxSeen.Store(0)
-	idsFree, distsFree, err := index.SearchByVector(searchCtx, query, 10, nil)
+	idsFree, distsFree, err := index.SearchByVector(searchCtx, query, 10, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, idsFree)
 	t.Logf("no budget: max concurrent rescore fetches = %d", maxSeen.Load())
@@ -641,7 +641,7 @@ func TestRescoreConcurrencyRespectsBudget(t *testing.T) {
 	cur.Store(0)
 	maxSeen.Store(0)
 	budgetCtx := concurrency.CtxWithBudget(searchCtx, 1)
-	idsBudget, distsBudget, err := index.SearchByVector(budgetCtx, query, 10, nil)
+	idsBudget, distsBudget, err := index.SearchByVector(budgetCtx, query, 10, nil, nil)
 	require.NoError(t, err)
 	t.Logf("budget=1: max concurrent rescore fetches = %d", maxSeen.Load())
 	require.Equal(t, int64(1), maxSeen.Load(),
@@ -669,7 +669,7 @@ func TestRescoreSkipsCandidatesDeletedMidQuery(t *testing.T) {
 	// querying with the deleted vector itself guarantees it is a rescore
 	// candidate; the search must skip it without failing
 	searchCtx := context.WithValue(t.Context(), searchMarker{}, true)
-	ids, _, err := index.SearchByVector(searchCtx, vectors[deletedID], 10, nil)
+	ids, _, err := index.SearchByVector(searchCtx, vectors[deletedID], 10, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ids)
 	require.NotContains(t, ids, deletedID,
@@ -691,17 +691,17 @@ func TestRescoreTieBreakingIsDeterministic(t *testing.T) {
 	// tie handling must not depend on worker scheduling or the budget:
 	// every run over the same index must return the same ids
 	ctx := t.Context()
-	first, _, err := index.SearchByVector(ctx, vectors[0], 10, nil)
+	first, _, err := index.SearchByVector(ctx, vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, first)
 
 	for range 5 {
-		again, _, err := index.SearchByVector(ctx, vectors[0], 10, nil)
+		again, _, err := index.SearchByVector(ctx, vectors[0], 10, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, first, again, "rescore tie-breaking drifted between runs")
 	}
 
-	serial, _, err := index.SearchByVector(concurrency.CtxWithBudget(ctx, 1), vectors[0], 10, nil)
+	serial, _, err := index.SearchByVector(concurrency.CtxWithBudget(ctx, 1), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, first, serial, "budget must not change tie handling")
 }
@@ -741,7 +741,7 @@ func TestSearchUsesPooledReadsWhenConfigured(t *testing.T) {
 		require.NoError(t, index.Add(t.Context(), uint64(i), vec))
 	}
 
-	ids, _, err := index.SearchByVector(t.Context(), queries[0], 10, nil)
+	ids, _, err := index.SearchByVector(t.Context(), queries[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ids)
 	require.Greater(t, pooledCalls.Load(), int64(0),

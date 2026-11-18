@@ -569,7 +569,7 @@ func TestSearchReportsMissingObjectsBucket(t *testing.T) {
 
 	require.NoError(t, index.store.ShutdownBucket(ctx, helpers.ObjectsBucketLSM))
 
-	_, _, err := index.SearchByVector(ctx, queries[0], 10, nil)
+	_, _, err := index.SearchByVector(ctx, queries[0], 10, nil, nil)
 	require.ErrorIs(t, err, lsmkv.ErrBucketNotFound)
 }
 

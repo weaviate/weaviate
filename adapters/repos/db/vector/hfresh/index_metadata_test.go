@@ -72,7 +72,7 @@ func TestSingleCentroidSurvivesCompactionAndRestart(t *testing.T) {
 
 	for round := 0; round < 3; round++ {
 		for _, vector := range vectors {
-			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil)
+			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil, nil)
 			require.NoError(t, err)
 			require.ElementsMatch(t, []uint64{0, 1, 2}, ids, "restart %d", round)
 		}

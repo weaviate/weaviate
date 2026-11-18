@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -81,6 +82,7 @@ func (h *hnsw) autoEfFromK(k int) int {
 
 func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	k int, allowList helpers.AllowList,
+	params *searchparams.VectorSearchParams,
 ) ([]uint64, []float32, error) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
@@ -95,7 +97,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
 }
 
-func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
 	if !h.multivector.Load() {
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
@@ -108,7 +110,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
 		overfetch := 2
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList, params)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -147,9 +149,12 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
+	params *searchparams.VectorSearchParams,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByVector, h.logger)
+		func(ctx context.Context, vec []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+			return h.SearchByVector(ctx, vec, k, allow, params)
+		}, h.logger)
 }
 
 // SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
@@ -164,9 +169,12 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
+	params *searchparams.VectorSearchParams,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByMultiVector, h.logger)
+		func(ctx context.Context, vec [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+			return h.SearchByMultiVector(ctx, vec, k, allow, params)
+		}, h.logger)
 }
 
 func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {

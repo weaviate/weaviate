@@ -163,7 +163,7 @@ func (e *upgradeTestEnv) search(t *testing.T, queries [][]float32, k int, msg st
 	t.Helper()
 	res := make([][]uint64, len(queries))
 	for i, q := range queries {
-		ids, _, err := e.idx.SearchByVector(context.Background(), q, k, nil)
+		ids, _, err := e.idx.SearchByVector(context.Background(), q, k, nil, nil)
 		require.NoErrorf(t, err, "%s: query %d", msg, i)
 		res[i] = ids
 	}
@@ -294,7 +294,7 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 				}
 				codesDuring = env.compressedCodeLengths()
 				for _, q := range queries {
-					ids, _, err := env.idx.SearchByVector(context.Background(), q, k, nil)
+					ids, _, err := env.idx.SearchByVector(context.Background(), q, k, nil, nil)
 					searchErrs = append(searchErrs, err)
 					during = append(during, ids)
 				}

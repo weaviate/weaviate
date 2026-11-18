@@ -229,7 +229,7 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	// just silenced the length error or returned garbage).
 	baseline := make([][]uint64, queriesSize)
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		baseline[i] = ids
 	}
@@ -288,7 +288,7 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	// "vector lengths don't match". With the fix, results must match the
 	// pre-upgrade baseline exactly.
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoErrorf(t, err,
 			"search after an interrupted quantized upgrade must not fail on a corrupt compressed bucket (query %d)", i)
 		assert.ElementsMatchf(t, baseline[i], ids,
@@ -378,7 +378,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 
 	baseline := make([][]uint64, queriesSize)
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		baseline[i] = ids
 	}
@@ -399,7 +399,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	idx.PostStartup(ctx)
 	require.False(t, idx.IsUpgraded())
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		assert.ElementsMatch(t, baseline[i], ids)
 	}
@@ -432,7 +432,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	// snapshot has the cleared marker over the still-corrupt bucket and this
 	// search fails with "vector lengths don't match".
 	for i := range queries {
-		ids, _, err := idx2.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx2.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoErrorf(t, err, "post-crash search must succeed (query %d): repair was not durable", i)
 		assert.ElementsMatch(t, baseline[i], ids)
 	}
@@ -553,7 +553,7 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 
 	baseline := make([][]uint64, queriesSize)
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		baseline[i] = ids
 	}
@@ -582,7 +582,7 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, present, "inline recovery must clear the in-progress marker on an ordinary abort")
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoErrorf(t, err, "the live flat index must serve correctly right after an aborted upgrade (query %d)", i)
 		assert.ElementsMatch(t, baseline[i], ids)
 	}
@@ -779,7 +779,7 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	// deleted id is gone.
 	require.False(t, idx.ContainsDoc(victim), "the deleted id must not survive as an orphan")
 	for i := range queries {
-		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoErrorf(t, err, "scan must not trip on an orphaned compressed code (query %d)", i)
 		for _, id := range ids {
 			assert.NotEqualf(t, victim, id, "deleted id %d resurrected in query %d results", victim, i)

@@ -68,7 +68,7 @@ func Test_FlatRQSearchBeforeQuantizerInit(t *testing.T) {
 			index := newRQTestIndex(t, tc.bits, false)
 			simulateInterruptedInit(index, vectors)
 
-			ids, dists, err := index.SearchByVector(ctx, []float32{1, 2, 3, 4}, 3, nil)
+			ids, dists, err := index.SearchByVector(ctx, []float32{1, 2, 3, 4}, 3, nil, nil)
 			require.NoError(t, err,
 				"search must fall back to the uncompressed bucket while the quantizer is not initialized")
 			require.Len(t, ids, 3)
@@ -79,7 +79,7 @@ func Test_FlatRQSearchBeforeQuantizerInit(t *testing.T) {
 		t.Run(tc.name+" empty index", func(t *testing.T) {
 			index := newRQTestIndex(t, tc.bits, false)
 
-			ids, dists, err := index.SearchByVector(ctx, []float32{1, 2, 3, 4}, 3, nil)
+			ids, dists, err := index.SearchByVector(ctx, []float32{1, 2, 3, 4}, 3, nil, nil)
 			require.NoError(t, err)
 			assert.Empty(t, ids)
 			assert.Empty(t, dists)
@@ -162,7 +162,7 @@ func Test_FlatRQConcurrentAddSearch(t *testing.T) {
 					return
 				default:
 				}
-				if _, _, err := index.SearchByVector(ctx, query, 10, nil); err != nil {
+				if _, _, err := index.SearchByVector(ctx, query, 10, nil, nil); err != nil {
 					searchErrs <- err
 					return
 				}
@@ -185,7 +185,7 @@ func Test_FlatRQConcurrentAddSearch(t *testing.T) {
 		t.Errorf("concurrent search failed: %v", err)
 	}
 
-	ids, _, err := index.SearchByVector(ctx, query, 10, nil)
+	ids, _, err := index.SearchByVector(ctx, query, 10, nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, ids, 10)
 }

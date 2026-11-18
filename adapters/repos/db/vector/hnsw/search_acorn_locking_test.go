@@ -149,7 +149,7 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 						default:
 						}
 						_, _, err := index.SearchByVector(ctx, queries[0], 10,
-							helpers.NewAllowList(allowed...))
+							helpers.NewAllowList(allowed...), nil)
 						if err != nil {
 							errs <- err
 							return
@@ -219,7 +219,7 @@ func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 
 			require.Panics(t, func() {
 				index.SearchByVector(ctx, queries[0], 10,
-					helpers.NewAllowList(index.entryPointID))
+					helpers.NewAllowList(index.entryPointID), nil)
 			})
 
 			require.True(t, index.nodes[locked].TryLock(),
@@ -272,7 +272,7 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	}
 	done := make(chan searchResult, 1)
 	go func() {
-		ids, _, err := index.SearchByVector(ctx, queries[0], 10, helpers.NewAllowList(allowed...))
+		ids, _, err := index.SearchByVector(ctx, queries[0], 10, helpers.NewAllowList(allowed...), nil)
 		done <- searchResult{ids: ids, err: err}
 	}()
 
@@ -367,7 +367,7 @@ func TestSearchSeedLoopDoesNotHoldNodeLocksAcrossTombstoneLock(t *testing.T) {
 
 	searchDone := make(chan error, 1)
 	go func() {
-		_, _, err := index.SearchByVector(ctx, queries[0], 10, gate)
+		_, _, err := index.SearchByVector(ctx, queries[0], 10, gate, nil)
 		searchDone <- err
 	}()
 
@@ -429,7 +429,7 @@ func TestSearchSeedLoopSkipsOutOfRangeAllowListID(t *testing.T) {
 		err error
 	)
 	require.NotPanics(t, func() {
-		ids, _, err = index.SearchByVector(ctx, queries[0], 10, allowed)
+		ids, _, err = index.SearchByVector(ctx, queries[0], 10, allowed, nil)
 	}, "seed loop panicked on an allow-list id past the end of the node slice")
 	require.NoError(t, err)
 	// the out-of-range id has no vector, so only the valid seed can come back

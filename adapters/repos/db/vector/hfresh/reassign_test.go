@@ -288,7 +288,7 @@ func TestReassignMuveraVector(t *testing.T) {
 	err = tf.Index.doReassign(t.Context(), op)
 	require.NoError(t, err)
 
-	results, _, err := tf.Index.SearchByMultiVector(t.Context(), multiVectors, 10, nil)
+	results, _, err := tf.Index.SearchByMultiVector(t.Context(), multiVectors, 10, nil, nil)
 	require.NoError(t, err)
 	require.Contains(t, results, docID)
 }

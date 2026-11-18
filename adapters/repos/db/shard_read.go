@@ -783,7 +783,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return fmt.Errorf("vector search by distance: %w", err)
 					}
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, nil)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -798,7 +798,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return fmt.Errorf("multi vector search by distance: %w", err)
 					}
 					ids, dists, err = multiIndex.SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, nil)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -817,7 +817,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("vector search: %w", err)
 					}
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList, nil)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -833,7 +833,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("multi vector search: %w", err)
 					}
-					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList, nil)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

@@ -165,7 +165,7 @@ func TestFilteredSearchClaimOrder(t *testing.T) {
 			allow := paddedAllowList(allowedIDs...)
 			defer allow.Close()
 
-			ids, _, err := tf.Index.SearchByVector(t.Context(), query, 1, allow)
+			ids, _, err := tf.Index.SearchByVector(t.Context(), query, 1, allow, nil)
 			require.NoError(t, err)
 			require.Equal(t, []uint64{vID}, ids,
 				"the allowlisted exact nearest neighbor must be returned regardless of posting id order")
@@ -200,7 +200,7 @@ func TestFilteredSearchReplicaDedupe(t *testing.T) {
 	allow := paddedAllowList(vID, w1ID, w2ID)
 	defer allow.Close()
 
-	ids, _, err := tf.Index.SearchByVector(t.Context(), query, 3, allow)
+	ids, _, err := tf.Index.SearchByVector(t.Context(), query, 3, allow, nil)
 	require.NoError(t, err)
 
 	// The returned ids alone pin the invariant: ResultSet.Insert does not
