@@ -436,10 +436,10 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		armsOnly bool
 	}{
 		{name: "manual status update", retries: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
-			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String(), 0)
+			return shard, fx.idx.updateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String())
 		}},
 		{name: "manual shutdown status", retries: true, armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
-			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String(), 0)
+			return shard, fx.idx.updateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String())
 		}},
 		// The only row that asserts a held shard's Shutdown returns no error; the other rows discard it in cleanup.
 		{name: "restart", armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {

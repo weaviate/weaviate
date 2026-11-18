@@ -391,12 +391,20 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "UpdateShard/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
-				cmd.UpdateShardStatusRequest{Class: "C1"}, nil)},
+				cmd.UpdateShardStatusRequest{Class: "C1", Shard: "T1", Status: "READONLY"}, nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.parser.On("ParseClass", mock.Anything).Return(nil)
-				m.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
-				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				if !ms.store.schemaManager.NodeOverlay().ReadOnly("C1", "T1") {
+					return fmt.Errorf("the overlay does not hold the read-only")
+				}
+				return nil
 			},
 		},
 		{

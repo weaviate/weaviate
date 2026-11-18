@@ -331,7 +331,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
+	err := shard.SetStatusReadonly(statusReasonResourcePressure)
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -343,7 +343,7 @@ func TestIndex_DropReadOnlyEmptyIndex_MultiTenant(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShardMultiTenant(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
+	err := shard.SetStatusReadonly(statusReasonResourcePressure)
 	require.Nil(t, err)
 
 	err = index.drop()

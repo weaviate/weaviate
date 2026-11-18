@@ -254,3 +254,41 @@ func (s *Shard) heldReadOnlyErr(cause error) error {
 	return fmt.Errorf("shard %q: a reindex migration's double-write mirror is not armed and "+
 		"cannot be stamped Unmirrored: %w", s.name, cause)
 }
+
+// refuseUserReadOnly is for client writes only: migrations and repair skip it.
+func (i *Index) refuseUserReadOnly(shardName string) error {
+	if i.userReadOnly(shardName) {
+		return storagestate.ErrStatusReadOnlyWithReason(statusReasonManualUpdate)
+	}
+	return nil
+}
+
+func (i *Index) userReadOnly(shardName string) bool {
+	return i.db != nil && i.db.nodeOverlay.ReadOnly(i.Config.ClassName.String(), shardName)
+}
+
+// updateShardStatus is the store's part of a PUT on a shard's status: it retries the reindex
+// migrations holding a loaded shard read-only. It never loads a shard.
+func (i *Index) updateShardStatus(_ context.Context, shardName, targetStatus string) error {
+	var shard *Shard
+	switch s := i.shards.Loaded(shardName).(type) {
+	case *Shard:
+		shard = s
+	default:
+		if lazy, ok := asLazyLoadShard(s); ok {
+			shard = lazy.loadedShard()
+		}
+	}
+	if shard == nil {
+		return nil
+	}
+	return shard.retryHeldMigrations(targetStatus)
+}
+
+func (i *Index) reportedStatus(shardName string, shard ShardLike) string {
+	status := shard.GetStatus()
+	if (status == storagestate.StatusReady || status == storagestate.StatusIndexing) && i.userReadOnly(shardName) {
+		return storagestate.StatusReadOnly.String()
+	}
+	return status.String()
+}
