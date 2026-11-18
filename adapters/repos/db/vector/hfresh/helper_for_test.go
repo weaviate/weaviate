@@ -54,6 +54,13 @@ func (s *testVectorStore) put(id uint64, v []float32) {
 	s.m[id] = v
 }
 
+// remove drops a vector as deleting its object does.
+func (s *testVectorStore) remove(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.m, id)
+}
+
 func (s *testVectorStore) get(_ context.Context, id uint64) ([]float32, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

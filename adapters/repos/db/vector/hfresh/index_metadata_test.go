@@ -293,6 +293,56 @@ func TestSinglePostingRecoveredWithoutRecord(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
+// deleteSinglePostingRecord leaves posting 1 on disk without its record, as
+// a crash before the record's flush does.
+func deleteSinglePostingRecord(t *testing.T, index *HFresh) {
+	t.Helper()
+	bucket, release, err := index.IndexMetadata.bucket.acquire()
+	require.NoError(t, err)
+	defer release()
+	require.NoError(t, bucket.Delete(index.IndexMetadata.key(singlePostingKey)))
+}
+
+// Deletes only bump versions, so the posting keeps entries whose objects are
+// gone, and the recovery must take its centroid from a live one.
+func TestSinglePostingRecoveredWithoutRecordSkipsDeletedEntries(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	require.NoError(t, index.Delete(0))
+	vectors.remove(0)
+	deleteSinglePostingRecord(t, index)
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	requireSelfSearchExcept(t, index, all, 0)
+}
+
+func TestSinglePostingRecoveredWithoutRecordAllDeleted(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	addRestartVectors(t, index, vectors, 0, 10)
+	for id := range uint64(10) {
+		require.NoError(t, index.Delete(id))
+		vectors.remove(id)
+	}
+	deleteSinglePostingRecord(t, index)
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 10, 300)
+	for id := 10; id < 300; id++ {
+		ids, _, err := index.SearchByVector(t.Context(), all[id], 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{uint64(id)}, ids, "vector %d", id)
+	}
+}
+
 func TestInterruptedTransitionSurvivesRestart(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
