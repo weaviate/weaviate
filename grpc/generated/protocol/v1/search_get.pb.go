@@ -138,21 +138,22 @@ type SearchRequest struct {
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	SortBy []*SortBy `protobuf:"bytes,34,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
 	// matches/searches for objects
-	Filters            *Filters            `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
-	HybridSearch       *Hybrid             `protobuf:"bytes,41,opt,name=hybrid_search,json=hybridSearch,proto3,oneof" json:"hybrid_search,omitempty"`
-	Bm25Search         *BM25               `protobuf:"bytes,42,opt,name=bm25_search,json=bm25Search,proto3,oneof" json:"bm25_search,omitempty"`
-	NearVector         *NearVector         `protobuf:"bytes,43,opt,name=near_vector,json=nearVector,proto3,oneof" json:"near_vector,omitempty"`
-	NearObject         *NearObject         `protobuf:"bytes,44,opt,name=near_object,json=nearObject,proto3,oneof" json:"near_object,omitempty"`
-	NearText           *NearTextSearch     `protobuf:"bytes,45,opt,name=near_text,json=nearText,proto3,oneof" json:"near_text,omitempty"`
-	NearImage          *NearImageSearch    `protobuf:"bytes,46,opt,name=near_image,json=nearImage,proto3,oneof" json:"near_image,omitempty"`
-	NearAudio          *NearAudioSearch    `protobuf:"bytes,47,opt,name=near_audio,json=nearAudio,proto3,oneof" json:"near_audio,omitempty"`
-	NearVideo          *NearVideoSearch    `protobuf:"bytes,48,opt,name=near_video,json=nearVideo,proto3,oneof" json:"near_video,omitempty"`
-	NearDepth          *NearDepthSearch    `protobuf:"bytes,49,opt,name=near_depth,json=nearDepth,proto3,oneof" json:"near_depth,omitempty"`
-	NearThermal        *NearThermalSearch  `protobuf:"bytes,50,opt,name=near_thermal,json=nearThermal,proto3,oneof" json:"near_thermal,omitempty"`
-	NearImu            *NearIMUSearch      `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
-	Generative         *GenerativeSearch   `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
-	Rerank             *Rerank             `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	Boost              *Boost              `protobuf:"bytes,62,opt,name=boost,proto3,oneof" json:"boost,omitempty"`
+	Filters      *Filters           `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
+	HybridSearch *Hybrid            `protobuf:"bytes,41,opt,name=hybrid_search,json=hybridSearch,proto3,oneof" json:"hybrid_search,omitempty"`
+	Bm25Search   *BM25              `protobuf:"bytes,42,opt,name=bm25_search,json=bm25Search,proto3,oneof" json:"bm25_search,omitempty"`
+	NearVector   *NearVector        `protobuf:"bytes,43,opt,name=near_vector,json=nearVector,proto3,oneof" json:"near_vector,omitempty"`
+	NearObject   *NearObject        `protobuf:"bytes,44,opt,name=near_object,json=nearObject,proto3,oneof" json:"near_object,omitempty"`
+	NearText     *NearTextSearch    `protobuf:"bytes,45,opt,name=near_text,json=nearText,proto3,oneof" json:"near_text,omitempty"`
+	NearImage    *NearImageSearch   `protobuf:"bytes,46,opt,name=near_image,json=nearImage,proto3,oneof" json:"near_image,omitempty"`
+	NearAudio    *NearAudioSearch   `protobuf:"bytes,47,opt,name=near_audio,json=nearAudio,proto3,oneof" json:"near_audio,omitempty"`
+	NearVideo    *NearVideoSearch   `protobuf:"bytes,48,opt,name=near_video,json=nearVideo,proto3,oneof" json:"near_video,omitempty"`
+	NearDepth    *NearDepthSearch   `protobuf:"bytes,49,opt,name=near_depth,json=nearDepth,proto3,oneof" json:"near_depth,omitempty"`
+	NearThermal  *NearThermalSearch `protobuf:"bytes,50,opt,name=near_thermal,json=nearThermal,proto3,oneof" json:"near_thermal,omitempty"`
+	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
+	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
+	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
+	Boost        *Boost             `protobuf:"bytes,62,opt,name=boost,proto3,oneof" json:"boost,omitempty"`
+	// Per-request vector search tuning; rejected (InvalidArgument) on bm25-only requests.
 	VectorSearchParams *VectorSearchParams `protobuf:"bytes,63,opt,name=vector_search_params,json=vectorSearchParams,proto3,oneof" json:"vector_search_params,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
@@ -2425,56 +2426,59 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
-var file_v1_search_get_proto_goTypes = []any{
-	(Boost_PropertyValueModifier)(0),    // 0: weaviate.v1.Boost.PropertyValueModifier
-	(Boost_DecayCurve)(0),               // 1: weaviate.v1.Boost.DecayCurve
-	(*SearchRequest)(nil),               // 2: weaviate.v1.SearchRequest
-	(*VectorSearchParams)(nil),          // 3: weaviate.v1.VectorSearchParams
-	(*GroupBy)(nil),                     // 4: weaviate.v1.GroupBy
-	(*SortBy)(nil),                      // 5: weaviate.v1.SortBy
-	(*MetadataRequest)(nil),             // 6: weaviate.v1.MetadataRequest
-	(*PropertiesRequest)(nil),           // 7: weaviate.v1.PropertiesRequest
-	(*ObjectPropertiesRequest)(nil),     // 8: weaviate.v1.ObjectPropertiesRequest
-	(*RefPropertiesRequest)(nil),        // 9: weaviate.v1.RefPropertiesRequest
-	(*Rerank)(nil),                      // 10: weaviate.v1.Rerank
-	(*SearchReply)(nil),                 // 11: weaviate.v1.SearchReply
-	(*QueryProfile)(nil),                // 12: weaviate.v1.QueryProfile
-	(*RerankReply)(nil),                 // 13: weaviate.v1.RerankReply
-	(*GroupByResult)(nil),               // 14: weaviate.v1.GroupByResult
-	(*SearchResult)(nil),                // 15: weaviate.v1.SearchResult
-	(*MetadataResult)(nil),              // 16: weaviate.v1.MetadataResult
-	(*PropertiesResult)(nil),            // 17: weaviate.v1.PropertiesResult
-	(*RefPropertiesResult)(nil),         // 18: weaviate.v1.RefPropertiesResult
-	(*Boost)(nil),                       // 19: weaviate.v1.Boost
-	(*QueryProfile_SearchProfile)(nil),  // 20: weaviate.v1.QueryProfile.SearchProfile
-	(*QueryProfile_ShardProfile)(nil),   // 21: weaviate.v1.QueryProfile.ShardProfile
-	nil,                                 // 22: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
-	nil,                                 // 23: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
-	(*Boost_PropertyValueFunction)(nil), // 24: weaviate.v1.Boost.PropertyValueFunction
-	(*Boost_TimeDecayFunction)(nil),     // 25: weaviate.v1.Boost.TimeDecayFunction
-	(*Boost_NumericDecayFunction)(nil),  // 26: weaviate.v1.Boost.NumericDecayFunction
-	(*Boost_Condition)(nil),             // 27: weaviate.v1.Boost.Condition
-	(ConsistencyLevel)(0),               // 28: weaviate.v1.ConsistencyLevel
-	(*Filters)(nil),                     // 29: weaviate.v1.Filters
-	(*Hybrid)(nil),                      // 30: weaviate.v1.Hybrid
-	(*BM25)(nil),                        // 31: weaviate.v1.BM25
-	(*NearVector)(nil),                  // 32: weaviate.v1.NearVector
-	(*NearObject)(nil),                  // 33: weaviate.v1.NearObject
-	(*NearTextSearch)(nil),              // 34: weaviate.v1.NearTextSearch
-	(*NearImageSearch)(nil),             // 35: weaviate.v1.NearImageSearch
-	(*NearAudioSearch)(nil),             // 36: weaviate.v1.NearAudioSearch
-	(*NearVideoSearch)(nil),             // 37: weaviate.v1.NearVideoSearch
-	(*NearDepthSearch)(nil),             // 38: weaviate.v1.NearDepthSearch
-	(*NearThermalSearch)(nil),           // 39: weaviate.v1.NearThermalSearch
-	(*NearIMUSearch)(nil),               // 40: weaviate.v1.NearIMUSearch
-	(*GenerativeSearch)(nil),            // 41: weaviate.v1.GenerativeSearch
-	(*GenerativeResult)(nil),            // 42: weaviate.v1.GenerativeResult
-	(*GenerativeReply)(nil),             // 43: weaviate.v1.GenerativeReply
-	(*Vectors)(nil),                     // 44: weaviate.v1.Vectors
-	(*Properties)(nil),                  // 45: weaviate.v1.Properties
-}
+var (
+	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 26)
+	file_v1_search_get_proto_goTypes   = []any{
+		Boost_PropertyValueModifier(0),      // 0: weaviate.v1.Boost.PropertyValueModifier
+		Boost_DecayCurve(0),                 // 1: weaviate.v1.Boost.DecayCurve
+		(*SearchRequest)(nil),               // 2: weaviate.v1.SearchRequest
+		(*VectorSearchParams)(nil),          // 3: weaviate.v1.VectorSearchParams
+		(*GroupBy)(nil),                     // 4: weaviate.v1.GroupBy
+		(*SortBy)(nil),                      // 5: weaviate.v1.SortBy
+		(*MetadataRequest)(nil),             // 6: weaviate.v1.MetadataRequest
+		(*PropertiesRequest)(nil),           // 7: weaviate.v1.PropertiesRequest
+		(*ObjectPropertiesRequest)(nil),     // 8: weaviate.v1.ObjectPropertiesRequest
+		(*RefPropertiesRequest)(nil),        // 9: weaviate.v1.RefPropertiesRequest
+		(*Rerank)(nil),                      // 10: weaviate.v1.Rerank
+		(*SearchReply)(nil),                 // 11: weaviate.v1.SearchReply
+		(*QueryProfile)(nil),                // 12: weaviate.v1.QueryProfile
+		(*RerankReply)(nil),                 // 13: weaviate.v1.RerankReply
+		(*GroupByResult)(nil),               // 14: weaviate.v1.GroupByResult
+		(*SearchResult)(nil),                // 15: weaviate.v1.SearchResult
+		(*MetadataResult)(nil),              // 16: weaviate.v1.MetadataResult
+		(*PropertiesResult)(nil),            // 17: weaviate.v1.PropertiesResult
+		(*RefPropertiesResult)(nil),         // 18: weaviate.v1.RefPropertiesResult
+		(*Boost)(nil),                       // 19: weaviate.v1.Boost
+		(*QueryProfile_SearchProfile)(nil),  // 20: weaviate.v1.QueryProfile.SearchProfile
+		(*QueryProfile_ShardProfile)(nil),   // 21: weaviate.v1.QueryProfile.ShardProfile
+		nil,                                 // 22: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
+		nil,                                 // 23: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
+		(*Boost_PropertyValueFunction)(nil), // 24: weaviate.v1.Boost.PropertyValueFunction
+		(*Boost_TimeDecayFunction)(nil),     // 25: weaviate.v1.Boost.TimeDecayFunction
+		(*Boost_NumericDecayFunction)(nil),  // 26: weaviate.v1.Boost.NumericDecayFunction
+		(*Boost_Condition)(nil),             // 27: weaviate.v1.Boost.Condition
+		ConsistencyLevel(0),                 // 28: weaviate.v1.ConsistencyLevel
+		(*Filters)(nil),                     // 29: weaviate.v1.Filters
+		(*Hybrid)(nil),                      // 30: weaviate.v1.Hybrid
+		(*BM25)(nil),                        // 31: weaviate.v1.BM25
+		(*NearVector)(nil),                  // 32: weaviate.v1.NearVector
+		(*NearObject)(nil),                  // 33: weaviate.v1.NearObject
+		(*NearTextSearch)(nil),              // 34: weaviate.v1.NearTextSearch
+		(*NearImageSearch)(nil),             // 35: weaviate.v1.NearImageSearch
+		(*NearAudioSearch)(nil),             // 36: weaviate.v1.NearAudioSearch
+		(*NearVideoSearch)(nil),             // 37: weaviate.v1.NearVideoSearch
+		(*NearDepthSearch)(nil),             // 38: weaviate.v1.NearDepthSearch
+		(*NearThermalSearch)(nil),           // 39: weaviate.v1.NearThermalSearch
+		(*NearIMUSearch)(nil),               // 40: weaviate.v1.NearIMUSearch
+		(*GenerativeSearch)(nil),            // 41: weaviate.v1.GenerativeSearch
+		(*GenerativeResult)(nil),            // 42: weaviate.v1.GenerativeResult
+		(*GenerativeReply)(nil),             // 43: weaviate.v1.GenerativeReply
+		(*Vectors)(nil),                     // 44: weaviate.v1.Vectors
+		(*Properties)(nil),                  // 45: weaviate.v1.Properties
+	}
+)
+
 var file_v1_search_get_proto_depIdxs = []int32{
 	28, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	7,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest

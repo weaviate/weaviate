@@ -74,12 +74,21 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 			wantErr: "vector_search_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
-			// No vector search runs, so the value is harmless; gRPC has no
-			// shared request shape to reject it on.
+			// Parity with REST, which answers 422 for bm25 plus vectorSearchParams.
 			name: "bm25 only with ef",
 			req: &pb.SearchRequest{
 				Collection:         classname,
 				Bm25Search:         &pb.BM25{Query: "q"},
+				VectorSearchParams: vsp(800),
+			},
+			wantErr: "vector_search_params is not applicable to bm25 search",
+		},
+		{
+			name: "bm25 with hybrid and ef",
+			req: &pb.SearchRequest{
+				Collection:         classname,
+				Bm25Search:         &pb.BM25{Query: "q"},
+				HybridSearch:       &pb.Hybrid{Query: "q", NearVector: nearVector()},
 				VectorSearchParams: vsp(800),
 			},
 			want: &searchparams.VectorSearchParams{EF: 800},

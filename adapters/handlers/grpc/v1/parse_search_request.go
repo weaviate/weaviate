@@ -255,6 +255,16 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
 
+	// Mirror the REST surface: a bm25-only request runs no vector search, so
+	// per-request vector params are a client mistake. Hybrid is accepted.
+	if req.VectorSearchParams != nil && req.Bm25Search != nil &&
+		req.NearVector == nil && req.NearObject == nil && req.NearText == nil &&
+		req.HybridSearch == nil && req.NearImage == nil && req.NearAudio == nil &&
+		req.NearVideo == nil && req.NearDepth == nil && req.NearThermal == nil &&
+		req.NearImu == nil {
+		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params is not applicable to bm25 search")
+	}
+
 	vsp, err := extractVectorSearchParams(req.VectorSearchParams, config.HNSWMaxSearchEF)
 	if err != nil {
 		return dto.GetParams{}, err

@@ -711,6 +711,13 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorSearchParams *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
+	// Only HNSW reports the effective ef; record the request here so flat,
+	// HFresh and dynamic searches leave a trace too. Conditional to keep the
+	// default path allocation-free.
+	if ef := vectorSearchParams.EFOrZero(); ef > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "vector_search_ef_requested", ef)
+	}
+
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,

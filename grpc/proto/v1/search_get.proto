@@ -51,6 +51,7 @@ message SearchRequest {
 
   optional Boost boost = 62;
 
+  // Per-request vector search tuning; rejected (InvalidArgument) on bm25-only requests.
   optional VectorSearchParams vector_search_params = 63;
 
   bool uses_123_api = 100 [deprecated = true];

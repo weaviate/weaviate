@@ -299,7 +299,7 @@ func (h *HFresh) SearchByVectorDistance(
 	targetDistance float32,
 	maxLimit int64,
 	allow helpers.AllowList,
-	_ *searchparams.VectorSearchParams,
+	params *searchparams.VectorSearchParams,
 ) ([]uint64, []float32, error) {
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
@@ -307,7 +307,7 @@ func (h *HFresh) SearchByVectorDistance(
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow, nil)
+		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow, params)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}
@@ -442,7 +442,7 @@ func (ks *ResultSet) Reset(k int) {
 	ks.k = k
 }
 
-func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
 	}
@@ -746,7 +746,7 @@ func float32SliceInto(dst []float32, raw []byte) []float32 {
 	return dst
 }
 
-func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
 	}
@@ -757,7 +757,7 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dists, err := h.SearchByMultiVector(ctx, vectors, totalLimit, allow, nil)
+		ids, dists, err := h.SearchByMultiVector(ctx, vectors, totalLimit, allow, params)
 		if err != nil {
 			return false, errors.Wrap(err, "multi-vector search")
 		}
