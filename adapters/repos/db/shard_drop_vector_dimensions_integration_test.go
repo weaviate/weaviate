@@ -369,3 +369,83 @@ func TestDropVectorIndex_StaleWriteDoesNotRecreateDimensionRows(t *testing.T) {
 	require.Zero(t, dropped,
 		"a write that read the class before the drop re-created the dropped vector's rows after the clear")
 }
+
+// TestDropVectorIndex_UnitCleanupSparesVectorsNotMarkedDropped pins that the
+// drop task's two destructive per-shard steps act only on targets this node's
+// own schema marks dropped. The task's gate is a class read from the leader,
+// and a leader that has not yet applied a delete and re-create of the
+// collection still answers "dropped" for a vector that is live again.
+func TestDropVectorIndex_UnitCleanupSparesVectorsNotMarkedDropped(t *testing.T) {
+	wantAll := dropDimsCount * dropDimsDim
+
+	tests := []struct {
+		name        string
+		localSchema func(class *models.Class)
+		wantCleared bool
+	}{
+		{
+			name: "marked dropped",
+			localSchema: func(class *models.Class) {
+				class.VectorConfig[dropDimsDropped] = models.VectorConfig{
+					VectorIndexType: modelsext.VectorIndexTypeNone,
+				}
+			},
+			wantCleared: true,
+		},
+		{
+			name:        "live again",
+			localSchema: func(class *models.Class) {},
+		},
+		{
+			name: "no longer in the class",
+			localSchema: func(class *models.Class) {
+				delete(class.VectorConfig, dropDimsDropped)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			s, class := setupDropDimsShard(t, ctx)
+			db := s.index.db
+			db.indexLock.Lock()
+			db.indices[indexID(schema.ClassName(class.Class))] = s.index
+			db.indexLock.Unlock()
+
+			for i := 0; i < dropDimsCount; i++ {
+				require.NoError(t, s.PutObject(ctx, dropDimsObject(i)))
+			}
+			tt.localSchema(class)
+
+			// The sibling is live in every case and rides along as a target: one
+			// revived target must not shield or expose the other.
+			targets := []string{dropDimsKeep, dropDimsDropped}
+			indexDir := func(targetVector string) string {
+				return filepath.Join(s.path(), helpers.GetHNSWCommitLogDirName(targetVector))
+			}
+			for _, target := range targets {
+				require.DirExists(t, indexDir(target), "precondition: %q has index files", target)
+			}
+
+			require.NoError(t, db.RemoveDroppedVectorDimensions(ctx, class.Class, s.name, targets))
+			require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, s.name, targets))
+
+			got, err := s.Dimensions(ctx, dropDimsDropped)
+			require.NoError(t, err)
+			if tt.wantCleared {
+				require.Zero(t, got, "the dropped vector kept its dimension rows")
+				require.NoDirExists(t, indexDir(dropDimsDropped), "the dropped vector kept its index files")
+			} else {
+				require.Equal(t, wantAll, got,
+					"the cleanup deleted the dimension rows of a vector this node does not mark dropped")
+				require.DirExists(t, indexDir(dropDimsDropped),
+					"the cleanup deleted the index files of a vector this node does not mark dropped")
+			}
+
+			got, err = s.Dimensions(ctx, dropDimsKeep)
+			require.NoError(t, err)
+			require.Equal(t, wantAll, got, "the live sibling lost its dimension rows")
+			require.DirExists(t, indexDir(dropDimsKeep), "the live sibling lost its index files")
+		})
+	}
+}
