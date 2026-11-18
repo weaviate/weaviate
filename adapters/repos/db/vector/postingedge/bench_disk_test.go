@@ -513,6 +513,10 @@ type diskTimedPoint struct {
 	// from itself.
 	Cold       *diskLatencies  `json:"cold,omitempty"`
 	ColdHalves []diskLatencies `json:"coldHalves,omitempty"`
+	// ColdFirst is the first query of every cold batch, the one that finds
+	// the least in the cache, and ColdRest the others. With one thread.
+	ColdFirst *diskLatencies `json:"coldFirst,omitempty"`
+	ColdRest  *diskLatencies `json:"coldRest,omitempty"`
 	// ColdBatches is the cold batches and ColdBatch their size.
 	// ColdRepeated is the part of the posting loads of a batch that load a
 	// posting already loaded since the cache was dropped. ColdRecall is the
@@ -694,6 +698,8 @@ func TestDiskTimed(t *testing.T) {
 					wall      time.Duration
 				}
 				var wall, reopen time.Duration
+				var firstLatencies, restLatencies []time.Duration
+				var firstStats, restStats []diskSearchStats
 				hits, loads, repeated := 0, 0, 0
 				for from := 0; from < *benchDiskCold; from += batch {
 					which := all[from:min(from+batch, *benchDiskCold)]
@@ -722,12 +728,26 @@ func TestDiskTimed(t *testing.T) {
 					half.latencies, half.stats = append(half.latencies, batchLatencies...), append(half.stats, batchStats...)
 					half.wall += batchWall
 					latencies, stats = append(latencies, batchLatencies...), append(stats, batchStats...)
+					firstLatencies, firstStats = append(firstLatencies, batchLatencies[0]), append(firstStats, batchStats[0])
+					restLatencies, restStats = append(restLatencies, batchLatencies[1:]...), append(restStats, batchStats[1:]...)
 					wall += batchWall
 					hits += batchHits
 					timed.ColdBatches++
 				}
 				cold := diskLatenciesOf(latencies, stats, wall)
 				timed.Cold, timed.ColdBatch = &cold, batch
+				if threads == 1 {
+					// Their time is that of the queries themselves: one at a time.
+					sum := func(latencies []time.Duration) (total time.Duration) {
+						for _, l := range latencies {
+							total += l
+						}
+						return total
+					}
+					first := diskLatenciesOf(firstLatencies, firstStats, sum(firstLatencies))
+					rest := diskLatenciesOf(restLatencies, restStats, sum(restLatencies))
+					timed.ColdFirst, timed.ColdRest = &first, &rest
+				}
 				for _, half := range halves {
 					timed.ColdHalves = append(timed.ColdHalves, diskLatenciesOf(half.latencies, half.stats, half.wall))
 				}

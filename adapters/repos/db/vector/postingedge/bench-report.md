@@ -356,6 +356,55 @@ Lecturas aleatorias de 16 KB sobre ficheros que no han pasado por la caché, por
 
 Hasta que se decida, no se cronometra nada.
 
+### Paso 2, cerrado: el HFresh real funciona (2026-11-18, 07:50)
+
+*Escrito al cerrar el paso. Sigue sin haber ningún dato de 1M.*
+
+**Lo que hay:**
+
+- **El arnés de HFresh,** en `adapters/repos/db/vector/hfresh/bench_disk_test.go`, con la etiqueta de los benchmarks: `TestHFreshDiskBuild` lo construye y barre searchProbe, `TestHFreshDiskCount` cuenta lo que lee el store, y `TestHFreshDiskTimed` lo cronometra en caliente y en frío, igual que `TestDiskTimed` a una celda.
+- **El script único,** `testdata/bench/v4.0/scripts/run_v40_disk.sh`, para macOS y Linux, con `drop_cache.py` (tira la caché en Linux sin root), `disk_verdict.py` y un `README.md` corto.
+
+**Con qué corre HFresh** (configuración por defecto, sin tocar nada):
+
+- **Partición:** réplicas 4 y posting máximo de 48 KB, que a 1536d son 227 entradas, con mínimo de 75.
+- **Códigos:** RQ de 1 bit, el único que admite. Una entrada son 209 B: 8 del id, 1 de la versión y 200 del código.
+- **Búsqueda:** los searchProbe postings de centroide más cercano (256 por defecto), leídos uno detrás de otro y escaneados después.
+- **Rescore:** los 350 mejores candidatos, con su vector exacto, pedidos en paralelo dentro del presupuesto de la query. Cada uno es una lectura al bucket `objects`, de 6 186 B según el store.
+- **El build,** como importa un servidor: inserts en paralelo con los ciclos de flush y compactación del store en marcha, espera al mantenimiento del índice, flush final y las compactaciones que queden.
+
+**Cosas que el arnés tiene que cuidar:**
+
+- **Una búsqueda encola un merge** por cada posting que encuentra por debajo del mínimo. Se busca hasta que no encola ninguno, antes de medir, y cada test comprueba al acabar que no ha dejado trabajo de fondo.
+- **El mapa de versiones se calienta antes de buscar,** no en segundo plano: mientras se calienta, una búsqueda lee del store las versiones que le faltan.
+- **El build de HFresh no sale igual dos veces.** En dos humos seguidos dio 815 y 833 postings. Los puntos de operación son los del índice que se cronometra.
+
+**Humo con dbpedia, 30 000 vectores** (no predice 1M): la cadena entera corre en 3 minutos, con las dos paradas, las cinco celdas, HFresh y el veredicto.
+
+- **HFresh:** 833 postings y 4.84 entradas por vector. Llega a 0.95 con searchProbe 23 y a 0.99 con 90. Con el de por defecto, 256, da 0.998, y con todos los postings, 0.9998.
+- **Sus lecturas:** una por posting, porque el bucket queda en un segmento. A 0.95, 23.0 lecturas y 0.90 MB de postings, más las 350 del rescore, 2.16 MB.
+
+### Enmienda 2 (07:50 del 18): lo que cuesta una lectura fría a través de la imagen
+
+*Motivo: en el humo, la primera query de cada tanda en frío de HFresh tardaba 311 ms en su rescore y las demás 74 ms. Medido aparte, antes de ningún dato de 1M.*
+
+Una lectura aleatoria en frío de un fichero recién remontado, a través de la imagen:
+
+| lectura | p50 | p90 |
+|---|---|---|
+| `pread` de 6 KB | 175 µs | 217 µs |
+| `pread` de 48 KB | 187 µs | 259 µs |
+| `pread` de 160 KB | 236 µs | 399 µs |
+| copia de 6 KB desde el mmap | 239 µs | 381 µs |
+| copia de 48 KB desde el mmap | 195 µs | 277 µs |
+| copia de 160 KB desde el mmap | 258 µs | 566 µs |
+
+- **A través de la imagen una lectura fría cuesta unos 0.2 ms, lea 6 KB o 160 KB,** por `pread` o por el mmap. Un fallo de página trae de 32 a 64 KB alrededor.
+- **Con la enmienda 1, en frío cuenta el número de lecturas, no sus bytes.** Un posting de tres bloques son tres lecturas; el halo cuesta por su bloque, no por lo que pesa.
+- **El vector exacto de HFresh cuesta más de lo que dice esa tabla:** leídos de uno en uno tras tirar la caché, de 0.6 a 1.0 ms cada uno, y alguno de los primeros, 5 ms. No sé de dónde sale la diferencia. *Sospecha mía, sin comprobar:* su bucket se escribe con flushes y compactaciones, y queda más repartido dentro de la imagen que un fichero escrito de una vez.
+- **Lo que se reporta además, por eso:** la primera query de cada tanda en frío aparte de las demás.
+- **Lo que no cambia:** el rescore de posting-edge lee con `pread` de su fichero, como está pre-registrado, y el de HFresh por el store. Van aparte en las tablas.
+
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
 **Estado: pre-registrado y medido el mismo día.** Escrito y commiteado el 17 a las 22:20 (`242297c34f`), antes de compilar nada de esta ronda y antes de ningún dato suyo. La corrida fue de 22:27 a 22:53, y sus resultados están al final de la sección, desde «Resultados de v3.1 (2026-11-17)». El encargo, las celdas, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
