@@ -140,6 +140,9 @@ def validation(v):
     print('- **Camino:** split con T = %d, ef de inserción %d, códigos de ruteo de %d bits en RAM, %d vecinos.' % (
         v['threshold'], v['insertEF'], v['routingBits'], v['config']['edges']))
     print('- **El store:** sus ciclos de volcado y compactación se llaman cada %s inserts; lee en modo pread, que es donde cuenta.' % num(v['config']['cycleEvery']))
+    print('- **Compactación mientras crece:** %s.' % (
+        'forzada, como la del bucket de postings de HFresh' if v.get('force') else
+        'por niveles, la que `lsmkv` tiene por defecto: lo reemplazado se acumula entre compactaciones'))
     print()
     print('| checkpoint | vivos | postings | splits | cobertura, leyendo el store | frente al gemelo |')
     print('|---|---|---|---|---|---|')
@@ -185,6 +188,20 @@ def validation(v):
             mb(s['storeSearchReads']['bytes'] / n), s['searchVectors']['n'] / n,
             s['inverseDistReads']['n'] / n, kb(s['inverseDistReads']['bytes'] / n),
             s['storeSplitReads']['n'] / n, kb(s['storeSplitReads']['bytes'] / n), s['splitVectorReads']['n'] / n))
+    print()
+    print('**Por carga, en la búsqueda de un insert,** con el store como lo van dejando sus ciclos:')
+    print()
+    print('| tramo | lecturas del store por carga | bytes del store por carga | lo que la carga devuelve | el store entre lo devuelto |')
+    print('|---|---|---|---|---|')
+    for name, s in stretches:
+        loads = s['searchLoads']
+        if loads <= 0:
+            continue
+        print('| %s | %.2f | %s | %s | %.3f |' % (
+            name, s['storeSearchReads']['n'] / loads, kb(s['storeSearchReads']['bytes'] / loads),
+            kb(s['searchRows']['bytes'] / loads), s['storeSearchReads']['bytes'] / max(s['searchRows']['bytes'], 1)))
+    print()
+    print('- **Lo que la carga devuelve** son sus miembros y sus listas vivas, 2 filas. Lo que el store lee para dárselo lleva además el marco de cada valor, las listas reemplazadas y sus lápidas, y no lleva lo que aún está en la memtable.')
     print()
     whole = stretches[-1][1] if stretches else None
     if whole and whole['inserted'] > 0:
@@ -259,7 +276,7 @@ def validation(v):
             by_op[op] = by_op.get(op, 0) + value['bytes']
         base_written = sum(x['bytes'] for x in v['base']['written'].values())
         all_written = sum(by_op.values())
-        print('- **Compactación final:** %d rondas.' % v['compactionRounds'])
+        print('- **Compactación final,** forzada: %d rondas.' % v['compactionRounds'])
         print('- **Lo que el store escribió en sus ficheros,** en toda la corrida con su compactación final: %s. Por operación: %s.' % (
             mb(all_written - base_written),
             ', '.join('%s %s' % (op, mb(b)) for op, b in sorted(by_op.items(), key=lambda x: -x[1]))))
@@ -276,29 +293,79 @@ def validation(v):
             mb(files.get('centroids', 0)), mb(files.get('centroidVectors', 0)), num(final['splits'])))
     print()
 
-    print('### Criterio 1: lo que lee una búsqueda sobre el índice crecido')
+    print('### Lo que lee una búsqueda sobre el índice crecido, antes y después de compactar')
     print()
-    print('Por query, sobre las %s queries. Los puntos son los del gemelo, que es el mismo índice. El modelo son 208 B por miembro y 4 B por arista de los postings que carga.' % num(v['queries']))
+    print('Por query y por carga, sobre las %s queries. Los puntos son los del gemelo, que es el mismo índice. El modelo son 208 B por miembro y 4 B por arista de los postings que carga.' % num(v['queries']))
     print()
-    print('| store | recall | ef | recall medido | cargas | rondas | lecturas del store | bytes del store | modelo, en memoria | real entre modelo | miembros | aristas |')
-    print('|---|---|---|---|---|---|---|---|---|---|---|---|')
-    for label, key in (('sin compactar', 'uncompacted'), ('compactado', 'compacted')):
+    states = (('como lo dejan los ciclos', 'uncompacted'), ('volcado, sin compactar', 'flushed'), ('compactado', 'compacted'))
+    print('| estado del store | recall | ef | recall medido | cargas | rondas | segmentos | lecturas por query | bytes | por carga: lecturas | bytes | por el modelo | real entre modelo |')
+    print('|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+    for label, key in states:
         for p in v.get(key) or []:
             if not p['reached']:
-                print('| %s | %.2f | no llega | — | — | — | — | — | — | — | — | — |' % (label, p['target']))
+                print('| %s | %.2f | no llega | — | — | — | — | — | — | — | — | — | — |' % (label, p['target']))
                 continue
-            print('| %s | %.2f | %d | %.4f | %.2f | %.2f | %.1f | %s | %s | %.3f | %s | %s |' % (
-                label, p['target'], p['ef'], p['recall'], p['loads'], p['rounds'], p['storeReads'], mb(p['storeBytes']),
-                mb(p['modelBytes']), p['storeBytes'] / p['modelBytes'], mb(p['memberBytes']), mb(p['edgeBytes'])))
+            print('| %s | %.2f | %d | %.4f | %.2f | %.2f | %d | %.1f | %s | %.2f | %s | %s | %.3f |' % (
+                label, p['target'], p['ef'], p['recall'], p['loads'], p['rounds'], p.get('segments', 0), p['storeReads'],
+                mb(p['storeBytes']), p['storeReads'] / p['loads'], kb(p['storeBytes'] / p['loads']),
+                kb(p['modelBytes'] / p['loads']), p['storeBytes'] / p['modelBytes']))
     print()
-    at95 = next((p for p in (v.get('compacted') or []) if abs(p['target'] - 0.95) < 1e-9 and p['reached']), None)
-    if at95:
-        ratio = at95['storeBytes'] / at95['modelBytes']
-        print('**Criterio 1, %s:** a 0.95, compactado, el store lee %.3f veces lo que el gemelo en memoria por el modelo; el límite es 1.10.' % (
-            'se cumple' if ratio <= 1.10 else 'NO se cumple', ratio))
+    print('- **En el primer estado el store cuenta de menos:** lo que está en la memtable no pasa por él.')
+
+    def at(key, target):
+        return next((p for p in (v.get(key) or []) if abs(p['target'] - target) < 1e-9 and p['reached']), None)
+
+    print()
+    print('**Lo que pesa la basura:** el estado volcado frente al compactado, por carga.')
+    print()
+    print('| recall | lecturas por carga: volcado | compactado | bytes por carga: volcado | compactado | de más |')
+    print('|---|---|---|---|---|---|')
+    for target in (0.95, 0.99):
+        f, c = at('flushed', target), at('compacted', target)
+        if f is None or c is None:
+            continue
+        print('| %.2f | %.2f | %.2f | %s | %s | %s |' % (
+            target, f['storeReads'] / f['loads'], c['storeReads'] / c['loads'], kb(f['storeBytes'] / f['loads']),
+            kb(c['storeBytes'] / c['loads']), signed(f['storeBytes'] / c['storeBytes'] - 1)))
+    print()
+
+    print('### Criterio 1: frente al índice crecido en memoria')
+    print()
+    at95 = at('compacted', 0.95)
+    if at95 is None:
+        print('Sin medida compactada todavía.')
         print()
-        print('- **En cada query, lo mismo que el gemelo:** ids, distancias y trabajo, en las %s queries de cada punto.' % num(at95['compared']))
-        print('- **Sin compactar, el store cuenta menos de lo que el índice lee:** lo que está en la memtable no pasa por él.')
+    else:
+        ratio = at95['storeBytes'] / at95['modelBytes']
+        # Where the bytes over the model are: the format, value by value.
+        members = at95['memberBytes'] / 208.0
+        model = at95['modelBytes']
+        ids, frames, rows = 4 * members, 9 * 2 * members, at95['loads'] * 2 * (8 + 4 + 5)
+        rest = at95['storeBytes'] - model - ids - frames - rows
+        print('| a 0.95, compactado, por query | bytes | sobre el modelo |')
+        print('|---|---|---|')
+        print('| el modelo: 208 B por miembro y 4 B por arista | %s | |' % kb(model))
+        print('| el id del miembro en su lista de aristas, 4 B | %s | %s |' % (kb(ids), signed(ids / model)))
+        print('| el marco de cada valor del Set, 9 B, dos valores por miembro | %s | %s |' % (kb(frames), signed(frames / model)))
+        print('| la cabecera y la clave de cada fila, 17 B, dos filas por carga | %s | %s |' % (kb(rows), signed(rows / model)))
+        print('| lo demás | %s | %s |' % (kb(rest), signed(rest / model)))
+        print('| **lo que lee el store** | **%s** | **%s** |' % (kb(at95['storeBytes']), signed(ratio - 1)))
+        print()
+        format_only = abs(rest / model) < 0.005
+        if ratio <= 1.10:
+            verdict = 'se cumple'
+        elif format_only:
+            verdict = 'NO se cumple, por el formato y no por el algoritmo'
+        else:
+            verdict = 'NO se cumple'
+        print('**Criterio 1, %s:** a 0.95, compactado, el store lee %.3f veces lo que el gemelo en memoria por el modelo; el límite es 1.10.' % (verdict, ratio))
+        print()
+        print('- **El algoritmo no pone nada:** las cargas son las del gemelo, %.2f por query, y en cada una de las %s queries el índice de disco devuelve sus mismos ids, distancias y trabajo.' % (
+            at95['loads'], num(at95['compared'])))
+        print('- **%s**' % ('Todo lo que lee de más es formato: el marco del Set y el id de cada lista.' if format_only
+                            else 'Queda un resto que el formato no explica: %s por query.' % mb(rest)))
+        print('- **A 0.99,** %s.' % ('%.3f veces' % (at('compacted', 0.99)['storeBytes'] / at('compacted', 0.99)['modelBytes'])
+                                     if at('compacted', 0.99) else 'sin punto'))
     print()
 
 
@@ -336,10 +403,21 @@ def timed(d, manifest):
                 clock(st), 'sin registro' if act is None else ('sí' if act else 'no')))
         if manifest.get('coverage'):
             print('- **Cobertura del índice que deja:** %s.' % ('completa' if manifest['coverage'] == 'complete' else manifest['coverage']))
+        print('- **Compactación mientras crece:** %s.' % (
+            'forzada, como la del bucket de postings de HFresh' if manifest.get('force') else 'por niveles'))
         if manifest.get('files'):
             print('- **Compactado después, sin cronometrar:** %d rondas en %s s; el bucket de postings pasa de %s a %s.' % (
                 manifest['compactionRounds'], num(manifest['compactionSeconds']),
                 mb(manifest['filesBefore'][POSTINGS]), mb(manifest['files'][POSTINGS])))
+            store = sum(manifest['files'][b] for b, _ in BUCKETS)
+            wrote = sum(x['bytes'] for x in manifest['written'].values())
+            by_op = {}
+            for key, value in manifest['written'].items():
+                op = key.split('/', 1)[1]
+                by_op[op] = by_op.get(op, 0) + value['bytes']
+            print('- **Lo que el store escribió en esta corrida,** con su compactación final: %s, %.2f veces lo que ocupa al final (%s). Por operación: %s.' % (
+                mb(wrote), wrote / store, mb(store),
+                ', '.join('%s %s' % (op, mb(x)) for op, x in sorted(by_op.items(), key=lambda z: -z[1]))))
         for p in manifest.get('points') or []:
             if p['reached']:
                 print('- **Su punto de %.2f:** ef %d, recall %.4f.' % (p['target'], p['ef'], p['recall']))

@@ -14,6 +14,8 @@ package postingedge
 import (
 	"context"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -43,6 +45,8 @@ type growFixture struct {
 	// opened is what the twin had counted when the index on disk was last
 	// opened: the index on disk counts from there.
 	opened streamStats
+	// leveled opens the store with its leveled compaction.
+	leveled bool
 	// written is what the twin wrote for its last insert.
 	written struct {
 		docID   uint64
@@ -112,7 +116,7 @@ func newGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, thre
 // open opens the index on disk and gives its graph to the twin.
 func (f *growFixture) open(t *testing.T) {
 	t.Helper()
-	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc, nil, false)
+	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc, growOpen{leveled: f.leveled})
 	require.NoError(t, err)
 	g.work = &SearchStats{}
 	f.g = g
@@ -226,17 +230,26 @@ func TestGrowInsertsEqualMemory(t *testing.T) {
 		// flushEvery and compactEvery are in inserts, 0 for never.
 		flushEvery, compactEvery int
 		reopenAt                 int
+		// leveled gives the store its leveled compaction, and one round of
+		// it after every flush: what was replaced then stays in segments of
+		// several levels, with its tombstones.
+		leveled bool
 	}{
 		{name: "the full code in memory", threshold: 60, flushEvery: 37},
 		{name: "a sketch in memory", bits: 64, threshold: 60, flushEvery: 53, compactEvery: 211, reopenAt: 500},
 		{name: "a sketch in memory, cosine", bits: 128, cosine: true, threshold: 60, flushEvery: 29, compactEvery: 97, reopenAt: 333},
 		{name: "everything in the memtable", bits: 64, threshold: 60},
 		{name: "few splits", bits: 64, threshold: 400, flushEvery: 41, compactEvery: 173},
+		{name: "the leveled compaction of the store", bits: 64, threshold: 60, flushEvery: 23, reopenAt: 700, leveled: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const total, base, dims = 2200, 1000, 64
 			f := newGrowFixture(t, total, base, dims, tt.cosine, tt.bits, tt.threshold)
+			if tt.leveled {
+				f.leveled = true
+				f.reopen(t)
+			}
 			f.same(t, "the base")
 			for f.inserted < total {
 				at := f.inserted
@@ -246,6 +259,9 @@ func TestGrowInsertsEqualMemory(t *testing.T) {
 				done := f.inserted - base
 				if tt.flushEvery > 0 && done%tt.flushEvery == 0 {
 					require.NoError(t, f.g.flushAll())
+					if tt.leveled {
+						f.g.compaction.CycleCallback(func() bool { return false })
+					}
 				}
 				if tt.compactEvery > 0 && done%tt.compactEvery == 0 {
 					_, err := f.g.compactAll()
@@ -269,6 +285,14 @@ func TestGrowInsertsEqualMemory(t *testing.T) {
 			assert.Zero(t, f.g.stats.InverseListReads, "the search of an insert loads the posting of every neighbor it finds")
 			assert.Zero(t, f.g.stats.InverseVectors.N, "the rescore of an insert reads the vector of every neighbor it finds")
 
+			if tt.leveled {
+				segments, err := os.ReadDir(filepath.Join(f.dir, diskStoreDir, growBucketPostings))
+				require.NoError(t, err)
+				assert.Greater(t, len(segments), 4, "the leveled compaction leaves the bucket in several segments")
+				// The compaction for good is the forced one.
+				f.leveled = false
+				f.reopen(t)
+			}
 			// Compacted, closed and opened again, it is still the same index.
 			_, err := f.g.compactAll()
 			require.NoError(t, err)
@@ -445,11 +469,11 @@ func TestGrowIndexErrors(t *testing.T) {
 	require.ErrorContains(t, err, "keyed by doc id already")
 	require.ErrorIs(t, writeGrowIndex(ctx, testLogger(), t.TempDir(), nil, growConfig{}, f.provider, vectorOf), ErrNotBuilt)
 
-	_, err = openGrowIndex(ctx, testLogger(), t.TempDir(), f.provider, f.uc, nil, false)
+	_, err = openGrowIndex(ctx, testLogger(), t.TempDir(), f.provider, f.uc, growOpen{})
 	require.ErrorContains(t, err, "read the meta")
 	require.NoError(t, f.g.close(ctx))
 	f.g = nil
-	_, err = openGrowIndex(ctx, testLogger(), f.dir, distancer.NewCosineDistanceProvider(), f.uc, nil, false)
+	_, err = openGrowIndex(ctx, testLogger(), f.dir, distancer.NewCosineDistanceProvider(), f.uc, growOpen{})
 	require.ErrorContains(t, err, "was written for distance")
 	f.open(t)
 	require.ErrorContains(t, f.g.insert(ctx, uint64(base), make([]float32, dims+1)), "dimensions")

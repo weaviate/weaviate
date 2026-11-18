@@ -287,6 +287,19 @@ func growCodeValue(code []uint64) []byte {
 	return value
 }
 
+// growOpen says how the store of an index that grows is opened.
+type growOpen struct {
+	// metrics and pread make the store count what it reads.
+	metrics *lsmkv.Metrics
+	pread   bool
+	// leveled leaves the bucket of postings the compaction the store has by
+	// default, which only merges two segments of the same level: what was
+	// replaced piles up between compactions. Without it the bucket compacts
+	// as the postings bucket of HFresh does, the segments left over too,
+	// which keeps it close to one segment by writing it again and again.
+	leveled bool
+}
+
 // growConfig is what an index that grows is written with.
 type growConfig struct {
 	// keys is the doc ids the index has room for.
@@ -355,7 +368,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		return err
 	}
 
-	if err := g.openStore(ctx, nil, false); err != nil {
+	if err := g.openStore(ctx, growOpen{}); err != nil {
 		return err
 	}
 	defer func() {
@@ -454,17 +467,17 @@ func (g *growIndex) skipKey(key []byte, _ context.Context) (bool, error) {
 // store are the index's to call (cycle): nothing runs them in the
 // background. A memtable is flushed past the default threshold of the store,
 // and never because of the time it has been dirty.
-func (g *growIndex) openStore(ctx context.Context, metrics *lsmkv.Metrics, pread bool) error {
+func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 	root := filepath.Join(g.dir, diskStoreDir)
 	g.flush = cyclemanager.NewCallbackGroup("flush", g.logger, 1)
 	g.compaction = cyclemanager.NewCallbackGroup("compaction", g.logger, 1)
-	store, err := lsmkv.New(root, root, g.logger, metrics, nil, g.compaction, cyclemanager.NewCallbackGroupNoop(), g.flush)
+	store, err := lsmkv.New(root, root, g.logger, opts.metrics, nil, g.compaction, cyclemanager.NewCallbackGroupNoop(), g.flush)
 	if err != nil {
 		return errors.Wrap(err, "open the store")
 	}
 	g.lsm = store
 	common := []lsmkv.BucketOption{
-		lsmkv.WithPread(pread), lsmkv.WithForceCompaction(true), lsmkv.WithDirtyThreshold(1000 * time.Hour),
+		lsmkv.WithPread(opts.pread), lsmkv.WithForceCompaction(!opts.leveled), lsmkv.WithDirtyThreshold(1000 * time.Hour),
 	}
 	err = store.CreateOrLoadBucket(ctx, growBucketPostings, append([]lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection), lsmkv.WithShouldSkipKeyFunction(g.skipKey),
@@ -508,7 +521,8 @@ func (g *growIndex) cycle() {
 }
 
 // compactAll flushes everything and compacts until the store finds nothing
-// more to compact. It returns the rounds that took.
+// more to compact, which leaves every bucket in one segment unless the store
+// was opened with its leveled compaction. It returns the rounds that took.
 func (g *growIndex) compactAll() (int, error) {
 	if err := g.flushAll(); err != nil {
 		return 0, err
@@ -521,9 +535,8 @@ func (g *growIndex) compactAll() (int, error) {
 }
 
 // openGrowIndex opens an index that grows. uc carries the search tunables.
-// With metrics and pread the store counts what it reads.
 func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, provider distancer.Provider,
-	uc UserConfig, metrics *lsmkv.Metrics, pread bool,
+	uc UserConfig, opts growOpen,
 ) (_ *growIndex, err error) {
 	path := func(name string) string { return filepath.Join(dir, name) }
 	raw, err := os.ReadFile(path(diskMetaFile))
@@ -588,7 +601,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if g.vectors, err = os.OpenFile(path(diskVectorFile), os.O_RDWR, 0o644); err != nil {
 		return nil, errors.Wrap(err, "open the vectors")
 	}
-	if err := g.openStore(ctx, metrics, pread); err != nil {
+	if err := g.openStore(ctx, opts); err != nil {
 		return nil, err
 	}
 

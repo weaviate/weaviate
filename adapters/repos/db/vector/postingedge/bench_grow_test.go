@@ -73,6 +73,9 @@ var (
 	benchGrowInsertEF  = flag.Int("bench.growinsertef", 160, "with TestGrowValidate: the ef of the search for a new vector's edges")
 	benchGrowBits      = flag.Int("bench.growbits", 512, "with TestGrowValidate: the bits of the code the endpoints are "+
 		"ranked by, which stays in memory")
+	benchGrowForce = flag.Bool("bench.growforce", true, "with TestGrowValidate and TestGrowTimedInserts: the bucket of "+
+		"postings compacts as the postings bucket of HFresh does, the segments left over too. Without it the store "+
+		"compacts by levels, its default, and what was replaced piles up between compactions")
 	benchGrowManifest = flag.String("bench.growmanifest", "", "what TestGrowTimedInserts leaves for TestGrowTimedSearch: "+
 		"the index it grew, its operating points and the ground truth. It must not live under -bench.growdir")
 )
@@ -177,6 +180,8 @@ type growSearch struct {
 	// 208 B a member and 4 B an edge: what the twin in memory reads.
 	ModelBytes float64 `json:"modelBytes"`
 	Rescored   float64 `json:"rescored"`
+	// Segments is the segments of the bucket of postings when it was read.
+	Segments int `json:"segments"`
 }
 
 type growResult struct {
@@ -191,10 +196,16 @@ type growResult struct {
 	Config      map[string]any   `json:"config"`
 	Base        growCheckpoint   `json:"base"`
 	Checkpoints []growCheckpoint `json:"checkpoints"`
-	// Uncompacted and Compacted are the searches over the whole index,
-	// before and after the store is compacted for good.
+	// Force tells the compaction of the bucket of postings while the index
+	// grew: forced, as that of HFresh, or by levels.
+	Force bool `json:"force"`
+	// The searches over the whole index in three states of the store: as
+	// its cycles left it, with the last writes still in the memtables; with
+	// the memtables flushed and nothing else done; and compacted for good.
 	Uncompacted      []growSearch   `json:"uncompacted,omitempty"`
+	Flushed          []growSearch   `json:"flushed,omitempty"`
 	Compacted        []growSearch   `json:"compacted,omitempty"`
+	FlushedAt        growCheckpoint `json:"flushedAt"`
 	CompactionRounds int            `json:"compactionRounds"`
 	Final            growCheckpoint `json:"final"`
 	// Reopened says how the index, closed and opened again from its files,
@@ -276,7 +287,7 @@ func TestGrowValidate(t *testing.T) {
 	uc.TrainingLimit = *benchTraining
 	result := &growResult{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
-		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits,
+		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits, Force: *benchGrowForce,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
@@ -349,13 +360,13 @@ func TestGrowValidate(t *testing.T) {
 	metrics, err := diskStoreMetrics()
 	require.NoError(t, err)
 	var g *growIndex
-	open := func() {
-		g, err = openGrowIndex(ctx, logger, dir, provider, insertUC, metrics, true)
+	open := func(leveled bool) {
+		g, err = openGrowIndex(ctx, logger, dir, provider, insertUC, growOpen{metrics: metrics, pread: true, leveled: leveled})
 		require.NoError(t, err)
 		g.storeReads = diskStoreReads
 		twin.st.centroids = g.st.centroids
 	}
-	open()
+	open(!*benchGrowForce)
 	defer func() {
 		if g != nil {
 			require.NoError(t, g.close(ctx))
@@ -542,10 +553,14 @@ func TestGrowValidate(t *testing.T) {
 			// that the model does not count.
 			point.ModelBytes = (float64(memberBytes.Load()) + float64(edgeBytes.Load()) - 4*members) / queries
 			point.Rescored = float64(rescored.Load()) / queries
+			_, segments, err := growFiles(dir)
+			require.NoError(t, err)
+			point.Segments = segments[growBucketPostings]
 			t.Logf("%s, recall %.2f (ef %d, %.4f): %.2f loads in %.2f rounds | the store read %.1f times, %.3f MB, "+
-				"for %.3f MB by the model: %.3f | members %.3f MB, edges %.3f MB", at, point.Target, point.EF, point.Recall,
-				point.Loads, point.Rounds, point.StoreReads, point.StoreBytes/1e6, point.ModelBytes/1e6,
-				point.StoreBytes/point.ModelBytes, point.MemberBytes/1e6, point.EdgeBytes/1e6)
+				"for %.3f MB by the model: %.3f | a load: %.2f reads, %.1f KB, %.1f KB by the model | %d segments",
+				at, point.Target, point.EF, point.Recall, point.Loads, point.Rounds, point.StoreReads, point.StoreBytes/1e6,
+				point.ModelBytes/1e6, point.StoreBytes/point.ModelBytes, point.StoreReads/point.Loads,
+				point.StoreBytes/point.Loads/1e3, point.ModelBytes/point.Loads/1e3, point.Segments)
 			if difference != "" {
 				write()
 				t.Fatalf("STOP: %s, the index on disk does not return what the twin returns: %s", at, difference)
@@ -553,9 +568,21 @@ func TestGrowValidate(t *testing.T) {
 		}
 		return out
 	}
-	result.Uncompacted = measure("before compacting")
+	result.Uncompacted = measure("as the cycles of the store left it")
+	write()
+	require.NoError(t, g.flushAll())
+	result.FlushedAt = checkpoint(100, time.Since(run).Seconds())
+	stop(result.FlushedAt)
+	result.Flushed = measure("flushed, before compacting")
 	write()
 
+	// The compaction for good is the forced one, whatever the index grew
+	// with.
+	if !*benchGrowForce {
+		require.NoError(t, g.close(ctx))
+		g = nil
+		open(false)
+	}
 	begin = time.Now()
 	result.CompactionRounds, err = g.compactAll()
 	require.NoError(t, err)
@@ -568,7 +595,7 @@ func TestGrowValidate(t *testing.T) {
 	// Closed and opened again from its files, it is still the twin.
 	require.NoError(t, g.close(ctx))
 	g = nil
-	open()
+	open(false)
 	require.NoError(t, g.checkCoverage(), "STOP: the coverage of the index opened again")
 	require.NoError(t, g.sameAs(twin), "STOP: the index opened again against the twin")
 	measure("opened again")
@@ -600,6 +627,9 @@ type growManifest struct {
 	RoutingBits int            `json:"routingBits"`
 	Config      map[string]any `json:"config"`
 	Procs       int            `json:"gomaxprocs"`
+	// Force tells the compaction of the bucket of postings while the index
+	// grew: forced, as that of HFresh, or by levels.
+	Force bool `json:"force"`
 	// Stretches are the timed inserts, and Seconds and PerSecond all of
 	// them together.
 	Stretches []growStretch `json:"stretches"`
@@ -662,7 +692,7 @@ func TestGrowTimedInserts(t *testing.T) {
 	manifest := &growManifest{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
 		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits,
-		Procs: runtime.GOMAXPROCS(0),
+		Procs: runtime.GOMAXPROCS(0), Force: *benchGrowForce,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
@@ -713,7 +743,7 @@ func TestGrowTimedInserts(t *testing.T) {
 
 	insertUC := uc
 	insertUC.EF = *benchGrowInsertEF
-	g, err := openGrowIndex(ctx, logger, dir, provider, insertUC, nil, false)
+	g, err := openGrowIndex(ctx, logger, dir, provider, insertUC, growOpen{leveled: !*benchGrowForce})
 	require.NoError(t, err)
 	defer func() {
 		if g != nil {
@@ -764,6 +794,12 @@ func TestGrowTimedInserts(t *testing.T) {
 	require.NoError(t, err)
 	write()
 	require.Equal(t, "complete", manifest.Coverage, "STOP: the coverage of the index the timed run grew")
+	// The compaction for good is the forced one.
+	if !*benchGrowForce {
+		require.NoError(t, g.close(ctx))
+		g, err = openGrowIndex(ctx, logger, dir, provider, insertUC, growOpen{})
+		require.NoError(t, err)
+	}
 	begin := time.Now()
 	manifest.CompactionRounds, err = g.compactAll()
 	require.NoError(t, err)
@@ -883,7 +919,7 @@ func TestGrowTimedSearch(t *testing.T) {
 	uc := NewDefaultUserConfig()
 
 	open := func() *growIndex {
-		g, err := openGrowIndex(ctx, logger, dir, provider, uc, nil, false)
+		g, err := openGrowIndex(ctx, logger, dir, provider, uc, growOpen{})
 		require.NoError(t, err)
 		return g
 	}
