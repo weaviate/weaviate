@@ -27,9 +27,9 @@ It runs six stages in order; any of them can be named to run alone
 |---|---|---|
 | `bin` | builds the two benchmark binaries into `$WORK` | no |
 | `write` | builds posting-edge in batch, writes its five cells under `$DISK/pe`, and applies the two checks that stop the run: disk returns what memory returns, and the bytes the store reads are within 25 % of the byte model | no |
-| `hfresh` | builds HFresh with its default configuration under `$DISK/hf` and sweeps `searchProbe` | no |
-| `count` | counts what the store reads per query for HFresh | no |
-| `timed` | times every cell and HFresh, warm and cold, one process each | yes |
+| `hfresh` | builds HFresh with its default configuration under `$DISK/hf` and sweeps `searchProbe` with rescore limits of 64, 100, 200 and 350 | no |
+| `count` | counts what the store reads per query for HFresh, and picks for each recall the configuration that reads the least | no |
+| `timed` | times every cell and HFresh (its default and its best for each recall), warm and cold, one process each | yes |
 | `verdict` | writes `$OUT/disk-verdict.md` | no |
 
 The results are JSON files in `$OUT`, and the logs and binaries in `$WORK`
@@ -44,9 +44,14 @@ files is dropped. `COLD` chooses how:
   under `$DISK`, through `scripts/drop_cache.py`. No root.
 - `cmd`: your own command in `DROP`, for instance as root
   `COLD=cmd DROP='sync; echo 3 > /proc/sys/vm/drop_caches'`.
-- `image`, the default on macOS: `$DISK` is the mountpoint of a disk image
-  that is detached and attached again. A disk image serves one read at a
-  time, so it hides what parallel reads buy; see "Enmienda 1" in the report.
+- `volume`, on macOS: `$DISK` is on a volume of its own that is unmounted and
+  mounted again, `VOLUME_DEV=disk3s7 VOLUME_MOUNT=/Volumes/v40bench` after
+  `diskutil apfs addVolume disk3 APFS v40bench`. No root. It is how the run of
+  the report was timed.
+- `image`, the default on macOS because it needs nothing set up: `$DISK` is
+  the mountpoint of a disk image that is detached and attached again. A disk
+  image serves one read at a time, so it hides what parallel reads buy; see
+  "Enmienda 1" in the report.
 - `none`: warm only.
 
 After the drop the index is reopened and the index of every segment of the
@@ -67,9 +72,12 @@ DISK=/mnt/nvme/v40-smoke OUT=/tmp/v40-smoke QUERIES=500 COLDQ=40 \
 - The store reads through its mapping (the default of the LSM store), in both
   indexes. Its read counts come from a separate pass with `pread`, the only
   mode it counts in.
-- HFresh rescores 350 candidates with exact vectors from a bucket named
-  `objects` that holds the vector alone; posting-edge rescores 64 from a file
-  of its own. The rescore is reported apart for that reason.
+- HFresh rescores with exact vectors from a bucket named `objects` that holds
+  the vector alone, 350 of them by default; posting-edge rescores 64 from a
+  file of its own. The rescore is reported apart for that reason.
+- HFresh is timed twice: as it comes (searchProbe 256, rescore limit 350) and
+  with the searchProbe and rescore limit that read the least for each recall.
+  The criteria of the report are read against the second.
 - The HFresh package starts a pprof server on 127.0.0.1:6060 and a metrics
   server on :2112 in every test binary: do not run two of its binaries at
   once.

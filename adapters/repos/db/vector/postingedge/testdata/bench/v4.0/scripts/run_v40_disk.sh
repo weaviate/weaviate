@@ -13,10 +13,14 @@
 #            for it is within a quarter of the byte model of v3.0. Either
 #            failing stops the script. Untimed.
 #   hfresh   builds the real HFresh, default configuration, under $DISK/hf,
-#            and sweeps its searchProbe for the recall it reaches. Untimed.
-#   count    counts what the store reads per query for HFresh. Untimed.
-#   timed    times every cell and HFresh, one process each: warm and, unless
-#            COLD=none, cold. Then the first cell again, warm, to see drift.
+#            and sweeps its searchProbe with every rescore limit of 64, 100,
+#            200 and 350 for the recall it reaches. Untimed.
+#   count    counts what the store reads per query for HFresh, with its
+#            default configuration and with every candidate of the sweep, and
+#            picks for each recall the one that reads the least. Untimed.
+#   timed    times every cell and HFresh (its default and its best for each
+#            recall), one process each: warm and, unless COLD=none, cold. Then
+#            the first cell again, warm, to see drift.
 #   verdict  writes disk-verdict.md from what the stages left in $OUT.
 #
 # usage: [VAR=value ...] run_v40_disk.sh [stage ...]
@@ -32,10 +36,17 @@
 #            cold batch, with the index closed:
 #              fadvise  posix_fadvise on every file (Linux, no root). Default
 #                       on Linux.
+#              volume   $DISK is on a volume of its own, mounted at
+#                       $VOLUME_MOUNT from the device $VOLUME_DEV, which is
+#                       unmounted and mounted again (macOS, no root:
+#                       diskutil apfs addVolume disk3 APFS v40bench, then
+#                       VOLUME_DEV=disk3s7 VOLUME_MOUNT=/Volumes/v40bench).
+#                       It is how the run of the report was timed.
 #              image    $DISK is a disk image at $IMAGE (created if missing,
 #                       $IMAGE_GB large), detached and attached again (macOS,
-#                       no root). Default on macOS. A disk image serves one
-#                       read at a time: see the amendment in bench-report.md.
+#                       no root). Default on macOS, because it needs nothing
+#                       set up, but a disk image serves one read at a time:
+#                       see the first amendment in bench-report.md.
 #              cmd      the command in $DROP, e.g. as root
 #                       'sync; echo 3 > /proc/sys/vm/drop_caches', or 'purge'.
 #              none     no cold measure.
@@ -70,6 +81,9 @@ mkdir -p "$WORK" "$OUT" || exit 1
 export GOMEMLIMIT="${GOMEMLIMIT:-24GiB}"
 
 case "$COLD" in
+  volume)  [ -n "${VOLUME_DEV:-}" ] && [ -n "${VOLUME_MOUNT:-}" ] || { echo "== COLD=volume needs VOLUME_DEV and VOLUME_MOUNT"; exit 1; }
+           case "$DISK/" in "$VOLUME_MOUNT"/*) ;; *) echo "== DISK must be under $VOLUME_MOUNT"; exit 1 ;; esac
+           DROP="diskutil unmount '$VOLUME_MOUNT' > /dev/null && diskutil mount '$VOLUME_DEV' > /dev/null" ;;
   image)   DROP="hdiutil detach '$DISK' -quiet && hdiutil attach '$IMAGE' -mountpoint '$DISK' -nobrowse -quiet" ;;
   fadvise) DROP="python3 -I -B '$HERE/drop_cache.py' '$DISK'" ;;
   cmd)     [ -n "${DROP:-}" ] || { echo "== COLD=cmd needs DROP"; exit 1; } ;;
@@ -172,7 +186,8 @@ stage_timed() {
   date "+== %H:%M hfresh"
   (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HF" -test.run 'TestHFreshDiskTimed$' -test.timeout 0 -test.v \
     -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$DISK/hf" \
-    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-manifest.json" -bench.hfresh.drop "$DROP" -bench.hfresh.cold "$COLDQ" \
+    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-manifest.json" -bench.hfresh.reads "$OUT/$LABEL-hfresh-reads.json" \
+    -bench.hfresh.drop "$DROP" -bench.hfresh.cold "$COLDQ" \
     -bench.hfresh.out "$OUT/$LABEL-hfresh.json" > "$WORK/$LABEL-hfresh.log" 2>&1)
   lines "$WORK/$LABEL-hfresh.log" "bench_disk_test"
   passed "$WORK/$LABEL-hfresh.log" || echo "== hfresh did not pass: see $WORK/$LABEL-hfresh.log"

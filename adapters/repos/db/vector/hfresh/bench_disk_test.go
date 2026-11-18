@@ -14,16 +14,19 @@
 package hfresh
 
 import (
+	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -81,12 +84,24 @@ var (
 	diskK       = flag.Int("bench.hfresh.k", 10, "top k")
 	diskDrop    = flag.String("bench.hfresh.drop", "", "with TestHFreshDiskTimed: the shell command that drops the "+
 		"system's cache of the files under -bench.hfresh.dir, run with the index closed before every cold batch")
-	diskCold   = flag.Int("bench.hfresh.cold", 500, "with TestHFreshDiskTimed: the cold queries of every point")
-	diskBudget = flag.Int("bench.hfresh.budget", 8, "the concurrency budget of one query, which the rescore reads its vectors within")
-	diskPasses = flag.Int("bench.hfresh.passes", 3, "with TestHFreshDiskTimed: the timed warm passes of every point")
+	diskCold     = flag.Int("bench.hfresh.cold", 500, "with TestHFreshDiskTimed: the cold queries of every point")
+	diskBudget   = flag.Int("bench.hfresh.budget", 8, "the concurrency budget of one query, which the rescore reads its vectors within")
+	diskPasses   = flag.Int("bench.hfresh.passes", 3, "with TestHFreshDiskTimed: the timed warm passes of every point")
+	diskRescores = flag.String("bench.hfresh.rescores", "64,100,200,350", "with TestHFreshDiskBuild: the rescore limits "+
+		"searchProbe is swept with, to find for every recall the configuration that reads the least")
+	diskReads = flag.String("bench.hfresh.reads", "", "what TestHFreshDiskCount left, for TestHFreshDiskTimed: the reads "+
+		"of every configuration and the one that reads the least for every recall")
 )
 
 var diskTargets = []float64{0.95, 0.99}
+
+// diskFullProbe is the largest searchProbe whose recall is measured over all
+// the queries. Above it a search reads thousands of postings, and the recall
+// is measured over the first diskFewQueries queries.
+const (
+	diskFullProbe  = 4096
+	diskFewQueries = 1000
+)
 
 const (
 	diskStoreDir = "store"
@@ -291,16 +306,19 @@ func (b *diskBench) search(ctx context.Context, query []float32, k int) ([]uint6
 	return ids, helpers.ExtractSlowQueryDetails(ctx), err
 }
 
-func (b *diskBench) setProbe(probe int) {
+// setSearch sets the two search tunables of the index: the postings a search
+// reads and the candidates it rescores.
+func (b *diskBench) setSearch(probe, rescore int) {
 	uc := ent.NewDefaultUserConfig()
 	uc.SearchProbe = uint32(probe)
+	uc.RQ.RescoreLimit = rescore
 	require.NoError(b.t, b.index.UpdateUserConfig(uc, func() {}))
 }
 
-// recall searches every query with the given searchProbe and tells the
-// recall.
-func (b *diskBench) recall(queries [][]float32, truth [][]uint64, k, probe int) float64 {
-	b.setProbe(probe)
+// recall searches every query with the given searchProbe and rescore limit
+// and tells the recall.
+func (b *diskBench) recall(queries [][]float32, truth [][]uint64, k, probe, rescore int) float64 {
+	b.setSearch(probe, rescore)
 	var hits atomic.Int64
 	err := compressionhelpers.ConcurrentlyWithError(b.logger, uint64(len(queries)), func(i uint64) error {
 		ids, _, err := b.search(context.Background(), queries[i], k)
@@ -405,18 +423,28 @@ func warmSegmentIndexes(dir string) (int64, error) {
 	return total, err
 }
 
-// diskPoint is the operating point of the index for one recall: the smallest
-// searchProbe that reaches it.
+// diskPoint is one search configuration of the index: the default one, or
+// the candidate of a rescore limit for a recall, which is the smallest
+// searchProbe that reaches the recall with that rescore limit.
 type diskPoint struct {
-	Target  float64 `json:"target"`
-	Reached bool    `json:"reached"`
-	Probe   int     `json:"searchProbe"`
-	Recall  float64 `json:"recall"`
+	// Name is "default", or "r<rescore limit>@<recall>".
+	Name string `json:"name"`
+	// Target is the recall the candidate is for, 0 for the default.
+	Target       float64 `json:"target"`
+	Reached      bool    `json:"reached"`
+	Probe        int     `json:"searchProbe"`
+	RescoreLimit int     `json:"rescoreLimit"`
+	Recall       float64 `json:"recall"`
+	// Queries is the queries the recall was measured over: all of them, or
+	// the first diskFewQueries above diskFullProbe.
+	Queries int `json:"queries"`
 }
 
 type diskProbe struct {
-	Probe  int     `json:"searchProbe"`
-	Recall float64 `json:"recall"`
+	Probe        int     `json:"searchProbe"`
+	RescoreLimit int     `json:"rescoreLimit"`
+	Recall       float64 `json:"recall"`
+	Queries      int     `json:"queries"`
 }
 
 type diskManifestFile struct {
@@ -448,7 +476,10 @@ type diskManifestFile struct {
 	// rescore limit.
 	Sweep     []diskProbe `json:"sweep"`
 	MaxRecall float64     `json:"maxRecall"`
-	Points    []diskPoint `json:"points"`
+	// Default is the index searched as it comes, and Candidates one point
+	// per rescore limit and recall.
+	Default    diskPoint   `json:"default"`
+	Candidates []diskPoint `json:"candidates"`
 	// Files and Segments are what the index takes on disk and the segments
 	// of every bucket.
 	Files    map[string]int64 `json:"files"`
@@ -508,6 +539,7 @@ func TestHFreshDiskBuild(t *testing.T) {
 	require.NoError(t, os.RemoveAll(*diskDir))
 	require.NoError(t, os.MkdirAll(*diskDir, 0o755))
 	b := openDiskBench(t, *diskDir, dims, raw.Train, true, false, nil)
+	uc := ent.NewDefaultUserConfig()
 
 	// The exact vectors, where a search reads them.
 	objects := b.store.Bucket(helpers.ObjectsBucketLSM)
@@ -535,7 +567,7 @@ func TestHFreshDiskBuild(t *testing.T) {
 	// search rewrites a posting.
 	for round := 0; ; round++ {
 		require.Less(t, round, 20, "the searches keep enqueuing merges")
-		b.recall(raw.Queries, truth, *diskK, int(ent.NewDefaultUserConfig().SearchProbe))
+		b.recall(raw.Queries, truth, *diskK, int(uc.SearchProbe), uc.RQ.RescoreLimit)
 		if b.index.taskQueue.Size() == 0 {
 			break
 		}
@@ -549,7 +581,6 @@ func TestHFreshDiskBuild(t *testing.T) {
 	b.cycles = nil
 	compactions := b.compactAll()
 
-	uc := ent.NewDefaultUserConfig()
 	manifest := &diskManifestFile{
 		Dataset: raw.Name, Vectors: n, Queries: len(raw.Queries), K: *diskK, Dims: dims, Config: uc,
 		MaxPostingSize: b.index.maxPostingSize, MinPostingSize: b.index.minPostingSize,
@@ -566,51 +597,84 @@ func TestHFreshDiskBuild(t *testing.T) {
 		manifest.Replication, manifest.MinPostingSize, manifest.MaxPostingSize, manifest.EntryBytes,
 		uc.Replicas, uc.MaxPostingSizeKB, uc.SearchProbe, uc.RQ.RescoreLimit, uc.RQ.Bits)
 
-	// Up to which recall it gets: searchProbe doubled from 16 to all the
-	// postings, with the default rescore limit.
-	recalls := map[int]float64{}
-	recall := func(probe int) float64 {
-		if _, done := recalls[probe]; !done {
-			recalls[probe] = b.recall(raw.Queries, truth, *diskK, probe)
-			t.Logf("searchProbe %d: recall %.4f", probe, recalls[probe])
-			manifest.Sweep = append(manifest.Sweep, diskProbe{Probe: probe, Recall: recalls[probe]})
+	// The recall of one configuration, measured once.
+	type config struct{ probe, rescore int }
+	recalls := map[config]float64{}
+	queriesOf := func(probe int) int {
+		if probe > diskFullProbe {
+			return min(diskFewQueries, len(raw.Queries))
 		}
-		return recalls[probe]
+		return len(raw.Queries)
 	}
+	recall := func(probe, rescore int) float64 {
+		at := config{probe, rescore}
+		if _, done := recalls[at]; !done {
+			n := queriesOf(probe)
+			recalls[at] = b.recall(raw.Queries[:n], truth[:n], *diskK, probe, rescore)
+			t.Logf("rescoreLimit %d, searchProbe %d: recall %.4f over %d queries", rescore, probe, recalls[at], n)
+			manifest.Sweep = append(manifest.Sweep, diskProbe{Probe: probe, RescoreLimit: rescore, Recall: recalls[at], Queries: n})
+		}
+		return recalls[at]
+	}
+	defaultProbe, defaultRescore := int(uc.SearchProbe), uc.RQ.RescoreLimit
+	manifest.Default = diskPoint{
+		Name: "default", Reached: true, Probe: defaultProbe, RescoreLimit: defaultRescore,
+		Recall: recall(defaultProbe, defaultRescore), Queries: queriesOf(defaultProbe),
+	}
+	t.Logf("default (searchProbe %d, rescoreLimit %d): recall %.4f", defaultProbe, defaultRescore, manifest.Default.Recall)
+
+	// searchProbe doubled from 16 to all the postings, for every rescore
+	// limit. A candidate is the smallest searchProbe that reaches a recall,
+	// looked for between the two values of the grid around it. With the
+	// default rescore limit the whole grid is measured: it is up to which
+	// recall the index gets.
 	var grid []int
 	for probe := 16; probe < int(manifest.Postings); probe *= 2 {
 		grid = append(grid, probe)
 	}
 	grid = append(grid, int(manifest.Postings))
-	for _, probe := range grid {
-		manifest.MaxRecall = max(manifest.MaxRecall, recall(probe))
+	var rescores []int
+	for _, field := range strings.Split(*diskRescores, ",") {
+		rescore, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err, "-bench.hfresh.rescores")
+		rescores = append(rescores, rescore)
 	}
-	for _, target := range diskTargets {
-		point := diskPoint{Target: target}
-		low := *diskK
-		for _, probe := range grid {
-			if recall(probe) >= target {
-				high := probe
-				for high-low > 1 {
-					if middle := (low + high) / 2; recall(middle) < target {
-						low = middle
-					} else {
-						high = middle
+	for _, rescore := range rescores {
+		for _, target := range diskTargets {
+			point := diskPoint{Name: fmt.Sprintf("r%d@%.2f", rescore, target), Target: target, RescoreLimit: rescore}
+			low := *diskK
+			for _, probe := range grid {
+				if recall(probe, rescore) >= target {
+					high := probe
+					for high-low > 1 {
+						if middle := (low + high) / 2; recall(middle, rescore) < target {
+							low = middle
+						} else {
+							high = middle
+						}
 					}
+					point.Reached, point.Probe, point.Recall, point.Queries = true, high, recall(high, rescore), queriesOf(high)
+					break
 				}
-				point.Reached, point.Probe, point.Recall = true, high, recall(high)
-				break
+				low = probe
 			}
-			low = probe
+			if point.Reached {
+				t.Logf("rescoreLimit %d, recall %.2f: searchProbe %d, recall %.4f", rescore, target, point.Probe, point.Recall)
+			} else {
+				t.Logf("rescoreLimit %d does not reach recall %.2f", rescore, target)
+			}
+			manifest.Candidates = append(manifest.Candidates, point)
 		}
-		if point.Reached {
-			t.Logf("recall %.2f: searchProbe %d, recall %.4f", target, point.Probe, point.Recall)
-		} else {
-			t.Logf("recall %.2f is not reached: the best is %.4f", target, manifest.MaxRecall)
+		if rescore == defaultRescore {
+			for _, probe := range grid {
+				manifest.MaxRecall = max(manifest.MaxRecall, recall(probe, rescore))
+			}
+			t.Logf("rescoreLimit %d: the best recall over the grid is %.4f", rescore, manifest.MaxRecall)
 		}
-		manifest.Points = append(manifest.Points, point)
 	}
-	slices.SortFunc(manifest.Sweep, func(a, b diskProbe) int { return a.Probe - b.Probe })
+	slices.SortFunc(manifest.Sweep, func(a, b diskProbe) int {
+		return cmp.Or(a.RescoreLimit-b.RescoreLimit, a.Probe-b.Probe)
+	})
 	require.Zero(t, b.index.taskQueue.Size(), "the sweep left background work")
 	b.close()
 
@@ -630,22 +694,34 @@ func diskReadManifest(t *testing.T) *diskManifestFile {
 	return &manifest
 }
 
-// diskCount is what the store reads for one query at one operating point.
+// diskCount is what the store reads for one query with one configuration.
 type diskCount struct {
-	Target float64 `json:"target"`
-	Probe  int     `json:"searchProbe"`
-	Recall float64 `json:"recall"`
+	diskPoint
 	// PostingReads and PostingBytes are the reads of the postings, per
 	// query, and RescoreReads and RescoreBytes those of the exact vectors.
 	PostingReads float64 `json:"postingReads"`
 	PostingBytes float64 `json:"postingBytes"`
 	RescoreReads float64 `json:"rescoreReads"`
 	RescoreBytes float64 `json:"rescoreBytes"`
+	// Reads is all the reads of a query, which is what a configuration is
+	// chosen by.
+	Reads float64 `json:"reads"`
 }
 
-// TestHFreshDiskCount counts what the store reads for a query at every
-// operating point, with the store reading with pread, the only mode it
-// counts reads in. The count of the store is of the whole process, so the
+// diskCountFile is what TestHFreshDiskCount leaves: the reads of the default
+// configuration and of every candidate, and for every recall the name of the
+// candidate that reads the least.
+type diskCountFile struct {
+	Counts []diskCount       `json:"counts"`
+	Best   map[string]string `json:"best"`
+}
+
+func diskTargetKey(target float64) string { return fmt.Sprintf("%.2f", target) }
+
+// TestHFreshDiskCount counts what the store reads for a query with the
+// default configuration and with every candidate, with the store reading
+// with pread, the only mode it counts reads in, and picks for every recall
+// the candidate that reads the least: fewest reads, then fewest bytes. The count of the store is of the whole process, so the
 // reads of the rescore, which the test counts where they are asked for, are
 // taken out of it.
 func TestHFreshDiskCount(t *testing.T) {
@@ -674,36 +750,59 @@ func TestHFreshDiskCount(t *testing.T) {
 	require.Equal(t, uint64(1), readsAfter-readsBefore, "one read per exact vector")
 	vectorBytes := bytesAfter - bytesBefore
 
-	var counts []diskCount
-	for _, point := range manifest.Points {
+	file := &diskCountFile{Best: map[string]string{}}
+	for _, point := range append([]diskPoint{manifest.Default}, manifest.Candidates...) {
 		if !point.Reached {
 			continue
 		}
+		queries, truth := raw.Queries[:point.Queries], manifest.Truth[:point.Queries]
 		// Once unmeasured: the versions of the postings are read from the
 		// store the first time and cached from then on.
-		require.InDelta(t, point.Recall, b.recall(raw.Queries, manifest.Truth, manifest.K, point.Probe), 1e-9)
+		require.InDelta(t, point.Recall, b.recall(queries, truth, manifest.K, point.Probe, point.RescoreLimit), 1e-9)
 		readsBefore, bytesBefore, err := diskStoreReads()
 		require.NoError(t, err)
 		rescoreBefore := b.rescoreReads.Load()
-		recall := b.recall(raw.Queries, manifest.Truth, manifest.K, point.Probe)
+		recall := b.recall(queries, truth, manifest.K, point.Probe, point.RescoreLimit)
 		readsAfter, bytesAfter, err := diskStoreReads()
 		require.NoError(t, err)
-		q := float64(len(raw.Queries))
+		require.InDelta(t, point.Recall, recall, 1e-9)
+		q := float64(len(queries))
 		rescored := uint64(b.rescoreReads.Load() - rescoreBefore)
 		count := diskCount{
-			Target: point.Target, Probe: point.Probe, Recall: recall,
+			diskPoint:    point,
 			PostingReads: float64(readsAfter-readsBefore-rescored) / q,
 			PostingBytes: float64(bytesAfter-bytesBefore-rescored*vectorBytes) / q,
 			RescoreReads: float64(rescored) / q, RescoreBytes: float64(rescored*vectorBytes) / q,
+			Reads: float64(readsAfter-readsBefore) / q,
 		}
-		t.Logf("recall %.2f (searchProbe %d, recall %.4f): %.1f posting reads and %.3f MB per query | rescore: %.1f "+
-			"reads and %.3f MB", point.Target, point.Probe, recall, count.PostingReads, count.PostingBytes/1e6,
-			count.RescoreReads, count.RescoreBytes/1e6)
-		counts = append(counts, count)
+		t.Logf("%s (searchProbe %d, rescoreLimit %d, recall %.4f): %.1f reads per query | postings: %.1f reads and "+
+			"%.3f MB | rescore: %.1f reads and %.3f MB", point.Name, point.Probe, point.RescoreLimit, recall, count.Reads,
+			count.PostingReads, count.PostingBytes/1e6, count.RescoreReads, count.RescoreBytes/1e6)
+		file.Counts = append(file.Counts, count)
+	}
+	for _, target := range diskTargets {
+		var best *diskCount
+		for i := range file.Counts {
+			count := &file.Counts[i]
+			if count.Target != target {
+				continue
+			}
+			if best == nil || count.Reads < best.Reads ||
+				(count.Reads == best.Reads && count.PostingBytes+count.RescoreBytes < best.PostingBytes+best.RescoreBytes) {
+				best = count
+			}
+		}
+		if best == nil {
+			t.Logf("recall %.2f: no rescore limit reaches it", target)
+			continue
+		}
+		file.Best[diskTargetKey(target)] = best.Name
+		t.Logf("recall %.2f: the fewest reads are those of %s, %.1f per query (searchProbe %d, rescoreLimit %d)",
+			target, best.Name, best.Reads, best.Probe, best.RescoreLimit)
 	}
 	require.Zero(t, b.index.taskQueue.Size(), "the searches left background work")
 	b.close()
-	out, err := json.MarshalIndent(counts, "", "  ")
+	out, err := json.MarshalIndent(file, "", "  ")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(*diskOut, out, 0o644))
 }
@@ -752,13 +851,16 @@ func diskLatenciesOf(latencies []time.Duration, details []map[string]any, wall t
 }
 
 type diskTimedPoint struct {
-	Target     float64         `json:"target"`
-	Probe      int             `json:"searchProbe"`
-	Threads    int             `json:"threads"`
-	Recall     float64         `json:"recall"`
-	Warm       []diskLatencies `json:"warm"`
-	Cold       *diskLatencies  `json:"cold,omitempty"`
-	ColdHalves []diskLatencies `json:"coldHalves,omitempty"`
+	// Name is the configuration: "default" or the candidate's.
+	Name         string          `json:"name"`
+	Target       float64         `json:"target"`
+	Probe        int             `json:"searchProbe"`
+	RescoreLimit int             `json:"rescoreLimit"`
+	Threads      int             `json:"threads"`
+	Recall       float64         `json:"recall"`
+	Warm         []diskLatencies `json:"warm"`
+	Cold         *diskLatencies  `json:"cold,omitempty"`
+	ColdHalves   []diskLatencies `json:"coldHalves,omitempty"`
 	// ColdFirst is the first query of every cold batch, the one that finds
 	// the least in the cache, and ColdRest the others. With one thread.
 	ColdFirst    *diskLatencies `json:"coldFirst,omitempty"`
@@ -786,8 +888,10 @@ type diskTimedResult struct {
 	Points         []diskTimedPoint `json:"points"`
 }
 
-// TestHFreshDiskTimed times the index TestHFreshDiskBuild built: at each of
-// its operating points, with 1 and with 8 threads, warm and, when
+// TestHFreshDiskTimed times the index TestHFreshDiskBuild built: with its
+// default configuration and, for every recall, with the configuration
+// TestHFreshDiskCount found to read the least, with 1 and with 8 threads,
+// warm and, when
 // -bench.hfresh.drop is given, cold, as TestDiskTimed of the posting-edge
 // package times a cell. The store reads through its mapping, the default.
 func TestHFreshDiskTimed(t *testing.T) {
@@ -801,6 +905,23 @@ func TestHFreshDiskTimed(t *testing.T) {
 	raw, _ := diskLoad(t, false)
 	queries, truth, k := raw.Queries, manifest.Truth, manifest.K
 	require.Len(t, queries, len(truth))
+	// What to time: the default, and the best of every recall.
+	require.NotEmpty(t, *diskReads, "TestHFreshDiskTimed reads the best configurations from -bench.hfresh.reads")
+	rawCounts, err := os.ReadFile(*diskReads)
+	require.NoError(t, err)
+	var counts diskCountFile
+	require.NoError(t, json.Unmarshal(rawCounts, &counts))
+	points := []diskPoint{manifest.Default}
+	for _, target := range diskTargets {
+		name, found := counts.Best[diskTargetKey(target)]
+		if !found {
+			t.Logf("recall %.2f is not reached with any rescore limit: nothing to time there", target)
+			continue
+		}
+		at := slices.IndexFunc(manifest.Candidates, func(p diskPoint) bool { return p.Name == name })
+		require.GreaterOrEqualf(t, at, 0, "the manifest has no candidate %q", name)
+		points = append(points, manifest.Candidates[at])
+	}
 
 	b := openDiskBench(t, *diskDir, manifest.Dims, nil, false, false, nil)
 	runtime.GC()
@@ -874,24 +995,24 @@ func TestHFreshDiskTimed(t *testing.T) {
 		all[i] = i
 	}
 
-	for _, point := range manifest.Points {
-		if !point.Reached {
-			t.Logf("recall %.2f is not reached: nothing to time there", point.Target)
-			continue
-		}
+	for _, point := range points {
 		for _, threads := range []int{1, 8} {
-			b.setProbe(point.Probe)
-			timed := diskTimedPoint{Target: point.Target, Probe: point.Probe, Threads: threads}
+			b.setSearch(point.Probe, point.RescoreLimit)
+			timed := diskTimedPoint{
+				Name: point.Name, Target: point.Target, Probe: point.Probe, RescoreLimit: point.RescoreLimit, Threads: threads,
+			}
 			_, _, hits, _ := run(all, 8)
 			timed.Recall = float64(hits) / float64(len(queries)*k)
-			require.InDelta(t, point.Recall, timed.Recall, 1e-9, "the recall of the manifest")
+			if point.Queries == len(queries) {
+				require.InDelta(t, point.Recall, timed.Recall, 1e-9, "the recall of the manifest")
+			}
 			for pass := 0; pass < *diskPasses; pass++ {
 				latencies, details, _, wall := run(all, threads)
 				timed.Warm = append(timed.Warm, diskLatenciesOf(latencies, details, wall))
 			}
 			warm := timed.Warm[len(timed.Warm)/2]
-			t.Logf("recall %.2f (searchProbe %d), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
-				"read %.3f ms, scan %.3f, rescore %.3f, centroids %.3f", point.Target, point.Probe, threads,
+			t.Logf("%s (searchProbe %d, rescoreLimit %d, recall %.4f), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
+				"read %.3f ms, scan %.3f, rescore %.3f, centroids %.3f", point.Name, point.Probe, point.RescoreLimit, timed.Recall, threads,
 				warm.P50, warm.P95, warm.P99, warm.QPS, warm.ReadMs, warm.ScanMs, warm.RescoreMs, warm.CentroidMs)
 
 			if *diskDrop != "" {
@@ -918,7 +1039,7 @@ func TestHFreshDiskTimed(t *testing.T) {
 					require.NoErrorf(t, err, "drop the cache: %s", out)
 					begin := time.Now()
 					b = openDiskBench(t, *diskDir, manifest.Dims, nil, false, false, nil)
-					b.setProbe(point.Probe)
+					b.setSearch(point.Probe, point.RescoreLimit)
 					timed.IndexBytes, err = warmSegmentIndexes(filepath.Join(*diskDir, diskStoreDir))
 					require.NoError(t, err)
 					reopen += time.Since(begin)
@@ -955,9 +1076,9 @@ func TestHFreshDiskTimed(t *testing.T) {
 				timed.ColdRecall = float64(hits) / float64(len(latencies)*k)
 				timed.ReopenMs = diskMs(reopen) / float64(timed.ColdBatches)
 				timed.ColdRescored = float64(rescored) / float64(len(latencies))
-				t.Logf("recall %.2f (searchProbe %d), %d threads, cold: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
+				t.Logf("%s (searchProbe %d, rescoreLimit %d), %d threads, cold: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
 					"read %.3f ms, scan %.3f, rescore %.3f | %d batches of %d, halves at p50 %.3f and %.3f ms | reopened in %.0f ms",
-					point.Target, point.Probe, threads, cold.P50, cold.P95, cold.P99, cold.QPS, cold.ReadMs, cold.ScanMs,
+					point.Name, point.Probe, point.RescoreLimit, threads, cold.P50, cold.P95, cold.P99, cold.QPS, cold.ReadMs, cold.ScanMs,
 					cold.RescoreMs, timed.ColdBatches, batch, timed.ColdHalves[0].P50, timed.ColdHalves[1].P50, timed.ReopenMs)
 			}
 			result.Points = append(result.Points, timed)

@@ -17,7 +17,10 @@ dataset. The user's pre-registration:
 4. Report up to which recall the real HFresh gets.
 
 Read as pre-registered: 2 and 3 are decided by the p50 with 1 thread, and the
-p95, the p99 and the 8 threads are given next to it.
+p95, the p99 and the 8 threads are given next to it. By the user's amendment
+of the 18th HFresh is measured twice, with its default configuration and with
+the searchProbe and rescore limit that read the least for each recall, and
+the criteria are read against the second.
 """
 import json
 import os
@@ -155,6 +158,27 @@ def main(d):
             'Se cumple' if ok else 'NO se cumple: stop', worst))
     print()
 
+    # HFresh: its default configuration, and for every recall the candidate
+    # that reads the least.
+    counts = {c['name']: c for c in (hf_reads or {}).get('counts', [])}
+    best = (hf_reads or {}).get('best', {})
+
+    def hf_point(name, threads):
+        if hf is None or name is None:
+            return None
+        for p in hf['points']:
+            if p['name'] == name and p['threads'] == threads:
+                return p
+        return None
+
+    def hf_label(name):
+        c = next((x for x in ([hf_manifest['default']] + hf_manifest['candidates']) if x['name'] == name), None) if hf_manifest else None
+        if c is None:
+            return 'HFresh'
+        if name == 'default':
+            return 'HFresh por defecto'
+        return 'HFresh, la mejor a %.2f' % c['target']
+
     print('### HFresh real')
     print()
     if hf_manifest is None:
@@ -162,44 +186,63 @@ def main(d):
         print()
     else:
         cfg = hf_manifest['config']
-        print('- **Configuración por defecto:** réplicas %d, posting máximo de %d KB (%d entradas, mínimo %d), searchProbe %d, distancia %s.' % (
+        default = hf_manifest['default']
+        print('- **Configuración por defecto:** réplicas %d, posting máximo de %d KB (%d entradas, mínimo %d), searchProbe %d, rescoreLimit %d, distancia %s.' % (
             cfg['replicas'], cfg['maxPostingSizeKB'], hf_manifest['maxPostingSize'], hf_manifest['minPostingSize'],
-            cfg['searchProbe'], cfg['distance']))
+            cfg['searchProbe'], cfg['rq']['rescoreLimit'], cfg['distance']))
         print('- **Códigos:** RQ de %d bit. Una entrada de posting son %d B: id, versión y código.' % (
             cfg['rq']['bits'], hf_manifest['entryBytes']))
-        print('- **Rescore:** los %d mejores candidatos, con su vector exacto del bucket `objects`.' % cfg['rq']['rescoreLimit'])
+        print('- **Rescore:** los mejores candidatos, %d por defecto, con su vector exacto del bucket `objects`.' % cfg['rq']['rescoreLimit'])
         print('- **El build:** %d postings y %d entradas, %.2f por vector. Inserts en %.0f s, mantenimiento en %.0f s, %d compactaciones.' % (
             hf_manifest['postings'], hf_manifest['entries'], hf_manifest['replication'], hf_manifest['buildSeconds'],
             hf_manifest['maintenanceSeconds'], hf_manifest['compactionRounds']))
         print('- **Segmentos por bucket:** %s.' % ', '.join(
             '%s %d' % (k.replace('bucket ', ''), v) for k, v in sorted(hf_manifest['segments'].items())))
+        print('- **Con su configuración por defecto da un recall de %.4f.**' % default['recall'])
         print()
-        print('**Criterio 4: hasta qué recall llega.** Con el rescore por defecto, subiendo solo searchProbe:')
+        print('**Criterio 4: hasta qué recall llega.** Recall por searchProbe, con cada rescoreLimit; el de por defecto es %d:' % cfg['rq']['rescoreLimit'])
         print()
-        print('| searchProbe | recall |')
-        print('|---|---|')
-        doubling = [s for s in hf_manifest['sweep'] if s['searchProbe'] == hf_manifest['postings'] or
-                    (s['searchProbe'] & (s['searchProbe'] - 1)) == 0]
-        for s in doubling:
-            print('| %d%s | %.4f |' % (s['searchProbe'], ' (todos los postings)' if s['searchProbe'] == hf_manifest['postings'] else
-                                       (' (por defecto)' if s['searchProbe'] == cfg['searchProbe'] else ''), s['recall']))
+        rescores = sorted({s['rescoreLimit'] for s in hf_manifest['sweep']})
+        print('| searchProbe | ' + ' | '.join('rescoreLimit %d' % r for r in rescores) + ' | queries |')
+        print('|---|' + '---|' * len(rescores) + '---|')
+        by = {(s['searchProbe'], s['rescoreLimit']): s for s in hf_manifest['sweep']}
+        probes = sorted({s['searchProbe'] for s in hf_manifest['sweep'] if s['searchProbe'] == hf_manifest['postings'] or
+                         (s['searchProbe'] & (s['searchProbe'] - 1)) == 0})
+        for probe in probes:
+            row = ['%.4f' % by[(probe, r)]['recall'] if (probe, r) in by else '—' for r in rescores]
+            queries = next(s['queries'] for s in hf_manifest['sweep'] if s['searchProbe'] == probe)
+            note = ' (todos los postings)' if probe == hf_manifest['postings'] else (' (por defecto)' if probe == cfg['searchProbe'] else '')
+            print('| %d%s | %s | %d |' % (probe, note, ' | '.join(row), queries))
         print()
-        print('- **Recall máximo: %.4f.**' % hf_manifest['maxRecall'])
-        for p in hf_manifest['points']:
-            if p['reached']:
-                print('- **Llega a %.2f con searchProbe %d** (recall %.4f).' % (p['target'], p['searchProbe'], p['recall']))
-            else:
-                print('- **No llega a %.2f.**' % p['target'])
+        print('- **Recall máximo con el rescoreLimit por defecto: %.4f.**' % hf_manifest['maxRecall'])
+        print('- Un hueco es un searchProbe que no hizo falta medir: el barrido de un rescoreLimit para cuando llega a 0.99.')
         print()
-        if hf_reads:
-            print('**Lo que lee por query,** del store en modo pread:')
-            print()
-            print('| recall | searchProbe | postings: lecturas | bytes | rescore: lecturas | bytes |')
-            print('|---|---|---|---|---|---|')
-            for r in hf_reads:
-                print('| %.2f | %d | %.1f | %s | %.1f | %s |' % (
-                    r['target'], r['searchProbe'], r['postingReads'], mb(r['postingBytes']), r['rescoreReads'], mb(r['rescoreBytes'])))
-            print()
+        print('**Las candidatas: el menor searchProbe que llega a cada recall, por rescoreLimit.** Se elige la que menos lecturas hace.')
+        print()
+        print('| recall | rescoreLimit | searchProbe | recall medido | lecturas por query | postings: lecturas | bytes | rescore: lecturas | bytes | |')
+        print('|---|---|---|---|---|---|---|---|---|---|')
+        for c in hf_manifest['candidates']:
+            if not c['reached']:
+                print('| %.2f | %d | no llega | — | — | — | — | — | — | |' % (c['target'], c['rescoreLimit']))
+                continue
+            r = counts.get(c['name'])
+            mark = '**la mejor**' if best.get('%.2f' % c['target']) == c['name'] else ''
+            if r is None:
+                print('| %.2f | %d | %d | %.4f | sin contar | — | — | — | — | |' % (c['target'], c['rescoreLimit'], c['searchProbe'], c['recall']))
+                continue
+            print('| %.2f | %d | %d | %.4f | %.1f | %.1f | %s | %.1f | %s | %s |' % (
+                c['target'], c['rescoreLimit'], c['searchProbe'], c['recall'], r['reads'], r['postingReads'], mb(r['postingBytes']),
+                r['rescoreReads'], mb(r['rescoreBytes']), mark))
+        r = counts.get('default')
+        if r is not None:
+            print('| por defecto: %.4f | %d | %d | %.4f | %.1f | %.1f | %s | %.1f | %s | |' % (
+                default['recall'], default['rescoreLimit'], default['searchProbe'], default['recall'], r['reads'], r['postingReads'],
+                mb(r['postingBytes']), r['rescoreReads'], mb(r['rescoreBytes'])))
+        print()
+        for target in (0.95, 0.99):
+            if '%.2f' % target not in best and hf_reads is not None:
+                print('- **A %.2f no llega con ningún rescoreLimit.**' % target)
+        print()
 
     for state, key in (('en caliente', 'warm'), ('en frío', 'cold')):
         print('### Latencia y QPS, %s' % state)
@@ -222,10 +265,13 @@ def main(d):
                         continue
                     lat = middle(p['warm']) if key == 'warm' else p.get('cold')
                     print(latency_row(NAMES.get(name, name), 'ef %d' % p['ef'], p, lat, PE_PARTS))
-                p = point_of(hf, target, threads)
-                if p is not None:
+                for name in (best.get('%.2f' % target), 'default'):
+                    p = hf_point(name, threads)
+                    if p is None:
+                        continue
                     lat = middle(p['warm']) if key == 'warm' else p.get('cold')
-                    print(latency_row('HFresh', 'searchProbe %d' % p['searchProbe'], p, lat, HF_PARTS))
+                    label = hf_label(name) + ('' if name != 'default' else ', recall %.4f' % p['recall'])
+                    print(latency_row(label, 'searchProbe %d, rescoreLimit %d' % (p['searchProbe'], p['rescoreLimit']), p, lat, HF_PARTS))
                 print()
         if key == 'cold':
             print('**Las tandas en frío:**')
@@ -243,15 +289,15 @@ def main(d):
             for p in (hf or {'points': []})['points']:
                 if not p.get('cold'):
                     continue
-                print('| HFresh | %.2f | %d | %d | %d | — | %s y %s | %.0f |' % (
-                    p['target'], p['threads'], p['coldBatches'], p['coldBatch'],
+                print('| %s | %.4f | %d | %d | %d | — | %s y %s | %.0f |' % (
+                    hf_label(p['name']), p['recall'], p['threads'], p['coldBatches'], p['coldBatch'],
                     ms(p['coldHalves'][0]['p50ms']), ms(p['coldHalves'][1]['p50ms']), p['reopenms']))
             print()
             print('**La primera query de cada tanda frente a las demás,** con 1 thread. La primera es la que menos encuentra en la caché:')
             print()
             print('| índice | recall | primera: p50, ms | media | las demás: p50, ms | media | rescore de la primera, ms | de las demás |')
             print('|---|---|---|---|---|---|---|---|')
-            rows = [(NAMES.get(c['spec']['name'], c['spec']['name']), timed[c['spec']['name']]) for c in cells] + [('HFresh', hf)]
+            rows = [(NAMES.get(c['spec']['name'], c['spec']['name']), timed[c['spec']['name']]) for c in cells]
             for name, result in rows:
                 for p in (result or {'points': []})['points']:
                     if not p.get('coldFirst'):
@@ -260,22 +306,35 @@ def main(d):
                     print('| %s | %.2f | %s | %s | %s | %s | %s | %s |' % (
                         name, p['target'], ms(a['p50ms']), ms(a['meanms']), ms(b['p50ms']), ms(b['meanms']),
                         ms(a['rescorems']), ms(b['rescorems'])))
+            for p in (hf or {'points': []})['points']:
+                if not p.get('coldFirst'):
+                    continue
+                a, b = p['coldFirst'], p['coldRest']
+                print('| %s | %.4f | %s | %s | %s | %s | %s | %s |' % (
+                    hf_label(p['name']), p['recall'], ms(a['p50ms']), ms(a['meanms']), ms(b['p50ms']), ms(b['meanms']),
+                    ms(a['rescorems']), ms(b['rescorems'])))
             print()
 
     print('### Criterios 2 y 3: en frío, frente a HFresh, a 0.95')
     print()
-    hf95 = point_of(hf, 0.95, 1)
+    print('Se leen contra la mejor configuración de HFresh a 0.95 (enmienda 4). La de por defecto va al lado.')
+    print()
+    hf95 = hf_point(best.get('0.95'), 1)
     if hf95 is None or not hf95.get('cold'):
-        if hf_manifest and not hf_manifest['points'][0]['reached']:
-            print('**Sin veredicto a 0.95:** HFresh no llega a 0.95 (recall máximo %.4f).' % hf_manifest['maxRecall'])
+        if hf_reads is not None and '0.95' not in best:
+            print('**Sin veredicto a 0.95:** HFresh no llega a 0.95 con ningún rescoreLimit.')
         else:
             print('Sin medida en frío de HFresh todavía.')
         print()
     else:
         base = hf95['cold']
         spread_hf = abs(hf95['coldHalves'][0]['p50ms'] - hf95['coldHalves'][1]['p50ms'])
-        print('HFresh, en frío con 1 thread: p50 %s ms, p95 %s, p99 %s. Sus dos mitades de tandas se separan %s ms.' % (
-            ms(base['p50ms']), ms(base['p95ms']), ms(base['p99ms']), ms(spread_hf)))
+        print('- **HFresh, la mejor a 0.95** (searchProbe %d, rescoreLimit %d, recall %.4f), en frío con 1 thread: p50 %s ms, p95 %s, p99 %s. Sus dos mitades de tandas se separan %s ms.' % (
+            hf95['searchProbe'], hf95['rescoreLimit'], hf95['recall'], ms(base['p50ms']), ms(base['p95ms']), ms(base['p99ms']), ms(spread_hf)))
+        dflt = hf_point('default', 1)
+        if dflt is not None and dflt.get('cold'):
+            print('- **HFresh por defecto** (searchProbe %d, rescoreLimit %d, recall %.4f): p50 %s ms, p95 %s, p99 %s.' % (
+                dflt['searchProbe'], dflt['rescoreLimit'], dflt['recall'], ms(dflt['cold']['p50ms']), ms(dflt['cold']['p95ms']), ms(dflt['cold']['p99ms'])))
         print()
 
         def against(name):
@@ -288,7 +347,7 @@ def main(d):
             others = []
             for label, k in (('p95', 'p95ms'), ('p99', 'p99ms')):
                 others.append('%s %s frente a %s' % (label, ms(cold[k]), ms(base[k])))
-            p8, h8 = point_of(timed.get(name), 0.95, 8), point_of(hf, 0.95, 8)
+            p8, h8 = point_of(timed.get(name), 0.95, 8), hf_point(best.get('0.95'), 8)
             if p8 and h8 and p8.get('cold') and h8.get('cold'):
                 others.append('con 8 threads, p50 %s frente a %s' % (ms(p8['cold']['p50ms']), ms(h8['cold']['p50ms'])))
             return cold['p50ms'], apart, '; '.join(others)
