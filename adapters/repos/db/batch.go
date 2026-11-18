@@ -319,6 +319,44 @@ func planShardDeletes(shardDocIDs map[string][]strfmt.UUID, limit int64) shardDe
 	return plan
 }
 
+// errNoBatchDeleteResult is reported for a uuid its shard returned no result for.
+var errNoBatchDeleteResult = errors.New("shard returned no result for this object")
+
+// nameShardDeleteResults returns one result per requested uuid, each carrying its
+// uuid. A delete that fails for a whole shard comes back without ids, as a single
+// entry or as one entry per object, and callers need to know which objects failed.
+func nameShardDeleteResults(uuids []strfmt.UUID, objs objects.BatchSimpleObjects) objects.BatchSimpleObjects {
+	if len(objs) == len(uuids) {
+		// results are in request order
+		for i := range objs {
+			if objs[i].UUID == "" {
+				objs[i].UUID = uuids[i]
+			}
+		}
+		return objs
+	}
+
+	shardErr := errNoBatchDeleteResult
+	named := make(map[strfmt.UUID]objects.BatchSimpleObject, len(objs))
+	for _, obj := range objs {
+		if obj.UUID != "" {
+			named[obj.UUID] = obj
+		} else if obj.Err != nil {
+			shardErr = obj.Err
+		}
+	}
+
+	out := make(objects.BatchSimpleObjects, len(uuids))
+	for i, id := range uuids {
+		obj, ok := named[id]
+		if !ok {
+			obj = objects.BatchSimpleObject{UUID: id, Err: shardErr}
+		}
+		out[i] = obj
+	}
+	return out
+}
+
 func estimateBatchMemory(objs objects.BatchObjects) int64 {
 	var sum int64
 	for _, item := range objs {
