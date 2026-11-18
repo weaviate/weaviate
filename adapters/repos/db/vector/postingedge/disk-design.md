@@ -2,7 +2,7 @@
 
 **Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento, y el ef de inserción que deja v2.1. "El halo" (2026-11-17) tiene el modo sin sidecar residente y lo que cuesta, de v3.0. El resto del diseño de disco no está escrito aquí.
 
-Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
+Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los únicos tiempos de I/O medidos están en «El primer prototipo que lee de disco (v4.0)»; todo lo demás son cuentas.
 
 ## Los layouts del posting en disco
 
@@ -267,7 +267,7 @@ Lo que queda por medir:
 **Lo que no se puede decir:**
 
 - **Cuántas veces menos cargas hace posting-edge.** Las cargas no pesan lo mismo ni van igual: no doy la razón.
-- **Una razón de bytes contra un HFresh real.** El lado de HFresh no tiene error de código ni rescore, y la dirección del sesgo va a su favor.
+- **Una razón de bytes contra un HFresh real, con esta tabla.** El lado de HFresh no tiene error de código ni rescore, y la dirección del sesgo va a su favor. **El HFresh real está medido en v4.0, abajo:** lee de 1.4 a 1.8 veces lo que decía este suelo.
 - **Que v3.0 confirme las simulaciones.** Aquellas estimaban 0.50 MB con sidecar residente y unos 3 MB con un halo de 32 B, y v3.0 mide 0.63 y de 3.33 a 5.00 MB. Coinciden en el orden, sobre otra partición (postings de 38 vectores, aristas del oráculo exacto) y con otra búsqueda.
 
 *Lectura mía, para el diseño:*
@@ -278,6 +278,27 @@ Lo que queda por medir:
 - **Las dos palancas están medidas en v3.1, abajo,** salvo la parada: podar el halo quita de un 17 a un 21 % de los bytes a 0.95, y el margen no los mueve.
 - **El mantenimiento se encarece.** Una arista nueva hacia un vector mete su sketch en el posting del source: las 4.5 aristas inversas de un insert y la lista propia de un refresco tocan halos de otros postings. Sin medir.
 - **El otro punto sin RAM es el sidecar paginado,** que guarda cada código una vez y lo lee por páginas. Aquí no está medido; en las simulaciones no era operable por lecturas aleatorias.
+
+### Contexto, con el HFresh real (v4.0, 2026-11-18)
+
+*De `bench-report.md`, «Resultados de v4.0»: el HFresh de esta rama, construido sobre el mismo dataset con su configuración por defecto, y las celdas de posting-edge escritas en el mismo store LSM. Las lecturas son las que cuenta el store en modo pread, sobre 5 000 queries. Sustituye a las dos filas de simulación de arriba para todo lo que sea comparar.*
+
+| a 1M, por query | postings a 0.95: lecturas | MB | con el rescore: lecturas | MB | postings a 0.99: lecturas | MB | con el rescore: lecturas | MB |
+|---|---|---|---|---|---|---|---|---|
+| posting-edge, código completo en RAM | 20.3 | 0.64 | 84 | 1.03 | 105.2 | 3.27 | 169 | 3.66 |
+| posting-edge, 512 bits en RAM | 37.2 | 1.16 | 101 | 1.55 | 152.6 | 4.73 | 217 | 5.12 |
+| posting-edge, 384 bits en RAM | 47.4 | 1.48 | 111 | 1.87 | 182.2 | 5.64 | 246 | 6.03 |
+| posting-edge, halo de 512 bits | 55.8 | 3.40 | 120 | 3.79 | 228.9 | 13.86 | 293 | 14.25 |
+| posting-edge, halo de 512 bits podado | 60.7 | 2.74 | 125 | 3.13 | 261.5 | 11.70 | 326 | 12.09 |
+| HFresh, la configuración que menos lee | 210.2 | 7.52 | 310 | 8.14 | 1 052.9 | 37.84 | 1 403 | 40.00 |
+
+- **La configuración que menos lee** es searchProbe 185 con rescoreLimit 100 a 0.95, y searchProbe 928 con rescoreLimit 350 a 0.99. Con su configuración por defecto (256 y 350) HFresh da un recall de 0.9674 y lee 641 veces, 12.57 MB.
+- **Posting-edge rescora 64 vectores,** 0.39 MB, de un fichero propio. HFresh, 100 o 350 de su bucket `objects`, que aquí guarda el vector solo.
+- **El suelo de la simulación se quedaba corto.** Decía 4.17 MB de postings a 0.95. El índice real lee 7.52 MB con rescoreLimit 100 y 5.90 MB con 350: de 1.4 a 1.8 veces. Es otro build, de 28 466 postings donde aquel tenía 26 002.
+- **El modo todo en disco ya no empata con HFresh:** lee la mitad a 0.95 y casi un tercio a 0.99, con 2.6 y 4.8 veces menos lecturas. Podado, 2.6 y 3.3 veces menos bytes.
+- **Con los códigos de 512 bits en RAM,** 5 veces menos bytes a 0.95 y 8 veces menos a 0.99.
+- **HFresh llega a 0.99 a 1M, y le sale muy caro:** 928 postings por query, cinco veces lo que lee a 0.95. Con rescoreLimit 64 o 100 no llega: sus techos son 0.9751 y 0.9890.
+- **Las lecturas no pesan lo mismo en los dos:** una de HFresh son 36 KB de media y una de posting-edge de 31 a 61 KB según la celda. Por eso van las dos columnas.
 
 ### Podar el halo (v3.1, 2026-11-17)
 
@@ -330,6 +351,41 @@ Lo que queda por medir:
   - Las celdas corren con el umbral de parada de la referencia: el ef-ésimo candidato del scan con código completo.
   - A igual ef cargan de 1.6 a 3.8 veces más postings que la referencia, con algo más de recall desde ef 40.
   - Por saber: cuántas cargas quita, a igual recall, una parada propia del sketch.
+
+## El primer prototipo que lee de disco (v4.0, 2026-11-18)
+
+*De `bench-report.md`, «v4.0: primer prototipo que lee de disco»: dbpedia 1M en lote con S = 236, escrito al store LSM de HFresh y consultado desde ahí, junto al HFresh real de esta rama. Solo el camino de lectura. Una sesión de día de dos rondas en un M1 Max, con el frío medido en un volumen APFS que se desmonta: los números absolutos no valen para producción, vale la comparación. Cinco de las ocho curvas quedaron marcadas y se repiten la noche del 18; las cifras de abajo son la primera ronda.*
+
+**El formato.** Un posting son tres bloques con clave propia en un bucket Replace: 4 B de posting y 1 B de bloque. Miembros (id y código completo, 208 B), aristas (4 B) y, en las celdas de halo, el halo (id y sketch de 512 bits, 76 B). Un segmento. Residente: el posting y el slot de cada vector, los centroides con su grafo y, en las celdas con códigos en RAM, el código de ruteo. Los vectores exactos, en un fichero propio en orden de posting. La búsqueda es la del índice, con la carga partida en traer y procesar: los bloques de una ronda se piden a la vez.
+
+**Corrección.** Las cinco celdas devuelven desde disco los mismos ids, distancias y trabajo que en memoria, sobre las 5 000 queries y en los dos puntos. El store lee de 1.002 a 1.005 veces los bytes del modelo de v3.0: **el modelo de bytes vale.**
+
+| p50 con 1 thread, ms | heap tras abrir, a 1M | 0.95: en caliente | en frío | 0.99: en caliente | en frío |
+|---|---|---|---|---|---|
+| código completo en RAM | 272.5 MB | 0.75 | 3.27 | 3.13 | 8.54 |
+| 512 bits en RAM | 145.8 MB | 0.92 | 3.63 | 3.28 | 8.93 |
+| 384 bits en RAM | 129.9 MB | 0.99 | 3.87 | 3.34 | 9.91 |
+| halo de 512 bits | 74.8 MB | 1.27 | 4.85 | 5.02 | 14.60 |
+| halo de 512 bits, podado | 75.0 MB | 1.39 | 4.77 | 5.66 | 16.00 |
+| HFresh, la configuración que menos lee | 163.3 MB | 3.47 | 46.81 | 16.33 | 179.0 |
+| HFresh por defecto, recall 0.9674 | 163.3 MB | 5.51 | 69.52 | — | — |
+
+- **Los criterios del usuario se cumplen:** la celda de 512 bits en RAM tiene menos latencia en frío que HFresh a 0.95 y llega a 0.99, y el halo no es más lento. No hay ningún empate, con la regla del 10 %.
+- **En frío, la diferencia mezcla dos cosas.** HFresh lee sus postings uno detrás de otro (`PostingStore.MultiGet`): de sus 46.3 ms de media a 0.95, 40.3 son 210 lecturas a 0.19 ms. Posting-edge lee tres veces menos y pide a la vez los bloques de una ronda. La sesión no las separa.
+  - *Estimación mía, sin medir:* con sus postings leídos de 8 en 8, HFresh quedaría en unos 12 ms, 2.8 veces la celda de 512 bits.
+- **En caliente no hay lectura que esperar,** y la diferencia es de 2.5 a 4.6 veces a 0.95 y de 2.9 a 5.2 a 0.99.
+
+*Lectura mía, para el diseño:*
+
+- **La unidad de latencia en frío es la ronda.** La celda de 512 bits hace 4.4 rondas a 0.95 en 1.9 ms y 18.8 a 0.99 en 6.9 ms: unos 0.4 ms por ronda, con 8 lecturas en vuelo.
+- **Quitar los códigos de la RAM cuesta de 1.3 a 1.6 veces la latencia en frío** (4.85 ms frente a 3.63 a 0.95, 14.60 frente a 8.93 a 0.99) y ahorra 71 MB de heap por cada millón de vectores. Hace las mismas rondas: lo que crece es cada ronda, con un tercer bloque de unos 120 KB por posting, 77 KB podado.
+- **La poda del halo no compra latencia.** Empata con el halo sin podar: un −1.6 % a 0.95 y un +9.6 % a 0.99. Lo que ahorra es disco, 495 MB frente a 663, y bytes leídos.
+- **De 512 a 384 bits de ruteo se ahorran 16 MB de heap por millón** y se pierde un 7 % a 0.95 y un 11 % a 0.99 en frío.
+- **El rescore ya pesa:** 1.6 ms de los 3.4 a 6.3 ms de una query fría a 0.95, por 64 lecturas. El orden de posting del fichero no las junta. Es el siguiente término a bajar en los modos con códigos en RAM.
+- **El modo todo en disco no es de RAM cero:** 74.8 MB de heap a 1M, con los centroides sin comprimir y el mapa de posting y slot. A 100M serían 7.5 GB si escalara tal cual, sin medir.
+- **HFresh ganaría leyendo sus postings en paralelo.** Es un cambio en HFresh y no en este índice; aquí queda anotado como lo que explica la mayor parte de su latencia en frío.
+
+**Sin medir:** inserts, refresco, deletes y splits en disco; el modo pread cronometrado; un formato afinado (alineación a página, los tres bloques en una lectura); Linux, otro disco y 10M.
 
 ## Open for phase 2
 
@@ -391,7 +447,7 @@ Abierto:
 
 ### 3. Modelo de I/O del layout
 
-**Hoy todo son cuentas, no tiempos.** Las cifras de este documento son cargas, rondas, bytes y lecturas por query; ninguna latencia de I/O está medida. A 10M (768d, rescoreLimit 200):
+**Hoy casi todo son cuentas, no tiempos.** Las cifras de este documento son cargas, rondas, bytes y lecturas por query. La única latencia de I/O medida es la del camino de lectura a 1M, en «El primer prototipo que lee de disco (v4.0)», arriba: unos 0.4 ms por ronda en frío en un M1 Max. A 10M (768d, rescoreLimit 200):
 
 - **A 0.95,** 12.6 cargas en 2.9 rondas.
 - **A 0.99,** 51.3 cargas en 12.6 rondas.

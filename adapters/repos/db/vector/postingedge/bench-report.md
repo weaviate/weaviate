@@ -4,9 +4,9 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero en el v1 y el v1.1, en reposo y de noche en el v1.2
 
-## Resumen, al cierre del 2026-11-17
+## Resumen, al cierre de la sesión de día del 2026-11-18
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1).*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0), del 18.*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -132,6 +132,17 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Lo que falta:** en la mejor celda, 1.17 MB son miembros y aristas, y el listón deja 1.29 MB para un halo que lee 1.58.
 - **Sin medir:** leer del halo solo lo que la búsqueda usa, y la parada con sketch.
 
+**Primer prototipo que lee de disco (v4.0, del 18).** dbpedia 1M, S = 236. El índice se construye en lote, se escribe al store LSM de HFresh y se consulta desde ahí; al lado, el HFresh real de esta rama con su configuración por defecto y con la que menos lee para cada recall. Una sesión de día, de dos rondas, sobre un volumen APFS que se desmonta para el frío.
+
+- **Los criterios 2 y 3 se cumplen, sin empates.** A 0.95, en frío y con 1 thread, la celda de 512 bits en RAM tarda 3.63 ms de p50, el halo 4.85 y HFresh 46.81. En caliente son 0.92, 1.27 y 3.47 ms.
+- **A 0.99, HFresh llega y le sale muy caro:** 928 postings por query, 179 ms en frío donde la celda de 512 bits tarda 8.93 y el halo 14.60. En caliente, 16.33 ms frente a 3.28 y 5.02.
+- **Parte de la diferencia en frío es cómo lee HFresh:** sus postings, uno detrás de otro. Posting-edge pide a la vez los bloques de una ronda. Lee además tres veces menos: 101 lecturas frente a 310 a 0.95. Estimo que con lecturas en paralelo HFresh quedaría a unas 3 veces; no está medido.
+- **Cada celda devuelve desde disco lo mismo que en memoria,** y el store lee de 1.002 a 1.005 veces los bytes del modelo de v3.0.
+- **RAM a 1M, heap tras abrir:** 145.8 MB con los códigos de 512 bits en RAM, 74.8 MB con todo en disco y 163.3 MB en HFresh.
+- **Cinco de las ocho curvas quedaron marcadas,** cuatro por entrada de teclado o trackpad durante la primera ronda y tres por una mediana en caliente con 8 threads que se movió un 13 a un 15 % entre rondas. Se repiten la noche del 18. Las medianas en frío que deciden los criterios se movieron menos de un 5 %.
+- **Los números absolutos del Mac no valen para producción:** vale la comparación.
+- **Sin medir:** inserts, refresco, deletes y splits en disco; Linux; 10M.
+
 **Limitaciones:**
 
 - **Build en lote:** `AddBatch` solo admite vectores antes de `Build`, que corre una vez; después devuelve `ErrBuilt`. El camino incremental de v2.0 vive en los tests, no en el índice.
@@ -140,11 +151,11 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - La asignación exacta es n·k, cuadrática en N con S fijo.
   - P y R crecen con N. Es el riesgo principal para 100M.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
-- **Solo en memoria.** El diseño de disco está en `disk-design.md`, sin ningún I/O medido.
+- **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
 ## v4.0: primer prototipo que lee de disco (pre-registro, 2026-11-18)
 
-**Estado: pre-registrado.** Escrito el 18 a las 07:13, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el formato, las celdas, la lectura, la corrección, las medidas, los cuatro puntos del pre-registro, las condiciones y el orden de trabajo son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
+**Estado: medido el 18.** Los datos sin cronometrar y la sesión cronometrada de día (de 10:50 a 12:21) están abajo, en «Resultados de v4.0». Cinco curvas marcadas se repiten esa noche. El pre-registro se escribió el 18 a las 07:13, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el formato, las celdas, la lectura, la corrección, las medidas, los cuatro puntos del pre-registro, las condiciones y el orden de trabajo son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
 
 **Espacio en disco, resuelto el 18 a las 08:21.** La corrida de 1M pide de 25 a 30 GB y el disco tenía 554 MB libres al empezar. El usuario eligió borrar la caché de builds de wiki-dpr de v1.4 a v1.6 (`~/Documents/datasets/postingedge-buildcache`, 25 GB). Los scripts de aquellas rondas la rehacen si se vuelven a lanzar.
 
@@ -624,6 +635,199 @@ Un hueco es un searchProbe que no hizo falta medir: el barrido de un rescoreLimi
 - **Una corrección a lo que veníamos diciendo: HFresh sí llega a 0.99 a 1M.** Le cuesta 928 postings por query, cinco veces lo que gasta a 0.95. Hacia fuera se dice así: «0.99 is possible but very expensive», no «it can't».
 
 *Nota mía sobre los 7 GB:* son los códigos de ruteo, 72 B por vector. Lo que la celda carga en RAM a 1M son 105.7 MB: esos códigos (71.3 MB), el posting y el slot de cada vector (7.9 MB) y los centroides sin comprimir (25.8 MB). Escalado tal cual a 100M son unos 10.7 GB, de los que 2.6 GB serían centroides. La RAM residente medida va en la sesión cronometrada.
+
+### Resultados de v4.0, cronometrados: la sesión de día (2026-11-18, de 10:50 a 12:21)
+
+**Estado: hecha la sesión de dos rondas. Cinco de las ocho curvas quedan marcadas y su repetición está en cola para esta noche.** Lo de abajo es la primera ronda, salvo donde se dice. Los datos, por ronda y curva, en `testdata/bench/v4.0/dbpedia-1m-disk-r1-*.json` y `-r2-*.json`; los tramos, en `dbpedia-1m-disk-stretches.tsv`; el veredicto que escribe el script, en `disk-verdict.md`.
+
+**Los cuatro criterios:**
+
+| | criterio | resultado |
+|---|---|---|
+| 1 | los bytes reales, a un 25 % o menos del modelo | **se cumple:** de 1.002 a 1.005 veces el modelo (sin cronometrar, arriba) |
+| 2 | 512 bits en RAM: menos latencia en frío que HFresh a 0.95, y llega a 0.99 | **se cumple:** p50 de 3.63 ms frente a 46.81, 12.9 veces menos. Llega a 0.99 con ef 187 |
+| 3 | el halo no es más lento que HFresh a 0.95 en frío | **se cumple, con las dos celdas:** 4.85 ms el halo y 4.77 el podado, frente a 46.81 |
+| 4 | hasta qué recall llega el HFresh real | 0.9989 leyendo todos los postings. A 0.99 llega con searchProbe 928, a 179 ms de p50 en frío |
+
+- **Se leen contra la mejor configuración de HFresh a 0.95** (searchProbe 185, rescoreLimit 100), en frío, con 1 thread y por el p50, como está pre-registrado.
+- **No hay ningún empate.** Lo más cerca que queda una celda de HFresh es 0.40 veces su p50: el halo podado, a 0.95, en caliente y con 1 thread.
+- **El p95, el p99 y los 8 threads van en el mismo sentido.** A 0.95 en frío con 1 thread, el p95 y el p99 son 8.60 y 15.09 ms en la celda de 512 bits y 14.48 y 23.65 en el halo, frente a 55.61 y 57.78 de HFresh. Con 8 threads, el p50 es 11.64 y 16.40 ms frente a 76.34.
+- **Las tres curvas de posting-edge de los criterios 2 y 3 están marcadas,** y la de HFresh no. Sus medianas en frío con 1 thread a 0.95, que son las que deciden, se movieron entre rondas un −0.9 % (512 bits), un +0.5 % (halo) y un −4.1 % (halo podado), y la de HFresh un −1.4 %. Se repiten esta noche igualmente, como manda la enmienda 5.
+- **HFresh a 0.99: es posible y es muy caro.** Lee 928 postings por query, cinco veces lo que lee a 0.95, y tarda 179 ms de p50 en frío con 1 thread: 20 veces la celda de 512 bits (8.93 ms) y 12 veces el halo (14.60 ms).
+
+#### Latencia y QPS
+
+Un asterisco señala una curva marcada (abajo, «Las curvas»). En caliente: la pasada de QPS mediano de las tres cronometradas. En frío: 500 queries en tandas de 10 con 1 thread y de 16 con 8, cada tanda tras desmontar el volumen, montarlo y reabrir el índice.
+
+**Recall 0.95, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| código completo en RAM \* | ef 20 | 0.75 | 1.76 | 2.24 | 1 168 | 1.15 | 2.69 | 3.63 | 6 052 |
+| 512 bits en RAM \* | ef 21 | 0.92 | 3.04 | 4.52 | 818 | 1.32 | 4.19 | 6.51 | 4 576 |
+| 384 bits en RAM | ef 21 | 0.99 | 3.55 | 5.93 | 728 | 1.44 | 5.06 | 8.33 | 4 047 |
+| halo de 512 bits \* | ef 21 | 1.27 | 4.90 | 7.40 | 556 | 2.15 | 7.98 | 12.00 | 2 657 |
+| halo de 512 bits, podado \* | ef 25 | 1.39 | 5.36 | 8.16 | 504 | 2.43 | 9.28 | 14.05 | 2 307 |
+| HFresh, la mejor a 0.95 | searchProbe 185, rescoreLimit 100 | 3.47 | 4.43 | 5.07 | 283 | 9.16 | 12.35 | 13.67 | 863 |
+| HFresh por defecto, recall 0.9674 \* | searchProbe 256, rescoreLimit 350 | 5.51 | 7.14 | 7.98 | 177 | 14.09 | 18.12 | 20.01 | 569 |
+
+**Recall 0.95, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| código completo en RAM \* | ef 20 | 3.27 | 5.36 | 6.29 | 291 | 10.37 | 16.75 | 18.69 | 659 |
+| 512 bits en RAM \* | ef 21 | 3.63 | 8.60 | 15.09 | 226 | 11.64 | 22.17 | 30.77 | 534 |
+| 384 bits en RAM | ef 21 | 3.87 | 9.84 | 16.92 | 208 | 12.63 | 25.67 | 34.34 | 479 |
+| halo de 512 bits \* | ef 21 | 4.85 | 14.48 | 23.65 | 158 | 16.40 | 38.61 | 53.26 | 338 |
+| halo de 512 bits, podado \* | ef 25 | 4.77 | 14.19 | 23.77 | 162 | 15.48 | 34.60 | 46.02 | 371 |
+| HFresh, la mejor a 0.95 | searchProbe 185, rescoreLimit 100 | 46.81 | 55.61 | 57.78 | 22 | 76.34 | 96.13 | 101.2 | 96 |
+| HFresh por defecto, recall 0.9674 \* | searchProbe 256, rescoreLimit 350 | 69.52 | 83.22 | 86.82 | 15 | 130.9 | 175.8 | 187.0 | 54 |
+
+**Recall 0.99, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| código completo en RAM \* | ef 284 | 3.13 | 8.24 | 10.37 | 270 | 4.06 | 10.43 | 13.30 | 1 671 |
+| 512 bits en RAM \* | ef 187 | 3.28 | 11.11 | 16.48 | 228 | 5.04 | 17.47 | 25.15 | 1 197 |
+| 384 bits en RAM | ef 164 | 3.34 | 12.15 | 18.17 | 218 | 4.71 | 17.23 | 25.34 | 1 235 |
+| halo de 512 bits \* | ef 187 | 5.02 | 18.07 | 26.13 | 146 | 9.33 | 32.84 | 47.75 | 639 |
+| halo de 512 bits, podado \* | ef 239 | 5.66 | 19.19 | 28.03 | 134 | 10.06 | 34.23 | 51.76 | 607 |
+| HFresh, la mejor a 0.99 | searchProbe 928, rescoreLimit 350 | 16.33 | 18.47 | 19.34 | 61 | 41.84 | 54.34 | 62.10 | 191 |
+| HFresh por defecto, recall 0.9674 \* | searchProbe 256, rescoreLimit 350 | 5.51 | 7.14 | 7.98 | 177 | 14.09 | 18.12 | 20.01 | 569 |
+
+**Recall 0.99, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| código completo en RAM \* | ef 284 | 8.54 | 19.40 | 24.30 | 103 | 20.20 | 41.23 | 48.96 | 310 |
+| 512 bits en RAM \* | ef 187 | 8.93 | 27.81 | 41.86 | 86 | 22.53 | 56.97 | 69.86 | 242 |
+| 384 bits en RAM | ef 164 | 9.91 | 32.04 | 49.22 | 77 | 25.19 | 63.56 | 81.35 | 213 |
+| halo de 512 bits \* | ef 187 | 14.60 | 53.38 | 77.02 | 49 | 41.58 | 112.9 | 135.3 | 128 |
+| halo de 512 bits, podado \* | ef 239 | 16.00 | 55.36 | 84.89 | 47 | 39.80 | 110.3 | 128.1 | 134 |
+| HFresh, la mejor a 0.99 | searchProbe 928, rescoreLimit 350 | 179.0 | 251.8 | 259.5 | 6 | 234.9 | 347.4 | 355.9 | 31 |
+| HFresh por defecto, recall 0.9674 \* | searchProbe 256, rescoreLimit 350 | 69.52 | 83.22 | 86.82 | 15 | 130.9 | 175.8 | 187.0 | 54 |
+
+- **HFresh por defecto está en las dos tablas de cada recall como referencia:** su recall es 0.9674, ni 0.95 ni 0.99.
+- **El p99 en frío sale de las 5 queries más lentas de 500.**
+
+#### Cada celda frente a la mejor configuración de HFresh para ese recall
+
+El p50 de la celda entre el de HFresh. A 0.95, HFresh con searchProbe 185 y rescoreLimit 100; a 0.99, con 928 y 350.
+
+**En caliente:**
+
+| celda | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|
+| código completo en RAM \* | 0.22x (4.6 veces menos) | 0.13x (8.0 veces menos) | 0.19x (5.2 veces menos) | 0.10x (10.3 veces menos) |
+| 512 bits en RAM \* | 0.27x (3.8 veces menos) | 0.14x (6.9 veces menos) | 0.20x (5.0 veces menos) | 0.12x (8.3 veces menos) |
+| 384 bits en RAM | 0.29x (3.5 veces menos) | 0.16x (6.3 veces menos) | 0.20x (4.9 veces menos) | 0.11x (8.9 veces menos) |
+| halo de 512 bits \* | 0.37x (2.7 veces menos) | 0.24x (4.3 veces menos) | 0.31x (3.3 veces menos) | 0.22x (4.5 veces menos) |
+| halo de 512 bits, podado \* | 0.40x (2.5 veces menos) | 0.27x (3.8 veces menos) | 0.35x (2.9 veces menos) | 0.24x (4.2 veces menos) |
+
+**En frío:**
+
+| celda | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|
+| código completo en RAM \* | 0.07x (14.3 veces menos) | 0.14x (7.4 veces menos) | 0.05x (20.9 veces menos) | 0.09x (11.6 veces menos) |
+| 512 bits en RAM \* | 0.08x (12.9 veces menos) | 0.15x (6.6 veces menos) | 0.05x (20.0 veces menos) | 0.10x (10.4 veces menos) |
+| 384 bits en RAM | 0.08x (12.1 veces menos) | 0.17x (6.0 veces menos) | 0.06x (18.1 veces menos) | 0.11x (9.3 veces menos) |
+| halo de 512 bits \* | 0.10x (9.6 veces menos) | 0.21x (4.7 veces menos) | 0.08x (12.3 veces menos) | 0.18x (5.6 veces menos) |
+| halo de 512 bits, podado \* | 0.10x (9.8 veces menos) | 0.20x (4.9 veces menos) | 0.09x (11.2 veces menos) | 0.17x (5.9 veces menos) |
+
+- **En frío con 1 thread la diferencia es de 9.6 a 14.3 veces a 0.95 y de 11.2 a 20.9 a 0.99.** Con 8 threads baja: de 4.7 a 7.4 veces a 0.95 y de 5.6 a 11.6 a 0.99.
+- **En caliente, de 2.5 a 4.6 veces con 1 thread a 0.95,** y de 2.9 a 5.2 a 0.99.
+
+#### De dónde sale la diferencia en frío
+
+Con 1 thread y por la latencia media, que es la que se parte en sus trozos.
+
+| a 0.95, en frío, ms de media | total | leer postings o bloques | scan y ruteo | rescore | centroides |
+|---|---|---|---|---|---|
+| 512 bits en RAM | 4.42 | 1.93 | 0.67 | 1.68 | 0.08 |
+| halo de 512 bits | 6.31 | 3.60 | 0.99 | 1.57 | 0.08 |
+| halo de 512 bits, podado | 6.19 | 3.20 | 1.20 | 1.63 | 0.09 |
+| HFresh, la mejor a 0.95 | 46.34 | 40.27 | 1.40 | 3.76 | 0.83 |
+
+- **HFresh lee sus postings uno detrás de otro.** `PostingStore.MultiGet` (`hfresh/store.go:227`) los pide en un bucle. De sus 46.3 ms, 40.3 son las 210 lecturas de posting de una query, a 0.19 ms cada una.
+- **Posting-edge pide a la vez los bloques de una ronda,** como pedía el encargo. La celda de 512 bits hace 37 lecturas en 4.4 rondas, 1.9 ms en total.
+- **La diferencia en frío mezcla dos cosas:** leer menos, 101 lecturas frente a 310 contando el rescore, y leerlas en paralelo. Esta sesión no las separa, porque un HFresh que lea sus postings en paralelo no existe en main.
+- **Una estimación, que no es una medida:** en la comprobación del volumen (enmienda 4), con 8 lecturas en vuelo el disco sirve 6.3 veces las que sirve de una en una, a través del mapping. Si los postings de HFresh se leyeran así, sus 40.3 ms quedarían en unos 6.4 y la query en unos 12 ms. Serían 2.8 veces la celda de 512 bits, donde lo medido son 10.5 veces por la media y 12.9 por el p50.
+- **En caliente no hay lectura que esperar.** A 0.95 la celda de 512 bits tarda 0.92 ms de p50 y HFresh 3.47. HFresh gasta de media 1.2 ms en traer 7.5 MB de postings desde la caché, 1.3 en el scan y 0.7 en los centroides; la celda, 0.3, 0.7 y 0.07.
+- **Con 8 threads en frío las queries se reparten el disco.** A 0.95, HFresh da 96 QPS, la celda de 512 bits 534, el halo 338 y el podado 371.
+
+#### El rescore, aparte
+
+Latencia media del rescore dentro de una query. Los dos índices leen sus vectores en paralelo, con un presupuesto de 8 por query.
+
+| índice | vectores | de dónde | en caliente, ms | en frío, 1 thread | en frío, 8 threads |
+|---|---|---|---|---|---|
+| posting-edge, las cinco celdas | 64 | fichero propio, en orden de posting | de 0.13 a 0.16 | de 1.56 a 1.69 | de 4.65 a 6.26 |
+| HFresh, la mejor a 0.95 | 100 | bucket `objects` | 0.29 | 3.76 | 15.50 |
+| HFresh, la mejor a 0.99 | 350 | bucket `objects` | 0.72 | 10.82 | 42.21 |
+| HFresh por defecto | 350 | bucket `objects` | 0.79 | 10.93 | 51.66 |
+
+- **Por vector, en frío con 1 thread:** unos 25 µs en posting-edge y de 31 a 38 µs en HFresh.
+- **En posting-edge el rescore es de un cuarto a casi la mitad de la query fría a 0.95,** y en HFresh del 6 al 16 %: lo que domina allí son los postings.
+- **El bucket `objects` de este HFresh guarda el vector solo.** Un objeto real lleva además sus propiedades, así que esto es lo mínimo que lee su rescore.
+
+#### La primera query de cada tanda, y lo que la caché se llena dentro de una tanda
+
+- **La primera query tras el remontaje tarda de 1.2 a 1.6 veces lo que las demás,** en los dos índices. A 0.95: 4.90 ms frente a 3.51 en la celda de 512 bits, 6.32 frente a 4.71 en el halo y 55.61 frente a 46.48 en HFresh.
+- **En posting-edge, las cargas que repiten un posting ya leído en la tanda** son del 2 al 5 % a 0.95 y del 7 al 17 % a 0.99. En HFresh no se cuentan.
+- **A 0.99 las tandas de HFresh también se templan:** cada query lee 928 de sus 28 466 postings, y la primera de cada tanda tarda 250.8 ms donde las demás tardan 170.0.
+
+#### RAM residente y disco
+
+| índice | heap en uso tras abrir | huella del proceso | disco: store | vectores exactos | lo residente, en ficheros | total en disco |
+|---|---|---|---|---|---|---|
+| código completo en RAM | 272.5 MB | 541.3 MB | 243.0 MB | 6 082.6 MB | 232.5 MB | 6 558.0 MB |
+| 512 bits en RAM | 145.8 MB | 287.5 MB | 243.0 MB | 6 082.6 MB | 105.7 MB | 6 431.3 MB |
+| 384 bits en RAM | 129.9 MB | 256.0 MB | 243.0 MB | 6 082.6 MB | 89.9 MB | 6 415.4 MB |
+| halo de 512 bits | 74.8 MB | 145.6 MB | 663.4 MB | 6 082.6 MB | 34.5 MB | 6 780.5 MB |
+| halo de 512 bits, podado | 75.0 MB | 145.7 MB | 494.7 MB | 6 082.6 MB | 34.5 MB | 6 611.8 MB |
+| HFresh | 163.3 MB | 338.3 MB | 1 296.1 MB | 6 221.8 MB | 7.8 MB | 7 525.6 MB |
+
+- **El heap es el de Go tras abrir el índice y recolectar,** en un proceso que solo abre ese índice. La caché del sistema no cuenta. La huella es el máximo residente del proceso.
+- **La celda de 512 bits ocupa menos heap que HFresh,** 145.8 MB frente a 163.3, y las de halo menos de la mitad.
+- **El heap queda 40 MB por encima de lo residente en ficheros, en las cinco celdas.** No lo he desglosado.
+- **El modo todo en disco no es de RAM cero:** 74.8 MB a 1M. De ellos, 34.5 MB son ficheros residentes: los centroides sin comprimir (25.8 MB) y el posting y el slot de cada vector.
+- **Sobre los 7 GB por cada 100M:** con el heap medido, la celda de 512 bits serían 14.6 GB por cada 100M si escalara tal cual, y HFresh 16.3 GB con la misma cuenta. Ninguna de las dos es una medida a 100M.
+- **En disco, posting-edge ocupa de 6.42 a 6.78 GB y HFresh 7.53 GB.** El store son 243 MB con los códigos en RAM, 663 y 495 MB con halo, y 1 296 MB en HFresh, que guarda 5.25 entradas por vector.
+- **Las celdas de posting-edge comparten un solo fichero de vectores,** enlazado: en disco está una vez. En HFresh, «vectores exactos» es su bucket `objects` y «store» sus otros buckets.
+- **Reabrir tras el remontaje,** con el índice de los segmentos leído: de 44 a 188 ms en posting-edge y unos 420 ms en HFresh. No entra en las latencias.
+
+#### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| código completo en RAM | 10:50 a 10:54 | 11:34 a 11:39 | sí, en la ronda 1 | −7.1 % (0.95, 8 threads, en caliente) | **actividad** |
+| 512 bits en RAM | 10:54 a 10:59 | 11:39 a 11:44 | sí, en la ronda 1 | −14.4 % (0.99, 8 threads, en caliente) | **deriva y actividad** |
+| 384 bits en RAM | 10:59 a 11:04 | 11:44 a 11:50 | no | −4.4 % (0.99, 8 threads, en frío) | — |
+| halo de 512 bits | 11:04 a 11:10 | 11:50 a 11:56 | no | −13.1 % (0.99, 8 threads, en caliente) | **deriva** |
+| halo de 512 bits, podado | 11:10 a 11:16 | 11:56 a 12:02 | sí, en la ronda 1 | −14.9 % (0.95, 8 threads, en caliente) | **deriva y actividad** |
+| HFresh por defecto | 11:16 a 11:21 | 12:02 a 12:07 | sí, en la ronda 1 | −9.1 % (1 thread, en caliente) | **actividad** |
+| HFresh, la mejor a 0.95 | 11:21 a 11:24 | 12:07 a 12:11 | no | −1.6 % (1 thread, en caliente) | — |
+| HFresh, la mejor a 0.99 | 11:24 a 11:34 | 12:11 a 12:21 | no | +3.2 % (8 threads, en frío) | — |
+
+- **Marcadas, cinco:** código completo, 512 bits, halo, halo podado y HFresh por defecto. Sin marca: 384 bits y las dos mejores de HFresh.
+- **Las cuatro medianas que derivan son en caliente y con 8 threads,** y todas más lentas en la primera ronda: un −14.4 % (512 bits a 0.99), un −13.1 % (halo a 0.99) y un −14.9 % y un −14.5 % (halo podado a 0.95 y a 0.99).
+- **En frío ninguna mediana se movió un 10 %.** La mayor es un −8.3 %: el halo podado a 0.99 con 1 thread.
+- **La segunda ronda salió más rápida en 43 de las 52 medianas.** En ella no hubo ninguna entrada de teclado ni de trackpad, y la pantalla estuvo apagada.
+- **La actividad de la primera ronda:** entrada entre las 10:50:29 y las 10:53:42, otra hacia las 10:55:59, y entre las 11:14:33 y las 11:17:06. El registro dice que la hubo, no de quién.
+- **La máquina estuvo despierta toda la sesión,** bajo `caffeinate -s -i` y enchufada. La pantalla se encendió a las 10:50:29 con la primera entrada, y estuvo apagada de 11:11 a 11:14 y desde las 11:32.
+- **La tabla de las 52 medianas, ronda a ronda, está en `disk-verdict.md`.**
+- **Por repetir esta noche, desde las 23:00:** las cinco marcadas, cada una una vez. La repetición sustituirá a la primera ronda de esa curva, y esta sección se actualizará diciéndolo.
+
+#### Lo que vale y lo que no
+
+- **Los números absolutos de esta máquina no valen para producción.** Vale la comparación entre índices, medidos igual, en la misma sesión y sobre el mismo volumen.
+- **Es una sesión de día,** con la máquina en uso durante parte de la primera ronda. Por eso hay cinco curvas marcadas.
+- **La diferencia en frío incluye que HFresh lee sus postings en serie.** Es el HFresh de main tal como es, que es lo que se pidió medir, y no un límite de su diseño.
+- **HFresh lleva aquí el kernel de #13880,** que main no tiene (enmienda 3): su scan es más rápido que el de main.
+- **El frío es de datos.** Lo residente y el índice de los segmentos del store están cargados antes de cada tanda, en los dos índices.
+- **El store lee por su mapping,** el modo por defecto, en los dos índices. Los conteos de lecturas vienen de una pasada aparte en modo pread.
+- **Un dataset, 1M, y un build de cada índice.** El build de HFresh no es reproducible de una corrida a otra.
+- **Sin medir:** inserts, refresco, deletes y splits en disco; Linux y otro disco; 10M.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
