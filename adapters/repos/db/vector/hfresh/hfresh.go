@@ -225,7 +225,14 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	}
 	// after the restore, so a single posting written under another threshold
 	// moves into the graph instead of being shadowed by an empty one
-	if h.singlePostingMaxSize == 0 {
+	leave := h.singlePostingMaxSize == 0
+	if !leave {
+		leave, err = h.singlePostingOverLimit()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if leave {
 		err = h.leaveSinglePostingMode(h.ctx)
 		if err != nil {
 			return nil, err
@@ -237,6 +244,23 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	h.taskQueue.Register()
 
 	return &h, nil
+}
+
+// singlePostingOverLimit reports whether the restored single posting already
+// holds more vectors than a limit lowered since the last run allows.
+func (h *HFresh) singlePostingOverLimit() (bool, error) {
+	if h.Centroids.Built() {
+		return false, nil
+	}
+	id, _, err := h.IndexMetadata.GetSinglePosting()
+	if err != nil || id == 0 {
+		return false, err
+	}
+	size, err := h.PostingSizes.Get(h.ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return size > h.bootstrapThreshold, nil
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
