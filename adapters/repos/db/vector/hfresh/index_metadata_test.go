@@ -403,6 +403,38 @@ func TestSinglePostingSurvivesRestartWithZeroThreshold(t *testing.T) {
 	require.True(t, built)
 }
 
+// A lowered limit must apply when the shard opens, not only on the next
+// insert, which a read-only tenant never makes.
+func TestSinglePostingReopenedWithLowerLimit(t *testing.T) {
+	tests := []struct {
+		name      string
+		limit     uint32 // when reopened, in vectors; the posting holds 300
+		wantBuilt bool
+	}{
+		{"below the posting's size", 100, true},
+		{"still above the posting's size", 500, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := testinghelpers.NewDummyStore(t)
+			cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+			index := makeHFreshWithConfig(t, store, cfg, uc)
+			all := addRestartVectors(t, index, vectors, 0, 300)
+			require.NoError(t, index.Shutdown(t.Context()))
+
+			setSinglePostingLimit(t, tt.limit)
+			index = makeHFreshWithConfig(t, store, cfg, uc)
+			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
+			built, err := index.IndexMetadata.CentroidsBuilt()
+			require.NoError(t, err)
+			require.Equal(t, tt.wantBuilt, built)
+			index.waitForMaintenance(t)
+			requireSelfSearchExcept(t, index, all, -1)
+		})
+	}
+}
+
 func TestBuiltFlagWithoutSeedCentroidIsRepairedOnRestart(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
