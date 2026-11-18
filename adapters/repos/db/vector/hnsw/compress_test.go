@@ -1587,7 +1587,7 @@ func Test_ResetKeepsCompressionAcrossRestart(t *testing.T) {
 
 				require.True(t, index.compressed.Load(), "the index must reload compressed")
 				for id := size; id < 2*size; id++ {
-					got, _, err := index.SearchByVector(ctx, vectors[id], 1, nil)
+					got, _, err := index.SearchByVector(ctx, vectors[id], 1, nil, nil)
 					require.NoError(t, err)
 					require.Equal(t, []uint64{uint64(id)}, got)
 				}

@@ -86,7 +86,7 @@ func TestReassignIntoEmptyCentroidGraph(t *testing.T) {
 	}
 
 	for i, vec := range vectors {
-		ids, _, err := tf.Index.SearchByVector(t.Context(), vec, 1, nil)
+		ids, _, err := tf.Index.SearchByVector(t.Context(), vec, 1, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{100 + uint64(i)}, ids)
 	}
