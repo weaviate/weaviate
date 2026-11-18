@@ -370,11 +370,17 @@ var segmentReaderOperators = []filters.Operator{
 	filters.OperatorGreaterThanEqual,
 }
 
-// rangeBenchData spans 32 containers. Dense ids give bitmap containers and
-// every 40th id gives array containers. Wide values set all 64 bits, narrow only 20.
+// rangeBenchData spans 32 containers, bitmap ones from dense ids and array ones from every 40th id.
+// Wide values span all 64 bits, narrow ones the low 20. Reads take a random value, the bounds 0
+// and max, and a stored odd and even one, since a value's lowest set bit starts the merge.
 type rangeBenchData struct {
+	name   string
+	mem    *Memtable
+	values []rangeBenchValue
+}
+
+type rangeBenchValue struct {
 	name  string
-	mem   *Memtable
 	value uint64
 }
 
@@ -394,41 +400,45 @@ func newRangeBenchData(tb testing.TB) []rangeBenchData {
 		}{{"wide", math.MaxUint64}, {"narrow", 1<<20 - 1}} {
 			rnd := rand.New(rand.NewPCG(1, 2))
 			mem := NewMemtable(logger)
+			var stored [2]uint64
 			for docID := uint64(0); docID < maxDocID; docID += ids.step {
-				mem.Insert(rnd.Uint64()&vals.mask, []uint64{docID})
+				value := rnd.Uint64() & vals.mask
+				mem.Insert(value, []uint64{docID})
+				stored[value%2] = value
 			}
 			data = append(data, rangeBenchData{
-				name:  ids.name + "_" + vals.name,
-				mem:   mem,
-				value: rnd.Uint64() & vals.mask,
+				name: ids.name + "_" + vals.name,
+				mem:  mem,
+				values: []rangeBenchValue{
+					{"random", rnd.Uint64() & vals.mask},
+					{"stored_odd", stored[1]},
+					{"stored_even", stored[0]},
+					{"zero", 0},
+					{"max", math.MaxUint64},
+				},
 			})
 		}
 	}
 	return data
 }
 
-var rangeBenchOperators = []filters.Operator{
-	filters.OperatorGreaterThanEqual,
-	filters.OperatorLessThan,
-	filters.OperatorEqual,
-	filters.OperatorNotEqual,
-}
-
 func BenchmarkSegmentReader(b *testing.B) {
 	ctx := context.Background()
 	for _, data := range newRangeBenchData(b) {
 		reader := NewSegmentReader(NewGaplessSegmentCursor(newFakeSegmentCursor(data.mem)))
-		for _, op := range rangeBenchOperators {
-			b.Run(fmt.Sprintf("%s/%s", data.name, op.Name()), func(b *testing.B) {
-				b.ReportAllocs()
-				for b.Loop() {
-					_, release, err := reader.Read(ctx, data.value, op)
-					if err != nil {
-						b.Fatal(err)
+		for _, val := range data.values {
+			for _, op := range segmentReaderOperators {
+				b.Run(fmt.Sprintf("%s/%s/%s", data.name, val.name, op.Name()), func(b *testing.B) {
+					b.ReportAllocs()
+					for b.Loop() {
+						_, release, err := reader.Read(ctx, val.value, op)
+						if err != nil {
+							b.Fatal(err)
+						}
+						release()
 					}
-					release()
-				}
-			})
+				})
+			}
 		}
 	}
 }
