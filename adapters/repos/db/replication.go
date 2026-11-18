@@ -18,7 +18,6 @@ import (
 	"maps"
 	"os"
 	"path"
-	"path/filepath"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -28,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -737,9 +737,13 @@ func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context
 func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {
-	// TODO: validate file prefix to rule out that we're accidentally writing
-	// into another shard
-	finalPath := filepath.Join(s.Index().Config.RootPath, filePath)
+	// filePath originates from an attacker-controllable cluster API URL segment,
+	// so it must be confined to the shard root before it is used, mirroring the
+	// read-side sanitization in GetFile/GetFileMetadata.
+	finalPath, err := diskio.SanitizeFilePathJoin(s.Index().Config.RootPath, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize file path %q: %w", filePath, err)
+	}
 	dir := path.Dir(finalPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
