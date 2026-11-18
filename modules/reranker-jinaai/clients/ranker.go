@@ -137,11 +137,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 
 	if res.StatusCode != 200 {
 		var apiError jinaaiApiError
-		err = json.Unmarshal(bodyBytes, &apiError)
-		if err != nil {
-			return nil, errors.Wrap(err, "unmarshal error from response body")
-		}
-		if apiError.Detail != "" {
+		if err := json.Unmarshal(bodyBytes, &apiError); err == nil && apiError.Detail != "" {
 			return nil, errors.Errorf("connection to Jinaai API failed with status %d: %s", res.StatusCode, apiError.Detail)
 		}
 		return nil, errors.Errorf("connection to Jinaai API failed with status %d", res.StatusCode)

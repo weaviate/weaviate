@@ -181,7 +181,7 @@ func (c *client) makeRankRequest(ctx context.Context, body []byte) (*http.Respon
 func (c *client) handleRankError(statusCode int, bodyBytes []byte) error {
 	var apiError contextualApiError
 	if err := json.Unmarshal(bodyBytes, &apiError); err != nil {
-		return errors.Wrap(err, "unmarshal error from response body")
+		return errors.Errorf("connection to Contextual AI API failed with status %d", statusCode)
 	}
 
 	if apiError.Message != "" {

@@ -136,11 +136,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 
 	if res.StatusCode != 200 {
 		var apiError cohereApiError
-		err = json.Unmarshal(bodyBytes, &apiError)
-		if err != nil {
-			return nil, errors.Wrap(err, "unmarshal error from response body")
-		}
-		if apiError.Message != "" {
+		if err := json.Unmarshal(bodyBytes, &apiError); err == nil && apiError.Message != "" {
 			return nil, errors.Errorf("connection to Cohere API failed with status %d: %s", res.StatusCode, apiError.Message)
 		}
 		return nil, errors.Errorf("connection to Cohere API failed with status %d", res.StatusCode)
