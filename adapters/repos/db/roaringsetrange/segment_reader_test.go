@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -317,6 +318,47 @@ func TestSegmentReaderPread(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Pins a read cancelled mid-merge returning a partial result with no error.
+func TestSegmentReaderCancelledMidMerge(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	mem := NewMemtable(logger)
+	mem.Insert(5, []uint64{1})
+	mem.Insert(4, []uint64{2})
+	mem.Insert(1, []uint64{3})
+
+	for _, op := range segmentReaderOperators {
+		t.Run(op.Name(), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			cursor := &cancelOnNextCursor{
+				SegmentCursor: NewGaplessSegmentCursor(newFakeSegmentCursor(mem)),
+				cancel:        cancel,
+				cancelAt:      2,
+			}
+
+			_, release, err := (&SegmentReader{cursor: cursor}).Read(ctx, 5, op)
+			defer release()
+			require.ErrorIs(t, err, context.Canceled)
+		})
+	}
+}
+
+// cancelOnNextCursor cancels the read's ctx on its cancelAt-th Next().
+type cancelOnNextCursor struct {
+	SegmentCursor
+	cancel   context.CancelFunc
+	calls    int
+	cancelAt int
+}
+
+func (c *cancelOnNextCursor) Next() (uint8, roaringset.BitmapLayer, bool) {
+	c.calls++
+	if c.calls == c.cancelAt {
+		c.cancel()
+	}
+	return c.SegmentCursor.Next()
 }
 
 var segmentReaderOperators = []filters.Operator{

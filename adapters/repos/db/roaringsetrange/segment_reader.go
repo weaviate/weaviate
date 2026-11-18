@@ -336,6 +336,10 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 		mergedMax = mergeLayer(resultMax, entry.layer.Additions, valueMaxExc&b != 0, mergedMax, conc)
 	}
 
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	resultMin.AndNotConc(resultMax, conc)
 
 	return resultMin, nil
