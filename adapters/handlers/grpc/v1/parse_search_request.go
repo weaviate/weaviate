@@ -253,6 +253,12 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
 
+	vsp, err := extractVectorSearchParams(req.VectorSearchParams, config.HNSWMaxSearchEF)
+	if err != nil {
+		return dto.GetParams{}, err
+	}
+	out.VectorSearchParams = vsp
+
 	// Hybrid search now has the ability to run subsearches using the real nearvector and neartext searches.  So we need to extract those settings the same way we prepare for the real searches.
 	if hs := req.HybridSearch; hs != nil {
 		fusionType := common_filters.HybridFusionDefault
@@ -463,6 +469,20 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, err
 	}
 	return out, nil
+}
+
+// extractVectorSearchParams converts the per-request vector search params.
+// A nil message or ef == 0 means "use the collection default" and yields nil.
+// The proto field is a uint32, so negative values cannot occur.
+func extractVectorSearchParams(in *pb.VectorSearchParams, maxEF int64) (*searchparams.VectorSearchParams, error) {
+	if in == nil || in.GetEf() == 0 {
+		return nil, nil
+	}
+	ef := in.GetEf()
+	if int64(ef) > maxEF {
+		return nil, fmt.Errorf("vector_search_params.ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", ef, maxEF)
+	}
+	return &searchparams.VectorSearchParams{EF: int(ef)}, nil
 }
 
 func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
