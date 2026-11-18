@@ -12081,7 +12081,7 @@ func init() {
           "type": "string"
         },
         "vectorSearchParams": {
-          "description": "Per-request vector search tuning. Applies to vector-based searches (near-text, near-object, hybrid); rejected on bm25 search.",
+          "description": "Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.",
           "$ref": "#/definitions/SearchVectorSearchParams"
         },
         "where": {
@@ -25844,7 +25844,7 @@ func init() {
           "type": "string"
         },
         "vectorSearchParams": {
-          "description": "Per-request vector search tuning. Applies to vector-based searches (near-text, near-object, hybrid); rejected on bm25 search.",
+          "description": "Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.",
           "$ref": "#/definitions/SearchVectorSearchParams"
         },
         "where": {

@@ -96,8 +96,12 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 
 	vector = h.normalizeVec(vector)
 	ef := h.searchTimeEF(k, params)
-	helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", params.EFOrZero())
-	helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
+	// Annotate only when a request override is present: boxing the ints into
+	// `any` allocates, and the default path must stay allocation-free.
+	if requested := params.EFOrZero(); requested > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", requested)
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
+	}
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
@@ -1275,8 +1279,12 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
+	ef := h.searchTimeEF(kPrime, params)
+	if params.EFOrZero() > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
+	}
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime, params), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, ef, allowList)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 //	_       _
 //
 // __      _____  __ ___   ___  __ _| |_ ___
@@ -259,7 +270,8 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 		for _, ef := range []uint32{10, 50, 200, 1000} {
 			r := meanRecall(t, grpcClient, ds, "EfRecall", u32(ef), nil, nil)
 			t.Logf("ef=%d recall@%d=%.3f", ef, k, r)
-			assert.GreaterOrEqual(t, r, prev, "recall must not decrease when ef grows to %d", ef)
+			// 0.01 tolerance: RQ rescoring can invert two recalls both near 1.0.
+			assert.GreaterOrEqual(t, r, prev-0.01, "recall must not decrease when ef grows to %d", ef)
 			prev = r
 			recalls[ef] = r
 		}
@@ -484,6 +496,8 @@ func TestVectorSearchParamsEF_FlatIgnores(t *testing.T) {
 	for qi, q := range ds.queries {
 		with := searchIDs(t, grpcClient, nearVectorRequest("EfFlat", q, k, u32(1000)))
 		without := searchIDs(t, grpcClient, nearVectorRequest("EfFlat", q, k, nil))
+		require.Len(t, with, k, "query %d", qi)
+		require.Len(t, without, k, "query %d", qi)
 		require.Equal(t, without, with, "query %d", qi)
 	}
 }
@@ -503,13 +517,77 @@ func TestVectorSearchParamsEF_Replicated(t *testing.T) {
 	for node := 1; node <= 3; node++ {
 		t.Run(fmt.Sprintf("node %d", node), func(t *testing.T) {
 			c := newGRPC(t, compose.GetWeaviateNode(node).GrpcURI())
-			// With RF=3 every node holds a replica and the per-request ef crosses
-			// the node-to-node payload: a node ignoring it would return the
-			// exhaustive result at both ef values.
+			// With RF=3 every node holds a replica and the router prefers the
+			// local one, so each search runs on the local replica without a
+			// node-to-node hop. This proves every node answers consistently and
+			// honours ef locally; the cross-node path is pinned by
+			// TestVectorSearchParamsEF_Sharded.
 			count := func(ef uint32) int {
 				matches := 0
 				for _, q := range ds.queries {
 					got := searchIDs(t, c, nearVectorRequest("EfReplicated", q, k, u32(ef)))
+					if recallOf(got, ds.exactTopK(q, nil)) == 1 {
+						matches++
+					}
+				}
+				return matches
+			}
+			high, low := count(1000), count(10)
+			t.Logf("node %d: ef=1000 %d/%d, ef=10 %d/%d queries match brute force", node, high, len(ds.queries), low, len(ds.queries))
+			assert.GreaterOrEqual(t, high, 28)
+			assert.Less(t, low, high, "ef=10 must match brute force on fewer queries than ef=1000")
+		})
+	}
+}
+
+// TestVectorSearchParamsEF_Sharded exercises the cross-node ef path. With 3
+// shards and RF=1 on a 3-node cluster, any node answering a query holds at
+// most one shard locally and must fetch the others from remote nodes through
+// remoteShardSearch -> SearchShard -> postSearchObjects -> IncomingSearch. If
+// a hop dropped the value, the remote shards would be searched with the
+// default beam and the low-ef result would not degrade on them. We assert per
+// node that ef=10 matches brute force on strictly fewer queries than ef=1000
+// and that ef=1000 is near-exact; the handler-level hop is additionally
+// pinned by the clusterapi unit test.
+func TestVectorSearchParamsEF_Sharded(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().WithWeaviateClusterWithGRPC().Start(ctx)
+	require.NoError(t, err)
+	// registered before the collection cleanup so it runs after it (LIFO)
+	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	ds := newDataset(46, numObjects)
+	class := &models.Class{
+		Class:             "EfSharded",
+		Vectorizer:        "none",
+		VectorIndexType:   "hnsw",
+		VectorIndexConfig: rqConfig(),
+		Properties:        baseProperties(),
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		ShardingConfig:    map[string]any{"desiredCount": 3},
+	}
+	helper.CreateClass(t, class)
+	t.Cleanup(func() { helper.DeleteClass(t, class.Class) })
+	insertObjects(t, class.Class, numObjects, types.ConsistencyLevelOne, func(i int) *models.Object {
+		return &models.Object{
+			ID:     idToUUID(i),
+			Class:  class.Class,
+			Vector: ds.vectors[i],
+			Properties: map[string]any{
+				"title":  fmt.Sprintf("object %d", i),
+				"bucket": i % numBuckets,
+			},
+		}
+	})
+
+	for node := 1; node <= 3; node++ {
+		t.Run(fmt.Sprintf("node %d", node), func(t *testing.T) {
+			c := newGRPC(t, compose.GetWeaviateNode(node).GrpcURI())
+			count := func(ef uint32) int {
+				matches := 0
+				for _, q := range ds.queries {
+					got := searchIDs(t, c, nearVectorRequest(class.Class, q, k, u32(ef)))
 					if recallOf(got, ds.exactTopK(q, nil)) == 1 {
 						matches++
 					}

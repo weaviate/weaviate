@@ -75,7 +75,7 @@ type SearchCommon struct {
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`
 
-	// Per-request vector search tuning. Applies to vector-based searches (near-text, near-object, hybrid); rejected on bm25 search.
+	// Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.
 	VectorSearchParams *SearchVectorSearchParams `json:"vectorSearchParams,omitempty"`
 
 	// A conditional filter to limit the objects that are searched.
