@@ -830,12 +830,12 @@ func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 		},
 		"search": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
 			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{payload}, []string{"foo"}, 0, 10,
-				nil, nil, nil, additional.Properties{}, nil, nil)
+				nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			return err
 		},
 		"search by distance": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
 			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{payload}, []string{"foo"}, 0.5, -1,
-				nil, nil, nil, additional.Properties{}, nil, nil)
+				nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			return err
 		},
 		"distance for query": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {

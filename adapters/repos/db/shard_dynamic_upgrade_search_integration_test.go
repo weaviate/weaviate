@@ -91,7 +91,7 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 			query := randomVector()
 			search := func(s ShardLike) ([]*storobj.Object, error) {
 				res, _, err := s.ObjectVectorSearch(ctx, []models.Vector{query}, []string{""}, 0, limit,
-					nil, nil, nil, additional.Properties{}, nil, nil)
+					nil, nil, nil, additional.Properties{}, nil, nil, nil)
 				return res, err
 			}
 

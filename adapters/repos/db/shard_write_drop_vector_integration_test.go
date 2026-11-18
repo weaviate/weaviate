@@ -652,7 +652,7 @@ func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
 // searchIDs returns the IDs the index of targetVector finds for vector.
 func searchIDs(t *testing.T, ctx context.Context, shard *Shard, targetVector string, vector []float32) []strfmt.UUID {
 	t.Helper()
-	objs, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+	objs, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 	require.NoError(t, err)
 	ids := make([]strfmt.UUID, 0, len(objs))
 	for _, obj := range objs {
