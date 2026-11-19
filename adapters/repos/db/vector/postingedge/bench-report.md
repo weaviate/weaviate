@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 
-**Estado: paso 1 cerrado y la corrida a 1M en marcha.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
+**Estado: paso 1 cerrado, la corrida a 1M en marcha, y tres enmiendas escritas antes de ver sus datos: la celda 1b, las referencias de llenado y una segunda corrida detrás.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -288,6 +288,50 @@ Por celda y punto, y para cada referencia:
 - **Agrupada:** las celdas 1 y 2 cargan postings vacíos; la 3 los retira y queda cerca de la referencia. Las aristas muertas se concentran en los bordes de las regiones.
 - **Fracción de aristas muertas:** la de vectores borrados, 0.10, 0.30 y 0.50 al azar, y mucho menos en la agrupada.
 - **Churn:** con inserts que rellenan los postings, mejor que el 30 % sin inserts.
+
+### Enmienda 1 (14:33 del 19, del usuario): la celda 1b, con los borrados como fuentes de ruteo
+
+**Escrita antes de ver ningún dato de la corrida en marcha,** que sigue: el usuario pide no pararla. No he abierto sus resultados desde que arrancó a las 14:27.
+
+**Del usuario:** celda 1b, a correr detrás. Igual que la celda 1, pero un miembro borrado sigue siendo fuente de ruteo mientras esté en el posting. Se puntúa y sus aristas se siguen, y nunca entra en los resultados ni en el rescore. Mismos puntos (10, 30 y 50 % al azar, y la agrupada), mismo criterio. Si cumple, es la celda más simple.
+
+*Mío, para aplicarlo:*
+
+- **Qué cambia en el scan:** un miembro borrado se puntúa con su código, como los demás, y si queda dentro del corte de fuentes sus aristas se siguen. No entra en el conjunto de candidatos, así que no se rescora ni se devuelve, y tampoco en el conjunto de parada: el umbral de parada lo ponen solo los vivos.
+- **Lo demás, como la celda 1:** los endpoints borrados se puntúan.
+- **El stop es el mismo:** un vector borrado devuelto para la corrida.
+- **Cuenta como trabajo:** un borrado puntuado es un vector puntuado más en el scan.
+
+### Enmienda 2 (14:33 del 19, del usuario): cuánto de un fallo por cargas es de llenado
+
+**Escrita antes de ver ningún dato,** como la anterior.
+
+**Del usuario:** si una celda cumple el recall a igual ef y falla solo en cargas, se separa cuánto se debe al tamaño vivo del posting. Se añade una referencia en lote construida con los supervivientes y con S igual al tamaño vivo medio de la celda (165 al 30 %). Si contra esa referencia las cargas quedan dentro del criterio, el fallo es de llenado y se atribuye a la política de fusión, no a las aristas. Se dice así en el veredicto, sin cambiar el criterio original.
+
+*Mío, para aplicarlo:*
+
+- **Dos referencias de llenado por punto,** porque el tamaño vivo medio cambia con la limpieza: una con el de las celdas 1, 1b y 2, que comparten postings, y otra con el de las celdas 3 y 4, después de reescribir y fusionar. S es los vectores vivos entre los postings vivos, redondeado. Si las dos salen con el mismo S, se construye una.
+- **Contra su referencia de llenado, una celda queda dentro** si sus cargas a 0.95 están un 15 % o menos por encima y las de 0.99 un 10 % o menos: los dos umbrales del criterio. Se da también el recall a igual ef contra ella, sin umbral.
+- **Se calcula para todas las celdas** y se usa en el veredicto de las que cumplen el recall y fallan solo en cargas.
+- **El criterio original no cambia:** una celda cumple o no contra la referencia de S = 236.
+
+### Enmienda 3 (14:33 del 19): una segunda corrida, detrás de la primera (*mía*)
+
+**Motivo.** La celda 1b y las referencias de llenado piden comparar a 0.99, y la regla de ruido no deja hacerlo entre corridas. Añadirlas a la corrida en marcha no se puede sin pararla.
+
+- **La segunda corrida mide todo en una pasada:** en cada punto, las tres referencias y las celdas 1, 1b, 2, 3 y 4, sobre un build nuevo del 100 %. La 1b va detrás de la 1 y no cambia el índice; después siguen la 2, la 3 y la 4 como estaban.
+- **De dónde sale cada veredicto:**
+  - el del criterio original para las celdas 1 a 4, de la primera corrida, que es la pre-registrada;
+  - el de la celda 1b y la lectura de llenado de todas, de la segunda, donde cada una tiene sus referencias.
+- **Las celdas 1 a 4 quedan medidas dos veces.** Lo que difieran entre las dos corridas es el ruido entre corridas, y se da. Si el veredicto de una celda cambia de una a otra, se dice y se marca como no distinguible del ruido.
+- **El churn de la segunda corrida** va con la celda que eligió la primera, y lleva también su referencia de llenado. La celda 1b no entra en el churn: el encargo la pide en los cuatro puntos.
+- **Orden:** 30 % al azar, 10 %, 50 %, agrupada y churn. No empieza ninguna etapa a partir de las 21:45.
+
+**Lo que espero de la celda 1b** (*mío*, antes de ningún dato):
+
+- **En la variante agrupada, arregla lo que la prueba pequeña enseñó de las celdas 1 y 2:** una búsqueda que entra por un posting sin vivos tiene fuentes y sale de él. Espero que llegue a 0.99, cargando postings que no dan candidatos.
+- **Al azar,** recall a igual ef algo mejor que la celda 1 y más cargas que la celda 2, porque sigue más aristas. Espero que falle por cargas al 30 %, como las demás.
+- **De las referencias de llenado:** al 30 %, con S = 165, espero que las celdas 2, 3 y 4 queden dentro de los dos umbrales. Si es así, el fallo sería de llenado.
 
 ### Paso 1, cerrado: el mecanismo y sus tests a pequeña escala (14:27 del 19)
 
