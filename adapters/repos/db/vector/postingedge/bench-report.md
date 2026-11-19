@@ -168,6 +168,121 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
+
+**Estado: pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo.** El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
+
+### El encargo (del usuario)
+
+Inserts con búsquedas en paralelo. Sobre el camino de v5.0, o el de v5.1 si pasa.
+
+- **Mecanismo:** N buscadores calculan en paralelo las aristas de los inserts pendientes, y un único aplicador escribe los resultados en orden. Una búsqueda puede ver un estado algo atrasado, sin los inserts que aún no se han aplicado.
+- **Celdas:** N = 1, 4 y 8, creciendo del 10 % al 100 %.
+- **Validación:** cobertura completa en cada checkpoint. Es stop. Como el resultado ya no es idéntico al gemelo, se comparan recall y cargas a 0.95 y 0.99 frente a N = 1.
+- **Medidas:** inserts por segundo por celda, y qué fracción del tiempo queda en el aplicador.
+- **Pre-registro:** sirve si con N = 8 da 4 veces o más los inserts por segundo de N = 1, con cargas a 0.95 y 0.99 a un 5 % o menos de las de N = 1.
+- **Nota para la integración:** en producto esos buscadores tendrían que salir de los workers compartidos del nodo, no ser propios del índice.
+
+### Cómo parto el insert (*mío*)
+
+Un insert de v5.0 hace siete cosas, y el 93 % de su tiempo son las dos primeras:
+
+| | qué hace | quién lo hace aquí |
+|---|---|---|
+| 1 | busca su posting en el grafo de centroides | un buscador |
+| 2 | busca sus vecinos: carga postings, puntúa y hace el rescore | un buscador |
+| 3 | escribe el vector, su miembro, su código y sus aristas | el aplicador |
+| 4 | entra en las aristas de sus vecinos, las inversas | el aplicador |
+| 5 | parte su posting si pasó del umbral | el aplicador |
+| 6 | con aristas consolidadas, escribe las filas que llegaron a K cambios | el aplicador |
+| 7 | el ciclo de flush y compactación del store | el aplicador |
+
+- **Un buscador no escribe nada.** Deja un plan: el posting que eligió, los vecinos con sus distancias, los vectores exactos que leyó su rescore y las listas de aristas de los postings que cargó.
+- **El aplicador aplica los planes en el orden de los inserts,** uno detrás de otro, con el mismo código que el insert de siempre.
+
+### Tandas: el estado que ve una búsqueda (*mío*)
+
+- **Los inserts van en tandas de W.** Las búsquedas de una tanda corren a la vez, repartidas entre los N buscadores, sobre el índice tal como lo dejó la tanda anterior. Mientras buscan, nadie escribe. Después el aplicador aplica los W planes en orden, y mientras aplica, nadie busca.
+- **Una búsqueda no ve los inserts de su tanda que van antes que ella:** como mucho W − 1. Es el atraso del encargo.
+- **El resultado depende de W y no de N ni del reparto entre hilos:** cada plan es función del estado al empezar la tanda. Se comprueba en un test: con la misma W, 1 y 8 buscadores dejan el mismo índice.
+- **Por qué tandas y no una cadena continua:** con el aplicador escribiendo a la vez que los buscadores leen, una búsqueda puede elegir un posting que un split retira antes de que lo cargue, y el mapa de postings y las filas se leerían a medio cambiar. Evitarlo pide versiones o candados por posting, que es diseño del producto y no de este prototipo. La tanda lo evita sin candados. Deja a los buscadores parados mientras el aplicador escribe, así que mide menos inserts por segundo de los que daría una cadena continua.
+- **W = 32 para N = 4 y para N = 8.** Con una tanda de N, la tanda dura lo que su búsqueda más lenta y los demás buscadores esperan. Con 32, cada buscador coge la siguiente búsqueda en cuanto acaba la suya. El atraso es de 31 inserts como mucho, más que el de una cadena continua con 8 buscadores.
+- **N = 1 es el insert de siempre,** con W = 1: el camino de v5.0 o de v5.1 sin tocar, cronometrado en la misma sesión. Es la referencia.
+
+### Lo que el aplicador comprueba antes de aplicar un plan (*mío*)
+
+Un plan se calculó sobre el estado del principio de su tanda. Antes de aplicarlo:
+
+- **Si su posting se partió** dentro de la tanda, se elige otra vez en el grafo de centroides. Si sigue vivo, se queda el que eligió, aunque un split de la tanda haya dejado un centroide más cercano: es parte del atraso.
+- **Las listas de aristas de un vecino** que otro insert de la tanda ya cambió no se usan: se leen otra vez, de lo pendiente o del store.
+- **Los vecinos son doc ids** y siguen valiendo aunque cambien de posting. Sus postings se miran en el mapa de ahora: un vecino que ya está en el posting del vector no es una arista.
+- Se cuenta cuántos planes pasan por cada caso.
+
+### Sobre qué camino (del usuario) y cómo lo aplico
+
+- **El de v5.1 si pasa su pre-registro,** que se sabe con la sesión de la noche del 19. Si no pasa, el de v5.0.
+- *Mío:* si pasan las dos K, la de mejor latencia en frío a 0.95; con menos de un 10 % entre las dos, K = 64, que escribe menos. Las celdas de v5.2 no empiezan hasta tener ese veredicto.
+
+### Celdas
+
+| celda | buscadores | tanda | qué es |
+|---|---|---|---|
+| N = 1 | 1 | 1 | el insert de siempre: la referencia |
+| N = 4 | 4 | 32 | |
+| N = 8 | 8 | 32 | la del criterio |
+| N = 8, tanda de 8 (*mía, sin criterio*) | 8 | 8 | el atraso mínimo: cuánto cuesta en inserts por segundo que la tanda espere a su búsqueda más lenta |
+
+- **Cada celda crece del 10 % al 100 %** desde la misma base en lote, como v5.0: 99 000 vectores escritos en lote y 891 000 inserts.
+- **N = 4 y N = 8 dejan el mismo índice,** porque llevan la misma tanda. Se comprueba, y su calidad se mide una vez.
+
+### Validación
+
+- **Cobertura completa en cada checkpoint, del 20 % al 100 %. Si no, stop.** La comprobación de v5.0 y v5.1: cada vector vivo está en un posting y solo en uno, el mapa y las filas dicen lo mismo, ningún posting retirado guarda nada, y cada miembro tiene su lista de aristas. Corre con el reloj parado.
+- **N = 1 es idéntico al gemelo en memoria:** es el camino ya validado. No se vuelve a comparar a 1M.
+- **Calidad frente a N = 1,** sobre el índice final con todo volcado: por celda, el menor ef que llega a 0.95 y a 0.99 sobre las 5 000 queries y sus cargas; y el recall y las cargas con el ef de N = 1.
+- **Además, en los tests, a pequeña escala:** tanda de 1 idéntica al gemelo; con la misma tanda, 1 y 8 buscadores dejan el mismo índice; cobertura completa con tandas de varios tamaños, con y sin aristas consolidadas, cruzando splits; y cada caso de la sección anterior provocado a mano.
+
+### Medidas
+
+- **Inserts por segundo por celda:** los 891 000 inserts entre el tiempo de reloj, por tramos del 10 % y en total, sin los checkpoints.
+- **La fracción del tiempo en el aplicador:** el tiempo de reloj con el aplicador escribiendo, entre el total. Lo demás es el tiempo de reloj con los buscadores buscando.
+- **De los buscadores:** el tiempo de búsqueda sumado entre el tiempo de reloj de sus fases por N, que dice cuánto estuvieron parados.
+- **Del aplicador, por insert:** escritura, aristas inversas, split, filas y ciclo del store, como en v5.0; y los planes con posting reelegido y con listas leídas otra vez.
+- **Lo que daría una cadena continua, calculado y no medido:** el menor de N entre el tiempo de una búsqueda y 1 entre el tiempo de aplicar un insert.
+
+### Pre-registro (del usuario) y cómo lo aplico
+
+**Sirve si con N = 8 da 4 veces o más los inserts por segundo de N = 1, con cargas a 0.95 y 0.99 a un 5 % o menos de las de N = 1.**
+
+*Mío, para aplicarlo:*
+
+- **Los inserts por segundo** son los del crecimiento entero, del 10 % al 100 %, de la celda N = 8 con tanda de 32 entre los de N = 1, las dos en la misma sesión.
+- **Las cargas** son las del menor ef que llega a cada recall, en cada índice. Un 5 % o menos es por arriba: cargar menos no lo incumple.
+- **La regla de ruido** dice que no se compara a 0.99 entre corridas distintas. Aquí el criterio lo pide así y se aplica como está escrito. Los índices son deterministas: la diferencia entre celdas es el atraso de la tanda y no ruido de corrida.
+- **La celda de tanda de 8 no entra en el criterio.**
+
+### Condiciones
+
+- **Las cuatro corridas son cronometradas:** la máquina despierta, 15 minutos sin teclado ni trackpad antes de empezar, una corrida cada vez, sola, y la actividad de cada una anotada. Una sola corrida por celda.
+- **Cuándo:** después del veredicto de v5.1. No va en la cola de la noche del 19.
+- **Lo que no se mide:** búsquedas de usuario durante los inserts, varios índices compartiendo buscadores, y la cadena continua.
+
+### Nota para la integración (del usuario)
+
+En producto esos buscadores tienen que salir de los workers compartidos del nodo (el `queue.Scheduler`, GOMAXPROCS − 1 para todos los índices), no ser propios del índice. Aquí son goroutines del propio benchmark, 4 u 8 para un solo índice: es el mejor caso. Queda en `disk-design.md`, en el requisito de integración.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+Con las cifras de v5.0: un insert son 5.59 ms, de ellos 5.2 de búsqueda y 0.39 de escritura.
+
+- **N = 1:** unos 180 inserts por segundo en el camino de v5.0, con el aplicador en un 7 % del tiempo.
+- **N = 8 con tanda de 32:** de 4.5 a 5.5 veces, con el aplicador en un 35 a un 40 % del tiempo. Pasa el criterio, sin mucho margen.
+- **N = 4:** de 3.0 a 3.5 veces.
+- **N = 8 con tanda de 8:** de 3.5 a 4.2 veces. Es donde puede no llegar a 4.
+- **Cargas:** a menos de un 2 % de las de N = 1 en los dos recalls. Dos inserts de una misma tanda casi nunca son vecinos: son 31 entre cientos de miles.
+- **Planes con posting reelegido:** menos de uno de cada mil. **Con listas leídas otra vez:** menos de uno de cada cien.
+- **Una cadena continua,** calculada: unas 8 veces con N = 8, limitada por los buscadores y no por el aplicador.
+
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 
 **Estado: pasos 1 y 2 cerrados, con las dos comprobaciones a 1M pasadas, y la sesión cronometrada en cola para la noche del 19.** Pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo. El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.

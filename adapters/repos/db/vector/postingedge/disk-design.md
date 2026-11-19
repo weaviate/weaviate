@@ -458,6 +458,7 @@ Un nodo reparte dos recursos entre todos sus índices. El índice tiene que usar
 - **Las cargas de una ronda no miran el presupuesto.** Pide a la vez las filas de sus 4 postings: 8 lecturas en vuelo, 12 con halo. En una máquina de 10 procs caben en lo concedido hasta unas 17 queries a la vez (10 con halo). Por encima, la ronda se alarga, y eso no está medido.
 - **El mantenimiento corre dentro del insert, sin cola.** En v5.0 y v5.1 el split, el refresco y la escritura de filas los hace el propio insert. Con una cola compartida, el ritmo de inserts y lo que hay pendiente dependen de cuántos workers le toquen al índice: sin medir.
 - **El rescore sí lo mira,** como el de HFresh.
+- **Los buscadores de los inserts en paralelo (v5.2, pre-registrado el 19)** son goroutines del benchmark, 4 u 8 para un solo índice. En producto salen de esos mismos workers compartidos, y con más índices en el nodo le tocan menos a cada uno.
 
 Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en `bench-report.md`, «Los recursos compartidos del nodo».
 
