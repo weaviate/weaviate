@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 
-**Estado: paso 1 cerrado, la corrida a 1M en marcha, y tres enmiendas escritas antes de ver sus datos: la celda 1b, las referencias de llenado y una segunda corrida detrás.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
+**Estado: primera corrida a 1M cerrada el 19 a las 15:41, sin ningún stop: ninguna de las cuatro celdas cumple el criterio. La segunda corrida, con la celda 1b y las referencias de llenado, en marcha desde las 15:42. Las tres enmiendas se escribieron antes de ver ningún dato.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -351,7 +351,114 @@ Código en `f3ec2c2ecd`, después del pre-registro (`d274cd0b5a`).
 
 **Lo que la prueba pequeña enseña del mecanismo, y mi expectativa no vio:** en la variante agrupada, con postings enteros borrados, las celdas 1 y 2 no solo cargan postings vacíos. Una búsqueda que entra por un posting sin ningún miembro vivo no encuentra nada: no hay candidatos y, como un borrado no es fuente, tampoco aristas que seguir. Si a 1M pasa lo mismo, esas dos celdas no llegarán a 0.95 en esa variante, y lo que lo arregla es retirar el posting vacío, que es de la celda 3.
 
-**En marcha desde las 14:27:** la corrida a 1M, en una sola pasada y sin cronometrar. Orden: 30 % al azar, 10 %, 50 %, agrupada y churn.
+### Paso 2, primera parte: la primera corrida a 1M (de 14:26 a 15:41 del 19)
+
+Binario de `f3ec2c2ecd`. Datos en `testdata/bench/v6.0/dbpedia-1m-deletes.json` y tablas en `testdata/bench/v6.0/deletes-verdict.md` (`485d997f64`). Es la corrida pre-registrada: de ella sale el veredicto del criterio original para las celdas 1 a 4. La celda 1b, las referencias de llenado y el ruido entre corridas salen de la segunda, abajo.
+
+- **Las cinco etapas corrieron,** en 75 minutos: el lote del 100 % (4 195 postings de 236.0 miembros, 8 888 026 aristas), y después el 30 %, el 10 %, el 50 %, la agrupada y el churn.
+- **Ningún stop.** Ninguna búsqueda devolvió un vector borrado, y la cobertura es completa en cada celda y en cada ronda del churn.
+
+**Veredicto, por la regla como está escrita: los deletes no se sostienen con estas cuatro celdas.** Con el 30 % borrado al azar ninguna cumple, y las cuatro fallan las tres condiciones.
+
+| celda, con el 30 % al azar | peor recall a igual ef (listón: −0.005) | cargas a 0.95 (listón: +15 %) | cargas a 0.99 (listón: +10 %) | las tres |
+|---|---|---|---|---|
+| referencia: el lote de los 693 000 que quedan | — | 9.28 | 44.46 | — |
+| 1, borrado lógico | −0.0148 en ef 10 | 13.70, +47.6 % | 74.32, +67.2 % | no |
+| 2, endpoints borrados sin puntuar | −0.0227 en ef 10 | 13.48, +45.2 % | 74.75, +68.1 % | no |
+| 3, más limpieza física | −0.0214 en ef 10 | 12.73, +37.1 % | 66.99, +50.7 % | no |
+| 4, más refresco | −0.0173 en ef 10 | 11.95, +28.7 % | 60.62, +36.3 % | no |
+
+- **Ninguna condición queda a menos del suelo de ruido** (0.0009 de recall, 0.5 % y 3.0 % de cargas): fallan con margen.
+- **La celda más simple que cumple: ninguna.** La más cercana es la 4, que es la de todo acumulado.
+
+**El recall a igual ef falla abajo en la malla y se cierra hacia arriba.** Diferencia con la referencia, con el 30 % al azar:
+
+| ef | 10 | 20 | 40 | 80 | 160 | 320 | 640 | 1 024 |
+|---|---|---|---|---|---|---|---|---|
+| celda 1: recall | −0.0148 | −0.0123 | −0.0087 | −0.0046 | −0.0033 | −0.0026 | −0.0013 | −0.0008 |
+| celda 1: cargas | +18.0 % | +21.0 % | +24.2 % | +27.0 % | +28.3 % | +29.9 % | +30.3 % | +30.7 % |
+| celda 2: recall | −0.0227 | −0.0197 | −0.0149 | −0.0089 | −0.0065 | −0.0042 | −0.0026 | −0.0019 |
+| celda 2: cargas | +5.6 % | +5.5 % | +6.0 % | +6.3 % | +7.2 % | +8.4 % | +9.2 % | +10.0 % |
+| celda 4: recall | −0.0173 | −0.0140 | −0.0100 | −0.0052 | −0.0036 | −0.0027 | −0.0014 | −0.0012 |
+| celda 4: cargas | +3.8 % | +3.5 % | +3.1 % | +3.9 % | +3.9 % | +4.2 % | +4.5 % | +4.7 % |
+
+- **Las celdas 3 y 4 cargan casi lo mismo que la referencia a igual ef,** un 3 a un 5 % más, y encuentran menos. Lo que les falta para igualar el recall es subir ef, y de ahí salen sus cargas a 0.95 y a 0.99.
+- **La celda 1 carga de un 18 a un 31 % más a igual ef** y aun así encuentra menos. *Lectura mía:* puntúa los endpoints borrados, y esas pistas la llevan a cargar postings que dan menos candidatos.
+- **La celda 2 pierde más recall que la 1,** −0.0227 frente a −0.0148, y carga menos: no puntúa los endpoints borrados.
+
+**Lo que ve una búsqueda,** en ef 160 y con el 30 % al azar:
+
+| | cargas | miembros vivos puntuados en el scan | endpoints puntuados | aristas vivas por vector vivo |
+|---|---|---|---|---|
+| referencia | 34.11 | 8 564 | 16 758 | sin contar; 8.98 en el lote del 100 % |
+| celda 1 | 43.75 | 7 672 | 18 144 | 6.29 |
+| celda 2 | 36.56 | 6 428 | 11 427 | 6.29 |
+| celda 3 | 35.22 | 7 186 | 12 133 | 6.29 |
+| celda 4 | 35.44 | 7 233 | 12 817 | 6.80 |
+
+- **Con las mismas cargas, las celdas 3 y 4 puntúan un 16 % menos de miembros que la referencia.** Es la proporción de sus postings: 197.3 vivos frente a 236.0.
+- **Y un 24 a un 28 % menos de endpoints:** un vector vivo conserva 6.3 aristas vivas, 6.8 tras el refresco, donde un lote tiene unas 9.
+- **Las dos cosas van juntas en esta corrida.** Cuánto pone cada una lo dice la referencia de llenado de la segunda corrida, que es su lectura pre-registrada. No lo adelanto.
+
+**Los postings y las aristas, con el 30 % al azar:**
+
+| celda | postings | vivos por posting | miembros que ocupan sitio | por debajo de 118 vivos | aristas muertas | vectores con la mitad o más muertas |
+|---|---|---|---|---|---|---|
+| 1 y 2 | 4 195 | 165.2 | 236.0 | 880 | 0.300 | 99 641 |
+| 3 | 3 513 | 197.3 | 230.2 | 57 | 0.300 | 99 641 |
+| 4 | 3 513 | 197.3 | 230.2 | 57 | 0.238 | 0 |
+
+- **La limpieza:** 2 076 postings reescritos, con 331 305 miembros vivos copiados y 181 165 borrados soltados; 743 fusiones, que movieron 63 045 miembros vivos; 61 splits tras una fusión.
+- **El refresco:** 99 641 vectores, el 14.4 % de los vivos. Cada uno cuesta una búsqueda: 30.9 cargas, 10 329 endpoints puntuados y 64 distancias exactas. Entraron 6 746 aristas inversas.
+- **La limpieza deja los postings en 197 vivos, no en 236.** Fusiona los que bajan de 118 y no toca los demás: un posting con 150 vivos se queda como está.
+
+**Los demás puntos,** con las mismas tres condiciones y sin veredicto:
+
+| punto | celda | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | las tres |
+|---|---|---|---|---|---|
+| el 10 % al azar | 1 | −0.0066 en ef 10 | +12.4 % | +12.2 %, falla a menos del suelo de ruido | no |
+| | 2 | −0.0083 en ef 10 | +13.5 % | +15.7 % | no |
+| | 3 | −0.0076 en ef 10 | +10.7 % | +11.7 %, falla a menos del suelo de ruido | no |
+| | 4 | −0.0074 en ef 10 | +10.4 % | +11.5 %, falla a menos del suelo de ruido | no |
+| el 50 % al azar | 1 | −0.0263 en ef 10 | +107.9 % | +186.2 % | no |
+| | 2 | −0.0475 en ef 10 | +113.5 % | +195.1 % | no |
+| | 3 | −0.0342 en ef 10 | +62.6 % | +119.6 % | no |
+| | 4 | −0.0133 en ef 10 | +18.8 % | +41.6 % | no |
+| el 30 % en regiones enteras | 1 | −0.3158 en ef 1 024 | no llega a 0.95 | no llega a 0.99 | no |
+| | 2 | −0.3158 en ef 1 024 | no llega a 0.95 | no llega a 0.99 | no |
+| | 3 | −0.0230 en ef 10 | +25.2 % | +29.3 % | no |
+| | 4 | −0.0090 en ef 10 | +5.7 % | +9.5 %, cumple a menos del suelo de ruido | no |
+| churn, con la celda 4 | 4 | −0.0081 en ef 20 | +15.1 %, falla a menos del suelo de ruido | +20.9 % | no |
+
+- **Con el 10 % borrado tampoco cumple ninguna.** El recall a igual ef falla por 0.002 a 0.003 en ef 10, y las cargas a 0.99 por 1.5 a 5.7 puntos. Ahí el llenado casi no cuenta en las celdas 3 y 4: 228.8 vivos por posting frente a 236.0.
+- **Con el 50 %, la celda 4 es otra cosa que las demás:** refresca el 53.1 % de los vivos (262 665 vectores) y deja las cargas a 0.95 en +18.8 %, donde la 3 queda en +62.6 %. Sus aristas vivas por vector pasan de 4.50 a 7.29.
+- **En regiones enteras, las celdas 1 y 2 no pasan de un recall de 0.6778,** con ef hasta 1 024. Hay 1 380 postings sin ningún vivo, y una búsqueda que entra por uno no encuentra nada: es lo que enseñó la prueba pequeña. La celda 3 los retira (1 360) y la búsqueda vuelve a llegar a 0.99.
+- **La celda 4 en regiones enteras es la que más se acerca a cumplir en toda la corrida:** las cargas quedan dentro, y el recall falla por 0.004 en ef 10.
+- **En 384 de las 5 000 queries de la agrupada,** menos de 10 de sus 100 vecinos del dataset siguen vivos: su ground truth se resolvió por fuerza bruta.
+
+**El churn, con la celda 4.** La eligió la regla escrita: ninguna cumple, y es la de menos cargas a 0.99 sobre su referencia. Base de 760 000 vectores, y diez rondas que borran 22 800 e insertan otros tantos.
+
+| ronda | postings | vivos por posting | miembros que ocupan sitio | aristas muertas | cargas por insert | fusiones, acumuladas | refrescados en la ronda |
+|---|---|---|---|---|---|---|---|
+| 1 | 3 299 | 230.4 | 235.9 | 0.028 | 34.9 | 239 | 2 766 |
+| 5 | 3 295 | 230.7 | 259.3 | 0.122 | 34.5 | 343 | 5 811 |
+| 10 | 3 306 | 229.9 | 279.7 | 0.191 | 34.6 | 399 | 13 892 |
+
+- **Los inserts rellenan:** los vivos por posting se quedan en 230, cerca de los 236 de la referencia.
+- **Los borrados se acumulan dentro de los postings:** los miembros que ocupan sitio pasan de 235.9 a 279.7. Solo 12 postings pasaron del 30 % de borrados y se reescribieron.
+- **Las aristas muertas llegan a 0.191** y siguen subiendo al acabar: el refresco solo toca al vector con la mitad o más muertas.
+- **Frente al lote del conjunto final:** −0.0081 de recall en ef 20, cargas a 0.95 +15.1 % y a 0.99 +20.9 %. Es mejor que el 30 % sin inserts (−0.0173, +28.7 % y +36.3 %), y tampoco cumple. *Lectura mía:* con el llenado casi igualado, lo que queda es de las aristas y de los borrados que siguen en los postings.
+
+**Contra lo que esperaba** (*mío*):
+
+- **Acerté en que ninguna cumpliría al 30 %,** y en la fracción de aristas muertas (0.100, 0.300 y 0.499 al azar, 0.164 en la agrupada).
+- **Fallé en el porqué.** Esperaba el recall a igual ef dentro de 0.005 y el fallo solo en cargas. El recall falla en las cuatro, por 0.010 a 0.018 sobre el listón.
+- **Me quedé corto en las cargas de las celdas 1 y 2:** esperaba de un 25 a un 40 % a 0.95, y son un 45 a un 48 %.
+- **Fallé en el 10 %:** esperaba las cuatro dentro de las tres condiciones. Ninguna lo está.
+- **Subestimé el refresco:** esperaba que apenas bajara las cargas. Al 30 % las baja de +37.1 % a +28.7 % a 0.95, y al 50 % de +62.6 % a +18.8 %.
+- **La celda 3 en la agrupada no queda cerca de la referencia,** como esperaba: +25.2 % y +29.3 %. La que queda cerca es la 4.
+
+**En marcha desde las 15:42:** la segunda corrida, con la celda 1b y las referencias de llenado en cada punto. No empieza ninguna etapa desde las 21:45, y un guardián para lo que quede a las 22:50.
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
