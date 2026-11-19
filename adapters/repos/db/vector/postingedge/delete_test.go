@@ -25,7 +25,9 @@ import (
 // cells of the experiment, each on top of the one before:
 //
 //  1. Nothing: the edges that lead to a deleted vector still have it scored,
-//     from its sidecar code, as a hint of where to go.
+//     from its sidecar code, as a hint of where to go. In its variant 1b a
+//     deleted member that is still in its posting is a source besides: it
+//     is scored and its edges are followed (state.deletedAsSources).
 //  2. A deleted endpoint is not scored (state.skipDeletedEndpoints).
 //  3. A cleanup pass: a posting with more than a share of its members
 //     deleted is written again without them, and one left with fewer live
@@ -84,7 +86,7 @@ type deleteIndex struct {
 func newDeleteIndex(s *streamIndex, rewriteOver float64, minLive int) *deleteIndex {
 	d := &deleteIndex{s: s, deleted: make([]bool, len(s.live)), rewriteOver: rewriteOver, minLive: minLive}
 	s.st.deleted = d.deleted
-	s.st.skipDeletedEndpoints = false
+	s.st.skipDeletedEndpoints, s.st.deletedAsSources = false, false
 	return d
 }
 
@@ -105,6 +107,13 @@ func (d *deleteIndex) remove(docID uint64) error {
 // deleted vector has it scored, as a hint, or is left out.
 func (d *deleteIndex) scoreDeletedEndpoints(on bool) {
 	d.s.st.skipDeletedEndpoints = !on
+}
+
+// deletedAreSources tells the search whether a deleted member that is still
+// in its posting is scored and has its edges followed, as a source, without
+// ever being a candidate: cell 1b.
+func (d *deleteIndex) deletedAreSources(on bool) {
+	d.s.st.deletedAsSources = on
 }
 
 // dropAtSplit has a posting that an insert leaves past the split threshold

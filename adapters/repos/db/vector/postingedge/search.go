@@ -383,9 +383,11 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 	separateStop := s.stop != &sc.pool
 	sc.memberDist = sc.memberDist[:0]
 	deleted := s.st.deleted
+	asSources := s.st.deletedAsSources
 	skipped := 0
 	for i, docID := range post.docIDs {
-		if deleted != nil && deleted[post.key(i)] {
+		gone := deleted != nil && deleted[post.key(i)]
+		if gone && !asSources {
 			sc.memberDist = append(sc.memberDist, deletedDist)
 			skipped++
 			continue
@@ -395,6 +397,10 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 			return errors.Wrapf(err, "estimate distance to doc %d", docID)
 		}
 		sc.memberDist = append(sc.memberDist, dist)
+		if gone {
+			// A source like any other, and no candidate.
+			continue
+		}
 		sc.pool.push(docID, dist)
 		if separateStop {
 			sc.stop.push(docID, dist)
@@ -416,7 +422,7 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 		// Counted in a pass of its own, outside the timed sections, so
 		// that the loop below stays as it runs without stats.
 		for i := range post.docIDs {
-			if deleted != nil && deleted[post.key(i)] {
+			if deleted != nil && deleted[post.key(i)] && !asSources {
 				continue
 			}
 			if sc.endpoints.Visited(uint64(post.key(i))) {

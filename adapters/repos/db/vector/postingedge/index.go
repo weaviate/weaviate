@@ -110,6 +110,11 @@ type state struct {
 	// vector. Without it such an endpoint is scored as any other, from its
 	// sidecar code, and can have its posting loaded: a routing hint.
 	skipDeletedEndpoints bool
+	// deletedAsSources has the scan score a marked member as any other, so
+	// that it is a source when it is within the cut and its edges are
+	// followed. It is still no candidate: it is not rescored, not returned,
+	// and does not count towards the stop threshold.
+	deletedAsSources bool
 }
 
 // New creates an empty index.

@@ -491,3 +491,74 @@ func TestDeleteErrors(t *testing.T) {
 	require.Equal(t, 799, f.s.liveCount)
 	require.NoError(t, f.d.checkCoverage())
 }
+
+// With the deleted members as sources (cell 1b), a deleted vector is scored
+// and its edges are followed, and it is still never returned. Where whole
+// postings are deleted that is what lets a search out of them: without it, a
+// search that enters through a posting with no live member finds nothing.
+func TestDeleteSources(t *testing.T) {
+	const n, dims, k = 4000, 48, 10
+	tests := []struct {
+		name      string
+		clustered bool
+		cosine    bool
+		share     float64
+	}{
+		{name: "a third deleted at random", share: 0.3},
+		{name: "half deleted at random, cosine", share: 0.5, cosine: true},
+		{name: "whole postings deleted", share: 0.3, clustered: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newDeleteFixture(t, n, n, dims, tt.cosine, 1<<20, 0)
+			s, d := f.s, f.d
+			untouched := f.answers(t, k)
+			d.deletedAreSources(true)
+			require.Equal(t, untouched, f.answers(t, k), "without deletes the sources change nothing")
+			d.deletedAreSources(false)
+
+			if tt.clustered {
+				gone := 0
+				for p := range s.st.postings.lists {
+					if float64(gone) >= tt.share*n {
+						break
+					}
+					for _, docID := range slices.Clone(s.st.postings.lists[p].docIDs) {
+						require.NoError(t, d.remove(docID))
+						gone++
+					}
+				}
+			} else {
+				f.removeShare(t, tt.share, 29)
+			}
+			require.NoError(t, d.checkCoverage())
+			d.scoreDeletedEndpoints(true)
+
+			skipped := f.answers(t, k)
+			d.deletedAreSources(true)
+			sources := f.answers(t, k)
+			require.NoError(t, d.checkCoverage())
+			scannedSkipped, scannedSources, short, shortSources := 0, 0, 0, 0
+			for i := range skipped {
+				scannedSkipped += skipped[i].scanned
+				scannedSources += sources[i].scanned
+				if len(skipped[i].ids) < k {
+					short++
+				}
+				if len(sources[i].ids) < k {
+					shortSources++
+				}
+			}
+			require.Greater(t, scannedSources, scannedSkipped, "a deleted source is scored")
+			require.Zero(t, shortSources, "every query finds its k live vectors")
+			require.Greater(t, f.recall(t, sources, k), 0.8)
+			if tt.clustered {
+				require.Positive(t, short, "a search that enters through a posting without live members finds nothing")
+				require.Greater(t, f.recall(t, sources, k), f.recall(t, skipped, k))
+			}
+			// It changes how the index is searched and nothing of the index.
+			d.deletedAreSources(false)
+			require.Equal(t, skipped, f.answers(t, k))
+		})
+	}
+}

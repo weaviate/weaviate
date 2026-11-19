@@ -51,6 +51,11 @@ var (
 		"no stage starts. What is left is reported as not run")
 	benchDeleteCell = flag.Int("bench.deletecell", 0, "with -bench.deletes: the cell churn runs with, when random30 is "+
 		"not among the stages to choose it")
+	benchDeleteSources = flag.Bool("bench.deletesources", false, "with -bench.deletes: cell 1b is measured at every "+
+		"point, after cell 1: a deleted member that is still in its posting is a routing source")
+	benchDeleteFill = flag.Bool("bench.deletefill", false, "with -bench.deletes: every point builds besides a batch "+
+		"index of the vectors that are left with the mean live size of the postings of its cells as its posting size, "+
+		"one for the cells before the cleanup and one for those after it, and sets every cell against its own")
 )
 
 // deleteCellNames are the cells of v6.0, each on top of the one before.
@@ -113,6 +118,10 @@ func deleteLoadsAt(points []deletePoint, target float64) (loads float64, reached
 
 // deleteReference is the batch index of the vectors that are left.
 type deleteReference struct {
+	// TargetSize is the posting size it was built for: that of the index,
+	// or the mean live size of the postings of the cells it is the fill
+	// reference of.
+	TargetSize   int     `json:"targetSize"`
 	Vectors      int     `json:"vectors"`
 	Postings     int     `json:"postings"`
 	SizeMean     float64 `json:"sizeMean"`
@@ -131,9 +140,21 @@ type deleteVerdict struct {
 	Meets       bool    `json:"meets"`
 }
 
-// deleteCell is one cell at one point.
+// deleteFill sets a cell against the batch index built with the live size
+// of its postings: whether its loads are within the bars of the criterion
+// there, which tells a failure of fill from one of edges.
+type deleteFill struct {
+	TargetSize  int     `json:"targetSize"`
+	WorstRecall float64 `json:"worstRecallDifference"`
+	Loads95     float64 `json:"loads95OverReference"`
+	Loads99     float64 `json:"loads99OverReference"`
+	Within      bool    `json:"loadsWithin"`
+}
+
+// deleteCell is one cell at one point. Variant is "b" for cell 1b.
 type deleteCell struct {
 	Cell     int           `json:"cell"`
+	Variant  string        `json:"variant,omitempty"`
 	Name     string        `json:"name"`
 	Counts   deleteCounts  `json:"counts"`
 	Work     deleteStats   `json:"work"`
@@ -142,6 +163,7 @@ type deleteCell struct {
 	Coverage string        `json:"coverage"`
 	deleteCurve
 	Verdict deleteVerdict `json:"verdict"`
+	Fill    *deleteFill   `json:"fill,omitempty"`
 }
 
 // deleteRound is one round of the churn.
@@ -169,10 +191,13 @@ type deleteStage struct {
 	RegionPostings int             `json:"regionPostings,omitempty"`
 	TruthFallbacks int             `json:"truthFallbacks"`
 	Reference      deleteReference `json:"reference"`
-	Cells          []deleteCell    `json:"cells"`
-	Rounds         []deleteRound   `json:"rounds,omitempty"`
-	Stopped        string          `json:"stopped,omitempty"`
-	Seconds        float64         `json:"seconds"`
+	// Fills are the batch indexes of the vectors that are left built with
+	// the live sizes of the postings of the cells.
+	Fills   []deleteReference `json:"fills,omitempty"`
+	Cells   []deleteCell      `json:"cells"`
+	Rounds  []deleteRound     `json:"rounds,omitempty"`
+	Stopped string            `json:"stopped,omitempty"`
+	Seconds float64           `json:"seconds"`
 }
 
 type deleteResult struct {
@@ -283,7 +308,14 @@ func deleteJudge(cell, reference *deleteCurve) deleteVerdict {
 // meets the criterion; if none does, the one with the fewest loads at 0.99
 // over the reference, a simpler one standing unless another is under it by
 // more than the noise floor.
-func deleteBest(cells []deleteCell) (int, string) {
+func deleteBest(all []deleteCell) (int, string) {
+	// Among the four cells: cell 1b is not one the churn runs with.
+	var cells []deleteCell
+	for _, cell := range all {
+		if cell.Variant == "" {
+			cells = append(cells, cell)
+		}
+	}
 	for _, cell := range cells {
 		if cell.Verdict.Meets {
 			return cell.Cell, "the simplest cell that meets the criterion with 30 % deleted at random"
@@ -364,11 +396,14 @@ func TestStreamDeletes(t *testing.T) {
 	}
 	_, tempVectorForID := benchThunks(data)
 	vectorOf := func(id uint64) []float32 { return data.train[id] }
-	// build builds the given vectors in batch, in the order of their ids.
-	build := func(ids []uint64) (*Index, time.Duration) {
+	// build builds the given vectors in batch, in the order of their ids,
+	// for the given posting size.
+	build := func(ids []uint64, target int) (*Index, time.Duration) {
 		ids = slices.Clone(ids)
 		slices.Sort(ids)
 		begin := time.Now()
+		sized := uc
+		sized.TargetPostingSize = target
 		index, err := New(Config{
 			ID:                           "deletes",
 			RootPath:                     t.TempDir(),
@@ -377,7 +412,7 @@ func TestStreamDeletes(t *testing.T) {
 			TempVectorForIDWithViewThunk: tempVectorForID,
 			GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
 			Seed:                         1,
-		}, uc)
+		}, sized)
 		require.NoError(t, err)
 		const chunk = 10000
 		for from := 0; from < len(ids); from += chunk {
@@ -391,44 +426,86 @@ func TestStreamDeletes(t *testing.T) {
 		require.NoError(t, index.Build(ctx))
 		return index, time.Since(begin)
 	}
-	// reference builds the vectors that are left in batch and searches them.
-	reference := func(live []bool, truth [][]uint64) deleteReference {
+	// reference builds the vectors that are left in batch, for the given
+	// posting size, and searches them.
+	reference := func(live []bool, truth [][]uint64, target int) deleteReference {
 		var ids []uint64
 		for id, isLive := range live {
 			if isLive {
 				ids = append(ids, uint64(id))
 			}
 		}
-		index, took := build(ids)
+		index, took := build(ids, target)
 		defer func() { require.NoError(t, index.Shutdown(ctx)) }()
 		st := index.state.Load()
 		ref := deleteReference{
-			Vectors: len(ids), Postings: st.postings.postings(), BuildSeconds: took.Seconds(),
+			TargetSize: target, Vectors: len(ids), Postings: st.postings.postings(), BuildSeconds: took.Seconds(),
 			SizeMean: float64(len(ids)) / float64(st.postings.postings()),
 		}
+		// Searched with the configuration it was built with.
+		sized := uc
+		sized.TargetPostingSize = target
 		var stopped string
-		ref.deleteCurve, stopped = deleteSweep(ctx, t, logger, index, uc, data.queries, truth, k, nil)
+		ref.deleteCurve, stopped = deleteSweep(ctx, t, logger, index, sized, data.queries, truth, k, nil)
 		require.Empty(t, stopped)
-		t.Logf("reference: %d vectors in %d postings, built in %s | loads at 0.95 %.2f, at 0.99 %.2f (reached %t, between ef %d "+
-			"and %d)", ref.Vectors, ref.Postings, took.Round(time.Second), ref.Loads95, ref.Loads99, ref.Reached99,
-			ref.Crossing[0], ref.Crossing[1])
+		t.Logf("reference with postings of %d: %d vectors in %d postings, built in %s | loads at 0.95 %.2f, at 0.99 %.2f "+
+			"(reached %t, between ef %d and %d)", target, ref.Vectors, ref.Postings, took.Round(time.Second), ref.Loads95,
+			ref.Loads99, ref.Reached99, ref.Crossing[0], ref.Crossing[1])
 		return ref
+	}
+	// fill builds the batch indexes of the vectors that are left with the
+	// live sizes of the postings of the cells of a stage, one per size, and
+	// sets every cell against its own: its loads within the bars of the
+	// criterion there, or not.
+	fill := func(stage *deleteStage, live []bool, truth [][]uint64) {
+		if !*benchDeleteFill || stage.Stopped != "" {
+			return
+		}
+		bySize := map[int]int{}
+		for i := range stage.Cells {
+			cell := &stage.Cells[i]
+			if len(cell.Points) == 0 || cell.Counts.Postings == 0 {
+				continue
+			}
+			size := int(math.Round(float64(cell.Counts.LiveMembers) / float64(cell.Counts.Postings)))
+			at, built := bySize[size]
+			if !built {
+				stage.Fills = append(stage.Fills, reference(live, truth, size))
+				at = len(stage.Fills) - 1
+				bySize[size] = at
+			}
+			against := deleteJudge(&cell.deleteCurve, &stage.Fills[at].deleteCurve)
+			cell.Fill = &deleteFill{
+				TargetSize: size, WorstRecall: against.WorstRecall, Loads95: against.Loads95, Loads99: against.Loads99,
+				Within: cell.Reached95 && cell.Reached99 && against.Loads95 > 0 && against.Loads99 > 0 &&
+					against.Loads95 <= deleteLoads95 && against.Loads99 <= deleteLoads99,
+			}
+			t.Logf("%s, cell %d%s against the batch index with postings of %d: loads at 0.95 %.3f of it, at 0.99 %.3f | within "+
+				"the bars %t | worst recall at equal ef %+.4f", stage.Name, cell.Cell, cell.Variant, size, against.Loads95,
+				against.Loads99, cell.Fill.Within, against.WorstRecall)
+			write()
+		}
 	}
 	// measure searches a cell, counts it and sets it against the reference.
 	// It returns false if the stage has to stop.
-	measure := func(stage *deleteStage, cell int, index *Index, d *deleteIndex, truth [][]uint64, refresh *refreshStats) bool {
+	measure := func(stage *deleteStage, cell int, variant string, index *Index, d *deleteIndex, truth [][]uint64,
+		refresh *refreshStats,
+	) bool {
 		out := deleteCell{
-			Cell: cell, Name: deleteCellNames[cell], Counts: d.counts(uc.TargetPostingSize), Work: d.stats,
+			Cell: cell, Variant: variant, Name: deleteCellNames[cell], Counts: d.counts(uc.TargetPostingSize), Work: d.stats,
 			Refresh: refresh, Splits: d.s.stats.Splits, Coverage: "complete",
+		}
+		if variant == "b" {
+			out.Name = "1b: logical deletes, deleted members as sources"
 		}
 		if err := d.checkCoverage(); err != nil {
 			out.Coverage = err.Error()
-			stage.Stopped = fmt.Sprintf("coverage, cell %d: %v", cell, err)
+			stage.Stopped = fmt.Sprintf("coverage, cell %d%s: %v", cell, variant, err)
 		} else {
 			var stopped string
 			out.deleteCurve, stopped = deleteSweep(ctx, t, logger, index, uc, data.queries, truth, k, d.deleted)
 			if stopped != "" {
-				stage.Stopped = fmt.Sprintf("cell %d: %s", cell, stopped)
+				stage.Stopped = fmt.Sprintf("cell %d%s: %s", cell, variant, stopped)
 			} else {
 				out.Verdict = deleteJudge(&out.deleteCurve, &stage.Reference.deleteCurve)
 			}
@@ -440,10 +517,10 @@ func TestStreamDeletes(t *testing.T) {
 			return false
 		}
 		c := out.Counts
-		t.Logf("%s, cell %d: worst recall at equal ef %+.4f (ef %d) | loads at 0.95 %.2f, %.3f of the reference; at 0.99 %.2f, "+
+		t.Logf("%s, cell %d%s: worst recall at equal ef %+.4f (ef %d) | loads at 0.95 %.2f, %.3f of the reference; at 0.99 %.2f, "+
 			"%.3f (reached %t, between ef %d and %d) | meets %t | %d postings of %.1f live members and %.1f in all, %d under "+
 			"%d | dead edges %.3f, %d vectors with half or more | rewritten %d, merges %d, empty %d, splits %d", stage.Name,
-			cell, out.Verdict.WorstRecall, out.Verdict.WorstEF, out.Loads95, out.Verdict.Loads95, out.Loads99,
+			cell, variant, out.Verdict.WorstRecall, out.Verdict.WorstEF, out.Loads95, out.Verdict.Loads95, out.Loads99,
 			out.Verdict.Loads99, out.Reached99, out.Crossing[0], out.Crossing[1], out.Verdict.Meets, c.Postings,
 			float64(c.LiveMembers)/float64(max(c.Postings, 1)), float64(c.Members)/float64(max(c.Postings, 1)), c.UnderMin,
 			d.minLive, float64(c.DeadEdges)/float64(max(c.Edges, 1)), c.HalfDead, out.Work.Rewritten, out.Work.Merges,
@@ -460,7 +537,7 @@ func TestStreamDeletes(t *testing.T) {
 			all[i] = uint64(i)
 		}
 		var took time.Duration
-		whole, took = build(all)
+		whole, took = build(all, uc.TargetPostingSize)
 		built = whole.state.Load()
 		result.Build = workOfBuild(t, whole, 0)
 		t.Logf("the batch index of the whole train set: %d vectors in %d postings, built in %s", n, built.postings.postings(),
@@ -484,7 +561,7 @@ func TestStreamDeletes(t *testing.T) {
 		stage.Corpus, stage.Deleted = n, len(gone)
 		var truth [][]uint64
 		truth, stage.TruthFallbacks = liveTruthOf(t, data, live, k)
-		stage.Reference = reference(live, truth)
+		stage.Reference = reference(live, truth, uc.TargetPostingSize)
 		write()
 
 		// A copy of the whole index, with a centroid graph of its own: the
@@ -505,11 +582,20 @@ func TestStreamDeletes(t *testing.T) {
 		}
 
 		d.scoreDeletedEndpoints(true)
-		if !measure(stage, 1, whole, d, truth, nil) {
+		if !measure(stage, 1, "", whole, d, truth, nil) {
 			return
 		}
+		if *benchDeleteSources {
+			// Cell 1b: the same index, its deleted members as sources.
+			d.deletedAreSources(true)
+			ok := measure(stage, 1, "b", whole, d, truth, nil)
+			d.deletedAreSources(false)
+			if !ok {
+				return
+			}
+		}
 		d.scoreDeletedEndpoints(false)
-		if !measure(stage, 2, whole, d, truth, nil) {
+		if !measure(stage, 2, "", whole, d, truth, nil) {
 			return
 		}
 		if err := d.cleanup(ctx); err != nil {
@@ -520,7 +606,7 @@ func TestStreamDeletes(t *testing.T) {
 		if err := s.cleanCentroidGraph(); err != nil {
 			t.Logf("%s: cleaning the centroid graph failed, measured with its tombstones: %v", stage.Name, err)
 		}
-		if !measure(stage, 3, whole, d, truth, nil) {
+		if !measure(stage, 3, "", whole, d, truth, nil) {
 			return
 		}
 		require.NoError(t, whole.UpdateUserConfig(insertUC, func() {}))
@@ -533,7 +619,9 @@ func TestStreamDeletes(t *testing.T) {
 		t.Logf("%s: %d vectors refreshed in %s: %d loads, %d endpoints scored, %d inverse edges", stage.Name,
 			refreshed.Refreshed, refreshed.Time.Round(time.Second), refreshed.Work.SearchLoads, refreshed.Work.SearchEndpoints,
 			refreshed.Work.InverseEdges)
-		measure(stage, 4, whole, d, truth, &refreshed)
+		if measure(stage, 4, "", whole, d, truth, &refreshed) {
+			fill(stage, live, truth)
+		}
 	}
 
 	// clustered lists the vectors of whole regions of neighboring postings,
@@ -602,7 +690,7 @@ func TestStreamDeletes(t *testing.T) {
 			}
 		}
 		require.GreaterOrEqual(t, len(fresh), rounds*each, "new vectors to insert")
-		index, took := build(base)
+		index, took := build(base, uc.TargetPostingSize)
 		defer func() { require.NoError(t, index.Shutdown(ctx)) }()
 		t.Logf("churn: the base, %d vectors, built in %s", baseN, took.Round(time.Second))
 		s, err := newStreamIndex(index, n, cfg, vectorOf)
@@ -678,9 +766,11 @@ func TestStreamDeletes(t *testing.T) {
 		copy(live, s.live)
 		var truth [][]uint64
 		truth, stage.TruthFallbacks = liveTruthOf(t, data, live, k)
-		stage.Reference = reference(live, truth)
+		stage.Reference = reference(live, truth, uc.TargetPostingSize)
 		write()
-		measure(stage, cell, index, d, truth, nil)
+		if measure(stage, cell, "", index, d, truth, nil) {
+			fill(stage, live, truth)
+		}
 	}
 
 	for _, name := range stages {
