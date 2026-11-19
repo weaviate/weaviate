@@ -27,3 +27,20 @@
 == night, halo512: from 2026-11-18 23:10:14, 369 s
 == night, halo512p: from 2026-11-18 23:16:24, 378 s
 == night, hfresh-default: from 2026-11-18 23:22:43, 291 s
+== p1, hfresh-best95: from 2026-11-19 07:10:10, 241 s
+-- log: 2026-11-19 07:10:18 +0100 Notification        	Display is turned off                                                      	          
+== p1, hfresh-best95-par: from 2026-11-19 07:14:11, 213 s
+-- log: 2026-11-19 07:15:46 +0100 Assertions          	PID 462(WindowServer) Created UserIsActive "com.apple.iohideventsystem.queue.tickle serviceID:100b57d3c
+-- log: 2026-11-19 07:15:46 +0100 Notification        	Display is turned on                                                       	          
+== p1, hfresh-best99: from 2026-11-19 07:17:45, 608 s
+-- log: 2026-11-19 07:26:32 +0100 Notification        	Display is turned off                                                      	          
+== p1, hfresh-best99-par: from 2026-11-19 07:27:53, 496 s
+== p1, r512: from 2026-11-19 07:36:10, 306 s
+-- log: 2026-11-19 07:41:02 +0100 Assertions          	PID 462(WindowServer) TimedOut UserIsActive "com.apple.iohideventsystem.queue.tickle serviceID:100000bd
+== p1, halo512: from 2026-11-19 07:41:17, 368 s
+== p2, hfresh-best95: from 2026-11-19 07:47:26, 235 s
+== p2, hfresh-best95-par: from 2026-11-19 07:51:22, 210 s
+== p2, hfresh-best99: from 2026-11-19 07:54:52, 607 s
+== p2, hfresh-best99-par: from 2026-11-19 08:05:00, 495 s
+== p2, r512: from 2026-11-19 08:13:16, 303 s
+== p2, halo512: from 2026-11-19 08:18:20, 367 s

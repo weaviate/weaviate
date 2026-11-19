@@ -136,7 +136,8 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 - **Los criterios 2 y 3 se cumplen, sin empates.** A 0.95, en frío y con 1 thread, la celda de 512 bits en RAM tarda 3.55 ms de p50, el halo 4.90 y HFresh 46.81. En caliente son 0.91, 1.27 y 3.47 ms.
 - **A 0.99, HFresh llega y le sale muy caro:** 928 postings por query, 179 ms en frío donde la celda de 512 bits tarda 8.84 y el halo 14.16. En caliente, 16.33 ms frente a 3.22 y 4.87.
-- **Parte de la diferencia en frío es cómo lee HFresh:** sus postings, uno detrás de otro. Posting-edge pide a la vez los bloques de una ronda. Lee además tres veces menos: 101 lecturas frente a 310 a 0.95. Estimo que con lecturas en paralelo HFresh quedaría a unas 3 veces; no está medido.
+- **Parte de la diferencia en frío es cómo lee HFresh:** sus postings, uno detrás de otro. Posting-edge pide a la vez los bloques de una ronda. Lee además tres veces menos: 101 lecturas frente a 310 a 0.95.
+  - **Medido el 19, con HFresh leyendo 8 postings a la vez:** baja de 46.80 a 14.28 ms en frío a 0.95. La celda de 512 bits tarda entonces 4.0 veces menos, y el halo 3.0. Con 8 threads HFresh no gana nada.
 - **Cada celda devuelve desde disco lo mismo que en memoria,** y el store lee de 1.002 a 1.005 veces los bytes del modelo de v3.0.
 - **RAM a 1M, heap tras abrir:** 145.8 MB con los códigos de 512 bits en RAM, 74.8 MB con todo en disco y 163.3 MB en HFresh.
 - **Cinco de las ocho curvas quedaron marcadas,** cuatro por entrada de teclado o trackpad durante la primera ronda y tres por una mediana en caliente con 8 threads que se movió un 13 a un 15 % entre rondas. Se repitieron la noche del 18, y ningún veredicto cambia: las cifras de arriba son las de la repetición, a menos de un 3 % de las de la primera ronda.
@@ -1345,6 +1346,7 @@ Con 1 thread y por la latencia media, que es la que se parte en sus trozos.
 - **Posting-edge pide a la vez los bloques de una ronda,** como pedía el encargo. La celda de 512 bits hace 37 lecturas en 4.4 rondas, 1.9 ms en total.
 - **La diferencia en frío mezcla dos cosas:** leer menos, 101 lecturas frente a 310 contando el rescore, y leerlas en paralelo. Esta sesión no las separa, porque un HFresh que lea sus postings en paralelo no existe en main.
 - **Una estimación, que no es una medida:** en la comprobación del volumen (enmienda 4), con 8 lecturas en vuelo el disco sirve 6.3 veces las que sirve de una en una, a través del mapping. Si los postings de HFresh se leyeran así, sus 40.3 ms quedarían en unos 6.4 y la query en unos 12 ms. Serían 2.8 veces la celda de 512 bits, donde lo medido son 10.5 veces por la media y 12.9 por el p50.
+  - **Medido el 19 (enmienda 6):** 14.28 ms de p50, con 8.3 ms de lectura de postings. Abajo, «HFresh con sus postings leídos en paralelo».
 - **En caliente no hay lectura que esperar.** A 0.95 la celda de 512 bits tarda 0.92 ms de p50 y HFresh 3.47. HFresh gasta de media 1.2 ms en traer 7.5 MB de postings desde la caché, 1.3 en el scan y 0.7 en los centroides; la celda, 0.3, 0.7 y 0.07.
 - **Con 8 threads en frío las queries se reparten el disco.** A 0.95, HFresh da 96 QPS, la celda de 512 bits 534, el halo 338 y el podado 371.
 
@@ -1441,6 +1443,113 @@ Las cinco curvas marcadas, cada una una vez, con las condiciones de siempre. Pas
 - **El store lee por su mapping,** el modo por defecto, en los dos índices. Los conteos de lecturas vienen de una pasada aparte en modo pread.
 - **Un dataset, 1M, y un build de cada índice.** El build de HFresh no es reproducible de una corrida a otra.
 - **Sin medir:** inserts, refresco, deletes y splits en disco; Linux y otro disco; 10M.
+
+### Resultados de v4.0: HFresh con sus postings leídos en paralelo (2026-11-19, de 07:10 a 08:24)
+
+**Estado: hecha la sesión de dos rondas de la enmienda 6. Dos curvas quedan marcadas por actividad y se repiten esta noche.** El binario es el del commit `ada5ebdf5a`. Los datos, en `testdata/bench/v4.0/dbpedia-1m-disk-p1-*.json` y `-p2-*.json`. Las tablas son las de `parallel-verdict.md`, primera ronda.
+
+**Lo que sale:**
+
+- **Leer en paralelo le quita a HFresh dos tercios de su latencia en frío con 1 thread:** a 0.95, de 46.80 a 14.28 ms de p50, 0.31 veces. A 0.99, de 178.4 a 47.89 ms, 0.27 veces.
+  - **Lo esperado antes de medir eran unos 12 ms** a 0.95. Salen 14.28.
+- **Con 8 threads no gana nada:** de 0.94 a 0.97 veces, en frío y en caliente. Con ocho queries a la vez el disco ya estaba repartido.
+- **En caliente, con 1 thread, algo:** 0.84 veces a 0.95 y 0.79 a 0.99.
+- **Las dos causas de la diferencia en frío, separadas.** La celda de 512 bits en RAM tardaba 13.2 veces menos que el HFresh de main a 0.95. De eso, 3.3 veces eran leer en serie, y quedan 4.0 veces con los dos leyendo en paralelo: 3.54 ms frente a 14.28.
+  - **El halo,** 3.0 veces menos: 4.80 ms frente a 14.28.
+  - **A 0.99,** 5.4 veces menos la celda de 512 bits y 3.4 el halo.
+  - **Con 8 threads todo sigue igual,** porque HFresh no cambia: 6.4 veces menos la celda de 512 bits a 0.95.
+- **Los criterios 2 y 3, leídos contra HFresh en paralelo, se cumplirían también,** sin empates. Su veredicto era contra el HFresh de main y no se toca.
+- **Corrección:** cada proceso comprobó, antes de cronometrar, que su recall sobre las 5 000 queries era el del manifiesto. El test del store comprueba que en paralelo devuelve los mismos postings, en el mismo orden.
+- **Marcadas, dos, por actividad en la primera ronda:** HFresh a 0.95 en paralelo, y HFresh a 0.99 en serie. Hubo teclado o trackpad de 07:17 a 07:26. Ninguna curva deriva: la mayor diferencia entre rondas es un 3.8 %, y las dos marcadas se movieron un 1.2 y un 1.9 %.
+  - **Se repiten esta noche,** como dice la enmienda.
+
+#### Recall 0.95, en caliente
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS | de la latencia media con 1 thread, leer postings o bloques, ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| HFresh, la mejor a 0.95, en serie | searchProbe 185, rescoreLimit 100 | 3.38 | 4.35 | 4.95 | 290 | 8.97 | 12.17 | 13.43 | 882 | 1.15 |
+| HFresh, la mejor a 0.95, en paralelo | searchProbe 185, rescoreLimit 100 | 2.85 | 3.73 | 4.50 | 342 | 8.73 | 12.73 | 14.74 | 886 | 0.51 |
+| 512 bits en RAM | ef 21 | 0.89 | 2.88 | 4.38 | 848 | 1.27 | 4.01 | 5.85 | 4 821 | 0.28 |
+| halo de 512 bits | ef 21 | 1.27 | 4.83 | 7.21 | 559 | 2.06 | 7.75 | 11.55 | 2 772 | 0.51 |
+
+#### Recall 0.95, en frío
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS | de la latencia media con 1 thread, leer postings o bloques, ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| HFresh, la mejor a 0.95, en serie | searchProbe 185, rescoreLimit 100 | 46.80 | 56.13 | 58.52 | 22 | 77.84 | 97.26 | 99.52 | 95 | 40.48 |
+| HFresh, la mejor a 0.95, en paralelo | searchProbe 185, rescoreLimit 100 | 14.28 | 17.13 | 18.94 | 69 | 73.63 | 109.7 | 135.3 | 101 | 8.27 |
+| 512 bits en RAM | ef 21 | 3.54 | 8.21 | 13.27 | 236 | 11.43 | 23.00 | 30.01 | 538 | 1.87 |
+| halo de 512 bits | ef 21 | 4.80 | 14.29 | 23.13 | 160 | 16.03 | 35.30 | 49.55 | 357 | 3.53 |
+
+#### Recall 0.99, en caliente
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS | de la latencia media con 1 thread, leer postings o bloques, ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| HFresh, la mejor a 0.99, en serie | searchProbe 928, rescoreLimit 350 | 16.06 | 18.13 | 18.92 | 62 | 42.14 | 56.77 | 70.26 | 186 | 5.97 |
+| HFresh, la mejor a 0.99, en paralelo | searchProbe 928, rescoreLimit 350 | 12.73 | 15.18 | 16.14 | 77 | 41.00 | 54.15 | 61.19 | 193 | 2.51 |
+| 512 bits en RAM | ef 187 | 3.16 | 10.57 | 15.41 | 238 | 4.16 | 14.25 | 20.26 | 1 443 | 1.14 |
+| halo de 512 bits | ef 187 | 4.86 | 17.51 | 25.30 | 151 | 7.93 | 28.09 | 40.73 | 752 | 2.04 |
+
+#### Recall 0.99, en frío
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS | de la latencia media con 1 thread, leer postings o bloques, ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| HFresh, la mejor a 0.99, en serie | searchProbe 928, rescoreLimit 350 | 178.4 | 249.6 | 257.6 | 6 | 242.7 | 346.6 | 357.3 | 31 | 153.3 |
+| HFresh, la mejor a 0.99, en paralelo | searchProbe 928, rescoreLimit 350 | 47.89 | 66.22 | 70.49 | 20 | 228.5 | 346.2 | 370.3 | 32 | 28.37 |
+| 512 bits en RAM | ef 187 | 8.89 | 27.71 | 39.23 | 87 | 23.55 | 57.58 | 71.93 | 234 | 6.96 |
+| halo de 512 bits | ef 187 | 14.02 | 49.25 | 74.84 | 52 | 39.90 | 107.6 | 133.1 | 133 | 13.31 |
+
+#### En paralelo entre en serie
+
+El p50 de HFresh con sus postings leídos en paralelo entre el suyo leyéndolos en serie, en la misma sesión.
+
+| | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|
+| en caliente | 0.84x (2.85 y 3.38 ms) | 0.97x (8.73 y 8.97 ms) | 0.79x (12.73 y 16.06 ms) | 0.97x (41.00 y 42.14 ms) |
+| en frío | 0.31x (14.28 y 46.80 ms) | 0.95x (73.63 y 77.84 ms) | 0.27x (47.89 y 178.4 ms) | 0.94x (228.5 y 242.7 ms) |
+
+#### Posting-edge entre HFresh
+
+El p50 de la celda entre el de HFresh, en serie y en paralelo. Menos de un 10 % de diferencia es un empate.
+
+| celda | estado | HFresh | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|---|---|
+| 512 bits en RAM | en caliente | en serie | 0.26x, menos | 0.14x, menos | 0.20x, menos | 0.10x, menos |
+| 512 bits en RAM | en caliente | en paralelo | 0.31x, menos | 0.15x, menos | 0.25x, menos | 0.10x, menos |
+| 512 bits en RAM | en frío | en serie | 0.08x, menos | 0.15x, menos | 0.05x, menos | 0.10x, menos |
+| 512 bits en RAM | en frío | en paralelo | 0.25x, menos | 0.16x, menos | 0.19x, menos | 0.10x, menos |
+| halo de 512 bits | en caliente | en serie | 0.38x, menos | 0.23x, menos | 0.30x, menos | 0.19x, menos |
+| halo de 512 bits | en caliente | en paralelo | 0.44x, menos | 0.24x, menos | 0.38x, menos | 0.19x, menos |
+| halo de 512 bits | en frío | en serie | 0.10x, menos | 0.21x, menos | 0.08x, menos | 0.16x, menos |
+| halo de 512 bits | en frío | en paralelo | 0.34x, menos | 0.22x, menos | 0.29x, menos | 0.17x, menos |
+
+#### Los criterios 2 y 3 de v4.0, leídos contra HFresh en paralelo
+
+A título informativo: los criterios pre-registrados eran contra el HFresh de main, que lee en serie, y su veredicto no se toca.
+
+- **HFresh, la mejor a 0.95, en frío con 1 thread:** p50 de 14.28 ms en paralelo, 46.80 en serie. Lo esperado antes de medir eran unos 12 ms.
+- **Criterio 2, la celda de 512 bits en RAM: se cumpliría.** p50 de 3.54 ms frente a 14.28 de HFresh en paralelo (0.25x): menos latencia.
+- **Criterio 3, el halo de 512 bits: se cumpliría.** p50 de 4.80 ms frente a 14.28 de HFresh en paralelo (0.34x): menos latencia.
+
+#### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| HFresh, la mejor a 0.95, en serie | 07:10 a 07:14 | 07:47 a 07:51 | no | −0.8 % (recall 0.9500, 8 threads, en caliente: 8.97 y 8.90 ms) | — |
+| HFresh, la mejor a 0.95, en paralelo | 07:14 a 07:17 | 07:51 a 07:54 | sí, en la ronda 1 | +1.2 % (recall 0.9500, 1 thread, en caliente: 2.85 y 2.89 ms) | **actividad** |
+| HFresh, la mejor a 0.99, en serie | 07:17 a 07:27 | 07:54 a 08:05 | sí, en la ronda 1 | +1.9 % (recall 0.9900, 1 thread, en frío: 178.4 y 181.8 ms) | **actividad** |
+| HFresh, la mejor a 0.99, en paralelo | 07:27 a 07:36 | 08:05 a 08:13 | no | +0.9 % (recall 0.9900, 1 thread, en frío: 47.89 y 48.31 ms) | — |
+| 512 bits en RAM | 07:36 a 07:41 | 08:13 a 08:18 | no | +3.8 % (0.95, 1 thread, en frío: 3.54 y 3.68 ms) | — |
+| halo de 512 bits | 07:41 a 07:47 | 08:18 a 08:24 | no | −1.6 % (0.99, 1 thread, en frío: 14.02 y 13.80 ms) | — |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+**Lo que vale y lo que no:**
+
+- **HFresh en paralelo no es el HFresh de main:** es su búsqueda con una sola cosa cambiada, cuántos postings pide a la vez. En el producto el cambio queda apagado.
+- **Un solo grado de paralelismo, 8.** Con otro, sin medir.
+- **Los números absolutos de esta máquina no valen para producción.** Vale la comparación entre curvas de la misma sesión.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
