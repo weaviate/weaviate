@@ -354,6 +354,11 @@ type Store struct {
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
+	// homeNodesLocks orders an UPDATE_NAMESPACE on the leader against the class
+	// creates, restores and updates in its namespace, so each pre-commit check
+	// reads the other's applied outcome.
+	homeNodesLocks *evictingKeyRWLocker
+
 	taskMovementLocks *evictingKeyRWLocker
 
 	metrics *storeMetrics
@@ -449,6 +454,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.NamespacesController, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
+	schemaManager.SetMinimumFactor(cfg.Replication.MinimumFactor)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	errTemplate := func() string { return "" }
@@ -516,6 +522,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		schemaManager:           schemaManager,
 		tenantAddLocks:          newEvictingKeyRWLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
+		homeNodesLocks:          newEvictingKeyRWLocker(),
 		taskMovementLocks:       newEvictingKeyRWLocker(),
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
