@@ -63,6 +63,12 @@ def num(x):
     return ' '.join([s] + groups)
 
 
+def num1(x):
+    """A number with one decimal and its thousands apart."""
+    whole, _, decimal = ('%.1f' % x).partition('.')
+    return num(int(whole)) + '.' + decimal
+
+
 def mb(x):
     return '%.2f MB' % (x / 1e6)
 
@@ -159,9 +165,10 @@ def main():
                              ('limpio', best(reads, manifest, target))):
             if which is None:
                 continue
-            print('| %.2f | %s | %d | %d | %.4f | %.1f | %.1f | %.1f | %s |' % (
-                target, label, which['rescoreLimit'], which['searchProbe'], which['recall'], which['postingReads'],
-                which['rescoreReads'], which['reads'], mb(which['postingBytes'] + which['rescoreBytes'])))
+            print('| %.2f | %s | %d | %s | %.4f | %s | %s | %s | %s |' % (
+                target, label, which['rescoreLimit'], num(which['searchProbe']), which['recall'],
+                num1(which['postingReads']), num1(which['rescoreReads']), num1(which['reads']),
+                mb(which['postingBytes'] + which['rescoreBytes'])))
     print()
     if cells:
         print('Lo que leen las dos celdas, del manifiesto de v4.0:')

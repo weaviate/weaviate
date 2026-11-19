@@ -493,13 +493,12 @@ Binario de `b098d01b1a`. Tablas en `testdata/bench/v4.1/sketch-verdict.md`, que 
 - **Códigos de los vectores.** Solo la celda de 512 bits los tiene en RAM: 72 B por vector, dos tercios de su índice. HFresh los tiene en sus postings y el halo en los suyos.
 - **Resto.** En HFresh, 5.3 MB de filtros de bloom del store. En posting-edge el store no llega a 0.1 MB.
 
-**Con el grafo de centroides de HFresh limpio, estimado y sin medir:** 123.0 − 49.6 = 73.4 MB.
+**Con el grafo de centroides de HFresh limpio:** 74.9 MB, medidos el 19 a las 13:25 sobre una copia limpia del índice (abajo, «Resultados de la enmienda 7»). La estimación era 123.0 − 49.6 = 73.4 MB.
 
-- **La frase de v4.0 «la celda de 512 bits ocupa menos heap que HFresh» vale para el HFresh del arnés,** 106.0 frente a 123.0 MB. **No valdría para un HFresh con el grafo limpio,** que quedaría por debajo: unos 73 MB frente a 106.
+- **La frase de v4.0 «la celda de 512 bits ocupa menos heap que HFresh» vale para el HFresh del arnés,** 106.0 frente a 123.0 MB. **No vale para un HFresh con el grafo limpio,** que queda por debajo: 74.9 MB frente a 106.
 - **El halo sigue por debajo:** 35.0 MB, la mitad de ese HFresh limpio.
 - **Por cada 100M, si escalara tal cual y sin medir:** 10.6 GB la celda de 512 bits, 3.5 GB el halo, y HFresh 12.3 GB como está en el arnés y unos 7.3 GB limpio. Los 14.6 y 16.3 GB de v4.0 llevaban los 40 MB del arnés multiplicados por 100.
 
-**Lo que no está medido:** el heap de HFresh tras una limpieza de su grafo. Pide limpiar una copia del índice y abrirla.
 
 **Reproducir:** `TestDiskTimed` con `-bench.diskheap <fichero>` y `TestHFreshDiskTimed` con `-bench.hfresh.heap <fichero>`, los dos con `-test.memprofilerate=1`. Escriben el perfil donde miden el heap y acaban ahí. El de HFresh dice además cuántos nodos y cuántos tombstones tiene su grafo de centroides.
 
@@ -2492,6 +2491,64 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 - **HFresh en paralelo no es el HFresh de main:** es su búsqueda con una sola cosa cambiada, cuántos postings pide a la vez. En el producto el cambio queda apagado.
 - **Un solo grado de paralelismo, 8.** Con otro, sin medir.
 - **Los números absolutos de esta máquina no valen para producción.** Vale la comparación entre curvas de la misma sesión.
+
+### Resultados de la enmienda 7, sin cronometrar: el HFresh limpio a 1M (2026-11-19, de 12:14 a 13:25)
+
+**Estado: preparado. La sesión cronometrada es lo primero de la cola de la noche del 19.** Binarios de `39b47223c6`. El índice limpio es una copia del de v4.0, en `/Volumes/v40bench/v40/hf-node`; el original no se ha tocado. Datos en `testdata/bench/v4.0/node/`.
+
+- **El grafo de centroides:** de 57 433 nodos, 28 967 de ellos tombstones, a 28 466 nodos y ninguno, en una ronda de limpieza y 7.6 s.
+- **Con el grafo limpio HFresh pierde recall a igual configuración.** Por defecto (searchProbe 256, rescoreLimit 350), de 0.9674 a 0.9636. El techo del barrido no cambia: 0.9989.
+- **Necesita más postings para el mismo recall:** un 14 a un 17 % más a 0.95 y un 7 a un 8 % más a 0.99, con los cuatro rescores.
+
+| rescoreLimit | searchProbe para 0.95: sin limpiar | limpio | | para 0.99: sin limpiar | limpio | |
+|---|---|---|---|---|---|---|
+| 64 | 284 | 323 | +13.7 % | no llega | no llega | |
+| 100 | 185 | 214 | +15.7 % | no llega | no llega | |
+| 200 | 151 | 174 | +15.2 % | 1 080 | 1 153 | +6.8 % |
+| 350 | 145 | 169 | +16.6 % | 928 | 1 000 | +7.8 % |
+
+**La configuración que menos lee** sigue siendo la misma en los dos recalls, con más searchProbe:
+
+| recall | índice | rescoreLimit | searchProbe | recall medido | lecturas de postings | lecturas de rescore | lecturas por query | bytes por query |
+|---|---|---|---|---|---|---|---|---|
+| 0.95 | sin limpiar, v4.0 | 100 | 185 | 0.9500 | 210.2 | 100.0 | 310.2 | 8.14 MB |
+| 0.95 | limpio | 100 | 214 | 0.9500 | 243.1 | 100.0 | 343.1 | 9.32 MB |
+| 0.99 | sin limpiar, v4.0 | 350 | 928 | 0.9900 | 1 052.9 | 350.0 | 1 402.9 | 40.00 MB |
+| 0.99 | limpio | 350 | 1 000 | 0.9900 | 1 134.1 | 350.0 | 1 484.1 | 42.94 MB |
+
+- **A 0.95 lee un 10.6 % más de veces y un 14.5 % más de bytes** que el índice sin limpiar. A 0.99, un 5.8 % y un 7.4 %.
+- **Frente a las dos celdas, sin cronometrar:** a 0.95 HFresh limpio lee 343 veces y 9.32 MB por query, donde la celda de 512 bits lee 101 veces y 1.56 MB, y el halo 120 veces y 3.79 MB.
+
+**El heap del índice limpio, por componente,** con el mismo perfil que arriba («El heap a 1M, por componente»):
+
+| MB | HFresh sin limpiar | HFresh limpio |
+|---|---|---|
+| centroides | 98.3 | 50.1 |
+| mapas por vector | 19.0 | 19.0 |
+| códigos de los vectores | 0 | 0 |
+| resto del índice | 5.7 | 5.7 |
+| **el índice** | **123.0** | **74.9** |
+| el arnés: las queries y el manifiesto | 31.8 | 31.8 |
+| sin atribuir: el runtime y el proceso | 8.5 | 9.3 |
+| heap en uso | 163.4 | 116.0 |
+
+- **74.9 MB medidos,** donde estimé 73.4. Por debajo de la celda de 512 bits (106.0) y al doble del halo (35.0).
+
+**Lo que mi expectativa no vio:** escribí que el searchProbe de 0.95 sería «el mismo 185 o algo menos». Es más: 214. La limpieza reconecta a los vecinos de la mitad del grafo que borra, y lo que queda encuentra peor.
+
+**Cómo lo leo, antes de cronometrar:**
+
+- **El arnés de v4.0 no dejaba a HFresh peor en todo.** Lo dejaba peor en RAM (123 MB de índice frente a 75) y en el tiempo de su búsqueda de centroides, que recorría el doble de nodos. Lo dejaba mejor en recall, y por tanto en lecturas por query.
+- **En frío es de esperar que el HFresh limpio salga algo peor que lo publicado,** no mejor: lee un 10.6 % más a 0.95, y en frío mandan las lecturas. El presupuesto de un nodo tira hacia el otro lado, con un techo del 5 %. Lo dirá la sesión.
+- **En caliente no sé el signo:** menos centroides que recorrer y más postings que leer y puntuar.
+- **Es un dato para el equipo de HFresh:** limpiar los tombstones de medio grafo de centroides le cuesta 0.4 puntos de recall por defecto a 1M.
+
+**Una prueba a 30 000 vectores, que no es un dato,** con la máquina ocupada: el grafo pasa de 1 635 a 812 nodos; la búsqueda de centroides, de 0.35 a 0.18 ms a 0.95 y de 0.51 a 0.24 a 0.99; a 0.95 la mejor configuración no cambia, y a 0.99 pide searchProbe 93 donde eran 88.
+
+**Dos tropiezos al montar la cola, sin nada cronometrado:**
+
+- **El primer driver** arrancó la sesión antes de que acabara esta preparación; el script la rechazó y el driver pasó al paso siguiente. Parado a los dos minutos.
+- **Edité el script de la sesión mientras la preparación lo ejecutaba.** Lo devolví a su estado enseguida, pero el proceso ya leía el fichero cambiado y acabó con un error de sintaxis después de sus tres etapas. Las tres pasaron, cada una con su log; el driver, que miraba el código de salida, se saltó la sesión. Relanzado a las 13:28 mirando los tres logs.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
