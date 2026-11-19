@@ -478,3 +478,86 @@ func TestGrowIndexErrors(t *testing.T) {
 	f.open(t)
 	require.ErrorContains(t, f.g.insert(ctx, uint64(base), make([]float32, dims+1)), "dimensions")
 }
+
+// An index laid out again is the same index: every posting in one segment of
+// a bucket written anew, and with that the exact vectors in posting order.
+func TestGrowReorganized(t *testing.T) {
+	ctx := context.Background()
+	const total, base, dims = 2000, 1000, 64
+	f := newGrowFixture(t, total, base, dims, false, 64, 60)
+	for f.inserted < total {
+		difference, err := f.insert(ctx)
+		require.NoError(t, err)
+		require.Empty(t, difference)
+		if f.inserted%47 == 0 {
+			require.NoError(t, f.g.flushAll())
+		}
+	}
+	f.same(t, "grown")
+	before, err := os.ReadDir(filepath.Join(f.dir, diskStoreDir, growBucketPostings))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		order bool
+	}{
+		{name: "one segment"},
+		{name: "one segment and the vectors in posting order", order: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order))
+			cell, err := openGrowIndex(ctx, testLogger(), dir, f.provider, f.uc, growOpen{})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, cell.close(ctx)) }()
+
+			segments := 0
+			entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketPostings))
+			require.NoError(t, err)
+			for _, entry := range entries {
+				if filepath.Ext(entry.Name()) == ".db" {
+					segments++
+				}
+			}
+			require.Equal(t, 1, segments, "the bucket of postings is one segment")
+			require.Greater(t, len(before), len(entries), "the index it comes from had more")
+
+			require.NoError(t, cell.cleanCentroidGraph())
+			require.NoError(t, cell.checkCoverage())
+			require.NoError(t, cell.sameAs(f.twin))
+			for i, query := range f.queries {
+				difference, err := growDifference(ctx, f.twin, cell, query, 10)
+				require.NoError(t, err, "query %d", i)
+				require.Empty(t, difference, "query %d", i)
+			}
+			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order), "is not empty")
+
+			if !tt.order {
+				require.Nil(t, cell.slotOf)
+				return
+			}
+			// The vectors of every posting are in a row, in the order of its
+			// members, and each is the vector of its doc.
+			require.Len(t, cell.slotOf, total)
+			next := uint32(0)
+			var dp diskPosting
+			for p := range uint32(cell.meta.Postings) {
+				if cell.retired[p] {
+					continue
+				}
+				require.NoError(t, cell.fetchMembers(p, &dp))
+				for _, docID := range dp.docIDs {
+					require.Equal(t, next, cell.slotOf[docID], "doc %d of posting %d", docID, p)
+					next++
+					_, vector, err := cell.exact(docID, nil, nil)
+					require.NoError(t, err)
+					require.Equal(t, f.all[docID], vector, "the vector of doc %d", docID)
+				}
+			}
+			require.Equal(t, uint32(total), next)
+			require.ErrorContains(t, cell.insert(ctx, 0, f.all[0]), "does not grow")
+			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), cell, t.TempDir(), false), "laid out again already")
+		})
+	}
+}

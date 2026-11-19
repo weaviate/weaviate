@@ -76,6 +76,11 @@ const (
 	growBucketMap      = "postingedge_grow_map"
 	growBucketRouting  = "postingedge_grow_routing"
 	growBucketDists    = "postingedge_grow_edgedists"
+	// growSlotsFile, when an index has it, tells where the exact vector of
+	// every doc id is in its vectors file. Only an index that was laid out
+	// again has one (reorganizeGrowIndex): one that grows keeps the vector
+	// of doc id d at position d.
+	growSlotsFile = "slots.u32"
 	// growCycleEvery is how many inserts go between two calls to the flush
 	// and compaction cycles of the store, which nothing runs in the
 	// background here: a run is then the same run every time.
@@ -207,6 +212,9 @@ type growIndex struct {
 
 	live []bool   // by doc id
 	size []uint32 // by posting: its members
+	// slotOf, when set, is the position of the exact vector of every doc id
+	// in the vectors file. Such an index is searched, and does not grow.
+	slotOf []uint32
 	// retired tells the postings that were split. The compaction of the
 	// store asks, from wherever it runs.
 	retiredMu sync.RWMutex
@@ -601,6 +609,11 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if g.vectors, err = os.OpenFile(path(diskVectorFile), os.O_RDWR, 0o644); err != nil {
 		return nil, errors.Wrap(err, "open the vectors")
 	}
+	if _, err := os.Stat(path(growSlotsFile)); err == nil {
+		if g.slotOf, err = readArray(path(growSlotsFile), 4, meta.Keys, binary.LittleEndian.Uint32); err != nil {
+			return nil, errors.Wrap(err, "read where the vectors are")
+		}
+	}
 	if err := g.openStore(ctx, opts); err != nil {
 		return nil, err
 	}
@@ -752,7 +765,14 @@ func (g *growIndex) exact(docID uint64, raw []byte, into []float32) ([]byte, []f
 		raw = make([]byte, 4*dims)
 	}
 	raw = raw[:4*dims]
-	if _, err := g.vectors.ReadAt(raw, int64(docID)*int64(4*dims)); err != nil {
+	slot := docID
+	if g.slotOf != nil {
+		if g.slotOf[docID] == diskNoSlot {
+			return raw, into, errors.Errorf("doc %d has no vector in the file", docID)
+		}
+		slot = uint64(g.slotOf[docID])
+	}
+	if _, err := g.vectors.ReadAt(raw, int64(slot)*int64(4*dims)); err != nil {
 		return raw, into, errors.Wrapf(err, "read the vector of doc %d", docID)
 	}
 	if cap(into) < dims {
@@ -1020,6 +1040,9 @@ func (g *growIndex) vectorOfNeighbor(docID uint64) ([]float32, error) {
 // reading and writing the store. The vector must be normalized as the index
 // stores it. The search parameters of the edge search are the index's own.
 func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) error {
+	if g.slotOf != nil {
+		return errors.New("the index was laid out again to be searched: it does not grow")
+	}
 	if docID >= uint64(len(g.live)) {
 		return errors.Errorf("doc id %d is past the %d keys", docID, len(g.live))
 	}
@@ -1589,6 +1612,144 @@ func (g *growIndex) sameAs(s *streamIndex) error {
 		}
 	}
 	return nil
+}
+
+// reorganizeGrowIndex writes to dir, which must exist and be empty, the index
+// src holds, laid out again as a reorganization in the background would
+// leave it, without the compaction of the store: the control of v5.0
+// (bench-report.md, "control de reorganización"). Every row of every live
+// posting is read from src and added to a new bucket that is flushed once,
+// so that it ends as one segment, with nothing that was replaced in it. The
+// format of the rows is the same. The other buckets are written again entry
+// by entry, and the centroids and their graph are copied.
+//
+// With orderVectors the exact vectors are written again too, those of every
+// posting in a row, in the order of its members, and the index gets the
+// table that tells where the vector of every doc id is. Without it the
+// vectors file is the one of src, linked.
+func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *growIndex, dir string, orderVectors bool,
+) (err error) {
+	if entries, err := os.ReadDir(dir); err != nil {
+		return err
+	} else if len(entries) > 0 {
+		return errors.Errorf("%s is not empty", dir)
+	}
+	if src.slotOf != nil {
+		return errors.New("the index was laid out again already")
+	}
+	if err := src.sync(); err != nil {
+		return err
+	}
+	path := func(name string) string { return filepath.Join(dir, name) }
+	for _, name := range []string{diskMeanFile, diskCentroidFile} {
+		raw, err := os.ReadFile(filepath.Join(src.dir, name))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path(name), raw, 0o644); err != nil {
+			return err
+		}
+	}
+	if err := os.CopyFS(path(diskGraphDir), os.DirFS(filepath.Join(src.dir, diskGraphDir))); err != nil {
+		return errors.Wrap(err, "copy the centroid graph")
+	}
+
+	dst := &growIndex{dir: dir, logger: logger, provider: src.provider, meta: src.meta}
+	if err := dst.openStore(ctx, growOpen{}); err != nil {
+		return err
+	}
+	defer func() {
+		if shut := dst.lsm.Shutdown(ctx); err == nil {
+			err = errors.Wrap(shut, "close the store")
+		}
+	}()
+	// Nothing is flushed until everything is written: the store only
+	// flushes when its cycles are called, and nothing calls them here.
+	for _, buckets := range [][2]*lsmkv.Bucket{{src.posts, dst.posts}, {src.routing, dst.routing}, {src.dists, dst.dists}} {
+		err := growScan(buckets[0], func(key, value []byte) error {
+			return buckets[1].Put(slices.Clone(key), slices.Clone(value))
+		})
+		if err != nil {
+			return errors.Wrap(err, "write a bucket again")
+		}
+	}
+
+	dims, words := src.meta.Dims, src.meta.ScanCodeWords
+	var slotOf []uint32
+	var vectors *os.File
+	if orderVectors {
+		slotOf = make([]uint32, src.meta.Keys)
+		for i := range slotOf {
+			slotOf[i] = diskNoSlot
+		}
+		if vectors, err = os.OpenFile(path(diskVectorFile), os.O_RDWR|os.O_CREATE, 0o644); err != nil {
+			return err
+		}
+		defer func() {
+			if closed := vectors.Close(); err == nil {
+				err = closed
+			}
+		}()
+	}
+	var dp diskPosting
+	var raw, batch []byte
+	slot := uint32(0)
+	for p := range uint32(src.meta.Postings) {
+		if src.retired[p] {
+			continue
+		}
+		if err := src.fetchMembers(p, &dp); err != nil {
+			return err
+		}
+		if err := src.fetchLists(p, &dp); err != nil {
+			return err
+		}
+		if err := dp.joinEdges(p); err != nil {
+			return err
+		}
+		n := len(dp.docIDs)
+		members, lists := make([][]byte, n), make([][]byte, n)
+		batch = batch[:0]
+		first := slot
+		for i, docID := range dp.docIDs {
+			members[i] = growMemberValue(docID, dp.codes[i*words:(i+1)*words])
+			lists[i] = growEdgesValue(docID, dp.edgesOfMember(i))
+			if orderVectors {
+				if raw, _, err = src.exact(docID, raw, nil); err != nil {
+					return err
+				}
+				batch = append(batch, raw...)
+				slotOf[docID] = slot
+				slot++
+			}
+		}
+		if err := dst.postings.SetAdd(diskKey(p, diskBlockMembers), members); err != nil {
+			return errors.Wrapf(err, "write the members of posting %d", p)
+		}
+		if err := dst.postings.SetAdd(diskKey(p, diskBlockEdges), lists); err != nil {
+			return errors.Wrapf(err, "write the edges of posting %d", p)
+		}
+		if orderVectors {
+			// The vectors of a posting, in a row.
+			if _, err := vectors.WriteAt(batch, int64(first)*int64(4*dims)); err != nil {
+				return errors.Wrapf(err, "write the vectors of posting %d", p)
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if orderVectors {
+		if err := writeArray(path(growSlotsFile), 4, binary.LittleEndian.PutUint32, slotOf); err != nil {
+			return errors.Wrap(err, "write where the vectors are")
+		}
+	} else if err := os.Link(filepath.Join(src.dir, diskVectorFile), path(diskVectorFile)); err != nil {
+		return errors.Wrap(err, "link the vectors")
+	}
+	if err := dst.flushAll(); err != nil {
+		return err
+	}
+	return dst.writeMeta()
 }
 
 // sizeOnDisk returns the bytes of the files under a directory.

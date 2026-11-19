@@ -15,7 +15,16 @@
 #            each, all the curves once and then all of them again. The first
 #            round is the measure and the second tells drift, as in the
 #            fifth amendment of v4.0.
-#   verdict  writes grow-verdict.md from what there is in $OUT.
+#   reorg    the control of reorganization (the third amendment), untimed:
+#            lays the index of $DISK out again in two cells, $ONE with its
+#            bucket of postings written anew as one segment and $ORDERED with
+#            its exact vectors in posting order besides, checks that each
+#            returns what the index returns as it is, and counts what the
+#            store reads for a load in each. Its curves are grown1 and
+#            grown2:
+#            ROUNDS="c1 c2" CURVES="grown grown1 grown2 batch" run_v50_timed.sh bin reorg search
+#   verdict  writes grow-verdict.md from what there is in $OUT, and
+#            reorg-verdict.md once the control has run.
 #
 # usage: [VAR=value ...] run_v50_timed.sh [stage ...]
 #   DATASET  the dataset directory. Default: ~/Documents/datasets/dbpedia-openai-1000k-angular.bin
@@ -35,6 +44,8 @@
 #            then wants the machine fully awake (macOS). Default 0.
 #   NIGHT    1 makes it wait for the window of 23:00 to 03:00 besides, and
 #            IDLE default to 900 (macOS). Default 0.
+#   ONE, ORDERED  the directories of the two cells of the control. Default:
+#            $DISK-one and $DISK-ordered.
 #   ROUNDS   the rounds of the search stage. Default "r1 r2".
 #   CURVES   the curves of the search stage. Default "grown batch".
 #   EXTRA    more flags for the inserts. A smoke: EXTRA="-bench.limit 30000"
@@ -56,6 +67,8 @@ ROUNDS="${ROUNDS:-r1 r2}"
 OS="$(uname)"
 if [ "$OS" = Darwin ]; then COLD="${COLD:-none}"; else COLD="${COLD:-fadvise}"; fi
 [ -n "${DISK:-}" ] || { echo "== DISK is not set: the directory the index grows in"; exit 1; }
+ONE="${ONE:-$DISK-one}"
+ORDERED="${ORDERED:-$DISK-ordered}"
 BATCH="${BATCH:-}"
 BATCH_MANIFEST="${BATCH_MANIFEST:-}"
 if [ -n "$BATCH" ]; then CURVES="${CURVES:-grown batch}"; else CURVES="${CURVES:-grown}"; fi
@@ -72,7 +85,7 @@ case "$COLD" in
            # The unmount is tried a few times: the system may be reading the
            # volume. If it never goes, the command fails, and so does the run.
            DROP="ok=0; for try in 1 2 3 4 5; do diskutil unmount '$VOLUME_MOUNT' > /dev/null 2>&1 && ok=1 && break; sleep 2; done; [ \$ok = 1 ] && diskutil mount '$VOLUME_DEV' > /dev/null" ;;
-  fadvise) DROP="python3 -I -B '$HERE/../../v4.0/scripts/drop_cache.py' '$DISK' ${BATCH:+'$BATCH'}" ;;
+  fadvise) DROP="for d in '$DISK' '$ONE' '$ORDERED' ${BATCH:+'$BATCH'}; do [ ! -d \"\$d\" ] || python3 -I -B '$HERE/../../v4.0/scripts/drop_cache.py' \"\$d\" || exit 1; done" ;;
   cmd)     [ -n "${DROP:-}" ] || { echo "== COLD=cmd needs DROP"; exit 1; } ;;
   none)    DROP="" ;;
   *)       echo "== unknown COLD=$COLD"; exit 1 ;;
@@ -167,12 +180,26 @@ stage_inserts() {
   date "+== %Y-%m-%d %H:%M the inserts stage ends"
 }
 
-run_grown() {
+# run_grown_in <dir> <round> <curve>: the searches over an index in the
+# format that grows
+run_grown_in() {
   (cd "$PKG" && "$PE" -test.run 'TestGrowTimedSearch$' -test.timeout 0 -test.v -bench.dataset "$DATASET" \
-    -bench.growdir "$DISK" -bench.growmanifest "$MANIFEST" -bench.diskdrop "$DROP" -bench.diskcold "$COLDQ" \
-    -bench.out "$OUT/$LABEL-$1-grown.json" > "$WORK/$LABEL-$1-grown.log" 2>&1)
-  lines "$WORK/$LABEL-$1-grown.log" "cell "
-  passed "$WORK/$LABEL-$1-grown.log"
+    -bench.growdir "$1" -bench.growmanifest "$MANIFEST" -bench.diskdrop "$DROP" -bench.diskcold "$COLDQ" \
+    -bench.out "$OUT/$LABEL-$2-$3.json" > "$WORK/$LABEL-$2-$3.log" 2>&1)
+  lines "$WORK/$LABEL-$2-$3.log" "cell "
+  passed "$WORK/$LABEL-$2-$3.log"
+}
+run_grown()  { run_grown_in "$DISK" "$1" grown; }
+run_grown1() { run_grown_in "$ONE" "$1" grown1; }
+run_grown2() { run_grown_in "$ORDERED" "$1" grown2; }
+
+stage_reorg() {
+  date "+== %Y-%m-%d %H:%M the control of reorganization: the two cells, untimed"
+  (cd "$PKG" && "$PE" -test.run 'TestGrowReorganize$' -test.timeout 0 -test.v -bench.dataset "$DATASET" \
+    -bench.growdir "$DISK" -bench.growone "$ONE" -bench.growordered "$ORDERED" -bench.growmanifest "$MANIFEST" \
+    -bench.out "$OUT/$LABEL-reorg.json" > "$WORK/$LABEL-reorg.log" 2>&1)
+  lines "$WORK/$LABEL-reorg.log" "bench_grow_test|STOP"
+  passed "$WORK/$LABEL-reorg.log" || { echo "== the control did not pass: see $WORK/$LABEL-reorg.log"; exit 1; }
 }
 
 run_batch() {
@@ -188,6 +215,7 @@ stage_search() {
   for curve in $CURVES; do
     case "$curve" in
       grown) ;;
+      grown1|grown2) [ -e "$OUT/$LABEL-reorg.json" ] || { echo "== the curve $curve needs the stage reorg first"; exit 1; } ;;
       batch) [ -n "$BATCH" ] && [ -n "$BATCH_MANIFEST" ] || { echo "== the curve batch needs BATCH and BATCH_MANIFEST"; exit 1; } ;;
       *) echo "== unknown curve $curve"; exit 1 ;;
     esac
@@ -213,13 +241,18 @@ stage_search() {
 stage_verdict() {
   python3 -I -B "$HERE/grow_verdict.py" "$OUT" > "$OUT/grow-verdict.md" 2>&1 \
     || echo "== the verdict script failed, see $OUT/grow-verdict.md"
+  # the control of reorganization, when it has run
+  if [ -e "$OUT/$LABEL-reorg.json" ]; then
+    python3 -I -B "$HERE/reorg_verdict.py" "$OUT" > "$OUT/reorg-verdict.md" 2>&1 \
+      || echo "== the verdict script of the control failed, see $OUT/reorg-verdict.md"
+  fi
 }
 
 [ "$#" -gt 0 ] || set -- bin inserts search verdict
 date "+== %Y-%m-%d %H:%M start: $* | $OS, cold: $COLD, disk: $DISK"
 for stage in "$@"; do
   case "$stage" in
-    bin|inserts|search|verdict) "stage_$stage" ;;
+    bin|inserts|reorg|search|verdict) "stage_$stage" ;;
     *) echo "== unknown stage $stage"; exit 1 ;;
   esac
 done

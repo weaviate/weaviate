@@ -61,6 +61,11 @@ import (
 // operating points of the index and leaves a manifest. The second times the
 // searches over that index, warm and cold, as TestDiskTimed times a cell of
 // v4.0.
+//
+// TestGrowReorganize is the untimed part of the control of reorganization
+// (the third amendment): it lays the index of the timed run out again in two
+// cells, checks that each returns what the index returns as it is, and
+// counts what the store reads for a load before and after.
 
 var (
 	benchGrowDir = flag.String("bench.growdir", "", "the inserts on disk of v5.0 (TestGrowValidate): the directory the "+
@@ -76,6 +81,11 @@ var (
 	benchGrowForce = flag.Bool("bench.growforce", true, "with TestGrowValidate and TestGrowTimedInserts: the bucket of "+
 		"postings compacts as the postings bucket of HFresh does, the segments left over too. Without it the store "+
 		"compacts by levels, its default, and what was replaced piles up between compactions")
+	benchGrowOne = flag.String("bench.growone", "", "with TestGrowReorganize: the directory of the first cell of the "+
+		"control, the index of -bench.growdir with its bucket of postings written again as one segment. It must not "+
+		"exist, or be empty")
+	benchGrowOrdered = flag.String("bench.growordered", "", "with TestGrowReorganize: the directory of the second "+
+		"cell, the first one with its exact vectors in posting order besides")
 	benchGrowManifest = flag.String("bench.growmanifest", "", "what TestGrowTimedInserts leaves for TestGrowTimedSearch: "+
 		"the index it grew, its operating points and the ground truth. It must not live under -bench.growdir")
 )
@@ -956,4 +966,182 @@ func TestGrowTimedSearch(t *testing.T) {
 			write()
 		},
 	})
+}
+
+// growReorgState is the index in one layout: as the timed run left it, or
+// one of the two cells of the control.
+type growReorgState struct {
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
+	// Equal says how its results compare with those of the index as it is,
+	// over every query at every point.
+	Equal    string           `json:"equal"`
+	Files    map[string]int64 `json:"files"`
+	Segments map[string]int   `json:"segments"`
+	Vectors  int64            `json:"vectorBytes"`
+	Points   []growSearch     `json:"points"`
+}
+
+type growReorgResult struct {
+	Dataset string             `json:"dataset"`
+	Queries int                `json:"queries"`
+	K       int                `json:"k"`
+	Seconds map[string]float64 `json:"seconds"`
+	States  []growReorgState   `json:"states"`
+}
+
+// TestGrowReorganize writes the two cells of the control of reorganization
+// from the index the timed run grew: one with the bucket of postings as one
+// segment, written anew, and one with the exact vectors in posting order
+// besides. Untimed. Each cell must return what the index returns as it is,
+// for every query at both operating points: if not, it stops. With the store
+// counting, it leaves what a load reads in each layout.
+func TestGrowReorganize(t *testing.T) {
+	if *benchDatasetDir == "" || *benchGrowDir == "" || *benchGrowManifest == "" || *benchGrowOne == "" || *benchGrowOrdered == "" {
+		t.Skip("no -bench.dataset, -bench.growdir, -bench.growmanifest, -bench.growone and -bench.growordered given")
+	}
+	require.NotEmpty(t, *benchOut, "TestGrowReorganize writes its result to -bench.out")
+	ctx := context.Background()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	raw, err := os.ReadFile(*benchGrowManifest)
+	require.NoError(t, err)
+	var manifest growManifest
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+	data := loadBenchData(t, *benchDatasetDir, 0, manifest.Queries, manifest.K, true)
+	require.Len(t, data.queries, len(manifest.Truth))
+	queries, k := data.queries, manifest.K
+	provider := distancer.NewCosineDistanceProvider()
+	uc := NewDefaultUserConfig()
+	metrics, err := diskStoreMetrics()
+	require.NoError(t, err)
+	result := &growReorgResult{Dataset: manifest.Dataset, Queries: len(queries), K: k, Seconds: map[string]float64{}}
+	write := func() {
+		raw, err := json.MarshalIndent(result, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(*benchOut, raw, 0o644))
+	}
+
+	// answer is what an index returned for one query at one point.
+	type answer struct {
+		ids   []uint64
+		dists []float32
+		work  diskWork
+	}
+	// measure searches every query at every point of the manifest, and tells
+	// what came back and what the store read. With a reference, the answers
+	// must be the reference's.
+	measure := func(g *growIndex, name, dir string, reference [][]answer) (growReorgState, [][]answer) {
+		state := growReorgState{Name: name, Dir: dir, Equal: "the same as the index as it is"}
+		answers := make([][]answer, len(manifest.Points))
+		for at, point := range manifest.Points {
+			if !point.Reached {
+				continue
+			}
+			pointUC := uc
+			pointUC.EF, pointUC.RescoreLimit = point.EF, point.RescoreLimit
+			require.NoError(t, g.ix.UpdateUserConfig(pointUC, func() {}))
+			answers[at] = make([]answer, len(queries))
+			reads, bytes, err := diskStoreReads()
+			require.NoError(t, err)
+			var loads, rounds, memberBytes, edgeBytes, rescored, next atomic.Int64
+			var mu sync.Mutex
+			difference := ""
+			eg := enterrors.NewErrorGroupWrapper(logger)
+			for range 8 {
+				eg.Go(func() error {
+					for {
+						q := int(next.Add(1)) - 1
+						if q >= len(queries) {
+							return nil
+						}
+						stats := &diskSearchStats{Work: &SearchStats{}}
+						ids, dists, err := g.search(ctx, queries[q], k, stats)
+						if err != nil {
+							return err
+						}
+						got := answer{ids: ids, dists: dists, work: diskWorkOf(stats.Work)}
+						answers[at][q] = got
+						if reference != nil {
+							want := reference[at][q]
+							if !slices.Equal(want.ids, got.ids) || !slices.Equal(want.dists, got.dists) || want.work != got.work {
+								mu.Lock()
+								if difference == "" {
+									difference = fmt.Sprintf("query %d at recall %.2f: ids %v, distances %v and work %+v; as it is, %v, %v and %+v",
+										q, point.Target, got.ids, got.dists, got.work, want.ids, want.dists, want.work)
+								}
+								mu.Unlock()
+							}
+						}
+						loads.Add(int64(stats.Postings))
+						rounds.Add(int64(stats.Rounds))
+						memberBytes.Add(int64(stats.MemberBytes))
+						edgeBytes.Add(int64(stats.EdgeBytes))
+						rescored.Add(int64(stats.Rescored))
+					}
+				})
+			}
+			require.NoError(t, eg.Wait())
+			readsAfter, bytesAfter, err := diskStoreReads()
+			require.NoError(t, err)
+			n := float64(len(queries))
+			members := float64(memberBytes.Load()) / float64(8*(1+g.meta.ScanCodeWords))
+			search := growSearch{
+				Target: point.Target, Reached: true, EF: point.EF, Recall: point.Recall, Compared: len(queries),
+				Loads: float64(loads.Load()) / n, Rounds: float64(rounds.Load()) / n,
+				StoreReads: float64(readsAfter-reads) / n, StoreBytes: float64(bytesAfter-bytes) / n,
+				MemberBytes: float64(memberBytes.Load()) / n, EdgeBytes: float64(edgeBytes.Load()) / n,
+				ModelBytes: (float64(memberBytes.Load()) + float64(edgeBytes.Load()) - 4*members) / n,
+				Rescored:   float64(rescored.Load()) / n,
+			}
+			if difference != "" {
+				state.Equal = difference
+			}
+			state.Points = append(state.Points, search)
+			t.Logf("%s, recall %.2f (ef %d): %.2f loads | a load: %.2f reads, %.1f KB, %.1f KB by the model: %.3f",
+				name, point.Target, point.EF, search.Loads, search.StoreReads/search.Loads, search.StoreBytes/search.Loads/1e3,
+				search.ModelBytes/search.Loads/1e3, search.StoreBytes/search.ModelBytes)
+		}
+		state.Files, state.Segments, err = growFiles(dir)
+		require.NoError(t, err)
+		info, err := os.Stat(filepath.Join(dir, diskVectorFile))
+		require.NoError(t, err)
+		state.Vectors = info.Size()
+		return state, answers
+	}
+	open := func(dir string) *growIndex {
+		g, err := openGrowIndex(ctx, logger, dir, provider, uc, growOpen{metrics: metrics, pread: true})
+		require.NoError(t, err)
+		return g
+	}
+
+	src := open(*benchGrowDir)
+	defer func() { require.NoError(t, src.close(ctx)) }()
+	state, reference := measure(src, "as it is", *benchGrowDir, nil)
+	result.States = append(result.States, state)
+	write()
+
+	cells := []struct {
+		name  string
+		dir   string
+		order bool
+	}{
+		{name: "one segment", dir: *benchGrowOne},
+		{name: "one segment, vectors in posting order", dir: *benchGrowOrdered, order: true},
+	}
+	for _, cell := range cells {
+		require.NoError(t, os.MkdirAll(cell.dir, 0o755))
+		begin := time.Now()
+		require.NoError(t, reorganizeGrowIndex(ctx, logger, src, cell.dir, cell.order))
+		result.Seconds[cell.name] = time.Since(begin).Seconds()
+		t.Logf("%s: written in %s", cell.name, time.Since(begin).Round(time.Second))
+		g := open(cell.dir)
+		require.NoError(t, g.checkCoverage(), "STOP: the coverage of the cell %q", cell.name)
+		state, _ := measure(g, cell.name, cell.dir, reference)
+		require.NoError(t, g.close(ctx))
+		result.States = append(result.States, state)
+		write()
+		require.Equal(t, "the same as the index as it is", state.Equal, "STOP: the cell %q against the index as it is", cell.name)
+		require.Equal(t, 1, state.Segments[growBucketPostings], "the bucket of postings of the cell %q is one segment", cell.name)
+	}
 }
