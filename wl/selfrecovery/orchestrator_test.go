@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -171,7 +170,6 @@ func newOrchestratorForTest(t *testing.T, raft RaftEntryPoint, schemaR SchemaRea
 		ClientFactory: clientFactory,
 		NodeSelector:  ns,
 		NodeName:      "self",
-		Licensed:      true,
 		Logger:        logger,
 		PollInterval:  10_000_000,
 		ProbeTimeout:  100_000_000,
@@ -180,6 +178,7 @@ func newOrchestratorForTest(t *testing.T, raft RaftEntryPoint, schemaR SchemaRea
 	o.probeBackoffMax = 20_000_000
 	o.restartTimeout = 200 * time.Millisecond
 	o.vanishedGracePeriod = 10 * time.Millisecond
+	o.parkPollInterval = 20 * time.Millisecond
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -421,37 +420,6 @@ func TestAcceptEmpty_RemovesRecoveryDir(t *testing.T) {
 	require.True(t, info.IsDir())
 }
 
-func TestCleanupOrphanRecoveryDirs(t *testing.T) {
-	root := t.TempDir()
-	mk := func(p string) {
-		require.NoError(t, os.MkdirAll(filepath.Join(root, p), 0o755))
-	}
-	mk("Coll/shard1")
-	mk("Coll/shard1.recovering")
-	mk("Coll/shard2.recovering")
-	mk("Coll/shard3")
-	mk("Coll2/tenantA")
-	mk("Coll2/tenantA.recovering")
-
-	logger := logrus.New()
-	logger.SetLevel(logrus.PanicLevel)
-	o := New(Config{Logger: logger, NodeName: "self"})
-
-	removed, err := o.CleanupOrphanRecoveryDirs(root)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{
-		filepath.Join(root, "Coll/shard1.recovering"),
-		filepath.Join(root, "Coll2/tenantA.recovering"),
-	}, removed)
-
-	for _, p := range []string{"Coll/shard1", "Coll/shard3", "Coll2/tenantA"} {
-		_, err := os.Stat(filepath.Join(root, p))
-		require.NoError(t, err, "live dir %s should be present", p)
-	}
-	_, err = os.Stat(filepath.Join(root, "Coll/shard2.recovering"))
-	require.NoError(t, err, "in-flight recovery dir must be preserved")
-}
-
 func TestRegisterAndPoll_ReturnsNotFoundWhenOpVanishes(t *testing.T) {
 	raft := &stubRaft{
 		detailsByUUID: nil,
@@ -476,8 +444,6 @@ func TestSubmit_NoOpInMaintenanceMode(t *testing.T) {
 		ClientFactory:          nil,
 		NodeSelector:           &stubNodeSelector{},
 		NodeName:               "self",
-		Enabled:                true,
-		Licensed:               true,
 		MaintenanceModeEnabled: func() bool { return true },
 		Logger:                 logger,
 		PollInterval:           10_000_000,
@@ -501,8 +467,6 @@ func TestSubmit_RaceWithClose(t *testing.T) {
 			PathResolver: stubPathResolver{root: t.TempDir()},
 			NodeSelector: &stubNodeSelector{},
 			NodeName:     "self",
-			Enabled:      true,
-			Licensed:     true,
 			Concurrency:  2,
 			Logger:       logger,
 			PollInterval: 10 * time.Millisecond,
@@ -563,6 +527,54 @@ func TestRunOne_CancelledTerminal(t *testing.T) {
 	calls := len(raft.registeredCalls)
 	raft.mu.Unlock()
 	require.Equal(t, 1, calls, "operator-cancelled op must not be re-registered; got %d RegisterSelfRecovery calls", calls)
+}
+
+// newOrchestratorWithDataPeer builds an orchestrator whose one peer, peer1, answers every probe with data.
+func newOrchestratorWithDataPeer(t *testing.T, raft RaftEntryPoint) *Orchestrator {
+	t.Helper()
+	ns := &stubNodeSelector{addrs: map[string]string{"peer1": "10.0.0.1"}, ports: map[string]int{"peer1": 50051}}
+	clientFactory := func(context.Context, string) (copier.FileReplicationServiceClient, error) {
+		return &stubFileReplicationClient{
+			probeShardData: func(context.Context, *protocol.ProbeShardDataRequest) (*protocol.ProbeShardDataResponse, error) {
+				return answerHostedData()
+			},
+		}, nil
+	}
+	return newOrchestratorForTest(t, raft, stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory,
+		stubPathResolver{root: t.TempDir()})
+}
+
+func TestRunOne_RegisterOutcomeEndsRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		state   string // "" leaves the op unknown, so polls read it force-deleted
+		outcome string
+	}{
+		{"op reaches READY", string(api.READY), "success"},
+		{"op force-deleted", "", "cancelled"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raft := &stubRaft{detailsByUUID: map[strfmt.UUID]api.ReplicationDetailsResponse{}}
+			if tt.state != "" {
+				raft.registerHook = func(uuid strfmt.UUID, _, _, _, _ string) {
+					raft.mu.Lock()
+					defer raft.mu.Unlock()
+					raft.detailsByUUID[uuid] = api.ReplicationDetailsResponse{Status: api.ReplicationDetailsState{State: tt.state}}
+				}
+			}
+			o := newOrchestratorWithDataPeer(t, raft)
+
+			o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+			raft.mu.Lock()
+			calls := len(raft.registeredCalls)
+			raft.mu.Unlock()
+			require.Equal(t, 1, calls)
+			require.Equal(t, 1.0, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues(tt.outcome)))
+			require.Equal(t, 0.0, testutil.ToFloat64(o.metrics.GiveupTotal))
+		})
+	}
 }
 
 func TestShufflePeers_NotDeterministic(t *testing.T) {
@@ -731,7 +743,6 @@ func TestRunOne_EmptyFallbackBucketByPeerAnswers(t *testing.T) {
 					}, nil
 				}
 				o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: replicas}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
-				o.enabled = true
 				ref := ShardRef{Collection: "C", Shard: "S"}
 
 				decision, err := o.probeAndDecide(context.Background(), ref)

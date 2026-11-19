@@ -98,7 +98,7 @@ const raftHeartbeatTimeout = 5 * time.Second
 
 func openRaftForElectionTest(t *testing.T, m *MockStore) *Raft {
 	t.Helper()
-	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(m.replicationFSM)
 	m.store = &s
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)

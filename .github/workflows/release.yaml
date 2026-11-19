@@ -20,6 +20,12 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build stamps
+        id: stamps
+        # Commit timestamp, not wall clock, so the binary is reproducible (docs/reproducible-builds.md).
+        run: |
+          echo "revision=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "date=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)" >> "$GITHUB_OUTPUT"
       - uses: wangyoucao577/go-release-action@279495102627de7960cbc33434ab01a12bae144b # v1.55
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -28,5 +34,8 @@ jobs:
           goversion: "1.27"
           project_path: "./cmd/weaviate-server"
           extra_files: LICENSE README.md
-          ldflags: -w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'
+          # -buildvcs=false: the checkout is shallow and tagless, so VCS stamping would embed a
+          # v0.0.0 pseudo-version that no full clone reproduces. Same flags as the Dockerfile.
+          build_flags: -trimpath -buildvcs=false
+          ldflags: -s -w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/build.Branch=${{ github.ref_name }} -X github.com/weaviate/weaviate/usecases/build.Revision=${{ steps.stamps.outputs.revision }} -X github.com/weaviate/weaviate/usecases/build.BuildUser=ci -X github.com/weaviate/weaviate/usecases/build.BuildDate=${{ steps.stamps.outputs.date }}
           sha256sum: true

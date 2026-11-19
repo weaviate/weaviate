@@ -57,6 +57,8 @@ type ClientService interface {
 
 	RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RotateUserAPIKeyOK, error)
 
+	SetUserExpiration(params *SetUserExpirationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SetUserExpirationOK, error)
+
 	SetTransport(transport runtime.ClientTransport)
 }
 
@@ -385,6 +387,47 @@ func (a *Client) RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runti
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for rotateUserApiKey: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SetUserExpiration sets a user s expiration
+
+Set or clear the time at which a database user's (`db` user type) API key stops authenticating. The body sets exactly one of `expiresAt`, which must be in the future, and `neverExpires`, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.
+*/
+func (a *Client) SetUserExpiration(params *SetUserExpirationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SetUserExpirationOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSetUserExpirationParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "setUserExpiration",
+		Method:             "PUT",
+		PathPattern:        "/users/db/{user_id}/expiration",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SetUserExpirationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SetUserExpirationOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for setUserExpiration: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -12,12 +12,12 @@
 package storobj
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
-	"runtime"
 
 	"github.com/buger/jsonparser"
 	"github.com/go-openapi/strfmt"
@@ -27,6 +27,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	errwrap "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -404,6 +405,8 @@ func fromBinaryOptionalInternal(data []byte, className string,
 // decodes; Add mutates it, so never call Add while a decode is in flight.
 type PropertyExtraction struct {
 	PropertyPaths [][]string
+	// allStored makes a decode read every stored property and ignore PropertyPaths.
+	allStored bool
 }
 
 func NewPropExtraction() *PropertyExtraction {
@@ -431,6 +434,12 @@ func AllPropertiesExtraction(class *models.Class) *PropertyExtraction {
 		pe.Add(prop.Name)
 	}
 	return pe
+}
+
+// StoredPropertiesExtraction makes a decode read every property stored on the
+// object, listed in the class or not, as json.Unmarshal does but without reflection.
+func StoredPropertiesExtraction() *PropertyExtraction {
+	return &PropertyExtraction{allStored: true}
 }
 
 // secondaryLookup fetches a value by secondary key into the given buffer,
@@ -469,24 +478,53 @@ func withBatchLookup(bucket bucket, fn func(secondaryLookup) ([]*Object, error))
 // returns the decoded objects, dropping entries whose payload is missing.
 // Object.Class on each decoded object is stamped from bucket.ClassName(); the
 // bucket must have been opened with lsmkv.WithClassName, otherwise
-// bucket.ClassName() returns an error and the call fails.
-func ObjectsByDocID(bucket bucket, ids []uint64,
+// bucket.ClassName() returns an error and the call fails. ctx sets only how
+// many workers the fetch runs, and a cancelled ctx does not stop the fetch.
+func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocID(bucket, ids, additional, properties, logger, false)
+	return objectsByDocID(ctx, bucket, ids, additional, properties, logger, false)
 }
 
 // ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
 // positions where a doc ID has no payload, so the returned slice always has
 // the same length as ids. Object.Class is stamped from bucket.ClassName() —
 // see ObjectsByDocID for the bucket-resolution contract.
-func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+func ObjectsByDocIDWithEmpty(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocID(bucket, ids, additional, properties, logger, true)
+	return objectsByDocID(ctx, bucket, ids, additional, properties, logger, true)
 }
 
-func objectsByDocID(bucket bucket, ids []uint64,
+// ObjectsByDocIDWithDists resolves the doc IDs of a vector search together
+// with their distances: dists[i] belongs to ids[i]. A doc ID the vector index
+// still knows but the bucket no longer has (deleted behind the index's back, or
+// a torn delete whose tombstone has not landed yet) is dropped together with
+// its distance, so the returned slices keep the same length and pairing and
+// the order of the surviving hits. Both slices are compacted in place.
+func ObjectsByDocIDWithDists(ctx context.Context, bucket bucket, ids []uint64, dists []float32,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, []float32, error) {
+	if len(dists) != len(ids) {
+		return nil, nil, fmt.Errorf("objects by doc id: %d ids but %d distances", len(ids), len(dists))
+	}
+	objs, err := objectsByDocID(ctx, bucket, ids, additional, properties, logger, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	j := 0
+	for i := range objs {
+		if objs[i] == nil {
+			continue
+		}
+		objs[j] = objs[i]
+		dists[j] = dists[i]
+		j++
+	}
+	return objs[:j], dists[:j], nil
+}
+
+func objectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -497,24 +535,30 @@ func objectsByDocID(bucket bucket, ids []uint64,
 		if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
 			return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, includeEmpty)
 		}
-		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger, includeEmpty)
+		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger,
+			includeEmpty, fetchWorkers(ctx, len(ids)))
 	})
 }
 
-func objectsByDocIDParallel(bucket bucket, ids []uint64,
+func objectsByDocIDParallel(ctx context.Context, bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
-		return objectsByDocIDParallelInner(bucket, lookup, ids, addProp, properties, logger, false)
+		return objectsByDocIDParallelInner(bucket, lookup, ids, addProp, properties, logger,
+			false, fetchWorkers(ctx, len(ids)))
 	})
+}
+
+// fetchWorkers allows twice GOMAXPROCS because a fetch is mostly IO-bound, and
+// fewer when the query budget in ctx is smaller.
+func fetchWorkers(ctx context.Context, nIDs int) int {
+	return concurrency.NumWorkers(ctx, nIDs, concurrency.CurrentGOMAXPROCSx2())
 }
 
 func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
-	includeEmpty bool,
+	includeEmpty bool, parallel int,
 ) ([]*Object, error) {
-	parallel := 2 * runtime.GOMAXPROCS(0)
-
 	out := make([]*Object, len(ids))
 
 	chunkSize := max(int(math.Ceil(float64(len(ids))/float64(parallel))), 1)
@@ -522,8 +566,6 @@ func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []ui
 	eg := errwrap.NewErrorGroupWrapper(logger)
 
 	// prevent unbounded concurrency on massive chunks
-	// it's fine to use a multiple of GOMAXPROCS here, as the goroutines are
-	// mostly IO-bound
 	eg.SetLimit(parallel)
 	for chunk := 0; chunk < parallel; chunk++ {
 		start := chunk * chunkSize
@@ -1395,92 +1437,157 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 			return
 		}
 
-		propertyName := propertyPaths[idx][len(propertyPaths[idx])-1]
-
-		switch dataType {
-		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-			val, err := parseValues(dataType, value)
-			if err != nil {
-				returnError = err
-			}
-			properties[propertyName] = val
-		case jsonparser.Array: // can be a beacon or an actual array
-			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			// this checks if refs are present - the return points to the underlying memory, dont use without copying
-			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
-			if errBeacon == nil {
-				// there can be more than one
-				var beacons []interface{}
-				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
-					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon")
-					returnError = err2
-					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
-				}
-				_, returnError = jsonparser.ArrayEach(value, handler)
-				properties[propertyName] = beacons
-			} else {
-				// check how many entries there are in the array by counting the ",". This allows us to allocate an
-				// array with the right size without extending it with every append.
-				// The size can be too large for string arrays, when they contain "," as part of their content.
-				entryCount := 0
-				for _, b := range arrayEntries {
-					if b == uint8(44) { // ',' as byte
-						entryCount++
-					}
-				}
-
-				array := make([]interface{}, 0, entryCount)
-				_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
-					var val interface{}
-
-					switch innerDataType {
-					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-						val, err = parseValues(innerDataType, innerValue)
-						if err != nil {
-							returnError = err
-							return
-						}
-					case jsonparser.Object:
-						nestedProps := map[string]interface{}{}
-						err := json.Unmarshal(innerValue, &nestedProps)
-						if err != nil {
-							returnError = err
-							return
-						}
-						val = nestedProps
-					default:
-						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
-						return
-					}
-					array = append(array, val)
-				})
-				if err != nil {
-					returnError = err
-				}
-				properties[propertyName] = array
-
-			}
-		case jsonparser.Object:
-			// nested objects and geo-props and phonenumbers.
-			//
-			// we do not have the schema for nested object and cannot use the efficient jsonparser for them
-			//  (we could for phonenumbers and geo-props but they are not worth the effort)
-			// however this part is only called if
-			// - one of the datatypes is present
-			// - AND the user requests them
-			// => the performance impact is minimal
-			nestedProps := map[string]interface{}{}
-			err := json.Unmarshal(value, &nestedProps)
-			if err != nil {
-				returnError = err
-			}
-			properties[propertyName] = nestedProps
-		default:
-			returnError = fmt.Errorf("unknown data type %v", dataType)
+		val, err := unmarshalPropertyValue(value, dataType)
+		if err != nil {
+			returnError = err
+			return
 		}
+		properties[propertyPaths[idx][len(propertyPaths[idx])-1]] = val
 	}, propertyPaths...)
 
 	return returnError
+}
+
+// unmarshalStoredProperties decodes every key of data as json.Unmarshal does,
+// without reflection. An object stored without properties holds null.
+func unmarshalStoredProperties(data []byte) (map[string]interface{}, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	properties := map[string]interface{}{}
+	err := jsonparser.ObjectEach(data, func(key, value []byte, dataType jsonparser.ValueType, _ int) error {
+		val, err := unmarshalPropertyValue(value, dataType)
+		if err != nil {
+			return err
+		}
+		properties[string(key)] = val
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return properties, nil
+}
+
+// unmarshalPropertyValue decodes one top-level property value, copying it out of value.
+func unmarshalPropertyValue(value []byte, dataType jsonparser.ValueType) (interface{}, error) {
+	switch dataType {
+	case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+		return parseValues(dataType, value)
+	case jsonparser.Null:
+		return nil, nil
+	case jsonparser.Array:
+		return unmarshalPropertyArray(value)
+	case jsonparser.Object:
+		// json.Unmarshal decodes nested objects, geo coordinates and phone numbers,
+		// which jsonparser could walk only with their schema.
+		nestedProps := map[string]interface{}{}
+		if err := json.Unmarshal(value, &nestedProps); err != nil {
+			return nil, err
+		}
+		return nestedProps, nil
+	default:
+		return nil, fmt.Errorf("unknown data type %v", dataType)
+	}
+}
+
+func unmarshalPropertyArray(value []byte) ([]interface{}, error) {
+	array := make([]interface{}, 0, countArrayEntries(value[1:len(value)-1]))
+	var elemErr error
+	_, err := jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, _ int, _ error) {
+		if elemErr != nil {
+			return
+		}
+
+		var val interface{}
+		switch innerDataType {
+		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+			val, elemErr = parseValues(innerDataType, innerValue)
+		case jsonparser.Object:
+			val, elemErr = unmarshalArrayObject(innerValue)
+		default:
+			elemErr = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
+		}
+		array = append(array, val)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if elemErr != nil {
+		return nil, elemErr
+	}
+	return array, nil
+}
+
+// countArrayEntries counts the elements of a JSON array given without its
+// brackets. Commas inside strings, objects and nested arrays separate nothing.
+func countArrayEntries(entries []byte) int {
+	if len(entries) == 0 {
+		return 0
+	}
+	count, depth := 1, 0
+	for i := 0; i < len(entries); i++ {
+		switch entries[i] {
+		case '"':
+			i = closingQuote(entries, i+1)
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// closingQuote returns the index of the quote that ends the string whose body
+// starts at start, or len(b) if none does. Beacons and text are mostly string
+// body, which IndexByte skips far faster than a byte loop.
+func closingQuote(b []byte, start int) int {
+	for i := start; ; {
+		j := bytes.IndexByte(b[i:], '"')
+		if j < 0 {
+			return len(b)
+		}
+		quote := i + j
+		backslashes := 0
+		for k := quote - 1; k >= start && b[k] == '\\'; k-- {
+			backslashes++
+		}
+		if backslashes%2 == 0 { // an odd run ends in \" and escapes the quote
+			return quote
+		}
+		i = quote + 1
+	}
+}
+
+var errNotPlainRef = errors.New("not a plain reference")
+
+// unmarshalArrayObject decodes an array element as json.Unmarshal does, skipping
+// reflection for a plain reference. parseCrossRef decides whether the array holds refs.
+func unmarshalArrayObject(elem []byte) (map[string]interface{}, error) {
+	var beacon []byte
+	keys := 0
+	if jsonparser.ObjectEach(elem, func(key, value []byte, dt jsonparser.ValueType, _ int) error {
+		keys++
+		if keys > 1 || dt != jsonparser.String || string(key) != "beacon" {
+			return errNotPlainRef
+		}
+		beacon = value
+		return nil
+	}) == nil && keys == 1 {
+		if s, err := jsonparser.ParseString(beacon); err == nil {
+			return map[string]interface{}{"beacon": s}, nil
+		}
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(elem, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
@@ -1512,10 +1619,9 @@ func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
 	return ko.UnmarshalBinaryDiskWithProps(data, className, nil)
 }
 
-// UnmarshalBinaryDiskWithProps is UnmarshalBinaryDisk with a known property
-// set: a non-nil properties decodes the property blob via UnmarshalProperties
-// (no reflection) instead of json.Unmarshal. Names not listed are dropped, so
-// callers must pass every property that can be present on disk.
+// UnmarshalBinaryDiskWithProps is UnmarshalBinaryDisk that decodes properties with
+// jsonparser when properties is non-nil. Any extraction but StoredPropertiesExtraction
+// drops the names it does not list, so its callers must list every stored property.
 func (ko *Object) UnmarshalBinaryDiskWithProps(data []byte, className string, properties *PropertyExtraction) error {
 	if className == "" {
 		return errors.New("className is required for UnmarshalBinaryDisk; use UnmarshalBinaryNetwork to fall back to the on-disk value")
@@ -1894,7 +2000,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		return nil, err
 	}
 	if vecLen == 0 {
-		return nil, fmt.Errorf("vector length is 0")
+		return nil, ErrNoVector
 	}
 
 	var out []float32
@@ -1984,7 +2090,7 @@ func MultiVectorFromBinary(in []byte, targetVector string) ([][]float32, error) 
 
 	out, ok := multiVectors[targetVector]
 	if !ok {
-		return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
+		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 	return out, nil
 }
@@ -1996,6 +2102,11 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	if len(propsB) > 0 {
 		if properties == nil || propLength == 0 {
 			if err := json.Unmarshal(propsB, &returnProps); err != nil {
+				return errors.Wrapf(err, "unmarshal property bytes: size %d", len(propsB))
+			}
+		} else if properties.allStored {
+			var err error
+			if returnProps, err = unmarshalStoredProperties(propsB); err != nil {
 				return errors.Wrapf(err, "unmarshal property bytes: size %d", len(propsB))
 			}
 		} else if len(propsB) >= int(propLength) {

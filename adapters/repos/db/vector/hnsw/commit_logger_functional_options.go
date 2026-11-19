@@ -22,6 +22,15 @@ func WithCommitlogThreshold(size int64) CommitlogOption {
 	}
 }
 
+// WithNodeIDsAreDocIDs makes compaction bound node IDs by the shard's
+// document-ID counter whenever nodeIDsAreDocIDs returns true.
+func WithNodeIDsAreDocIDs(nodeIDsAreDocIDs func() bool) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.nodeIDsAreDocIDs = nodeIDsAreDocIDs
+		return nil
+	}
+}
+
 func WithFS(fs common.FS) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.fs = fs

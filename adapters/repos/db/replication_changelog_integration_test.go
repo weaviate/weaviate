@@ -35,6 +35,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -42,13 +43,20 @@ import (
 // Mirrors the bootstrap pattern used by TestOverwriteObjects.
 func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *models.Class) {
 	t.Helper()
+	return setupReplayShardForClass(t, "ReplayClass", nil)
+}
+
+// setupReplayShardForClass is setupReplayShard for className. A
+// namespace-qualified className needs an exister that knows its namespace.
+func setupReplayShardForClass(t *testing.T, className string, exister namespaces.Exister) (repo *DB, idx *Index, shard string, class *models.Class) {
+	t.Helper()
 
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class = &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
-		Class:               "ReplayClass",
+		Class:               className,
 		Properties: []*models.Property{
 			{
 				Name:         "stringProp",
@@ -89,7 +97,7 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, &FakeNodeResolver{},
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, exister)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

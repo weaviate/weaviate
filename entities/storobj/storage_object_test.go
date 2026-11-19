@@ -15,9 +15,12 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -100,9 +104,9 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
-// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts the jsonparser
-// path with every property listed yields the same object as json.Unmarshal —
-// the equivalence the MultiObjectByID fast path relies on.
+// TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal asserts both jsonparser
+// paths, every property listed and every property stored, yield the same object
+// as json.Unmarshal. MultiObjectByID relies on the first, listing on the second.
 func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 	const className = "MyFavoriteClass"
 
@@ -135,6 +139,24 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			},
 		},
 		{
+			name: "cross_ref_with_classification",
+			props: map[string]interface{}{
+				"hasRef": models.MultipleRef{
+					{
+						Beacon: "weaviate://localhost/SomeClass/73f2eb5f-5abf-447a-81ca-74b1dd168247",
+						Classification: &models.ReferenceMetaClassification{
+							ClosestOverallDistance: 0.1,
+							MeanWinningDistance:    0.2,
+							OverallCount:           5,
+							WinningCount:           3,
+							LosingCount:            2,
+						},
+					},
+					{Beacon: "weaviate://localhost/SomeClass/a1b2c3d4-5abf-447a-81ca-74b1dd168247"},
+				},
+			},
+		},
+		{
 			name: "nested_object",
 			props: map[string]interface{}{
 				"address": map[string]interface{}{
@@ -144,8 +166,45 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			},
 		},
 		{
+			name: "object_array_with_beacon_key_in_first_element_only",
+			props: map[string]interface{}{
+				"devices": []interface{}{
+					map[string]interface{}{"beacon": "abc", "rssi": float64(-41)},
+					map[string]interface{}{"rssi": float64(-40)},
+				},
+			},
+		},
+		{
+			name: "object_array_with_beacon_and_text_classification",
+			props: map[string]interface{}{
+				"devices": []interface{}{
+					map[string]interface{}{"beacon": "abc", "classification": "spam", "rssi": float64(-41)},
+				},
+			},
+		},
+		{
+			name: "object_array_with_beacon_and_mistyped_classification_object",
+			props: map[string]interface{}{
+				"devices": []interface{}{
+					map[string]interface{}{"beacon": "abc", "classification": map[string]interface{}{"overallCount": "many"}, "rssi": float64(-41)},
+				},
+			},
+		},
+		{
 			name:  "empty",
 			props: map[string]interface{}{},
+		},
+		{
+			name:  "no_properties",
+			props: nil,
+		},
+		{
+			name:  "null_value",
+			props: map[string]interface{}{"hasRef": models.MultipleRef(nil), "title": "x"},
+		},
+		{
+			name:  "empty_array",
+			props: map[string]interface{}{"tags": []interface{}{}},
 		},
 	}
 
@@ -171,6 +230,13 @@ func TestFromBinaryDiskWithProps_EquivalentToJSONUnmarshal(t *testing.T) {
 			viaJSON, err := FromBinaryDisk(asBinary, className)
 			require.NoError(t, err)
 
+			viaStored, err := FromBinaryDiskWithProps(asBinary, className, StoredPropertiesExtraction())
+			require.NoError(t, err)
+			assert.Equal(t, viaJSON, viaStored)
+
+			if tc.props == nil {
+				return // the listed path decodes a stored null as an empty map
+			}
 			pe := NewPropExtraction()
 			for name := range tc.props {
 				pe.Add(name)
@@ -792,9 +858,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"time":         "2011-11-23T01:52:23.000004234Z",
 		"boolArray":    []interface{}{true, false, true},
 		"beacon":       []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		// as json.Unmarshal decodes them: class and href are kept
 		"ref": []interface{}{
-			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
-			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", "class": "OtherClass", "href": "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", "class": "OtherClass", "href": "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
 		},
 		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": float64(3), "innerStr": "avc"}},
 		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
@@ -893,6 +960,19 @@ func TestUnmarshalProperties(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+func TestFromBinaryDiskWithPropsReturnsStoredDecodeError(t *testing.T) {
+	obj := FromObject(&models.Object{
+		Class:      "MyFavoriteClass",
+		ID:         strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		Properties: map[string]interface{}{"count": json.Number("1e400")}, // past float64, so json.Unmarshal rejects it too
+	}, nil, nil, nil)
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = FromBinaryDiskWithProps(asBinary, "MyFavoriteClass", StoredPropertiesExtraction())
+	require.Error(t, err)
 }
 
 func TestStorageObjectMarshallingWithGroup(t *testing.T) {
@@ -1628,6 +1708,95 @@ func TestMemoryReuse(t *testing.T) {
 	}
 }
 
+// TestUnmarshalArrayObject_EquivalentToJSONUnmarshal: the plain-reference
+// shortcut must return what json.Unmarshal returns for any element.
+func TestUnmarshalArrayObject_EquivalentToJSONUnmarshal(t *testing.T) {
+	tests := []struct {
+		name string
+		elem string
+	}{
+		{name: "plain_ref", elem: `{"beacon":"weaviate://localhost/A/73f2eb5f-5abf-447a-81ca-74b1dd168247"}`},
+		{name: "escaped_beacon", elem: `{"beacon":"weaviate:\/\/localhost\/A\/\u00e4"}`},
+		{name: "beacon_not_string", elem: `{"beacon":17}`},
+		{name: "ref_with_href", elem: `{"beacon":"weaviate://localhost/A/x","href":"/v1/x"}`},
+		{name: "ref_with_classification", elem: `{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5}}`},
+		{name: "other_key_first", elem: `{"a":1,"beacon":"x"}`},
+		{name: "single_other_key", elem: `{"rssi":-41}`},
+		{name: "empty", elem: `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := map[string]interface{}{}
+			require.NoError(t, json.Unmarshal([]byte(tt.elem), &want))
+			got, err := unmarshalArrayObject([]byte(tt.elem))
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// TestUnmarshalPropertyArray_ExactCapacity: commas inside strings, objects and
+// nested arrays must not reserve slots the array never fills.
+func TestUnmarshalPropertyArray_ExactCapacity(t *testing.T) {
+	tests := []struct {
+		name  string
+		array string
+	}{
+		{name: "empty", array: `[]`},
+		{name: "numbers", array: `[1,2.5,-3]`},
+		{name: "text_with_commas", array: `["a,b","c,,d",",",""]`},
+		{name: "text_with_escaped_quotes", array: `["a\",b","c\\",",d","\\\",\\"]`},
+		{name: "text_with_brackets", array: `["[{,","}],","]"]`},
+		{name: "text_with_unicode_escape", array: `["\u002c,\""]`},
+		{name: "text_with_backslash_runs", array: `["\\\\\",\\\\",","]`},
+		{name: "text_starting_with_escaped_quote", array: `["\",,","x"]`},
+		{name: "long_text_with_escaped_quote", array: `["` + strings.Repeat("a,", 100) + `\",,","x"]`},
+		{name: "object_with_nested_arrays", array: `[{"a":[1,2,3],"b":"x,y"},{"a":[],"c":{"d":[4,5],"e":"]"}}]`},
+		{name: "refs", array: `[{"beacon":"weaviate://localhost/A/73f2eb5f-5abf-447a-81ca-74b1dd168247"},{"beacon":"weaviate://localhost/A/x"}]`},
+		{name: "ref_with_classification", array: `[{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5,"winningCount":3}}]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var want []interface{}
+			require.NoError(t, json.Unmarshal([]byte(tt.array), &want))
+			got, err := unmarshalPropertyArray([]byte(tt.array))
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+			assert.Equal(t, len(got), cap(got))
+		})
+	}
+}
+
+// BenchmarkUnmarshalPropertyArray: refs and long text are almost all string
+// body, which countArrayEntries must not walk byte by byte.
+func BenchmarkUnmarshalPropertyArray(b *testing.B) {
+	refs := make([]string, 3)
+	for i := range refs {
+		refs[i] = fmt.Sprintf(`{"beacon":"weaviate://localhost/Target/73f2eb5f-5abf-447a-81ca-74b1dd16%04d"}`, i)
+	}
+	texts := make([]string, 10)
+	for i := range texts {
+		texts[i] = `"` + strings.Repeat("lorem ipsum, dolor sit amet ", 40) + `"`
+	}
+	tests := []struct {
+		name  string
+		array []byte
+	}{
+		{name: "refs3", array: []byte("[" + strings.Join(refs, ",") + "]")},
+		{name: "long_text10", array: []byte("[" + strings.Join(texts, ",") + "]")},
+	}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := unmarshalPropertyArray(tt.array); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkUnmarshalPropertiesFullObject(b *testing.B) {
 	benchmarkExtraction(b, nil)
 }
@@ -1738,7 +1907,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, test.inputIDs, additional.Properties{}, nil, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1748,6 +1917,122 @@ func TestObjectsByDocID(t *testing.T) {
 				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd1%05d", expectedDocID))
 				assert.Equal(t, expectedUUID, obj.ID())
 			}
+		})
+	}
+}
+
+func TestObjectsByDocIDWithDists(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(t, 10) // doc IDs 0..9 exist, anything above is missing
+
+	tests := []struct {
+		name      string
+		ids       []uint64
+		dists     []float32
+		wantIDs   []uint64
+		wantDists []float32
+	}{
+		{
+			name:      "nothing missing",
+			ids:       []uint64{3, 1, 2},
+			dists:     []float32{0.1, 0.2, 0.3},
+			wantIDs:   []uint64{3, 1, 2},
+			wantDists: []float32{0.1, 0.2, 0.3},
+		},
+		{
+			name:      "missing best hit shifts nothing",
+			ids:       []uint64{42, 1, 2},
+			dists:     []float32{0.1, 0.2, 0.3},
+			wantIDs:   []uint64{1, 2},
+			wantDists: []float32{0.2, 0.3},
+		},
+		{
+			name:      "missing in the middle",
+			ids:       []uint64{0, 42, 2, 43, 4},
+			dists:     []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+			wantIDs:   []uint64{0, 2, 4},
+			wantDists: []float32{0.1, 0.3, 0.5},
+		},
+		{
+			name:      "single id, sequential path, missing",
+			ids:       []uint64{42},
+			dists:     []float32{0.1},
+			wantIDs:   []uint64{},
+			wantDists: []float32{},
+		},
+		{
+			name:      "everything missing",
+			ids:       []uint64{42, 43},
+			dists:     []float32{0.1, 0.2},
+			wantIDs:   []uint64{},
+			wantDists: []float32{},
+		},
+		{
+			name:      "empty",
+			ids:       []uint64{},
+			dists:     []float32{},
+			wantIDs:   []uint64{},
+			wantDists: []float32{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, dists, err := ObjectsByDocIDWithDists(context.Background(), bucket, tc.ids, tc.dists,
+				additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, objs, len(tc.wantIDs))
+			require.Equal(t, tc.wantDists, dists)
+			for i, obj := range objs {
+				assert.Equal(t, tc.wantIDs[i], obj.DocID, "object at position %d", i)
+			}
+		})
+	}
+
+	t.Run("length mismatch is an error, not a truncation", func(t *testing.T) {
+		_, _, err := ObjectsByDocIDWithDists(context.Background(), bucket, []uint64{0, 1, 2}, []float32{0.1},
+			additional.Properties{}, nil, logger)
+		require.Error(t, err)
+	})
+}
+
+func TestObjectsByDocIDWorkersFollowBudget(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	// a GOMAXPROCS change after package init must still move the unbudgeted fan-out
+	orig := runtime.GOMAXPROCS(0)
+	runtime.GOMAXPROCS(orig + 1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(orig) })
+	fallback := 2 * (orig + 1)
+	ids := make([]uint64, 3*fallback)
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+
+	tests := []struct {
+		name       string
+		ctx        context.Context
+		wantChunks int
+		withEmpty  bool
+	}{
+		{name: "no budget fans out at twice GOMAXPROCS", ctx: context.Background(), wantChunks: fallback},
+		{name: "budget of 2", ctx: concurrency.CtxWithBudget(context.Background(), 2), wantChunks: 2},
+		{name: "budget above the fallback is capped", ctx: concurrency.CtxWithBudget(context.Background(), 10*fallback), wantChunks: fallback},
+		{name: "with empties, budget of 2", ctx: concurrency.CtxWithBudget(context.Background(), 2), wantChunks: 2, withEmpty: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket := genFakeBucket(t, uint64(len(ids)))
+			fetch := ObjectsByDocID
+			if tt.withEmpty {
+				fetch = ObjectsByDocIDWithEmpty
+			}
+
+			res, err := fetch(tt.ctx, bucket, ids, additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, res, len(ids))
+			for i, obj := range res {
+				assert.Equal(t, ids[i], uint64(obj.Properties().(map[string]any)["i"].(float64)))
+			}
+			assert.Equal(t, int32(tt.wantChunks), bucket.classNameCalls.Load())
 		})
 	}
 }
@@ -1768,7 +2053,7 @@ func TestObjectsByDocIDSharedView(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			bucket := genFakeBucket(t, 1000)
 
-			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, tt.inputIDs, additional.Properties{}, nil, logger)
 			require.NoError(t, err)
 			require.Len(t, res, len(tt.inputIDs))
 
@@ -1798,7 +2083,7 @@ func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
 			bucket := genFakeBucket(t, 1000)
 			bucket.lookupErr = fmt.Errorf("boom")
 
-			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			_, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 			require.Error(t, err)
 
 			// the view is still released exactly once when a lookup fails mid-batch
@@ -1812,7 +2097,7 @@ func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	bucket := genFakeBucket(t, 1000)
 
-	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	res, err := ObjectsByDocID(context.Background(), bucket, nil, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 	require.Empty(t, res)
 
@@ -1823,7 +2108,7 @@ func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 
 func TestObjectsByDocIDNilBucket(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
+	_, err := ObjectsByDocID(context.Background(), nil, []uint64{0}, additional.Properties{}, nil, logger)
 	require.Error(t, err)
 }
 
@@ -1832,7 +2117,7 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	objs, err := objectsByDocIDParallel(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
@@ -1956,7 +2241,7 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
+					_, err := objectsByDocIDParallel(context.Background(), bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
 					require.Nil(t, err)
 
 				} else {
@@ -2003,7 +2288,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {
@@ -2024,6 +2309,8 @@ type fakeBucket struct {
 	// lookupErr, when set, makes every lookup fail, simulating an error
 	// mid-batch.
 	lookupErr error
+	// classNameCalls counts fetch chunks, since each chunk reads the class name once.
+	classNameCalls atomic.Int32
 }
 
 func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
@@ -2054,6 +2341,7 @@ func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, 
 }
 
 func (f *fakeBucket) ClassName() (string, error) {
+	f.classNameCalls.Add(1)
 	return "MyClass", nil
 }
 
@@ -2276,4 +2564,28 @@ func TestStorageObjectRemoveTargetVectorRoundTrip(t *testing.T) {
 
 	assert.False(t, after.RemoveTargetVector("drop"))
 	assert.False(t, after.RemoveTargetVector("mvdrop"))
+}
+
+func TestMultiVectorFromBinary_MissingVector(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		vectors      map[string][]float32
+		multiVectors map[string][][]float32
+	}{
+		{name: "other multi vectors", multiVectors: map[string][][]float32{"other": {{1, 2}}}},
+		{name: "only single vectors", vectors: map[string][]float32{"title": {1, 2}}},
+		{name: "no vectors"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := FromObject(&models.Object{Class: "C", ID: strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247")},
+				nil, tc.vectors, tc.multiVectors)
+			data, err := obj.MarshalBinary()
+			require.NoError(t, err)
+
+			_, err = MultiVectorFromBinary(data, "colbert")
+			var notFound ErrTargetVectorNotFound
+			require.ErrorAs(t, err, &notFound)
+			require.Equal(t, "colbert", notFound.TargetVector)
+		})
+	}
 }

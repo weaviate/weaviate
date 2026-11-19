@@ -1059,6 +1059,7 @@ func TestReplicaMovementCleanupRuntimeOverride(t *testing.T) {
 	t.Run("keys round-trip through parse and update, then revert on removal", func(t *testing.T) {
 		source := &WeaviateRuntimeConfig{
 			ReplicaMovementEnabled:                 runtime.NewDynamicValue(false),
+			ReplicaRebalanceEnabled:                runtime.NewDynamicValue(false),
 			ReplicaMovementCleanupEnabled:          runtime.NewDynamicValue(false),
 			ReplicaMovementCleanupMaxAge:           runtime.NewDynamicValue(168 * time.Hour),
 			ReplicaMovementCleanupInterval:         runtime.NewDynamicValue(time.Hour),
@@ -1066,6 +1067,7 @@ func TestReplicaMovementCleanupRuntimeOverride(t *testing.T) {
 		}
 
 		parsed, err := ParseRuntimeConfig([]byte(`replica_movement_enabled: true
+replica_rebalance_enabled: true
 replica_movement_cleanup_enabled: true
 replica_movement_cleanup_max_age: 24h
 replica_movement_cleanup_interval: 5m
@@ -1074,6 +1076,7 @@ replica_movement_cleanup_include_cancelled: true
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, true, source.ReplicaMovementEnabled.Get())
+		assert.Equal(t, true, source.ReplicaRebalanceEnabled.Get())
 		assert.Equal(t, true, source.ReplicaMovementCleanupEnabled.Get())
 		assert.Equal(t, 24*time.Hour, source.ReplicaMovementCleanupMaxAge.Get())
 		assert.Equal(t, 5*time.Minute, source.ReplicaMovementCleanupInterval.Get())
@@ -1083,6 +1086,7 @@ replica_movement_cleanup_include_cancelled: true
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, false, source.ReplicaMovementEnabled.Get())
+		assert.Equal(t, false, source.ReplicaRebalanceEnabled.Get())
 		assert.Equal(t, false, source.ReplicaMovementCleanupEnabled.Get(), "the emergency brake must revert to the env default")
 		assert.Equal(t, 168*time.Hour, source.ReplicaMovementCleanupMaxAge.Get())
 		assert.Equal(t, time.Hour, source.ReplicaMovementCleanupInterval.Get())
@@ -1093,19 +1097,116 @@ replica_movement_cleanup_include_cancelled: true
 // A missing registration line leaves a nil *DynamicValue whose Get() returns the
 // zero value, so the runtime override would be accepted and ignored with every
 // other test still green.
-func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing.T) {
+func TestBuildRegisteredRuntimeConfig(t *testing.T) {
 	cfg := &Config{}
 	cfg.Replication.ReplicaMovementEnabled = runtime.NewDynamicValue(true)
+	cfg.Replication.ReplicaRebalanceEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupMaxAge = runtime.NewDynamicValue(time.Hour)
 	cfg.Replication.ReplicaMovementCleanupInterval = runtime.NewDynamicValue(time.Minute)
 	cfg.Replication.ReplicaMovementCleanupIncludeCancelled = runtime.NewDynamicValue(true)
+	cfg.Namespaces.SuspendReconcileInterval = runtime.NewDynamicValue(time.Minute)
 
 	registered := BuildRegisteredRuntimeConfig(cfg)
 
 	require.Same(t, cfg.Replication.ReplicaMovementEnabled, registered.ReplicaMovementEnabled)
+	require.Same(t, cfg.Replication.ReplicaRebalanceEnabled, registered.ReplicaRebalanceEnabled)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupEnabled, registered.ReplicaMovementCleanupEnabled)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupMaxAge, registered.ReplicaMovementCleanupMaxAge)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
+	require.Same(t, cfg.Namespaces.SuspendReconcileInterval, registered.SuspendReconcileInterval)
+}
+
+func TestBackupDedupeConvergenceTimeoutRuntimeOverride(t *testing.T) {
+	t.Run("yaml key is parsed", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte(`backup_dedupe_convergence_timeout: 40s`))
+		require.NoError(t, err)
+		assert.Equal(t, 40*time.Second, cfg.BackupDedupeConvergenceTimeout.Get())
+	})
+
+	t.Run("override applies to the env-registered value and rejects out-of-range", func(t *testing.T) {
+		t.Setenv("BACKUP_DEDUPE_CONVERGENCE_TIMEOUT", "20s")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.Equal(t, 20*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+
+		registered := &WeaviateRuntimeConfig{}
+		parsed, err := ParseRuntimeConfig([]byte(`backup_dedupe_convergence_timeout: 40s`))
+		require.NoError(t, err)
+		registered.BackupDedupeConvergenceTimeout = conf.Backup.DedupeConvergenceTimeout
+		require.NoError(t, UpdateRuntimeConfig(logrus.New(), registered, parsed, nil, nil))
+		assert.Equal(t, 40*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+
+		require.Error(t, conf.Backup.DedupeConvergenceTimeout.SetValue(0))
+		require.Error(t, conf.Backup.DedupeConvergenceTimeout.SetValue(601*time.Second))
+		assert.Equal(t, 40*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+
+		conf.Backup.DedupeConvergenceTimeout.Reset()
+		assert.Equal(t, 20*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+	})
+}
+
+func TestAsyncReplicationInMaintenanceEnabledRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	tests := []struct {
+		name       string
+		envDefault bool
+		yamls      []string
+		want       []bool
+	}{
+		{
+			name:       "set on over default off, then cleared",
+			envDefault: false,
+			yamls:      []string{"async_replication_in_maintenance_enabled: true\n", ""},
+			want:       []bool{true, false},
+		},
+		{
+			name:       "set off over default on, then cleared",
+			envDefault: true,
+			yamls:      []string{"async_replication_in_maintenance_enabled: false\n", ""},
+			want:       []bool{false, true},
+		},
+		{
+			name:       "toggled on, off, on",
+			envDefault: false,
+			yamls: []string{
+				"async_replication_in_maintenance_enabled: true\n",
+				"async_replication_in_maintenance_enabled: false\n",
+				"async_replication_in_maintenance_enabled: true\n",
+			},
+			want: []bool{true, false, true},
+		},
+		{
+			name:       "unrelated key leaves default",
+			envDefault: false,
+			yamls:      []string{"async_replication_disabled: true\n"},
+			want:       []bool{false},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := &WeaviateRuntimeConfig{
+				AsyncReplicationInMaintenanceEnabled: runtime.NewDynamicValue(tt.envDefault),
+				AsyncReplicationDisabled:             runtime.NewDynamicValue(false),
+			}
+			for i, y := range tt.yamls {
+				parsed, err := ParseRuntimeConfig([]byte(y))
+				require.NoError(t, err)
+				require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+				assert.Equal(t, tt.want[i], source.AsyncReplicationInMaintenanceEnabled.Get(), "step %d", i)
+			}
+		})
+	}
+}
+
+func TestBuildRegisteredRuntimeConfig_RegistersAsyncReplicationInMaintenanceEnabled(t *testing.T) {
+	cfg := &Config{}
+	cfg.Replication.AsyncReplicationInMaintenanceEnabled = runtime.NewDynamicValue(false)
+
+	registered := BuildRegisteredRuntimeConfig(cfg)
+
+	require.Same(t, cfg.Replication.AsyncReplicationInMaintenanceEnabled, registered.AsyncReplicationInMaintenanceEnabled)
 }

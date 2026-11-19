@@ -212,6 +212,14 @@ func (rq *FourBitRotationalQuantizer) OutputDimension() int {
 	return int(rq.rotation.OutputDim)
 }
 
+// rq4RecordSize is the exact length of one stored code: the header this
+// quantizer actually writes (wider for centered codes past
+// rq4CenteredCompactMaxDim) plus the packed nibbles. Fixed-stride caches
+// size their records from it.
+func (rq *FourBitRotationalQuantizer) rq4RecordSize() int {
+	return rq.metaSize + rq.OutputDimension()/2
+}
+
 type RQ4Code []byte
 
 func (c RQ4Code) Lower() float32 {

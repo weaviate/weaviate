@@ -12,7 +12,10 @@
 package objects
 
 import (
+	"encoding/json"
+	"errors"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -67,9 +70,79 @@ type BatchReference struct {
 // type using the .Response() method
 type BatchReferences []BatchReference
 
+// BatchSimpleObject is one slot of a batch delete's answer. A nil Err means no delete of UUID failed,
+// as for a dry run or an already-absent object; a failed WAL write sets Err on deleted objects too.
+// Err crosses the cluster wire through its own codec, since encoding/json cannot decode an error.
 type BatchSimpleObject struct {
 	UUID strfmt.UUID
 	Err  error
+}
+
+// MarshalJSON carries Err as text in ErrMsg, capped, and keeps writing the Err key a decoder
+// without this codec expects: the {} it fails on loudly, where dropping the key would let it read
+// a failed delete as a nil Err.
+func (b BatchSimpleObject) MarshalJSON() ([]byte, error) {
+	var (
+		msg       string
+		errObject json.RawMessage
+	)
+	if b.Err != nil {
+		msg = truncateBatchErrMsg(b.Err.Error())
+		errObject = json.RawMessage("{}")
+	}
+	return json.Marshal(struct {
+		UUID   strfmt.UUID     `json:"UUID"`
+		Err    json.RawMessage `json:"Err,omitempty"`
+		ErrMsg string          `json:"ErrMsg,omitempty"`
+	}{b.UUID, errObject, msg})
+}
+
+// maxBatchErrMsg caps a slot's error text on the wire. A flush failure writes one error into every
+// slot of the batch, so an uncapped message is multiplied by the batch size on a response that is
+// already reporting a failure.
+const maxBatchErrMsg = 256
+
+// truncateBatchErrMsg cuts msg to maxBatchErrMsg on a rune boundary, so a capped message stays
+// valid UTF-8 rather than decoding to U+FFFD on the far side.
+func truncateBatchErrMsg(msg string) string {
+	if len(msg) <= maxBatchErrMsg {
+		return msg
+	}
+	cut := maxBatchErrMsg
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
+	}
+	return msg[:cut] + "…"
+}
+
+// ErrRemoteDeleteUnreadable stands in for a slot a peer reported as failed in a shape this node
+// cannot read the message out of, which is what a peer older than this codec writes. Match on it to
+// tell a failure whose text was lost to version skew during a rolling upgrade; the delete failed
+// either way.
+var ErrRemoteDeleteUnreadable = errors.New("remote shard reported a failed delete without a readable message")
+
+// UnmarshalJSON rebuilds Err from ErrMsg. A peer without the codec writes a
+// non-nil error as "Err":{}, carrying no text, so a stand-in takes its place.
+// A slot that failed is never read as one that succeeded.
+func (b *BatchSimpleObject) UnmarshalJSON(in []byte) error {
+	var row struct {
+		UUID   strfmt.UUID     `json:"UUID"`
+		Err    json.RawMessage `json:"Err"`
+		ErrMsg string          `json:"ErrMsg"`
+	}
+	if err := json.Unmarshal(in, &row); err != nil {
+		return err
+	}
+	b.UUID = row.UUID
+	switch {
+	case row.ErrMsg != "":
+		b.Err = errors.New(row.ErrMsg)
+	case len(row.Err) > 0 && string(row.Err) != "null":
+		b.Err = ErrRemoteDeleteUnreadable
+	default:
+		b.Err = nil
+	}
+	return nil
 }
 
 type BatchSimpleObjects []BatchSimpleObject

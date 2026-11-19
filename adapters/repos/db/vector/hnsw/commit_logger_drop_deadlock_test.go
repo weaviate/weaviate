@@ -44,7 +44,7 @@ func TestCommitLoggerDropDoesNotDeadlockWithMaintenanceCycle(t *testing.T) {
 	cycle := cyclemanager.NewManager("maintenance",
 		cyclemanager.NewFixedTicker(time.Millisecond), callbacks.CycleCallback, logger)
 	cycle.Start()
-	defer cycle.StopAndWait(context.Background())
+	defer func() { <-cycle.Stop(context.Background()) }()
 
 	gate := &gatedFile{parked: make(chan struct{}), released: make(chan struct{})}
 	fs := common.NewTestFS()
@@ -58,7 +58,7 @@ func TestCommitLoggerDropDoesNotDeadlockWithMaintenanceCycle(t *testing.T) {
 
 	dropped := make(chan error, 1)
 	begin := time.Now()
-	go func() { dropped <- cl.Drop(ctx, false) }()
+	go func() { dropped <- cl.Drop(ctx) }()
 
 	select {
 	case <-gate.parked:

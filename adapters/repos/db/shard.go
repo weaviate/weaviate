@@ -115,17 +115,13 @@ type ShardLike interface {
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairDigest, err error)
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error)
 	ID() string // Get the shard id
-	drop(keepFiles bool) error
-	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
-	// MayResetTransferInactivityTimer counts external transfer activity
-	// against the halt watchdog. No-op on unhalted shards.
-	MayResetTransferInactivityTimer()
+	drop() error
+	HaltForTransfer(ctx context.Context, offloading bool) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
-	// payloadReads must be non-nil; the sweep cost accrues there instead of being logged per call.
-	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
+	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
-	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
@@ -159,6 +155,7 @@ type ShardLike interface {
 	isReadOnly() error
 	pathLSM() string
 	migrationRecordStore() *MigrationRecordStore
+	migrationMirrorRegistry() *migrationMirrorRegistry
 
 	commitReplication(context.Context, string) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
@@ -167,9 +164,6 @@ type ShardLike interface {
 	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
-
-	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error
@@ -284,8 +278,9 @@ type Shard struct {
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
 	// frozen clone of s.hashtree taken at create time. All in-memory only
 	// (not persisted, not replicated via RAFT); a restart drops it and the
-	// operator must re-create. activatedAt is local-clock so the lifetime
-	// histogram doesn't depend on cross-node clock skew.
+	// operator must re-create; an undeleted one expires after
+	// replica.AsyncCheckpointMaxLifetime. activatedAt is local-clock so the
+	// lifetime histogram and expiry don't depend on cross-node clock skew.
 	asyncCheckpointHashtree    hashtree.AggregatedHashTree
 	asyncCheckpointCutoff      int64
 	asyncCheckpointCreatedAt   time.Time
@@ -338,14 +333,19 @@ type Shard struct {
 	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
 	asyncReplicationStatsMux sync.RWMutex
 
-	haltForTransferMux                sync.Mutex
-	haltForTransferInactivityTimeout  time.Duration
-	haltForTransferInactivityDeadline time.Time
+	haltForTransferMux sync.Mutex
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
-	haltForTransferCount     atomic.Int64
-	haltForTransferCtxCancel context.CancelFunc
+	haltForTransferCount atomic.Int64
+	// resumeIncomplete is true when a resume brought the halt count to 0 but
+	// failed to restart the maintenance cycles. The next resume at count 0
+	// retries the restart. Mutations under haltForTransferMux.
+	resumeIncomplete atomic.Bool
 
-	status              ShardStatus
+	status ShardStatus
+	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
+	// if uncounted. Separate from status.Status so a failed update cannot make
+	// release decrement a bucket never entered. Guarded by statusLock.
+	countedStatus       string
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 	// geoInitLock serializes initGeoProp so a prop never has two indexes under
@@ -374,28 +374,14 @@ type Shard struct {
 	// query?" answer that gates whether the query path can route range
 	// queries to the local rangeable bucket.
 	//
-	// True means the local rangeable bucket has all the data for this
-	// property — either the property was created with
-	// IndexRangeFilters=true (no migration ever ran) or an
-	// enable-rangeable / repair-rangeable migration completed locally
-	// (markTidied fired in [runtimeSwap]).
-	//
-	// False means the rangeable bucket is mid-migration on THIS replica:
-	// a PreReindexHook created an empty main bucket but the per-shard
-	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node.
-	//
 	// repair-rangeable is where the false earns its keep: it runs with
 	// the cluster-wide flag already true, so only this entry keeps range
 	// queries off the empty bucket until the local swap catches up.
-	//
-	// Read on every range-filter query plan, so kept under a fast
-	// RWMutex rather than a sync.Map. Default value (missing key)
-	// returns true via IsRangeableLocallyReady — at shard init we
-	// pessimistically set false for any in-flight migration tracker
-	// found on disk, and the post-tidy hook flips it back to true.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// Shard-wide because an unreadable migration record names no property.
+	rangeableUndecidable atomic.Bool
 
 	// Bridges this shard's bucket swap and the cluster-wide schema flip: a
 	// write in that window is otherwise lost (weaviate/etienne-claude-issues#449).
@@ -446,6 +432,10 @@ type Shard struct {
 	propertyValueIndexCallbacksMu sync.Mutex
 
 	migrationRecords *MigrationRecordStore
+
+	migrationMirrors migrationMirrorRegistry
+	// Held by the retry goroutine, not its caller, so a lift arriving during a stuck retry is refused.
+	liftRetry sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -542,16 +532,6 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
-	}
-
-	legacy := s.index.GetVectorIndexConfig("")
-	targets := s.index.getTargetVectorIndexConfigs()
-
-	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, legacy, targets, updated); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_target_vectors",
-			"shard_id": s.ID(),
-		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	var err error
@@ -674,27 +654,6 @@ func (s *Shard) isFallbackToSearchable() bool {
 // IsRangeableLocallyReady reports whether this shard's local rangeable
 // bucket for the given property is fully populated and safe to query.
 // See [rangeableLocalReady] for the full rationale.
-//
-// Returns true when:
-//   - The per-shard map has an explicit `true` entry. Set by
-//     [setRangeableLocallyReady] after a local
-//     enable-rangeable / repair-rangeable migration's swap completes
-//     (markTidied + OnMigrationComplete), OR
-//   - There is no explicit entry in the map AND the rangeable bucket
-//     for this prop exists in the LSM store. This covers native
-//     rangeable props (created with IndexRangeFilters=true, bucket
-//     populated on initial import) and props whose migrations
-//     completed before this shard restarted (the per-shard map is
-//     in-memory only and starts empty).
-//
-// Returns false when:
-//   - The per-shard map has an explicit `false` entry (set by the
-//     migration's PreReindexHook), OR
-//   - There is no explicit entry AND the rangeable bucket does not exist in
-//     the LSM store yet. repair-rangeable runs with `IndexRangeFilters`
-//     already true, so between this replica joining the task and its
-//     PreReindexHook firing the query path would otherwise look up a bucket
-//     that isn't there and fail with "bucket for prop %s not found".
 func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	s.rangeableLocalReadyMu.RLock()
 	if s.rangeableLocalReady != nil {
@@ -704,6 +663,10 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 		}
 	}
 	s.rangeableLocalReadyMu.RUnlock()
+
+	if s.rangeableUndecidable.Load() {
+		return false
+	}
 
 	// Default: ready iff the rangeable bucket physically exists in the
 	// store. Cheap (a map lookup under bucketAccessLock.RLock in
@@ -815,6 +778,10 @@ func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	}
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
+	s.retirePropertyOverlayLocked(propName, indexType)
+}
+
+func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
 	entry, ok := s.propertyOverlay[propName]
 	if !ok {
 		return
@@ -913,47 +880,6 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 // Activity score for read and write
 func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
-}
-
-// registerAddToPropertyValueIndex appends callback to the folded write-path
-// snapshot and returns a disarm func that REMOVES it again (by id, copy-on-write
-// under the mutex). Removing rather than flagging keeps the slice bounded: the
-// backup-window migration path (re)registers a pair per run, so a
-// flag-and-keep disarm would leak one entry per migration onto the hot path for
-// the life of the shard. Disarm is idempotent — a second call finds no matching
-// id and no-ops.
-func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
-	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		id = cur.nextCallbackID
-		cur.nextCallbackID++
-		cur.add = appendAddCallback(cur.add, id, callback)
-		return cur
-	})
-
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.add = removeAddCallback(cur.add, id)
-			return cur
-		})
-	}
-}
-
-func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
-	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		id = cur.nextCallbackID
-		cur.nextCallbackID++
-		cur.del = appendDeleteCallback(cur.del, id, callback)
-		return cur
-	})
-
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.del = removeDeleteCallback(cur.del, id)
-			return cur
-		})
-	}
 }
 
 // AnyActiveMovement reports whether a replica movement is in flight for this shard.

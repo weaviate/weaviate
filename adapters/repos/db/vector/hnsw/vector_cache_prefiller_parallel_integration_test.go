@@ -127,9 +127,12 @@ func TestMuveraSerialPrefillPopulatesCacheRealIndex(t *testing.T) {
 		expected[uint64(i)] = v
 	}
 
-	// Cold-restart shape: drop the cache, then run the serial prefiller muvera is
-	// routed to and confirm full, correct repopulation.
-	idx.cache.Drop()
+	// Cold-cache shape: empty every slot, then run the serial prefiller muvera
+	// is routed to and confirm full, correct repopulation. Drop is not used
+	// here: a dropped cache is terminal and refuses preloads.
+	for i := range multiVectors {
+		idx.cache.Delete(ctx, uint64(i))
+	}
 	require.Equal(t, int64(0), idx.cache.CountVectors())
 
 	require.NoError(t, newVectorCachePrefiller(idx.cache, idx, logger).Prefill(ctx, int(idx.cache.CopyMaxSize())))

@@ -27,26 +27,23 @@ import (
 
 var noopRelease = func() {}
 
+const docBitmapSlowLogKey = "build_allow_list_doc_bitmap"
+
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (bm docBitmap, err error) {
 	before := time.Now()
 	strategy := "geo"
-	defer func() {
-		took := time.Since(before)
-		vals := map[string]any{
-			"prop":        pv.prop,
-			"operator":    pv.operator,
-			"took":        took,
-			"took_string": took.String(),
-			"value":       pv.value,
-			"count":       bm.count(),
-			"failed":      err != nil,
-			"strategy":    strategy,
+	defer helpers.AnnotateSlowQueryLogSlowest(ctx, docBitmapSlowLogKey, before, func() map[string]any {
+		return map[string]any{
+			"prop":     pv.prop,
+			"operator": pv.operator,
+			"value":    pv.value[:min(len(pv.value), filters.LogMaxStringChars)],
+			"count":    bm.count(),
+			"failed":   err != nil,
+			"strategy": strategy,
 		}
-
-		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", vals)
-	}()
+	})
 
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter

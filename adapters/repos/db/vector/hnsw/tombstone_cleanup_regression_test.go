@@ -35,12 +35,11 @@ func TestCleanupTombstones_PanicSurfacesAsError(t *testing.T) {
 	require.ErrorContains(t, err, "tombstone cleanup panicked")
 }
 
-// TestCleanupTombstones_KeepsTombstoneWhenEntrypointNotReplaceable: when the
-// entrypoint is tombstoned but every replacement candidate is under
-// maintenance by a concurrent insert, the cycle must keep the entrypoint's
-// tombstone for a later retry. Removing it would leave a dangling,
-// untombstoned entrypoint that no later cycle revisits.
-func TestCleanupTombstones_KeepsTombstoneWhenEntrypointNotReplaceable(t *testing.T) {
+// TestCleanupTombstones_ReplacesEntrypointWithNodeUnderMaintenance: when the
+// entrypoint is tombstoned and the only other node is under maintenance by a
+// concurrent insert, that node becomes the entrypoint so the tombstone drains
+// in the same cycle.
+func TestCleanupTombstones_ReplacesEntrypointWithNodeUnderMaintenance(t *testing.T) {
 	index := newTombstonedNilEntrypointIndex(t, false)
 
 	conns, err := packedconn.NewWithElements([][]uint64{{}})
@@ -60,16 +59,8 @@ func TestCleanupTombstones_KeepsTombstoneWhenEntrypointNotReplaceable(t *testing
 	}
 
 	require.Nil(t, index.CleanUpTombstonedNodes(keepInMaintenance))
-	assert.Equal(t, uint64(0), index.getEntrypoint(),
-		"entrypoint cannot move while the only candidate is under maintenance")
-	assert.Equal(t, 1, tombstoneCountOf(index),
-		"tombstone must be kept so a later cycle retries")
-
-	index.nodes[1].unmarkAsMaintenance()
-
-	require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
 	assert.Equal(t, uint64(1), index.getEntrypoint(),
-		"entrypoint must move once the candidate leaves maintenance")
+		"the node under maintenance is the only candidate left")
 	assert.Equal(t, 0, tombstoneCountOf(index),
 		"tombstone must drain once the entrypoint has been replaced")
 }
@@ -115,8 +106,8 @@ func TestDeleteEntrypoint_DoesNotClobberConcurrentPromotion(t *testing.T) {
 	index.nodes[3] = &vertex{level: 5, connections: *conns3}
 	index.nodes[9] = &vertex{level: 0, connections: *conns9}
 	index.Unlock()
-	// node 3 is mid-insert: under maintenance, so the scan must not pick
-	// it — but the insert promotes it to entrypoint mid-scan
+	// node 3 is mid-insert: under maintenance, so the scan prefers node 9 —
+	// but the insert promotes node 3 to entrypoint mid-scan
 	index.nodes[3].markAsMaintenance()
 
 	deny := &promotingDenyList{

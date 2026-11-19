@@ -26,12 +26,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/stretchr/testify/assert"
@@ -157,12 +160,8 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
 		switch n {
 		case 0:
-			w.WriteHeader(http.StatusInternalServerError)
-		case 1:
-			w.WriteHeader(http.StatusTooManyRequests)
-		case 2:
 			w.Header().Set("content-type", "any")
-		case 3:
+		case 1:
 			clusterapi.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
 		default:
 			clusterapi.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
@@ -185,6 +184,91 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "READONLY", st)
 	})
+}
+
+// A status read is one attempt within shardStatusTimeout, since the caller asks the next replica.
+func TestRemoteIndexShardStatusReadsAreBounded(t *testing.T) {
+	t.Parallel()
+	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hung.Close()
+	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer stalled.Close()
+	down := httptest.NewServer(http.NotFoundHandler())
+	downHost := down.URL[7:]
+	down.Close()
+
+	for _, read := range []struct {
+		name string
+		call func(ctx context.Context, client *RemoteIndex, host string) error
+	}{
+		{name: "status", call: func(ctx context.Context, client *RemoteIndex, host string) error {
+			_, err := client.GetShardStatus(ctx, host, "C1", "S1")
+			return err
+		}},
+		{name: "queue size", call: func(ctx context.Context, client *RemoteIndex, host string) error {
+			_, err := client.GetShardQueueSize(ctx, host, "C1", "S1")
+			return err
+		}},
+	} {
+		for _, peer := range []struct {
+			name   string
+			server *httptest.Server
+		}{
+			{name: "peer never answers", server: hung},
+			{name: "peer stalls an error body", server: stalled},
+		} {
+			t.Run(read.name+"/"+peer.name, func(t *testing.T) {
+				// Arrange
+				client := newRemoteIndex(peer.server.Client())
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				start := time.Now()
+
+				// Act
+				err := read.call(ctx, client, peer.server.URL[7:])
+
+				// Assert
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.Less(t, time.Since(start), 5*time.Second)
+			})
+		}
+		t.Run(read.name+"/peer answers 500", func(t *testing.T) {
+			// Arrange
+			var requests atomic.Int32
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer failing.Close()
+
+			// Act
+			err := read.call(t.Context(), newRemoteIndex(failing.Client()), failing.URL[7:])
+
+			// Assert
+			require.ErrorContains(t, err, "status code: 500")
+			require.Equal(t, int32(1), requests.Load(), "requests")
+		})
+		t.Run(read.name+"/peer refuses the connection", func(t *testing.T) {
+			// Arrange
+			var dials atomic.Int32
+			transport := &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dials.Add(1)
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			}}
+			client := newRemoteIndex(&http.Client{Transport: transport})
+
+			// Act
+			err := read.call(t.Context(), client, downHost)
+
+			// Assert
+			require.ErrorContains(t, err, "connect")
+			require.Equal(t, int32(1), dials.Load(), "dials")
+		})
+	}
 }
 
 func TestRemoteIndexPutFile(t *testing.T) {
@@ -227,6 +311,40 @@ func TestRemoteIndexPutFile(t *testing.T) {
 		err := client.PutFile(ctx, fs.host, "C1", "S1", "file1", rsc)
 		assert.Nil(t, err)
 	})
+}
+
+// A failed check must not report the object as present, or a caller reading
+// the bool first answers "already exists" for an object that was never stored.
+func TestRemoteIndexExistsFailedCheck(t *testing.T) {
+	t.Parallel()
+
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	fs := newFakeRemoteIndexServer(t, http.MethodGet, "/indices/C1/shards/S1/objects/"+id.String())
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	ts := fs.server(t)
+	defer ts.Close()
+
+	down := httptest.NewServer(http.NotFoundHandler())
+	downHost := down.URL[7:]
+	down.Close()
+
+	tests := []struct {
+		name string
+		host string
+	}{
+		{name: "owner answers 500", host: fs.host},
+		{name: "owner refuses the connection", host: downHost},
+	}
+	client := newRemoteIndex(ts.Client())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists, err := client.Exists(context.Background(), tt.host, "C1", "S1", id)
+			require.Error(t, err)
+			assert.False(t, exists)
+		})
+	}
 }
 
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
@@ -472,4 +590,90 @@ func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
 	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
+}
+
+// TestRemoteIndexAggregateRetriesOnce pins that a remote aggregation is sent
+// at most twice to a replica that keeps failing, as the caller then moves on
+// to the shard's other replicas.
+func TestRemoteIndexAggregateRetriesOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{http.StatusInternalServerError, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			t.Parallel()
+
+			path := "/indices/C1/shards/S1/objects/_aggregations"
+			fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+			ts := fs.server(t)
+			defer ts.Close()
+			client := newRemoteIndex(ts.Client())
+
+			var attempts atomic.Int64
+			fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+				attempts.Add(1)
+				w.WriteHeader(code)
+			}
+
+			_, err := client.Aggregate(t.Context(), fs.host, "C1", "S1", aggregation.Params{})
+			require.Error(t, err)
+			require.Equal(t, int64(2), attempts.Load())
+		})
+	}
+}
+
+// TestRemoteIndexAggregateBoundedByCallerDeadline pins that a remote
+// aggregation with a caller deadline is bounded by that deadline alone, as it
+// scans a whole shard, and falls back to the query timeout without one.
+func TestRemoteIndexAggregateBoundedByCallerDeadline(t *testing.T) {
+	t.Parallel()
+
+	path := "/indices/C1/shards/S1/objects/_aggregations"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+	queryTimeout := client.timeoutUnit * QUERY_TIMEOUT_VALUE
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * queryTimeout):
+		case <-r.Context().Done():
+			return
+		}
+		payload, err := clusterapi.IndicesPayloads.AggregationResult.Marshal(
+			&aggregation.Result{Groups: []aggregation.Group{{Count: 7}}})
+		require.NoError(t, err)
+		clusterapi.IndicesPayloads.AggregationResult.SetContentTypeHeader(w)
+		_, _ = w.Write(payload)
+	}
+
+	tests := []struct {
+		name string
+		// callerDeadline is the caller's own deadline, none when 0
+		callerDeadline time.Duration
+		wantErr        error
+	}{
+		{name: "caller deadline past the query timeout", callerDeadline: 10 * queryTimeout},
+		{name: "caller deadline before the answer", callerDeadline: queryTimeout / 2, wantErr: context.DeadlineExceeded},
+		{name: "no caller deadline", wantErr: context.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tt.callerDeadline > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.callerDeadline)
+				defer cancel()
+			}
+
+			res, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, res.Groups, 1)
+			require.Equal(t, 7, res.Groups[0].Count)
+		})
+	}
 }

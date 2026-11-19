@@ -5,6 +5,10 @@ set -eou pipefail
 # Version of go-swagger to use.
 version=v0.30.4
 
+# Version of golangci-lint.
+# Keep this version in sync with .github/actions/golangci-lint/action.yml and .pre-commit-config.yaml.
+golangci_lint_version=v2.14.0
+
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SWAGGER=$DIR/swagger-${version}
@@ -14,15 +18,23 @@ GOOS=$(go env GOOS)
 if [ ! -f "$SWAGGER" ]; then
   if [ "$GOOS" = "linux" ]; then
     curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$(echo `uname`|tr '[:upper:]' '[:lower:]')"_"$GOARCH"
+  elif [ "$GOOS" = "darwin" ]; then
+    curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$GOOS"_"$GOARCH"
   else
     curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$(echo `uname`|tr '[:upper:]' '[:lower:]')"_amd64
   fi
   chmod +x "$SWAGGER"
 fi
 
-# Install golangci-lint if it's not istalled
+# Install golangci-lint if missing, then check that the installed version matches.
 if ! command -v golangci-lint >/dev/null 2>&1; then
-  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${golangci_lint_version}
+fi
+installed_golangci_lint_version="v$(golangci-lint version --short)"
+if [ "$installed_golangci_lint_version" != "$golangci_lint_version" ]; then
+  echo "golangci-lint ${golangci_lint_version} is required, found ${installed_golangci_lint_version}; install it with:"
+  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${golangci_lint_version}"
+  exit 1
 fi
 
 # Always install goimports to ensure that all parties use the same version
@@ -34,7 +46,7 @@ go install golang.org/x/tools/cmd/goimports@v0.1.12
 # Remove old stuff.
 (cd "$DIR"/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
-(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
+(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json --exclude-main)
 (cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...

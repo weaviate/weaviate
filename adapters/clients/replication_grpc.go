@@ -750,6 +750,9 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 		Shard: shard,
 	})
 	if err != nil {
+		if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
+			return 0, nrErr
+		}
 		return 0, fmt.Errorf("gRPC CountObjects: %w", err)
 	}
 

@@ -144,6 +144,9 @@ func (db *DB) init(ctx context.Context) error {
 			MaxSegmentSize:                 db.config.MaxSegmentSize,
 			TrackVectorDimensions:          db.config.TrackVectorDimensions,
 			TrackVectorDimensionsInterval:  db.config.TrackVectorDimensionsInterval,
+			MigrateDimensionsToRoaringSet:  db.config.MigrateDimensionsToRoaringSet,
+			DimensionsReindex:              &db.dimensionsReindex,
+			PropertyLengthsRecount:         &db.propLengthsRecount,
 			UsageEnabled:                   db.config.UsageEnabled,
 			AvoidMMap:                      db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
@@ -165,7 +168,6 @@ func (db *DB) init(ctx context.Context) error {
 			}(),
 			LazyLoadShardWarmupMinObjects:       db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              db.config.HaltForTransferTimeout,
 			LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:            db.config.LSMSkipWriteClassNameEnabled,

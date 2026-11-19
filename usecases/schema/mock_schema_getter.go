@@ -523,8 +523,7 @@ func (_c *MockSchemaGetter_TenantsShardsStatus_Call) RunAndReturn(run func(conte
 func NewMockSchemaGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockSchemaGetter {
+}) *MockSchemaGetter {
 	mock := &MockSchemaGetter{}
 	mock.Mock.Test(t)
 

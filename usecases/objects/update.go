@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // UpdateObject updates object of class.
@@ -42,7 +43,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	updates.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Objects(className, updates.Tenant)); err != nil {
 		return nil, err
 	}
 
@@ -114,6 +115,9 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -124,7 +128,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %w", err)
 	}

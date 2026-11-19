@@ -21,10 +21,13 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -431,4 +434,85 @@ func TestShard_AsyncCheckpoint_ConcurrentFoldIsRaceFree(t *testing.T) {
 	wg.Wait()
 
 	require.NotPanics(t, func() { s.AsyncCheckpointRoot(ctx) })
+}
+
+func checkpointTestMetrics(t *testing.T) *Metrics {
+	t.Helper()
+	m, err := NewMetrics(newNullLogger(), monitoring.GetMetrics(), "CkptExpiry", "S")
+	require.NoError(t, err)
+	return m
+}
+
+func backdateAsyncCheckpoint(s *Shard, age time.Duration) {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	s.asyncCheckpointActivatedAt = time.Now().Add(-age)
+}
+
+type checkpointCounters struct{ expired, active float64 }
+
+func readCheckpointCounters(m *Metrics) checkpointCounters {
+	return checkpointCounters{
+		expired: testutil.ToFloat64(m.asyncCheckpointExpiredCount),
+		active:  testutil.ToFloat64(m.asyncCheckpointActive),
+	}
+}
+
+func TestShard_ExpireAsyncCheckpoint(t *testing.T) {
+	tests := []struct {
+		name        string
+		create      bool
+		age         time.Duration
+		wantExpired bool
+	}{
+		{name: "no checkpoint"},
+		{name: "fresh checkpoint survives", create: true},
+		{name: "checkpoint within the lifetime survives", create: true, age: replica.AsyncCheckpointMaxLifetime - time.Minute},
+		{name: "abandoned checkpoint is cleared", create: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantExpired: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s := shardWithHashtree(t)
+			s.metrics = checkpointTestMetrics(t)
+			if tc.create {
+				require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), time.Now().UTC()))
+				backdateAsyncCheckpoint(s, tc.age)
+			}
+			before := readCheckpointCounters(s.metrics)
+
+			assert.Equal(t, tc.wantExpired, s.expireAsyncCheckpoint(time.Now()))
+
+			_, _, _, ok := s.AsyncCheckpointRoot(ctx)
+			assert.Equal(t, tc.create && !tc.wantExpired, ok)
+			after := readCheckpointCounters(s.metrics)
+			if tc.wantExpired {
+				assert.Equal(t, checkpointCounters{expired: before.expired + 1, active: before.active - 1}, after)
+				assert.True(t, s.asyncCheckpointActivatedAt.IsZero())
+				return
+			}
+			assert.Equal(t, before, after)
+		})
+	}
+}
+
+func TestShard_ExpiredAsyncCheckpointIsInactive(t *testing.T) {
+	ctx := context.Background()
+	s := shardWithHashtree(t)
+	s.metrics = checkpointTestMetrics(t)
+	skewedCreatedAt := time.Now().Add(time.Minute).UTC()
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), skewedCreatedAt))
+	backdateAsyncCheckpoint(s, replica.AsyncCheckpointMaxLifetime+time.Minute)
+
+	_, _, _, ok := s.AsyncCheckpointRoot(ctx)
+	assert.False(t, ok)
+
+	before := readCheckpointCounters(s.metrics)
+	createdAt := time.Now().UTC()
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(2_000), createdAt))
+	_, cutoff, gotCreatedAt, ok := s.AsyncCheckpointRoot(ctx)
+	require.True(t, ok)
+	assert.Equal(t, ckAbs(2_000), cutoff)
+	assert.Equal(t, createdAt, gotCreatedAt)
+	assert.Equal(t, checkpointCounters{expired: before.expired + 1, active: before.active}, readCheckpointCounters(s.metrics))
 }

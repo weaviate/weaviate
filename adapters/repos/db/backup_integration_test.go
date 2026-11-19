@@ -41,9 +41,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	backupUC "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -287,13 +289,14 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 // setupTestDBWithConfig builds a single-node DB on a single shard. override, when
 // non-nil, adjusts the Config before the DB is created.
 func setupTestDBWithConfig(t *testing.T, rootDir string, override func(*Config), classes ...*models.Class) *DB {
-	return setupTestDBWithShardState(t, rootDir, singleShardState(), override, classes...)
+	return setupTestDBWithShardState(t, rootDir, singleShardState(), override, nil, classes...)
 }
 
 // setupTestDBWithShardState builds a single-node DB that holds the given shards.
-// override, when non-nil, adjusts the Config before the DB is created.
+// override, when non-nil, adjusts the Config before the DB is created. exister
+// answers the namespace of a <ns>:<Class> name, and may be nil without one.
 func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *sharding.State,
-	override func(*Config), classes ...*models.Class,
+	override func(*Config), exister namespaces.Exister, classes ...*models.Class,
 ) *DB {
 	logger, _ := test.NewNullLogger()
 
@@ -310,6 +313,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyVersionedClass(mock.Anything).Return(versioned.Class{}).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, version uint64) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -335,7 +339,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 		override(&cfg)
 	}
 	db, err := New(logger, "node1", cfg, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, exister)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))
@@ -622,17 +626,15 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	require.Len(t, classDescs, 1)
 	require.NotEmpty(t, classDescs[0].Shards)
 
-	sourceDataPath := db.config.RootPath
-
 	// Use very small chunk/split sizes to force file splitting even on small test data.
 	const chunkSize = 512     // 512 bytes
 	const splitFileSize = 256 // 256 bytes
 
-	result := backupWithSizes(t, ctx, sourceDataPath, classDescs, chunkSize, splitFileSize)
+	result := backupWithSizes(t, ctx, classDescs, chunkSize, splitFileSize)
 	t.Logf("backup produced %d chunks from %d shards", len(result.chunks), len(classDescs[0].Shards))
 	require.Greater(t, len(result.chunks), 1, "expected multiple chunks due to small chunk/split sizes")
 
-	restoreAndVerify(t, sourceDataPath, classDescs, result.chunks)
+	restoreAndVerify(t, classDescs, result.chunks)
 
 	for _, class := range classes {
 		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
@@ -649,26 +651,21 @@ type backupChunkResult struct {
 func backupWithSizes(
 	t *testing.T,
 	ctx context.Context,
-	sourceDataPath string,
 	classDescs []entBackup.ClassDescriptor,
 	chunkSize, splitFileSize int64,
 ) backupChunkResult {
 	t.Helper()
 
-	// Use staging dir (hard-linked snapshot) if available, matching production
-	// behavior in usecases/backup/backend.go. The live data path may have files
-	// rotated (e.g. HNSW commitlog) between descriptor creation and backup writing.
-	effectivePath := sourceDataPath
-	if classDescs[0].StagingDir != "" {
-		effectivePath = classDescs[0].StagingDir
-	}
-
 	var result backupChunkResult
 
 	for _, sd := range classDescs[0].Shards {
+		// src reads the staged snapshot, as the uploader does. The live data path
+		// may have files rotated (e.g. HNSW commitlog) between descriptor creation
+		// and backup writing.
+		src := classDescs[0].ShardFileSource(sd.Name)
 		fileSizes := make(map[string]int64, len(sd.Files))
 		for _, relPath := range sd.Files {
-			info, err := os.Stat(filepath.Join(effectivePath, relPath))
+			info, err := src.Stat(relPath)
 			if err == nil && info.Mode().IsRegular() {
 				fileSizes[relPath] = info.Size()
 				result.fileSizes = append(result.fileSizes, info.Size())
@@ -681,7 +678,7 @@ func backupWithSizes(
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := backupUC.NewZip(effectivePath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
+			z, rc, err := backupUC.NewZip(src, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
 			require.NoError(t, err)
 
 			type writeResult struct {
@@ -724,17 +721,10 @@ func backupWithSizes(
 // restoreAndVerify restores all chunks into a temp dir and verifies every shard file matches the original.
 func restoreAndVerify(
 	t *testing.T,
-	sourceDataPath string,
 	classDescs []entBackup.ClassDescriptor,
 	chunks [][]byte,
 ) {
 	t.Helper()
-
-	// Use staging dir when available (hard-linked snapshot), same as backupWithSizes.
-	effectivePath := sourceDataPath
-	if classDescs[0].StagingDir != "" {
-		effectivePath = classDescs[0].StagingDir
-	}
 
 	restoreDir := t.TempDir()
 
@@ -759,11 +749,14 @@ func restoreAndVerify(
 	}
 
 	for _, sd := range classDescs[0].Shards {
+		src := classDescs[0].ShardFileSource(sd.Name)
 		for _, relPath := range sd.Files {
-			originalPath := filepath.Join(effectivePath, relPath)
 			restoredPath := filepath.Join(restoreDir, relPath)
 
-			original, err := os.ReadFile(originalPath)
+			f, err := src.Open(relPath)
+			require.NoError(t, err, "open original %s", relPath)
+			original, err := io.ReadAll(f)
+			require.NoError(t, f.Close())
 			require.NoError(t, err, "read original %s", relPath)
 			restored, err := os.ReadFile(restoredPath)
 			require.NoError(t, err, "read restored %s", relPath)
@@ -824,18 +817,16 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Len(t, classDescs, 1)
 	require.NotEmpty(t, classDescs[0].Shards)
 
-	sourceDataPath := db.config.RootPath
-
 	// --- Pass 1: backup with a large split file size (effectively no splitting) ---
 	const largeChunkSize = 512               // small chunk target to get multiple chunks
 	const largeSplitSize = 100 * 1024 * 1024 // 100 MB — no file will be this big
 
-	pass1 := backupWithSizes(t, ctx, sourceDataPath, classDescs, largeChunkSize, largeSplitSize)
+	pass1 := backupWithSizes(t, ctx, classDescs, largeChunkSize, largeSplitSize)
 	t.Logf("pass 1 (no splitting): %d chunks", len(pass1.chunks))
 	require.Greater(t, len(pass1.chunks), 1, "expected multiple chunks with small chunk target")
 
 	// Verify pass 1 restore works.
-	restoreAndVerify(t, sourceDataPath, classDescs, pass1.chunks)
+	restoreAndVerify(t, classDescs, pass1.chunks)
 
 	// Find the sizes of the 3 biggest files and set splitFileSize below the biggest.
 	sortedSizes := append([]int64{}, pass1.fileSizes...)
@@ -865,7 +856,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 		classDescs2 = append(classDescs2, d)
 	}
 
-	pass2 := backupWithSizes(t, ctx, sourceDataPath, classDescs2, largeChunkSize, splitSize)
+	pass2 := backupWithSizes(t, ctx, classDescs2, largeChunkSize, splitSize)
 	t.Logf("pass 2 (splitFileSize=%d): %d chunks", splitSize, len(pass2.chunks))
 
 	// The smaller split size should produce more chunks because large files are now split.
@@ -874,7 +865,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 		len(pass1.chunks), len(pass2.chunks))
 
 	// Verify pass 2 restore produces identical files.
-	restoreAndVerify(t, sourceDataPath, classDescs2, pass2.chunks)
+	restoreAndVerify(t, classDescs2, pass2.chunks)
 
 	// Release pass 2 backup hold (pass 1 was already released above).
 	for _, class := range classes {

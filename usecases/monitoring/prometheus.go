@@ -70,7 +70,7 @@ type PrometheusMetrics struct {
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
 	FileIOWrites                        *prometheus.SummaryVec
-	FileIOReads                         *prometheus.SummaryVec
+	FileIOReads                         *StripedSummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
@@ -78,6 +78,7 @@ type PrometheusMetrics struct {
 	RangeableInMemoryRebuildDegraded *prometheus.CounterVec
 	MigrationRecordsWedged           prometheus.Counter
 	MigrationRecordsNotUnderstood    prometheus.Counter
+	ReindexHeldShards                prometheus.Gauge
 
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
@@ -104,17 +105,14 @@ type PrometheusMetrics struct {
 	VectorIndexQueueInsertCount *prometheus.CounterVec
 	VectorIndexQueueDeleteCount *prometheus.CounterVec
 
-	VectorIndexTombstones              *prometheus.GaugeVec
-	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
-	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
-	VectorIndexTombstoneUnexpected     *prometheus.CounterVec
-	VectorIndexTombstoneCycleStart     *prometheus.GaugeVec
-	VectorIndexTombstoneCycleEnd       *prometheus.GaugeVec
-	VectorIndexTombstoneCycleProgress  *prometheus.GaugeVec
-	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDurations               *prometheus.SummaryVec
-	VectorIndexSize                    *prometheus.GaugeVec
-	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
+	VectorIndexTombstones             *prometheus.GaugeVec
+	VectorIndexTombstoneCycleStart    *prometheus.GaugeVec
+	VectorIndexTombstoneCycleEnd      *prometheus.GaugeVec
+	VectorIndexTombstoneCycleProgress *prometheus.GaugeVec
+	VectorIndexOperations             *prometheus.GaugeVec
+	VectorIndexDurations              *prometheus.SummaryVec
+	VectorIndexSize                   *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations   *prometheus.SummaryVec
 	// IVF
 	VectorIndexPostings                      *prometheus.GaugeVec
 	VectorIndexPostingSize                   *prometheus.HistogramVec
@@ -126,6 +124,8 @@ type PrometheusMetrics struct {
 	VectorDimensionsSum                 *prometheus.GaugeVec
 	VectorSegmentsSum                   *prometheus.GaugeVec
 	VectorIndexMemoryAllocationRejected prometheus.Counter
+	VectorCacheArenaSlabBytes           prometheus.Gauge
+	VectorCacheArenaLiveVectors         prometheus.Gauge
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -146,21 +146,15 @@ type PrometheusMetrics struct {
 
 	LazyShardWarmupDecisions *prometheus.CounterVec
 
-	// ShardHaltForTransferForceResume: non-zero means a transfer was
-	// force-resumed mid-stream — compaction may have raced the transfer.
-	ShardHaltForTransferForceResume *prometheus.CounterVec
-
-	// RAFT-based schema metrics
-	SchemaWrites              *prometheus.SummaryVec
-	SchemaReadsLocal          *prometheus.SummaryVec
-	SchemaReadsLeader         *prometheus.SummaryVec
-	SchemaWaitForVersion      *prometheus.SummaryVec
+	// RAFT-based schema metrics.
+	SchemaWrites              *prometheus.HistogramVec
+	SchemaReadsLocal          *prometheus.HistogramVec
+	SchemaReadsLeader         *prometheus.HistogramVec
+	SchemaWaitForVersion      *prometheus.HistogramVec
 	SchemaLeaderQueryFailures *prometheus.CounterVec
 
-	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
-	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
-	TombstoneReassignNeighbors    *prometheus.CounterVec
-	TombstoneDeleteListSize       *prometheus.GaugeVec
+	TombstoneReassignNeighbors *prometheus.CounterVec
+	TombstoneDeleteListSize    *prometheus.GaugeVec
 
 	Group bool
 	// Keeping metering to only the critical buckets (objects, vectors_compressed)
@@ -350,9 +344,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexQueueInsertCount.DeletePartialMatch(labels)
 	pm.VectorIndexQueueDeleteCount.DeletePartialMatch(labels)
 	pm.VectorIndexTombstones.DeletePartialMatch(labels)
-	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
-	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
-	pm.VectorIndexTombstoneUnexpected.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCycleStart.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCycleEnd.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCycleProgress.DeletePartialMatch(labels)
@@ -453,6 +444,11 @@ var (
 	// histogram_quantile resolves sub-5ms requests instead of collapsing them into
 	// one bucket. Derived from LatencyBuckets so the shared tail can't drift.
 	RequestLatencyBuckets = append([]float64{.0001, .00025, .0005, .001, .0025}, LatencyBuckets...)
+
+	// schemaLocalReadBuckets resolves below LatencyBuckets' 5ms floor. A healthy local schema read
+	// is tens of microseconds, so the signal worth seeing is it degrading into the milliseconds
+	// under lock contention -- which LatencyBuckets would collapse into one bucket.
+	schemaLocalReadBuckets = []float64{.00005, .0001, .00025, .0005, .001, .0025, .005, .01, .05, .1, .5, 1, 5, 10}
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
@@ -633,10 +629,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
-		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "file_io_reads_total_bytes",
-			Help: "Total number of bytes read from disk",
-		}, []string{"operation"}),
+		FileIOReads: NewStripedSummaryVec("file_io_reads_total_bytes",
+			"Total number of bytes read from disk", "operation"),
 		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "mmap_operations_total",
 			Help: "Total number of mmap operations",
@@ -654,6 +648,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		MigrationRecordsWedged: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "migration_records_wedged_total",
 			Help: "Reindex migration records a reconciliation pass left standing, either wedged for a reason no later load can change or with a reconciliation that errored. A shard load counts every one it found, and a periodic pass counts only the ones it newly wedged, so the total is a sum of diagnoses rather than a count of distinct records; the log line for each names the record and the shard.",
+		}),
+		ReindexHeldShards: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "reindex_held_shards",
+			Help: "Shards on this node held READONLY because a reindex migration's double-write mirror could not arm and its Unmirrored stamp could not be written. Each needs its cause cleared; the node's Error log line names the shard and the cause.",
 		}),
 		MigrationRecordsNotUnderstood: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "migration_records_not_understood_total",
@@ -697,18 +695,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_tombstones",
 			Help: "Number of active vector index tombstones",
 		}, []string{"class_name", "shard_name"}),
-		VectorIndexTombstoneCleanupThreads: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_index_tombstone_cleanup_threads",
-			Help: "Number of threads in use to clean up tombstones",
-		}, []string{"class_name", "shard_name"}),
-		VectorIndexTombstoneCleanedCount: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "vector_index_tombstone_cleaned",
-			Help: "Total number of deleted objects that have been cleaned up",
-		}, []string{"class_name", "shard_name"}),
-		VectorIndexTombstoneUnexpected: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "vector_index_tombstone_unexpected_total",
-			Help: "Total number of unexpected tombstones that were found, for example because a vector was not found for an existing id in the index",
-		}, []string{"class_name", "shard_name", "operation"}),
 		VectorIndexTombstoneCycleStart: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstone_cycle_start_timestamp_seconds",
 			Help: "Unix epoch timestamp of the start of the current tombstone cleanup cycle",
@@ -774,8 +760,17 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_vector_index_memory_allocation_rejected_total",
 			Help: "Total number of batch operations rejected per node due to insufficient memory",
 		}),
+		VectorCacheArenaSlabBytes: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_vector_cache_arena_slab_bytes",
+			Help: "Bytes held by arena vector cache chunks per node (VECTOR_CACHE_IMPL=arena only). Compare with live_vectors times the record size: chunks are not reclaimed on delete",
+		}),
+		VectorCacheArenaLiveVectors: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_vector_cache_arena_live_vectors",
+			Help: "Live records held by arena vector caches per node (VECTOR_CACHE_IMPL=arena only)",
+		}),
 
 		// Startup metrics
+		// TODO: remove StartupProgress (and its DeleteShard call) in the next minor; nothing mints it any more
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
 			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
@@ -887,41 +882,37 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of shards the startup warmup sweep considered, by what it did with each",
 		}, []string{"outcome"}),
 
-		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "shard_halt_for_transfer_force_resume_total",
-			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
-		}, []string{}),
-
-		// RAFT-based schema metrics
-		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_writes_seconds",
-			Help: "Duration of schema writes (which always involve the leader)",
+		// Namespaced for consistency with the rest of the weaviate_* family.
+		SchemaWrites: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_writes_seconds",
+			Help:      "Duration of schema writes (which always involve the leader)",
+			Buckets:   LatencyBuckets,
 		}, []string{"type"}),
-		SchemaReadsLocal: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_reads_local_seconds",
-			Help: "Duration of local schema reads that do not involve the leader",
+		SchemaReadsLocal: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_reads_local_seconds",
+			Help:      "Duration of local schema reads that do not involve the leader",
+			Buckets:   schemaLocalReadBuckets,
 		}, []string{"type"}),
-		SchemaReadsLeader: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_reads_leader_seconds",
-			Help: "Duration of schema reads that are passed to the leader",
+		SchemaReadsLeader: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_reads_leader_seconds",
+			Help:      "Duration of schema reads that are passed to the leader",
+			Buckets:   LatencyBuckets,
 		}, []string{"type"}),
-		SchemaWaitForVersion: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_wait_for_version_seconds",
-			Help: "Duration of waiting for a schema version to be reached",
+		SchemaWaitForVersion: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_wait_for_version_seconds",
+			Help:      "Duration of waiting for a schema version to be reached",
+			Buckets:   LatencyBuckets,
 		}, []string{"type"}),
 		SchemaLeaderQueryFailures: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_schema_leader_query_failures_total",
-			Help: "Schema queries forwarded to the RAFT leader that failed, by query type and reason (no_leader, conn_closed, ctx_canceled, leader_error)",
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_leader_query_failures_total",
+			Help:      "Schema queries forwarded to the RAFT leader that failed, by query type and reason (no_leader, conn_closed, ctx_canceled, leader_error)",
 		}, []string{"query_type", "reason"}),
 
-		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tombstone_find_local_entrypoint",
-			Help: "Total number of tombstone delete local entrypoint calls",
-		}, []string{"class_name", "shard_name"}),
-		TombstoneFindGlobalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tombstone_find_global_entrypoint",
-			Help: "Total number of tombstone delete global entrypoint calls",
-		}, []string{"class_name", "shard_name"}),
 		TombstoneReassignNeighbors: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "tombstone_reassign_neighbors",
 			Help: "Total number of tombstone reassign neighbor calls",
@@ -1060,6 +1051,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 	}
 
+	m.Registerer.MustRegister(m.FileIOReads)
+
 	if err := m.initObjectsTtl(); err != nil {
 		panic(err)
 	}
@@ -1145,6 +1138,15 @@ func (m *PrometheusMetrics) AddMigrationRecordsWedged(wedged, notUnderstood int)
 	if notUnderstood > 0 {
 		m.MigrationRecordsNotUnderstood.Add(float64(notUnderstood))
 	}
+}
+
+// AddReindexHeldShards is unlabelled for the same reason. A gauge works here because
+// every held shard moves it back down when it is lifted, shut down or dropped.
+func (m *PrometheusMetrics) AddReindexHeldShards(delta float64) {
+	if m == nil {
+		return
+	}
+	m.ReindexHeldShards.Add(delta)
 }
 
 const (

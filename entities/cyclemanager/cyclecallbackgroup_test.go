@@ -1827,10 +1827,10 @@ func TestCycleCallback_RunWithIntervals(t *testing.T) {
 				cm.Start()
 				// Under the fake clock, 400ms of simulated time is instant.
 				// synctest.Wait() after the sleep ensures the manager has
-				// processed all ticks before we call StopAndWait.
+				// processed all ticks before we stop it.
 				time.Sleep(400 * time.Millisecond)
 				synctest.Wait()
-				cm.StopAndWait(context.Background()) //nolint:errcheck
+				<-cm.Stop(context.Background())
 
 				mu.Lock()
 				times1 = make([]time.Duration, len(executionTimes1))

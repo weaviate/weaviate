@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -264,12 +265,14 @@ func TestShardKnownShut(t *testing.T) {
 	require.NotNil(t, m.Load("torn"))
 }
 
-// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome.
+// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome and
+// the level of the restore line.
 func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 	tests := []struct {
 		name        string
 		shutdownErr error
 		want        ShardUnloadOutcome
+		wantLevels  []logrus.Level
 	}{
 		{
 			name: "a clean shutdown",
@@ -285,22 +288,26 @@ func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 			name:        "a shard still serving requests",
 			shutdownErr: fmt.Errorf("shard %q: %w", "s1", errShardStillInUse),
 			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
 		},
 		{
 			name:        "a backoff that ran out of time",
 			shutdownErr: context.DeadlineExceeded,
 			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
 		},
 		{
 			name:        "a backoff ended by a close request",
 			shutdownErr: context.Canceled,
 			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
 		},
 		{
 			// No other test in the package reaches failed.
 			name:        "a teardown that failed for its own reason",
 			shutdownErr: errors.New("bucket close failed"),
 			want:        ShardUnloadOutcomeFailed,
+			wantLevels:  []logrus.Level{logrus.ErrorLevel},
 		},
 	}
 
@@ -308,11 +315,12 @@ func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			shard := NewMockShardLike(t)
 			shard.On("Shutdown", mock.Anything).Return(tc.shutdownErr)
-			idx := indexForShutdownOutcomeTest(t)
+			idx, hook := indexForShutdownOutcomeTest(t)
 
 			got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", shard)
 
 			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.wantLevels, logLevels(hook))
 			if tc.shutdownErr == nil {
 				require.NoError(t, err)
 				return
@@ -326,24 +334,35 @@ func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 func TestShutdownOrRestoreShardOutcomeTorn(t *testing.T) {
 	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
 	torn.shut.Store(true)
-	idx := indexForShutdownOutcomeTest(t)
+	idx, hook := indexForShutdownOutcomeTest(t)
 
 	got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", torn)
 
 	require.Equal(t, ShardUnloadOutcomeTorn, got)
 	require.ErrorIs(t, err, errTeardownFailed)
 	require.NotNil(t, idx.shards.Load("s1"), "a torn shard is retained in the map")
+	require.Equal(t, []logrus.Level{logrus.ErrorLevel}, logLevels(hook))
 }
 
-// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads.
-func indexForShutdownOutcomeTest(t *testing.T) *Index {
+// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads,
+// with a hook that records every line its logger writes.
+func indexForShutdownOutcomeTest(t *testing.T) (*Index, *test.Hook) {
 	t.Helper()
 
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
 	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
 	require.NoError(t, err)
 
-	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}
+	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}, hook
+}
+
+func logLevels(hook *test.Hook) []logrus.Level {
+	var levels []logrus.Level
+	for _, entry := range hook.AllEntries() {
+		levels = append(levels, entry.Level)
+	}
+	return levels
 }
 
 // TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index and each

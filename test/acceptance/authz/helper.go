@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	"google.golang.org/grpc/metadata"
@@ -45,7 +46,7 @@ const (
 	UUID6 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168246")
 )
 
-const NumBuildInRoles = 4
+const NumBuildInRoles = 5
 
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
 	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
@@ -57,6 +58,14 @@ func createClass(t *testing.T, class *models.Class, auth runtime.ClientAuthInfoW
 	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, auth)
 	return err
+}
+
+// requireDeniedOnce asserts that a 403 message reports action as the only
+// permission the caller lacks.
+func requireDeniedOnce(t *testing.T, message, action string) {
+	t.Helper()
+	require.Equal(t, 1, strings.Count(message, "insufficient permissions"), message)
+	require.Contains(t, message, "insufficient permissions to "+action+" ")
 }
 
 func generateMissingLists(permissions []*models.Permission) [][]*models.Permission {
@@ -255,4 +264,20 @@ func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
 	s.pos = currentPosition
 
 	return newLines
+}
+
+// SkipAuthzLogs consumes authz lines until a read finds none. Docker delivers
+// container logs asynchronously, so a single read can miss lines of requests
+// that already returned, and the next read would count them for the wrong
+// request.
+func (s *logScanner) SkipAuthzLogs(t *testing.T) {
+	t.Helper()
+
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		time.Sleep(200 * time.Millisecond)
+		if len(s.GetAuthzLogs(t)) == 0 {
+			return
+		}
+	}
+	t.Fatal("authz logs still arriving after 10s")
 }

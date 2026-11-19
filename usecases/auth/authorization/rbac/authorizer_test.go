@@ -828,7 +828,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 				// Grant a permissive READ in the data domain to the principal so
 				// the success path runs and emits one info-level entry.
 				_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"),
-					"*", authorization.READ, authorization.DataDomain)
+					conv.CasbinData("*", "*"), authorization.READ, authorization.DataDomain)
 				require.NoError(t, err)
 				_, err = m.casbin.AddRoleForUser(
 					conv.UserNameWithTypeFromId(pc.principal.Username, authentication.AuthTypeDb),
@@ -920,6 +920,38 @@ func TestAudit_MalformedPrincipal_MarksUnclassifiedAndWarns(t *testing.T) {
 	require.False(t, hasGlobal, "unclassified principal must not be labeled global_operator")
 	_, hasNS := infoEntry.Data["namespace"]
 	require.False(t, hasNS)
+}
+
+// TestAuthorizeEnforceErrorOmitsStack checks that a matcher panic on a stored
+// pattern keeps casbin's goroutine stack in the log and out of the error.
+func TestAuthorizeEnforceErrorOmitsStack(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+	// The authz API never stores a verb that does not compile, and casbin's
+	// regexMatch panics on one.
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("bad"), "aliases/collections/.*/aliases/.*", "(", authorization.AliasesDomain)
+	require.NoError(t, err)
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb), []string{"bad"}))
+	principal := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+	resource := "aliases/collections/Movies/aliases/Foo"
+
+	check := func(t *testing.T, err error) {
+		t.Helper()
+		require.ErrorContains(t, err, "error parsing regexp")
+		assert.NotContains(t, err.Error(), "goroutine")
+		assert.NotContains(t, err.Error(), "\n")
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		assert.Contains(t, entry.Message, "goroutine", "the log must keep the stack")
+	}
+	t.Run("authorize", func(t *testing.T) {
+		check(t, m.Authorize(context.Background(), principal, authorization.READ, resource))
+	})
+	t.Run("filter", func(t *testing.T) {
+		_, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, resource)
+		check(t, err)
+	})
 }
 
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {

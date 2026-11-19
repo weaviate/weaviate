@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 type MigrationState string
@@ -39,30 +40,45 @@ const (
 type MigrationStrategyCode string
 
 const (
-	StrategyCodeSearchableMapToBlockmax     MigrationStrategyCode = MigrationDirSearchableMapToBlockmax
-	StrategyCodeFilterableRoaringsetRefresh MigrationStrategyCode = MigrationDirFilterableRoaringsetRefresh
-	StrategyCodeFilterableToRangeable       MigrationStrategyCode = MigrationDirPrefixFilterableToRangeable
-	StrategyCodeSearchableRetokenize        MigrationStrategyCode = MigrationDirPrefixSearchableRetokenize
-	StrategyCodeFilterableRetokenize        MigrationStrategyCode = MigrationDirPrefixFilterableRetokenize
-	StrategyCodeEnableFilterable            MigrationStrategyCode = MigrationDirPrefixEnableFilterable
-	StrategyCodeEnableSearchable            MigrationStrategyCode = MigrationDirPrefixEnableSearchable
-	StrategyCodeRebuildSearchable           MigrationStrategyCode = MigrationDirPrefixRebuildSearchable
+	StrategyCodeSearchableMapToBlockmax     MigrationStrategyCode = "searchable_map_to_blockmax"
+	StrategyCodeFilterableRoaringsetRefresh MigrationStrategyCode = "filterable_roaringset_refresh"
+	StrategyCodeFilterableToRangeable       MigrationStrategyCode = "filterable_to_rangeable"
+	StrategyCodeSearchableRetokenize        MigrationStrategyCode = "searchable_retokenize"
+	StrategyCodeFilterableRetokenize        MigrationStrategyCode = "filterable_retokenize"
+	StrategyCodeEnableFilterable            MigrationStrategyCode = "enable_filterable"
+	StrategyCodeEnableSearchable            MigrationStrategyCode = "enable_searchable"
+	StrategyCodeRebuildSearchable           MigrationStrategyCode = "rebuild_searchable"
 )
 
-func (c MigrationStrategyCode) valid() bool {
-	switch c {
-	case StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
-		StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
-		StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
-		StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable:
-		return true
-	default:
-		return false
-	}
+// A valid code missing from this list reads out of a record file name as no code at all.
+var migrationStrategyCodes = []MigrationStrategyCode{
+	StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
+	StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
+	StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
+	StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable,
 }
 
-// TaskVersion is not the generation: that's a separate per-node counter
-// nodes routinely disagree on.
+func (c MigrationStrategyCode) valid() bool {
+	return slices.Contains(migrationStrategyCodes, c)
+}
+
+func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool) {
+	rest, isJSON := strings.CutSuffix(name, ".json")
+	if !isJSON {
+		return "", false
+	}
+	version, rest, split := strings.Cut(rest, "_")
+	if !split || version == "" || strings.TrimLeft(version, "0123456789") != "" {
+		return "", false
+	}
+	for _, code := range migrationStrategyCodes {
+		if unit, ok := strings.CutPrefix(rest, string(code)+"_"); ok && unit != "" {
+			return code, true
+		}
+	}
+	return "", false
+}
+
 type MigrationRecordKey struct {
 	TaskVersion  uint64                `json:"taskVersion"`
 	StrategyCode MigrationStrategyCode `json:"strategyCode"`
@@ -113,10 +129,15 @@ type MigrationSubject struct {
 	TargetTokenization   string               `json:"targetTokenization,omitempty"`
 	OriginalTokenization string               `json:"originalTokenization,omitempty"`
 
+	// A task is rebuilt from the record alone, never from schema state that moved.
+	Collection     string `json:"collection,omitempty"`
+	BucketStrategy string `json:"bucketStrategy,omitempty"`
+
 	// Fixed at first write, never re-derived from a moved clock.
 	IterationCutoff time.Time `json:"iterationCutoff"`
 
-	TrackerDir string `json:"trackerDir,omitempty"`
+	// Writes in the unmirrored window reached the canonical bucket only, so the staged copy must never rename over it.
+	Unmirrored bool `json:"unmirrored,omitempty"`
 
 	Props map[string]MigrationPropertyDirs `json:"props,omitempty"`
 }
@@ -134,6 +155,17 @@ func (s MigrationSubject) dirsInRole(read func(MigrationPropertyDirs) string) ma
 		out[prop] = read(dirs)
 	}
 	return out
+}
+
+func (s MigrationSubject) reindexPayload() ReindexTaskPayload {
+	return ReindexTaskPayload{
+		MigrationType:        s.MigrationType,
+		Collection:           s.Collection,
+		Properties:           s.Properties(),
+		TargetTokenization:   s.TargetTokenization,
+		OriginalTokenization: s.OriginalTokenization,
+		BucketStrategy:       s.BucketStrategy,
+	}
 }
 
 var migrationHorizonEverything = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -183,6 +215,9 @@ type MigrationRecordSwapped struct {
 	migrationRecordBase
 	migrationFlipBlock
 	promotion map[string]migrationPromotionMark
+	// Staged dirs that were empty when the flip was recorded: a copy drops an
+	// empty dir, and that must not read as a staged directory lost with data in it.
+	stagedEmpty []string
 }
 
 type migrationPromotionMark string
@@ -219,7 +254,7 @@ func NewMigrationRecordMerged(subject MigrationSubject) MigrationRecordMerged {
 }
 
 func NewMigrationRecordSwapped(subject MigrationSubject, flipped []string, displacedDirs map[string]string) MigrationRecordSwapped {
-	return MigrationRecordSwapped{migrationRecordBase{subject}, migrationFlipBlock{flipped, displacedDirs}, nil}
+	return MigrationRecordSwapped{migrationRecordBase{subject}, migrationFlipBlock{flipped, displacedDirs}, nil, nil}
 }
 
 func (r MigrationRecordSwapped) PromotionOf(prop string) migrationPromotionMark {
@@ -232,6 +267,15 @@ func (r MigrationRecordSwapped) WithPromotionAt(prop string, mark migrationPromo
 	next[prop] = mark
 	r.promotion = next
 	return r
+}
+
+func (r MigrationRecordSwapped) WithStagedEmpty(props []string) MigrationRecordSwapped {
+	r.stagedEmpty = props
+	return r
+}
+
+func (r MigrationRecordSwapped) StagedWasEmpty(prop string) bool {
+	return slices.Contains(r.stagedEmpty, prop)
 }
 
 func (r MigrationRecordSwapped) WithPromotionAbandoned(prop string) MigrationRecordSwapped {
@@ -267,7 +311,8 @@ type migrationFlipEnvelope struct {
 	DisplacedDirs map[string]string `json:"displacedDirs,omitempty"`
 	// Its own key, not one an earlier shape wrote: a build that reads only the
 	// other key then promotes nothing rather than promoting on a claim it cannot check.
-	Promotion map[string]migrationPromotionMark `json:"promotion,omitempty"`
+	Promotion   map[string]migrationPromotionMark `json:"promotion,omitempty"`
+	StagedEmpty []string                          `json:"stagedEmpty,omitempty"`
 }
 
 type migrationRecordEnvelope struct {
@@ -305,6 +350,7 @@ func (r MigrationRecordSwapped) toEnvelope() migrationRecordEnvelope {
 	env := newMigrationRecordEnvelope(MigrationStateSwapped, r.subject)
 	env.Flip = r.migrationFlipBlock.toEnvelope()
 	env.Flip.Promotion = r.promotion
+	env.Flip.StagedEmpty = r.stagedEmpty
 	return env
 }
 
@@ -315,14 +361,21 @@ func (r MigrationRecordPromoted) toEnvelope() migrationRecordEnvelope {
 }
 
 func encodeMigrationRecord(rec MigrationRecord) ([]byte, error) {
-	env := rec.toEnvelope()
+	return encodeMigrationEnvelope(rec.toEnvelope())
+}
+
+func encodeMigrationEnvelope(env migrationRecordEnvelope) ([]byte, error) {
 	if err := validateMigrationEnvelope(env); err != nil {
 		return nil, err
 	}
-	// Writer-side only: nothing acts on such a record, so refusing it at decode
-	// would freeze a shard over a record that can do nothing.
+	// Writer-side only, so neither check freezes the rest of the shard at decode.
+	// A record naming no properties can do nothing; one naming no collection
+	// can't be re-put — the file stays and an operator removes it by hand.
 	if len(env.Subject.Props) == 0 {
 		return nil, fmt.Errorf("record %q names no properties, so nothing could ever act on it", env.Subject.Key)
+	}
+	if env.Subject.Collection == "" {
+		return nil, fmt.Errorf("record %q has no collection", env.Subject.Key)
 	}
 	data, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
@@ -347,6 +400,9 @@ func validateMigrationEnvelope(e migrationRecordEnvelope) error {
 	}
 	if !migrationTypeKnown(e.Subject.MigrationType) {
 		return fmt.Errorf("record %q names unknown migration type %q", e.Subject.Key, e.Subject.MigrationType)
+	}
+	if s := e.Subject.BucketStrategy; s != "" && !lsmkv.IsExpectedStrategy(s) {
+		return fmt.Errorf("record %q names unknown bucket strategy %q", e.Subject.Key, s)
 	}
 	if err := validateMigrationHandles(e); err != nil {
 		return err
@@ -503,6 +559,7 @@ func decodeMigrationRecord(data []byte) (MigrationRecord, error) {
 		}
 		swapped := NewMigrationRecordSwapped(env.Subject, env.Flip.Flipped, env.Flip.DisplacedDirs)
 		swapped.promotion = env.Flip.Promotion
+		swapped.stagedEmpty = env.Flip.StagedEmpty
 		return swapped, nil
 	case MigrationStatePromoted:
 		if err := env.requireBlocks(migrationBlocks{flip: true}); err != nil {
@@ -546,8 +603,6 @@ type migrationHandleGroup struct {
 	// reserved set.
 	namesDirectory bool
 
-	underMigrationsDir bool
-
 	shape migrationHandleShape
 }
 
@@ -564,11 +619,6 @@ func (g migrationHandleGroup) handles(e migrationRecordEnvelope) []string {
 }
 
 var migrationHandleGroups = []migrationHandleGroup{
-	{
-		field:          "tracker directory",
-		namesDirectory: true, underMigrationsDir: true,
-		envelopeHandles: func(e migrationRecordEnvelope) []string { return []string{e.Subject.TrackerDir} },
-	},
 	{
 		field:          string(migrationRoleStaged),
 		dirs:           func(e migrationRecordEnvelope) map[string]string { return e.Subject.dirsInRole(migrationStagedOf) },
@@ -600,6 +650,16 @@ var migrationHandleGroups = []migrationHandleGroup{
 		shape:              migrationShapePropertyBucket,
 		displacesCanonical: true,
 	},
+}
+
+func migrationRolesWithShape(shape migrationHandleShape) []migrationDirRole {
+	var out []migrationDirRole
+	for _, group := range migrationHandleGroups {
+		if group.shape == shape {
+			out = append(out, migrationDirRole(group.field))
+		}
+	}
+	return out
 }
 
 func (e migrationRecordEnvelope) displacedDirs() map[string]string {
@@ -648,8 +708,7 @@ func validateMigrationHandles(e migrationRecordEnvelope) error {
 	return nil
 }
 
-// ".migrations"/"records" would let a teardown remove the tracker/record
-// store; "objects" is the shard's whole object store.
+// ".migrations"/"records" would let a teardown remove the record store; "objects" is the shard's whole object store.
 func migrationReservedDirName(h string) bool {
 	return h == migrationsDir || h == migrationRecordsDirName || h == helpers.ObjectsBucketLSM
 }

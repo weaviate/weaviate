@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -166,6 +167,14 @@ func attributeDedupedShardSizes(log logrus.FieldLogger, desc *backup.Distributed
 		return 0
 	}
 	var skipped int64
+	var skippedClasses dedupeAnomaly
+	var firstSkipErr error
+	defer func() {
+		if skippedClasses.count > 0 {
+			log.Warnf("dedupe size attribution skipped %d classes %s, first: class %q: %v",
+				skippedClasses.count, skippedClasses, skippedClasses.examples[0], firstSkipErr)
+		}
+	}()
 	classes := make([]string, 0, len(desc.DedupeDesignations))
 	for class := range desc.DedupeDesignations {
 		classes = append(classes, class)
@@ -175,7 +184,11 @@ func attributeDedupedShardSizes(log logrus.FieldLogger, desc *backup.Distributed
 		shards := desc.DedupeDesignations[class]
 		state, err := classShardingState(desc, nodeMetas, class, shards)
 		if err != nil {
-			log.WithField("class", class).Warnf("dedupe size attribution skips class: %v", err)
+			skippedClasses.add(class)
+			if firstSkipErr == nil {
+				firstSkipErr = err
+			}
+			log.WithField("class", class).Debugf("dedupe size attribution skips class: %v", err)
 			continue
 		}
 		shardNames := make([]string, 0, len(shards))
@@ -296,4 +309,32 @@ func sleepUntil(ctx context.Context, t time.Time) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// _dedupeLogExamples caps the items a dedupe anomaly names, so one line stays bounded on 30k-class or 30k-tenant clusters.
+const _dedupeLogExamples = 10
+
+// dedupeAnomaly tallies a per-class or per-shard anomaly so it is warned once per operation, not once per item.
+type dedupeAnomaly struct {
+	count    int
+	examples []string
+}
+
+func (a *dedupeAnomaly) add(item string) {
+	a.count++
+	if len(a.examples) < _dedupeLogExamples {
+		a.examples = append(a.examples, item)
+	}
+}
+
+func (a dedupeAnomaly) String() string {
+	return cappedNameList(a.examples, a.count)
+}
+
+// cappedNameList renders "[a b c]", or "[a b c +N more]" when total exceeds the names shown.
+func cappedNameList(names []string, total int) string {
+	if total > len(names) {
+		return fmt.Sprintf("[%s +%d more]", strings.Join(names, " "), total-len(names))
+	}
+	return "[" + strings.Join(names, " ") + "]"
 }

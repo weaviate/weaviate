@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 func TestAuthorizeRoleScopes(t *testing.T) {
@@ -247,6 +248,47 @@ func TestAuthorizeRoleScopes(t *testing.T) {
 					Return(errors.New("missing delete permission")).Once()
 			},
 			expectedError: "missing delete permission",
+		},
+		{
+			name:         "has role scope match but misses one verb of a manage permission",
+			principal:    &models.Principal{Username: "user"},
+			originalVerb: authorization.UPDATE,
+			policies: []authorization.Policy{
+				{Resource: conv.CasbinBackups("*"), Verb: conv.CRUD},
+			},
+			roleName: "existingRole",
+			authorizeSetup: func(a *authorization.MockAuthorizer) {
+				a.On("Authorize", mock.Anything, &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("existingRole")[0]).
+					Return(errors.New("no full permissions")).Once()
+				a.On("Authorize", mock.Anything, &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("existingRole")[0]).
+					Return(nil).Once()
+				// Deny only the last verb of the union, so the check must walk past the granted ones.
+				a.On("AuthorizeSilent", mock.Anything, &models.Principal{Username: "user"}, mock.Anything, conv.CasbinBackups("*")).
+					Return(func(_ context.Context, _ *models.Principal, verb string, _ ...string) error {
+						if verb == authorization.DELETE {
+							return errors.New("missing delete permission")
+						}
+						return nil
+					})
+			},
+			expectedError: "missing delete permission",
+		},
+		{
+			name:         "has role scope match for delete of a permission-less role",
+			principal:    &models.Principal{Username: "user"},
+			originalVerb: authorization.DELETE,
+			policies:     []authorization.Policy{{Resource: conv.InternalPlaceHolder}},
+			roleName:     "emptyRole",
+			authorizeSetup: func(a *authorization.MockAuthorizer) {
+				a.On("Authorize", mock.Anything, &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("emptyRole")[0]).
+					Return(errors.New("no full permissions")).Once()
+				a.On("Authorize", mock.Anything, &models.Principal{Username: "user"}, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles("emptyRole")[0]).
+					Return(nil).Once()
+				// The enforcer denies the placeholder row, whose verb is empty.
+				a.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("forbidden")).Maybe()
+			},
+			expectedError: "",
 		},
 		{
 			name:         "get role fails during delete",

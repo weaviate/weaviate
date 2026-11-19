@@ -69,55 +69,6 @@ func (b *Batch) Cancel() {
 	}
 }
 
-// MergeBatches merges multiple batches into a single batch.
-// It will ignore nil batches.
-// It will execute the OnDone and OnCanceled functions of all batches.
-func MergeBatches(batches ...*Batch) *Batch {
-	// count the number of tasks
-	var numTasks int
-	for _, batch := range batches {
-		if batch == nil {
-			continue
-		}
-
-		numTasks += len(batch.Tasks)
-	}
-
-	tasks := make([]Task, 0, numTasks)
-	onDoneFns := make([]func(), 0, len(batches))
-	onCanceledFns := make([]func(), 0, len(batches))
-
-	for _, batch := range batches {
-		if batch == nil {
-			continue
-		}
-
-		if len(batch.Tasks) > 0 {
-			tasks = append(tasks, batch.Tasks...)
-		}
-		if batch.OnDone != nil {
-			onDoneFns = append(onDoneFns, batch.OnDone)
-		}
-		if batch.OnCanceled != nil {
-			onCanceledFns = append(onCanceledFns, batch.OnCanceled)
-		}
-	}
-
-	return &Batch{
-		Tasks: tasks,
-		OnDone: func() {
-			for _, fn := range onDoneFns {
-				fn()
-			}
-		},
-		OnCanceled: func() {
-			for _, fn := range onCanceledFns {
-				fn()
-			}
-		},
-	}
-}
-
 type TaskDecoder interface {
 	DecodeTask([]byte) (Task, error)
 }

@@ -186,6 +186,8 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 		// merge=true with a name matching an existing property must skip the
 		// suffix check (case-insensitively) so legacy schemas stay upsert-able.
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
+		fakeSchemaManager.On("ReadOnlyVersionedClass", class.Class).
+			Return(versioned.Class{Class: class, Version: 1}).Maybe()
 		fakeSchemaManager.On("AddProperty", class.Class, mock.Anything).Return(nil).Maybe()
 		upsert := &models.Property{
 			Name:     "Foo_searchable",
@@ -193,6 +195,30 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 		}
 		_, _, err := handler.AddClassProperty(ctx, nil, class.Class, true, upsert)
 		require.NoError(t, err)
+	})
+
+	t.Run("returns the class version when every property already exists", func(t *testing.T) {
+		// Callers gate their writes on this version; 0 lets them through before
+		// the owner shard has created the property buckets (0-weaviate-issues#697).
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		title := &models.Property{Name: "title", DataType: schema.DataTypeText.PropString()}
+		class := &models.Class{
+			Class:             "Movie",
+			Properties:        []*models.Property{title},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		const addedAt uint64 = 42
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
+		fakeSchemaManager.On("ReadOnlyVersionedClass", class.Class).
+			Return(versioned.Class{Class: class, Version: addedAt})
+
+		same := &models.Property{Name: "title", DataType: schema.DataTypeText.PropString()}
+		got, version, err := handler.AddClassProperty(ctx, nil, class.Class, true, same)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, addedAt, version)
+		fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
 	})
 }
 

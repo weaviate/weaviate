@@ -225,9 +225,10 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		"nodes":   abortedNodes,
 	})
 	if err != nil {
-		l.WithError(err)
+		l.Warnf("abort ttl deletion on all nodes: %v", err)
+	} else {
+		l.Warn("abort ttl deletion on all nodes")
 	}
-	l.Warn("abort ttl deletion on all nodes")
 
 	return anyAborted, err
 }

@@ -402,7 +402,7 @@ func TestAuthzAutoSchemaCollectionCreation(t *testing.T) {
 	// auto-schema path actually runs.
 	_, teardown := composeUpWithSettings(t,
 		map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil,
-		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false, false)
+		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false)
 
 	className := "AutoCreated"
 	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000010").Object()
@@ -528,7 +528,7 @@ func TestAuthzAutoSchemaPropertyAdd(t *testing.T) {
 	// so the property-add path runs.
 	_, teardown := composeUpWithSettings(t,
 		map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil,
-		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false, false)
+		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false)
 
 	cls := articles.ParagraphsClass()
 	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000020").Object()

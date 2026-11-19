@@ -52,17 +52,7 @@ import (
 func writeUsageLimitExceeded(w http.ResponseWriter, le *usagelimits.LimitExceededError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(struct {
-		ErrorCode string `json:"errorCode"`
-		Limit     string `json:"limit"`
-		Value     int64  `json:"value"`
-		Message   string `json:"message"`
-	}{
-		ErrorCode: usagelimits.ErrorCode,
-		Limit:     string(le.Limit),
-		Value:     le.Value,
-		Message:   le.Error(),
-	})
+	w.Write([]byte(le.BodyJSON()))
 }
 
 type indices struct {

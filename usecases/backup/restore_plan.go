@@ -94,7 +94,8 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		return fmt.Errorf("replica-deduped restore: classes %v are missing from the schema source's descriptor; the restore would never create them", missing)
+		return fmt.Errorf("replica-deduped restore: classes %s are missing from the schema source's descriptor; the restore would never create them",
+			cappedNameList(missing[:min(len(missing), _dedupeLogExamples)], len(missing)))
 	}
 	for i := range schema {
 		if _, ok := selected[schema[i].Name]; !ok {
@@ -229,6 +230,20 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 	}
 
 	plan := &restorePlan{compressionType: metas[0].meta.GetCompressionType()}
+	var schemaFallback, noHolder, multiHolder dedupeAnomaly
+	defer func() {
+		log := r.logger.WithField("action", "restore").WithField("backup_id", req.ID)
+		if schemaFallback.count > 0 {
+			log.Warnf("replica-deduped restore: schema source %q has no descriptor for %d classes %s, falling back to the local snapshot, then any source holding the class",
+				req.SchemaSourceNode, schemaFallback.count, schemaFallback)
+		}
+		if noHolder.count > 0 {
+			log.Warnf("replica-deduped restore: no source copy for this node for %d shards %s, restoring nothing for them", noHolder.count, noHolder)
+		}
+		if multiHolder.count > 0 {
+			log.Warnf("replica-deduped restore: several foreign archives hold %d shards %s, restoring each deterministically from the smallest node name", multiHolder.count, multiHolder)
+		}
+	}()
 	for _, class := range req.Classes {
 		// Shard membership must come from the same descriptor whose sharding state the coordinator applies; a participant's own snapshot can be skewed and silently leave an owned shard empty.
 		var schemaDesc *backup.ClassDescriptor
@@ -241,8 +256,9 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 		if schemaDesc == nil {
 			if req.SchemaSourceNode != "" {
 				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("schema_source_fallback").Inc()
+				schemaFallback.add(class)
 				r.logger.WithField("action", "restore").WithField("class", class).
-					Warnf("replica-deduped restore: schema source %q has no descriptor for this class, falling back to the local snapshot, then any source holding the class", req.SchemaSourceNode)
+					Debugf("replica-deduped restore: schema source %q has no descriptor for this class, falling back to the local snapshot, then any source holding the class", req.SchemaSourceNode)
 			}
 			if own != nil {
 				schemaDesc = own.meta.GetClassDescriptor(class)
@@ -281,14 +297,16 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 			}
 			if src == "" {
 				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("no_holder").Inc()
+				noHolder.add(class + "/" + shard)
 				r.logger.WithField("action", "restore").WithField("class", class).
-					WithField("shard", shard).Warnf("replica-deduped restore: no source copy for this node, restoring nothing for this shard")
+					WithField("shard", shard).Debugf("replica-deduped restore: no source copy for this node, restoring nothing for this shard")
 				continue
 			}
 			if ambiguous {
 				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("multi_holder").Inc()
+				multiHolder.add(class + "/" + shard)
 				r.logger.WithField("action", "restore").WithField("class", class).WithField("shard", shard).
-					Warnf("replica-deduped restore: several foreign archives hold this shard, restoring deterministically from %q", src)
+					Debugf("replica-deduped restore: several foreign archives hold this shard, restoring deterministically from %q", src)
 			}
 			perSource[src] = append(perSource[src], shard)
 		}

@@ -31,7 +31,7 @@ import (
 func TestStoreOpenLatchesStartedWithoutRaftState(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
-	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	m.store = &s
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
@@ -62,7 +62,7 @@ func TestReloadDBFromSchemaTagsStartedWithoutRaftState(t *testing.T) {
 			replicationFSM := schema.NewMockreplicationFSM(t)
 			replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
 			replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-			st := NewFSM(cfg, nil, prometheus.NewPedanticRegistry())
+			st := NewFSM(cfg, prometheus.NewPedanticRegistry())
 			st.schemaManager.SetReplicationFSM(replicationFSM)
 			require.NoError(t, st.init())
 			rec.On("TriggerSchemaUpdateCallbacks").Return()

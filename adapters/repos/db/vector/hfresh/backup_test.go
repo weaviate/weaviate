@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,7 +138,10 @@ func TestHFreshBackupListFiles(t *testing.T) {
 	})
 
 	t.Run("SnapshotMutableFiles returns nil (hfresh seals files in PrepareForBackup)", func(t *testing.T) {
-		relPaths, err := index.SnapshotMutableFiles(t.Context(), cfg.RootPath, t.TempDir())
+		staging := t.TempDir()
+		relPaths, err := index.SnapshotMutableFiles(t.Context(), cfg.RootPath, func(relPath string) string {
+			return filepath.Join(staging, relPath)
+		})
 		require.NoError(t, err)
 		require.Nil(t, relPaths)
 	})

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -44,13 +45,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 
 	deprecatedEndpoint := input.Class == ""
@@ -130,7 +131,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
 			principal, m.qualifier, input.Class, targetRef.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		targetRef.Class = qualifiedTarget
 		input.Ref.Class = strfmt.URI(shortTarget)
@@ -141,6 +142,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return &Error{"validate existence", StatusInternalServerError, err}
+		}
 		return &Error{"validate existence", StatusBadRequest, err}
 	}
 

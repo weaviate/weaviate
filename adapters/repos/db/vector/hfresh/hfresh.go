@@ -34,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -51,7 +52,6 @@ var _ common.VectorIndex = (*HFresh)(nil)
 // HFresh is an implementation of a vector index using the SPFresh algorithm.
 // It spawns background workers to handle split, merge, and reassign operations,
 // while exposing a synchronous API for searching and updating vectors.
-// Note: this is a work in progress and not all features are implemented yet.
 type HFresh struct {
 	id               string
 	logger           logrus.FieldLogger
@@ -197,7 +197,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	idStore := NewDurableBucketStore(bucket, newBucketRef(store, postingsBucketName(cfg.ID)))
+	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +214,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
+
+	h.repairOrphanPostings()
 
 	h.taskQueue.Register()
 
@@ -280,7 +283,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	return nil
 }
 
-func (h *HFresh) Drop(ctx context.Context, keepFiles bool) error {
+func (h *HFresh) Drop(ctx context.Context) error {
 	_ = h.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
@@ -375,7 +378,7 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
-func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, nil
 }
 
@@ -424,11 +427,22 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 
+var (
+	errWarmupIncomplete = stderrors.New("version map warmup did not complete")
+	errNothingToWarm    = stderrors.New("version map warmup found nothing to warm")
+)
+
 func (h *HFresh) warmVersionMap() {
 	before := time.Now()
+	prefillDone := monitoring.GetStartupMetrics().PrefillStarted()
+	// failure default: a recovered panic must not record a duration
+	warmupErr := errWarmupIncomplete
+	defer func() { prefillDone(warmupErr) }()
+
 	count, err := h.VersionMap.Warmup(h.ctx)
 	if err != nil {
 		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+		warmupErr = err
 		return
 	}
 
@@ -439,6 +453,7 @@ func (h *HFresh) warmVersionMap() {
 	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+			warmupErr = h.ctx.Err()
 			return
 		}
 
@@ -456,6 +471,11 @@ func (h *HFresh) warmVersionMap() {
 		}()
 	}
 
+	// an empty tenant warms nothing and is not a prefill
+	warmupErr = nil
+	if count+defaults == 0 {
+		warmupErr = errNothingToWarm
+	}
 	h.logger.WithFields(logrus.Fields{
 		"action":   "hfresh_version_map_warmup",
 		"count":    count,

@@ -31,6 +31,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -44,7 +45,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 	object.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -118,6 +119,9 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -128,7 +132,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -168,9 +172,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	validatedID := strfmt.UUID(strings.ToLower(id.String()))
 
 	exists, err := m.vectorRepo.Exists(ctx, className, validatedID, repl, tenant)
-	if exists {
-		return "", NewErrInvalidUserInput("id '%s' already exists", id)
-	} else if err != nil {
+	if err != nil {
 		switch {
 		case errors.As(err, &ErrInvalidUserInput{}):
 			return "", err
@@ -184,6 +186,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 		default:
 			return "", NewErrInternal("%w", err)
 		}
+	}
+	if exists {
+		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	}
 
 	return validatedID, nil

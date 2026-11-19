@@ -64,8 +64,8 @@ func testChangeTokDeleteJourneys(t *testing.T, restURI string) {
 		testChangeTokFilterableBackToBack(t, restURI)
 	})
 
-	t.Run("change_tok_both__cancel__change_tok_filterable", func(t *testing.T) {
-		testChangeTokBothCancelThenChangeTokFilterable(t, restURI)
+	t.Run("change_tok_both__cancel__retry", func(t *testing.T) {
+		testChangeTokBothCancelThenRetry(t, restURI)
 	})
 
 	t.Run("change_tok_filterable__enable_searchable__change_tok_both", func(t *testing.T) {
@@ -79,11 +79,11 @@ func testChangeTokDeleteJourneys(t *testing.T, restURI string) {
 // Pins that the partial migration state left behind by the previous
 // both-indexes retokenize does not interfere with a subsequent
 // filterable-only retokenize, after the searchable index has been
-// deleted. The hazard: change-tok-both writes two distinct .migrations
-// dirs (one per ShardReindexTaskGeneric returned by createReindexTasks).
+// deleted. The hazard: change-tok-both writes two distinct migration
+// records (one per ShardReindexTaskGeneric returned by createReindexTasks).
 // The DELETE wipes the searchable side's bucket. The filterable-only
 // retokenize should run against the still-present filterable bucket
-// with no contamination from the prior filterable retokenize sentinels.
+// with no contamination from the prior filterable retokenize's leftovers.
 func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, restURI string) {
 	const class = "ChangeTokBothDeleteSearchableThenFilterable"
 	trueVal := true
@@ -120,7 +120,7 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 	deleteIndex(t, restURI, class, "name", "searchable")
 
 	// Step 3: filterable-only retokenize from field → word. With both
-	// the searchable bucket and its migration sentinels gone (or never
+	// the searchable bucket and its migration state gone (or never
 	// having existed if step 1 collapsed them properly), this should
 	// retokenize only the filterable bucket cleanly.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
@@ -401,10 +401,9 @@ func testChangeTokBothInFlightDeleteOneIndex(t *testing.T, restURI string) {
 // Journey 5: change-tok-filterable → change-tok-filterable (back-to-back)
 // =============================================================================
 // Pins that two consecutive filterable-only retokenizations on the
-// same property succeed end-to-end. The hazard: the first
-// retokenize's .migrations sentinels survive into the second submit,
-// causing it to short-circuit or fail with a "bucket already exists"
-// error from the staging buckets.
+// same property succeed end-to-end. The hazard: the first retokenize's
+// leftovers survive into the second submit, which then fails with a
+// "bucket already exists" error from the staging buckets.
 func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 	const class = "ChangeTokFilterableBackToBack"
 	trueVal, falseVal := true, false
@@ -450,12 +449,10 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 }
 
 // =============================================================================
-// Journey 6: change-tok-both → cancel mid-run → change-tok-filterable
+// Journey 6: change-tok-both → cancel mid-run → change-tok-both
 // =============================================================================
-// Submits change-tok-both, cancels it mid-iteration, then submits
-// change-tok-filterable. The cancel cleanup for the both-indexes
-// migration must leave the filterable side in a state where the
-// filterable-only retokenize can proceed.
+// Resubmits change-tok-both after a mid-run cancel — a filterable-only
+// retry is refused since the property also has a searchable index.
 //
 // Both cleanups sweep every index type the migration touches:
 // indexTypesFromMigrationType returns "searchable" and "filterable" for
@@ -463,10 +460,9 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 // the indexName in the cancel path and submitReindexTask's pre-submit
 // cleanup runs for both sides. This journey pins that: cancelling
 // change-tok-both via POST .../index/searchable/cancel must leave no
-// filterable-side state behind to corrupt the change-tok-filterable
-// that follows.
-func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string) {
-	const class = "ChangeTokBothCancelThenFilterable"
+// filterable-side state behind to corrupt the retry that follows.
+func testChangeTokBothCancelThenRetry(t *testing.T, restURI string) {
+	const class = "ChangeTokBothCancelThenRetry"
 	trueVal := true
 	helper.CreateClass(t, &models.Class{
 		Class: class,
@@ -497,11 +493,11 @@ func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string
 	requestBody := `{"tokenization":"field"}`
 	cancelInFlightOrSkip(t, restURI, class, "name", "searchable", requestBody)
 
-	// Step 2: submit change-tok-filterable. The cancel left state behind
+	// Step 2: submit change-tok-both again. The cancel left state behind
 	// for the filterable side that was being retokenized. If that state
 	// isn't cleaned up, this submit either short-circuits or fails.
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
-		`{"tokenization":"field"}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "field")
 
@@ -510,8 +506,8 @@ func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string
 	// matches doc_0; Equal('shared') matches none.
 	hits := equalFilterHits(t, class, "name", "doc_0 shared")
 	require.Equal(t, 1, hits,
-		"post-cancel-then-filterable: Equal('doc_0 shared') must hit 1; got %d. "+
-			"If 0, the change-tok-filterable submitted against torn state from the "+
+		"post-cancel-then-retry: Equal('doc_0 shared') must hit 1; got %d. "+
+			"If 0, the retried change-tok-both submitted against torn state from the "+
 			"cancelled change-tok-both run produced an empty bucket (Sev 1)", hits)
 }
 

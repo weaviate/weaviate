@@ -31,6 +31,8 @@ const unlicensedNamespacesDetail = "Every REST, gRPC and MCP data request that n
 	"are not refused, but restoring a namespaced backup needs its namespaces to exist and be active. " +
 	"Every namespace operation (create, update, get, list, delete, suspend and resume) is refused with 403, " +
 	"so this node cannot create or resume those namespaces. " +
+	"The suspend reconcile job does not run, so a namespace suspended through a licensed node " +
+	"keeps its shards loaded on this node until a restart. " +
 	"Users and roles can still be written, but grant no data access."
 
 // namespaceModeFor is the only code that pairs NAMESPACES_ENABLED with

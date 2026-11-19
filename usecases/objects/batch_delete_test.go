@@ -135,16 +135,6 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					DryRun: ptBool(false),
 					Output: ptString(verbosity.OutputVerbose),
 					Match: &models.BatchDeleteMatch{
-						Class: "",
-					},
-				},
-				expectedError: "validate: empty match.class clause",
-			},
-			{
-				input: &models.BatchDelete{
-					DryRun: ptBool(false),
-					Output: ptString(verbosity.OutputVerbose),
-					Match: &models.BatchDeleteMatch{
 						Class: "Foo",
 					},
 				},
@@ -214,6 +204,33 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 				require.Error(t, err)
 				var invalid ErrInvalidUserInput
 				require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
+			})
+		}
+	})
+
+	t.Run("empty match.class is refused before authorization", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			principal *models.Principal
+			nsEnabled bool
+		}{
+			{name: "namespaces off"},
+			{name: "namespaced caller", principal: &models.Principal{Username: "u", Namespace: "customer1"}, nsEnabled: true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, b, _, _, authz := newNSManagers(t, nil, tt.nsEnabled)
+				// Deny the every-collection resource, as RBAC does for a caller scoped to named collections.
+				authz.Deny(authorization.ShardsData("", "")...)
+				match := &models.BatchDeleteMatch{
+					Class: "",
+					Where: &models.WhereFilter{Path: []string{"name"}, Operator: "Equal", ValueText: ptString("v")},
+				}
+
+				_, err := b.DeleteObjects(ctx, tt.principal, match, nil, nil, nil, nil, "")
+				var invalid ErrInvalidUserInput
+				require.ErrorAs(t, err, &invalid)
+				require.EqualError(t, err, "empty match.class clause")
 			})
 		}
 	})
@@ -387,29 +404,32 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 }
 
 // Test_BatchDelete_ValidationKeepsDenials pins that validateBatchDelete returns
-// a denied class lookup or filter class read as a Forbidden, so REST answers
-// 403. Any other lookup failure is ErrInvalidUserInput.
+// a denied class read or filter class read as a Forbidden, so REST answers 403.
+// A failed class lookup is ErrInvalidUserInput.
 func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
 	principal := &models.Principal{Username: "u"}
 	denied := authzerrs.NewForbidden(principal, authorization.READ, "Foo")
 
 	cases := []struct {
-		name          string
-		schemaErr     error
-		denyFilter    bool
+		name      string
+		schemaErr error
+		// denyAfter lets that many authorizer calls pass and denies the rest: the
+		// DELETE check, then the namespace gate's class READ, then the filter's
+		// class READ. Zero denies nothing.
+		denyAfter     int
 		wantForbidden bool
 		wantMsg       string
 	}{
 		{
-			name: "class lookup denied", schemaErr: denied, wantForbidden: true,
-			wantMsg: "validate: failed to get class: Foo: " + denied.Error(),
+			name: "class read denied at the gate", denyAfter: 1, wantForbidden: true,
+			wantMsg: "validate: " + denied.Error(),
 		},
 		{
 			name: "class lookup failed", schemaErr: errors.New("schema unavailable"),
 			wantMsg: "validate: failed to get class: Foo: schema unavailable",
 		},
 		{
-			name: "filter class read denied", denyFilter: true, wantForbidden: true,
+			name: "filter class read denied", denyAfter: 2, wantForbidden: true,
 			wantMsg: "validate: invalid where filter: ",
 		},
 	}
@@ -430,9 +450,8 @@ func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
 			}}
 			schemaManager := &fakeSchemaManager{GetSchemaResponse: sch, GetschemaErr: tc.schemaErr}
 			authorizer := mocks.NewMockAuthorizer()
-			if tc.denyFilter {
-				// The first call is DeleteObjects' own DELETE check.
-				authorizer.SetErrAfter(1, denied)
+			if tc.denyAfter > 0 {
+				authorizer.SetErrAfter(tc.denyAfter, denied)
 			}
 			logger, _ := test.NewNullLogger()
 			vectorRepo := &fakeObjectFinder{}

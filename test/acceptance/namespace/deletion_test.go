@@ -79,8 +79,12 @@ func TestNamespaces_DeleteHappyPath(t *testing.T) {
 
 	helper.GetAliasWithAuthzNotFound(t, qualifiedAlias, helper.CreateAuth(adminKey))
 
-	_, err = schemaDumpAs(t, userKey)
-	require.Error(t, err, "user %q should no longer authenticate", qualifiedUser)
+	// The key is polled, because the 404 above is the leader's and the client's
+	// node may still be applying the delete.
+	require.Eventually(t, func() bool {
+		_, err := schemaDumpAs(t, userKey)
+		return err != nil
+	}, 10*time.Second, 50*time.Millisecond, "user %q should no longer authenticate", qualifiedUser)
 }
 
 // TestNamespaces_DeleteUserAuthBlockedClusterWide creates a namespace +
@@ -118,7 +122,7 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 			}
 			var unauth *schema.SchemaDumpUnauthorized
 			return errors.As(err, &unauth)
-		}, 10*time.Second, 50*time.Millisecond,
+		}, helper.DBUserKeyTimeout, 50*time.Millisecond,
 			"auth must fail on node %s after namespace delete", nodeURI)
 	}
 	// Restore for subsequent tests; t.Cleanup also covers it.
@@ -313,14 +317,14 @@ func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
 		"batch loop should commit some objects before DELETE")
 
 	helper.DeleteNamespace(t, ns, adminKey)
+
+	// (a) The batch loop must see a failure, or the test never overlapped DELETE
+	// with writes. It runs past DeleteNamespace, whose 404 is the leader's, until
+	// the client's node has applied the delete too.
+	require.Eventually(t, func() bool { return batchFailed.Load() > 0 },
+		10*time.Second, 50*time.Millisecond, "expected at least one batch failure after the namespace delete")
 	cancel()
 	wg.Wait()
-
-	// (a) The batch loop must have seen failures once the class was deleted
-	// — otherwise the test never actually overlapped DELETE with writes.
-	require.Greater(t, batchFailed.Load(), int64(0),
-		"expected at least one batch failure after class delete; ok=%d failed=%d",
-		batchOK.Load(), batchFailed.Load())
 
 	// The last failure must be a typed REST error (any 4xx is fine), not
 	// a 500 from torn state.
@@ -422,8 +426,8 @@ func dataDirEntries(ctx context.Context, node int) ([]string, error) {
 }
 
 // requireClassDirsReclaimed waits until no ./data entry on any node contains a
-// lowercased class name. A drop first appends ".deleteme" or prepends
-// "__DELETE_ME_AFTER_BACKUP__", so equality and prefix tests both miss it.
+// lowercased class name. A drop first renames the dir to
+// "<name>.<ts>.<hex>.deleteme", so an equality test misses it.
 func requireClassDirsReclaimed(t *testing.T, ctx context.Context, qualifiedClasses ...string) {
 	t.Helper()
 	require.NotEmpty(t, qualifiedClasses, "nothing to assert the absence of")
@@ -464,7 +468,7 @@ func TestNamespaces_DeleteSuspendedNamespace(t *testing.T) {
 	qualifiedMT := ns + ":" + mtClassName
 	qualifiedST := ns + ":" + stClassName
 
-	homeNode := helper.CreateNamespace(t, ns, adminKey).HomeNode
+	homeNode := helper.CreateNamespace(t, ns, adminKey).HomeNodes[0]
 	userKey := createNamespacedUser(t, "u1", ns, adminKey)
 
 	// Two of each, so the cascade's alias and class loops run over more than one.

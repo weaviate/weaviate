@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -56,11 +60,10 @@ type replicationFSM interface {
 // FSM-determinism: implementations MUST be pure functions of their
 // arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	// CheckPropertyUpdate gates UpdateProperty. The migration completion
-	// path bypasses this by setting FromInFlightMigration=true on its
-	// own scheduled flip, since the task is still FINALIZING when the
-	// flip lands.
 	CheckPropertyUpdate(className, propertyName string) error
+
+	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
+	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
 	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
@@ -80,6 +83,10 @@ type MutationGuard interface {
 	// coverage baseline; FINISHED records never vouch). Returns non-nil to
 	// reject.
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
+
+	// CheckVectorConfigRemovalAtPropose is the same gate asked on the leader
+	// before the update is appended. It may refuse what the apply accepts.
+	CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
@@ -87,6 +94,7 @@ type MutationGuard interface {
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
+	ForgetGroupsForCollection(collection string, groups []string)
 }
 
 type SchemaManager struct {
@@ -97,11 +105,17 @@ type SchemaManager struct {
 	replicationFSM         replicationFSM
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
+	namespaces             usecasesNamespaces.Exister
 	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
 	// nil = unenforced); read pre-commit, never in the FSM apply path.
 	tenantLimit func() int
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
+	// collectionLimit returns the per-namespace collection cap. Negative means
+	// unlimited; nil means no cap. It is read before commit, never in FSM apply.
+	collectionLimit func() int
+	// collectionLimitErrTemplate resolves the cap-exceeded message (empty = default).
+	collectionLimitErrTemplate func() string
 	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
 	// emitted.
 	shouldLogSlowApply func() bool
@@ -115,12 +129,16 @@ type SchemaManager struct {
 	orphanedClasses map[string]bool
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
+// NewSchemaManager returns a SchemaManager. AddTenants and UpdateTenants read
+// namespaces at apply, so namespaces must return each namespace as of the entry
+// being applied.
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, namespaces usecasesNamespaces.Exister, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, reg),
-		db:     db,
-		parser: parser,
-		log:    log,
+		schema:     NewSchema(nodeId, reg),
+		db:         db,
+		parser:     parser,
+		namespaces: namespaces,
+		log:        log,
 	}
 }
 
@@ -206,12 +224,25 @@ func (s *SchemaManager) HasFrozenTenants(class string) bool {
 		return false
 	}
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if entSchema.TenantIsFrozenOrFreezing(t.ActivityStatus) {
 			return true
 		}
 	}
 	return false
+}
+
+// SetCollectionLimit installs the collection-cap resolvers used by
+// PreApplyFilter (negative = unlimited; nil = unenforced). Call once during FSM
+// bootstrap.
+func (s *SchemaManager) SetCollectionLimit(limit func() int, errTemplate func() string) {
+	s.collectionLimit = limit
+	s.collectionLimitErrTemplate = errTemplate
+}
+
+// CollectionLimitEnforced reports whether a collection cap is in effect.
+// When it is not, Execute skips the per-namespace AddClass lock.
+func (s *SchemaManager) CollectionLimitEnforced() bool {
+	return s.collectionLimit != nil && s.collectionLimit() >= 0
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -247,6 +278,14 @@ func (s *SchemaManager) SetMetadataOnly(v bool) {
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
+}
+
+func (s *SchemaManager) classNamespace(class string) (command.Namespace, bool) {
+	name := namespacing.NamespaceFromQualified(class)
+	if name == "" {
+		return command.Namespace{}, false
+	}
+	return s.namespaces.GetNamespace(name)
 }
 
 // Wires the cascade-delete used by [SchemaManager.DeleteClass]. nil-safe;
@@ -307,6 +346,7 @@ func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
 // dropOrphanedClasses removes the recorded classes' data, skipping any the
 // schema names again: catching up over [DELETE_CLASS C, ADD_CLASS C] records C
 // on the way past, and dropping it here would destroy what the re-add created.
+// Case-insensitive: "FooBar" and "Foobar" share one index directory.
 func (s *SchemaManager) dropOrphanedClasses() {
 	s.orphansMu.Lock()
 	orphans := s.orphanedClasses
@@ -314,8 +354,12 @@ func (s *SchemaManager) dropOrphanedClasses() {
 	s.orphansMu.Unlock()
 
 	present := s.schema.classNames()
+	presentFolded := make(map[string]struct{}, len(present))
+	for name := range present {
+		presentFolded[strings.ToLower(name)] = struct{}{}
+	}
 	for class, hasFrozen := range orphans {
-		if _, revived := present[class]; revived {
+		if _, revived := presentFolded[strings.ToLower(class)]; revived {
 			continue
 		}
 		// DropOrphanedClass, not DeleteClass: no index is loaded to delete.
@@ -377,6 +421,27 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		} else if other != "" {
 			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
 		}
+
+		// Per-namespace collection cap, checked before commit. store.Execute
+		// runs one AddClass per namespace at a time, so this count cannot go
+		// stale before the apply adds to it. An unqualified class counts
+		// against the global total. RESTORE_CLASS is not capped.
+		if s.collectionLimit != nil {
+			if maxCollections := s.collectionLimit(); maxCollections >= 0 &&
+				s.schema.CollectionsCount(namespacing.NamespaceFromQualified(req.Class)) >= maxCollections {
+				tmpl := ""
+				if s.collectionLimitErrTemplate != nil {
+					tmpl = s.collectionLimitErrTemplate()
+				}
+				return usagelimits.NewLimitExceededError(tmpl, usagelimits.LimitCollections, int64(maxCollections))
+			}
+		}
+	}
+
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS {
+		if err := s.admitDroppedVectorConfigRemoval(req); err != nil {
+			return err
+		}
 	}
 
 	// Per-collection tenant cap, enforced pre-commit. store.Execute serializes
@@ -404,6 +469,89 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		}
 	}
 
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT || req.Type == command.ApplyRequest_TYPE_UPDATE_TENANT {
+		if err := s.checkTenantNodesAreHomeNodes(req); err != nil {
+			return err
+		}
+	}
+
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+		return s.checkHomeNodesAgainstClassFactors(req)
+	}
+
+	return nil
+}
+
+// checkTenantNodesAreHomeNodes refuses a namespaced tenant add or explicit unfreeze
+// whose ClusterNodes are not HomeNodes entries in list order.
+// Handler.AddTenants and Handler.UpdateTenants read ClusterNodes from the receiving
+// node's copy of the namespace, which can lag the leader's.
+// TODO(v1.43): remove once no peer older than v1.42 sends ClusterNodes.
+func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) error {
+	ns, ok := s.classNamespace(req.Class)
+	if !ok {
+		return nil
+	}
+	nodes, err := s.placedTenantNodes(req)
+	if err != nil {
+		return err
+	}
+	next := 0
+	for _, node := range ns.HomeNodes {
+		if next < len(nodes) && nodes[next] == node {
+			next++
+		}
+	}
+	if next < len(nodes) {
+		return fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
+	}
+	return nil
+}
+
+// placedTenantNodes returns the ClusterNodes of a tenant add, or of an explicit
+// update that moves a tenant the schema has FROZEN or FREEZING to another status.
+// Apply reads an update's list only to unfreeze, and a FREEZING tenant can be FROZEN
+// by the time apply runs. An implicit activation is not checked, so its list of
+// every storage node can unfreeze a tenant outside the home nodes.
+func (s *SchemaManager) placedTenantNodes(req *command.ApplyRequest) ([]string, error) {
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT {
+		atr := &command.AddTenantsRequest{}
+		if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		return atr.ClusterNodes, nil
+	}
+	utr := &command.UpdateTenantsRequest{}
+	if err := gproto.Unmarshal(req.SubCommand, utr); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if utr.ImplicitUpdateRequest {
+		return nil, nil
+	}
+	wouldUnfreeze := make([]string, 0, len(utr.Tenants))
+	for _, t := range utr.Tenants {
+		if t != nil && t.Status != models.TenantActivityStatusFROZEN {
+			wouldUnfreeze = append(wouldUnfreeze, t.Name)
+		}
+	}
+	held, _ := s.schema.TenantsShardsStatus(req.Class, wouldUnfreeze...)
+	for _, status := range held {
+		if entSchema.TenantIsFrozenOrFreezing(status) {
+			return utr.ClusterNodes, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *SchemaManager) checkHomeNodesAgainstClassFactors(req *command.ApplyRequest) error {
+	sub := command.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	factors := s.schema.ClassFactorsInNamespace(sub.Namespace.Name)
+	if err := sub.Namespace.CheckClassFactors(factors); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
 	return nil
 }
 
@@ -584,11 +732,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// and removing the marker would strand its data.
 		if s.mutationGuard != nil {
 			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
-				shards := make([]string, 0, len(meta.Sharding.Physical))
-				for name := range meta.Sharding.Physical {
-					shards = append(shards, name)
-				}
-				sort.Strings(shards)
+				shards := sortedShardNames(&meta.Sharding)
 				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
 					return fmt.Errorf("%w: %w", ErrBadRequest, err)
 				}
@@ -651,6 +795,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
+		if u.ModuleConfig != nil {
+			meta.Class.ModuleConfig = u.ModuleConfig
+		}
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
@@ -713,6 +860,44 @@ func removedDroppedVectorConfigs(prev, next *models.Class) []string {
 		}
 	}
 	return removed
+}
+
+func sortedShardNames(state *sharding.State) []string {
+	shards := make([]string, 0, len(state.Physical))
+	for name := range state.Physical {
+		shards = append(shards, name)
+	}
+	sort.Strings(shards)
+	return shards
+}
+
+// admitDroppedVectorConfigRemoval refuses, before the append, a class update
+// that removes a dropped VectorConfig entry the propose-time gate does not
+// allow. The apply-time gate in UpdateClass stays the deterministic one; this
+// one may be stricter because a refusal here reaches no node. An update this
+// cannot read is let through for the apply to reject.
+func (s *SchemaManager) admitDroppedVectorConfigRemoval(cmd *command.ApplyRequest) error {
+	if s.mutationGuard == nil {
+		return nil
+	}
+	req := command.UpdateClassRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil || req.Class == nil {
+		return nil
+	}
+	var removed, shards []string
+	if err := s.schema.Read(cmd.Class, false, func(class *models.Class, state *sharding.State) error {
+		removed = removedDroppedVectorConfigs(class, req.Class)
+		if state != nil {
+			shards = sortedShardNames(state)
+		}
+		return nil
+	}); err != nil || len(removed) == 0 {
+		return nil
+	}
+	if err := s.mutationGuard.CheckVectorConfigRemovalAtPropose(cmd.Class, removed, shards); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return nil
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
@@ -844,17 +1029,22 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
-	// Cross-FSM mutation guard — see [MutationGuard.CheckPropertyUpdate].
-	// FromInFlightMigration=true bypasses the guard for the migration's
-	// own scheduled schema flip; see the bypass clause in that godoc.
-	if s.mutationGuard != nil && !req.FromInFlightMigration {
-		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
+	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run (older binary) is admitted.
+	if s.mutationGuard != nil {
+		var err error
+		switch {
+		case !req.FromInFlightMigration:
+			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name)
+		case req.MigrationRun != nil:
+			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
+		}
+		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
 	}
 
 	// Disabling an index deletes the property's LSM buckets, which an in-flight movement's
-	// snapshot+CCL can't reconcile. FromInFlightMigration bypasses, as with the reindex guard.
+	// snapshot+CCL can't reconcile. A migration's own flip skips this check.
 	if s.replicationFSM != nil && !req.FromInFlightMigration &&
 		s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
 		if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {
@@ -956,6 +1146,14 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
+	if len(req.ClusterNodes) == 0 {
+		if ns, ok := s.classNamespace(cmd.Class); ok {
+			// With the whole list, GetPartitions would spread one request's
+			// tenants over every home node.
+			factor := s.schema.ClassInfo(cmd.Class).ReplicationFactor
+			req.ClusterNodes = ns.HomeNodes[:min(factor, len(ns.HomeNodes))]
+		}
+	}
 
 	return s.apply(
 		applyOp{
@@ -971,6 +1169,12 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if len(req.ClusterNodes) == 0 {
+		// metaClass.unfreeze calls GetPartitions per tenant, so each takes the first RF entries.
+		if ns, ok := s.classNamespace(cmd.Class); ok {
+			req.ClusterNodes = ns.HomeNodes
+		}
 	}
 
 	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].
@@ -1042,6 +1246,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 					return err
 				}
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				if s.distributedTaskManager != nil {
+					s.distributedTaskManager.ForgetGroupsForCollection(cmd.Class, req.Tenants)
+				}
 				return nil
 			},
 			updateStore: func() error {

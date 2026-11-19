@@ -94,11 +94,17 @@ type UserLister interface {
 	ListAllUsers() []string
 }
 
-// RoleLister resolves includeRoles selectors. ListAllRoles returns every role
-// name, custom and built-in, which is the list selectors match against. Nil when
-// RBAC is disabled.
+// RoleLister resolves includeRoles selectors, and is nil when RBAC is disabled.
+//
+// ListAllRoles returns every role name, custom and built-in, which selectors match against.
+//
+// BuiltInAssignments returns an RBAC snapshot of the admin and viewer assignments the given db user ids hold, or nil when they hold none.
+//
+// OIDCBuiltInAssignments returns an RBAC snapshot of the oidc-specific admin and viewer assignments for the given namespaces, or nil when there are none.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
+	BuiltInAssignments(userIDs ...string) ([]byte, error)
+	OIDCBuiltInAssignments(namespaces ...string) ([]byte, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -260,6 +266,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		SkipUsers:       req.SkipUsers,
 		SkipRoles:       req.SkipRoles,
 		DedupeReplicas:  dedupeEffective,
+
+		BuiltInRoleAssignments: req.BuiltInRoleAssignments,
 	}
 	if plan != nil {
 		c.descriptor.DedupeDesignatedShards = plan.Designated()
@@ -300,7 +308,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	nodes, err := c.canCommit(ctx, req, plan)
 	if err != nil {
 		c.lastOp.reset()
-		return err
+		return withReindexRefusalHint(err)
 	}
 
 	overrideBucket := req.Bucket
@@ -620,9 +628,12 @@ func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUs
 }
 
 func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
-	// check if backup is still active
+	// OnStatus serves the live slot only for the backend, bucket and path it runs under,
+	// since the same id can exist under another. HomeDir tells backends apart, and
+	// the raw pair tells apart GCS locations that share a HomeDir.
 	st := c.lastOp.get()
-	if st.ID == req.ID {
+	if st.ID == req.ID && st.Path == store.HomeDir(store.bucket, store.path) &&
+		st.OverrideBucket == store.bucket && st.OverridePath == store.path {
 		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
@@ -633,11 +644,10 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
-		path := st.Path
 		if errors.As(err, &backup.ErrNotFound{}) {
-			return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
+			return nil, fmt.Errorf("coordinator cannot get status: %w: %w", errMetaNotFound, err)
 		}
-		return nil, fmt.Errorf("coordinator cannot get status: %q: %w store: %v", path, err, st)
+		return nil, fmt.Errorf("coordinator cannot get status: %w", err)
 	}
 
 	status := &Status{

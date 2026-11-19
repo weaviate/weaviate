@@ -29,6 +29,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type MergeDocument struct {
@@ -51,12 +52,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 	className, aliasName, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return resolverError(err)
+		return forbiddenOrUnprocessable(err)
 	}
 	updates.Class = className
 	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant)); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Objects(className, updates.Tenant)); err != nil {
+		return forbiddenOrUnprocessable(err)
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
@@ -136,6 +137,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	prevObj := obj.Object()
 	if err := m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClass); err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return &Error{"validate object", StatusInternalServerError, err}
+		}
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
@@ -250,7 +254,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSc
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
 	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id, Tenant: tenant}
-	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
+	if err := m.modulesProvider.UpdateVector(ctx, obj, class, findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger); err != nil {
 		return nil, err
 	}
 

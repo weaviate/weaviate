@@ -68,6 +68,12 @@ func NewForbiddenWithCause(cause error) Forbidden {
 
 func (f Forbidden) Unwrap() error { return f.cause }
 
+// WithVerb returns f reporting verb as the denied action.
+func (f Forbidden) WithVerb(verb string) Forbidden {
+	f.verb = verb
+	return f
+}
+
 func (f Forbidden) Error() string {
 	if f.cause != nil {
 		return f.cause.Error()

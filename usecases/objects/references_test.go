@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
@@ -186,7 +187,12 @@ func Test_ReferenceAdd(t *testing.T) {
 	}{
 		{
 			Name: "authorization", Req: req, Stage: 0,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
+		},
+		{
+			Name: "authorization denied", Req: req, Stage: 0,
+			WantCode: StatusForbidden, ErrAuth: authzerrs.NewForbidden(nil, "U", "data/collections/Zoo"),
 		},
 		{
 			Name: "get schema",
@@ -340,8 +346,13 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
 			Stage: 0,
+		},
+		{
+			Name: "authorization denied", Req: req, Stage: 0,
+			WantCode: StatusForbidden, ErrAuth: authzerrs.NewForbidden(nil, "U", "data/collections/Zoo"),
 		},
 		{
 			Name: "get schema",
@@ -497,7 +508,12 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
+		},
+		{
+			Name: "authorization denied", Req: req, Stage: 1,
+			WantCode: StatusForbidden, ErrAuth: authzerrs.NewForbidden(nil, "R", "data/collections/Zoo"),
 		},
 		{
 			Name: "get schema",

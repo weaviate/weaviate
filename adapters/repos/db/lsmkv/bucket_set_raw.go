@@ -12,8 +12,6 @@
 package lsmkv
 
 import (
-	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -31,14 +29,14 @@ func (b *Bucket) setRawListFromConsistentView(view BucketConsistentView, key []b
 	var out [][]byte
 
 	v, err := b.disk.getCollectionBytes(key, view.Disk)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	out = v
 
 	if view.Flushing != nil {
 		v, err = view.Flushing.getCollectionBytes(key)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		if err != nil && !lsmkv.IsNotFound(err) {
 			return nil, err
 		}
 		out = append(out, v...)
@@ -46,7 +44,7 @@ func (b *Bucket) setRawListFromConsistentView(view BucketConsistentView, key []b
 	}
 
 	v, err = view.Active.getCollectionBytes(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	if len(v) > 0 {

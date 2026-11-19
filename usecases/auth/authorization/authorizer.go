@@ -27,6 +27,10 @@ type Authorizer interface {
 	// namespace to be active, so a denied caller never learns that state. Pass the
 	// qualified name the resources were built from. Every state but active,
 	// deleting included, returns RequireActive's sentinel unwrapped, never a Forbidden.
+	// A caller past Authorize is therefore told the namespace's state, nonexistence
+	// included, in the sentinel's own text rather than namespaces.PublicMessage's.
+	// A confined caller learns only its own namespace's state, because
+	// namespacing.Resolve rejects a qualified class name from it first.
 	AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error
 	// AuthorizeSilent Silent authorization without audit logs
 	AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error

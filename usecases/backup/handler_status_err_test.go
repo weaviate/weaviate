@@ -319,7 +319,6 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
 			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
 
 			logger, _ := test.NewNullLogger()
@@ -365,7 +364,6 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
 	backend := newFakeBackend()
-	backend.On("SourceDataPath").Return(t.TempDir())
 	backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
 
 	logger, _ := test.NewNullLogger()
@@ -643,11 +641,12 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 				Status: backup.Failed, Err: tc.participantErr, ID: backupID, Method: OpCreate,
 			}, nil)
 			fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
+			fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/" + backupID)
 
 			req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
 			c.commit(ctx, req, map[string]string{"N1": "N1"}, false, false)
 
-			st, err := c.OnStatus(ctx, coordStore{}, req)
+			st, err := c.OnStatus(ctx, coordStore{objectStore{fc.backend, backupID, "", "", ""}}, req)
 
 			require.NoError(t, err)
 			require.Equal(t, backup.Failed, st.Status)

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
@@ -25,6 +26,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
+	repodb "github.com/weaviate/weaviate/adapters/repos/db"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -53,13 +56,20 @@ func NewServer(appState *state.State) *Server {
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
+	// Get is nil-safe on an unset DynamicValue; the runtime config manager updates the same pointer.
+	asyncReplicationInMaintenanceEnabled := func() bool {
+		return appState.ServerConfig.Config.Replication.AsyncReplicationInMaintenanceEnabled.Get()
+	}
+
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
 		appState.DB,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		asyncReplicationInMaintenanceEnabled,
 		appState.Logger,
-		appState.ClusterService.Ready)
+		appState.ClusterService.Ready,
+	)
 
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
@@ -67,6 +77,18 @@ func NewServer(appState *state.State) *Server {
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
+	readRebalanceDraft := func(taskID string, version uint64) ([]replicationTypes.RebalanceShardSize, error) {
+		return repodb.ReadRebalanceDraft(appState.ServerConfig.Config.Persistence.DataPath, taskID, version)
+	}
+	rebalanceMeasurement := NewRebalanceMeasurement(
+		appState.DB.DiskUse,
+		readRebalanceDraft,
+		// A negative limit queries the current soft memory limit without changing it.
+		func() int64 { return debug.SetMemoryLimit(-1) },
+		appState.ServerConfig.Config.ResourceUsage.DiskUse.WarningPercentage,
+		appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
+		auth,
+	)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -76,6 +98,7 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
 	mux.Handle("/cluster/object_ttl/", objectTTL.Expired())
 	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
+	mux.Handle("/replication/rebalance/measurement", rebalanceMeasurement.Measurement())
 	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
 	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
 
@@ -92,12 +115,13 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/", index())
 
 	grpcServer := grpc.NewServer(grpc.Config{
-		State:                              appState,
-		Replicator:                         appState.DB,
-		FileReplicationRepo:                appState.DB,
-		FileReplicationSchema:              appState.ClusterService.SchemaReader(),
-		MaintenanceModeEnabledForLocalhost: appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		NodeReady:                          appState.ClusterService.Ready,
+		State:                                appState,
+		Replicator:                           appState.DB,
+		FileReplicationRepo:                  appState.DB,
+		FileReplicationSchema:                appState.ClusterService.SchemaReader(),
+		MaintenanceModeEnabledForLocalhost:   appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncReplicationInMaintenanceEnabled: asyncReplicationInMaintenanceEnabled,
+		NodeReady:                            appState.ClusterService.Ready,
 	})
 
 	var handler http.Handler

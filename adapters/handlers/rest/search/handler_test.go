@@ -188,7 +188,7 @@ func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logger)
 
 	// A reference property whose target class is not in the schema yet is
 	// rejected, and the fixtures cross-link, so retry the rejects until a pass
@@ -545,6 +545,8 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 

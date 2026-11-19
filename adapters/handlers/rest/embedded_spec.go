@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.41.0-dev"
+    "version": "1.41.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -1866,13 +1866,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2007,13 +2007,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2633,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3170,7 +3170,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
         "tags": [
           "namespaces"
         ],
@@ -3185,7 +3185,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "description": "Required body. ` + "`" + `home_nodes` + "`" + ` replaces the namespace's list.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3217,7 +3217,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or the namespace being in the ` + "`" + `deleting` + "`" + ` state). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, or a body that sets neither also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3246,7 +3246,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "description": "Optional body. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -3283,7 +3283,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, or a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5006,6 +5006,221 @@ func init() {
         ]
       }
     },
+    "/replication/rebalance": {
+      "get": {
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the rebalance plan",
+        "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ]
+      },
+      "post": {
+        "description": "Creates the cluster's rebalance plan in the ` + "`" + `PLANNING` + "`" + ` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Create a rebalance plan",
+        "operationId": "createRebalancePlan",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both ` + "`" + `sourceNodes` + "`" + ` and ` + "`" + `targetNodes` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ]
+      },
+      "delete": {
+        "description": "Removes the cluster's rebalance plan. Only a ` + "`" + `PROPOSED` + "`" + ` plan or a plan in an end state can be deleted; stop a ` + "`" + `PLANNING` + "`" + ` plan first. Succeeds when no plan exists.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete the rebalance plan",
+        "operationId": "deleteRebalancePlan",
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is ` + "`" + `PLANNING` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ]
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "description": "Approves a ` + "`" + `PROPOSED` + "`" + ` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Approve the rebalance plan",
+        "operationId": "approveRebalancePlan",
+        "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ]
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "description": "Stops the cluster's rebalance plan while it is ` + "`" + `PLANNING` + "`" + `. The plan ends ` + "`" + `STOPPED` + "`" + ` and the result of its planning run is discarded.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop the rebalance plan",
+        "operationId": "stopRebalancePlan",
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -5042,6 +5257,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5574,6 +5795,18 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6137,7 +6370,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6161,7 +6394,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6221,7 +6454,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid index, property or collection provided.",
+            "description": "Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6277,7 +6510,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED or PREPARING task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -6298,7 +6531,7 @@ func init() {
             }
           },
           "409": {
-            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel. In the first two cases the task is still in flight and will reach a terminal state on its own. In the third it isn't possible to tell whether the task moved into a coordination phase or already reached a terminal state, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
+            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6402,7 +6635,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6426,7 +6659,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7198,7 +7431,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7228,7 +7461,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7442,7 +7675,7 @@ func init() {
     },
     "/search/{collection}/near-vector": {
       "post": {
-        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.",
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
         "consumes": [
           "application/json"
         ],
@@ -7751,6 +7984,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7777,7 +8016,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7998,6 +8237,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -8325,9 +8643,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
@@ -9077,6 +9395,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -9143,6 +9467,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -9598,18 +9928,25 @@ func init() {
             "blockmax"
           ]
         },
+        "migratedTenants": {
+          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
+        },
         "progress": {
           "type": "number",
           "format": "float"
         },
         "status": {
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
             "indexing",
             "pending",
             "failed",
-            "cancelled"
+            "cancelled",
+            "partial"
           ]
         },
         "targetAlgorithm": {
@@ -9624,11 +9961,16 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `partial` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
           "type": "string"
+        },
+        "totalTenants": {
+          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
         },
         "type": {
           "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
@@ -9865,15 +10207,24 @@ func init() {
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. Holds the first entry of ` + "`" + `home_nodes` + "`" + `.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         },
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -9885,12 +10236,21 @@ func init() {
       }
     },
     "NamespaceCreateRequest": {
-      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "description": "Optional body for namespace creation. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -9904,13 +10264,20 @@ func init() {
     "NamespaceUpdateRequest": {
       "description": "Update payload for an existing namespace.",
       "type": "object",
-      "required": [
-        "home_node"
-      ],
       "properties": {
         "home_node": {
-          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true,
+          "x-nullable": true
+        },
+        "home_nodes": {
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -10287,6 +10654,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -10538,6 +10906,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -10909,6 +11281,202 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "description": "One node's measured load.",
+            "type": "object",
+            "properties": {
+              "diskUtilisation": {
+                "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+                "type": "number",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicaCount": {
+                "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "drafting": {
+          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. The list is empty in every other state. It is also empty while the plan is ` + "`" + `PLANNING` + "`" + ` until the node serving the request holds the plan's drafting task.",
+          "type": "array",
+          "items": {
+            "description": "One node's drafting status.",
+            "type": "object",
+            "properties": {
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "status": {
+                "description": "` + "`" + `REPORTED` + "`" + ` once the node has saved and reported its draft, ` + "`" + `FAILED` + "`" + ` if its drafting failed, and ` + "`" + `DRAFTING` + "`" + ` otherwise.",
+                "type": "string",
+                "enum": [
+                  "REPORTED",
+                  "DRAFTING",
+                  "FAILED"
+                ],
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "description": "One node's resource measurement.",
+            "type": "object",
+            "properties": {
+              "diskAvailableBytes": {
+                "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "diskTotalBytes": {
+                "description": "The total size in bytes of the disk holding the node's data.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "diskWarningPercentage": {
+                "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "error": {
+                "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+                "type": "string"
+              },
+              "memoryLimitBytes": {
+                "description": "The node's Go runtime memory limit in bytes.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicationWorkers": {
+                "description": "The number of replication engine workers configured on the node.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "type": "object",
+      "properties": {
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `targetNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `sourceNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -11519,7 +12087,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -11531,7 +12099,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -11551,7 +12119,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -11564,6 +12132,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -11674,7 +12245,7 @@ func init() {
               "type": "string"
             },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -12355,6 +12926,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -12773,7 +13350,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.41.0-dev"
+    "version": "1.41.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -14567,13 +15144,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14708,13 +15285,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15346,7 +15923,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15883,7 +16460,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
         "tags": [
           "namespaces"
         ],
@@ -15898,7 +16475,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "description": "Required body. ` + "`" + `home_nodes` + "`" + ` replaces the namespace's list.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -15930,7 +16507,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or the namespace being in the ` + "`" + `deleting` + "`" + ` state). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, or a body that sets neither also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15959,7 +16536,7 @@ func init() {
             "required": true
           },
           {
-            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "description": "Optional body. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
             "name": "body",
             "in": "body",
             "schema": {
@@ -15996,7 +16573,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name). A ` + "`" + `home_nodes` + "`" + ` list the cluster refuses, or a body that sets both ` + "`" + `home_nodes` + "`" + ` and ` + "`" + `home_node` + "`" + `, also answers 422.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17829,6 +18406,221 @@ func init() {
         ]
       }
     },
+    "/replication/rebalance": {
+      "get": {
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the rebalance plan",
+        "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ]
+      },
+      "post": {
+        "description": "Creates the cluster's rebalance plan in the ` + "`" + `PLANNING` + "`" + ` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Create a rebalance plan",
+        "operationId": "createRebalancePlan",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both ` + "`" + `sourceNodes` + "`" + ` and ` + "`" + `targetNodes` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ]
+      },
+      "delete": {
+        "description": "Removes the cluster's rebalance plan. Only a ` + "`" + `PROPOSED` + "`" + ` plan or a plan in an end state can be deleted; stop a ` + "`" + `PLANNING` + "`" + ` plan first. Succeeds when no plan exists.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete the rebalance plan",
+        "operationId": "deleteRebalancePlan",
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is ` + "`" + `PLANNING` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ]
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "description": "Approves a ` + "`" + `PROPOSED` + "`" + ` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Approve the rebalance plan",
+        "operationId": "approveRebalancePlan",
+        "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ]
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "description": "Stops the cluster's rebalance plan while it is ` + "`" + `PLANNING` + "`" + `. The plan ends ` + "`" + `STOPPED` + "`" + ` and the result of its planning run is discarded.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop the rebalance plan",
+        "operationId": "stopRebalancePlan",
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -17865,6 +18657,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18397,6 +19195,18 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18960,7 +19770,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18984,7 +19794,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19044,7 +19854,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid index, property or collection provided.",
+            "description": "Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19100,7 +19910,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED or PREPARING task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -19121,7 +19931,7 @@ func init() {
             }
           },
           "409": {
-            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel. In the first two cases the task is still in flight and will reach a terminal state on its own. In the third it isn't possible to tell whether the task moved into a coordination phase or already reached a terminal state, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
+            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19225,7 +20035,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19249,7 +20059,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20021,7 +20831,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20051,7 +20861,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20265,7 +21075,7 @@ func init() {
     },
     "/search/{collection}/near-vector": {
       "post": {
-        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.",
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
         "consumes": [
           "application/json"
         ],
@@ -20574,6 +21384,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20600,7 +21416,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20821,6 +21637,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -21148,9 +22043,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
@@ -22011,6 +22906,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -22077,6 +22978,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -22568,18 +23475,25 @@ func init() {
             "blockmax"
           ]
         },
+        "migratedTenants": {
+          "description": "Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; ` + "`" + `taskId` + "`" + ` names the latest run. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
+        },
         "progress": {
           "type": "number",
           "format": "float"
         },
         "status": {
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
             "indexing",
             "pending",
             "failed",
-            "cancelled"
+            "cancelled",
+            "partial"
           ]
         },
         "targetAlgorithm": {
@@ -22594,11 +23508,16 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `partial` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
           "type": "string"
+        },
+        "totalTenants": {
+          "description": "Number of tenants those runs cover, counted the same way as ` + "`" + `migratedTenants` + "`" + `. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
+          "type": "integer",
+          "format": "int64"
         },
         "type": {
           "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
@@ -22835,15 +23754,24 @@ func init() {
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. Holds the first entry of ` + "`" + `home_nodes` + "`" + `.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         },
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -22855,12 +23783,21 @@ func init() {
       }
     },
     "NamespaceCreateRequest": {
-      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "description": "Optional body for namespace creation. When neither ` + "`" + `home_nodes` + "`" + ` nor ` + "`" + `home_node` + "`" + ` is set, the cluster picks the home nodes.",
       "type": "object",
       "properties": {
         "home_node": {
-          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true
+        },
+        "home_nodes": {
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -22874,13 +23811,20 @@ func init() {
     "NamespaceUpdateRequest": {
       "description": "Update payload for an existing namespace.",
       "type": "object",
-      "required": [
-        "home_node"
-      ],
       "properties": {
         "home_node": {
-          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
-          "type": "string"
+          "description": "Deprecated: use home_nodes. A value is taken as a one-entry ` + "`" + `home_nodes` + "`" + `. Sending it with a non-empty ` + "`" + `home_nodes` + "`" + ` is a 422, even when it equals the first entry.",
+          "type": "string",
+          "x-deprecated": true,
+          "x-nullable": true
+        },
+        "home_nodes": {
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -23274,6 +24218,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -23694,6 +24639,10 @@ func init() {
             "type": "string"
           }
         },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
+        },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
           "type": "boolean"
@@ -24064,6 +25013,211 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanBaselineItems0"
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "drafting": {
+          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. The list is empty in every other state. It is also empty while the plan is ` + "`" + `PLANNING` + "`" + ` until the node serving the request holds the plan's drafting task.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanDraftingItems0"
+          }
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanNodesItems0"
+          }
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationRebalancePlanBaselineItems0": {
+      "description": "One node's measured load.",
+      "type": "object",
+      "properties": {
+        "diskUtilisation": {
+          "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicaCount": {
+          "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanDraftingItems0": {
+      "description": "One node's drafting status.",
+      "type": "object",
+      "properties": {
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "status": {
+          "description": "` + "`" + `REPORTED` + "`" + ` once the node has saved and reported its draft, ` + "`" + `FAILED` + "`" + ` if its drafting failed, and ` + "`" + `DRAFTING` + "`" + ` otherwise.",
+          "type": "string",
+          "enum": [
+            "REPORTED",
+            "DRAFTING",
+            "FAILED"
+          ],
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanNodesItems0": {
+      "description": "One node's resource measurement.",
+      "type": "object",
+      "properties": {
+        "diskAvailableBytes": {
+          "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "diskTotalBytes": {
+          "description": "The total size in bytes of the disk holding the node's data.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "diskWarningPercentage": {
+          "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "error": {
+          "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+          "type": "string"
+        },
+        "memoryLimitBytes": {
+          "description": "The node's Go runtime memory limit in bytes.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicationWorkers": {
+          "description": "The number of replication engine workers configured on the node.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "type": "object",
+      "properties": {
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `targetNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `sourceNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -24680,7 +25834,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -24692,7 +25846,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -24712,7 +25866,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -24725,6 +25879,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -24835,7 +25992,7 @@ func init() {
               "type": "string"
             },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -25519,6 +26676,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",

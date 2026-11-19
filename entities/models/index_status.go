@@ -35,11 +35,14 @@ type IndexStatus struct {
 	// Enum: [wand blockmax]
 	Algorithm string `json:"algorithm,omitempty"`
 
+	// Number of tenants already migrated, counted over the failed or cancelled runs of this migration since the property last finished one; `taskId` names the latest run. Present only on a `partial` entry, and only to a caller who may read the collection's tenants.
+	MigratedTenants int64 `json:"migratedTenants,omitempty"`
+
 	// progress
 	Progress float32 `json:"progress,omitempty"`
 
-	// status
-	// Enum: [ready indexing pending failed cancelled]
+	// `partial`: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See `migratedTenants` and `totalTenants`.
+	// Enum: [ready indexing pending failed cancelled partial]
 	Status string `json:"status,omitempty"`
 
 	// BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors `targetTokenization` for the change-tokenization verb. Today the only supported transition is wand -> blockmax.
@@ -49,11 +52,14 @@ type IndexStatus struct {
 	// target tokenization
 	TargetTokenization string `json:"targetTokenization,omitempty"`
 
-	// ID of the reindex task driving this index entry. Present on every task-driven entry (`pending`, `indexing`, `failed`, `cancelled`); absent on a plain `ready` entry. A coupled searchable+filterable tokenization migration reports the same `taskId` on both affected entries.
+	// ID of the reindex task driving this index entry. Present on every task-driven entry (`pending`, `indexing`, `failed`, `cancelled`, `partial`); absent on a plain `ready` entry. A coupled searchable+filterable tokenization migration reports the same `taskId` on both affected entries.
 	TaskID string `json:"taskId,omitempty"`
 
 	// tokenization
 	Tokenization string `json:"tokenization,omitempty"`
+
+	// Number of tenants those runs cover, counted the same way as `migratedTenants`. Present only on a `partial` entry, and only to a caller who may read the collection's tenants.
+	TotalTenants int64 `json:"totalTenants,omitempty"`
 
 	// Canonical inverted-index type. Always one of `filterable`, `searchable`, `rangeFilters` — never the `rangeable` write-path alias.
 	// Enum: [filterable searchable rangeFilters]
@@ -132,7 +138,7 @@ var indexStatusTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ready","indexing","pending","failed","cancelled"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ready","indexing","pending","failed","cancelled","partial"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -156,6 +162,9 @@ const (
 
 	// IndexStatusStatusCancelled captures enum value "cancelled"
 	IndexStatusStatusCancelled string = "cancelled"
+
+	// IndexStatusStatusPartial captures enum value "partial"
+	IndexStatusStatusPartial string = "partial"
 )
 
 // prop value enum

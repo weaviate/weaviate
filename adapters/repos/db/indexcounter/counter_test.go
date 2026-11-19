@@ -35,18 +35,9 @@ func TestCounterAfterClose(t *testing.T) {
 		{
 			name: "Drop removes the counter file",
 			assert: func(t *testing.T, c *Counter, dir string) {
-				require.NoError(t, c.Drop(false))
+				require.NoError(t, c.Drop())
 				_, err := os.Stat(filepath.Join(dir, "indexcount"))
 				require.ErrorIs(t, err, os.ErrNotExist)
-			},
-		},
-		{
-			name: "Drop keeping files leaves the persisted count",
-			assert: func(t *testing.T, c *Counter, dir string) {
-				require.NoError(t, c.Drop(true))
-				count, err := Read(dir)
-				require.NoError(t, err)
-				require.Equal(t, uint64(1), count)
 			},
 		},
 	}

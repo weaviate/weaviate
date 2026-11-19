@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema/local"
@@ -38,6 +39,9 @@ import (
 // explicitly with the error surfaced — never via Store()'s panicking mustLoad
 // — acceptable for a drop, a rare operator-initiated action that must touch
 // every shard once anyway.
+//
+// Before each shard it refuses a collection whose namespace is not active, so
+// a namespace suspended while it runs stops it at the next shard.
 func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error) {
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
@@ -45,24 +49,41 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
-		s := idx.shards.Load(name)
-		if s == nil {
-			continue
+		if err := idx.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+			return nil, fmt.Errorf("collection %q: %w", collection, err)
 		}
-		// asLazyLoadShard: a recovering shard's blocked load warns+skips instead of panicking in Store() below.
-		if lazy, ok := asLazyLoadShard(s); ok {
-			if _, _, err := lazy.loadIfCold(ctx); err != nil {
-				db.logger.WithField("collection", collection).WithField("shard", name).
-					WithFields(enterrors.DocsLinkFields(err)).
-					Warnf("drop-vector: load lazy shard: %v", err)
-				continue // absent from result; the unit fails instead of panicking
-			}
-		}
-		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+		if b := db.loadEditOpBucket(ctx, idx, collection, name); b != nil {
 			buckets[name] = b
 		}
 	}
 	return buckets, nil
+}
+
+// loadEditOpBucket keeps the index open and holds the shard's create lock until
+// the bucket is read. An unload or index shutdown before the load would leave
+// the loaded shard outside the map.
+func (db *DB) loadEditOpBucket(ctx context.Context, idx *Index, collection, name string) *lsmkv.Bucket {
+	if idx.enterRead() != nil {
+		return nil
+	}
+	defer idx.exitRead()
+	idx.shardCreateLocks.RLock(name)
+	defer idx.shardCreateLocks.RUnlock(name)
+
+	s := idx.shards.Load(name)
+	if s == nil {
+		return nil
+	}
+	// asLazyLoadShard: a recovering shard's blocked load warns+skips instead of panicking in Store() below.
+	if lazy, ok := asLazyLoadShard(s); ok {
+		if _, _, err := lazy.loadIfCold(ctx); err != nil {
+			db.logger.WithField("collection", collection).WithField("shard", name).
+				WithFields(enterrors.DocsLinkFields(err)).
+				Warnf("drop-vector: load lazy shard: %v", err)
+			return nil // absent from result; the unit fails instead of panicking
+		}
+	}
+	return s.Store().Bucket(helpers.ObjectsBucketLSM)
 }
 
 // EditOpBucketsForLoadedShards is EditOpBucketsForShards restricted to shards
@@ -77,18 +98,23 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
-		s := idx.shards.Load(name)
-		if s == nil {
-			continue
-		}
-		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
-			continue
-		}
-		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+		if b := loadedEditOpBucket(idx, name); b != nil {
 			buckets[name] = b
 		}
 	}
 	return buckets, nil
+}
+
+// loadedEditOpBucket returns the objects bucket of a shard that is already
+// loaded, and nil otherwise, including while the index or the shard shuts down.
+// getLoadedShard's pin keeps Store from loading a shard an unload released.
+func loadedEditOpBucket(idx *Index, name string) *lsmkv.Bucket {
+	shard, release, err := idx.getLoadedShard(name)
+	defer release()
+	if err != nil || shard == nil {
+		return nil
+	}
+	return shard.Store().Bucket(helpers.ObjectsBucketLSM)
 }
 
 // EnsureDroppedVectorFilesRemoved removes the on-disk artifacts (LSM buckets +

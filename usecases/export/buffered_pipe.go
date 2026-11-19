@@ -18,13 +18,15 @@ import (
 	"sync/atomic"
 )
 
-const defaultPipeBufferSize = 16 * 1024 * 1024 // 16 MB per range pipeline
+// defaultPipeBufferSize is half a row group to bound each scan worker's memory.
+// At each row-group end, ParquetWriter.Flush waits for the upload to read
+// about half of it, which slows the scan only if the upload is faster.
+const defaultPipeBufferSize = maxRowGroupBytes / 2
 
 // bufferedPipe is a bounded, in-memory pipe that decouples a writer (scan
 // side) from a reader (upload side). Unlike io.Pipe, writes do not block
 // until the reader consumes them — they block only when the internal buffer
-// reaches its capacity. This prevents slow uploads from holding LSM cursors
-// open.
+// reaches its capacity.
 //
 // The buffer is a FIFO queue of byte-slice chunks. Each Write call appends
 // one chunk; each Read call dequeues from the head.
@@ -34,8 +36,9 @@ const defaultPipeBufferSize = 16 * 1024 * 1024 // 16 MB per range pipeline
 // limit by one chunk. This is intentional: rejecting or splitting such a
 // write would either deadlock (no reader can drain a chunk that was never
 // enqueued) or require the writer to hand back partial progress, which
-// io.Writer semantics do not express cleanly. In practice chunks are
-// bounded by the LSM scan emit size, which is well below maxSize.
+// io.Writer semantics do not express cleanly. ParquetWriter's chunks are at
+// most 32 KiB, parquet-go's write buffer size. At Close, each blob min and
+// max value in the footer bypasses that buffer and can arrive as one chunk.
 //
 // Thread safety: all methods are safe for concurrent use by one writer
 // goroutine and one reader goroutine. Using multiple concurrent writers or

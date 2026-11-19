@@ -235,6 +235,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
+	// classGetterWithAuthzFunc's READ also requires an active namespace, so a missing DELETE is refused first.
 	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.qualifier, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
@@ -415,9 +416,9 @@ func (s *Service) validateClassAndProperty(getClass classGetterWithAuthzFunc, se
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
 // classGetterWithAuthzFunc returns a getter that memoizes each (class, tenant)
-// lookup for one request. A cache hit skips the RBAC Authorize call, so the memo
-// key must fully identify the authorized resource or one class's decision leaks
-// to another. Not concurrency-safe; scoped to a single request.
+// lookup for one request. A cache hit skips AuthorizeAndRequireActiveNamespace,
+// so the memo key must fully identify the authorized resource or one class's
+// decision leaks to another. Not concurrency-safe; scoped to a single request.
 func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
@@ -430,7 +431,7 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 				resources = authorization.ShardsData(name, tenant)
 			}
 			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
-			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
+			if err := s.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, name, resources...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)

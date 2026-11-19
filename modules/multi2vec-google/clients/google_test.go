@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
-func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
+func TestVectorizeRejectsUnsafeURLSettings(t *testing.T) {
 	tests := []struct {
 		name   string
 		config ent.VectorizationConfig
@@ -42,6 +42,14 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 			name:   "location carrying a host",
 			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/", ProjectID: "project", Model: "model"},
 		},
+		{
+			name:   "projectId carrying path segments",
+			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "us-central1", ProjectID: "a/../../other", Model: "model"},
+		},
+		{
+			name:   "Vertex AI model that is a dot segment",
+			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "us-central1", ProjectID: "project", Model: ".."},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -50,7 +58,7 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 				httpClient:   &http.Client{},
 				googleApiKey: apikey.NewGoogleApiKey(),
 				urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
-					t.Fatal("must not build a request URL for a rejected endpoint")
+					t.Fatal("must not build a request URL for rejected settings")
 					return ""
 				},
 				logger: nullLogger(),
@@ -638,6 +646,19 @@ func TestBuildURL(t *testing.T) {
 			location:    "us-central1",
 			model:       "gemini-embedding-2-preview",
 			want:        "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/gemini-embedding-2-preview:embedContent",
+		},
+		{
+			name:        "AI Studio escapes model",
+			apiEndpoint: "generativelanguage.googleapis.com",
+			model:       "m/../x?y#z",
+			want:        "https://generativelanguage.googleapis.com/v1beta/models/m%2F..%2Fx%3Fy%23z:batchEmbedContents",
+		},
+		{
+			name:        "Vertex predict escapes model",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			location:    "us-central1",
+			model:       "m/../x?y#z",
+			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/project/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
 		},
 	}
 	for _, tt := range tests {
