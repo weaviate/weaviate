@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo.** El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
+**Estado: paso 1 cerrado, con una enmienda. Las corridas a 1M esperan al veredicto de v5.1.** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
 
 ### El encargo (del usuario)
 
@@ -282,6 +282,38 @@ Con las cifras de v5.0: un insert son 5.59 ms, de ellos 5.2 de búsqueda y 0.39 
 - **Cargas:** a menos de un 2 % de las de N = 1 en los dos recalls. Dos inserts de una misma tanda casi nunca son vecinos: son 31 entre cientos de miles.
 - **Planes con posting reelegido:** menos de uno de cada mil. **Con listas leídas otra vez:** menos de uno de cada cien.
 - **Una cadena continua,** calculada: unas 8 veces con N = 8, limitada por los buscadores y no por el aplicador.
+
+### Enmienda 1 (12:54 del 19, antes de ningún dato): los índices no son deterministas entre corridas
+
+**Motivo.** El pre-registro dice que el resultado depende de la tanda y no de N, que N = 4 y N = 8 dejan el mismo índice, y que por eso la diferencia entre celdas no lleva ruido de corrida. No es así entre corridas distintas: el grafo de centroides sortea el nivel de cada centroide que entra, y dos índices que crecen por separado no acaban con el mismo grafo ni, por tanto, con los mismos postings. Lo sabía el test del gemelo, que por eso comparte un solo grafo. Lo vi al escribir los tests de las tandas.
+
+**Qué cambia:**
+
+- **Lo que sí se cumple, y se comprueba en un test:** dentro de una corrida, los planes de una tanda son los mismos con 1, 3 u 8 buscadores, y las búsquedas no escriben nada.
+- **N = 4 y N = 8 no dejan el mismo índice.** La calidad se mide en las dos celdas, no una vez.
+- **Hay ruido de corrida, y se da su medida:** N = 4 y N = 8 llevan la misma tanda, así que lo que difieran en cargas a 0.95 y a 0.99 es ruido de corrida y no atraso. Se pone al lado de la diferencia de cada una con N = 1.
+- **El criterio se aplica como está escrito,** a 0.95 y a 0.99. Si la diferencia de N = 8 con N = 1 es menor que ese ruido, se dice.
+
+### Paso 1, cerrado: el mecanismo y sus tests a pequeña escala (12:54 del 19)
+
+Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
+
+- **El insert de siempre, partido en dos** (`grow_test.go`): `plan`, que busca y no escribe, y `apply`, que escribe. `insert` es uno detrás de otro. Los tests de v5.0 y v5.1 siguen pasando sin tocarlos: es el mismo insert, idéntico al gemelo.
+- **`insertBatch`:** las búsquedas de la tanda a la vez, con N goroutines, y después los planes aplicados en orden.
+- **Lo que el aplicador comprueba,** y un cambio frente al pre-registro: las listas cambiadas se siguen por documento y no por posting. Un plan solo lee otra vez un posting cuando necesita la lista de un vecino que un insert de su tanda cambió. Por posting, casi todos los planes de la prueba pequeña releían.
+- **Tests, sin el tag de benchmark** (`grow_batch_test.go`):
+  - tanda de 1, al lado del gemelo en cada insert, con y sin aristas consolidadas;
+  - los planes de una tanda, iguales con 1, 3 y 8 buscadores, y el índice intacto tras buscarlos;
+  - once formas de tanda (de 2 a 100 inserts, con y sin aristas consolidadas, cosine, cruzando splits, cerrando y abriendo): cobertura completa cada cinco tandas y al final, los inserts aplicados en orden, y cada lista que un insert toma de su plan comparada con la que tiene el índice;
+  - una tanda que no se puede insertar se rechaza entera, sin buscar ni escribir nada.
+- **El detector de carreras sale limpio** en esos tests.
+- **Seis fallos provocados a mano, los seis cazados:** usar una lista que cambió, no marcar las listas que cambian, quedarse con un posting partido, guardar el buffer del rescore en vez de una copia, y aplicar los planes al revés; este último no lo cazaba ningún test y se añadió la comprobación del orden.
+- **El arnés** (`TestGrowTimedInserts`): `-bench.growsearchers`, `-bench.growbatch` y `-bench.growcoverage`, que comprueba la cobertura en cada checkpoint con el reloj parado, y las cargas en los dos puntos de operación.
+- **Una prueba a 30 000 vectores, que no es un dato** y corrió con la máquina ocupada: las cuatro celdas pasan la cobertura en cada checkpoint, con y sin aristas consolidadas. Con tandas de 32, 54 de 27 000 planes eligieron posting otra vez y 1 214 releyeron alguna lista.
+
+**Lo que mi expectativa de las listas releídas no tenía en cuenta:** escribí «menos de uno de cada cien» planes. En la prueba pequeña son 4 de cada cien con tandas de 32, en un índice de un centenar de postings. A 1M deberían ser muchos menos, y se medirá.
+
+**Falta:** el script de la sesión y sus tablas. Las corridas a 1M esperan al veredicto de v5.1.
 
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 
