@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -44,6 +45,45 @@ func leaderName(t *testing.T) string {
 		c.Errorf("no node reports itself as the leader")
 	}, 30*time.Second, 200*time.Millisecond, "the cluster never reported a leader")
 	return leader
+}
+
+// requireEveryNodeCaughtUp waits until every node has applied the RAFT entries
+// the leader had applied at its first read. A class create or tenant add reads
+// home_nodes on the node that receives it.
+func requireEveryNodeCaughtUp(t *testing.T) {
+	t.Helper()
+
+	var target uint64
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := helper.Client(t).Cluster.ClusterGetStatistics(
+			cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(adminKey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		applied := map[string]uint64{}
+		for _, st := range resp.Payload.Statistics {
+			if st.Raft == nil {
+				continue
+			}
+			index, err := strconv.ParseUint(st.Raft.AppliedIndex, 10, 64)
+			if !assert.NoError(c, err, "applied index of %q", st.Name) {
+				return
+			}
+			applied[st.Name] = index
+			if target == 0 && st.Raft.State == "Leader" {
+				target = index
+			}
+		}
+		if !assert.NotZero(c, target, "no node reports itself as the leader") {
+			return
+		}
+		for _, node := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
+			index, ok := applied[node]
+			if assert.True(c, ok, "the cluster statistics list no RAFT state for %q", node) {
+				assert.GreaterOrEqual(c, index, target, "%q has not applied index %d", node, target)
+			}
+		}
+	}, 30*time.Second, 200*time.Millisecond, "not every node applied the leader's entries")
 }
 
 // requireDBLoadedEventually waits until node reports its database loaded. Only

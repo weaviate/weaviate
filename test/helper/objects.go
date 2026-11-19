@@ -294,12 +294,16 @@ func CreateObjectVia(t *testing.T, c *client.Weaviate, object *models.Object, cl
 	return err
 }
 
-// GetObjectVia reads an object through c at consistency level cl. At ONE, the
-// node c talks to answers from its own replica when it holds one.
-func GetObjectVia(t *testing.T, c *client.Weaviate, class string, id strfmt.UUID, cl types.ConsistencyLevel, key string) (*models.Object, error) {
+// GetObjectVia reads an object of tenant through c at consistency level cl,
+// where tenant is empty for a class without tenants. At ONE, the node c talks
+// to answers from its own replica when it holds one.
+func GetObjectVia(t *testing.T, c *client.Weaviate, class, tenant string, id strfmt.UUID, cl types.ConsistencyLevel, key string) (*models.Object, error) {
 	t.Helper()
 	cls := string(cl)
 	params := objects.NewObjectsClassGetParams().WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
+	if tenant != "" {
+		params.WithTenant(&tenant)
+	}
 	resp, err := c.Objects.ObjectsClassGet(params, CreateAuth(key))
 	if err != nil {
 		return nil, err

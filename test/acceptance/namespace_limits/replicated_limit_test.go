@@ -58,7 +58,7 @@ func TestObjectLimitReplicated(t *testing.T) {
 			c := helper.NewClient(t, replica.URI())
 			helper.WaitForClassVia(t, c, "Items", userKey)
 			for _, id := range ids {
-				_, err := helper.GetObjectVia(t, c, "Items", id, types.ConsistencyLevelOne, userKey)
+				_, err := helper.GetObjectVia(t, c, "Items", "", id, types.ConsistencyLevelOne, userKey)
 				require.NoError(t, err, "object %s missing on %s", id, replica.Name())
 			}
 		}

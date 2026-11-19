@@ -31,8 +31,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// movedObject is an object TestNamespaces_MovedShardServesReads writes. Its
-// title holds token, which no other title holds.
+// movedObject is an object the movement tests write. Its title holds token,
+// which no other title in its shard holds.
 type movedObject struct {
 	id     strfmt.UUID
 	token  string
@@ -47,20 +47,50 @@ func newMovedObject(i int) movedObject {
 	return movedObject{id: strfmt.UUID(uuid.NewString()), token: fmt.Sprintf("item%d", i), vector: vector}
 }
 
-func (o movedObject) model(class string) *models.Object {
+// model returns the object for tenant of class, where tenant is empty for a
+// class without tenants.
+func (o movedObject) model(class, tenant string) *models.Object {
 	return &models.Object{
-		ID: o.id, Class: class, Vector: o.vector,
+		ID: o.id, Class: class, Tenant: tenant, Vector: o.vector,
 		Properties: map[string]any{"title": "moved " + o.token},
 	}
+}
+
+// searchableClass returns a class with the title property and the vector that
+// the searches of movedObject read.
+func searchableClass(name string) *models.Class {
+	return &models.Class{
+		Class:      name,
+		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		VectorConfig: map[string]models.VectorConfig{
+			"vec": {Vectorizer: map[string]any{"none": map[string]any{}}, VectorIndexType: "hnsw"},
+		},
+	}
+}
+
+// seedMovedObjects writes n new objects into tenant of class and returns them.
+func seedMovedObjects(t *testing.T, class, tenant, key string, n int) []movedObject {
+	t.Helper()
+
+	objects := make([]movedObject, n)
+	batch := make([]*models.Object, n)
+	for i := range objects {
+		objects[i] = newMovedObject(i)
+		batch[i] = objects[i].model(class, tenant)
+	}
+	helper.CreateObjectsBatchAuth(t, batch, key)
+	require.False(t, t.Failed(), "the seed batch refused an object")
+	return objects
 }
 
 // searches returns one search at ONE per index that finds the object, each
 // expected to return it alone. A limit of 10 lets an extra BM25 or filter match
 // show, and the vector search asks for the nearest object only.
-func (o movedObject) searches(class string) map[string]*pb.SearchRequest {
+func (o movedObject) searches(class, tenant string) map[string]*pb.SearchRequest {
 	one := pb.ConsistencyLevel_CONSISTENCY_LEVEL_ONE
 	request := func(limit uint32, set func(*pb.SearchRequest)) *pb.SearchRequest {
 		r := searchReq(class, limit)
+		r.Tenant = tenant
 		r.ConsistencyLevel = &one
 		r.Metadata = &pb.MetadataRequest{Uuid: true}
 		set(r)
@@ -86,9 +116,9 @@ func (o movedObject) searches(class string) map[string]*pb.SearchRequest {
 }
 
 // requireShardServedBy polls node for up to within until its gRPC aggregate
-// counts every object. Each search from searches and a REST get at ONE must
-// also find the first and last object.
-func requireShardServedBy(t *testing.T, node, class, key string, objects []movedObject, within time.Duration) {
+// counts every object of tenant. Each search from searches and a REST get at
+// ONE must also find the first and last object.
+func requireShardServedBy(t *testing.T, node, class, tenant, key string, objects []movedObject, within time.Duration) {
 	t.Helper()
 
 	restURI, grpcURI := nodeURIs(t, node)
@@ -96,12 +126,12 @@ func requireShardServedBy(t *testing.T, node, class, key string, objects []moved
 	probes := []movedObject{objects[0], objects[len(objects)-1]}
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		agg, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{Collection: class, ObjectsCount: true})
+		agg, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{Collection: class, Tenant: tenant, ObjectsCount: true})
 		if assert.NoError(c, err, "aggregate") {
 			assert.Equal(c, int64(len(objects)), agg.GetSingleResult().GetObjectsCount())
 		}
 		for _, o := range probes {
-			for name, req := range o.searches(class) {
+			for name, req := range o.searches(class, tenant) {
 				resp, err := grpcClient.Search(authCtx(key), req)
 				if !assert.NoError(c, err, "%s for %s", name, o.token) {
 					continue
@@ -112,11 +142,15 @@ func requireShardServedBy(t *testing.T, node, class, key string, objects []moved
 				}
 				assert.Equal(c, []string{o.id.String()}, ids, "%s for %s", name, o.token)
 			}
-			_, err := helper.GetObjectVia(t, rest, class, o.id, types.ConsistencyLevelOne, key)
+			_, err := helper.GetObjectVia(t, rest, class, tenant, o.id, types.ConsistencyLevelOne, key)
 			assert.NoError(c, err, "get %s", o.token)
 		}
-	}, within, 500*time.Millisecond, "%q never answered every read of %s", node, class)
+	}, within, 500*time.Millisecond, "%q never answered every read of %s %q", node, class, tenant)
 }
+
+// servedAfterReadyWithin bounds the reads after a movement reaches READY, since
+// a late answer then is a failure.
+const servedAfterReadyWithin = 10 * time.Second
 
 // TestNamespaces_MovedShardServesReads reads a moved namespaced shard through
 // every node once a MOVE has left the target its only replica. Not parallel,
@@ -130,55 +164,166 @@ func TestNamespaces_MovedShardServesReads(t *testing.T) {
 	)
 	ns, userKey := newNamespaceOnNode(t, sourceNode)
 	qualified := ns + ":" + class
-	helper.CreateClassAuth(t, &models.Class{
-		Class:      class,
-		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
-		VectorConfig: map[string]models.VectorConfig{
-			"vec": {Vectorizer: map[string]any{"none": map[string]any{}}, VectorIndexType: "hnsw"},
-		},
-	}, userKey)
+	helper.CreateClassAuth(t, searchableClass(class), userKey)
 	t.Cleanup(func() { helper.DeleteClassAuth(t, qualified, adminKey) })
 	shardName := requireShardCountEventually(t, qualified, 1)[0]
 
-	objects := make([]movedObject, seeded)
-	batch := make([]*models.Object, seeded)
-	for i := range objects {
-		objects[i] = newMovedObject(i)
-		batch[i] = objects[i].model(class)
-	}
-	helper.CreateObjectsBatchAuth(t, batch, userKey)
+	objects := seedMovedObjects(t, class, "", userKey, seeded)
 	// The source answers the same reads first, so a failure after the move is the move's.
-	requireShardServedBy(t, sourceNode, class, userKey, objects, movementTimeout)
+	requireShardServedBy(t, sourceNode, class, "", userKey, objects, movementTimeout)
 
 	opID, err := registerMovement(t, qualified, shardName, sourceNode, targetNode, api.MOVE.String())
 	require.NoError(t, err)
 	waitMovementState(t, opID, api.READY)
-	requireSoleReplicaEventually(t, qualified, shardName, targetNode)
+	requireReplicasEventually(t, qualified, shardName, targetNode)
 	// The source drops its copy, so its reads below are forwarded to the target.
 	requireShardReleasedOnNode(t, qualified, shardName, sourceNode, newPresentShard(t, sourceNode))
 
-	// A late answer after READY is a failure, so those reads get a short window.
-	const servedWithin = 10 * time.Second
 	requireServedByEveryNode := func(t *testing.T, within time.Duration) {
 		t.Helper()
 		for _, node := range []string{docker.Weaviate0, sourceNode, targetNode} {
-			requireShardServedBy(t, node, class, userKey, objects, within)
+			requireShardServedBy(t, node, class, "", userKey, objects, within)
 		}
 	}
 
 	t.Run("every node serves every read after READY", func(t *testing.T) {
-		requireServedByEveryNode(t, servedWithin)
+		requireServedByEveryNode(t, servedAfterReadyWithin)
 	})
 
 	t.Run("an object written after READY reads back from every node", func(t *testing.T) {
 		added := newMovedObject(seeded)
-		require.NoError(t, helper.CreateObjectAuth(t, added.model(class), userKey))
+		require.NoError(t, helper.CreateObjectAuth(t, added.model(class, ""), userKey))
 		objects = append(objects, added)
-		requireServedByEveryNode(t, servedWithin)
+		requireServedByEveryNode(t, servedAfterReadyWithin)
 	})
 
 	t.Run("every node serves every read after the target restarts", func(t *testing.T) {
 		withNodeStopped(t, targetNode, nil, func(*testing.T) {})
 		requireServedByEveryNode(t, movementTimeout)
+	})
+}
+
+// requireReplicaHoldsEventually waits until node lists the shard with want
+// objects. A read through node is answered by another replica while node holds
+// no copy, and ObjectCount counts only flushed segments, which a freeze writes.
+func requireReplicaHoldsEventually(t *testing.T, qualifiedClass, shardName, node string, want int) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		shard, _, err := shardOnNode(t, qualifiedClass, shardName, node)
+		if !assert.NoError(c, err) || !assert.NotNil(c, shard, "%q lists no shard %q", node, shardName) {
+			return
+		}
+		assert.Equal(c, int64(want), shard.ObjectCount)
+	}, movementTimeout, 500*time.Millisecond, "%q never reported %d objects in shard %q", node, want, shardName)
+}
+
+// seededShard is a shard of TestNamespaces_MoveAfterHomeNodesChange and the
+// objects written to it.
+type seededShard struct {
+	classShard
+	label   string
+	objects []movedObject
+}
+
+// TestNamespaces_MoveAfterHomeNodesChange swaps weaviate-2 for weaviate-0 in the
+// home_nodes of a namespace holding an RF=2 class and two RF=2 tenants. The
+// tenant no MOVE touches shows that an unfreeze alone follows the new home_nodes.
+func TestNamespaces_MoveAfterHomeNodesChange(t *testing.T) {
+	t.Parallel()
+
+	const (
+		kept, dropped, added  = docker.Weaviate1, docker.Weaviate2, docker.Weaviate0
+		docsClass, booksClass = "Docs", "Books"
+		seeded                = 20
+	)
+	oldHome, newHome := []string{kept, dropped}, []string{kept, added}
+
+	ns := uniqueNS()
+	helper.CreateNamespaceWithHomeNodes(t, ns, oldHome, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
+	// dropped keeps listing this shard while the moved replicas leave it.
+	live := newPresentShard(t, dropped)
+
+	books := searchableClass(booksClass)
+	books.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+	for _, class := range []*models.Class{searchableClass(docsClass), books} {
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: 2}
+		helper.CreateClassAuth(t, class, userKey)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":"+class.Class, adminKey) })
+	}
+	helper.CreateTenantsAuth(t, booksClass, []*models.Tenant{{Name: "moved"}, {Name: "stale"}}, userKey)
+
+	docsShard := requireShardCountEventually(t, ns+":"+docsClass, 1)[0]
+	shards := []seededShard{
+		{label: "the class's shard", classShard: classShard{class: docsClass, shard: docsShard}},
+		{label: "a tenant", classShard: classShard{class: booksClass, tenant: "moved", shard: "moved"}},
+		{label: "a tenant no MOVE touches", classShard: classShard{class: booksClass, tenant: "stale", shard: "stale"}},
+	}
+	for i := range shards {
+		shards[i].objects = seedMovedObjects(t, shards[i].class, shards[i].tenant, userKey, seeded)
+	}
+
+	helper.UpdateNamespace(t, ns, newHome, adminKey)
+	requireEveryNodeCaughtUp(t)
+
+	t.Run("the existing replicas stay on the old home nodes", func(t *testing.T) {
+		for _, s := range shards {
+			replicas, err := shardReplicas(t, ns+":"+s.class, s.shard)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, oldHome, replicas, s.label)
+		}
+	})
+
+	t.Run("a new class and a new tenant land on the new home nodes", func(t *testing.T) {
+		const freshClass, freshTenant = "Fresh", "fresh"
+		helper.CreateClassAuth(t, &models.Class{
+			Class: freshClass, ReplicationConfig: &models.ReplicationConfig{Factor: 2},
+		}, userKey)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":"+freshClass, adminKey) })
+		helper.CreateTenantsAuth(t, booksClass, []*models.Tenant{{Name: freshTenant}}, userKey)
+
+		freshShard := requireShardCountEventually(t, ns+":"+freshClass, 1)[0]
+		requireReplicasEventually(t, ns+":"+freshClass, freshShard, newHome...)
+		requireReplicasEventually(t, ns+":"+booksClass, freshTenant, newHome...)
+	})
+
+	for _, s := range shards[:2] {
+		t.Run(fmt.Sprintf("a MOVE from %s to %s leaves %s served there", dropped, added, s.label), func(t *testing.T) {
+			qualified := ns + ":" + s.class
+			opID, err := registerMovement(t, qualified, s.shard, dropped, added, api.MOVE.String())
+			require.NoError(t, err)
+			waitMovementState(t, opID, api.READY)
+			requireReplicasEventually(t, qualified, s.shard, newHome...)
+			requireShardReleasedOnNode(t, qualified, s.shard, dropped, live)
+			requireShardServedBy(t, added, s.class, s.tenant, userKey, s.objects, servedAfterReadyWithin)
+		})
+	}
+
+	t.Run("an unfreeze puts both tenants on the new home nodes", func(t *testing.T) {
+		tenants := shards[1:]
+		setStatus := func(status string) {
+			update := make([]*models.Tenant, 0, len(tenants))
+			for _, s := range tenants {
+				update = append(update, &models.Tenant{Name: s.tenant, ActivityStatus: status})
+			}
+			helper.UpdateTenantsWithAuthz(t, booksClass, update, helper.CreateAuth(userKey))
+			for _, s := range tenants {
+				waitForTenantStatus(t, ns+":"+booksClass, s.tenant, status, adminKey)
+			}
+		}
+		setStatus(models.TenantActivityStatusFROZEN)
+		setStatus(models.TenantActivityStatusHOT)
+
+		for _, s := range tenants {
+			requireReplicasEventually(t, ns+":"+booksClass, s.shard, newHome...)
+			// Each node downloads its replica after the status reads HOT.
+			for _, node := range newHome {
+				requireShardServedBy(t, node, booksClass, s.tenant, userKey, s.objects, movementTimeout)
+				requireReplicaHoldsEventually(t, ns+":"+booksClass, s.shard, node, len(s.objects))
+			}
+		}
 	})
 }
