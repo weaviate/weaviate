@@ -94,8 +94,10 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
 		}
 
-		// skip if the filtered posting is now too small
-		if lf := len(filtered); lf < int(h.maxPostingSize) {
+		// skip if the filtered posting is now too small; the single posting
+		// may also be back under its limit once deleted entries are gone
+		lf := len(filtered)
+		if lf < int(h.maxPostingSize) || (firstSplit && !h.singlePostingFull(uint32(lf))) {
 			if lf == lp {
 				// no changes, just return
 				return nil
