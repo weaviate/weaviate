@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo.** El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
+**Estado: paso 1 cerrado, la parte sin cronometrar a 1M en marcha y la sesión cronometrada en cola.** Pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo. El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
 
 ### El encargo (del usuario)
 
@@ -257,6 +257,24 @@ Las de v4.0 y v5.0: la máquina despierta, 15 minutos sin teclado ni trackpad an
 - **En caliente,** la nueva se ahorra la espera del bloque de miembros (0.29 ms de 1.22) y paga más rescore (0.13 ms por 64 vectores): espero empate con rescoreLimit 200 y peor con 800.
 - **RAM:** `s512`, lo de la actual (145.8 MB) más 7.9 MB de doc ids, unos 154 MB. `s768`, 31.7 MB más de sketches: unos 185 MB.
 - **Disco:** el store baja de 243 MB a unos 37. El total lo sigue mandando el fichero de vectores, 6 083 MB.
+
+### Paso 1, cerrado: el mecanismo y su equivalencia a pequeña escala (11:50 del 19)
+
+Código en `b098d01b1a` y `38b4269e55`, después del pre-registro (`328b178a14`).
+
+- **El formato y la lectura** (`disk_test.go`). El meta dice que el índice no guarda miembros en disco. Al escribir no hay bloque de miembros. Al abrir, el doc id de cada slot sale de la tabla de slots por doc id. Una ronda pide solo los bloques de aristas de sus postings, y los miembros de cada posting son dos tramos de los arrays residentes, sin lectura y sin copia.
+- **El equivalente en memoria** (`sketchScanState`): el estado del build con el sketch como código del scan y del ruteo, en un solo array.
+- **Tests, sin el tag de benchmark:**
+  - `TestDiskSearchEqualsMemory` gana cuatro celdas (64, 128 y 192 bits, cosine y aristas podadas), cada una con sus diez búsquedas, en mmap y en pread: ids, distancias, trabajo, bloques y bytes, query a query.
+  - `TestDiskScanInMemory`: el estado, cinco escrituras que se rechazan sin dejar nada escrito, el formato posting a posting y cinco aperturas que se rechazan.
+- **Cinco fallos provocados a mano, los cinco cazados:** dos doc ids de un posting cambiados de sitio, el código de un miembro por el de su vecino, el scan estimando con el código completo, los doc ids de los slots movidos un bit, y un bloque de miembros contado sin leerse.
+- **El arnés** (`bench_disk_test.go`): las seis curvas nuevas sobre dos índices en disco, y `-bench.diskadmission`, que toma el presupuesto de cada query del limitador de admisión real. En la prueba da 20.0 por query con 1 thread y 14.4 con 8, lo que decía la simulación.
+- **Una prueba a 30 000 vectores, que no es un dato:** las siete curvas devuelven de disco lo mismo que en memoria, y el store lee 1.035 veces el modelo en las nuevas y 1.005 en la actual.
+- **Lint y tests del paquete pasan,** con y sin el tag.
+
+**Una precisión sobre la sesión, antes de ningún dato:** son 14 tramos por ronda, las siete curvas en las dos pasadas. Estimo de 3 a 4 horas. Dentro de una ronda va primero la pasada de 8 entera y después la de un nodo.
+
+**En marcha desde las 11:51:** la parte sin cronometrar a 1M. **En cola desde las 11:53:** la sesión cronometrada, que arranca cuando acabe la cola de la noche y solo si la parte sin cronometrar pasó.
 
 ## El heap a 1M, por componente (2026-11-19)
 
