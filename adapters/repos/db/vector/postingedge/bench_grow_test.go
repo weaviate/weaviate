@@ -95,6 +95,9 @@ var (
 		"searcher it is the insert of always")
 	benchGrowCoverage = flag.Bool("bench.growcoverage", false, "with TestGrowTimedInserts: the coverage of the index is "+
 		"checked at every checkpoint, out of the time of the inserts, and the run stops if it is not complete (v5.2)")
+	benchGrowEFs = flag.String("bench.growefs", "", "with TestGrowTimedInserts: the ef, separated by commas, the index "+
+		"it grew is searched with besides those of its own operating points: those of another run, to tell the two "+
+		"indexes apart at the same ef (v5.2)")
 	benchGrowManifest = flag.String("bench.growmanifest", "", "what TestGrowTimedInserts leaves for TestGrowTimedSearch: "+
 		"the index it grew, its operating points and the ground truth. It must not live under -bench.growdir")
 )
@@ -730,7 +733,10 @@ type growManifest struct {
 	Meta              growMeta          `json:"meta"`
 	Points            []diskPoint       `json:"points"`
 	MaxRecall         float64           `json:"maxRecall"`
-	Truth             [][]uint64        `json:"truth"`
+	// At is the index searched with the ef of -bench.growefs: its recall
+	// and its loads at each.
+	At    []diskPoint `json:"at,omitempty"`
+	Truth [][]uint64  `json:"truth"`
 }
 
 // TestGrowTimedInserts is the timed run of the inserts: the base built and
@@ -1040,9 +1046,23 @@ func TestGrowTimedInserts(t *testing.T) {
 			low = ef
 		}
 	}
+	// And at the ef of another run.
+	if *benchGrowEFs != "" {
+		for _, field := range strings.Split(*benchGrowEFs, ",") {
+			ef, err := strconv.Atoi(strings.TrimSpace(field))
+			require.NoError(t, err, "-bench.growefs")
+			manifest.At = append(manifest.At, diskPoint{Reached: true, EF: ef, RescoreLimit: uc.RescoreLimit, Recall: recall(ef)})
+		}
+	}
 	// What a query loads at every operating point.
+	measured := make([]*diskPoint, 0, len(manifest.Points)+len(manifest.At))
 	for i := range manifest.Points {
-		point := &manifest.Points[i]
+		measured = append(measured, &manifest.Points[i])
+	}
+	for i := range manifest.At {
+		measured = append(measured, &manifest.At[i])
+	}
+	for _, point := range measured {
 		if !point.Reached {
 			continue
 		}
@@ -1071,7 +1091,7 @@ func TestGrowTimedInserts(t *testing.T) {
 		point.Compared = len(data.queries)
 		point.Loads = float64(loads.Load()) / float64(len(data.queries))
 		point.Rounds = float64(rounds.Load()) / float64(len(data.queries))
-		t.Logf("recall %.2f: ef %d, recall %.4f, %.2f loads a query in %.2f rounds", point.Target, point.EF, point.Recall,
+		t.Logf("target %.2f: ef %d, recall %.4f, %.2f loads a query in %.2f rounds", point.Target, point.EF, point.Recall,
 			point.Loads, point.Rounds)
 	}
 	write()
