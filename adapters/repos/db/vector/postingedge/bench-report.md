@@ -909,7 +909,8 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
   - **posting-edge entre HFresh en paralelo:** lo que queda de la diferencia cuando los dos leen en paralelo;
   - **los criterios 2 y 3 de v4.0, leídos otra vez contra HFresh en paralelo,** a título informativo y con la regla del empate del 10 %. Se dice si alguno cambia. Los criterios pre-registrados eran contra el HFresh de main, y su veredicto no se toca.
 - **Lo esperado, antes de medir:** a 0.95 en frío con 1 thread, unos 12 ms de p50 donde en serie eran 46.8.
-- **Condiciones:** de noche, ahora, antes de las 03:00, con la máquina despierta, 15 minutos sin teclado ni trackpad, dos rondas y el registro de actividad por tramo. Una curva que derive o coincida con actividad se marca. No hay otra noche comprometida para repetirla: se dice.
+- **Condiciones:** ahora, de día, como la sesión del 18 (enmienda 5): la máquina despierta, 15 minutos sin teclado ni trackpad antes de arrancar, dos rondas y el registro de actividad por tramo. Una curva que derive o coincida con actividad se marca, y se repite esta noche.
+  - *Corregido a las 06:51, antes de compilar:* aquí ponía «de noche, antes de las 03:00». Lo escribí creyendo que seguía siendo de madrugada; son las siete de la mañana.
 - **Lo que no mide:** otro grado de paralelismo, lecturas asíncronas, HFresh por defecto, y Linux.
 - **Lo que el binario añade:** en `hfresh/store.go`, el grado de concurrencia de `MultiGet`, 1 por defecto, con su test. En el arnés de HFresh, una opción para fijarlo.
 
