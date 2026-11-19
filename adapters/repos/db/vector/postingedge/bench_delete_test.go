@@ -41,7 +41,9 @@ var (
 	benchDeleteStages = flag.String("bench.deletes", "", "the deletes experiment of v6.0 (TestStreamDeletes): its stages, "+
 		"separated by commas and run in the order given, of random10, random30, random50 (that share of the train set "+
 		"deleted at random), clustered30 (whole regions of neighboring postings) and churn (deletes and inserts in "+
-		"rounds, with the best cell of random30, which must come before it)")
+		"rounds, with the best cell of random30, which must come before it). And those of v6.1: repair30 (the maintenance "+
+		"pass in two phases, repair and eliminate, in its cells, over 30 % deleted at random) and repairchurn (the churn "+
+		"with the best of them)")
 	benchDeleteMin = flag.Int("bench.deletemin", 118, "with -bench.deletes: the live members under which the cleanup "+
 		"merges a posting into its nearest one")
 	benchDeleteOver = flag.Float64("bench.deleteover", 0.30, "with -bench.deletes: the share of deleted members past "+
@@ -53,6 +55,8 @@ var (
 		"not among the stages to choose it")
 	benchDeleteSources = flag.Bool("bench.deletesources", false, "with -bench.deletes: cell 1b is measured at every "+
 		"point, after cell 1: a deleted member that is still in its posting is a routing source")
+	benchRepairCell = flag.String("bench.repaircell", "", "with -bench.deletes: the cell repairchurn runs with, by its "+
+		"key, when repair30 is not among the stages to choose it")
 	benchDeleteFill = flag.Bool("bench.deletefill", false, "with -bench.deletes: every point builds besides a batch "+
 		"index of the vectors that are left with the mean live size of the postings of its cells as its posting size, "+
 		"one for the cells before the cleanup and one for those after it, and sets every cell against its own")
@@ -62,6 +66,57 @@ var (
 var deleteCellNames = []string{
 	"", "1: logical deletes, deleted endpoints scored", "2: deleted endpoints not scored",
 	"3: postings written again and merged", "4: edges refreshed",
+	"5: repaired with the deleted navigable, then eliminated and merged",
+}
+
+// repairSpec is a cell of v6.1: the share of dead edges from which a vector
+// is repaired (0/1 is one dead edge or more) and the merges of the second
+// phase. legacy is the cell 4 of v6.0 as it was, the reference; mine a cell
+// the order did not ask for.
+type repairSpec struct {
+	key        string
+	share      string
+	num, den   int
+	mergeUnder int
+	sumWithin  int
+	legacy     bool
+	mine       bool
+}
+
+// repairCost is the order of cost of the four cells of the order, the
+// cheapest first: fewer repair searches, and with the same share the merge
+// that moves fewer members.
+var repairCost = []string{"r25-m118", "r25-m177", "r1-m118", "r1-m177"}
+
+// repairBest chooses the cell the churn of v6.1 runs with: the cheapest of
+// the four that meets the criterion; if none does, the one with the fewest
+// loads at 0.99 over the reference, a cheaper one standing unless another is
+// under it by more than the noise floor.
+func repairBest(cells []deleteCell) (string, string) {
+	byKey := map[string]*deleteCell{}
+	for i := range cells {
+		byKey[cells[i].Label] = &cells[i]
+	}
+	for _, key := range repairCost {
+		if cell := byKey[key]; cell != nil && cell.Verdict.Meets {
+			return key, "the cheapest cell that meets the criterion with 30 % deleted at random"
+		}
+	}
+	best := ""
+	for _, key := range repairCost {
+		cell := byKey[key]
+		if cell == nil || !cell.Reached99 || cell.Verdict.Loads99 == 0 {
+			continue
+		}
+		if best == "" || cell.Verdict.Loads99 < byKey[best].Verdict.Loads99-deleteNoise99 {
+			best = key
+		}
+	}
+	if best == "" {
+		return repairCost[len(repairCost)-1], "no cell reaches 0.99 with 30 % deleted at random: the last one"
+	}
+	return best, "no cell meets the criterion with 30 % deleted at random: the one with the fewest loads at 0.99 over " +
+		"its reference, the cheaper one where two are within the noise floor"
 }
 
 // The noise floor of v2.0, and the criterion of v6.0.
@@ -156,6 +211,13 @@ type deleteCell struct {
 	Cell     int           `json:"cell"`
 	Variant  string        `json:"variant,omitempty"`
 	Name     string        `json:"name"`
+	// Label, RepairShare, MergeUnder, MergeWithin and Mine are those of a
+	// cell of v6.1.
+	Label       string `json:"label,omitempty"`
+	RepairShare string `json:"repairShare,omitempty"`
+	MergeUnder  int    `json:"mergeUnder,omitempty"`
+	MergeWithin int    `json:"mergeWithin,omitempty"`
+	Mine        bool   `json:"mine,omitempty"`
 	Counts   deleteCounts  `json:"counts"`
 	Work     deleteStats   `json:"work"`
 	Refresh  *refreshStats `json:"refresh,omitempty"`
@@ -215,9 +277,12 @@ type deleteResult struct {
 	// deletes starts from.
 	Build *buildWork `json:"build,omitempty"`
 	// Best is the cell the churn runs with, and why.
-	Best    int           `json:"best"`
-	BestWhy string        `json:"bestWhy"`
-	Stages  []deleteStage `json:"stages"`
+	Best    int    `json:"best"`
+	BestWhy string `json:"bestWhy"`
+	// BestRepair is the cell of v6.1 its churn runs with, by its key.
+	BestRepair    string        `json:"bestRepair,omitempty"`
+	BestRepairWhy string        `json:"bestRepairWhy,omitempty"`
+	Stages        []deleteStage `json:"stages"`
 	// NotRun are the stages that did not start: it was past the time of
 	// -bench.deleteuntil.
 	NotRun []string `json:"notRun,omitempty"`
@@ -381,6 +446,7 @@ func TestStreamDeletes(t *testing.T) {
 	result := &deleteResult{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Grid: streamGrid, Threshold: cfg.threshold,
 		InsertEF: *benchStreamInsertEF, MinLive: *benchDeleteMin, RewriteOver: *benchDeleteOver, Best: *benchDeleteCell,
+		BestRepair: *benchRepairCell,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": DefaultLoadBatch,
@@ -388,6 +454,28 @@ func TestStreamDeletes(t *testing.T) {
 	}
 	if result.Best != 0 {
 		result.BestWhy = "given with -bench.deletecell"
+	}
+	if result.BestRepair != "" {
+		result.BestRepairWhy = "given with -bench.repaircell"
+	}
+	// The cells of v6.1, in the order they run: the reference, mine, and
+	// the four of the order from the fewest repairs to the most.
+	fillUnder := uc.TargetPostingSize * 3 / 4
+	repairSpecs := []repairSpec{
+		{key: "v60-4", share: "half or more, after the cleanup and without going through the deleted", num: 1, den: 2, mergeUnder: *benchDeleteMin, legacy: true},
+		{key: "r50-m118", share: "half or more", num: 1, den: 2, mergeUnder: *benchDeleteMin, mine: true},
+		{key: "r25-m118", share: "a quarter or more", num: 1, den: 4, mergeUnder: *benchDeleteMin},
+		{key: "r25-m177", share: "a quarter or more", num: 1, den: 4, mergeUnder: fillUnder, sumWithin: cfg.threshold},
+		{key: "r1-m118", share: "one or more", num: 0, den: 1, mergeUnder: *benchDeleteMin},
+		{key: "r1-m177", share: "one or more", num: 0, den: 1, mergeUnder: fillUnder, sumWithin: cfg.threshold},
+	}
+	repairSpecOf := func(key string) *repairSpec {
+		for i := range repairSpecs {
+			if repairSpecs[i].key == key {
+				return &repairSpecs[i]
+			}
+		}
+		return nil
 	}
 	write := func() {
 		raw, err := json.MarshalIndent(result, "", "  ")
@@ -530,7 +618,7 @@ func TestStreamDeletes(t *testing.T) {
 
 	var whole *Index
 	var built *state
-	needWhole := slices.ContainsFunc(stages, func(stage string) bool { return stage != "churn" })
+	needWhole := slices.ContainsFunc(stages, func(stage string) bool { return stage != "churn" && stage != "repairchurn" })
 	if needWhole {
 		all := make([]uint64, n)
 		for i := range all {
@@ -624,6 +712,105 @@ func TestStreamDeletes(t *testing.T) {
 		}
 	}
 
+	// repairPoint runs the cells of v6.1 over copies of the whole index with
+	// the given vectors deleted: each cell on a copy of its own. The repair
+	// of a share runs once: it changes no posting, so the second cell of
+	// the share takes the lists it left.
+	repairPoint := func(stage *deleteStage, gone []uint64) {
+		live := make([]bool, n)
+		for i := range live {
+			live[i] = true
+		}
+		for _, id := range gone {
+			live[id] = false
+		}
+		stage.Corpus, stage.Deleted = n, len(gone)
+		var truth [][]uint64
+		truth, stage.TruthFallbacks = liveTruthOf(t, data, live, k)
+		stage.Reference = reference(live, truth, uc.TargetPostingSize)
+		write()
+
+		type repaired struct {
+			snap  edgeSnapshot
+			stats refreshStats
+		}
+		done := map[[2]int]*repaired{}
+		cell := func(spec repairSpec) bool {
+			whole.state.Store(built)
+			s, err := newStreamIndex(whole, n, cfg, vectorOf)
+			require.NoError(t, err)
+			graph, err := newCentroidIndex(ctx, &whole.cfg, t.TempDir(), slices.Clone(built.centroids.vectors))
+			require.NoError(t, err)
+			s.st.centroids = graph
+			defer func() {
+				whole.state.Store(built)
+				require.NoError(t, graph.shutdown(ctx))
+			}()
+			d := newDeleteIndex(s, *benchDeleteOver, *benchDeleteMin)
+			for _, id := range gone {
+				require.NoError(t, d.remove(id))
+			}
+			stop := func(what string, err error) bool {
+				stage.Stopped = fmt.Sprintf("%s, %s: %v", spec.key, what, err)
+				write()
+				t.Logf("STOP, %s: %s", stage.Name, stage.Stopped)
+				return false
+			}
+			var refreshed refreshStats
+			number := 5
+			if spec.legacy {
+				// The cell 4 of v6.0, as it ran there.
+				number = 4
+				d.scoreDeletedEndpoints(false)
+				if err := d.cleanup(ctx); err != nil {
+					return stop("cleanup", err)
+				}
+				if err := s.cleanCentroidGraph(); err != nil {
+					t.Logf("%s, %s: cleaning the centroid graph failed, measured with its tombstones: %v", stage.Name, spec.key, err)
+				}
+				require.NoError(t, whole.UpdateUserConfig(insertUC, func() {}))
+				if refreshed, err = d.refresh(ctx); err != nil {
+					return stop("refresh", err)
+				}
+			} else {
+				share := [2]int{spec.num, spec.den}
+				if prior := done[share]; prior != nil {
+					require.NoError(t, s.restoreEdges(prior.snap))
+					refreshed = prior.stats
+				} else {
+					require.NoError(t, whole.UpdateUserConfig(insertUC, func() {}))
+					if refreshed, err = d.repair(ctx, spec.num, spec.den); err != nil {
+						return stop("repair", err)
+					}
+					done[share] = &repaired{snap: s.snapshotEdges(), stats: refreshed}
+				}
+				if err := d.eliminate(ctx, spec.mergeUnder, spec.sumWithin); err != nil {
+					return stop("eliminate", err)
+				}
+				if err := s.cleanCentroidGraph(); err != nil {
+					t.Logf("%s, %s: cleaning the centroid graph failed, measured with its tombstones: %v", stage.Name, spec.key, err)
+				}
+			}
+			t.Logf("%s, %s: %d vectors repaired (%s) in %s: %d loads, %d endpoints scored, %d exact distances, %d inverse "+
+				"edges | %d edges dropped, %d merges, %d not made for the size", stage.Name, spec.key, refreshed.Refreshed,
+				spec.share, refreshed.Time.Round(time.Second), refreshed.Work.SearchLoads, refreshed.Work.SearchEndpoints,
+				refreshed.Work.SearchRescored, refreshed.Work.InverseEdges, d.stats.DroppedEdges, d.stats.Merges,
+				d.stats.MergesSkipped)
+			ok := measure(stage, number, "", whole, d, truth, &refreshed)
+			out := &stage.Cells[len(stage.Cells)-1]
+			out.Label, out.RepairShare, out.MergeUnder, out.MergeWithin, out.Mine = spec.key, spec.share, spec.mergeUnder,
+				spec.sumWithin, spec.mine
+			write()
+			return ok
+		}
+		for _, spec := range repairSpecs {
+			if !cell(spec) {
+				return
+			}
+		}
+		fill(stage, live, truth)
+	}
+
 	// clustered lists the vectors of whole regions of neighboring postings,
 	// up to the share.
 	clustered := func(stage *deleteStage, share float64) []uint64 {
@@ -676,7 +863,7 @@ func TestStreamDeletes(t *testing.T) {
 
 	// churn deletes a share of a base index and inserts as many new vectors,
 	// in rounds, with the passes of the given cell after each.
-	churn := func(stage *deleteStage, cell int) {
+	churn := func(stage *deleteStage, cell int, repair *repairSpec) {
 		order := rand.New(rand.NewPCG(6, 6)).Perm(n)
 		baseN := n * 760 / 990
 		each := baseN * 3 / 100
@@ -697,8 +884,15 @@ func TestStreamDeletes(t *testing.T) {
 		require.NoError(t, err)
 		d := newDeleteIndex(s, *benchDeleteOver, *benchDeleteMin)
 		d.scoreDeletedEndpoints(cell == 1)
-		if cell >= 3 {
+		if cell >= 3 && repair == nil {
 			d.dropAtSplit()
+		}
+		if repair != nil {
+			// Until a pass takes them out, the deleted vectors are
+			// navigable, for the searches of the inserts too. A posting
+			// that an insert leaves past the threshold is split with them.
+			d.scoreDeletedEndpoints(true)
+			d.deletedAreSources(true)
 		}
 		stage.Corpus = baseN
 		// The base is deleted in the order of another shuffle of it.
@@ -721,14 +915,26 @@ func TestStreamDeletes(t *testing.T) {
 			stage.Deleted += each
 			stage.Inserted += each
 			out.Deleted, out.Inserted = stage.Deleted, stage.Inserted
-			if cell >= 3 {
+			if repair != nil {
+				if out.Refresh, err = d.repair(ctx, repair.num, repair.den); err != nil {
+					stage.Stopped = fmt.Sprintf("round %d, repair: %v", round+1, err)
+					write()
+					return
+				}
+				if err := d.eliminate(ctx, repair.mergeUnder, repair.sumWithin); err != nil {
+					stage.Stopped = fmt.Sprintf("round %d, eliminate: %v", round+1, err)
+					write()
+					return
+				}
+			}
+			if cell >= 3 && repair == nil {
 				if err := d.cleanup(ctx); err != nil {
 					stage.Stopped = fmt.Sprintf("round %d, cleanup: %v", round+1, err)
 					write()
 					return
 				}
 			}
-			if cell >= 4 {
+			if cell >= 4 && repair == nil {
 				if out.Refresh, err = d.refresh(ctx); err != nil {
 					stage.Stopped = fmt.Sprintf("round %d, refresh: %v", round+1, err)
 					write()
@@ -768,7 +974,14 @@ func TestStreamDeletes(t *testing.T) {
 		truth, stage.TruthFallbacks = liveTruthOf(t, data, live, k)
 		stage.Reference = reference(live, truth, uc.TargetPostingSize)
 		write()
-		if measure(stage, cell, "", index, d, truth, nil) {
+		ok := measure(stage, cell, "", index, d, truth, nil)
+		if repair != nil {
+			out := &stage.Cells[len(stage.Cells)-1]
+			out.Label, out.RepairShare, out.MergeUnder, out.MergeWithin = repair.key, repair.share, repair.mergeUnder,
+				repair.sumWithin
+			write()
+		}
+		if ok {
 			fill(stage, live, truth)
 		}
 	}
@@ -801,7 +1014,22 @@ func TestStreamDeletes(t *testing.T) {
 			point(stage, clustered(stage, 0.30))
 		case "churn":
 			require.NotZero(t, result.Best, "churn runs with the best cell of random30, or with that of -bench.deletecell")
-			churn(stage, result.Best)
+			churn(stage, result.Best, nil)
+		case "repair30":
+			gone := make([]uint64, n*30/100)
+			for i := range gone {
+				gone[i] = uint64(random[i])
+			}
+			repairPoint(stage, gone)
+			if stage.Stopped == "" && result.BestRepair == "" {
+				result.BestRepair, result.BestRepairWhy = repairBest(stage.Cells)
+				t.Logf("the cell of the churn: %s, %s", result.BestRepair, result.BestRepairWhy)
+			}
+		case "repairchurn":
+			spec := repairSpecOf(result.BestRepair)
+			require.NotNilf(t, spec, "repairchurn runs with the best cell of repair30, or with that of -bench.repaircell: %q",
+				result.BestRepair)
+			churn(stage, 5, spec)
 		default:
 			t.Fatalf("unknown stage %q of -bench.deletes", name)
 		}

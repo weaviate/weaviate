@@ -61,6 +61,12 @@ type deleteStats struct {
 	// those that no longer had to split.
 	SplitRewrites int `json:"rewritesBeforeSplit"`
 	SplitsSaved   int `json:"splitsSaved"`
+	// DroppedEdges counts the edges that led to a deleted vector and were
+	// taken out of their list by the second phase of the maintenance pass,
+	// and MergesSkipped the postings under the size of its merges that it
+	// left alone, the two together being past the size a merge may make.
+	DroppedEdges  int `json:"edgesDropped"`
+	MergesSkipped int `json:"mergesSkippedBySize"`
 }
 
 // deleteIndex is a streaming index with deletes.
@@ -269,6 +275,13 @@ func (d *deleteIndex) nearestPosting(ctx context.Context, p uint32) (uint32, err
 // halfDead lists, by doc id, the live vectors with half or more of their
 // edges leading to deleted vectors. A vector without edges is not one.
 func (d *deleteIndex) halfDead() []uint64 {
+	return d.withDeadEdges(1, 2)
+}
+
+// withDeadEdges lists, by doc id, the live vectors with at least one edge
+// that leads to a deleted vector and with num/den or more of their edges
+// leading to one: 0/1 is every vector with a dead edge.
+func (d *deleteIndex) withDeadEdges(num, den int) []uint64 {
 	var out []uint64
 	for p := range d.s.st.postings.lists {
 		l := &d.s.st.postings.lists[p]
@@ -283,13 +296,33 @@ func (d *deleteIndex) halfDead() []uint64 {
 					dead++
 				}
 			}
-			if len(edges) > 0 && 2*dead >= len(edges) {
+			if dead > 0 && den*dead >= num*len(edges) {
 				out = append(out, docID)
 			}
 		}
 	}
 	slices.Sort(out)
 	return out
+}
+
+// checkLists checks that no list of the given vectors leads to a deleted
+// one: a search never has a deleted vector among its results, so a list it
+// built cannot.
+func (d *deleteIndex) checkLists(docIDs []uint64, what string) error {
+	st := d.s.st
+	for _, docID := range docIDs {
+		l := &st.postings.lists[st.side.postingOf[docID]]
+		m := l.member(docID)
+		if m < 0 {
+			return errors.Errorf("doc %d is not in posting %d, where the map has it", docID, st.side.postingOf[docID])
+		}
+		for _, endpoint := range l.edgesOf(m) {
+			if d.deleted[endpoint] {
+				return errors.Errorf("STOP: the %s of doc %d gave it an edge to doc %d, which is deleted", what, docID, endpoint)
+			}
+		}
+	}
+	return nil
 }
 
 // refresh is the refresh pass of cell 4: every vector halfDead lists when it
@@ -302,20 +335,118 @@ func (d *deleteIndex) refresh(ctx context.Context) (refreshStats, error) {
 	if err != nil {
 		return stats, err
 	}
+	return stats, d.checkLists(docIDs, "refresh")
+}
+
+// repair is the first phase of the maintenance pass of v6.1: every live
+// vector withDeadEdges lists when it starts builds its list of edges again,
+// by search, as the refresh does. While it runs the deleted vectors are
+// navigable, as in cell 1b: a deleted member that is still in its posting is
+// scored and its edges are followed, and an edge that leads to a deleted
+// vector has it scored. None of them is ever a candidate, so none enters a
+// list: that is checked. The search goes back to what it was when the phase
+// ends.
+func (d *deleteIndex) repair(ctx context.Context, num, den int) (refreshStats, error) {
 	st := d.s.st
-	for _, docID := range docIDs {
-		l := &st.postings.lists[st.side.postingOf[docID]]
-		m := l.member(docID)
-		if m < 0 {
-			return stats, errors.Errorf("doc %d is not in posting %d, where the map has it", docID, st.side.postingOf[docID])
+	sources, skip := st.deletedAsSources, st.skipDeletedEndpoints
+	st.deletedAsSources, st.skipDeletedEndpoints = true, false
+	defer func() { st.deletedAsSources, st.skipDeletedEndpoints = sources, skip }()
+
+	docIDs := d.withDeadEdges(num, den)
+	stats, err := d.s.refreshEdges(ctx, docIDs)
+	if err != nil {
+		return stats, err
+	}
+	return stats, d.checkLists(docIDs, "repair")
+}
+
+// eliminate is the second phase of the maintenance pass of v6.1, over the
+// postings there are when it starts, in order. First every posting with a
+// deleted member is written again without them. Then every edge that leads
+// to a deleted vector is taken out of its list: those of the vectors the
+// first phase did not repair. Then the merges: a posting left with fewer
+// than mergeUnder members is merged into its nearest one. With sumWithin, it
+// is merged only if the two together hold no more than that, and left alone
+// otherwise; without it, a posting a merge leaves past the split threshold
+// is split, as the cleanup of cell 3 does. A posting that another was merged
+// into in this pass is not looked at. When it ends no posting holds a
+// deleted vector and no edge leads to one.
+func (d *deleteIndex) eliminate(ctx context.Context, mergeUnder, sumWithin int) error {
+	s := d.s
+	lists := s.st.postings.lists
+	postings := len(lists)
+	for p := range uint32(postings) {
+		if s.retired[p] {
+			continue
 		}
-		for _, endpoint := range l.edgesOf(m) {
+		if dead := d.dead(p); dead > 0 {
+			d.stats.Rewritten++
+			d.stats.CopiedLive += len(lists[p].docIDs) - dead
+			d.stats.DroppedDead += d.rewrite(p)
+		}
+	}
+	for p := range uint32(postings) {
+		if s.retired[p] {
+			continue
+		}
+		l := &s.st.postings.lists[p]
+		edges := make([]uint32, 0, len(l.edges))
+		starts := make([]uint32, 1, len(l.docIDs)+1)
+		for i := range l.docIDs {
+			for _, endpoint := range l.edgesOf(i) {
+				if d.deleted[endpoint] {
+					d.stats.DroppedEdges++
+					continue
+				}
+				edges = append(edges, endpoint)
+			}
+			starts = append(starts, uint32(len(edges)))
+		}
+		l.edges, l.edgeStart = edges, starts
+	}
+	d.received = make(map[uint32]bool)
+	for p := range uint32(postings) {
+		if s.retired[p] || d.received[p] {
+			continue
+		}
+		size := len(s.st.postings.lists[p].docIDs)
+		if size >= mergeUnder {
+			continue
+		}
+		if size > 0 && sumWithin > 0 {
+			target, err := d.nearestPosting(ctx, p)
+			if err != nil {
+				return errors.Wrapf(err, "the nearest posting of %d", p)
+			}
+			if size+len(s.st.postings.lists[target].docIDs) > sumWithin {
+				d.stats.MergesSkipped++
+				continue
+			}
+		}
+		if err := d.merge(ctx, p); err != nil {
+			return errors.Wrapf(err, "merge posting %d", p)
+		}
+	}
+	return d.checkEliminated()
+}
+
+// checkEliminated checks what the second phase leaves: no posting holds a
+// deleted vector, and no edge leads to one.
+func (d *deleteIndex) checkEliminated() error {
+	for p := range d.s.st.postings.lists {
+		l := &d.s.st.postings.lists[p]
+		for _, docID := range l.docIDs {
+			if d.deleted[docID] {
+				return errors.Errorf("STOP: posting %d still holds doc %d, which is deleted", p, docID)
+			}
+		}
+		for _, endpoint := range l.edges {
 			if d.deleted[endpoint] {
-				return stats, errors.Errorf("STOP: the refresh of doc %d gave it an edge to doc %d, which is deleted", docID, endpoint)
+				return errors.Errorf("STOP: posting %d still has an edge to doc %d, which is deleted", p, endpoint)
 			}
 		}
 	}
-	return stats, nil
+	return nil
 }
 
 // deleteCounts is the index as the deletes left it.
