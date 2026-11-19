@@ -467,7 +467,16 @@ Loop:
 		u.log.Info("includeRoles selects no roles, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
+		// A backup that selects users carries dynamic-user assignments only for
+		// those users. A selection that matched no users (skipUsers) carries none.
+		// With no user selection, the backup covers the whole cluster unfiltered.
+		var descrp []byte
+		var err error
+		if len(u.selection.users) > 0 || u.selection.skipUsers {
+			descrp, err = u.rbacSourcer.ScopedSnapshot(u.selection.users, u.selection.roles...)
+		} else {
+			descrp, err = u.rbacSourcer.Snapshot(u.selection.roles...)
+		}
 		if err != nil {
 			return err
 		}
