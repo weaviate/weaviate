@@ -77,36 +77,49 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// to enlarge the search space.
 	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
 
-	built := h.Centroids.Built()
 	nAllowList := allowList
 	if allowList != nil {
 		nAllowList = h.wrapAllowList(ctx, allowList)
 		defer nAllowList.Close()
 	}
-	beforeCentroids := time.Now()
-	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
-	helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(centroids.data) == 0 {
-		return nil, nil, nil
+
+	var built bool
+	for {
+		built = h.Centroids.Built()
+		beforeCentroids := time.Now()
+		centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(centroids.data) == 0 {
+			return nil, nil, nil
+		}
+		if h.afterCentroidSearch != nil {
+			h.afterCentroidSearch()
+		}
+
+		selectedCentroids, err = h.selectCentroids(ctx, centroids, candidateCentroidNum)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// read all the selected postings
+		beforeRead := time.Now()
+		postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// the first split can swap in the graph and empty posting 1 after
+		// the centroid search picked it; the graph then holds its vectors
+		if built || !h.Centroids.Built() {
+			break
+		}
 	}
 
 	q := NewResultSet(rescoreLimit)
-
-	selectedCentroids, err = h.selectCentroids(ctx, centroids, candidateCentroidNum)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// read all the selected postings
-	beforeRead := time.Now()
-	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
-	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
-	if err != nil {
-		return nil, nil, err
-	}
 
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
@@ -156,7 +169,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if built && postingSize < int(h.minPostingSize) {
-			err = h.taskQueue.EnqueueMerge(selectedCentroids[i])
+			err := h.taskQueue.EnqueueMerge(selectedCentroids[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
@@ -555,32 +568,48 @@ func (h *HFresh) searchByFDE(
 	}
 	queryDistancer := quantizer.NewDistancer(queryFDE)
 
-	// Step 1: Centroid selection - controlled by routingBudget only
-	built := h.Centroids.Built()
 	nAllowList := allowList
 	if allowList != nil {
 		nAllowList = h.wrapAllowList(ctx, allowList)
 		defer nAllowList.Close()
 	}
 
-	centroids, err := h.Centroids.Search(queryFDE, routingBudget, nAllowList)
-	if err != nil {
-		return nil, err
-	}
-	if len(centroids.data) == 0 {
-		return nil, nil
-	}
+	var (
+		built             bool
+		selectedCentroids []uint64
+		postings          []Posting
+	)
+	for {
+		// Step 1: Centroid selection - controlled by routingBudget only
+		built = h.Centroids.Built()
+		centroids, err := h.Centroids.Search(queryFDE, routingBudget, nAllowList)
+		if err != nil {
+			return nil, err
+		}
+		if len(centroids.data) == 0 {
+			return nil, nil
+		}
+		if h.afterCentroidSearch != nil {
+			h.afterCentroidSearch()
+		}
 
-	// Step 2: Filter centroids by distance and posting existence
-	selectedCentroids, err := h.selectCentroids(ctx, centroids, routingBudget)
-	if err != nil {
-		return nil, err
-	}
+		// Step 2: Filter centroids by distance and posting existence
+		selectedCentroids, err = h.selectCentroids(ctx, centroids, routingBudget)
+		if err != nil {
+			return nil, err
+		}
 
-	// Step 3: Scan postings from selected centroids
-	postings, err := h.PostingStore.MultiGet(ctx, selectedCentroids)
-	if err != nil {
-		return nil, err
+		// Step 3: Scan postings from selected centroids
+		postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
+		if err != nil {
+			return nil, err
+		}
+
+		// the first split can swap in the graph and empty posting 1 after
+		// the centroid search picked it; the graph then holds its vectors
+		if built || !h.Centroids.Built() {
+			break
+		}
 	}
 
 	visited := h.visitedPool.Borrow()
