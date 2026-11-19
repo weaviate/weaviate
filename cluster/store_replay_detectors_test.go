@@ -124,9 +124,7 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	require.NoError(t, srv.Close(ctx))
 }
 
-// TestRestartReplaysAddMissingGroupsWithTheSameUnits restarts a node over a
-// task add that added its missing groups. Replay must add the same units, read
-// from the schema at that entry and not from tenants created after it.
+// Pins replay adding the same missing-group units, read from the schema at that entry, not later tenants.
 func TestRestartReplaysAddMissingGroupsWithTheSameUnits(t *testing.T) {
 	ctx := context.Background()
 	const ns = "ns"

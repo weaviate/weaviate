@@ -130,9 +130,8 @@ func NewTenantsNotHotError(collection string) error {
 // rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
-// ErrMissingGroupsUnsupported marks a task that asks to add its missing groups
-// in a namespace whose detector is no [MissingGroupAdder]. It is a wiring bug,
-// not a refusal the caller can act on, so it is deliberately not permanent.
+// ErrMissingGroupsUnsupported marks an add-missing-groups ask in a namespace
+// whose detector is no [MissingGroupAdder]. A wiring bug, so deliberately not permanent.
 var ErrMissingGroupsUnsupported = errors.New("namespace cannot add missing groups")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
