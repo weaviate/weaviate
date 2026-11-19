@@ -338,9 +338,16 @@ func (h *HFresh) SearchByVectorDistance(
 		return shouldContinue, nil
 	}
 
-	var shouldContinue bool
-	var err error
-	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// A page that comes back full and within the distance asks for a larger
+	// one, and the larger one has to be searched: without the search in the
+	// loop, the first page was all a search by distance returned, and with
+	// no maximum the loop never ended.
+	for shouldContinue {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
 			h.logger.
@@ -349,9 +356,11 @@ func (h *HFresh) SearchByVectorDistance(
 					searchParams.MaximumSearchLimit())
 			break
 		}
-	}
-	if err != nil {
-		return nil, nil, err
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return resultIDs, resultDist, nil
@@ -783,9 +792,16 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 		return shouldContinue, nil
 	}
 
-	var shouldContinue bool
-	var err error
-	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// A page that comes back full and within the distance asks for a larger
+	// one, and the larger one has to be searched: without the search in the
+	// loop, the first page was all a search by distance returned, and with
+	// no maximum the loop never ended.
+	for shouldContinue {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
 			h.logger.
@@ -794,9 +810,11 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 					searchParams.MaximumSearchLimit())
 			break
 		}
-	}
-	if err != nil {
-		return nil, nil, err
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return resultIDs, resultDist, nil
