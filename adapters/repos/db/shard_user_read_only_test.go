@@ -116,22 +116,55 @@ func TestUserReadOnlyRefusesAtPrepare(t *testing.T) {
 	require.Equal(t, replicaerrors.StatusUserReadOnly, resp.Errors[0].Code)
 }
 
-func TestReportedStatusShowsUserReadOnly(t *testing.T) {
-	const class = "UserReadOnlyStatus"
+func TestReportedStatusShowsConditions(t *testing.T) {
+	const class = "ReportedStatusConditions"
 	ctx := context.Background()
-	shard, idx, overlay := userReadOnlyIndex(t, class)
-	name := shard.Name()
 
-	status, err := idx.IncomingGetShardStatus(ctx, name)
-	require.NoError(t, err)
-	require.Equal(t, storagestate.StatusReady.String(), status)
+	tests := []struct {
+		name           string
+		userReadOnly   bool
+		pressure       bool
+		reindexing     bool
+		wantStatus     storagestate.Status
+		wantConditions []string
+	}{
+		{name: "none", wantStatus: storagestate.StatusReady, wantConditions: []string{}},
+		{
+			name: "user read-only", userReadOnly: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionUserReadOnly},
+		},
+		{
+			name: "resource pressure", pressure: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionResourcePressure},
+		},
+		{
+			name: "reindexing", reindexing: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionReindexing},
+		},
+		{
+			name: "all", userReadOnly: true, pressure: true, reindexing: true,
+			wantStatus: storagestate.StatusReadOnly,
+			wantConditions: []string{
+				storagestate.ConditionUserReadOnly, storagestate.ConditionResourcePressure, storagestate.ConditionReindexing,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shard, idx, overlay := userReadOnlyIndex(t, class)
+			name := shard.Name()
+			overlay.SetReadOnly(class, name, tt.userReadOnly)
+			overlay.SetResourcePressure(tt.pressure)
+			require.NoError(t, shard.setReindexing(tt.reindexing))
 
-	overlay.SetReadOnly(class, name, true)
-	status, err = idx.IncomingGetShardStatus(ctx, name)
-	require.NoError(t, err)
-	require.Equal(t, storagestate.StatusReadOnly.String(), status)
-
-	require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "the shard itself no longer holds it")
+			report, err := idx.IncomingGetShardStatus(ctx, name)
+			require.NoError(t, err)
+			require.Equal(t, storagestate.Report{Status: tt.wantStatus.String(), Conditions: tt.wantConditions}, report)
+			if !tt.pressure && !tt.reindexing {
+				require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "the shard itself does not hold user read-only")
+			}
+		})
+	}
 }
 
 func TestUserReadOnlySurvivesUnload(t *testing.T) {
@@ -260,4 +293,46 @@ func TestRepairIgnoresUserReadOnly(t *testing.T) {
 	found, err := shard.Exists(ctx, uuidLow)
 	require.NoError(t, err)
 	require.True(t, found, "replicas must not diverge over read-only")
+}
+
+// A cold shard's read-only must show too, without loading the shard.
+func TestUserReadOnlyShowsOnEveryStatusEndpoint(t *testing.T) {
+	const class = "ReadOnlyEndpoints"
+	ctx := context.Background()
+	shard, idx, overlay := userReadOnlyIndex(t, class)
+	overlay.SetReadOnly(class, shard.Name(), true)
+	cold := newColdShard(idx, "cold_tenant")
+	idx.shards.Store("cold_tenant", cold)
+	t.Cleanup(func() { idx.shards.LoadAndDelete("cold_tenant") })
+	overlay.SetReadOnly(class, "cold_tenant", true)
+	readOnly := storagestate.StatusReadOnly.String()
+
+	t.Run("local status of a cold shard", func(t *testing.T) {
+		report, err := idx.localShardStatus(ctx, "cold_tenant")
+		require.NoError(t, err)
+		assert.Equal(t, readOnly, report.Status)
+	})
+	t.Run("status a peer asks for", func(t *testing.T) {
+		report, err := idx.IncomingGetShardStatus(ctx, "cold_tenant")
+		require.NoError(t, err)
+		assert.Equal(t, readOnly, report.Status)
+	})
+	t.Run("nodes API", func(t *testing.T) {
+		var status []*models.NodeShardStatus
+		_, _, err := idx.getShardsNodeStatus(ctx, &status, "")
+		require.NoError(t, err)
+		got := map[string]string{}
+		for _, s := range status {
+			got[s.Name] = s.VectorIndexingStatus
+		}
+		assert.Equal(t, readOnly, got["cold_tenant"], "cold")
+		assert.Equal(t, readOnly, got[shard.Name()], "loaded")
+	})
+	t.Run("an indexing shard", func(t *testing.T) {
+		busy := NewMockShardLike(t)
+		busy.EXPECT().GetStatus().Return(storagestate.StatusIndexing)
+		overlay.SetReadOnly(class, "busy", true)
+		assert.Equal(t, readOnly, idx.reportedStatus("busy", busy).Status)
+	})
+	assert.False(t, cold.isLoaded())
 }

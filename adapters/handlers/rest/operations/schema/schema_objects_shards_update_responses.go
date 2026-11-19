@@ -188,7 +188,7 @@ func (o *SchemaObjectsShardsUpdateNotFound) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsShardsUpdateUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsShardsUpdateUnprocessableEntity Invalid update attempt
+SchemaObjectsShardsUpdateUnprocessableEntity Invalid update: the status is not `READY` or `READONLY`, the collection name is invalid, or the collection's namespace refuses the change.
 
 swagger:response schemaObjectsShardsUpdateUnprocessableEntity
 */

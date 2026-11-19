@@ -219,6 +219,35 @@ func TestLazyLoadShardConditionsDoNotLoad(t *testing.T) {
 	}
 }
 
+func TestUnloadedLazyShardReportsWriteRefusals(t *testing.T) {
+	_, idx := testShard(t, t.Context(), "LazyUserReadOnly")
+	cold := newColdShard(idx, "cold_tenant")
+	idx.shards.Store("cold_tenant", cold)
+
+	tests := []struct {
+		name     string
+		readOnly bool
+		pressure bool
+		want     storagestate.Status
+	}{
+		{name: "writable", want: storagestate.StatusLazyLoading},
+		{name: "user read-only", readOnly: true, want: storagestate.StatusReadOnly},
+		{name: "resource pressure", pressure: true, want: storagestate.StatusReadOnly},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx.db.nodeOverlay.SetReadOnly(idx.Config.ClassName.String(), "cold_tenant", tt.readOnly)
+			idx.db.nodeOverlay.SetResourcePressure(tt.pressure)
+
+			report, err := idx.localShardStatus(t.Context(), "cold_tenant")
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want.String(), report.Status)
+			assert.False(t, cold.isLoaded())
+		})
+	}
+}
+
 func TestLazyLoadShardReportsReindex(t *testing.T) {
 	shard, _ := testShard(t, t.Context(), "LazyReportsReindex")
 	loaded := underlyingShard(t, shard)

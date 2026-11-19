@@ -132,16 +132,27 @@ func (o *NodeOverlay) StorePaused(phase *ShardPhase) (store, temp bool) {
 		pressure || phase.Has(PhaseReindexSwapping|PhaseMigrationHeld)
 }
 
-// Status is the status this node reports for a shard whose own status folds in its phase.
-func (o *NodeOverlay) Status(class, shard string, status storagestate.Status) storagestate.Status {
+// Report is the status this node reports for a shard and the conditions that refuse its writes; phase is
+// nil for an unloaded shard.
+func (o *NodeOverlay) Report(class, shard string, phase *ShardPhase, status storagestate.Status) storagestate.Report {
+	conditions := []string{}
+	if o.ReadOnly(class, shard) {
+		conditions = append(conditions, storagestate.ConditionUserReadOnly)
+	}
+	if o.ResourcePressure() {
+		conditions = append(conditions, storagestate.ConditionResourcePressure)
+	}
+	if phase != nil && phase.Has(PhaseReindexing|PhaseMigrationHeld) {
+		conditions = append(conditions, storagestate.ConditionReindexing)
+	}
 	switch status {
 	case storagestate.StatusReady, storagestate.StatusIndexing, storagestate.StatusLazyLoading:
-		if o.ReadOnly(class, shard) || o.ResourcePressure() {
-			return storagestate.StatusReadOnly
+		if len(conditions) > 0 {
+			status = storagestate.StatusReadOnly
 		}
 	default:
 	}
-	return status
+	return storagestate.Report{Status: status.String(), Conditions: conditions}
 }
 
 // PhaseCondition is a node-local reason a shard object refuses writes. Each has its own writer, so it
