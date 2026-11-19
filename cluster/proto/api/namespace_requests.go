@@ -46,6 +46,13 @@ func (n Namespace) MissingHomeNodes(candidates []string) []string {
 	return missing
 }
 
+// PresentHomeNodes returns the HomeNodes entries in candidates, in stored order.
+func (n Namespace) PresentHomeNodes(candidates []string) []string {
+	return slices.DeleteFunc(slices.Clone(n.HomeNodes), func(node string) bool {
+		return !slices.Contains(candidates, node)
+	})
+}
+
 // CheckReplicationFactor refuses a factor above the HomeNodes count, because
 // each replica of a namespaced shard goes on a different home node. Its error
 // suggests the count as a lower factor only when it is at least minimumFactor.

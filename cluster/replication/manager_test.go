@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -180,7 +181,7 @@ func TestManager_Replicate(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -318,7 +319,7 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -521,7 +522,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -707,7 +708,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -866,7 +867,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -938,7 +939,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -1125,7 +1126,7 @@ func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), nil, reg)
 			schemaManager.AddClass(
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 					Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
@@ -1183,44 +1184,14 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 		validateErr   func(t *testing.T, err error)
 	}{
 		{
-			name: "invalid collection name returns class not found error",
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "NonExistentCollection",
-					ReplicationFactor: 1,
-				}),
-			},
-			wantErr: replication.ErrClassNotFound,
+			name:         "invalid collection name returns class not found error",
+			queryRequest: scalePlanQuery("NonExistentCollection", 1),
+			wantErr:      replication.ErrClassNotFound,
 		},
 		{
-			name: "single shard adds node to satisfy replication",
-			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
-				return s.AddClass(
-					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-						Class: &models.Class{
-							Class:             "TestCollection",
-							ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-						},
-						State: &sharding.State{
-							Physical: map[string]sharding.Physical{
-								"shard1": {BelongsToNodes: []string{"node1"}},
-							},
-							Virtual: []sharding.Virtual{
-								{Name: "v1", AssignedToPhysical: "shard1"},
-							},
-						},
-					}),
-					"node1", true, false,
-				)
-			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "TestCollection",
-					ReplicationFactor: 2,
-				}),
-			},
+			name:         "single shard adds node to satisfy replication",
+			schemaSetup:  addOneShardClass("TestCollection", "node1"),
+			queryRequest: scalePlanQuery("TestCollection", 2),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection: "TestCollection",
@@ -1256,13 +1227,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "TestCollection",
-					ReplicationFactor: 2,
-				}),
-			},
+			queryRequest: scalePlanQuery("TestCollection", 2),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection: "TestCollection",
@@ -1294,13 +1259,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "TestCollection",
-					ReplicationFactor: 2,
-				}),
-			},
+			queryRequest: scalePlanQuery("TestCollection", 2),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection:                   "TestCollection",
@@ -1329,13 +1288,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "TestCollection",
-					ReplicationFactor: 1,
-				}),
-			},
+			queryRequest: scalePlanQuery("TestCollection", 1),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection: "TestCollection",
@@ -1366,13 +1319,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "EmptyCollection",
-					ReplicationFactor: 1,
-				}),
-			},
+			queryRequest: scalePlanQuery("EmptyCollection", 1),
 			validateErr: func(t *testing.T, err error) {
 				require.ErrorContains(t, err, "cannot determine source node for shard")
 			},
@@ -1400,13 +1347,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "MultiUpCollection",
-					ReplicationFactor: 2,
-				}),
-			},
+			queryRequest: scalePlanQuery("MultiUpCollection", 2),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection: "MultiUpCollection",
@@ -1440,13 +1381,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "MultiDownCollection",
-					ReplicationFactor: 1,
-				}),
-			},
+			queryRequest: scalePlanQuery("MultiDownCollection", 1),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection: "MultiDownCollection",
@@ -1480,13 +1415,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 					"node1", true, false,
 				)
 			},
-			queryRequest: &api.QueryRequest{
-				Type: api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
-				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{
-					Collection:        "MultiMixedCollection",
-					ReplicationFactor: 2,
-				}),
-			},
+			queryRequest: scalePlanQuery("MultiMixedCollection", 2),
 			wantScalePlan: &api.ReplicationScalePlanResponse{
 				ReplicationScalePlan: api.ReplicationScalePlan{
 					Collection: "MultiMixedCollection",
@@ -1495,6 +1424,48 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 						"shard2": {RemoveNodes: map[string]struct{}{"node3": {}}, AddNodes: map[string]string{}},
 					},
 				},
+			},
+		},
+		{
+			name:         "namespaced class skips a home node that is not a storage candidate",
+			schemaSetup:  addOneShardClass("gap:Books", "node1"),
+			queryRequest: scalePlanQuery("gap:Books", 2),
+			wantScalePlan: &api.ReplicationScalePlanResponse{
+				ReplicationScalePlan: api.ReplicationScalePlan{
+					Collection: "gap:Books",
+					ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{
+						"shard1": {AddNodes: map[string]string{"node3": "node1"}, RemoveNodes: map[string]struct{}{}},
+					},
+				},
+			},
+		},
+		{
+			name:         "namespaced class refuses more replicas than its home nodes that are storage candidates",
+			schemaSetup:  addOneShardClass("gap:Books", "node1"),
+			queryRequest: scalePlanQuery("gap:Books", 3),
+			validateErr: func(t *testing.T, err error) {
+				require.ErrorContains(t, err, "not enough candidate nodes: found 2 [node1 node3], want 3")
+			},
+		},
+		{
+			name:         "namespaced class lowers its factor while a home node is not a storage candidate",
+			schemaSetup:  addOneShardClass("gap:Books", "node4", "node1"),
+			queryRequest: scalePlanQuery("gap:Books", 1),
+			wantScalePlan: &api.ReplicationScalePlanResponse{
+				ReplicationScalePlan: api.ReplicationScalePlan{
+					Collection: "gap:Books",
+					ShardReplicationScaleActions: map[string]api.ShardReplicationScaleActions{
+						"shard1": {AddNodes: map[string]string{}, RemoveNodes: map[string]struct{}{"node4": {}}},
+					},
+				},
+			},
+		},
+		{
+			name:         "class of an unknown namespace gets no plan",
+			schemaSetup:  addOneShardClass("ghost:Books", "node1"),
+			queryRequest: scalePlanQuery("ghost:Books", 2),
+			validateErr: func(t *testing.T, err error) {
+				require.ErrorContains(t, err, `namespace "ghost" not found`)
 			},
 		},
 	}
@@ -1508,7 +1479,10 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("node1", nil, parser, nil, reg, logrus.New())
-			manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("node1", "node2", "node3"), reg)
+			namespaces := usecasesNamespaces.NewController(logrus.New())
+			require.NoError(t, namespaces.Create(api.Namespace{Name: "gap", HomeNodes: []string{"node1", "node4", "node3"}}, 2))
+			manager := replication.NewManager(schemaManager.NewSchemaReader(),
+				mocks.NewMockNodeSelector("node1", "node2", "node3"), namespaces, reg)
 
 			if tt.schemaSetup != nil {
 				require.NoError(t, tt.schemaSetup(t, schemaManager))
@@ -1535,6 +1509,27 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 			}
 			require.NoError(t, err)
 		})
+	}
+}
+
+// addOneShardClass returns a schema setup that adds class at factor 1 with one
+// shard, shard1, on nodes.
+func addOneShardClass(class string, nodes ...string) func(*testing.T, *schema.SchemaManager) error {
+	return func(t *testing.T, s *schema.SchemaManager) error {
+		return s.AddClass(buildApplyRequest(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: class, ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: nodes}},
+				Virtual:  []sharding.Virtual{{Name: "v1", AssignedToPhysical: "shard1"}},
+			},
+		}), "node1", true, false)
+	}
+}
+
+func scalePlanQuery(class string, factor int) *api.QueryRequest {
+	return &api.QueryRequest{
+		Type:       api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+		SubCommand: mustMarshal(api.ReplicationScalePlanRequest{Collection: class, ReplicationFactor: factor}),
 	}
 }
 
@@ -1577,7 +1572,7 @@ func TestManager_ReannouncesReachedStatesAfterRestore(t *testing.T) {
 
 	// schemaReader/nodeSelector are unused on the broadcast path; no inflight
 	// drainer is set, so the INTEGRATING/DEHYDRATING drain is a no-op.
-	m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+	m := replication.NewManager(schema.SchemaReader{}, nil, nil, prometheus.NewPedanticRegistry())
 	m.SetLogger(logrus.New())
 
 	type announcement struct {
@@ -1784,7 +1779,7 @@ func TestReplicationDetails_ReportsOpAndStateStartTimes(t *testing.T) {
 		}), "node1", true, false,
 	))
 
-	manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
+	manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), nil, prometheus.NewPedanticRegistry())
 
 	opUUID := uuid4()
 	subCommand, err := json.Marshal(&api.ReplicationReplicateShardRequest{

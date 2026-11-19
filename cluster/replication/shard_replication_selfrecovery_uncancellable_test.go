@@ -210,7 +210,7 @@ func TestSelfRecoveryUncancellableAfterFinalizing(t *testing.T) {
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
 			m := replication.NewManager(newShardSchemaReader(selfRecoveryColl, selfRecoveryShard, selfRecoveryDonorID, selfRecoveryTarget, selfRecoveryAnyOtherID),
-				mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
+				mocks.NewMockNodeSelector("localhost"), nil, prometheus.NewPedanticRegistry())
 			fsm := m.GetReplicationFSM()
 			uuid := seedOpFull(t, fsm, selfRecoveryOpID, selfRecoveryDonorID, selfRecoveryTarget, selfRecoveryColl, selfRecoveryShard, tc.transfer)
 			for i, st := range tc.path {

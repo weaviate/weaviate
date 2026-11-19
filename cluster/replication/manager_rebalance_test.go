@@ -37,7 +37,7 @@ func TestManager_CreateRebalancePlan(t *testing.T) {
 		return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REBALANCE_CREATE_PLAN, SubCommand: subCommand}
 	}
 	newManager := func() (*replication.Manager, *int) {
-		m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+		m := replication.NewManager(schema.SchemaReader{}, nil, nil, prometheus.NewPedanticRegistry())
 		calls := 0
 		m.SetPlanChanged(func() { calls++ })
 		return m, &calls
@@ -148,7 +148,7 @@ func TestManager_GetRebalancePlan(t *testing.T) {
 	query := &api.QueryRequest{Type: api.QueryRequest_TYPE_GET_REBALANCE_PLAN}
 
 	t.Run("a stored plan round-trips through the payload", func(t *testing.T) {
-		m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+		m := replication.NewManager(schema.SchemaReader{}, nil, nil, prometheus.NewPedanticRegistry())
 		create, err := json.Marshal(&replication.CreatePlanRequest{
 			PlanID:          "plan-1",
 			SourceNodes:     []string{"node-1"},
@@ -184,7 +184,7 @@ func TestManager_GetRebalancePlan(t *testing.T) {
 	})
 
 	t.Run("no plan is ErrPlanNotFound", func(t *testing.T) {
-		m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+		m := replication.NewManager(schema.SchemaReader{}, nil, nil, prometheus.NewPedanticRegistry())
 
 		_, err := m.GetRebalancePlan(query)
 

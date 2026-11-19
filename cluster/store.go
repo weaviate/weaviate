@@ -455,7 +455,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.NamespacesController, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	schemaManager.SetMinimumFactor(cfg.Replication.MinimumFactor)
-	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, cfg.NamespacesController, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	errTemplate := func() string { return "" }
 	if t := cfg.UsageLimitsErrorMessage; t != nil {

@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -326,4 +327,51 @@ func TestNamespaces_MoveAfterHomeNodesChange(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestNamespaces_ScalePlanRaisesFactorOnHomeNodes raises an RF=1 class to RF=2
+// in a namespace whose home_nodes leave out weaviate-1, so the scale plan must
+// copy the shard onto weaviate-2. The class update then counts two replicas.
+func TestNamespaces_ScalePlanRaisesFactorOnHomeNodes(t *testing.T) {
+	t.Parallel()
+
+	const class = "Raised"
+	homeNodes := []string{docker.Weaviate0, docker.Weaviate2}
+	ns := uniqueNS()
+	helper.CreateNamespaceWithHomeNodes(t, ns, homeNodes, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
+
+	qualified := ns + ":" + class
+	helper.CreateClassAuth(t, searchableClass(class), userKey)
+	t.Cleanup(func() { helper.DeleteClassAuth(t, qualified, adminKey) })
+	shardName := requireShardCountEventually(t, qualified, 1)[0]
+	requireReplicasEventually(t, qualified, shardName, homeNodes[0])
+	objects := seedMovedObjects(t, class, "", userKey, 20)
+
+	// StorageCandidates comes back shuffled, so a plan that ignored home_nodes
+	// could still pick weaviate-2. Ten plans in a row rule that out.
+	var plan *replication.GetReplicationScalePlanOK
+	for range 10 {
+		var err error
+		plan, err = helper.Client(t).Replication.GetReplicationScalePlan(
+			replication.NewGetReplicationScalePlanParams().WithCollection(qualified).WithReplicationFactor(2),
+			helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{homeNodes[1]: homeNodes[0]}, plan.Payload.ShardScaleActions[shardName].AddNodes)
+	}
+
+	applied, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+		replication.NewApplyReplicationScalePlanParams().WithBody(plan.Payload), helper.CreateAuth(adminKey))
+	require.NoError(t, err)
+	require.Len(t, applied.Payload.OperationIds, 1)
+	waitMovementState(t, applied.Payload.OperationIds[0], api.READY)
+	requireReplicasEventually(t, qualified, shardName, homeNodes...)
+
+	updated := helper.GetClassAuth(t, class, userKey)
+	updated.ReplicationConfig.Factor = 2
+	helper.UpdateClassAuth(t, class, updated, userKey)
+	assert.Equal(t, int64(2), helper.GetClassAuth(t, class, userKey).ReplicationConfig.Factor)
+	requireShardServedBy(t, homeNodes[1], class, "", userKey, objects, servedAfterReadyWithin)
 }
