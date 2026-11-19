@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 
-**Estado: paso 1 cerrado, la parte sin cronometrar a 1M en marcha y la sesión cronometrada en cola.** Pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo. El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
+**Estado: pasos 1 y 2 cerrados, con las dos comprobaciones a 1M pasadas, y la sesión cronometrada en cola para la noche del 19.** Pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo. El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
 
 ### El encargo (del usuario)
 
@@ -274,7 +274,49 @@ Código en `b098d01b1a` y `38b4269e55`, después del pre-registro (`328b178a14`)
 
 **Una precisión sobre la sesión, antes de ningún dato:** son 14 tramos por ronda, las siete curvas en las dos pasadas. Estimo de 3 a 4 horas. Dentro de una ronda va primero la pasada de 8 entera y después la de un nodo.
 
-**En marcha desde las 11:51:** la parte sin cronometrar a 1M. **En cola desde las 11:53:** la sesión cronometrada, que arranca cuando acabe la cola de la noche y solo si la parte sin cronometrar pasó.
+**En cola:** la sesión cronometrada, que arranca cuando acabe la cola de la noche.
+
+### Paso 2, cerrado: la parte sin cronometrar a 1M (de 11:51 a 12:13 del 19)
+
+Binario de `b098d01b1a`. Tablas en `testdata/bench/v4.1/sketch-verdict.md`, que la sesión cronometrada completará.
+
+- **El build sale igual que el de v4.0:** 4 195 postings y 8 888 026 aristas, con los mismos tamaños de posting. Tardó 650 s, con las dos validaciones de v5.1 corriendo al lado.
+- **La celda actual, escrita otra vez de este build,** sale donde salió: ef 21 a 0.95 (recall 0.9513 y 18.58 cargas, donde v4.0 tuvo 18.59) y ef 188 a 0.99, donde v4.0 tuvo 187 (76.56 cargas frente a 76.30). El grafo de centroides se construye de nuevo y no entra exactamente igual.
+- **Las dos comprobaciones pasan en las siete curvas.** Cada una devuelve de disco lo mismo que su equivalente en memoria, en todos los puntos que alcanza, y el store lee 1.028 veces el modelo en las nuevas y 1.005 en la actual.
+
+| curva | recall | ef | recall medido | cargas | rondas | lecturas de bloques | bytes de bloques | real entre modelo | lecturas de rescore | bytes de rescore | lecturas por query | bytes por query |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| la actual: 512 bits en RAM, rescore 64 | 0.95 | 21 | 0.9513 | 18.58 | 4.40 | 37.2 | 1.16 MB | 1.005 | 64.0 | 0.39 MB | 101.2 | 1.56 MB |
+| la actual: 512 bits en RAM, rescore 64 | 0.99 | 188 | 0.9900 | 76.56 | 18.89 | 153.1 | 4.75 MB | 1.005 | 64.0 | 0.39 MB | 217.1 | 5.14 MB |
+| scan con 512 bits, rescore 200 | 0.95 | 50 | 0.9502 | 17.97 | 4.25 | 18.0 | 0.18 MB | 1.028 | 199.8 | 1.23 MB | 217.8 | 1.41 MB |
+| scan con 512 bits, rescore 200 | 0.99 | no llega: el mejor recall es 0.9822 con ef hasta 2 048 | | | | | | | | | | |
+| scan con 512 bits, rescore 400 | 0.95 | 43 | 0.9508 | 16.42 | 3.86 | 16.4 | 0.17 MB | 1.028 | 397.4 | 2.44 MB | 413.8 | 2.61 MB |
+| scan con 512 bits, rescore 400 | 0.99 | 711 | 0.9900 | 120.43 | 29.86 | 120.4 | 1.19 MB | 1.028 | 400.0 | 2.46 MB | 520.4 | 3.65 MB |
+| scan con 512 bits, rescore 800 | 0.95 | 41 | 0.9501 | 15.95 | 3.74 | 15.9 | 0.16 MB | 1.028 | 787.6 | 4.84 MB | 803.5 | 5.00 MB |
+| scan con 512 bits, rescore 800 | 0.99 | 385 | 0.9900 | 75.04 | 18.51 | 75.0 | 0.75 MB | 1.028 | 799.5 | 4.91 MB | 874.6 | 5.66 MB |
+| scan con 768 bits, rescore 200 | 0.95 | 30 | 0.9511 | 12.96 | 2.99 | 13.0 | 0.13 MB | 1.028 | 199.7 | 1.23 MB | 212.7 | 1.36 MB |
+| scan con 768 bits, rescore 200 | 0.99 | 397 | 0.9900 | 72.14 | 17.79 | 72.1 | 0.72 MB | 1.028 | 200.0 | 1.23 MB | 272.1 | 1.95 MB |
+| scan con 768 bits, rescore 400 | 0.95 | 29 | 0.9500 | 12.69 | 2.92 | 12.7 | 0.13 MB | 1.028 | 395.4 | 2.43 MB | 408.1 | 2.56 MB |
+| scan con 768 bits, rescore 400 | 0.99 | 291 | 0.9900 | 57.12 | 14.03 | 57.1 | 0.57 MB | 1.028 | 400.0 | 2.46 MB | 457.1 | 3.03 MB |
+| scan con 768 bits, rescore 800 | 0.95 | 29 | 0.9500 | 12.69 | 2.92 | 12.7 | 0.13 MB | 1.028 | 779.7 | 4.79 MB | 792.3 | 4.92 MB |
+| scan con 768 bits, rescore 800 | 0.99 | 281 | 0.9900 | 55.64 | 13.66 | 55.6 | 0.56 MB | 1.028 | 799.3 | 4.91 MB | 854.9 | 5.47 MB |
+
+| índice | store | vectores exactos | lo residente, en ficheros | total en disco |
+|---|---|---|---|---|
+| la actual: 512 bits en RAM | 243.0 MB | 6 083 MB | 105.7 MB | 6 431 MB |
+| scan con 512 bits | 36.8 MB | 6 083 MB | 105.7 MB | 6 225 MB |
+| scan con 768 bits | 36.8 MB | 6 083 MB | 137.4 MB | 6 257 MB |
+
+**Lo que ya se puede leer, antes de cronometrar:**
+
+- **512 bits con rescoreLimit 200 no llega a 0.99:** su mejor recall es 0.9822 con ef hasta 2 048. Por la lectura del usuario esa curva no puede ser una opción. Con 400 llega, cargando 120 postings (ef 711), y con 800 cargando 75.
+- **768 bits llega a 0.99 con los tres rescores,** cargando 72, 57 y 56 postings. La celda actual carga 77.
+- **A 0.95 la celda nueva carga menos postings que la actual,** no más: de 16 a 18 con 512 bits y 13 con 768, frente a 18.6. Yo esperaba que el sketch pidiera más cargas; el pool de candidatos, que es más ancho con un rescore mayor, pesa más.
+- **Bytes por query a 0.95:** 1.41 MB con 512 bits y 1.36 MB con 768, los dos con rescoreLimit 200, frente a 1.56 MB de la actual. Con 400 son 2.6 MB y con 800, 5.0 MB: el rescore manda.
+- **Lecturas por query a 0.95:** de 213 a 218 con rescoreLimit 200, frente a 101. Son más lecturas y más pequeñas: 6 144 B cada una.
+- **Disco:** el store baja de 243.0 a 36.8 MB. El total, de 6 431 a 6 225 MB con 512 bits y a 6 257 con 768.
+
+**Sin medir todavía:** la latencia y el heap, que salen de la sesión cronometrada.
 
 ## El heap a 1M, por componente (2026-11-19)
 

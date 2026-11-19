@@ -53,8 +53,13 @@ def ms(x):
 
 
 def num(x):
+    """An integer with its thousands apart."""
     s = '%.0f' % x
-    return s if len(s) < 4 else s[:-3] + ' ' + s[-3:]
+    groups = []
+    while len(s) > 3:
+        groups.insert(0, s[-3:])
+        s = s[:-3]
+    return ' '.join([s] + groups)
 
 
 def mb(x):
