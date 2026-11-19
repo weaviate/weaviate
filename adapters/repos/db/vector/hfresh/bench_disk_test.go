@@ -54,8 +54,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 // The real HFresh of the disk comparison of the posting-edge index, v4.0
@@ -85,10 +87,16 @@ var (
 	diskK       = flag.Int("bench.hfresh.k", 10, "top k")
 	diskDrop    = flag.String("bench.hfresh.drop", "", "with TestHFreshDiskTimed: the shell command that drops the "+
 		"system's cache of the files under -bench.hfresh.dir, run with the index closed before every cold batch")
-	diskCold   = flag.Int("bench.hfresh.cold", 500, "with TestHFreshDiskTimed: the cold queries of every point")
-	diskBudget = flag.Int("bench.hfresh.budget", 8, "the concurrency budget of one query, which the rescore reads its vectors within")
-	diskPasses = flag.Int("bench.hfresh.passes", 3, "with TestHFreshDiskTimed: the timed warm passes of every point")
-	diskHeap   = flag.String("bench.hfresh.heap", "", "with TestHFreshDiskTimed: the file the heap profile of the process "+
+	diskCold    = flag.Int("bench.hfresh.cold", 500, "with TestHFreshDiskTimed: the cold queries of every point")
+	diskBudget  = flag.Int("bench.hfresh.budget", 8, "the concurrency budget of one query, which the rescore reads its vectors within")
+	diskPasses  = flag.Int("bench.hfresh.passes", 3, "with TestHFreshDiskTimed: the timed warm passes of every point")
+	diskCleanup = flag.Bool("bench.hfresh.cleanup", false, "the centroid graph gets the tombstone cleanup cycle a shard "+
+		"gives it, which takes the centroids of split and merged postings out of the graph: every 5 minutes while the "+
+		"index is built or inserted into. Without it the benchmark gives it none, and no deleted centroid is ever cleaned")
+	diskAdmission = flag.Bool("bench.hfresh.admission", false, "every query takes its concurrency budget from the "+
+		"admission limiter of a node, with its defaults, asking for twice GOMAXPROCS as a shard does for a vector "+
+		"search, instead of the fixed -bench.hfresh.budget")
+	diskHeap = flag.String("bench.hfresh.heap", "", "with TestHFreshDiskTimed: the file the heap profile of the process "+
 		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed")
 	diskRescores = flag.String("bench.hfresh.rescores", "64,100,200,350", "with TestHFreshDiskBuild: the rescore limits "+
 		"searchProbe is swept with, to find for every recall the configuration that reads the least")
@@ -131,6 +139,10 @@ type diskBench struct {
 	cycles    []cyclemanager.CycleManager
 	compact   cyclemanager.CycleCallbackGroup
 	dims      int
+	// limiter, with -bench.hfresh.admission, grants every query its budget,
+	// and granted and admitted add up what it granted and to how many.
+	limiter           *queryadmission.Limiter
+	granted, admitted atomic.Int64
 	// rescoreReads counts the vectors read from the objects bucket.
 	rescoreReads atomic.Int64
 }
@@ -201,6 +213,21 @@ func openDiskBench(t *testing.T, dir string, dims int, train [][]float32, backgr
 	cfg.DistanceProvider = distancer.NewCosineDistanceProvider()
 	cfg.Store = StoreConfig{MakeBucketOptions: bucketOptions}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+	if *diskCleanup {
+		// As a shard: the cycle that takes the deleted centroids out of the
+		// graph, at the interval of a class that sets none.
+		tombstones := cyclemanager.NewCallbackGroup("tombstone_cleanup", logger, 1)
+		cfg.TombstoneCallbacks = tombstones
+		if background {
+			cycle := cyclemanager.NewManager("tombstone_cleanup",
+				cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second), tombstones.CycleCallback, logger)
+			cycle.Start()
+			b.cycles = append(b.cycles, cycle)
+		}
+	}
+	if *diskAdmission {
+		b.limiter = queryadmission.New(prometheus.NewRegistry(), queryadmission.Config{})
+	}
 	b.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger})
 	b.scheduler.Start()
 	cfg.Scheduler = b.scheduler
@@ -313,9 +340,41 @@ func (b *diskBench) compactAll() int {
 // search runs one query with the budget of the benchmark, and tells where its
 // time went.
 func (b *diskBench) search(ctx context.Context, query []float32, k int) ([]uint64, map[string]any, error) {
-	ctx = helpers.InitSlowQueryDetails(concurrency.CtxWithBudget(ctx, *diskBudget))
+	// The budget of the query: fixed, or what the limiter of a node grants
+	// it. Being admitted is part of the query, as it is in a shard.
+	if b.limiter == nil {
+		ctx = concurrency.CtxWithBudget(ctx, *diskBudget)
+	} else {
+		admitted, release, err := b.limiter.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+		if err != nil {
+			return nil, nil, err
+		}
+		defer release()
+		ctx = admitted
+	}
+	b.granted.Add(int64(concurrency.BudgetFromCtx(ctx, 0)))
+	b.admitted.Add(1)
+	ctx = helpers.InitSlowQueryDetails(ctx)
 	ids, _, err := b.index.SearchByVector(ctx, query, k, nil)
 	return ids, helpers.ExtractSlowQueryDetails(ctx), err
+}
+
+// diskGraph is the centroid graph of an index: its nodes, those among them
+// that are deleted centroids nobody cleaned up yet, and the postings alive.
+type diskGraph struct {
+	Nodes      int `json:"nodes"`
+	Tombstones int `json:"tombstones"`
+	Postings   int `json:"postings"`
+}
+
+func (b *diskBench) centroidGraph() diskGraph {
+	stats, err := b.index.Centroids.hnsw.Stats()
+	require.NoError(b.t, err)
+	graph := diskGraph{Tombstones: stats.NumTombstones, Postings: int(b.index.Centroids.counter.Load())}
+	for _, count := range stats.DistributionLayers {
+		graph.Nodes += int(count)
+	}
+	return graph
 }
 
 // setSearch sets the two search tunables of the index: the postings a search
@@ -1056,15 +1115,18 @@ func diskLatenciesOf(latencies []time.Duration, details []map[string]any, wall t
 
 type diskTimedPoint struct {
 	// Name is the configuration: "default" or the candidate's.
-	Name         string          `json:"name"`
-	Target       float64         `json:"target"`
-	Probe        int             `json:"searchProbe"`
-	RescoreLimit int             `json:"rescoreLimit"`
-	Threads      int             `json:"threads"`
-	Recall       float64         `json:"recall"`
-	Warm         []diskLatencies `json:"warm"`
-	Cold         *diskLatencies  `json:"cold,omitempty"`
-	ColdHalves   []diskLatencies `json:"coldHalves,omitempty"`
+	Name         string  `json:"name"`
+	Target       float64 `json:"target"`
+	Probe        int     `json:"searchProbe"`
+	RescoreLimit int     `json:"rescoreLimit"`
+	Threads      int     `json:"threads"`
+	Recall       float64 `json:"recall"`
+	// Granted is the concurrency budget a query of the warm passes ran
+	// with, on average.
+	Granted    float64         `json:"granted"`
+	Warm       []diskLatencies `json:"warm"`
+	Cold       *diskLatencies  `json:"cold,omitempty"`
+	ColdHalves []diskLatencies `json:"coldHalves,omitempty"`
 	// ColdFirst is the first query of every cold batch, the one that finds
 	// the least in the cache, and ColdRest the others. With one thread.
 	ColdFirst    *diskLatencies `json:"coldFirst,omitempty"`
@@ -1184,14 +1246,9 @@ func TestHFreshDiskTimed(t *testing.T) {
 		// The centroid graph: its nodes, and those among them that are
 		// deleted centroids nobody cleaned up, since the benchmark gives
 		// the index no tombstone cleanup cycle.
-		graph, err := b.index.Centroids.hnsw.Stats()
-		require.NoError(t, err)
-		nodes := uint(0)
-		for _, count := range graph.DistributionLayers {
-			nodes += count
-		}
-		t.Logf("centroid graph: %d nodes, %d of them tombstones, %d codes in its cache, %d postings alive", nodes,
-			graph.NumTombstones, graph.CacheSize, b.index.Centroids.counter.Load())
+		graph := b.centroidGraph()
+		t.Logf("centroid graph: %d nodes, %d of them tombstones, %d postings alive", graph.Nodes, graph.Tombstones,
+			graph.Postings)
 		b.close()
 		return
 	}
@@ -1254,14 +1311,18 @@ func TestHFreshDiskTimed(t *testing.T) {
 			if point.Queries == len(queries) {
 				require.InDelta(t, point.Recall, timed.Recall, 1e-9, "the recall of the manifest")
 			}
+			b.granted.Store(0)
+			b.admitted.Store(0)
 			for pass := 0; pass < *diskPasses; pass++ {
 				latencies, details, _, wall := run(all, threads)
 				timed.Warm = append(timed.Warm, diskLatenciesOf(latencies, details, wall))
 			}
+			timed.Granted = float64(b.granted.Load()) / float64(max(b.admitted.Load(), 1))
 			warm := timed.Warm[len(timed.Warm)/2]
 			t.Logf("%s (searchProbe %d, rescoreLimit %d, recall %.4f), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
-				"read %.3f ms, scan %.3f, rescore %.3f, centroids %.3f", point.Name, point.Probe, point.RescoreLimit, timed.Recall, threads,
-				warm.P50, warm.P95, warm.P99, warm.QPS, warm.ReadMs, warm.ScanMs, warm.RescoreMs, warm.CentroidMs)
+				"read %.3f ms, scan %.3f, rescore %.3f, centroids %.3f | a budget of %.1f a query", point.Name, point.Probe,
+				point.RescoreLimit, timed.Recall, threads, warm.P50, warm.P95, warm.P99, warm.QPS, warm.ReadMs, warm.ScanMs,
+				warm.RescoreMs, warm.CentroidMs, timed.Granted)
 
 			if *diskDrop != "" {
 				batch := 10
@@ -1335,4 +1396,40 @@ func TestHFreshDiskTimed(t *testing.T) {
 	}
 	require.Zero(t, b.index.taskQueue.Size(), "the searches left background work")
 	b.close()
+}
+
+// TestHFreshDiskClean takes the deleted centroids out of the centroid graph of
+// the index under -bench.hfresh.dir, in place: what the tombstone cleanup
+// cycle of a shard does every 5 minutes, and the build of the benchmark never
+// did (bench-report.md, "los centroides borrados, que el arnés no limpia"). A
+// split deletes the centroid of the posting it splits and a merge that of the
+// posting it takes in; until they are cleaned up they stay in the graph, where
+// every search walks them. The script gives it a copy of the index.
+func TestHFreshDiskClean(t *testing.T) {
+	if *diskDir == "" {
+		t.Skip("no -bench.hfresh.dir given")
+	}
+	diskQuiet(t)
+	manifest := diskReadManifest(t)
+	b := openDiskBench(t, *diskDir, manifest.Dims, nil, false, false, nil)
+	before := b.centroidGraph()
+	begin := time.Now()
+	rounds := 0
+	for b.centroidGraph().Tombstones > 0 {
+		require.Less(t, rounds, 10, "the cleanup leaves tombstones round after round")
+		require.NoError(t, b.index.Centroids.hnsw.CleanUpTombstonedNodes(func() bool { return false }))
+		rounds++
+	}
+	after := b.centroidGraph()
+	t.Logf("centroid graph: %d nodes, %d of them tombstones, for %d postings alive | cleaned in %d rounds and %s: %d nodes",
+		before.Nodes, before.Tombstones, before.Postings, rounds, time.Since(begin).Round(time.Millisecond), after.Nodes)
+	require.Equal(t, before.Postings, after.Postings, "the cleanup takes no posting away")
+	require.Equal(t, before.Nodes-before.Tombstones, after.Nodes, "the nodes left are those that were not deleted")
+	b.close()
+
+	// What a search opens from now on.
+	b = openDiskBench(t, *diskDir, manifest.Dims, nil, false, false, nil)
+	reopened := b.centroidGraph()
+	b.close()
+	require.Equal(t, after, reopened, "the graph reopened from disk")
 }
