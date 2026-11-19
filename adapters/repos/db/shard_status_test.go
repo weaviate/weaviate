@@ -100,9 +100,9 @@ func TestShardFollowsTheOverlay(t *testing.T) {
 				require.Equal(t, st.wantStatus, s.GetStatus(), "step %d", i)
 				require.Equal(t, st.wantPaused, storePaused(t, s), "step %d", i)
 				if st.wantErr == "" {
-					require.NoError(t, s.isReadOnly(), "step %d", i)
+					require.NoError(t, s.refuseWrite(), "step %d", i)
 				} else {
-					require.EqualError(t, s.isReadOnly(), st.wantErr, "step %d", i)
+					require.EqualError(t, s.refuseWrite(), st.wantErr, "step %d", i)
 				}
 			}
 		})
@@ -204,7 +204,7 @@ func TestLazyLoadShardConditionsDoNotLoad(t *testing.T) {
 			t.Cleanup(func() { setResourcePressure(t, idx, loaded, false) })
 
 			require.NoError(t, tc.shard.syncStorePause())
-			err := tc.shard.isReadOnly()
+			err := tc.shard.refuseWrite()
 
 			if tc.wantErr == "" {
 				require.NoError(t, err)
@@ -254,8 +254,8 @@ func TestLazyLoadShardReportsReindex(t *testing.T) {
 	lazy := newLoadedLazyShard(loaded)
 
 	require.NoError(t, lazy.setReindexing(true))
-	require.ErrorIs(t, lazy.isReadOnly(), storagestate.ErrStatusReadOnly)
+	require.ErrorIs(t, lazy.refuseWrite(), storagestate.ErrStatusReadOnly)
 
 	require.NoError(t, lazy.setReindexing(false))
-	require.NoError(t, lazy.isReadOnly())
+	require.NoError(t, lazy.refuseWrite())
 }

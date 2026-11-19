@@ -4270,12 +4270,12 @@ func (_c *MockShardLike_initPropertyBuckets_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// isReadOnly provides a mock function with no fields
-func (_m *MockShardLike) isReadOnly() error {
+// refuseWrite provides a mock function with no fields
+func (_m *MockShardLike) refuseWrite() error {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
-		panic("no return value specified for isReadOnly")
+		panic("no return value specified for refuseWrite")
 	}
 
 	var r0 error
@@ -4288,29 +4288,29 @@ func (_m *MockShardLike) isReadOnly() error {
 	return r0
 }
 
-// MockShardLike_isReadOnly_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'isReadOnly'
-type MockShardLike_isReadOnly_Call struct {
+// MockShardLike_refuseWrite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'refuseWrite'
+type MockShardLike_refuseWrite_Call struct {
 	*mock.Call
 }
 
-// isReadOnly is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) isReadOnly() *MockShardLike_isReadOnly_Call {
-	return &MockShardLike_isReadOnly_Call{Call: _e.mock.On("isReadOnly")}
+// refuseWrite is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) refuseWrite() *MockShardLike_refuseWrite_Call {
+	return &MockShardLike_refuseWrite_Call{Call: _e.mock.On("refuseWrite")}
 }
 
-func (_c *MockShardLike_isReadOnly_Call) Run(run func()) *MockShardLike_isReadOnly_Call {
+func (_c *MockShardLike_refuseWrite_Call) Run(run func()) *MockShardLike_refuseWrite_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run()
 	})
 	return _c
 }
 
-func (_c *MockShardLike_isReadOnly_Call) Return(_a0 error) *MockShardLike_isReadOnly_Call {
+func (_c *MockShardLike_refuseWrite_Call) Return(_a0 error) *MockShardLike_refuseWrite_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockShardLike_isReadOnly_Call {
+func (_c *MockShardLike_refuseWrite_Call) RunAndReturn(run func() error) *MockShardLike_refuseWrite_Call {
 	_c.Call.Return(run)
 	return _c
 }

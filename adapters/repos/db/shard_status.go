@@ -87,8 +87,8 @@ func (s *Shard) GetStatus() storagestate.Status {
 	return status
 }
 
-// isReadOnly fails a write the node overlay refuses; a user's READONLY is refuseUserReadOnly's.
-func (s *Shard) isReadOnly() error {
+// refuseWrite fails a write the node overlay refuses; a user's READONLY is refuseUserReadOnly's.
+func (s *Shard) refuseWrite() error {
 	return s.index.nodeOverlay().RefuseWrite(s.phase)
 }
 
@@ -103,11 +103,8 @@ func (s *Shard) syncStorePause() error {
 	}
 
 	paused, tempPaused := s.index.nodeOverlay().StorePaused(s.phase)
-	if err := s.store.UpdateBucketsStatusBy(func(bucket string) storagestate.Status {
-		if paused && (tempPaused || !strings.HasSuffix(bucket, schema.InternalTempSuffix)) {
-			return storagestate.StatusReadOnly
-		}
-		return storagestate.StatusReady
+	if err := s.store.PauseBackgroundIOBy(func(bucket string) bool {
+		return paused && (tempPaused || !strings.HasSuffix(bucket, schema.InternalTempSuffix))
 	}); err != nil {
 		return err
 	}
@@ -138,7 +135,7 @@ func (s *Shard) markShutdown() {
 	s.phase.Set(storagestate.StatusShutdown)
 	s.moveCountedStatusUnlocked(storagestate.StatusShutdown)
 	// a closed store is the only failure, and it takes no writes
-	_ = s.store.UpdateBucketsStatus(storagestate.StatusShutdown)
+	_ = s.store.PauseBackgroundIO(false)
 }
 
 // setReindexing(false) also ends the swap: a reindex that fails mid-swap gives the store back.

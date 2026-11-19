@@ -34,7 +34,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time,
 	skipIfLocalNewer bool,
 ) (bool, error) {
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWrite(); err != nil {
 		return false, err
 	}
 

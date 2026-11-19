@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // A bucket that is moved to another dir has to take its registration along: the
@@ -44,9 +43,9 @@ func TestStore_MovedBucketKeepsItsRegistration(t *testing.T) {
 			name: "RenameBucket",
 			move: func(t *testing.T, store *Store) string {
 				require.NoError(t, store.CreateOrLoadBucket(ctx, "moved", WithStrategy(StrategyReplace)))
-				store.Bucket("moved").UpdateStatus(storagestate.StatusReadOnly)
+				store.Bucket("moved").PauseBackgroundIO(true)
 				require.NoError(t, store.RenameBucket(ctx, "moved", "target"))
-				store.Bucket("target").UpdateStatus(storagestate.StatusReady)
+				store.Bucket("target").PauseBackgroundIO(false)
 				return "target"
 			},
 		},
@@ -95,7 +94,7 @@ func TestStore_MoveOntoRegisteredDirFails(t *testing.T) {
 		{
 			name: "RenameBucket",
 			move: func(store *Store) error {
-				store.Bucket("moved").UpdateStatus(storagestate.StatusReadOnly)
+				store.Bucket("moved").PauseBackgroundIO(true)
 				return store.RenameBucket(ctx, "moved", "target")
 			},
 		},
