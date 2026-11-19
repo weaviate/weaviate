@@ -373,6 +373,8 @@ Lo que queda por medir:
 - **Los criterios del usuario se cumplen:** la celda de 512 bits en RAM tiene menos latencia en frío que HFresh a 0.95 y llega a 0.99, y el halo no es más lento. No hay ningún empate, con la regla del 10 %.
 - **En frío, la diferencia mezcla dos cosas.** HFresh lee sus postings uno detrás de otro (`PostingStore.MultiGet`): de sus 46.3 ms de media a 0.95, 40.3 son 210 lecturas a 0.19 ms. Posting-edge lee tres veces menos y pide a la vez los bloques de una ronda. La sesión no las separa.
   - *Estimación mía, sin medir:* con sus postings leídos de 8 en 8, HFresh quedaría en unos 12 ms, 2.8 veces la celda de 512 bits.
+  - **Medido el 19, con HFresh leyendo sus postings de 8 en 8** (*`bench-report.md`, «HFresh con sus postings leídos en paralelo»; el cambio va apagado salvo en el benchmark*): en frío con 1 thread baja de 46.80 a 14.28 ms a 0.95 y de 178.4 a 47.89 a 0.99, a 0.31 y 0.27 veces. Con 8 threads no gana nada, 0.94 a 0.97 veces, y en caliente un 16 a un 21 % con 1 thread.
+  - **La celda de 512 bits queda 4.0 veces por debajo de ese HFresh a 0.95 en frío,** 3.54 ms frente a 14.28, y 5.4 veces a 0.99. El halo, 3.0 y 3.4 veces. La estimación se quedaba corta: 14.3 ms y no 12.
 - **En caliente no hay lectura que esperar,** y la diferencia es de 2.5 a 4.6 veces a 0.95 y de 2.9 a 5.2 a 0.99.
 
 *Lectura mía, para el diseño:*
@@ -383,9 +385,65 @@ Lo que queda por medir:
 - **De 512 a 384 bits de ruteo se ahorran 16 MB de heap por millón** y se pierde un 7 % a 0.95 y un 11 % a 0.99 en frío.
 - **El rescore ya pesa:** 1.6 ms de los 3.4 a 6.3 ms de una query fría a 0.95, por 64 lecturas. El orden de posting del fichero no las junta. Es el siguiente término a bajar en los modos con códigos en RAM.
 - **El modo todo en disco no es de RAM cero:** 74.8 MB de heap a 1M, con los centroides sin comprimir y el mapa de posting y slot. A 100M serían 7.5 GB si escalara tal cual, sin medir.
-- **HFresh ganaría leyendo sus postings en paralelo.** Es un cambio en HFresh y no en este índice; aquí queda anotado como lo que explica la mayor parte de su latencia en frío.
+- **HFresh gana leyendo sus postings en paralelo, y no alcanza.** Es un cambio en HFresh y no en este índice. Explica dos tercios de su latencia en frío con 1 thread; lo que queda, 4 veces a 0.95, son las lecturas que hace de más.
 
 **Sin medir:** inserts, refresco, deletes y splits en disco; el modo pread cronometrado; un formato afinado (alineación a página, los tres bloques en una lectura); Linux, otro disco y 10M.
+
+## Inserts en disco (v5.0, 2026-11-18) y su control de reorganización (2026-11-19)
+
+*De `bench-report.md`, «v5.0: inserts en disco»: dbpedia 1M, del 10 al 100 % por inserts, con el camino de escritura de v2.x sobre el store LSM y los códigos de ruteo de 512 bits en RAM. T = 360, ef de inserción 160, aristas inversas, sin refresco ni deletes. Un escritor. Todo en ficheros de test. Los números absolutos no valen para producción; vale la comparación dentro de cada sesión.*
+
+**El formato que crece.** Es la opción (2) de «Dónde viven las aristas», abajo: escrituras por elemento, sin reescribir el posting.
+
+- **Un bucket Set con dos filas por posting:** la de miembros, un valor por miembro (id y código, 208 B), y la de aristas, un valor por miembro (su id y sus aristas).
+- **Una arista inversa** escribe la lista nueva de su vecino y la lápida de la vieja. No lee ni reescribe la fila.
+- **Tres buckets Replace por vector:** el mapa vector→posting, el código de ruteo y las distancias de sus aristas, que es lo que compara una arista inversa.
+- **El split** lee las dos filas de su posting y escribe las de los dos hijos. El posting retirado lo salta la compactación.
+- **Los vectores exactos,** en un fichero por id de vector.
+
+**Corrección.** El índice crecido en disco es el crecido en memoria: mismo posting, mismas aristas y mismas cuentas en cada insert, cobertura completa en cada checkpoint, y las mismas respuestas en las 5 000 queries.
+
+| lo medido a 1M | |
+|---|---|
+| inserts por segundo, un escritor | 179; el 93 % del tiempo es la búsqueda de aristas |
+| un insert lee | 63.1 cargas en su búsqueda: 335.9 lecturas del store, 5.26 MB |
+| un insert entrega al store | 1.35 KB, además de su vector de 6.14 KB |
+| lecturas por carga mientras crece | de 2.96 en el primer tramo a 6.23 en el último, donde serían 2 |
+| la basura, antes de compactar | un 34.5 % más de bytes por carga, y 6.59 lecturas donde compactado son 3.76 |
+| lo que el store escribe | de 7 a 17 veces lo que guarda, con cualquiera de sus dos políticas de compactación |
+| criterio 1: bytes leídos frente al índice en memoria, a 0.95 | 1.105 veces, con el límite en 1.10. El formato solo son 1.089 |
+| criterio 2: latencia en frío frente al lote, a 0.95 | 1.43 veces, con el límite en 1.20 |
+
+- **El algoritmo pone poco:** el índice crecido carga un 5.6 % más que el lote a 0.95.
+- **Los dos criterios fallan por el almacenamiento.** El formato añade un 8.9 % de bytes: 9 B de marco por valor del Set, dos valores por miembro, y 4 B del id en cada lista. El resto es que el bucket acaba en 2 segmentos.
+- **`lsmkv` no llega a un segmento:** no junta dos segmentos de tamaños muy distintos, ni con la compactación forzada del bucket de postings de HFresh.
+- **Un bug de `lsmkv` por el camino:** su compactador de Set devolvía valores borrados cuando el valor y su lápida estaban en un mismo segmento. Arreglado aquí y en weaviate/weaviate#13950.
+
+**El control de reorganización.** El mismo índice con sus bytes en otro sitio, escrito de una vez y fuera de la compactación. Sus dos celdas devuelven lo mismo que el índice tal cual.
+
+| p50 con 1 thread a 0.95, entre el del lote | en frío | en caliente |
+|---|---|---|
+| crecido, tal cual: 2 segmentos | 1.33x | 1.45x |
+| el bucket de postings en un segmento | 1.19x | 1.35x |
+| un segmento, y los vectores exactos en orden de posting | 1.07x | 1.34x |
+
+- **En frío, reorganizado, queda dentro del 1.20,** y a menos de un 10 % del lote: lo que falta es una reorganización en segundo plano, y el formato vale.
+- **El segmento único cierra el 70 % de lo que sobraba en traer los bloques; el orden de los vectores, todo el rescore.**
+- **Con un segmento el criterio 1 se cumple:** 1.089 veces, 2.00 lecturas por carga.
+- **En caliente no cierra casi nada.** Traer los bloques cuesta 1.9 veces lo que en el lote aun con un segmento: el store entrega las filas valor a valor, donde el lote lee un bloque de una pieza.
+- **La razón del crecido tal cual no es la misma en las dos sesiones,** 1.43 de noche y 1.33 de día. No las mezclo.
+
+*Lectura mía, para el diseño:*
+
+- **La opción (2) funciona como camino de escritura:** un insert entrega 1.35 KB, y ninguna arista inversa reescribe un posting.
+- **Lo que cuesta se paga leyendo, y es de disposición más que de formato.** Hace falta algo que deje el bucket de postings en un segmento y los vectores cerca de su posting: una reorganización en segundo plano, que no está diseñada ni medida.
+- **El orden del fichero de vectores importa en frío:** en el control, el rescore del crecido cuesta 1.2 veces el del lote por las mismas 64 lecturas, y vuelve al del lote al reordenar.
+- **El coste en caliente es del Set:** un valor por miembro y por lista. Quitarlo pide menos valores por carga: las aristas de un posting en un solo valor (v5.1), o dentro del elemento del miembro.
+- **El insert es caro por su búsqueda:** el 93 % del tiempo. El store pesa poco en él.
+
+**Sin medir:** la reorganización en segundo plano, inserts concurrentes, búsquedas durante los inserts, el halo en este camino, el refresco, los deletes, la durabilidad y Linux.
+
+**En marcha (v5.1, pre-registrado el 19):** las aristas consolidadas. Los cambios de aristas de un posting esperan en memoria y su fila se escribe entera, como un solo valor, cada K cambios, en el split y al cerrar.
 
 ## Open for phase 2
 
@@ -880,6 +938,7 @@ Quedan tres sitios. Las cuentas son por insert, a 1536d y con postings de 237 mi
 | reparación por hermanos en el split | sin escrituras de más: el split ya reescribe los dos hijos | igual | 344 listas en RAM por split |
 
 - **(1) no aguanta estos números como camino síncrono:** reescribe unas 800 veces lo que escribe el insert.
+- **(2) es la que lleva a disco v5.0** (*arriba, «Inserts en disco»*): con las aristas en una fila propia del posting, un valor por miembro, y las distancias de las aristas guardadas aparte.
 - **(2) y (3) son las candidatas.** (2) no gasta RAM y paga en lectura hasta que el posting se reescribe. (3) saca las aristas del camino de lectura y de la reescritura de postings, y cuesta RAM a la escala objetivo.
 - **La comprobación de la arista inversa necesita la distancia de la peor arista de cada vecino.** En v2.0 se recalcula entera, 10 distancias exactas por lista. *Mío, sin medir:* con la distancia guardada junto a cada arista es una comparación, y no hay que leer ningún vector exacto.
 
