@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 17:48, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, las celdas, las medidas, el criterio y los stops son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+**Estado: pre-registrado el 19 a las 17:48, antes de compilar nada de esta ronda y antes de ningún dato suyo. Paso 1 cerrado y la corrida a 1M en marcha.** El mecanismo, las celdas, las medidas, el criterio y los stops son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -270,6 +270,29 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Si es así, la condición de cargas se cumple por tamaño y no por calidad.** Lo diré con los vectores puntuados y con la referencia de llenado al lado.
 - **La más barata que cumple:** 25 % con la fusión de 177.
 - **El 50 % en dos fases, mejor en recall que la celda 4 de v6.0,** por reparar con los borrados navegables.
+
+### Paso 1, cerrado: la pasada y sus tests a pequeña escala (17:58 del 19)
+
+Código en `47788542d1` y `a2c97cc394`, después del pre-registro (`6db1f2c523`).
+
+- **La pasada, en el arnés de deletes** (`delete_test.go`): `repair` y `eliminate`. En el índice no cambia nada: la reparación usa la marca y las dos opciones de búsqueda que dejó v6.0.
+- **Tests, sin el tag de benchmark** (`delete_repair_test.go`):
+  - **Las dos fases, en nueve casos:** los tres umbrales, las dos fusiones, cosine, la mitad borrada, postings enteros borrados y una fusión sin tope de tamaño.
+    - **Tras la primera,** ningún vector queda por encima del umbral, ninguna lista reparada apunta a un borrado y no ha salido ningún miembro.
+    - **Tras la segunda,** ningún borrado ocupa sitio, ninguna arista apunta a uno y no se pierde ningún vivo. Una fusión con tope no lo pasa ni acaba en split.
+    - **Una segunda pasada no hace nada.**
+  - **La reparación navega por los borrados:** sobre dos índices iguales puntúa más miembros que la misma reparación sin navegar.
+  - **La comprobación final caza** un borrado dejado en un posting y una arista hacia uno.
+- **Cinco fallos provocados a mano, los cinco cazados:** la reparación no navega por los borrados, las aristas hacia borrados se quedan, la fusión ignora el tope, un posting con pocos borrados no se reescribe, y el umbral pide una arista muerta de más.
+- **Lint del paquete,** con y sin el tag: pasa.
+- **Una prueba de la corrida entera a 30 000 vectores, que no es un dato:** las dos etapas pasan en minuto y medio, sin ningún stop.
+
+**Lo que la prueba pequeña enseña del mecanismo:**
+
+- **La fusión de 177 deja postings por debajo de 118.** La regla de la suma frena también a los más pequeños: uno con 100 vivos cuyo vecino más cercano tiene 270 no se fusiona. Es la regla como está escrita, y se cuenta.
+- **A esa escala la fusión de 177 deja la media en 226, no cerca de 300 como esperaba.** De cada 61 postings por debajo de 177, 26 no se fusionan por la suma. No lo extrapolo a 1M.
+
+**En marcha desde las 17:57:** la corrida a 1M. No empieza ninguna etapa desde las 21:15, y un guardián para lo que quede a las 22:50.
 
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 
