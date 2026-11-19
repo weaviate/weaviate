@@ -58,7 +58,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// Only an AddClass holds two of these locks, collectionAddLocks before homeNodesLocks.
+	// An AddTenants or AddClass takes its cap lock above before homeNodesLocks.
 	unlockHomeNodes, err := st.lockHomeNodes(req)
 	if err != nil {
 		return 0, err
@@ -132,8 +132,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter checks req
-// against and returns the unlock. An UPDATE_NAMESPACE takes it exclusively,
-// and class creates, restores and updates share it.
+// against and returns the unlock. An UPDATE_NAMESPACE takes it exclusively.
+// Class creates, restores and updates share it, and so do tenant adds and updates.
 func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
@@ -143,7 +143,8 @@ func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 		}
 		st.homeNodesLocks.Lock(ns)
 		return func() { st.homeNodesLocks.Unlock(ns) }, nil
-	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS:
+	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS,
+		api.ApplyRequest_TYPE_ADD_TENANT, api.ApplyRequest_TYPE_UPDATE_TENANT:
 		ns := namespacing.NamespaceFromQualified(req.Class)
 		if ns == "" {
 			return func() {}, nil

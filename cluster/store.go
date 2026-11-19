@@ -344,8 +344,8 @@ type Store struct {
 	collectionAddLocks *entsync.KeyLocker
 
 	// homeNodesLocks orders an UPDATE_NAMESPACE on the leader against the class
-	// creates, restores and updates in its namespace, so each pre-commit check
-	// reads the other's applied outcome.
+	// and tenant commands in its namespace that lockHomeNodes lists, so each
+	// pre-commit check reads the other's applied outcome.
 	homeNodesLocks *evictingKeyRWLocker
 
 	taskMovementLocks *evictingKeyRWLocker
