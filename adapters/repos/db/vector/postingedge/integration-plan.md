@@ -4,7 +4,7 @@
 
 **Alcance.** Solo lectura y este documento: el plan no cambia código del índice. Al leer apareció un bug en flat y en HFresh, que sí se arregló, en un commit aparte (`665f3a1806`). El plan dice qué pide Weaviate a un tipo de índice, qué de eso existe ya, qué vive en ficheros de test y qué falta. Las cifras salen de `bench-report.md` y de `disk-design.md`; las rutas, del código de esta rama. Lo que es propuesta mía va marcado como tal.
 
-**Lo que no llegó.** El encargo pide en el punto 4 «la tabla de arriba», y esa tabla no venía en el mensaje. La de la sección 4 la monto yo con los parámetros que el mensaje nombra (`maxPostingSize`, el modo de memoria, `rescoreLimit`, `ef`) y los que tiene hoy la configuración del paquete. Hay que cotejarla con la original.
+**La tabla de parámetros.** El encargo pedía en el punto 4 «la tabla de arriba», que no venía en el mensaje: la primera versión de la sección 4 la monté con los parámetros que el mensaje nombraba y los de la configuración del paquete. La lista acordada llegó después, el 19 por la tarde. La sección 4 empieza ahora por ella, con las diferencias marcadas.
 
 ## Resumen
 
@@ -14,7 +14,8 @@
 - **Lo que bloquea de verdad es `Delete`.** El shard lo llama en cada borrado y en cada update que cambia un vector. Sin él, ninguna clase con este índice admite cambios.
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
-- **En parámetros:** `maxPostingSizeKB` como umbral de split necesita 76 para dejar la media en 236 vectores a 1536d, y ese valor cambia con la dimensión. El modo de memoria encaja como enumerado en `rq.cache`. El ef dinámico tiene sentido y no está medido.
+- **En parámetros,** lo acordado son cinco: `ef`, `efConstruction`, `rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`. Quedan tres puntos por confirmar frente a mi tabla: dónde vive `rescoreLimit`, qué significa «acoplado a `ef`» en el modo por defecto, y `distance`, que no está en la lista.
+- **Pendiente antes de integrar:** medir k = 1 y k = 100, para decidir el `ef` dinámico.
 - **Al leer apareció un bug en flat y en HFresh,** en la búsqueda por distancia. Está arreglado en esta rama con sus tests, y sigue en `main`.
 
 ## 1. Qué exige un tipo de índice
@@ -212,7 +213,37 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **Los enumerados, en minúsculas** (`acorn`, `sweeping`, `l2-squared`).
 - **`vectorIndexConfig` es libre en el OpenAPI** (`openapi-specs/schema.json`): los nombres solo existen en los structs y en las funciones de parseo. Las claves desconocidas se ignoran sin error, y un valor de otro tipo también.
 
-### La tabla
+### Lo acordado (del usuario, 19 por la tarde)
+
+| público | default | a qué corresponde dentro | qué validar |
+|---|---|---|---|
+| `ef` | 20 | `UserConfig.EF`. El efectivo es el mayor entre `ef` y k | 1 o más |
+| `efConstruction` | 160 | El ef de la búsqueda de un insert | 16 o más: el número de aristas |
+| `rescoreLimit` | Acoplado a `ef` | `UserConfig.RescoreLimit`. El efectivo nunca baja de k | 0 o más, o el valor que signifique «automático» |
+| `maxPostingSizeKB` | `0`: automático, 236 vectores de media | El umbral de split T: 360 vectores en automático. Un valor explícito, con la fórmula de HFresh | 0, o de 8 a 1024 |
+| `rq.cacheMode` | `routing` | Qué códigos quedan en RAM: `routing`, el de ruteo; `none`, ninguno (el halo); `scan`, reservado hasta el veredicto de v4.1 | Uno de los tres valores. `scan` se rechaza mientras esté reservado |
+
+**Todo lo demás, interno.**
+
+### Diferencias con mi tabla
+
+**Coincide:** `ef`, `efConstruction` con 160, `maxPostingSizeKB` con `0` como automático, y los tres valores del modo de memoria con `routing` por defecto y `scan` sin ofrecer todavía.
+
+**Cambia, y queda como lo acordado:**
+
+- **El nombre del modo de memoria es `rq.cacheMode`.** Yo ponía `rq.cache` primero y este de alternativa.
+- **`dynamicEfMin`, `dynamicEfMax` y `dynamicEfFactor` no son públicos.** Yo reservaba los nombres. Pasa a pendiente: ver la comprobación 3.
+- **`rq.enabled`, `rq.bits`, `rq.centering` y `rq.trainingLimit` son internos.** Yo los listaba como públicos de valor fijo. Una consecuencia para el parseo: una configuración que traiga `rq.enabled: false`, otros `bits`, o un bloque `pq`, `sq` o `bq` tiene que dar error, como en HFresh. Los parseadores comunes ignoran en silencio lo que no conocen.
+
+**Tres puntos que hay que confirmar:**
+
+1. **Dónde vive `rescoreLimit`.** La lista lo escribe sin prefijo, y `cacheMode` con `rq.`. En HNSW, HFresh y flat vive dentro del bloque de compresión (`rq.rescoreLimit`), nunca arriba. Mi tabla lo tiene en `rq.rescoreLimit`. Si va arriba, sería el único índice que lo tiene ahí.
+2. **Qué significa «acoplado a `ef` por defecto» en el modo `routing`.** Por lo medido, en `routing` y en `none` el scan usa el código completo, y ahí el `rescoreLimit` no depende de `ef`: 64 aguanta de ef 21 a ef 1 024 a 1536d, y 200 a 768d. Mi propuesta solo lo mueve con `ef` en el modo `scan`. Si el acoplamiento se aplica siempre, con un suelo de ef / 2, en el punto de 0.99 (ef 188) serían 94 lecturas de rescore en vez de 64: un 14 % más de lecturas por query, sin ganancia medida.
+3. **`distance` no está en la lista.** En mi tabla es público, como en los otros tres índices. La configuración de un índice tiene que decir su distancia (`DistanceName()`), y el shard construye el proveedor a partir de ella (`adapters/repos/db/shard_init_vector.go:140-155`). Si es interno, el índice queda fijo en `cosine`. Todo lo medido es en coseno.
+
+### Mi tabla original, con los equivalentes en HNSW, HFresh y flat
+
+*Es la tabla de antes del cotejo. Vale por la columna de equivalentes y sus rutas. Donde choca con lo acordado, manda lo acordado.*
 
 | público, propuesto | interno hoy | en HNSW | en HFresh | en flat | default propuesto | qué validar | ¿cambia después? |
 |---|---|---|---|---|---|---|---|
@@ -264,7 +295,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **Con un default fijo en KB, la media en vectores se mueve con la dimensión:** de 127 a 3072d a 704 a 384d.
 - **Todo lo medido tiene la media fijada en 236 vectores, también a 768d.** En wiki-dpr S se fijó a 236 a propósito: el presupuesto de 48 KiB habría dado 438. Un default de 76 a 768d daría una media de 425, que no está medida a esa dimensión. A 1536d y en memoria, S = 512 quedaba a 0.95 veces el QPS a 0.95 (Fase C).
 
-*Propuesta mía:*
+*Propuesta mía, que coincide con lo acordado:*
 
 - **El default, `0`: automático, T = 360 vectores a cualquier dimensión.** Es lo único que reproduce lo medido. Un valor explícito se convierte con la fórmula de HFresh, para que el mismo número signifique el mismo umbral en los dos índices.
 - **La alternativa, un default fijo de 76,** es más simple de explicar y deja la media en 236 solo a 1536d. Si se prefiere, hay que medir antes 768d con una media de 425.
@@ -301,6 +332,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 *Propuesta mía:* `rq.cache` si se acepta el choque de tipos con flat, y `rq.cacheMode` si no. El default, `routing`. El valor `scan` no debería existir hasta que v4.1 tenga veredicto.
 
+**Acordado: `rq.cacheMode`,** con `routing` por defecto, `none`, y `scan` reservado.
+
 ### Comprobación 3: el ef dinámico
 
 **HNSW lo tiene, y es su default.**
@@ -315,9 +348,11 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **A favor: es la convención de HNSW,** y un usuario que venga de ahí la espera.
 - **En contra: todo lo medido es con k = 10.** El default de 20 es 2 × k, y no sé si ese factor vale con k = 1 o con k = 100.
 
-*Propuesta mía:*
+**Acordado: el `ef` dinámico no entra todavía. Pendiente antes de integrar: medir k = 1 y k = 100,** para decidir si hace falta y con qué factor. Hoy solo hay curvas con k = 10.
 
-- **Reservar ya los nombres de HNSW** (`ef: -1`, `dynamicEfMin`, `dynamicEfMax`, `dynamicEfFactor`) y la semántica de `autoEfFromK`.
+*Mi propuesta, para cuando esté esa medida:*
+
+- **Reservar los nombres de HNSW** (`ef: -1`, `dynamicEfMin`, `dynamicEfMax`, `dynamicEfFactor`) y la semántica de `autoEfFromK`.
 - **No fijar los valores sin medir.** El punto de partida sería un mínimo de 20 y un factor de 2, que con k = 10 es el default de hoy. Antes de darlo por bueno: un barrido de k (1, 10 y 100) que diga qué ef da 0.95 en cada uno.
 - **Mientras tanto, el default sigue siendo `ef: 20`.**
 
@@ -345,6 +380,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El efectivo nunca baja de k,** como en HFresh y en flat.
 - **Un valor explícito se respeta tal cual,** con k como único suelo.
 
+**Frente a lo acordado,** «`rescoreLimit` acoplado a `ef` por defecto»: esta propuesta solo lo acopla en el modo `scan`. Es el punto 2 de «Diferencias con mi tabla».
+
 **Lo que esta propuesta no tiene detrás:**
 
 - **El suelo de ef / 2 sale de dos puntos.** No hay ninguna curva medida con el `rescoreLimit` moviéndose con ef. Con 256 bits el techo llega antes, con ef en 0.8 veces el `rescoreLimit`: el factor crece cuando el código se acorta.
@@ -363,7 +400,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | El nombre del tipo | La configuración en `entities`, los nombres de buckets y directorios, todo el registro | De nada |
 | Dónde viven los vectores exactos: bucket de objetos o fichero propio | El formato en disco, el backup y la replicación | De una medida con objetos reales, que no hay |
 | Un formato en disco o dos: el que crece (v5.0) y el del lote (v4.0) | El camino de lectura y la reorganización | De si la reorganización reescribe al formato del lote |
-| La tabla de parámetros públicos, con el default de `maxPostingSizeKB` y el nombre del modo de memoria | La configuración en `entities` | Del veredicto de v4.1 para el valor `scan` |
+| Los tres puntos por confirmar de la tabla de parámetros: dónde vive `rescoreLimit`, su acoplamiento en el modo `routing`, y `distance` | La configuración en `entities` | De nada. Lo demás de la tabla está acordado |
+| El `ef` dinámico | El default de `ef` para k distinto de 10 | **De una medida pendiente: k = 1 y k = 100** |
 | Si la primera versión lleva limpieza física de deletes | El paso 4 | Del veredicto de v6.0 |
 
 **Paso 1. La configuración y el registro del tipo.** Solo necesita el nombre y la tabla de parámetros.
@@ -420,6 +458,11 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - Las curvas de siempre, a través de un shard, con objetos reales y en Linux.
 
 **Lo que bloquea a qué, en una línea:** las decisiones bloquean el formato; el formato bloquea leer; leer bloquea escribir; escribir bloquea borrar; y sin borrar no hay shard que funcione. El registro del tipo es lo único que puede empezar ya.
+
+**Pendiente de medir antes de integrar:**
+
+- **k = 1 y k = 100,** para decidir el `ef` dinámico. Con el `ef` fijo en 20, una query con k = 100 corre con ef = k, la parada más temprana.
+- **El `rescoreLimit` con k = 100:** 64 pasa a 100 y no deja margen de reordenación. Sale de la misma medida.
 
 **Lo que está en vuelo y puede mover este plan:**
 
