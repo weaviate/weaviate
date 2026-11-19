@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
-**Estado: paso 1 cerrado, con una enmienda. Las corridas a 1M esperan al veredicto de v5.1.** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
+**Estado: paso 1 cerrado, con dos enmiendas. Va sobre el camino de v5.0, y sus cuatro corridas a 1M están en cola detrás de v4.1.** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
 
 ### El encargo (del usuario)
 
@@ -294,6 +294,15 @@ Con las cifras de v5.0: un insert son 5.59 ms, de ellos 5.2 de búsqueda y 0.39 
 - **Hay ruido de corrida, y se da su medida:** N = 4 y N = 8 llevan la misma tanda, así que lo que difieran en cargas a 0.95 y a 0.99 es ruido de corrida y no atraso. Se pone al lado de la diferencia de cada una con N = 1.
 - **El criterio se aplica como está escrito,** a 0.95 y a 0.99. Si la diferencia de N = 8 con N = 1 es menor que ese ruido, se dice.
 
+### Enmienda 2 (13:30 del 19, antes de ningún dato): el camino es el de v5.0, y cuándo corre
+
+**Motivo.** La validación de v5.1 a 1M cerró a las 13:20. Las lecturas por carga de su último tramo quedan a 0.55 veces las de v5.0 con las dos K, y su criterio pedía 0.50 además de la latencia en frío. v5.1 no pasa su pre-registro, salga lo que salga esta noche, así que el camino de v5.2 ya está decidido.
+
+- **El camino: el de v5.0,** sin aristas consolidadas.
+- **Cuándo:** en cola detrás de v4.1, con la regla de las demás. Si v4.1 acaba entre las 23:00 y las 07:00, sigue detrás; si acaba de día, espera a la ventana de la noche del 20. El pre-registro decía que no iría en la cola del 19 porque faltaba el veredicto de v5.1.
+- **Orden de las celdas:** N = 1, N = 4, N = 8 y N = 8 con tanda de 8. N = 1 va primero porque las otras tres se buscan también con sus dos ef.
+- **Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** las cuatro celdas pasan la cobertura en cada checkpoint y el script saca sus tablas.
+
 ### Paso 1, cerrado: el mecanismo y sus tests a pequeña escala (12:54 del 19)
 
 Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
@@ -313,7 +322,7 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
 
 **Lo que mi expectativa de las listas releídas no tenía en cuenta:** escribí «menos de uno de cada cien» planes. En la prueba pequeña son 4 de cada cien con tandas de 32, en un índice de un centenar de postings. A 1M deberían ser muchos menos, y se medirá.
 
-**Falta:** el script de la sesión y sus tablas. Las corridas a 1M esperan al veredicto de v5.1.
+**El script de la sesión y sus tablas** se escribieron después (`1e17992fab`): `testdata/bench/v5.2/scripts/run_v52.sh` y `parallel_inserts_verdict.py`.
 
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 
