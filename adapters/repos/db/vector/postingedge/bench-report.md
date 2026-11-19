@@ -168,6 +168,109 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
+
+**Estado: pre-registrado el 19 a las 17:48, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, las celdas, las medidas, el criterio y los stops son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+
+### El encargo (del usuario)
+
+**Limpieza en dos fases, como una pasada de mantenimiento:**
+
+1. **Reparar:** todo vector vivo con X o más de sus aristas apuntando a borrados rehace su lista por búsqueda. Los borrados siguen siendo navegables durante esa búsqueda, pero no pueden entrar en la lista nueva.
+2. **Eliminar:** después se quitan físicamente los borrados y se fusionan los postings.
+
+**Celdas:**
+
+- **Umbral de reparación X:** una arista muerta o más, y el 25 % o más. La celda 4 de v6.0 (50 %) sirve de referencia.
+- **Fusión:** la de v6.0 (por debajo de 118 vivos), y una que devuelva el llenado: fusionar con el vecino más cercano cuando el posting baja de 177 vivos y la suma no pasa del umbral de split.
+- **Churn** con la mejor celda, como estaba previsto.
+
+**Medidas:** las de v6.0, más cuántos vectores se reparan y su coste en búsquedas, y el tamaño medio de posting después de fusionar.
+
+**Pre-registro:** el criterio original de v6.0 (recall a 0.005 o menos, cargas a 0.95 +15 % o menos y a 0.99 +10 % o menos, contra el lote de S = 236), con el 30 % al azar. Se reporta además cada celda contra su referencia de llenado, y cuál es la celda más barata que cumple.
+
+**Stops:** los mismos.
+
+### Cómo lo aplico (*mío*)
+
+**El punto.** El de v6.0: el lote del 100 % de dbpedia 1M (S = 236, P = 256, R = 64) con el 30 % borrado al azar, los mismos 297 000 vectores. Cada celda parte de una copia nueva de ese índice con sus marcas.
+
+**Fase 1, reparar:**
+
+- **Quién:** la lista de los vectores vivos que cumplen el umbral, tomada al empezar la fase. «Una arista muerta o más» es al menos una. «El 25 % o más» es que las muertas son al menos la cuarta parte de sus aristas, y al menos una.
+- **Cómo:** con la búsqueda del refresco de v6.0. Entra por el posting del vector, con el ef de inserción (160) y 16 vecinos, y el vector ocupa su sitio en las listas de sus vecinos nuevos, como en un insert.
+- **Navegables:** durante la fase, un miembro borrado se puntúa y sus aristas se siguen, y un endpoint borrado se puntúa. Es la búsqueda de la celda 1b. Un borrado nunca es candidato, así que no puede entrar en la lista nueva. Se comprueba en cada lista reparada.
+
+**Fase 2, eliminar,** en este orden:
+
+1. **Todo posting con algún borrado se reescribe sin ellos.**
+2. **Toda arista que apunta a un borrado se quita de su lista.** Son las de los vectores que la fase 1 no reparó. Se cuentan.
+3. **La fusión,** en una pasada sobre los postings en su orden, como la de v6.0. Un posting que ya recibió a otro en la pasada no se mira, y uno sin vivos se retira.
+   - **La de v6.0:** un posting con menos de 118 vivos se fusiona con el de centroide más cercano. Si el resultado pasa de T = 360, se parte.
+   - **La de llenado:** un posting con menos de 177 vivos se fusiona con el de centroide más cercano si la suma de los dos no pasa de 360. Si pasa, no se fusiona, y se cuenta. Solo se mira el más cercano, como está escrito.
+
+- **Después de la pasada no queda ningún borrado en ningún posting ni ninguna arista hacia uno.** La búsqueda es la de siempre.
+
+**Las celdas, con el 30 % al azar:**
+
+| celda | reparación | fusión | de quién |
+|---|---|---|---|
+| referencia | la celda 4 de v6.0, tal cual: limpia primero, después refresca con el 50 %, con los borrados sin navegar | por debajo de 118 | del usuario; **repetida en esta corrida** por decisión mía |
+| 50 %, en dos fases | la mitad o más | por debajo de 118 | **mía** |
+| 25 %, fusión de 118 | el 25 % o más | por debajo de 118 | del usuario |
+| 25 %, fusión de 177 | el 25 % o más | por debajo de 177, si la suma no pasa de 360 | del usuario |
+| una o más, fusión de 118 | una arista muerta o más | por debajo de 118 | del usuario |
+| una o más, fusión de 177 | una arista muerta o más | por debajo de 177, si la suma no pasa de 360 | del usuario |
+
+- **La referencia se repite en la corrida** para no comparar nada a 0.99 entre corridas.
+- **La celda del 50 % en dos fases** separa el umbral del orden. La celda 4 de v6.0 difiere de las nuevas en dos cosas a la vez: su umbral, y que refresca después de limpiar y sin navegar por los borrados. Va con la fusión de 118, que es la de la celda 4.
+- **La reparación de un umbral se hace una vez.** La segunda celda del mismo umbral recibe las listas ya reparadas: la fase 1 no cambia ningún posting.
+- **Orden de la corrida:** la referencia, el 50 %, las dos del 25 %, las dos de «una o más», las referencias de llenado y el churn.
+
+**Referencias,** en lote y de los 693 000 que quedan: la de S = 236, que es la del criterio, y una de llenado por cada tamaño medio de posting que dejen las fusiones.
+
+**El churn, con la mejor celda.** El protocolo de v6.0: una base de 760 000 vectores y diez rondas que borran 22 800 e insertan otros tantos. En cada ronda: borrar, insertar y la pasada entera.
+
+- **Las búsquedas de los inserts** navegan por los borrados que aún no se han quitado, como la fase 1.
+- **Un posting que un insert deja por encima de T se parte con sus borrados dentro.** Se quitan en la fase 2, no antes.
+
+**Medidas:** las de v6.0, y además:
+
+- **Reparación:** cuántos vectores se reparan, y su coste, por vector y en total: cargas, endpoints puntuados y distancias exactas. Cuántas aristas inversas entran.
+- **Eliminación:** postings reescritos, borrados soltados y aristas quitadas sin reparar.
+- **Fusión:** fusiones hechas, las que no se hicieron por la suma, miembros movidos, splits tras una fusión, el tamaño medio de posting después, y cuántos postings quedan por debajo de 118 y de 177.
+
+**El criterio,** leído como en v6.0: la peor diferencia de recall en la malla de ef, y las cargas leídas a 0.95 y a 0.99 sobre las de la referencia de S = 236.
+
+- **Suelo de ruido:** el mayor entre el de v2.0 y lo que difirieron las dos corridas de v6.0. Son 0.0012 de recall, un 1.1 % en cargas a 0.95 y un 3.0 % a 0.99.
+- **Contra su referencia de llenado,** cada celda con las mismas tres cantidades, sin veredicto.
+
+**«La celda más barata que cumple»:** entre las cuatro del usuario. El orden de coste queda fijado antes de medir:
+
+1. **Menos búsquedas de reparación primero.** Los vectores del 25 % son parte de los de «una o más».
+2. **Con el mismo umbral, la fusión de 118 antes que la de 177,** que mueve más miembros.
+
+- **De más barata a más cara:** 25 % con 118, 25 % con 177, una o más con 118, una o más con 177.
+- **La celda del churn** es la más barata que cumpla. Si no cumple ninguna, la de menos cargas a 0.99 sobre su referencia, como en v6.0.
+
+**Stops,** los de v6.0 y los que trae la pasada:
+
+- **Un vector borrado devuelto por una búsqueda,** o un fallo de cobertura.
+- **Una lista reparada que apunta a un borrado.**
+- **Tras la fase 2,** un borrado en un posting o una arista hacia un borrado.
+
+**Antes de las 23:00.** No empieza ninguna etapa desde las 21:15, y un guardián para lo que quede a las 22:50. Lo que no corra se reporta como no corrido.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **Cuántos se reparan.** Con el 30 % borrado y unas 9 aristas por vector, solo un 4 % de los vivos no tiene ninguna muerta: con «una o más» se repara el 96 %, unos 665 000 vectores, a unas 31 cargas cada uno. Con el 25 %, que son 3 muertas de 9, algo más de la mitad: unos 370 000. Con el 50 %, los 99 641 de v6.0.
+- **Recall a igual ef:** dentro de 0.005 con «una o más», y también con el 25 %.
+- **Con la fusión de 118 no cumple ninguna, sea cual sea el umbral.** Deja los postings en unos 197 vivos, y un lote con postings de 197 ya queda en +13.3 % a 0.99.
+- **Con la fusión de 177 los postings quedan por encima de 236, no en 236.** Casi todos bajan de 177 con el 30 % borrado, porque la media es 165, y se fusionan de dos en dos: espero una media cerca de 300. Cargará menos postings que la referencia y puntuará más vectores en cada uno.
+- **Si es así, la condición de cargas se cumple por tamaño y no por calidad.** Lo diré con los vectores puntuados y con la referencia de llenado al lado.
+- **La más barata que cumple:** 25 % con la fusión de 177.
+- **El 50 % en dos fases, mejor en recall que la celda 4 de v6.0,** por reparar con los borrados navegables.
+
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 
 **Estado: cerrado el 19 a las 17:25, con dos corridas a 1M y ningún stop. Por el criterio escrito los deletes no se sostienen: ninguna de las cinco celdas lo cumple con el 30 % al azar. La celda 1b es la única que cumple el recall a igual ef; falla solo en cargas, y ese fallo es de llenado: se atribuye a la política de fusión, no a las aristas. Las tres enmiendas se escribieron antes de ver ningún dato.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
