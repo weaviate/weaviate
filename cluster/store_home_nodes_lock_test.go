@@ -18,23 +18,39 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestStoreExecute_HomeNodesUpdateOrdersAgainstClassFactor shrinks namespace
-// acme to one home node and sends a class command at factor 3. Blocker's
-// AddClass blocks every later apply, so the first of the two is appended but
-// unapplied when the second arrives. The second must see the first's outcome.
-func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassFactor(t *testing.T) {
+// TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands shrinks acme to n2
+// and sends a class command at factor 3 or a tenant add or unfreeze on n1. Blocker's AddClass
+// blocks every later apply, so the first of the two is appended but unapplied when the second
+// arrives. The second must see the first's outcome.
+func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *testing.T) {
 	const (
 		createRefused = "replication factor 3 exceeds the 1 home node(s) of the namespace"
 		shrinkRefused = "fewer than the replication factor of collection(s) acme:Books"
+		tenantRefused = "has not yet applied the namespace's current home nodes"
 	)
+	tenantT1 := func(t *testing.T, typ command.ApplyRequest_Type, status string) *command.ApplyRequest {
+		t.Helper()
+		tenants := []*command.Tenant{{Name: "t1", Status: status}}
+		var sub proto.Message = &command.AddTenantsRequest{ClusterNodes: []string{"n1"}, Tenants: tenants}
+		if typ == command.ApplyRequest_TYPE_UPDATE_TENANT {
+			sub = &command.UpdateTenantsRequest{ClusterNodes: []string{"n1"}, Tenants: tenants}
+		}
+		raw, err := proto.Marshal(sub)
+		require.NoError(t, err)
+		return &command.ApplyRequest{Type: typ, Class: "acme:Books", SubCommand: raw}
+	}
 	books := func(t *testing.T, typ command.ApplyRequest_Type, factor int64) *command.ApplyRequest {
 		t.Helper()
+		if typ == command.ApplyRequest_TYPE_ADD_TENANT || typ == command.ApplyRequest_TYPE_UPDATE_TENANT {
+			return tenantT1(t, typ, models.TenantActivityStatusHOT)
+		}
 		class := &models.Class{
 			Class:              "acme:Books",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -62,6 +78,7 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassFactor(t *testing.T) {
 		name       string
 		typ        command.ApplyRequest_Type
 		held       bool // acme:Books exists at factor 1 before the shrink
+		frozenT1   bool // t1 exists FROZEN on n1 before the shrink
 		classFirst bool // the class command is appended first, the shrink otherwise
 		wantErr    string
 	}{
@@ -69,6 +86,11 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassFactor(t *testing.T) {
 		{name: "a shrink behind a create is refused", typ: command.ApplyRequest_TYPE_ADD_CLASS, classFirst: true, wantErr: shrinkRefused},
 		{name: "a factor raise behind a shrink is refused", typ: command.ApplyRequest_TYPE_UPDATE_CLASS, held: true, wantErr: createRefused},
 		{name: "a restore behind a shrink is refused", typ: command.ApplyRequest_TYPE_RESTORE_CLASS, wantErr: createRefused},
+		{name: "a tenant add behind a shrink is refused", typ: command.ApplyRequest_TYPE_ADD_TENANT, held: true, wantErr: tenantRefused},
+		{
+			name: "an unfreeze behind a shrink is refused", typ: command.ApplyRequest_TYPE_UPDATE_TENANT,
+			held: true, frozenT1: true, wantErr: tenantRefused,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -90,10 +112,16 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassFactor(t *testing.T) {
 				<-release
 			}).Return(nil)
 			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+			m.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			m.parser.On("ParseClassUpdate", mock.Anything).Return(nil, nil)
 
 			if tt.held {
 				_, err := st.Execute(books(t, command.ApplyRequest_TYPE_ADD_CLASS, 1))
+				require.NoError(t, err)
+			}
+			if tt.frozenT1 {
+				_, err := st.Execute(tenantT1(t, command.ApplyRequest_TYPE_ADD_TENANT, models.TenantActivityStatusFROZEN))
 				require.NoError(t, err)
 			}
 
@@ -104,7 +132,7 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassFactor(t *testing.T) {
 				t.Fatal("the Blocker apply never started")
 			}
 
-			first, second := setHomeNodes(t, "n1"), books(t, tt.typ, 3)
+			first, second := setHomeNodes(t, "n2"), books(t, tt.typ, 3)
 			if tt.classFirst {
 				first, second = second, first
 			}
