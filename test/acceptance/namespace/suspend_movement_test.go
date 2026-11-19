@@ -101,6 +101,19 @@ func shardReplicas(t *testing.T, qualifiedClass, shardName string) ([]string, er
 	return shards[0].Replicas, nil
 }
 
+// requireSoleReplicaEventually waits until the sharding state names node as the
+// shard's only replica.
+func requireSoleReplicaEventually(t *testing.T, qualifiedClass, shardName, node string) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		replicas, err := shardReplicas(t, qualifiedClass, shardName)
+		if assert.NoError(c, err) {
+			assert.Equal(c, []string{node}, replicas)
+		}
+	}, 30*time.Second, 250*time.Millisecond, "the sharding state never listed only %q", node)
+}
+
 // seedObjects writes n objects into class through userKey, so a movement of its
 // shard has data to copy, and returns their ids.
 func seedObjects(t *testing.T, class, userKey string, n int) []strfmt.UUID {
@@ -389,12 +402,7 @@ func TestNamespaces_SuspendKeepsIntegratingMove(t *testing.T) {
 
 	t.Run("the op reaches READY with only the target holding the shard", func(t *testing.T) {
 		waitMovementState(t, opID, api.READY)
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			replicas, err := shardReplicas(t, qualified, shardName)
-			if assert.NoError(c, err) {
-				assert.Equal(c, []string{targetNode}, replicas)
-			}
-		}, 30*time.Second, 250*time.Millisecond, "the sharding state never listed only %q", targetNode)
+		requireSoleReplicaEventually(t, qualified, shardName, targetNode)
 	})
 
 	t.Run("every object written before the move reads back after the resume", func(t *testing.T) {
