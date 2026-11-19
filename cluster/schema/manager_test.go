@@ -1236,6 +1236,23 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 	}
 }
 
+// TestSchemaManager_UpdateClass_FactorRaiseNeedsEnoughReplicas pins UpdateClass
+// refusing a factor raise above a shard's replica count.
+func TestSchemaManager_UpdateClass_FactorRaiseNeedsEnoughReplicas(t *testing.T) {
+	raised := &models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 2}}
+	parser := fakes.NewMockParser()
+	parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(raised, nil)
+	sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, sm.schema.addClass(
+		&models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+		&sharding.State{Physical: map[string]sharding.Physical{"S1": {Name: "S1", BelongsToNodes: []string{"n1"}}}}, 1))
+	sub, err := json.Marshal(&cmd.UpdateClassRequest{Class: raised})
+	require.NoError(t, err)
+
+	err = sm.UpdateClass(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_CLASS, Class: "C", Version: 2, SubCommand: sub}, "test-node", true, false)
+	require.ErrorContains(t, err, `not enough replicas in shard "S1" to increase replication factor to 2`)
+}
+
 // TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
 // on the UpdateClass apply path: when an update removes a dropped ("none")
 // VectorConfig entry, the MutationGuard MUST be consulted with the removed names
