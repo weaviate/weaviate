@@ -85,6 +85,16 @@ type deleteIndex struct {
 	// into.
 	received map[uint32]bool
 	stats    deleteStats
+	// The memory of v6.2, which remember sets. lost is, by doc id, how many
+	// of its edges a live vector has had taken out with nothing put in their
+	// place since a search last built its list. rebuilt marks the vectors
+	// whose list a search built again, and substitutes holds, by doc id, the
+	// substitutes its list was given since. sub counts what the substitution
+	// did, and trial what its rehearsals did, which change nothing.
+	lost        []uint16
+	rebuilt     []bool
+	substitutes map[uint64][]uint32
+	sub, trial  substituteStats
 }
 
 // newDeleteIndex gives a streaming index the mark of the deletes. Deleted
@@ -396,6 +406,9 @@ func (d *deleteIndex) eliminate(ctx context.Context, mergeUnder, sumWithin int) 
 			for _, endpoint := range l.edgesOf(i) {
 				if d.deleted[endpoint] {
 					d.stats.DroppedEdges++
+					if d.lost != nil {
+						d.lost[l.docIDs[i]]++
+					}
 					continue
 				}
 				edges = append(edges, endpoint)
