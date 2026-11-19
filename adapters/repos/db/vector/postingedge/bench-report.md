@@ -168,6 +168,134 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v6.2: reparación en el churn (pre-registro, 2026-11-19)
+
+**Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. Sin código todavía. La corrida no cabe entera antes de las 22:50, así que corre mañana de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+
+### El encargo (del usuario)
+
+**Reparación en el churn.** Base: la celda ganadora de v6.1, con la fusión por debajo de 177 y los borrados navegables hasta eliminarlos.
+
+**Celdas:**
+
+- **A, umbral acumulado:** cada vector recuerda cuántas aristas ha perdido desde que se construyó su lista, y se repara por búsqueda al llegar al 25 %.
+- **B, sustitución local:** al eliminar un borrado, cada vector que apuntaba a él recibe como sustituto el vecino más cercano de la lista del borrado que esté vivo, fuera de su posting y que no tenga ya. La distancia se estima con los códigos. Sin búsquedas.
+- **C, B más A como red:** sustitución local, y búsqueda solo si lo acumulado sin sustituir llega al 25 %.
+
+**Protocolo:** el churn de v6.1 (diez rondas del 3 %) para las tres, y el 30 % de una vez para B y C.
+
+**Medidas:** las de v6.1, más las aristas por vector en cada ronda, el recall de arista en una muestra al final, y el coste por borrado en cargas y en distancias.
+
+**Pre-registro:** el criterio de siempre, en el churn. Se reporta la celda más barata que cumple.
+
+**Cuándo corre:** si no cabe entera antes de las 22:50, mañana de día, sin partirla.
+
+### Cómo lo aplico (*mío*)
+
+**La pasada,** en cada celda, tiene las dos fases de v6.1 y su fusión: por debajo de 177 vivos con el vecino más cercano, si la suma no pasa de 360. Lo que cambia entre celdas es a quién repara la fase 1 y qué hace la fase 2 con una arista que apunta a un borrado.
+
+**El contador (A y C).** Un número por vector, que viaja con él en fusiones y splits:
+
+- **Sube** en uno por cada arista suya que la fase 2 quita sin poner nada en su lugar.
+- **Vuelve a cero** cuando su lista se construye otra vez por búsqueda. Un vector insertado empieza en cero, y los del lote también.
+- **No cuenta** una arista que sale porque un vecino nuevo ocupa su sitio: eso no es una pérdida.
+
+**A, el umbral acumulado.** Al empezar la fase 1 se repara todo vector vivo con `4 × (perdidas + muertas) ≥ aristas + perdidas`, y con alguna perdida o muerta.
+
+- **`perdidas`** es su contador, **`muertas`** las aristas que ahora apuntan a un borrado, y **`aristas`** el largo de su lista con las muertas dentro.
+- **El denominador es la lista como estaría sin pérdidas.** Con el contador en cero es la regla de v6.1. Guardar el largo de la lista al construirse pediría un segundo número, y la lista cambia después con las aristas inversas.
+- **La reparación es la de v6.1:** la búsqueda del refresco, con los borrados navegables, y el vector ocupa su sitio en las listas de sus vecinos nuevos.
+- **La fase 2 es la de v6.1,** y además suma al contador cada arista que quita.
+
+**B, la sustitución local.** No hay fase 1. En la fase 2, antes de reescribir los postings, cada arista de un vector vivo `v` que apunta a un borrado `d` se sustituye o se quita:
+
+- **Candidatos:** las aristas de la lista de `d`, tal como está cuando se elimina. Quedan fuera los borrados, el propio `v`, los que están en el posting de `v` en ese momento y los que `v` ya tiene, contando los sustitutos que acaba de recibir.
+- **El sustituto es el candidato más cercano a `v`.** El encargo dice «el vecino más cercano de la lista del borrado»: lo leo como el más cercano al vector que lo recibe, que es de quien va a ser vecino.
+- **La distancia se estima con dos códigos del sidecar de ruteo,** el de `v` y el del candidato, sin leer ningún vector. Uso la distancia entre dos códigos del cuantizador si la tiene. Si no, el estimador de las búsquedas, construido sobre el vector que da descodificar el código de `v`. Cuál de las dos lo escribo en el Paso 1, antes de la corrida.
+- **El sustituto entra al final de la lista.** No estaba entre los 16 más cercanos de `v` cuando se construyó, así que va detrás de las aristas que quedan. Si entran varios, por su distancia estimada.
+- **Sin arista inversa:** el sustituto no recibe a `v` en su lista. El encargo no lo pide, y decidir si entra en una lista ya llena pide distancias exactas.
+- **Si no hay candidato,** la arista se quita y el contador sube. En B el contador se lleva y se reporta, pero no decide nada.
+- **En disco no pide cargas de más.** La lista de un borrado está en su posting, que la fase 2 reescribe de todos modos. Los códigos están en memoria. Lo que hace en disco se cuenta como postings leídos y escritos por la fase 2.
+
+**C, la sustitución con red.** Una pasada, en tres pasos:
+
+1. **Ensayo:** con las listas como están al empezar, se cuenta para cada vector vivo cuántas de sus aristas muertas se quedarían sin sustituto. No se cambia nada.
+2. **Fase 1:** se repara por búsqueda todo vector con `4 × (perdidas + sin sustituto) ≥ aristas + perdidas`. Es la regla de A, con las que no tienen sustituto en lugar de las muertas. La búsqueda ve el índice como en A, con todas las aristas muertas en su sitio.
+3. **Fase 2:** la de B, sobre las listas como quedaron.
+
+- **El ensayo y la fase 2 pueden diferir** en los vectores que reciben una arista inversa entre medias. La decisión se toma con el ensayo.
+- **Las distancias estimadas del ensayo se cuentan aparte.** Una implementación de verdad guardaría el plan en vez de calcularlo dos veces. El coste por borrado se da con el ensayo y sin él.
+
+**Las celdas de la corrida:**
+
+| etapa | celda | fase 1 | fase 2 | de quién |
+|---|---|---|---|---|
+| churn | la de v6.1, repetida | el 25 % o más de la lista en esa pasada | quita | **mía**, de referencia |
+| churn | A | el 25 % acumulado | quita y cuenta | del usuario |
+| churn | B | ninguna | sustituye | del usuario |
+| churn | C | el 25 % acumulado sin sustituir | sustituye | del usuario |
+| 30 % de una vez | la ganadora de v6.1, repetida | el 25 % o más | quita | **mía**, de referencia |
+| 30 % de una vez | B | ninguna | sustituye | del usuario |
+| 30 % de una vez | C | el 25 % sin sustituir | sustituye | del usuario |
+
+- **Las dos celdas repetidas** dan el recall de arista de lo ya medido y evitan comparar a 0.99 entre corridas. Con el 30 % de una vez A es la ganadora de v6.1, porque todos los contadores están en cero.
+- **Orden de la corrida:** las tres del 30 %, las referencias, y los cuatro churns: la de v6.1, A, B y C.
+
+**El protocolo,** el de v6.1 sin cambios:
+
+- **El churn:** una base de 760 000 vectores y diez rondas que borran 22 800 e insertan otros tantos. En cada ronda: borrar, insertar y la pasada. Las búsquedas de los inserts navegan por los borrados que aún no se han quitado.
+- **El 30 % de una vez:** el lote del 100 % de dbpedia 1M (S = 236, P = 256, R = 64) con los mismos 297 000 vectores borrados.
+- **Cada celda parte de una copia nueva** del índice de su etapa, con las mismas secuencias de borrados e inserts.
+
+**Referencias,** en lote, de los vivos al final de cada etapa: la de S = 236, que es la del criterio, y una de llenado por cada tamaño medio de posting que dejen las fusiones.
+
+**Medidas.** Las de v6.1, y además:
+
+- **Aristas por vector en cada ronda:** las aristas vivas por vector vivo después de la pasada, y cuántas son sustitutos.
+- **Por ronda:** vectores reparados, aristas sustituidas, aristas quitadas sin sustituto, y el contador: su media y cuántos vectores lo tienen por encima de cero.
+- **El recall de arista, al final de cada celda:** el de v2.x. Para cada vector de la muestra, de sus 16 vecinos vivos más cercanos por fuerza bruta, los que están fuera de su posting son sus aristas verdaderas; el recall es cuántas de ellas tiene en su lista.
+  - **La muestra:** 2 000 vectores vivos al final de la etapa, con semilla fija, los mismos en todas sus celdas y en su referencia en lote.
+  - **Por grupos:** lista intacta, con algún sustituto, reparada por búsqueda, e insertada en el churn.
+  - **También:** el largo medio de la lista, el recall de postings de v2.x, y cuántos de los sustitutos que siguen en la lista son aristas verdaderas.
+- **El coste por vector borrado,** en cuatro cantidades:
+  - **Cargas de búsqueda,** las de las reparaciones. B no hace ninguna.
+  - **Postings leídos y escritos por la fase 2:** los que tienen un borrado o una lista que cambia.
+  - **Distancias exactas:** las de las reparaciones y las de sus aristas inversas.
+  - **Distancias estimadas con códigos:** las de la sustitución. Los endpoints que puntúan las búsquedas van aparte, como en v6.1.
+
+**El criterio,** el de v6.0 y v6.1, **en el churn:** la peor diferencia de recall en la malla de ef a 0.005 o menos, las cargas leídas a 0.95 en +15 % o menos y a 0.99 en +10 % o menos, contra el lote de S = 236 de los vivos al final.
+
+- **Suelo de ruido:** el de v6.1. Son 0.0012 de recall, un 1.1 % en cargas a 0.95 y un 3.0 % a 0.99.
+- **Con el 30 % de una vez** doy las mismas tres cantidades y digo si entran. El veredicto de cada celda es el del churn. Si una celda cumple en el churn y no con el 30 %, lo digo junto al veredicto.
+- **Contra su referencia de llenado,** cada celda con las mismas tres cantidades, sin veredicto.
+
+**«La celda más barata que cumple»:** entre A, B y C, la que cumple en el churn con menos cargas de búsqueda por vector borrado, medidas.
+
+- **Empate:** si dos quedan a menos de un 10 %, la de menos distancias exactas.
+- **Si no cumple ninguna,** lo digo, y doy la de menos cargas a 0.99 sobre su referencia.
+
+**Stops,** los de v6.1 y los que trae la sustitución:
+
+- **Un vector borrado devuelto por una búsqueda,** o un fallo de cobertura.
+- **Una lista reparada que apunta a un borrado.**
+- **Tras la fase 2,** un borrado en un posting o una arista hacia un borrado.
+- **Un sustituto que no debe serlo:** borrado, el propio vector, uno de su posting en ese momento, o uno que la lista ya tenía.
+- **Una lista con un endpoint repetido** o con más de 16 aristas.
+
+**Cuándo corre.** Hoy no cabe. Son cuatro churns de unos 28 minutos cada uno, tres celdas del 30 % y las referencias: entre dos horas y media y tres. Corre mañana de día, entera, cuando la cola de la noche haya terminado. El código y sus tests, también mañana, antes de la corrida.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **A repara mucho más que la celda de v6.1.** En diez rondas muere el 26 % de las aristas, así que hacia el final más de la mitad de los vectores de la base ha cruzado el 25 %. Espero entre 400 000 y 550 000 reparaciones, unas dos por vector borrado, casi todas en las últimas rondas.
+- **A cuesta entre 60 y 90 cargas por vector borrado en las diez rondas, y sigue subiendo.** Un borrado mata unas 9 aristas y un vector se repara al perder 2 o 3: en régimen serían unas tres reparaciones por borrado, más de 100 cargas. Diez rondas desde un lote sin pérdidas no llegan al régimen.
+- **A cumple,** con las aristas por vector entre 7.9 y 8.3 al final, y el recall más justo que las cargas.
+- **B mantiene las listas llenas,** cerca de 8.9 aristas por vector. Espero un sustituto para ocho o nueve de cada diez aristas muertas en el churn, y para menos con el 30 % de una vez, donde un tercio de la lista del borrado también está borrado.
+- **B cumple en el churn, por poco a 0.99.** Es de lo que menos seguro estoy: no sé cuánto vale un vecino a dos saltos elegido con una distancia entre dos códigos.
+- **Con el 30 % de una vez B queda fuera a 0.99.**
+- **C cumple, con una pequeña parte de las cargas de A.** La red salta sobre todo en listas cortas.
+- **La más barata que cumple:** B, y si B falla, C.
+- **Recall de arista, de mayor a menor:** el lote, A, C, B y la celda de v6.1. Los sustitutos son aristas verdaderas menos de la mitad de las veces.
+
 ## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
 
 **Estado: cerrado el 19 a las 19:43. Pre-registrado a las 17:48, antes de compilar nada de esta ronda y antes de ningún dato suyo. Con el 30 % borrado al azar la celda más barata que cumple el criterio es reparar con el 25 % o más y fusionar por debajo de 177. En el churn esa celda no cumple. El veredicto, al final de la sección.** El mecanismo, las celdas, las medidas, el criterio y los stops son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
