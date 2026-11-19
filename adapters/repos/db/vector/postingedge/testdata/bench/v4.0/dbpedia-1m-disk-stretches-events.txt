@@ -22,3 +22,8 @@
 == r2, hfresh-default: from 2026-11-18 12:02:35, 291 s
 == r2, hfresh-best95: from 2026-11-18 12:07:27, 233 s
 == r2, hfresh-best99: from 2026-11-18 12:11:21, 606 s
+== night, full: from 2026-11-18 23:00:10, 296 s
+== night, r512: from 2026-11-18 23:05:07, 306 s
+== night, halo512: from 2026-11-18 23:10:14, 369 s
+== night, halo512p: from 2026-11-18 23:16:24, 378 s
+== night, hfresh-default: from 2026-11-18 23:22:43, 291 s

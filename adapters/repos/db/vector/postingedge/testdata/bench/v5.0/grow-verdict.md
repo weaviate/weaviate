@@ -130,11 +130,93 @@ Por query y por carga, sobre las 5 000 queries. Los puntos son los del gemelo, q
 
 ### Inserts por segundo
 
-Sin cronometrar todavía.
+Un escritor, del 10 % al 100 %, con el store leyendo por su mapping y sus ciclos dentro del tiempo. GOMAXPROCS 10.
+
+| tramo | inserts | segundos | inserts por segundo | postings al acabar |
+|---|---|---|---|---|
+| del 10 al 20 % | 99 000 | 466 | 213 | 1 230 |
+| del 20 al 40 % | 198 000 | 1 015 | 195 | 2 872 |
+| del 40 al 60 % | 198 000 | 1 124 | 176 | 4 494 |
+| del 60 al 80 % | 198 000 | 1 160 | 171 | 6 116 |
+| del 80 al 100 % | 198 000 | 1 213 | 163 | 7 788 |
+| **todo** | 891 000 | 4 978 | **179** | |
+
+- **Dónde se va el tiempo:** la búsqueda de aristas 93.3 %, escribir el miembro 2.1 %, las aristas inversas 1.1 %, los splits 1.2 %, los ciclos del store 0.4 %, el grafo de centroides 1.9 %.
+- **Un insert son 5.59 ms de media.**
+- **El tramo:** de 23:27 a 00:52, con la base y lo de después dentro. Teclado o trackpad durante el tramo: no.
+- **Cobertura del índice que deja:** completa.
+- **Compactación mientras crece:** forzada, como la del bucket de postings de HFresh.
+- **Compactado después, sin cronometrar:** 1 rondas en 1 s; el bucket de postings pasa de 283.57 MB a 282.78 MB.
+- **Lo que el store escribió en esta corrida,** con su compactación final: 9 430.90 MB, 16.61 veces lo que ocupa al final (567.68 MB). Por operación: compaction 7 552.17 MB, appendWAL 1 842.25 MB, segmentMetadata 36.49 MB.
+- **Su punto de 0.95:** ef 21, recall 0.9509.
+- **Su punto de 0.99:** ef 158, recall 0.9901.
+- **Este índice no es bit a bit el validado:** su grafo de centroides sale con otros niveles.
 
 ### Latencia de búsqueda: el índice crecido frente al escrito en lote
 
-Sin cronometrar todavía.
+Primera ronda. En caliente: la pasada de QPS mediano de las cronometradas. En frío: cada tanda, tras tirar la caché y reabrir el índice.
+
+- **Cómo se tira la caché:** `ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' > /dev/null 2>&1 && ok=1 && break; sleep 2; done; [ $ok = 1 ] && diskutil mount 'disk3s7' > /dev/null`
+
+**Recall 0.95, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido por inserts | ef 21 | 1.31 | 4.41 | 6.81 | 572 | 2.05 | 6.84 | 10.52 | 2 907 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 0.92 | 2.96 | 4.46 | 825 | 1.26 | 4.04 | 5.93 | 4 832 |
+
+**Recall 0.99, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido por inserts | ef 158 | 4.56 | 15.19 | 22.21 | 168 | 7.03 | 23.20 | 34.01 | 875 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 3.21 | 10.74 | 15.64 | 237 | 4.24 | 14.35 | 20.73 | 1 427 |
+
+**Recall 0.95, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido por inserts | ef 21 | 5.23 | 12.08 | 19.59 | 161 | 17.91 | 34.56 | 48.38 | 345 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 3.67 | 8.44 | 13.29 | 231 | 11.50 | 22.85 | 29.51 | 539 |
+
+**Recall 0.99, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido por inserts | ef 158 | 11.51 | 36.12 | 48.89 | 68 | 31.50 | 75.60 | 92.77 | 182 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 8.67 | 26.70 | 41.05 | 87 | 22.28 | 55.04 | 70.41 | 244 |
+
+**El crecido entre el de lote,** por el p50:
+
+| | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|
+| en caliente | 1.43x | 1.62x | 1.42x | 1.66x |
+| en frío | 1.43x | 1.56x | 1.33x | 1.41x |
+
+**Criterio 2, NO se cumple:** a 0.95, en frío y con 1 thread, el p50 del índice crecido es 5.23 ms y el del escrito en lote 3.67: 1.43 veces; el límite es 1.20.
+
+- **p95 y p99:** 12.08 y 19.59 ms frente a 8.44 y 13.29.
+- **Con 8 threads:** p50 de 17.91 ms frente a 11.50, 1.56 veces.
+- **Los puntos no son el mismo ef:** cada índice va en el suyo, el menor que llega al recall.
+  - crecido: ef 21; de su latencia media en frío, bloques 3.10 ms, scan y ruteo 0.82, rescore 2.14.
+  - en lote: ef 21; de su latencia media en frío, bloques 1.91 ms, scan y ruteo 0.66, rescore 1.63.
+
+### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| crecido por inserts | 00:52 a 00:59 | 01:04 a 01:11 | no | −2.7 % (0.95, 1 thread, en frío: 5.23 y 5.09 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 00:59 a 01:04 | 01:11 a 01:17 | no | +15.9 % (0.99, 8 threads, en frío: 22.28 y 25.82 ms) | **deriva** |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+### RAM residente
+
+| índice | heap en uso tras abrir | huella del proceso |
+|---|---|---|
+| crecido por inserts | 175.36 MB | 371.08 MB |
+| escrito en lote (v4.0, 512 bits en RAM) | 145.79 MB | 288.74 MB |
 
 ### Lo que vale y lo que no
 
