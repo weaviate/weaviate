@@ -441,9 +441,7 @@ func TestSinglePostingMode(t *testing.T) {
 
 		// 500 live entries are above the max posting size but under the limit
 		require.False(t, tf.Index.Centroids.Built())
-		size, err := tf.Index.PostingSizes.Get(ctx, 1)
-		require.NoError(t, err)
-		require.EqualValues(t, 500, size)
+		requireSinglePostingSize(t, tf.Index, 500)
 		for i := 700; i < len(vectors); i++ {
 			ids, _, err := tf.Index.SearchByVector(ctx, vectors[i], 1, nil)
 			require.NoError(t, err)

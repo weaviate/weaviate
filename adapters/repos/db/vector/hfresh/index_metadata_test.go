@@ -279,6 +279,28 @@ func TestSinglePostingPersistsOnlyItsSize(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
+// A merge rewrites the single posting without its deleted entries, and must
+// not give it a map entry that later appends would leave stale.
+func TestSinglePostingMergeKeepsNoMapEntry(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	for id := range uint64(10) {
+		require.NoError(t, index.Delete(id))
+		vectors.remove(id)
+	}
+	require.NoError(t, index.doMerge(t.Context(), 1))
+	requireSinglePostingSize(t, index, 290)
+
+	for i := 10; i < 300; i++ {
+		ids, _, err := index.SearchByVector(t.Context(), all[i], 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+	}
+}
+
 // A restart finds the single posting by its fixed id, even when the ID
 // sequence was already past it before the first insert.
 func TestSinglePostingKeepsIDOne(t *testing.T) {
