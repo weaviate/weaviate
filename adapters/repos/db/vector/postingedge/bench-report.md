@@ -165,6 +165,115 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v5.1: aristas consolidadas (pre-registro, 2026-11-19)
+
+**Estado: pre-registrado.** Escrito el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
+
+### Qué se mide
+
+El camino de escritura de v5.0, con el mismo protocolo de crecimiento del 10 % al 100 %, cambiando cómo se guardan las aristas de un posting: en vez de un valor por cambio, con su lápida, los cambios esperan en memoria y la fila se escribe entera de vez en cuando.
+
+### Mecanismo (del usuario)
+
+- **Los cambios de aristas de un posting se acumulan en memoria:** las listas de sus miembros nuevos y las aristas inversas.
+- **La búsqueda lee la fila de disco más lo pendiente.**
+- **La fila de aristas se escribe entera, como versión nueva y sin lápidas por valor,** cuando el posting acumula K cambios, cuando se parte, o al cerrar.
+- **Dos valores de K.**
+- **Miembros: sin cambios.** Se siguen añadiendo uno a uno.
+
+*Mío, para escribirlo:*
+
+- **K = 16 y K = 64.** Un posting tiene unos 240 miembros y su fila de aristas pesa unos 10 KB: con K = 16 se reescribe 4 veces más a menudo que con K = 64.
+- **Un cambio** es la lista de un miembro nuevo o una arista inversa que entra en la lista de un miembro. Los cuenta el posting del miembro.
+- **La fila de aristas es un solo valor,** en un bucket de estrategia Replace con el posting como clave: por miembro, su id, su grado y sus aristas, en el orden de la fila de miembros. Son 5 B por miembro y 4 B por arista, sin marco por valor.
+  - **Versión nueva sin lápidas:** escribir otra vez la misma clave es lo que un bucket Replace ya hace. La lectura devuelve la última, y la compactación tira las anteriores. `lsmkv` no se toca.
+  - **Lleva el id de cada miembro,** 4 B que el orden haría innecesarios, para que una fila a la que le falten miembros se pueda reconocer.
+  - **El bucket de postings se queda con las filas de miembros,** y ya no recibe ninguna lápida.
+- **Lo pendiente de un posting** es, por miembro cambiado, su lista entera y las distancias de sus aristas.
+- **Las distancias de las aristas siguen en su bucket por vector, y siguen la misma disciplina:** las de un miembro cambiado esperan con su lista, y se escriben cuando se escribe la fila. Si no, tras una caída el bucket de distancias iría por delante de las filas.
+- **Escribir una fila** lee la que hay en disco, le aplica lo pendiente y escribe el resultado. Esa lectura se cuenta.
+- **En un split,** las filas de los dos hijos se escriben enteras, como ya se hacía, con lo pendiente del padre aplicado. La fila del padre se borra con la lápida de su clave, una por split.
+- **Al cerrar** se escribe la fila de todo posting con cambios pendientes.
+- **K = 0 es v5.0,** en el mismo código.
+
+### Corrección (del usuario)
+
+**Con todo volcado, el índice devuelve lo mismo que el gemelo en memoria. Es stop.**
+
+*Mío, para aplicarla:*
+
+- **El gemelo y el protocolo son los de v5.0:** crece en el mismo proceso, insert a insert, compartiendo el grafo de centroides.
+- **«Con todo volcado»** es tras escribir lo pendiente de todos los postings: en cada checkpoint (20, 40, 60, 80 y 100 %) y al final. Ahí se comparan el estado, leído del store, y las 5 000 queries en los dos puntos tras cerrar y reabrir. Si algo difiere, stop.
+- **Además, como en v5.0:** en cada insert, el mismo posting, las mismas aristas y las mismas cuentas que el gemelo, con lo pendiente sin volcar. Y cobertura completa en cada checkpoint.
+- **Antes de 1M, lo mismo a pequeña escala,** con K pequeños para que haya filas reescritas muchas veces, splits con cambios pendientes y cierres a mitad.
+
+### Medidas (del usuario)
+
+Inserts por segundo; filas y lecturas por carga durante el crecimiento y al final; amplificación de escritura; RAM de lo pendiente, en su pico; y latencia en frío y en caliente frente al crecido de v5.0 y a la celda en lote.
+
+*Mío, para escribirlas:*
+
+- **Dos corridas por cada K, como en v5.0:**
+  - **la validación,** sin cronometrar: con el gemelo, el store en modo pread y la compactación por niveles, que es donde v5.0 midió sus lecturas por carga. Las dos K pueden correr a la vez;
+  - **la cronometrada:** sola, con la compactación forzada de HFresh, de noche.
+- **Filas por carga:** las que pide una carga, que son dos, la de miembros y la de aristas.
+- **Lecturas por carga:** las que cuenta el store, por tramo, en la búsqueda de un insert, como en v5.0. Y al final, en los tres estados de v5.0: como lo dejan los ciclos, volcado y compactado.
+  - **El contador del store no distingue buckets.** La fila de aristas es como mucho una lectura por carga, por ser un solo valor: lo demás son lecturas de la fila de miembros. Se dice así.
+- **Amplificación de escritura:** como en v5.0, lo que el store escribe entre lo que se le entrega y entre lo que ocupa, en las dos corridas. Y lo que se le entrega por insert, que cambia: filas enteras en vez de valores sueltos.
+- **RAM de lo pendiente:** los miembros con cambios pendientes y los bytes de sus listas y distancias, en su pico, y cuánto es por posting. No incluye lo que Go gasta en guardarlo: se da el heap del proceso al lado.
+- **Latencia:** cuatro curvas en la misma sesión, en dos rondas: el índice de cada K, el crecido de v5.0 que hay en disco, y la celda de 512 bits en lote.
+
+### Pre-registro (del usuario)
+
+**Sirve si las lecturas por carga del último tramo bajan a la mitad o menos de las de v5.0, y la latencia en frío a 0.95 queda a 1.20 veces o menos del lote. Los inserts por segundo se reportan sin umbral.**
+
+*Mío, para aplicarlo:*
+
+- **Lecturas por carga del último tramo:** las del store en la búsqueda de un insert, del 80 al 100 %, en la validación. En v5.0 fueron 6.23. Sirve con 3.11 o menos.
+- **Latencia:** el p50 con 1 thread, en frío, a 0.95, primera ronda, del índice de v5.1 entre el de la celda en lote de la misma sesión. Sirve con 1.20 o menos.
+- **Se lee para cada K.** Sirve si alguna cumple las dos cosas, y se dice cuál.
+- **Lo esperado, antes de medir:**
+  - **lecturas por carga, entre 0.5 y 0.6 veces las de v5.0, sin saber de qué lado de la mitad.** La fila de aristas pasa a ser una lectura, pero la de miembros sigue repartida entre segmentos, porque se sigue añadiendo de uno en uno. En el estado volcado de v5.0, con 4 segmentos y 6.59 lecturas por carga, unas 2.6 serían de la fila de miembros;
+  - **latencia, entre 1.2 y 1.35 veces el lote.** Las aristas vuelven a venir de una pieza, como en el lote, pero ni los miembros ni el fichero de vectores cambian;
+  - **lo que el store lee de más sobre el modelo, compactado, baja de un 9 a un 6 %:** 9 B de marco por miembro y 5 B de su id y su grado.
+- **K no debería cambiar las lecturas:** cambia cuánto se escribe y cuánto espera en memoria.
+
+### Sin medirlo ahora (del usuario): qué se pierde si el proceso cae con cambios pendientes, y cómo lo repararía el refresco
+
+*Anotado, no medido.*
+
+- **Qué está en disco siempre:** cada miembro en su fila, con su código, su entrada del mapa, su código de ruteo y su vector exacto; los centroides y su grafo. Nada de eso espera.
+- **Qué se pierde:** lo pendiente de cada posting, como mucho K − 1 cambios.
+  - **Las listas de los miembros que entraron desde la última escritura de la fila de su posting.** Esos vectores están en el índice y se encuentran al cargar su posting, pero no llevan a ningún otro: son miembros sin aristas.
+  - **Las aristas inversas aceptadas desde entonces.** Sus vecinos se quedan con la lista anterior, que es válida y más vieja: el vector nuevo no está en ella, y es menos alcanzable.
+- **Qué no se rompe:** la cobertura. Ningún vector se pierde ni queda en dos postings, y ninguna lista apunta a un vector que no exista.
+- **Qué se puede reconocer al abrir:** un miembro sin lista en la fila de su posting, porque la fila lleva los ids. Las aristas inversas perdidas no se reconocen una a una.
+- **Un caso aparte:** la caída entre escribir una fila y escribir las distancias de sus miembros cambiados deja las distancias de esos miembros atrás. Se reconoce, porque no cuadran con el número de aristas de su lista, o se evita escribiendo las distancias dentro de la fila.
+- **Cómo lo repararía el refresco:** el refresco de v2.3 vuelve a buscar las aristas de un vector con la búsqueda de un insert, escribe su lista y lo ofrece como arista inversa a sus vecinos. Aplicado a los miembros sin lista, les devuelve lo que perdieron: su lista y sus aristas inversas. Son como mucho K − 1 por posting.
+  - **Las aristas inversas perdidas de vectores cuya lista sí sobrevivió** no las ve nadie: las cubriría un refresco periódico, como el de al doblar de v2.4.
+- **La alternativa,** sin proponerla aquí: un log de lo pendiente, que no pierde nada y escribe cada cambio dos veces.
+
+### Lo que no mide
+
+- **La caída y su reparación,** que quedan anotadas arriba.
+- **La fila de miembros consolidada,** el halo, el refresco y los deletes.
+- **Otros valores de K,** y un K que dependa del tamaño del posting.
+- **Inserts concurrentes, Linux, 10M.**
+
+### Lo que el binario añade (mío)
+
+- **En el índice y en `lsmkv`:** nada.
+- **En los ficheros de test del índice que crece:** lo pendiente por posting, la fila de aristas en su bucket Replace, su escritura por K, por split y al cerrar, y sus tests de equivalencia. K = 0 deja el código de v5.0 como estaba.
+- **En el arnés y los scripts:** K como opción, y un veredicto que lo compara con v5.0.
+
+### Orden de trabajo
+
+1. El mecanismo y sus tests de equivalencia a pequeña escala.
+2. La validación a 1M con K = 16 y K = 64, sin cronometrar.
+3. La sesión cronometrada, de noche.
+
+Se reporta al cerrar cada paso.
+
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
 **Estado: medido.** La validación a 1M pasa sus dos stops. Los criterios 1 y 2 no se cumplen, el primero por medio punto, y los dos por el almacenamiento más que por el algoritmo: abajo, «Paso 3» y «Paso 4». **El pre-registro** se escribió el 18 a las 14:00, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el camino de escritura, la validación, las medidas y el pre-registro son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. La propuesta de almacenamiento es mía: el usuario la pidió.
