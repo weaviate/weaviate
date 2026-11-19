@@ -6,7 +6,7 @@
 
 ## Resumen, al cierre de la sesión de día del 2026-11-18
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0) y los inserts en disco (v5.0), del 18.*
+*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0) y los inserts en disco (v5.0), del 18, con su control de reorganización, del 19.*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -149,11 +149,14 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El índice crecido en disco es el crecido en memoria,** insert a insert, con cobertura completa en cada checkpoint.
 - **Criterio 1, no se cumple por medio punto:** una búsqueda lee 1.105 veces lo que el gemelo en memoria, con el límite en 1.10. El formato solo son 1.089; el resto es lo que la compactación de `lsmkv` deja. El algoritmo no pone nada.
 - **Criterio 2, no se cumple:** en frío a 0.95, 5.23 ms frente a 3.67 de la celda en lote, 1.43 veces con el límite en 1.20. El índice crecido carga un 5.6 % más; lo demás es traer las filas de dos segmentos, valor a valor, y un rescore 1.3 veces más lento.
+- **Control de reorganización (del 19): reorganizado, el mismo índice queda a 1.07 veces del lote en frío a 0.95,** dentro del 1.20. Es con su bucket de postings en un segmento y sus vectores en orden de posting. Con el segmento solo, 1.19. Falta la reorganización en segundo plano; el formato vale.
+  - **En caliente sigue a 1.34 veces:** el store entrega las filas valor a valor, y reorganizar no lo toca.
+  - **Con el bucket en un segmento el criterio 1 se cumple:** 1.089.
 - **179 inserts por segundo con un escritor,** el 93 % en la búsqueda de aristas. Un insert entrega 1.35 KB al store, además de su vector.
 - **Antes de compactar, la basura pesa un 34.5 % más de bytes por carga** y 1.75 veces las lecturas, con la política por niveles.
 - **El store escribe de 7 a 17 veces lo que guarda,** con cualquiera de sus dos políticas.
 - **Un bug de `lsmkv` encontrado por el camino:** su compactador de Set devolvía valores borrados. Arreglado aquí y en un PR a main, weaviate/weaviate#13950.
-- **Sin medir:** el bucket en un solo segmento a 1M, el halo en este camino, el refresco, los deletes y Linux.
+- **Sin medir:** una reorganización en segundo plano de verdad, el halo en este camino, el refresco, los deletes y Linux.
 
 **Limitaciones:**
 
@@ -276,7 +279,7 @@ Se reporta al cerrar cada paso.
 
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
-**Estado: medido.** La validación a 1M pasa sus dos stops. Los criterios 1 y 2 no se cumplen, el primero por medio punto, y los dos por el almacenamiento más que por el algoritmo: abajo, «Paso 3» y «Paso 4». **El pre-registro** se escribió el 18 a las 14:00, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el camino de escritura, la validación, las medidas y el pre-registro son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. La propuesta de almacenamiento es mía: el usuario la pidió.
+**Estado: medido.** La validación a 1M pasa sus dos stops. Los criterios 1 y 2 no se cumplen con el índice tal como crece, el primero por medio punto, y los dos por el almacenamiento más que por el algoritmo: abajo, «Paso 3» y «Paso 4». El control de reorganización del 19, «Paso 5», deja el mismo índice a 1.07 veces del lote en frío, con su bucket en un segmento y sus vectores en orden de posting, y con el bucket en un segmento cumple el criterio 1. **El pre-registro** se escribió el 18 a las 14:00, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el camino de escritura, la validación, las medidas y el pre-registro son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. La propuesta de almacenamiento es mía: el usuario la pidió.
 
 ### Qué se mide
 
@@ -705,7 +708,7 @@ Por query y por carga, sobre las 5 000 queries. Los puntos son los del gemelo, q
 - **RAM:** 175.4 MB de heap tras abrir, frente a 145.8 MB de la celda en lote. El crecido guarda además los centroides de sus 3 684 postings retirados.
 - **Abrir el índice crecido tarda 0.41 s,** frente a 0.11 s el del lote: lee de sus buckets el mapa y los códigos de ruteo.
 
-**La celda de control con el bucket de postings en un solo segmento: no ha corrido, y con la compactación de `lsmkv` no se puede.** Ni la validación ni la corrida cronometrada llegaron a un segmento a 1M: las dos acaban en dos, uno grande y uno pequeño, que `lsmkv` no junta por ser de tamaños muy distintos. Haría falta reescribir el bucket fuera de su compactación, o cambiar esa regla del store, y no he hecho ninguna de las dos cosas. Lo único medido en un segmento es el humo de 30k: 1.093 veces el modelo.
+**La celda de control con el bucket de postings en un solo segmento** (*corrió después, el 19, reescribiendo el bucket fuera de la compactación: «Paso 5»*)**: no ha corrido, y con la compactación de `lsmkv` no se puede.** Ni la validación ni la corrida cronometrada llegaron a un segmento a 1M: las dos acaban en dos, uno grande y uno pequeño, que `lsmkv` no junta por ser de tamaños muy distintos. Haría falta reescribir el bucket fuera de su compactación, o cambiar esa regla del store, y no he hecho ninguna de las dos cosas. Lo único medido en un segmento es el humo de 30k: 1.093 veces el modelo.
 
 #### Inserts por segundo
 
@@ -814,9 +817,161 @@ Primera ronda. En caliente: la pasada de QPS mediano de las cronometradas. En fr
 
 **Lo que la sesión no dice:**
 
-- **Cuánto de la diferencia se iría con el bucket en un segmento,** o con las aristas dentro del elemento del miembro, que es una sola fila por carga.
+- **Cuánto de la diferencia se iría con el bucket en un segmento,** o con las aristas dentro del elemento del miembro, que es una sola fila por carga. *Lo primero lo mide el control del paso 5.*
 - **Inserts concurrentes.** Es un escritor.
 - **El índice cronometrado no es bit a bit el validado:** la misma secuencia de inserts, con otro grafo de centroides. Sus puntos de operación salen iguales, ef 21 y ef 158.
+
+### Paso 5, cerrado: el control de reorganización (2026-11-19, de 08:31 a 09:23)
+
+**Estado: hecho. La celda 2 queda a 1.07 veces de la celda en lote en frío a 0.95, dentro del 1.20: por la lectura del usuario, lo que falta es reorganización en segundo plano, y el formato vale.** De día, detrás de la sesión de HFresh en paralelo, con la máquina despierta y sin teclado ni trackpad en ningún tramo: llevaban 66 minutos sin usarse al arrancar. El binario es el del commit `3f1f905516`. Los datos, en `testdata/bench/v5.0/dbpedia-1m-grow-reorg.json` y `dbpedia-1m-grow-c1-*.json` y `-c2-*.json`. Las tablas de abajo son las de `reorg-verdict.md`.
+
+**Lo que sale:**
+
+- **Corrección, pasa:** las dos celdas devuelven lo mismo que el índice crecido tal cual en las 5 000 queries de cada punto: ids, distancias y trabajo. Escribir la celda 1 llevó 6 s, y la celda 2, 40 s.
+- **La lectura del usuario: la celda 2 queda dentro del 1.20.** A 0.95, en frío y con 1 thread, 4.00 ms de p50 frente a 3.73 de la celda en lote: 1.07 veces. En la segunda ronda, 3.97 y 3.65: 1.09 veces.
+  - **Es menos de un 10 %:** por la regla de estas sesiones, un empate con el lote.
+  - **Con 8 threads,** 1.00 veces: 11.96 ms frente a 11.94. En la segunda ronda, 1.05.
+  - **A 0.99,** 1.07 veces con 1 thread y 1.10 con 8.
+- **Lo que recupera la celda 1 sola: el 42 % de la distancia entre el crecido tal cual y el lote,** en el p50 en frío. Queda en 4.45 ms, 1.19 veces el lote, donde el crecido tal cual tarda 4.96, 1.33 veces. En la segunda ronda, 4.35 y 3.65: 1.19 veces.
+  - **Por fase, en frío:** cierra el 70 % de lo que sobraba en traer los bloques, de +1.00 a +0.30 ms de media, y nada del rescore.
+  - **El orden de los vectores pone el resto:** la celda 2 deja el rescore como el del lote, de +0.36 a −0.06 ms, y llega al 78 % del p50.
+- **En caliente ninguna de las dos cierra casi nada.** La celda 2 queda a 1.34 veces el lote, 1.22 ms frente a 0.91, donde el crecido tal cual está a 1.45. La lectura del usuario es en frío y no lo cubre: lo anoto aparte.
+  - **Lo que queda en caliente son 0.43 ms de media:** 0.26 en traer los bloques y 0.15 en scan y ruteo. El rescore es el mismo.
+  - **Traer los bloques cuesta 1.9 veces en caliente,** 0.56 ms frente a 0.30, con el bucket ya en un segmento: es el store entregando las filas valor a valor. Reorganizar no lo toca.
+  - **En frío eso mismo son 0.27 ms sobre 4.42,** y por eso no decide la lectura.
+- **Criterio 1 con el bucket en un segmento, a 1M: se cumple.** El store lee 1.089 veces el modelo a 0.95, con el límite en 1.10, en 2.00 lecturas por carga. Es el formato solo, por su aritmética.
+  - **El crecido tal cual, en 2 segmentos,** lee 1.138 veces el modelo, en 3.90 lecturas por carga.
+  - **No es la cifra del paso 3,** 1.105: aquella es del índice validado, que creció con la compactación por niveles. Este es el de la corrida cronometrada, que creció con la forzada.
+- **Lo que reescribir quita del bucket:** de 282.8 MB en 2 segmentos a 263.2 MB en uno, un 6.9 % menos.
+- **El crecido tal cual sale aquí a 1.33 veces el lote, y en la noche salió a 1.43.** Son dos sesiones y no las mezclo: cada razón vale dentro de la suya. Las dos quedan por encima del 1.20.
+- **Lo esperado y lo medido:** esperaba la celda 2 entre 1.15 y 1.30 veces el lote, por lo que cuesta la entrega valor a valor. Queda en 1.07: ese coste, que en caliente es el grueso de la diferencia, en frío pesa poco.
+- **La curva de la celda 1 queda marcada por deriva,** por una sola mediana: a 0.95 con 8 threads en frío, 13.84 ms en la primera ronda y 15.27 en la segunda, un +10.3 %. Las medianas de la lectura se movieron un −0.7 % la de la celda 2, un −2.1 % la de la celda 1 y un −1.9 % la del lote. Se repite esta noche.
+- **RAM:** la tabla de posiciones de la celda 2 son 4 MB: 179.4 MB de heap tras abrir, frente a 175.5 del crecido tal cual y 145.9 del lote.
+
+**Lo que el control no dice:**
+
+- **Qué cuesta una reorganización en segundo plano de verdad:** quién la hace, cuándo, cuánto escribe y qué les pasa a las búsquedas mientras corre. Las celdas son lo que dejaría, escrito de una vez con el índice parado.
+- **Cómo se mantiene el orden de los vectores con inserts:** la celda 2 lo escribe una vez, al final.
+- **Qué cerraría lo de en caliente:** las celdas no cambian el formato de las filas. Las aristas en un solo valor, que es parte de lo que mide v5.1, o dentro del elemento del miembro, están sin medir aquí.
+
+#### Las dos celdas: corrección y lecturas, sin cronometrar
+
+| índice | frente al crecido tal cual, 5 000 queries por punto | segmentos del bucket de postings | bucket de postings | fichero de vectores |
+|---|---|---|---|---|
+| crecido, tal cual | — | 2 | 282.78 MB | 6082.56 MB |
+| celda 1: un segmento | los mismos ids, distancias y trabajo | 1 | 263.22 MB | 6082.56 MB |
+| celda 2: un segmento y vectores en orden de posting | los mismos ids, distancias y trabajo | 1 | 263.22 MB | 6082.56 MB |
+
+- **Escribir la celda 1** llevó 6 s.
+- **Escribir la celda 2** llevó 40 s.
+
+**Lo que el store lee por carga,** en modo pread:
+
+| índice | recall | ef | cargas | lecturas por carga | bytes por carga | por el modelo | real entre modelo |
+|---|---|---|---|---|---|---|---|
+| crecido, tal cual | 0.95 | 21 | 19.54 | 3.90 | 71.89 KB | 63.15 KB | 1.138 |
+| crecido, tal cual | 0.99 | 158 | 71.91 | 3.90 | 71.60 KB | 62.91 KB | 1.138 |
+| celda 1: un segmento | 0.95 | 21 | 19.54 | 2.00 | 68.79 KB | 63.15 KB | 1.089 |
+| celda 1: un segmento | 0.99 | 158 | 71.91 | 2.00 | 68.53 KB | 62.91 KB | 1.089 |
+| celda 2: un segmento y vectores en orden de posting | 0.95 | 21 | 19.54 | 2.00 | 68.79 KB | 63.15 KB | 1.089 |
+| celda 2: un segmento y vectores en orden de posting | 0.99 | 158 | 71.91 | 2.00 | 68.53 KB | 62.91 KB | 1.089 |
+
+- **El criterio 1 con el bucket en un segmento, a 1M:** 1.089 veces el modelo a 0.95, con el límite en 1.10. El formato solo, por su aritmética, son 1.089.
+
+#### Recall 0.95, en caliente
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido, tal cual | ef 21 | 1.32 | 4.46 | 6.84 | 566 | 2.05 | 6.95 | 10.73 | 2 901 |
+| celda 1: un segmento | ef 21 | 1.23 | 4.14 | 6.35 | 610 | 1.89 | 6.31 | 10.09 | 3 142 |
+| celda 2: un segmento y vectores en orden de posting | ef 21 | 1.22 | 4.13 | 6.28 | 610 | 1.89 | 6.27 | 9.53 | 3 178 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 0.91 | 2.95 | 4.41 | 830 | 1.28 | 4.03 | 6.00 | 4 790 |
+
+#### Recall 0.99, en caliente
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido, tal cual | ef 158 | 4.53 | 15.23 | 22.21 | 168 | 7.08 | 23.44 | 33.67 | 871 |
+| celda 1: un segmento | ef 158 | 4.19 | 13.97 | 20.43 | 182 | 6.42 | 21.08 | 30.86 | 956 |
+| celda 2: un segmento y vectores en orden de posting | ef 158 | 4.15 | 13.90 | 20.58 | 183 | 6.41 | 21.08 | 30.59 | 960 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 3.19 | 10.70 | 15.66 | 237 | 4.20 | 14.28 | 20.98 | 1 430 |
+
+#### Recall 0.95, en frío
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido, tal cual | ef 21 | 4.96 | 11.51 | 19.13 | 169 | 17.86 | 33.13 | 47.04 | 347 |
+| celda 1: un segmento | ef 21 | 4.45 | 10.12 | 15.77 | 191 | 13.84 | 28.88 | 40.42 | 433 |
+| celda 2: un segmento y vectores en orden de posting | ef 21 | 4.00 | 9.39 | 15.19 | 209 | 11.96 | 25.02 | 35.81 | 494 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 3.73 | 8.39 | 13.75 | 226 | 11.94 | 23.82 | 31.12 | 523 |
+
+#### Recall 0.99, en frío
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| crecido, tal cual | ef 158 | 11.17 | 35.39 | 50.83 | 69 | 31.10 | 75.65 | 88.99 | 183 |
+| celda 1: un segmento | ef 158 | 10.18 | 31.38 | 44.60 | 77 | 27.98 | 68.36 | 83.53 | 201 |
+| celda 2: un segmento y vectores en orden de posting | ef 158 | 9.66 | 30.34 | 43.10 | 81 | 25.59 | 62.38 | 75.74 | 221 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 9.01 | 27.80 | 39.59 | 86 | 23.30 | 56.95 | 71.16 | 238 |
+
+#### Cada índice entre el escrito en lote
+
+Por el p50.
+
+| índice | estado | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|---|
+| crecido, tal cual | en caliente | 1.45x | 1.60x | 1.42x | 1.69x |
+| crecido, tal cual | en frío | 1.33x | 1.50x | 1.24x | 1.33x |
+| celda 1: un segmento | en caliente | 1.35x | 1.48x | 1.32x | 1.53x |
+| celda 1: un segmento | en frío | 1.19x | 1.16x | 1.13x | 1.20x |
+| celda 2: un segmento y vectores en orden de posting | en caliente | 1.34x | 1.48x | 1.30x | 1.53x |
+| celda 2: un segmento y vectores en orden de posting | en frío | 1.07x | 1.00x | 1.07x | 1.10x |
+
+#### La lectura del usuario
+
+**La celda 2 queda a 1.07 veces del lote, en frío a 0.95: dentro del 1.20.** Lo que falta es reorganización en segundo plano, y el formato vale. p50 de 4.00 ms frente a 3.73.
+
+**Lo que queda entre cada índice y el lote, por fase,** en la latencia media a 0.95 con 1 thread, en ms:
+
+| índice | estado | total | traer los bloques | scan y ruteo | rescore |
+|---|---|---|---|---|---|
+| escrito en lote (v4.0, 512 bits en RAM) | en frío | 4.42 | 2.01 | 0.64 | 1.63 |
+| crecido, tal cual, de más | en frío | +1.50 | +1.00 | +0.14 | +0.35 |
+| celda 1: un segmento, de más | en frío | +0.82 | +0.30 | +0.15 | +0.36 |
+| celda 2: un segmento y vectores en orden de posting, de más | en frío | +0.35 | +0.27 | +0.14 | −0.06 |
+| escrito en lote (v4.0, 512 bits en RAM) | en caliente | 1.20 | 0.30 | 0.66 | 0.14 |
+| crecido, tal cual, de más | en caliente | +0.56 | +0.37 | +0.17 | +0.00 |
+| celda 1: un segmento, de más | en caliente | +0.44 | +0.26 | +0.15 | +0.00 |
+| celda 2: un segmento y vectores en orden de posting, de más | en caliente | +0.43 | +0.26 | +0.15 | +0.00 |
+
+**Lo que recupera cada celda,** de la distancia entre el crecido tal cual y el lote, a 0.95 con 1 thread:
+
+| celda | estado | del p50 | de traer los bloques | del rescore |
+|---|---|---|---|---|
+| celda 1: un segmento | en frío | 42 % | 70 % | −4 % |
+| celda 1: un segmento | en caliente | 24 % | 29 % | sin distancia que cerrar |
+| celda 2: un segmento y vectores en orden de posting | en frío | 78 % | 73 % | 118 % |
+| celda 2: un segmento y vectores en orden de posting | en caliente | 24 % | 29 % | sin distancia que cerrar |
+
+- **La celda 1 sola,** en frío: p50 de 4.45 ms donde el crecido tal cual tarda 4.96 y el lote 3.73: 1.19 veces el lote.
+
+#### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| crecido, tal cual | 08:32 a 08:39 | 08:57 a 09:04 | no | +1.8 % (0.99, 1 thread, en frío: 11.17 y 11.37 ms) | — |
+| celda 1: un segmento | 08:39 a 08:46 | 09:04 a 09:11 | no | +10.3 % (0.95, 8 threads, en frío: 13.84 y 15.27 ms) | **deriva** |
+| celda 2: un segmento y vectores en orden de posting | 08:46 a 08:52 | 09:11 a 09:18 | no | +4.1 % (0.95, 8 threads, en frío: 11.96 y 12.45 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 08:52 a 08:57 | 09:18 a 09:23 | no | −1.9 % (0.95, 1 thread, en frío: 3.73 y 3.65 ms) | — |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+#### Lo que vale y lo que no
+
+- **Los números absolutos de esta máquina no valen para producción.** Vale la comparación entre curvas de la misma sesión.
+- **Las celdas son el mismo índice con sus bytes en otro sitio:** no miden una reorganización en segundo plano, sino lo que dejaría.
+- **El formato de las filas no cambia en ninguna celda:** el marco por valor del Set sigue ahí.
 
 ## v4.0: primer prototipo que lee de disco (pre-registro, 2026-11-18)
 

@@ -248,7 +248,7 @@ def main(d):
                 gap = g[key] - b[key]
                 if abs(gap) < 0.02:
                     return 'sin distancia que cerrar'
-                return '%.0f %%' % (100 * (g[key] - x[key]) / gap)
+                return ('%.0f %%' % (100 * (g[key] - x[key]) / gap)).replace('-', '−')
             print('| %s | %s | %s | %s | %s |' % (labels[c], name, share('p50ms'), share('fetchms'), share('rescorems')))
     print()
     if grown and cell1 and batch:
