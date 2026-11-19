@@ -459,7 +459,7 @@ func histogramCount(t *testing.T, g prometheus.Gatherer, name string) uint64 {
 	return 0
 }
 
-func requireBaseline(t *testing.T, want, got []replication.PlanNodeBalance) {
+func requireBaseline(t *testing.T, want, got []types.RebalanceNodeBalance) {
 	t.Helper()
 	require.Len(t, got, len(want))
 	for i := range want {
@@ -502,7 +502,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		wantResult   string
 		wantReason   string
 		wantNodes    []types.RebalanceNodeMeasurement
-		wantBaseline []replication.PlanNodeBalance
+		wantBaseline []types.RebalanceNodeBalance
 		// wantMeasuredAt, when set, is the expected measurement time instead
 		// of plannerStart.
 		wantMeasuredAt time.Time
@@ -511,7 +511,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		{
 			name:        "balanced",
 			wantOutcome: replication.PlanStateNotNeeded,
-			wantBaseline: []replication.PlanNodeBalance{
+			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 			},
@@ -525,7 +525,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				shardGroup{count: 40, nodes: []string{"node-1"}},
 			),
 			wantOutcome: replication.PlanStateProposed,
-			wantBaseline: []replication.PlanNodeBalance{
+			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 80},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 40},
 			},
@@ -550,7 +550,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			rows: withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskAvailableBytes = 100_000_000 }),
 			// Utilisation 0.75 and 1.13; count ratios as in balanced.
 			wantOutcome: replication.PlanStateProposed,
-			wantBaseline: []replication.PlanNodeBalance{
+			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: 940_000_000.0 / 832_000_000.0, ReplicaCount: 104},
 			},
@@ -560,7 +560,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			// node-9 is not listed, so the mean replica count is 0.
 			states:      layout(shardGroup{count: 4, nodes: []string{"node-9"}}),
 			wantOutcome: replication.PlanStateNotNeeded,
-			wantBaseline: []replication.PlanNodeBalance{
+			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation},
 				{Node: "node-2", DiskUtilisation: node2Utilisation},
 			},
@@ -575,7 +575,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			name:        "class deleted during the pass",
 			states:      balancedLayout().failing("Deleted", missingClassErr(t)),
 			wantOutcome: replication.PlanStateNotNeeded,
-			wantBaseline: []replication.PlanNodeBalance{
+			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 			},
@@ -692,7 +692,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			},
 			wantOutcome: replication.PlanStateNotNeeded,
 			wantResult:  "STOPPED",
-			wantBaseline: []replication.PlanNodeBalance{
+			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 			},
@@ -1184,7 +1184,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, replication.PlanStatePlanning, got.State)
 	}
-	balancedBaseline := []replication.PlanNodeBalance{
+	balancedBaseline := []types.RebalanceNodeBalance{
 		{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 		{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/replication/rebalanceplanner"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -39,9 +40,6 @@ const (
 	// capacityTolerance is the largest relative spread, (max−min)/max, allowed
 	// between listed nodes' disk totals and between their memory limits.
 	capacityTolerance = 0.05
-	// balanceTolerance is the largest standard deviation of disk utilisation and
-	// of count ratio for which the baseline counts as balanced.
-	balanceTolerance = 0.05
 
 	// measurementTimeout limits each collection attempt on a node.
 	measurementTimeout = 30 * time.Second
@@ -382,7 +380,7 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan Plan, task DraftTas
 		return ""
 	}
 	req.Baseline = baseline(req.Nodes, replicas)
-	if balanced(req.Baseline) {
+	if rebalanceplanner.Balanced(req.Baseline) {
 		req.Outcome = PlanStateNotNeeded
 		return ""
 	}
@@ -606,55 +604,18 @@ func (rp *RebalancePlanner) countReplicas(rows []types.RebalanceNodeMeasurement)
 }
 
 // baseline returns one row per measured node, with that node's count from replicas.
-func baseline(rows []types.RebalanceNodeMeasurement, replicas map[string]int) []PlanNodeBalance {
-	out := make([]PlanNodeBalance, len(rows))
+func baseline(rows []types.RebalanceNodeMeasurement, replicas map[string]int) []types.RebalanceNodeBalance {
+	out := make([]types.RebalanceNodeBalance, len(rows))
 	for i, r := range rows {
 		used := float64(r.DiskTotalBytes - r.DiskAvailableBytes)
 		usable := float64(r.DiskTotalBytes) * float64(r.DiskWarningPercentage) / 100
-		out[i] = PlanNodeBalance{
+		out[i] = types.RebalanceNodeBalance{
 			Node:            r.Node,
 			DiskUtilisation: used / usable,
 			ReplicaCount:    replicas[r.Node],
 		}
 	}
 	return out
-}
-
-// balanced reports whether the standard deviations of disk utilisation and of
-// count ratio (replicas over the mean replica count, 0 when that mean is 0)
-// are both within balanceTolerance.
-func balanced(rows []PlanNodeBalance) bool {
-	disk := make([]float64, len(rows))
-	counts := make([]float64, len(rows))
-	for i, r := range rows {
-		disk[i] = r.DiskUtilisation
-		counts[i] = float64(r.ReplicaCount)
-	}
-	ratios := make([]float64, len(rows))
-	if m := mean(counts); m != 0 {
-		for i, c := range counts {
-			ratios[i] = c / m
-		}
-	}
-	return stddev(disk) <= balanceTolerance && stddev(ratios) <= balanceTolerance
-}
-
-func mean(xs []float64) float64 {
-	sum := 0.0
-	for _, x := range xs {
-		sum += x
-	}
-	return sum / float64(len(xs))
-}
-
-// stddev is the population standard deviation of xs.
-func stddev(xs []float64) float64 {
-	m := mean(xs)
-	sum := 0.0
-	for _, x := range xs {
-		sum += (x - m) * (x - m)
-	}
-	return math.Sqrt(sum / float64(len(xs)))
 }
 
 // propose completes planning with req and returns the runs_total result.

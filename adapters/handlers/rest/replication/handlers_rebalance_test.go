@@ -365,7 +365,7 @@ func TestRebalanceHandlers(t *testing.T) {
 				MemoryLimitBytes:      2048,
 				ReplicationWorkers:    10,
 			}, {Node: "node-2", Error: "measurement unavailable"}},
-			Baseline: []rebalance.PlanNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+			Baseline: []types.RebalanceNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
 		}
 
 		tests := []struct {

@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 )
 
@@ -164,8 +165,8 @@ func TestManager_GetRebalancePlan(t *testing.T) {
 			RunTerm:             3,
 			Outcome:             replication.PlanStateProposed,
 			MeasuredAtUnixMs:    2000,
-			Baseline:            []replication.PlanNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
-			Goal:                []replication.PlanNodeBalance{{Node: "node-2", DiskUtilisation: 0.5, ReplicaCount: 2}},
+			Baseline:            []types.RebalanceNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+			Goal:                []types.RebalanceNodeBalance{{Node: "node-2", DiskUtilisation: 0.5, ReplicaCount: 2}},
 			MoveCount:           1,
 			PlanHash:            "hash-1",
 			ApproveBeforeUnixMs: 5000,

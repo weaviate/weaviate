@@ -69,13 +69,6 @@ var (
 	ErrPlanStaleRun = errors.New("rebalance planning run is stale")
 )
 
-// PlanNodeBalance is one node's measured or projected load in a plan.
-type PlanNodeBalance struct {
-	Node            string  `json:"node"`
-	DiskUtilisation float64 `json:"diskUtilisation"`
-	ReplicaCount    int     `json:"replicaCount"`
-}
-
 // Plan is the cluster's single rebalance plan, replicated through Raft.
 type Plan struct {
 	ID    string    `json:"id"`
@@ -97,11 +90,11 @@ type Plan struct {
 	Nodes            []types.RebalanceNodeMeasurement `json:"nodes"`
 	Reason           string                           `json:"reason"`
 
-	Baseline            []PlanNodeBalance `json:"baseline"`
-	Goal                []PlanNodeBalance `json:"goal"`
-	MoveCount           int               `json:"moveCount"`
-	PlanHash            string            `json:"planHash"`
-	ApproveBeforeUnixMs int64             `json:"approveBeforeUnixMs"`
+	Baseline            []types.RebalanceNodeBalance `json:"baseline"`
+	Goal                []types.RebalanceNodeBalance `json:"goal"`
+	MoveCount           int                          `json:"moveCount"`
+	PlanHash            string                       `json:"planHash"`
+	ApproveBeforeUnixMs int64                        `json:"approveBeforeUnixMs"`
 }
 
 // clone returns a Plan that shares no memory with p. GetPlan and snapshotPlan
@@ -144,8 +137,8 @@ type CompletePlanningRequest struct {
 	MeasuredAtUnixMs    int64                            `json:"measuredAtUnixMs"`
 	Nodes               []types.RebalanceNodeMeasurement `json:"nodes"`
 	Reason              string                           `json:"reason"`
-	Baseline            []PlanNodeBalance                `json:"baseline"`
-	Goal                []PlanNodeBalance                `json:"goal"`
+	Baseline            []types.RebalanceNodeBalance     `json:"baseline"`
+	Goal                []types.RebalanceNodeBalance     `json:"goal"`
 	MoveCount           int                              `json:"moveCount"`
 	PlanHash            string                           `json:"planHash"`
 	ApproveBeforeUnixMs int64                            `json:"approveBeforeUnixMs"`

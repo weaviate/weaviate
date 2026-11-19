@@ -121,8 +121,8 @@ func completeReq(outcome replication.PlanState) *replication.CompletePlanningReq
 		RunID:               "run-a",
 		RunTerm:             runTerm,
 		Outcome:             outcome,
-		Baseline:            []replication.PlanNodeBalance{{Node: "node-0", DiskUtilisation: 0.74, ReplicaCount: 412}},
-		Goal:                []replication.PlanNodeBalance{{Node: "node-0", DiskUtilisation: 0.58, ReplicaCount: 318}},
+		Baseline:            []types.RebalanceNodeBalance{{Node: "node-0", DiskUtilisation: 0.74, ReplicaCount: 412}},
+		Goal:                []types.RebalanceNodeBalance{{Node: "node-0", DiskUtilisation: 0.58, ReplicaCount: 318}},
 		MoveCount:           94,
 		PlanHash:            "sha256:9f1e",
 		ApproveBeforeUnixMs: openApprovalMs,
@@ -292,7 +292,7 @@ func TestRebalancePlan_TransitionMatrix(t *testing.T) {
 				fsm, reg := newPlanFSM()
 				start := seededPlan(replication.PlanStateProposed)
 				start.RunID, start.RunTerm, start.PlanHash = "run-a", runTerm, "sha256:9f1e"
-				start.Baseline = []replication.PlanNodeBalance{{Node: "node-0", DiskUtilisation: 0.7, ReplicaCount: 4}}
+				start.Baseline = []types.RebalanceNodeBalance{{Node: "node-0", DiskUtilisation: 0.7, ReplicaCount: 4}}
 				start.ApproveBeforeUnixMs = tc.approveBeforeMs
 				seedPlan(t, fsm, start)
 
