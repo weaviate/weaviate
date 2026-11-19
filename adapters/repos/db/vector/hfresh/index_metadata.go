@@ -288,28 +288,20 @@ func (h *HFresh) centroidCommitLogExists() bool {
 
 // restoreCentroids brings the centroid index back to its pre-restart state.
 // Building the graph creates its commit log directory, so without one the
-// index is still in single-posting mode.
+// index is still in single-posting mode, and the size persisted on each
+// append tells whether posting 1 exists.
 func (h *HFresh) restoreCentroids() error {
 	if h.centroidCommitLogExists() {
 		return h.Centroids.Build()
 	}
-	return h.restoreSinglePosting()
-}
 
-// restoreSinglePosting restores posting 1 with its map entry and size, which
-// stay in memory until its first split.
-func (h *HFresh) restoreSinglePosting() error {
-	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return errors.Wrapf(err, "read single posting %d", singlePostingID)
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
+	if err != nil {
+		return err
 	}
-	if len(posting) == 0 {
-		return nil
+	if size > 0 {
+		h.Centroids.restoreSingle(singlePostingID)
 	}
-
-	h.Centroids.restoreSingle(singlePostingID)
-	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
-	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
 	return nil
 }
 
@@ -502,8 +494,8 @@ func (h *HFresh) repairOrphanPostings() {
 			orphans = append(orphans, postingID)
 		}
 	}
-	// posting 1's map entry is only persisted by its first split, so a split
-	// cut short after the graph existed leaves it out of the map
+	// posting 1 has no map entry while single, so a first split cut short
+	// after the graph existed leaves it out of the map
 	_, err := h.PostingMap.Get(h.ctx, singlePostingID)
 	if err != nil && !h.Centroids.Exists(singlePostingID) {
 		orphans = append(orphans, singlePostingID)

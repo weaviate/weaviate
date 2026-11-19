@@ -145,15 +145,6 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	return nil
 }
 
-// FastSetVectorIDs sets the vector IDs of the posting in memory only.
-func (v *PostingMap) FastSetVectorIDs(postingID uint64, posting Posting) {
-	var pm PackedPostingMetadata
-	for _, vector := range posting {
-		pm = pm.AddVector(vector.ID())
-	}
-	v.setSlot(postingID, pm.Compact())
-}
-
 // FastAddVectorID adds a vector ID to the posting with the given ID
 // but only updates the in-memory cache.
 // The store is updated asynchronously by an analyze, split, or merge operation.

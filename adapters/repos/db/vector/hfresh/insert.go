@@ -227,20 +227,27 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		return false, err
 	}
 
-	// update the posting membership and size caches
-	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+	// the single posting has no map entry until its first split and no
+	// analyze task to reread it, so its size is persisted here
+	single := !h.Centroids.Built()
+	var count uint32
+	if single {
+		count, err = h.PostingSizes.Increment(ctx, centroidID)
+	} else {
+		_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+		if err == nil {
+			count = h.PostingSizes.FastIncrement(centroidID)
+		}
+	}
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
-	count := h.PostingSizes.FastIncrement(centroidID)
 
 	h.postingLocks.Unlock(centroidID)
 
-	// analyze tasks are not queued for the single posting, each one would
-	// read the whole posting, and reassigned vectors count toward its limit
-	// like inserts
-	if !h.Centroids.Built() {
+	// reassigned vectors count toward the single posting's limit like inserts
+	if single {
 		if h.singlePostingFull(count) {
 			err = h.taskQueue.EnqueueSplit(centroidID)
 			if err != nil {
