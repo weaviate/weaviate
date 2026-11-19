@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -25,6 +24,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
@@ -282,7 +282,7 @@ func (h *HFresh) restoreMetadata() error {
 
 func (h *HFresh) centroidCommitLogExists() bool {
 	hnswCfg := h.config.Centroids.HNSWConfig
-	_, err := os.Stat(filepath.Join(hnswCfg.RootPath, hnswCfg.ID+".hnsw.commitlog.d"))
+	_, err := os.Stat(hnsw.CommitLogDirectory(hnswCfg.RootPath, hnswCfg.ID))
 	return err == nil
 }
 
