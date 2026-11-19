@@ -106,5 +106,5 @@ func TestTaskAddAddsMissingGroupsFromTheSchemaAtItsIndex(t *testing.T) {
 	require.Nil(t, task("T4"))
 
 	err = srv.AddDistributedTaskWithGroupsBarrier(ctx, "no-adder", "T5", onC, specs, nil)
-	require.ErrorContains(t, err, "cannot", "a namespace that cannot add missing groups must not drop the ask silently")
+	require.ErrorIs(t, err, distributedtask.ErrMissingGroupsUnsupported, "a namespace that cannot add missing groups must not drop the ask silently")
 }

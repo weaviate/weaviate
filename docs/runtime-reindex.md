@@ -191,7 +191,10 @@ Response shapes (PUT / rebuild / cancel):
   `CANCELLED` included. A pre-flight refusal leaves the task in flight,
   and a status this build does not recognize keeps reading as `indexing`
   here until it reaches a terminal state on the nodes that do (§12).
-- `422 Unprocessable Entity` — `{indexType}` outside the enum.
+- `422 Unprocessable Entity` — `{indexType}` outside the enum. On PUT /
+  rebuild, also when two tenant replicas would share one reindex unit ID
+  (`<tenant>__<node>`). That needs a `__` inside a tenant or node name, or a
+  node name that starts with `_`; rename the node or the tenant.
 - `429 / 503` — per-collection in-flight cap reached (default 32), or the
   cluster service is unavailable / an in-flight task's payload cannot be
   parsed so conflict-freedom cannot be proven / a local worker of an earlier

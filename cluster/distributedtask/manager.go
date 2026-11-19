@@ -546,8 +546,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 func (m *Manager) addMissingGroupsWithLock(task *Task, paidBy []uint64) error {
 	adder, ok := m.conflictDetectors[task.Namespace].(MissingGroupAdder)
 	if !ok {
-		return fmt.Errorf("task %s/%s asks to add its missing groups, which namespace %q cannot do",
-			task.Namespace, task.ID, task.Namespace)
+		return fmt.Errorf("task %s/%s asks to add its missing groups, which namespace %q cannot do: %w",
+			task.Namespace, task.ID, task.Namespace, ErrMissingGroupsUnsupported)
 	}
 	var collectionTasks []*Task
 	for _, t := range m.tasks[task.Namespace] {
