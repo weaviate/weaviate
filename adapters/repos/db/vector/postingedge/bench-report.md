@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. Sin código todavía. La corrida no cabe entera antes de las 22:50, así que corre mañana de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+**Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo y sus tests a pequeña escala están escritos (Paso 1, primera parte); falta el driver de la corrida. La corrida no cabe entera antes de las 22:50, así que corre mañana de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -295,6 +295,46 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **C cumple, con una pequeña parte de las cargas de A.** La red salta sobre todo en listas cortas.
 - **La más barata que cumple:** B, y si B falla, C.
 - **Recall de arista, de mayor a menor:** el lote, A, C, B y la celda de v6.1. Los sustitutos son aristas verdaderas menos de la mitad de las veces.
+
+### Paso 1, primera parte: el mecanismo y sus tests a pequeña escala (22:31 del 19)
+
+Código en `2baaa76204` y en el commit de esta nota, después del pre-registro (`14e589cd76`). **Falta el driver de la corrida:** las celdas en el banco, el recall de arista por grupos y las tablas. Va mañana de día, antes de la corrida.
+
+**La distancia entre dos códigos** es la del cuantizador del sidecar (`DistanceBetweenCompressedVectors` del RQ centrado de 1 bit): el Hamming entre los bits de signo da el coseno, y las normas salen de las cabeceras. No lee ningún vector.
+
+- **El respaldo del pre-registro no está escrito.** Con códigos recortados en el sidecar el cuantizador no tiene esa distancia y el paso da error. Las corridas a 1M de v6.0 y v6.1 usaron los códigos completos (`bench.codebits` en 0, su valor por defecto), y esta corre igual.
+
+**Los tests,** en `delete_substitute_test.go`:
+
+- **`TestDeleteSubstitutes`,** cinco casos. La lista de cada vector con una sola arista muerta se compara con la que sale de calcular su sustituto aparte. Las aristas cuadran: toda arista muerta acaba sustituida o contada como perdida.
+- **`TestDeleteRepairsInRounds`,** las cuatro celdas del churn sobre seis rondas de borrados. A quién repara A se calcula aparte en cada ronda, y lo que recuerda cada vector se comprueba después de cada pasada.
+- **`TestDeleteSubstituteNet`,** A contra C con postings enteros borrados, donde muchas aristas se quedan sin sustituto y la red tiene trabajo.
+- **`TestDeleteSubstituteCatches`,** siete casos: los sustitutos que no deben serlo y una lista con un endpoint repetido.
+
+**Diez fallos provocados a mano, y cazados los diez:** un sustituto del mismo posting, el más lejano en vez del más cercano, uno que el vector ya tenía, uno borrado, las pérdidas sin contar (en la fase 2 y en la sustitución), el contador sin volver a cero, el denominador sin las perdidas, el umbral sin memoria, y el ensayo de C ignorado.
+
+**Lo que enseña la corrida pequeña.** Son 4 000 vectores de 48 dimensiones con postings de hasta 120 y listas de unas 12 aristas, más largas que las 9 de 1M. No predice nada de la corrida.
+
+| caso | aristas muertas | con sustituto | candidatos por arista | distancias entre códigos por arista |
+|---|---|---|---|---|
+| 30 % al azar | 9 806 | 9 790 (99.8 %) | 12.2 | 5.5 |
+| 3 % al azar | 1 479 | 1 479 (100 %) | 12.1 | 7.8 |
+| la mitad al azar | 11 665 | 11 503 (98.6 %) | 12.1 | 3.7 |
+| postings enteros, el 30 % | 1 833 | 1 255 (68.5 %) | 12.2 | 2.6 |
+
+| celda, seis rondas del 5 % | listas reparadas | aristas por vector al final |
+|---|---|---|
+| la pasada de v6.1 | 404 | 8.88 |
+| A | 2 072 | 9.83 |
+| B | 0 | 11.77 |
+| C | 0 | 11.77 |
+
+- **Casi toda arista muerta tiene sustituto cuando se borra al azar,** más de lo que esperaba (ocho o nueve de cada diez). Cuando se borran postings enteros un tercio se queda sin él, porque la lista del borrado lleva a otros borrados.
+- **A esta escala C es B:** ninguna arista se queda sin sustituto en las rondas, y la red no salta. La red se prueba aparte, con postings enteros borrados: A repara 177 listas y C 103.
+- **A repara cinco veces más listas que la pasada de v6.1,** y las deja una arista más largas.
+- **Una arista muerta puede salir de una lista sin contar como pérdida.** En la fase 1, un vector reparado que entra en la lista de un vecino echa a su peor arista, que puede ser una muerta. Es lo que dice el pre-registro: una arista que sale porque un vecino nuevo ocupa su sitio no es una pérdida. Me lo enseñó un test que esperaba lo contrario.
+
+Lint, con la etiqueta del banco y sin ella, y el linter de goroutines pasan. Los tests del paquete entero pasan (120 s).
 
 ## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
 
