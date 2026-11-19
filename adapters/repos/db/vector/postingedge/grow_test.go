@@ -453,9 +453,12 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 	if store.lists != nil {
 		return errors.New("the index is keyed by doc id already: the base is an index built in batch")
 	}
-	quantizer, routingBits, err := diskCodecs(st)
+	quantizer, routingBits, sketchScan, err := diskCodecs(st)
 	if err != nil {
 		return err
+	}
+	if sketchScan {
+		return errors.New("the postings carry the code of the endpoints: the index that grows writes the full code of its members")
 	}
 	if entries, err := os.ReadDir(dir); err != nil {
 		return err

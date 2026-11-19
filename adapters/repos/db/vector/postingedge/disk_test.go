@@ -104,6 +104,11 @@ type diskMeta struct {
 	// not in memory. HaloEntries counts them over all the postings.
 	Halo        bool `json:"halo"`
 	HaloEntries int  `json:"haloEntries"`
+	// ScanInMemory tells that a posting has no members block (v4.1): its
+	// members are scanned by the routing codes, which are in memory, and
+	// their doc ids come from the table of slots. A posting on disk is then
+	// its edges, and its halo if it has one.
+	ScanInMemory bool `json:"scanInMemory,omitempty"`
 	// MemberBytes, EdgeBytes and HaloBytes are what the blocks of each kind
 	// take, summed over the postings, before what the store adds.
 	MemberBytes int64 `json:"memberBytes"`
@@ -120,24 +125,59 @@ func diskKey(p uint32, block byte) []byte {
 
 // diskCodecs tells the quantizer behind the codes of a state and the width of
 // the code its endpoints are ranked by, 0 for the full code. The members of a
-// written posting always carry the full code.
-func diskCodecs(st *state) (*compressionhelpers.CenteredBinaryRotationalQuantizer, int, error) {
-	scan := st.quantizer
-	if st.scanQuantizer != nil {
-		scan = st.scanQuantizer
-	}
-	full, ok := scan.(fullCodec)
-	if !ok {
-		return nil, 0, errors.Errorf("the postings carry codes of %T, the format writes the full code", scan)
-	}
+// posting carry the full code, or that same code of the endpoints: sketchScan
+// then, and the format keeps no members on disk (diskMeta.ScanInMemory).
+func diskCodecs(st *state) (quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer, routingBits int,
+	sketchScan bool, err error,
+) {
 	if st.scanQuantizer == nil {
-		return full.CenteredBinaryRotationalQuantizer, 0, nil
+		switch only := st.quantizer.(type) {
+		case fullCodec:
+			return only.CenteredBinaryRotationalQuantizer, 0, false, nil
+		case cappedCodec:
+			// A capped code is a header word and its sign bits.
+			return only.quantizer, (st.side.codeWords - 1) * 64, true, nil
+		default:
+			return nil, 0, false, errors.Errorf("the postings carry codes of %T, the format knows the full code and its sketches", only)
+		}
+	}
+	full, ok := st.scanQuantizer.(fullCodec)
+	if !ok {
+		return nil, 0, false, errors.Errorf("the postings carry codes of %T, the format writes the full code", st.scanQuantizer)
 	}
 	if _, ok := st.quantizer.(cappedCodec); !ok {
-		return nil, 0, errors.Errorf("the endpoints are ranked by %T, expected a capped code", st.quantizer)
+		return nil, 0, false, errors.Errorf("the endpoints are ranked by %T, expected a capped code", st.quantizer)
 	}
-	// A capped code is a header word and its sign bits.
-	return full.CenteredBinaryRotationalQuantizer, (st.side.codeWords - 1) * 64, nil
+	return full.CenteredBinaryRotationalQuantizer, (st.side.codeWords - 1) * 64, false, nil
+}
+
+// sketchScanState returns the state of an index whose members are scanned by
+// the code its endpoints are ranked by (v4.1): the state haloState gives, with
+// the sketches of its sidecar as the codes of its postings too. One array
+// serves both, by slot, so the scan of a posting reads a contiguous run of it.
+// The edges, the centroid graph and the posting map are those of the state.
+func sketchScanState(sketched *state) (*state, error) {
+	switch {
+	case sketched == nil:
+		return nil, ErrNotBuilt
+	case sketched.postings.lists != nil:
+		return nil, errors.New("the index is keyed by doc id: the sketches are laid over an index built in batch")
+	case sketched.scanQuantizer == nil:
+		return nil, errors.New("the postings are scanned by the code of the endpoints already")
+	}
+	store := *sketched.postings
+	store.codeWords, store.codes = sketched.side.codeWords, sketched.side.codes
+	next := &state{
+		dims:      sketched.dims,
+		quantizer: sketched.quantizer,
+		centroids: sketched.centroids,
+		postings:  &store,
+		side:      sketched.side,
+		visited:   sketched.visited,
+		build:     sketched.build,
+	}
+	next.scratch.New = sketched.scratch.New
+	return next, nil
 }
 
 // encodeMembers lays out the members block of a posting: the doc ids, then
@@ -358,6 +398,9 @@ type diskWriteOptions struct {
 	// Halo puts the code of the endpoints into a block of every posting.
 	// Without it the code goes into the file a reader loads into memory.
 	Halo bool
+	// ScanInMemory writes no members block: the state is one of
+	// sketchScanState, whose members are scanned by the codes in memory.
+	ScanInMemory bool
 	// ShareFrom is the directory of an index written from the same build,
 	// whose vectors are in the same slots and whose centroids are the same.
 	// The vectors are then a hard link to its file, which is by far the
@@ -382,9 +425,20 @@ func writeDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 	if store.lists != nil {
 		return nil, errors.New("the index is keyed by doc id: the format writes an index built in batch")
 	}
-	quantizer, routingBits, err := diskCodecs(st)
+	quantizer, routingBits, sketchScan, err := diskCodecs(st)
 	if err != nil {
 		return nil, err
+	}
+	switch {
+	case sketchScan && !opts.ScanInMemory:
+		return nil, errors.New("the postings carry the code of the endpoints: the format keeps it in memory only (ScanInMemory)")
+	case opts.ScanInMemory && !sketchScan:
+		return nil, errors.New("ScanInMemory writes a state whose postings are scanned by the code of its endpoints (sketchScanState)")
+	case opts.ScanInMemory && halo:
+		return nil, errors.New("ScanInMemory keeps the code of the endpoints in memory, a halo keeps it in the postings")
+	case opts.ScanInMemory && (store.codeWords != st.side.codeWords || len(store.codes) != len(st.side.codes) ||
+		(len(store.codes) > 0 && &store.codes[0] != &st.side.codes[0])):
+		return nil, errors.New("ScanInMemory: the codes of the postings are not the array of the sidecar")
 	}
 	if entries, err := os.ReadDir(dir); err != nil {
 		return nil, err
@@ -398,7 +452,7 @@ func writeDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 	meta := &diskMeta{
 		Version: diskFormatVersion, Distance: provider.Type(), Dims: st.dims, Vectors: n, Postings: postings,
 		Edges: len(store.edges), ScanCodeWords: store.codeWords, RoutingBits: routingBits,
-		RoutingCodeWords: st.side.codeWords, Halo: halo,
+		RoutingCodeWords: st.side.codeWords, Halo: halo, ScanInMemory: opts.ScanInMemory,
 	}
 
 	// The slot of every doc id, which is where its exact vector is.
@@ -467,19 +521,21 @@ func writeDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 				return err
 			}
 			post := store.load(uint32(p))
-			members := encodeMembers(&post)
 			edges, err := encodeEdges(&post)
 			if err != nil {
 				return errors.Wrapf(err, "posting %d", p)
 			}
 			// The store keeps the slices it is given until the flush.
-			if err := bucket.Put(diskKey(uint32(p), diskBlockMembers), members); err != nil {
-				return errors.Wrapf(err, "put the members of posting %d", p)
+			if !opts.ScanInMemory {
+				members := encodeMembers(&post)
+				if err := bucket.Put(diskKey(uint32(p), diskBlockMembers), members); err != nil {
+					return errors.Wrapf(err, "put the members of posting %d", p)
+				}
+				meta.MemberBytes += int64(len(members))
 			}
 			if err := bucket.Put(diskKey(uint32(p), diskBlockEdges), edges); err != nil {
 				return errors.Wrapf(err, "put the edges of posting %d", p)
 			}
-			meta.MemberBytes += int64(len(members))
 			meta.EdgeBytes += int64(len(edges))
 			if !halo {
 				continue
@@ -521,10 +577,13 @@ type diskIndex struct {
 	ix *Index
 	// st has what a search keeps in memory. Its posting store only knows
 	// the range of slots of every posting.
-	st      *state
-	lsm     *lsmkv.Store
-	bucket  *lsmkv.Bucket
-	slotOf  []uint32 // by doc id
+	st     *state
+	lsm    *lsmkv.Store
+	bucket *lsmkv.Bucket
+	slotOf []uint32 // by doc id
+	// docIDs is the doc id of every slot, in an index whose members are
+	// scanned from memory: its postings on disk do not bring them.
+	docIDs  []uint64
 	vectors *os.File
 	rounds  sync.Pool // *diskRound
 }
@@ -552,6 +611,9 @@ func openDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		return nil, errors.Errorf("the index was written for distance %q, opened with %q", meta.Distance, provider.Type())
 	case meta.Dims <= 0 || meta.Vectors <= 0 || meta.Postings <= 0:
 		return nil, errors.Errorf("meta of an empty index: %d dims, %d vectors, %d postings", meta.Dims, meta.Vectors, meta.Postings)
+	case meta.ScanInMemory && (meta.Halo || meta.RoutingBits == 0 || meta.ScanCodeWords != meta.RoutingCodeWords):
+		return nil, errors.Errorf("meta of an index scanned from memory: halo %t, routing code of %d bits and %d words, scan code of %d words",
+			meta.Halo, meta.RoutingBits, meta.RoutingCodeWords, meta.ScanCodeWords)
 	}
 	// Everything opened so far is closed if a later step fails.
 	defer func() {
@@ -616,8 +678,26 @@ func openDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		side:      side,
 		visited:   visited.NewPool(meta.Vectors),
 	}
-	if meta.RoutingBits > 0 {
+	if meta.RoutingBits > 0 && !meta.ScanInMemory {
 		d.st.scanQuantizer = scan
+	}
+	if meta.ScanInMemory {
+		// The doc id of every slot, from the table of slots by doc id.
+		d.docIDs = make([]uint64, meta.Vectors)
+		held := 0
+		for id, slot := range d.slotOf {
+			if slot == diskNoSlot {
+				continue
+			}
+			if int(slot) >= meta.Vectors {
+				return nil, errors.Errorf("doc %d is in slot %d, the index has %d", id, slot, meta.Vectors)
+			}
+			d.docIDs[slot] = uint64(id)
+			held++
+		}
+		if held != meta.Vectors {
+			return nil, errors.Errorf("the table of slots holds %d docs, the index %d vectors", held, meta.Vectors)
+		}
 	}
 	d.st.scratch.New = func() any { return newSearchScratch(postings) }
 	d.rounds.New = func() any { return &diskRound{} }
@@ -779,6 +859,16 @@ func (d *diskIndex) fetchMembers(p uint32, dp *diskPosting) error {
 	return nil
 }
 
+// residentMembers gives a posting its members from memory, in an index that
+// keeps none on disk: their doc ids and their codes are the runs of the
+// posting in the arrays by slot. Nothing is read and nothing is copied.
+func (d *diskIndex) residentMembers(p uint32, dp *diskPosting) {
+	words := d.meta.ScanCodeWords
+	first, end := int(d.st.postings.start[p]), int(d.st.postings.start[p+1])
+	dp.docIDs = d.docIDs[first:end:end]
+	dp.codes = d.st.side.codes[first*words : end*words : end*words]
+}
+
 func (d *diskIndex) fetchEdges(p uint32, dp *diskPosting) error {
 	value, err := d.block(p, diskBlockEdges)
 	if err != nil {
@@ -837,9 +927,13 @@ func (d *diskIndex) fetch(round *diskRound, ids []scored) error {
 	for i, pick := range ids {
 		p, dp := uint32(pick.id), &round.postings[i]
 		dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
-		eg.Go(func() error {
-			return timedRead(&dp.took[diskBlockMembers], func() error { return d.fetchMembers(p, dp) })
-		})
+		if d.meta.ScanInMemory {
+			d.residentMembers(p, dp)
+		} else {
+			eg.Go(func() error {
+				return timedRead(&dp.took[diskBlockMembers], func() error { return d.fetchMembers(p, dp) })
+			})
+		}
 		eg.Go(func() error {
 			return timedRead(&dp.took[diskBlockEdges], func() error { return d.fetchEdges(p, dp) })
 		})
@@ -895,15 +989,20 @@ type diskSearchStats struct {
 	EdgeBytes   int
 	HaloBytes   int
 	// Postings and Rounds count the postings loaded and the rounds they
-	// came in, the entry postings aside.
+	// came in, the entry postings aside, and Members the members of those
+	// postings.
 	Postings int
 	Rounds   int
+	Members  int
 	// Loaded lists the postings in the order they were loaded, when
 	// KeepLoaded asks for it.
 	KeepLoaded bool
 	Loaded     []uint32
 	// Rescored counts the exact vectors read, one read each.
-	Rescored     int
+	Rescored int
+	// Budget is the concurrency budget the query ran with, which whoever
+	// times the search writes down: the search does not.
+	Budget       int
 	CentroidTime time.Duration
 	FetchTime    time.Duration
 	VisitTime    time.Duration
@@ -924,6 +1023,7 @@ func (d *diskIndex) search(ctx context.Context, vector []float32, k int, stats *
 ) ([]uint64, []float32, error) {
 	run := fetchedSearch{
 		ix: d.ix, st: d.st, rounds: &d.rounds, fetch: d.fetch, halo: d.meta.Halo, haloWords: d.meta.RoutingCodeWords,
+		noMembers: d.meta.ScanInMemory,
 	}
 	return run.run(ctx, vector, k, nil, stats)
 }
@@ -945,6 +1045,9 @@ type fetchedSearch struct {
 	// that leads to them, whose codes take haloWords words.
 	halo      bool
 	haloWords int
+	// noMembers tells that a posting brings no members block: its members
+	// are in memory.
+	noMembers bool
 	// loaded, when set, is called with every posting right after its visit.
 	// The buffers of the posting are reused by the next round.
 	loaded func(p uint32, dp *diskPosting)
@@ -991,8 +1094,11 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 	search := st.newPostingSearch(sc, query, stop, margin, stats.Work)
 	var visiting *diskPosting
 	blocks := 2
+	if f.noMembers {
+		blocks = 1
+	}
 	if f.halo {
-		blocks = 3
+		blocks++
 		words := f.haloWords
 		search.scoreEndpoints = func(_ *posting, slots []uint32, dists []float32) error {
 			return visiting.scoreHalo(search.estimator, words, slots, dists)
@@ -1034,6 +1140,7 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 			stats.EdgeTime += visiting.took[diskBlockEdges]
 			stats.HaloTime += visiting.took[diskBlockHalo]
 			stats.Blocks += blocks
+			stats.Members += len(visiting.post.docIDs)
 			if f.loaded != nil {
 				f.loaded(uint32(pick.id), visiting)
 			}

@@ -31,12 +31,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 var (
@@ -45,8 +47,10 @@ var (
 		"volume whose cache -bench.diskdrop drops")
 	benchDiskCells = flag.String("bench.diskcells", "full,r512,r384,halo512,halo512p", "with TestDiskWrite: the cells "+
 		"to write and check, of full, r512, r384 (the routing code in memory: the full code, or a sketch of 512 or 384 "+
-		"bits), halo512 (a halo of 512 bits in the postings) and halo512p (that halo over the edges pruned to one per "+
-		"target posting and capped at 8, with margin 0.08)")
+		"bits), halo512 (a halo of 512 bits in the postings), halo512p (that halo over the edges pruned to one per "+
+		"target posting and capped at 8, with margin 0.08), and those of v4.1, s512r200, s512r400, s512r800, s768r200, "+
+		"s768r400 and s768r800 (the members scanned by a sketch of 512 or 768 bits in memory, the postings on disk "+
+		"holding their edges only, with a rescore limit of 200, 400 or 800)")
 	benchDiskManifest = flag.String("bench.diskmanifest", "", "what TestDiskWrite leaves for TestDiskTimed: the cells, "+
 		"their operating points, the checks they passed and the ground truth. It must not live under -bench.diskdir")
 	benchDiskCell = flag.String("bench.diskcell", "", "with TestDiskTimed: the cell to time, one per process")
@@ -56,6 +60,10 @@ var (
 	benchDiskCold   = flag.Int("bench.diskcold", 500, "with TestDiskTimed: the cold queries of every point")
 	benchDiskBudget = flag.Int("bench.diskbudget", 8, "with TestDiskTimed: the concurrency budget of one query, which "+
 		"the rescore reads its vectors within")
+	benchDiskAdmission = flag.Bool("bench.diskadmission", false, "with TestDiskTimed: every query takes its concurrency "+
+		"budget from the admission limiter of a node, with its defaults, asking for twice GOMAXPROCS as a shard does "+
+		"for a vector search, instead of the fixed -bench.diskbudget: a query alone is granted all it asks for, and "+
+		"queries at once share the budget of the node")
 	benchDiskPasses = flag.Int("bench.diskpasses", 3, "with TestDiskTimed: the timed warm passes of every point")
 	benchDiskHeap   = flag.String("bench.diskheap", "", "with TestDiskTimed: the file the heap profile of the process "+
 		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed. "+
@@ -91,6 +99,21 @@ type diskCellSpec struct {
 	OnePerTarget bool    `json:"onePerTarget"`
 	DegreeCap    int     `json:"degreeCap"`
 	Margin       float64 `json:"margin"`
+	// Scan tells that the members are scanned by that code too, from
+	// memory, and that the postings on disk hold no members (v4.1). Rescore
+	// is then the rescore limit of the cell, which is fixed, and Index the
+	// directory of the index it reads: the cells of one width share it.
+	Scan    bool   `json:"scan,omitempty"`
+	Rescore int    `json:"rescore,omitempty"`
+	Index   string `json:"index,omitempty"`
+}
+
+// dir is the directory of the index of the cell, under -bench.diskdir.
+func (s diskCellSpec) dir() string {
+	if s.Index != "" {
+		return s.Index
+	}
+	return s.Name
 }
 
 func diskCellSpecs(t *testing.T, names string) []diskCellSpec {
@@ -100,6 +123,15 @@ func diskCellSpecs(t *testing.T, names string) []diskCellSpec {
 		"r384":     {Name: "r384", Bits: 384, Margin: DefaultCosineSourceMargin},
 		"halo512":  {Name: "halo512", Bits: 512, Halo: true, Margin: DefaultCosineSourceMargin},
 		"halo512p": {Name: "halo512p", Bits: 512, Halo: true, OnePerTarget: true, DegreeCap: 8, Margin: 0.08},
+	}
+	for _, bits := range []int{512, 768} {
+		for _, rescore := range []int{200, 400, 800} {
+			index := fmt.Sprintf("s%d", bits)
+			name := fmt.Sprintf("%sr%d", index, rescore)
+			known[name] = diskCellSpec{
+				Name: name, Bits: bits, Scan: true, Rescore: rescore, Index: index, Margin: DefaultCosineSourceMargin,
+			}
+		}
 	}
 	var specs []diskCellSpec
 	for _, name := range strings.Split(names, ",") {
@@ -300,12 +332,19 @@ func TestDiskWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	shareFrom := ""
+	// The sketches of a width are encoded once, and an index is written
+	// once: the cells of v4.1 of one width read the same one.
+	sketches := make(map[int]*state)
+	written := make(map[string]*diskMeta)
 	for _, spec := range specs {
 		// The state of the cell in memory: its code for the endpoints over
 		// its edges.
 		st := built
 		if spec.Bits > 0 {
-			st = b.sketch(spec.Bits)
+			if sketches[spec.Bits] == nil {
+				sketches[spec.Bits] = b.sketch(spec.Bits)
+			}
+			st = sketches[spec.Bits]
 		}
 		if spec.OnePerTarget || spec.DegreeCap > 0 {
 			start, kept := pruneEdges(fullStart, fullEdges, built.side.postingOf, spec.OnePerTarget, spec.DegreeCap)
@@ -314,22 +353,34 @@ func TestDiskWrite(t *testing.T) {
 			require.NoError(t, index.replaceEdges(start, kept))
 			st = index.state.Load()
 		}
-		dir := filepath.Join(*benchDiskDir, spec.Name)
-		require.NoError(t, os.RemoveAll(dir))
-		require.NoError(t, os.Mkdir(dir, 0o755))
-		begin := time.Now()
-		meta, err := writeDiskIndex(ctx, b.logger, dir, st, diskWriteOptions{Halo: spec.Halo, ShareFrom: shareFrom},
-			provider, vectorOf)
-		require.NoError(t, err)
+		if spec.Scan {
+			// The members scanned by the code of the endpoints.
+			var err error
+			st, err = sketchScanState(st)
+			require.NoError(t, err)
+		}
+		dir := filepath.Join(*benchDiskDir, spec.dir())
+		meta := written[spec.dir()]
+		if meta == nil {
+			require.NoError(t, os.RemoveAll(dir))
+			require.NoError(t, os.Mkdir(dir, 0o755))
+			begin := time.Now()
+			var err error
+			meta, err = writeDiskIndex(ctx, b.logger, dir, st,
+				diskWriteOptions{Halo: spec.Halo, ScanInMemory: spec.Scan, ShareFrom: shareFrom}, provider, vectorOf)
+			require.NoError(t, err)
+			written[spec.dir()] = meta
+			t.Logf("index %s: written in %s | %d postings, %d edges, %d halo entries", spec.dir(),
+				time.Since(begin).Round(time.Second), meta.Postings, meta.Edges, meta.HaloEntries)
+		}
 		if shareFrom == "" {
 			shareFrom = dir
 		}
 		files, err := diskFiles(dir)
 		require.NoError(t, err)
-		t.Logf("cell %s: written in %s | %d postings, %d edges, %d halo entries | store %.1f MB, vectors %.1f MB, "+
-			"resident %.1f MB", spec.Name, time.Since(begin).Round(time.Second), meta.Postings, meta.Edges, meta.HaloEntries,
+		t.Logf("cell %s, in %s | store %.1f MB, vectors %.1f MB, resident %.1f MB", spec.Name, spec.dir(),
 			float64(files["store"])/1e6, float64(files["vectors"])/1e6, float64(files["resident"])/1e6)
-		cell := diskCellManifest{Spec: spec, Dir: spec.Name, Meta: *meta, Files: files}
+		cell := diskCellManifest{Spec: spec, Dir: spec.dir(), Meta: *meta, Files: files}
 
 		// Reopened, not the one just written. The index in memory enters
 		// through the graph the one on disk was reopened with.
@@ -338,9 +389,15 @@ func TestDiskWrite(t *testing.T) {
 		index.state.Store(withCentroids(st, disk.st.centroids))
 		margin := float32(spec.Margin)
 
-		cell.MaxRescoreLimit = b.uc.RescoreLimit
-		cell.Points, cell.MaxRecall = diskOperatingPoints(b, spec.Name, b.uc.RescoreLimit, margin)
-		if last := cell.Points[len(cell.Points)-1]; !last.Reached && *benchHaloRescore > b.uc.RescoreLimit {
+		// A cell of v4.1 has its rescore limit fixed. The others have that
+		// of the index and, if 0.99 is out of reach with it, a second try.
+		rescore := b.uc.RescoreLimit
+		if spec.Rescore > 0 {
+			rescore = spec.Rescore
+		}
+		cell.MaxRescoreLimit = rescore
+		cell.Points, cell.MaxRecall = diskOperatingPoints(b, spec.Name, rescore, margin)
+		if last := cell.Points[len(cell.Points)-1]; spec.Rescore == 0 && !last.Reached && *benchHaloRescore > b.uc.RescoreLimit {
 			t.Logf("cell %s: the best recall is %.4f with rescore %d: looked for again with %d",
 				spec.Name, cell.MaxRecall, b.uc.RescoreLimit, *benchHaloRescore)
 			again, best := diskOperatingPoints(b, spec.Name, *benchHaloRescore, margin)
@@ -376,6 +433,7 @@ func TestDiskWrite(t *testing.T) {
 						first = fmt.Sprintf("query %d: %s", q, difference)
 					}
 					sums.Postings += stats.Postings
+					sums.Members += stats.Members
 					sums.Rounds += stats.Rounds
 					sums.Blocks += stats.Blocks
 					sums.MemberBytes += stats.MemberBytes
@@ -400,8 +458,14 @@ func TestDiskWrite(t *testing.T) {
 			// The model of v3.0 over the same postings: a member is its id
 			// and its code, an edge 4 bytes, a halo entry 4 bytes and its
 			// sketch. The edges block has a byte per member besides.
-			memberBytes := diskModelIDBytes + 8*meta.ScanCodeWords
-			members := sums.MemberBytes / memberBytes
+			members := sums.Members
+			if spec.Scan {
+				// Its members are in memory: the model has nothing for
+				// them, and nothing of them is read.
+				require.Zero(t, sums.MemberBytes)
+			} else {
+				require.Equal(t, members*(diskModelIDBytes+8*meta.ScanCodeWords), sums.MemberBytes)
+			}
 			model := sums.MemberBytes + (sums.EdgeBytes - members) + sums.HaloBytes
 			require.Equal(t, 0, (sums.EdgeBytes-members)%diskModelEdgeBytes)
 			if spec.Halo {
@@ -494,6 +558,8 @@ type diskLatencies struct {
 	MemberMs float64 `json:"memberms"`
 	EdgeMs   float64 `json:"edgems"`
 	HaloMs   float64 `json:"haloms"`
+	// Granted is the concurrency budget a query ran with, on average.
+	Granted float64 `json:"granted"`
 }
 
 func diskLatenciesOf(latencies []time.Duration, stats []diskSearchStats, wall time.Duration) diskLatencies {
@@ -510,6 +576,7 @@ func diskLatenciesOf(latencies []time.Duration, stats []diskSearchStats, wall ti
 		out.MemberMs += ms(stats[i].MemberTime) / float64(len(latencies))
 		out.EdgeMs += ms(stats[i].EdgeTime) / float64(len(latencies))
 		out.HaloMs += ms(stats[i].HaloTime) / float64(len(latencies))
+		out.Granted += float64(stats[i].Budget) / float64(len(latencies))
 	}
 	slices.Sort(sorted)
 	out.P50, out.P95, out.P99 = percentileOf(sorted, 0.50), percentileOf(sorted, 0.95), percentileOf(sorted, 0.99)
@@ -555,9 +622,12 @@ type diskTimedResult struct {
 	Queries int          `json:"queries"`
 	K       int          `json:"k"`
 	Budget  int          `json:"budget"`
-	Procs   int          `json:"gomaxprocs"`
-	Access  string       `json:"access"`
-	Drop    string       `json:"drop"`
+	// Admission tells that the queries took their budget from the admission
+	// limiter of a node and not Budget: what each got is in the latencies.
+	Admission bool   `json:"admission,omitempty"`
+	Procs     int    `json:"gomaxprocs"`
+	Access    string `json:"access"`
+	Drop      string `json:"drop"`
 	// HeapBytes is the heap in use right after the index is opened and
 	// collected, and FootprintBytes the most the process has had resident,
 	// read then.
@@ -615,8 +685,8 @@ func TestDiskTimed(t *testing.T) {
 	require.NoError(t, err)
 	result := &diskTimedResult{
 		Dataset: manifest.Dataset, Cell: cell.Spec, Meta: cell.Meta, Queries: len(queries), K: k, Budget: *benchDiskBudget,
-		Procs: runtime.GOMAXPROCS(0), Access: "mmap", Drop: *benchDiskDrop, HeapBytes: mem.HeapInuse,
-		FootprintBytes: footprint, Files: files,
+		Admission: *benchDiskAdmission, Procs: runtime.GOMAXPROCS(0), Access: "mmap", Drop: *benchDiskDrop,
+		HeapBytes: mem.HeapInuse, FootprintBytes: footprint, Files: files,
 	}
 	write := func() {
 		raw, err := json.MarshalIndent(result, "", "  ")
@@ -699,6 +769,18 @@ type timedRun struct {
 // index when it is done.
 func timeDisk(ctx context.Context, t *testing.T, r *timedRun) {
 	disk, queries, truth, k, logger := r.disk, r.queries, r.truth, r.k, r.logger
+	// The budget of a query: fixed, or what the limiter of a node grants it.
+	// Being admitted is part of the query, as it is in a shard.
+	var limiter *queryadmission.Limiter
+	if *benchDiskAdmission {
+		limiter = queryadmission.New(prometheus.NewRegistry(), queryadmission.Config{})
+	}
+	budgeted := func() (context.Context, func(), error) {
+		if limiter == nil {
+			return concurrency.CtxWithBudget(ctx, *benchDiskBudget), func() {}, nil
+		}
+		return limiter.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+	}
 	// run searches the given queries with the given number of threads, each
 	// thread taking the next query, and tells the latency and the stats of
 	// each and the time of all.
@@ -713,7 +795,6 @@ func timeDisk(ctx context.Context, t *testing.T, r *timedRun) {
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
-				searchCtx := concurrency.CtxWithBudget(ctx, *benchDiskBudget)
 				for {
 					i := int(next.Add(1)) - 1
 					if i >= len(which) {
@@ -722,7 +803,14 @@ func timeDisk(ctx context.Context, t *testing.T, r *timedRun) {
 					q := which[i]
 					stats[i].KeepLoaded = true
 					start := time.Now()
+					searchCtx, release, err := budgeted()
+					if err != nil {
+						errs[worker] = err
+						return
+					}
+					stats[i].Budget = concurrency.BudgetFromCtx(searchCtx, 0)
 					ids, _, err := disk.search(searchCtx, queries[q], k, &stats[i])
+					release()
 					latencies[i] = time.Since(start)
 					if err != nil {
 						errs[worker] = err
@@ -771,9 +859,9 @@ func timeDisk(ctx context.Context, t *testing.T, r *timedRun) {
 			warm := timed.Warm[len(timed.Warm)/2]
 			t.Logf("%s at recall %.2f (ef %d), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
 				"fetch %.3f ms, visit %.3f, rescore %.3f, centroids %.3f | of %.2f loads, a row of members %.1f us "+
-				"and one of edges %.1f", r.name, point.Target, point.EF, threads,
+				"and one of edges %.1f | a budget of %.1f a query", r.name, point.Target, point.EF, threads,
 				warm.P50, warm.P95, warm.P99, warm.QPS, warm.FetchMs, warm.VisitMs, warm.RescoreMs, warm.CentroidMs,
-				warm.Loads, 1e3*warm.MemberMs/max(warm.Loads, 1), 1e3*warm.EdgeMs/max(warm.Loads, 1))
+				warm.Loads, 1e3*warm.MemberMs/max(warm.Loads, 1), 1e3*warm.EdgeMs/max(warm.Loads, 1), warm.Granted)
 
 			if *benchDiskDrop != "" {
 				batch := 10

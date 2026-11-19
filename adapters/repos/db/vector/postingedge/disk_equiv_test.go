@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -206,6 +207,9 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 		halo   bool
 		onePer bool
 		degree int
+		// scan tells that the members are scanned by that sketch, from
+		// memory, and that the postings on disk hold no members (v4.1).
+		scan bool
 	}{
 		{name: "the full code in memory"},
 		{name: "the full code in memory, cosine", cosine: true},
@@ -216,6 +220,10 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 		{name: "a halo over pruned edges", bits: 64, halo: true, onePer: true, degree: 4},
 		{name: "a halo of full codes", halo: true},
 		{name: "pruned edges, the full code in memory", onePer: true},
+		{name: "the scan by a sketch in memory", bits: 64, scan: true},
+		{name: "the scan by a sketch in memory, cosine", bits: 128, scan: true, cosine: true},
+		{name: "the scan by a wider sketch in memory", bits: 192, scan: true},
+		{name: "the scan by a sketch in memory over pruned edges", bits: 64, scan: true, onePer: true, degree: 4},
 	}
 	searches := []struct {
 		name    string
@@ -240,12 +248,22 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 			st := f.cell(t, cell.bits, cell.onePer, cell.degree)
 			layout, err := haloPostings(st)
 			require.NoError(t, err)
+			if cell.scan {
+				st, err = sketchScanState(st)
+				require.NoError(t, err)
+			}
 			dir := t.TempDir()
-			meta, err := writeDiskIndex(ctx, testLogger(), dir, st, diskWriteOptions{Halo: cell.halo}, f.provider,
+			meta, err := writeDiskIndex(ctx, testLogger(), dir, st,
+				diskWriteOptions{Halo: cell.halo, ScanInMemory: cell.scan}, f.provider,
 				func(id uint64) []float32 { return f.raw[id] })
 			require.NoError(t, err)
 			require.Equal(t, cell.halo, meta.Halo)
 			require.Equal(t, cell.bits, meta.RoutingBits)
+			require.Equal(t, cell.scan, meta.ScanInMemory)
+			if cell.scan {
+				require.Zero(t, meta.MemberBytes)
+				require.Equal(t, meta.RoutingCodeWords, meta.ScanCodeWords)
+			}
 
 			for _, pread := range []bool{false, true} {
 				name := "mapped"
@@ -300,7 +318,7 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 								require.Nil(t, stats.Loaded)
 								// The read of every block was timed, and of no
 								// block the format does not have.
-								require.Positive(t, stats.MemberTime)
+								require.Equal(t, !cell.scan, stats.MemberTime > 0)
 								require.Positive(t, stats.EdgeTime)
 								require.Equal(t, cell.halo, stats.HaloTime > 0)
 								kept := &diskSearchStats{KeepLoaded: true}
@@ -308,11 +326,18 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 								require.NoError(t, err)
 								require.Equal(t, loaded, kept.Loaded, "the postings loaded, in order")
 								require.Equal(t, stats.Work.PostingsLoaded, stats.Postings)
-								require.Equal(t, members*8*(1+meta.ScanCodeWords), stats.MemberBytes)
-								require.Equal(t, members+4*edges, stats.EdgeBytes)
+								require.Equal(t, members, stats.Members)
 								blocks := 2
+								if cell.scan {
+									// Nothing of the members comes from disk.
+									blocks = 1
+									require.Zero(t, stats.MemberBytes)
+								} else {
+									require.Equal(t, members*8*(1+meta.ScanCodeWords), stats.MemberBytes)
+								}
+								require.Equal(t, members+4*edges, stats.EdgeBytes)
 								if cell.halo {
-									blocks = 3
+									blocks++
 									require.Equal(t, entries*(4+8*meta.RoutingCodeWords), stats.HaloBytes)
 								} else {
 									require.Zero(t, stats.HaloBytes)
@@ -809,4 +834,164 @@ func TestWarmSegmentIndexes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(broken, "segment-1.db"), make([]byte, 4), 0o644))
 	_, err = warmSegmentIndexes(broken)
 	require.ErrorContains(t, err, "read the header")
+}
+
+// An index whose members are scanned from memory (v4.1) is written from the
+// state made for it and from no other, keeps no members block in its store,
+// and is not opened when its meta or its table of slots do not hold together.
+func TestDiskScanInMemory(t *testing.T) {
+	ctx := context.Background()
+	f := newDiskFixture(t, 1500, 128, 6, 841, false)
+	vectorOf := func(id uint64) []float32 { return f.raw[id] }
+	sketched := f.cell(t, 64, false, 0)
+	scanned, err := sketchScanState(sketched)
+	require.NoError(t, err)
+
+	t.Run("the state", func(t *testing.T) {
+		require.Nil(t, scanned.scanQuantizer)
+		require.Equal(t, sketched.quantizer, scanned.quantizer)
+		require.Equal(t, sketched.side, scanned.side)
+		require.Equal(t, sketched.side.codeWords, scanned.postings.codeWords)
+		require.Same(t, &sketched.side.codes[0], &scanned.postings.codes[0])
+		// The postings of the state it was made from keep their own codes.
+		require.NotEqual(t, sketched.postings.codeWords, scanned.postings.codeWords)
+		require.Equal(t, f.built.postings.codes, sketched.postings.codes)
+		require.Equal(t, sketched.postings.docIDs, scanned.postings.docIDs)
+		require.Equal(t, sketched.postings.edges, scanned.postings.edges)
+
+		_, err := sketchScanState(nil)
+		require.ErrorIs(t, err, ErrNotBuilt)
+		_, err = sketchScanState(f.built)
+		require.ErrorContains(t, err, "scanned by the code of the endpoints already")
+		_, err = sketchScanState(scanned)
+		require.ErrorContains(t, err, "scanned by the code of the endpoints already")
+		stream := newDiskFixture(t, 1500, 24, 6, 843, false)
+		_, err = newStreamIndex(stream.index, 1500, streamConfig{threshold: 60}, func(id uint64) []float32 { return stream.raw[id] })
+		require.NoError(t, err)
+		_, err = sketchScanState(stream.index.state.Load())
+		require.ErrorContains(t, err, "keyed by doc id")
+	})
+
+	t.Run("writing", func(t *testing.T) {
+		apart := withCentroids(scanned, scanned.centroids)
+		store := *scanned.postings
+		store.codes = slices.Clone(store.codes)
+		apart.postings = &store
+		refused := []struct {
+			name    string
+			st      *state
+			opts    diskWriteOptions
+			wantErr string
+		}{
+			{name: "its state, without saying so", st: scanned, wantErr: "the format keeps it in memory only"},
+			{name: "the state of the build", st: f.built, opts: diskWriteOptions{ScanInMemory: true}, wantErr: "ScanInMemory writes a state"},
+			{name: "a state with full codes in its postings", st: sketched, opts: diskWriteOptions{ScanInMemory: true}, wantErr: "ScanInMemory writes a state"},
+			{name: "with a halo", st: scanned, opts: diskWriteOptions{ScanInMemory: true, Halo: true}, wantErr: "a halo keeps it in the postings"},
+			{name: "codes of the postings that are a copy", st: apart, opts: diskWriteOptions{ScanInMemory: true}, wantErr: "not the array of the sidecar"},
+		}
+		for _, tt := range refused {
+			t.Run(tt.name, func(t *testing.T) {
+				dir := t.TempDir()
+				_, err := writeDiskIndex(ctx, testLogger(), dir, tt.st, tt.opts, f.provider, vectorOf)
+				require.ErrorContains(t, err, tt.wantErr)
+				entries, err := os.ReadDir(dir)
+				require.NoError(t, err)
+				require.Empty(t, entries, "nothing is written of an index that is refused")
+			})
+		}
+		// The index that grows writes the full code of its members.
+		err := writeGrowIndex(ctx, testLogger(), t.TempDir(), scanned, growConfig{keys: 3000, neighbors: 16, threshold: 60},
+			f.provider, vectorOf)
+		require.ErrorContains(t, err, "the index that grows writes the full code")
+	})
+
+	written := t.TempDir()
+	meta, err := writeDiskIndex(ctx, testLogger(), written, scanned, diskWriteOptions{ScanInMemory: true}, f.provider, vectorOf)
+	require.NoError(t, err)
+
+	t.Run("the format", func(t *testing.T) {
+		require.True(t, meta.ScanInMemory)
+		require.Zero(t, meta.MemberBytes)
+		require.Equal(t, 64, meta.RoutingBits)
+		require.Equal(t, meta.RoutingCodeWords, meta.ScanCodeWords)
+		store := scanned.postings
+		require.Equal(t, int64(store.vectors()+4*len(store.edges)), meta.EdgeBytes)
+
+		disk, err := openDiskIndex(ctx, testLogger(), written, f.provider, f.uc, nil, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, disk.close(ctx)) }()
+		require.Equal(t, store.docIDs, disk.docIDs, "the doc id of every slot")
+		require.Equal(t, scanned.side.codes, disk.st.side.codes)
+		require.Nil(t, disk.st.scanQuantizer)
+		for p := 0; p < store.postings(); p++ {
+			post := store.load(uint32(p))
+			_, err := disk.block(uint32(p), diskBlockMembers)
+			require.ErrorContains(t, err, "has no block 0")
+			edges, err := disk.block(uint32(p), diskBlockEdges)
+			require.NoError(t, err)
+			want, err := encodeEdges(&post)
+			require.NoError(t, err)
+			require.Equal(t, want, edges)
+
+			round := &diskRound{}
+			require.NoError(t, disk.fetch(round, []scored{{id: uint64(p)}}))
+			got := round.postings[0]
+			require.Equal(t, post.docIDs, got.post.docIDs)
+			require.Equal(t, post.codes, got.post.codes)
+			require.Equal(t, post.edges, got.post.edges)
+			require.Equal(t, post.first, got.post.first)
+			require.Zero(t, got.bytes[diskBlockMembers])
+			require.Zero(t, got.took[diskBlockMembers])
+			require.Equal(t, len(edges), got.bytes[diskBlockEdges])
+		}
+	})
+
+	editMeta := func(t *testing.T, dir string, edit func(*diskMeta)) {
+		raw, err := os.ReadFile(filepath.Join(dir, diskMetaFile))
+		require.NoError(t, err)
+		var meta diskMeta
+		require.NoError(t, json.Unmarshal(raw, &meta))
+		edit(&meta)
+		raw, err = json.Marshal(meta)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, diskMetaFile), raw, 0o644))
+	}
+	// editSlot rewrites the slot of a doc id in the layout file.
+	editSlot := func(t *testing.T, dir string, docID int, slot uint32) {
+		path := filepath.Join(dir, diskLayoutFile)
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		binary.LittleEndian.PutUint32(raw[4*(meta.Postings+1+meta.Vectors+docID):], slot)
+		require.NoError(t, os.WriteFile(path, raw, 0o644))
+	}
+	opening := []struct {
+		name    string
+		breakIt func(t *testing.T, dir string)
+		wantErr string
+	}{
+		{name: "a halo besides", breakIt: func(t *testing.T, dir string) {
+			editMeta(t, dir, func(m *diskMeta) { m.Halo = true })
+		}, wantErr: "meta of an index scanned from memory"},
+		{name: "the full code for the endpoints", breakIt: func(t *testing.T, dir string) {
+			editMeta(t, dir, func(m *diskMeta) { m.RoutingBits = 0 })
+		}, wantErr: "meta of an index scanned from memory"},
+		{name: "a scan code of another length", breakIt: func(t *testing.T, dir string) {
+			editMeta(t, dir, func(m *diskMeta) { m.ScanCodeWords++ })
+		}, wantErr: "meta of an index scanned from memory"},
+		{name: "a doc without a slot", breakIt: func(t *testing.T, dir string) {
+			editSlot(t, dir, 7, diskNoSlot)
+		}, wantErr: "the table of slots holds 1499 docs"},
+		{name: "a doc in a slot the index does not have", breakIt: func(t *testing.T, dir string) {
+			editSlot(t, dir, 7, uint32(meta.Vectors))
+		}, wantErr: "doc 7 is in slot 1500"},
+	}
+	for _, tt := range opening {
+		t.Run("opening: "+tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.CopyFS(dir, os.DirFS(written)))
+			tt.breakIt(t, dir)
+			_, err := openDiskIndex(ctx, testLogger(), dir, f.provider, f.uc, nil, false)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }
