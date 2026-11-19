@@ -1,0 +1,429 @@
+# Plan de integración en Weaviate
+
+**Fecha:** 2026-11-19 · **Rama:** `feat/posting-edge-index`, leída en `c74cbd28cf` · **Paquete:** `adapters/repos/db/vector/postingedge` (nombre provisional)
+
+**Alcance.** Solo lectura y este documento: el plan no cambia código del índice. Al leer apareció un bug en flat y en HFresh, que sí se arregló, en un commit aparte (`665f3a1806`). El plan dice qué pide Weaviate a un tipo de índice, qué de eso existe ya, qué vive en ficheros de test y qué falta. Las cifras salen de `bench-report.md` y de `disk-design.md`; las rutas, del código de esta rama. Lo que es propuesta mía va marcado como tal.
+
+**Lo que no llegó.** El encargo pide en el punto 4 «la tabla de arriba», y esa tabla no venía en el mensaje. La de la sección 4 la monto yo con los parámetros que el mensaje nombra (`maxPostingSize`, el modo de memoria, `rescoreLimit`, `ef`) y los que tiene hoy la configuración del paquete. Hay que cotejarla con la original.
+
+## Resumen
+
+- **El índice ya cumple la interfaz del shard a nivel de tipos,** y de sus 23 métodos tiene hechos los de búsqueda sin filtro, validación y configuración. Faltan los que hacen de él un índice vivo: insertar después del build, borrar, persistir, reiniciar y entrar en un backup.
+- **Casi todo lo que se ha medido en disco es código de test.** El paquete tiene 3 216 líneas de código y 27 165 de test. La lectura de disco, los inserts y los deletes viven en `disk_test.go`, `grow_test.go`, `stream_test.go` y `delete_test.go`.
+- **Registrar el tipo en Weaviate es mecánico y disperso:** unos quince sitios, sin una lista única. Es lo único que puede empezar ya.
+- **Lo que bloquea de verdad es `Delete`.** El shard lo llama en cada borrado y en cada update que cambia un vector. Sin él, ninguna clase con este índice admite cambios.
+- **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
+- **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
+- **En parámetros:** `maxPostingSizeKB` como umbral de split necesita 76 para dejar la media en 236 vectores a 1536d, y ese valor cambia con la dimensión. El modo de memoria encaja como enumerado en `rq.cache`. El ef dinámico tiene sentido y no está medido.
+- **Al leer apareció un bug en flat y en HFresh,** en la búsqueda por distancia. Está arreglado en esta rama con sus tests, y sigue en `main`.
+
+## 1. Qué exige un tipo de índice
+
+Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
+
+### La interfaz
+
+**Es `db.VectorIndex`** (`adapters/repos/db/vector_index.go:26-57`), con 23 métodos. El índice ya la cumple a nivel de tipos: `interface_test.go` lo comprueba al compilar. Lo que decide es qué hace cada método.
+
+| método | qué hace HFresh | qué hace este índice hoy | estado |
+|---|---|---|---|
+| `Type` | Devuelve `hfresh` | Devuelve `postingedge` | Lo tenemos |
+| `Add`, `AddBatch` | Insertan. `AddBatch` es un bucle de `Add` | Acumulan hasta `Build`. Después devuelven `ErrBuilt` | Hay que adaptarlo: el camino de inserts está en test. El shard llama a `AddBatch` en síncrono y a `Add` desde la cola |
+| `Delete` | Marca el id en su mapa de versiones. Un id desconocido no es error | `ErrNotSupported` | Falta. El shard lo llama en cada borrado y en cada update que cambia un vector |
+| `SearchByVector` | Con filtro de menos de 5 000 ids, búsqueda plana. Con más, filtra en el scan | Sin filtro, busca. Con filtro, `ErrNotSupported` | Lo tenemos sin filtro. El filtro falta |
+| `SearchByVectorDistance` | Páginas cada vez mayores sobre `SearchByVector` | `ErrNotSupported` | Falta. Es poco código, con la forma del bucle de HNSW |
+| `UpdateUserConfig` | Aplica `searchProbe` y `rq.rescoreLimit` | Aplica `ef`, `rescoreLimit`, `entryPostings`, `loadBatch` y `sourceMargin`, y rechaza lo que dio forma al build | Lo tenemos |
+| `Flush` | Vuelca el commit log de centroides y sus cuatro colas | No hace nada | Falta, con la persistencia |
+| `Shutdown`, `Drop` | Cierran colas y centroides. `Drop` no borra buckets: lo hace el shard | Apagan el grafo de centroides y borran su directorio | Hay que adaptarlo |
+| `PrepareForBackup`, `ResumeAfterBackup`, `ListFiles`, `SnapshotMutableFiles` | Pausan colas y commit log, y listan sus ficheros. `SnapshotMutableFiles` no hace nada | Los dos primeros de backup devuelven `ErrNotSupported` a propósito, para que un backup no acabe sin el índice | Falta |
+| `PostStartup` | Calienta el mapa de versiones en segundo plano | No hace nada | Falta: restaurar lo residente |
+| `Compressed`, `CompressionStats` | `true`, y las estadísticas del cuantizador | Lo mismo | Lo tenemos |
+| `Multivector` | `true` solo con MUVERA | `false` | Lo tenemos. Con `false`, el shard rechaza el multi-vector por su cuenta |
+| `ValidateBeforeInsert` | Comprueba dimensiones | Dimensiones y valores finitos | Lo tenemos |
+| `ContainsDoc`, `Iterate` | El primero, por su mapa de versiones. El segundo solo escribe un log | Un bitmap de ids presentes | Lo tenemos. Con deletes, `ContainsDoc` tiene que dar `false` para un id borrado |
+| `Preload` | No hace nada | No hace nada | Lo tenemos |
+| `QueryVectorDistancer` | Distancia exacta, leyendo el vector | Lo mismo | Lo tenemos |
+
+**Interfaces opcionales, que el código comprueba con una aserción de tipo:**
+
+- **`VectorIndexMulti`** (`vector_index.go:90-99`): siete métodos de multi-vector. No hace falta para una primera versión.
+- **`upgradableIndexer`** (`vector_index_queue.go:257-263`): para pasar de sin comprimir a comprimido. No aplica, y HFresh tampoco la implementa.
+- **Los endpoints de debug** miran tipos concretos: las estadísticas piden un `Stats()` que solo tiene HNSW (`adapters/handlers/rest/handlers_debug.go:891`), y el reset de un índice solo acepta HNSW y `*hfresh.HFresh` (`adapters/repos/db/index.go:5086`, `adapters/repos/db/shard_debug.go:64`).
+
+### El registro, de punta a punta, con HFresh de modelo
+
+| pieza | dónde está para HFresh | en este índice | estado |
+|---|---|---|---|
+| El nombre del tipo | `vectorindex.VectorIndexTypeHFresh` (`entities/vectorindex/config.go:30`) y `common.IndexTypeHFresh` (`adapters/repos/db/vector/common/index_stats.go:21`) | Solo existe `common.IndexTypePostingEdge` (`index_stats.go:24`). El nombre es provisional | Hay que adaptarlo, con el nombre decidido |
+| La configuración de usuario | `entities/vectorindex/hfresh/config.go`: `UserConfig`, `SetDefaults`, `validate` y `ParseAndValidateConfig` | `UserConfig` y `Validate` viven en el paquete del índice (`config.go:82`). No hay parseo desde JSON | Hay que adaptarlo: pasa a `entities/vectorindex/`, con el parseo y los nombres de la sección 4 |
+| El despacho por tipo | `ParseAndValidateConfig` y `UnmarshalConfig` (`entities/vectorindex/config.go:40-57` y `:62-79`), cableados en `adapters/handlers/rest/configure_api.go:659` y `:820` | No está | Falta: un `case` en cada uno |
+| Las listas cerradas de tipos | `usecases/schema/parser.go:259`, `usecases/config/config_handler.go:542`, `entities/schema/collection.go:66-84`, `usecases/modules/vectorizer.go:514-519` | No está en ninguna | Falta |
+| El esquema en el cluster | `normalizeVectorConfig` (`cluster/schema/movement_guard.go:103-121`). Con un tipo que no conoce, bloquea el movimiento de shards | No está | Falta |
+| La validación de un cambio de configuración | `Migrator.ValidateVectorIndexConfigUpdate` (`adapters/repos/db/migrator.go:908-925`), que llama a `hfresh.ValidateUserConfigUpdate` | La regla existe, dentro de `Index.UpdateUserConfig` | Hay que adaptarlo: sacarla a una función que se pueda llamar sin el índice |
+| Las reglas del esquema | `validateVectorIndexTypeBasic` (`usecases/schema/class.go:2033`). HFresh se salta `ALLOWED_COMPRESSION_TYPES` y la compresión por defecto (`:1795`, `:1826`). El multi-vector solo se admite en HNSW (`usecases/schema/parser.go:264-268`) | No está | Falta: los mismos saltos que HFresh, porque la compresión es fija |
+| Un interruptor | HFresh no tiene flag propio. Se limita con `ALLOWED_VECTOR_INDEX_TYPES` y `DEFAULT_VECTOR_INDEX` | No está | Por decidir: si una primera versión va detrás de un flag propio |
+| La creación en el shard | La rama `hfresh` de `initVectorIndex` (`adapters/repos/db/shard_init_vector.go:286-355`). Le pasa el store del shard, los thunks que leen vectores del bucket de objetos, el scheduler, los callbacks, las métricas y el logger | No hay rama. `Config` ya pide los thunks, el proveedor de distancia, `AllocChecker` y `RootPath`. No pide el store, el scheduler ni las métricas | Hay que adaptarlo |
+| Los directorios y los nombres de lo que escribe | `vectorIndexStorageDirs` (`adapters/repos/db/shard_vector_storage.go:31-55`), que da error con un tipo desconocido. Los nombres para borrar por vector y en frío (`adapters/repos/db/helpers/helpers.go:178-236`). La cuenta de uso (`adapters/repos/db/shard_usage/usage.go`) y la categoría de dimensiones (`adapters/repos/db/shard_dimension_tracking.go:189-204`) | El índice ya usa `<id>.postingedge.d`, el mismo esquema que `<id>.hfresh.d`. Los buckets de test tienen nombres fijos | Falta. Los buckets tienen que llevar el id del índice, como `hfresh_postings_<id>`: un shard tiene un índice por vector con nombre |
+| El scheduler y las colas de fondo | `DB.scheduler` (`adapters/repos/db/repo.go:425-432`) baja hasta `hfresh.Config.Scheduler`. HFresh registra cuatro `queue.DiskQueue` en disco (`hfresh/task_queue.go`): analizar, partir, reasignar y fusionar | El mantenimiento corre dentro del insert, sin cola | Falta. Es el requisito de `disk-design.md`, «Los recursos compartidos del nodo» |
+| La indexación asíncrona | `VectorIndexQueue` (`adapters/repos/db/vector_index_queue.go`) llama a `Add`, `AddBatch` y `Delete` de cualquier índice. Apagada, llama a `AddBatch` y a `Delete` en el momento | Nada propio que escribir | Lo tenemos, en cuanto `Add` y `Delete` existan |
+| El presupuesto de una búsqueda | `Admit` en `adapters/repos/db/shard_read.go:736`, que viaja en el contexto. HFresh lo lee en su rescore (`hfresh/search.go:184`) | El rescore ya lo lee (`search.go:556`). Las cargas de una ronda no | Hay que adaptarlo |
+| La compresión | RQ de 1 bit, fijo. El cuantizador se guarda en su bucket compartido y se restaura al abrir | RQ centrado de 1 bit, entrenado con el lote en `Build`. En disco, la media en `mean.f32` | Hay que adaptarlo: guardarlo con el índice, y decidir cuándo se entrena si el índice empieza vacío |
+| Las métricas | `hfresh.NewMetrics` (`hfresh/metrics.go:48-136`), sobre los vectores compartidos de `usecases/monitoring/prometheus.go`: tamaño, operaciones, duraciones, postings y tareas de fondo. Más cuatro anotaciones en el log de queries lentas | `SearchStats`, `BuildStats` y `MemoryStats`, internos, sin Prometheus | Falta |
+| El backup | El shard pausa la cola, llama a `PrepareForBackup` y vuelca los memtables (`adapters/repos/db/shard_backup.go:46-181`). Lista `store.ListFiles` más `index.ListFiles` | Rechaza el backup | Falta. Lo que viva en buckets del store del shard entra solo. Los ficheros propios hay que listarlos |
+| El reinicio | `hfresh.New` lo restaura todo: sus buckets, el commit log de centroides, las dimensiones, el cuantizador, los mapas y las colas pendientes. `PostStartup` calienta después | `openDiskIndex` y `openGrowIndex`, en test | Falta |
+| La carga perezosa y el borrado en frío | Borran ficheros por nombre, sin abrir el índice (`adapters/repos/db/shard_lazyloader.go`, `adapters/repos/db/helpers/helpers.go:178-236`) | No está | Falta: los nombres del índice, en las dos listas de `helpers.go` |
+| Los tests que nombran el tipo | `test/acceptance/drop_vector_index/hfresh_test.go`, `test/acceptance/vector_index_restrictions/`, `usecases/schema/class_restrictions_test.go`, `cluster/schema/schema_test.go` | No hay | Falta |
+
+- **No existe una lista única de tipos.** El nombre de un tipo nuevo hay que añadirlo en unos quince sitios, y varios fallan en silencio o tarde: el guardián de movimiento de shards deja de moverlos, y el borrado en frío deja ficheros.
+
+## 2. Qué código hay que mover
+
+**El paquete tiene 3 216 líneas de código y 27 165 de test.** El código es el índice en memoria: se construye una vez en lote y después solo sirve búsquedas. Todo lo que lee de disco, inserta o borra está en ficheros `_test.go`, y por eso no entra en ningún binario.
+
+**Lo que ya es código del paquete:**
+
+- **El build en lote** (`build.go`, `partition.go`, `assign.go`, `edges.go`): partición, asignación y aristas, desde `AddBatch` y `Build`.
+- **La búsqueda** (`search.go`): las rondas, el scan de un posting, los endpoints, la parada y el rescore. El camino de disco ya la reutiliza: llama a `newPostingSearch`, a `postingSearch.visit` y a `Index.rescore`.
+- **Los postings y el sidecar en RAM** (`postings.go`), el grafo de centroides (`centroids.go`, sobre el paquete `hnsw`) y la configuración (`config.go`).
+- **La marca de borrado de v6.0** (`state.deleted` en `index.go`, leída en `search.go`): hoy solo la pone el código de test.
+
+**Lo que hay que mover, por fichero:**
+
+| fichero de test | líneas | qué contiene que tendría que ser código | qué se queda como test |
+|---|---|---|---|
+| `disk_test.go` | 1 241 | El camino de lectura de v4.0. El formato (`diskMeta`, las claves de bloque, los ficheros residentes `meta.json`, `mean.f32`, `layout.u32`, `routing.u64`, `centroids.f32`, `vectors.f32`). La escritura de un índice en lote (`writeDiskIndex`, `writeCentroidGraph`, `writeDiskVectors`). La apertura (`openDiskIndex`, `openDiskStore`, `openCentroidGraph`). La lectura por rondas (`diskIndex.fetch`, `fetchMembers`, `fetchEdges`, `diskPosting`, `diskRound`). La búsqueda sobre postings traídos (`fetchedSearch.run`), que es lo común a v4.0 y v5.0. El scan con los códigos en RAM de v4.1 (`residentMembers`, `sketchScanState`) | Las cuentas de I/O del arnés (`diskSearchStats`) y el modo `pread` |
+| `halo_test.go` | 771 | El halo: el sketch de cada endpoint dentro del posting que lleva a él (`haloPosting`, `haloRead`, `fetchHalo`, `scoreHalo`), y su poda | Sus tests |
+| `grow_test.go` | 2 513, unas 2 100 de camino | Los inserts en disco de v5.0 a v5.2. El formato que crece: un bucket Set con dos filas por posting (`postingedge_grow_postings`) y tres buckets Replace por vector (`postingedge_grow_map`, `_routing`, `_edgedists`), más `postingedge_grow_edges` y `slots.u32`. La escritura de la base (`writeGrowIndex`) y la apertura (`openGrowIndex`). La lectura (`row`, `fetchMembers`, `fetchLists`, `joinEdges`). El insert partido en buscar y aplicar (`plan`, `apply`, `insertBatch`), las aristas inversas (`enterNeighbors`), el split (`split`), las aristas pendientes y su consolidación (`setPending`, `writeRow`, `flushPending`), y `flushAll` y `compactAll` | `sameAs`, que compara con el gemelo en memoria, y `checkCoverage` |
+| `stream_test.go` | 1 474, unas 830 de camino | El mismo camino de escritura, en memoria (`streamIndex`): `insert`, `nearestCentroid`, `enterNeighbors`, `split`, `linkSiblings`, `repairEdges`, `refreshEdges`. Es el gemelo contra el que se valida el de disco, insert a insert | Los diagnósticos: `edgesDigest`, `snapshotEdges`, `rebuildEdges`, las cohortes de grado y el recall de arista |
+| `delete_test.go` | 457 | Los deletes de v6.0, solo en memoria: la marca (`remove`), la reescritura de un posting sin sus borrados (`rewrite`), la limpieza y la fusión (`cleanup`, `merge`) y el refresco de las listas medio muertas (`refresh`) | `checkCoverage` y las cuentas |
+| `*_equiv_test.go`, `stream_insert_test.go`, `grow_batch_test.go`, `delete_cells_test.go` | 4 844 | Nada: son los tests de lo anterior | Todo |
+| `bench_test.go` y `bench_*_test.go`, casi todos con el tag `postingedgebench` | 10 590 | Nada: es el arnés | Todo |
+
+- **`stream_test.go` no hace falta moverlo como índice.** Su papel es de oráculo: el índice que crece en disco se compara con él insert a insert. Puede quedarse en test si el camino de disco pasa a ser el único que escribe. La decisión depende de si un nodo quiere alguna vez este índice entero en memoria.
+- **Mover no es copiar.** El código de test asume un escritor, cierra el store para compactar y da por buenos sus argumentos. Al pasar al paquete necesita errores de entrada, concurrencia y cierre ordenado.
+
+**Lo que no existe ni en test, y hay que escribir:**
+
+- **Durabilidad.** Qué queda escrito cuando `Add` devuelve, y qué se recupera tras una caída. Con las aristas consolidadas de v5.1, los cambios pendientes viven en memoria hasta que se escribe la fila. En v5.0 cada cambio se entrega al store al momento.
+- **La reorganización en segundo plano.** El índice crecido solo cumple el criterio de latencia en frío con el bucket de postings en un segmento y los vectores en orden de posting (1.07 veces el lote, frente a 1.33 tal cual). `lsmkv` no llega solo a un segmento. No está diseñada ni medida.
+- **Inserts y búsquedas a la vez.** Todo lo medido tiene un escritor y ninguna búsqueda mientras escribe. v5.2, en cola, pone en paralelo las búsquedas de los propios inserts. Las queries mientras se inserta siguen sin medir.
+- **Deletes en disco, y el halo en el camino de inserts.** Los deletes de v6.0 son en memoria y en conteos.
+- **El estado residente del índice en lote como algo que se actualiza.** v4.0 lo lee de ficheros planos escritos una vez. El formato que crece ya lo tiene en buckets.
+
+**Una decisión que bloquea el formato: dónde viven los vectores exactos.**
+
+- **En el prototipo, en un fichero propio** (`vectors.f32`): en orden de posting en v4.0 y por id de vector en v5.0. Es el layout (b') de `disk-design.md`. Cada lectura del rescore son 6 144 B a 1536d.
+- **En Weaviate, en el bucket de objetos.** HNSW y HFresh leen el vector de ahí, con `TempVectorForIDWithViewThunk`, y el índice en memoria de este paquete también. Es el layout (a). Una lectura trae el objeto entero, con sus propiedades.
+- **Hay un precedente de copia propia: flat.** Guarda sus vectores en un bucket suyo y hace el rescore desde ahí (`vectorById`, `adapters/repos/db/vector/flat/index.go:657`).
+- **No está medido con objetos reales.** Todo lo cronometrado en disco usa el fichero propio, o un bucket de objetos donde el objeto es solo el vector. Con (b') el índice guarda una segunda copia de los vectores y tiene que mantenerla con los inserts, los deletes, el backup y la replicación.
+
+## 3. Huecos conocidos
+
+### Deletes
+
+**Hoy no hay.** `Delete` devuelve `ErrNotSupported`, y volver a añadir un id también: un update se rechaza.
+
+**Lo que pide el shard:**
+
+- **`Delete` en cada borrado, en todas las colas de vectores del shard** (`adapters/repos/db/shard_write_delete.go:120`). Llega también para ids que el índice nunca tuvo: tiene que aceptarlos sin error, como HFresh.
+- **Un update que cambia el vector es un borrado más un insert.** El objeto recibe un doc id nuevo, y el shard borra el viejo y añade el nuevo (`updateVectorInVectorIndex`, `adapters/repos/db/shard_write_put.go:912`). Los doc ids salen de un contador y no se reutilizan.
+- **Si `Delete` falla:** en síncrono falla la petición, cuando el bucket de objetos ya cambió. En asíncrono la cola descarta la tarea con un log, y el id se queda en el índice.
+
+**La red que hay por encima.** Un id que el índice devuelve y cuyo objeto ya no existe se descarta al cargar los objetos (`ObjectsByDocIDWithDists`, `entities/storobj/storage_object.go`). Un id viejo cuesta resultados de menos, no resultados falsos.
+
+- **Esa red no sirve hoy a este índice.** Su rescore falla la búsqueda entera si no puede leer un vector (`exactDistance`, `search.go:591`), donde HNSW y HFresh saltan el candidato. Hay que cambiarlo antes que nada: sin eso, cualquier borrado rompe las búsquedas que lo encuentren.
+
+**Lo que hay medido:** v6.0, en memoria y en conteos, en marcha el 19 y sin veredicto. En disco, nada.
+
+*Lo mínimo para una primera versión, por lo leído:*
+
+- **La marca de v6.0, guardada con el índice:** un bit por vector. `Delete` la pone y no falla con ids desconocidos. `ContainsDoc` da `false` para un id marcado.
+- **El rescore salta un vector que falta.**
+- **La limpieza física, como tarea de fondo y después.** Si la celda más simple de v6.0 cumple su criterio, la primera versión puede salir sin ella. Si no, la limpieza entra en la primera versión.
+
+### Filtros
+
+**Hoy una búsqueda con filtro devuelve un error:** `ErrNotSupported`, «filtered search» (`search.go:173`).
+
+**Qué pasaría en un shard:**
+
+- **El shard resuelve el filtro a una lista de ids permitidos y se la pasa siempre al índice** (`adapters/repos/db/shard_read.go:743` y `:820`). Nunca responde él: no tiene un camino plano propio para listas pequeñas. Esa decisión es de cada índice.
+- **El error del índice falla la query entera,** como «vector search: …», y manda un evento a Sentry cada vez (`shard_read.go:822-829`).
+- **Lo mismo en la búsqueda híbrida con filtro y en `Aggregate` con filtro,** que llaman al índice con la misma lista.
+- **Nadie comprueba el filtro después.** Un índice que ignorase la lista devolvería objetos de fuera del filtro, en silencio. Devolver error es lo correcto mientras no haya filtros.
+- **No hay forma de declarar que un tipo no filtra.** La configuración de un índice solo dice su tipo, su distancia y si es multi-vector.
+
+**Qué hacen los otros:**
+
+- **HNSW:** búsqueda plana por debajo de `flatSearchCutoff` (40 000 ids). Por encima, el grafo con una estrategia de filtro (`acorn` por defecto).
+- **HFresh:** búsqueda plana por debajo de 5 000 ids, leyendo el vector exacto de cada id permitido del bucket de objetos, de uno en uno (`adapters/repos/db/vector/hfresh/search_flat.go`). Por encima, comprueba cada entrada en el scan del posting y pasa la lista al grafo de centroides.
+- **Flat:** recorre sus vectores y salta los que no están en la lista.
+
+*La opción mínima que veo, en dos partes:*
+
+1. **Por debajo de un corte, búsqueda exacta sobre la lista.** Se leen los vectores de los ids permitidos con el thunk que el índice ya recibe y se ordenan por distancia exacta. Son unas 90 líneas, con `hfresh/search_flat.go` de plantilla. No hay un helper compartido que reutilizar.
+2. **Por encima, filtrar en el scan.** Un miembro fuera de la lista se puntúa y sus aristas se siguen, y no entra en los candidatos ni en el rescore. Es el mismo mecanismo que la celda 1b de v6.0 aplica a un borrado: la comprobación de la lista iría donde va la de la marca.
+
+- **Nada de esto está medido.** Con un filtro selectivo por encima del corte, la búsqueda cargaría muchos postings para reunir k candidatos permitidos. Lo más parecido que hay es la variante agrupada de v6.0, que borra regiones enteras.
+- **La alternativa: rechazar la query antes de ejecutarla,** con un error claro. Pide fontanería nueva por encima del índice y no tiene precedente.
+
+### Métricas de distancia
+
+- **Soportamos dos: `cosine` y `l2-squared`.** Las mismas que HFresh, que valida al parsear (`entities/vectorindex/hfresh/config.go:113`). HNSW y flat admiten también `dot`, `manhattan` y `hamming`.
+- **Por qué no `dot`:** la partición y el grafo de centroides trabajan en l2, que coincide con el coseno sobre vectores normalizados y no con un producto escalar crudo.
+- **Todo lo medido es en coseno.** `l2-squared` pasa los tests y no tiene ni una curva. Tampoco tiene margen de source calibrado: en l2 el índice sigue las aristas de todos los vectores escaneados.
+- **El shard no normaliza:** el índice recibe vectores crudos y los normaliza él para el coseno. Ya lo hace, en el insert, en la query y en el rescore.
+- **Un detalle que cambiar:** la distancia se rechaza al crear el índice (`Config.validate`, `config.go:259`), es decir, al arrancar el shard. Tiene que rechazarse al parsear, para que la clase no llegue a crearse.
+
+### Multi-vector
+
+- **Hoy no hay:** `Multivector()` devuelve `false` y el índice no implementa `VectorIndexMulti`.
+- **En Weaviate eso basta para un rechazo limpio, sin escribir nada:**
+  - **El esquema** rechaza un vectorizador multi-vector con cualquier tipo que no sea HNSW (`usecases/schema/parser.go:264`).
+  - **El shard** rechaza la escritura y la búsqueda: «index does not support multi-vectors» (`checkVectorKind`, `adapters/repos/db/vector_index.go:64`).
+  - **La cola** devuelve `common.ErrMultiVectorUnsupported`.
+- **HFresh solo lo soporta con MUVERA,** que convierte un documento multi-vector en un solo vector dentro del índice. El mismo camino valdría aquí más adelante. Sin medir.
+
+### Otros huecos, que salen de la lectura
+
+- **Empezar vacío.** Todo lo medido parte de un índice construido en lote, con el 10 % o el 50 % del corpus. En un shard el índice nace vacío y recibe inserts: hace falta el primer posting, y entrenar el cuantizador y su media con los primeros vectores. HFresh crea su primer posting en el primer insert (`ensureInitialPosting`).
+- **Una búsqueda antes de tener nada** devuelve `ErrNotBuilt`. HFresh devuelve una lista vacía sin error, y un error ahí falla la query.
+- **`SearchByVectorDistance`** falta. Al leer cómo lo hacen los demás apareció un bug en flat y en HFresh: ver el final de esta sección.
+- **Búsquedas mientras se inserta, y varios escritores.** Sin medir.
+- **4 294 967 294 vectores por índice,** porque un slot y una arista son 4 B. Es por shard.
+- **Los mapas por doc id crecen con los ids emitidos, no con los vivos.** Un update gasta un doc id nuevo. A HNSW le pasa lo mismo.
+- **Índices muy pequeños.** Con menos de T vectores hay un solo posting y la búsqueda es su scan. Es el caso de un tenant pequeño, y no está medido.
+- **k distinto de 10, y Linux.** Todo lo cronometrado es con k = 10, en un M1 Max con APFS.
+
+**El bug encontrado al leer, ya arreglado en esta rama (`665f3a1806`).**
+
+- **Qué era:** en flat y en HFresh, el bucle de `SearchByVectorDistance` ampliaba la página y no volvía a buscar. HNSW sí vuelve a buscar.
+- **Qué causaba:** una búsqueda por distancia devolvía como mucho sus primeros 100 resultados. Sin máximo, que es lo que pasa un `Aggregate` con `certainty` y sin `objectLimit`, no terminaba nunca.
+- **Dónde:** `adapters/repos/db/vector/flat/index.go` y dos veces en `adapters/repos/db/vector/hfresh/search.go`. Está igual en `main` a día 19.
+- **Tests:** `search_by_distance_test.go` en los dos paquetes. Fallan sin el arreglo, con dos casos truncados a 100 y dos que no vuelven, y pasan con él.
+
+## 4. Parámetros públicos
+
+**Convenciones que sigo,** leídas en `entities/vectorindex/{hnsw,hfresh,flat}/config.go`:
+
+- **Claves en camelCase,** con la unidad en el nombre cuando hay duda (`maxPostingSizeKB`, `cleanupIntervalSeconds`).
+- **La compresión, en un bloque con su nombre** (`rq`, `bq`), con `enabled` dentro. El `rescoreLimit` vive en ese bloque en los tres índices, nunca arriba.
+- **`-1` es «que elija Weaviate»:** `ef` en HNSW y `rescoreLimit` en flat.
+- **Los enumerados, en minúsculas** (`acorn`, `sweeping`, `l2-squared`).
+- **`vectorIndexConfig` es libre en el OpenAPI** (`openapi-specs/schema.json`): los nombres solo existen en los structs y en las funciones de parseo. Las claves desconocidas se ignoran sin error, y un valor de otro tipo también.
+
+### La tabla
+
+| público, propuesto | interno hoy | en HNSW | en HFresh | en flat | default propuesto | qué validar | ¿cambia después? |
+|---|---|---|---|---|---|---|---|
+| `distance` | `UserConfig.Distance` (`config.go`) | `distance`, `entities/vectorindex/hnsw/config.go:60` | `distance`, `entities/vectorindex/hfresh/config.go:69` | `distance`, `entities/vectorindex/flat/config.go:45` | `cosine` | `cosine` o `l2-squared`, y al parsear, como HFresh. HNSW y flat lo rechazan más tarde, al crear el shard | No, como en los tres |
+| `maxPostingSizeKB` | El umbral de split T: `streamConfig.threshold` y `growConfig.threshold`, en test. En el build en lote, su media: `UserConfig.TargetPostingSize` | No tiene | `maxPostingSizeKB`, `entities/vectorindex/hfresh/config.go:66`. Default 48, de 8 a 1024 | No tiene | `0`, automático: T = 360 vectores. Ver la comprobación 1 | 0, o de 8 a 1024 como HFresh. El T que resulte, de 192 vectores o más | No. HFresh acepta el cambio y no lo aplica hasta reconstruir el índice: mejor rechazarlo |
+| `ef` | `UserConfig.EF`, 20 | `ef`, `entities/vectorindex/hnsw/config.go:54`. Default −1 | `searchProbe`, `entities/vectorindex/hfresh/config.go:68`. Default 256. Es el concepto equivalente, no el mismo nombre | No tiene | 20. O −1, si se adopta el ef dinámico: ver la comprobación 3 | −1, o 1 o más. Se sube a k, como hoy | Sí, en vivo, como en HNSW y como hoy |
+| `dynamicEfMin`, `dynamicEfMax`, `dynamicEfFactor` | No existen | `entities/vectorindex/hnsw/config.go:55-57`. Defaults 100, 500 y 8 | No tiene | No tiene | Sin proponer valores: falta medir otros k | Mínimo de 1 o más, máximo no menor que el mínimo, factor de 1 o más | Sí, en vivo |
+| `efConstruction` | El ef de la búsqueda de un insert: 160, flag del arnés. En el build en lote lo sustituyen `BuildProbe` (256) y `RescueLimit` (64) | `efConstruction`, `entities/vectorindex/hnsw/config.go:53`. Default 128, mínimo 4 | No tiene. Lo más cercano es interno: `InternalPostingCandidates`, 64 | No tiene | 160 | El número de aristas (16) o más. Medido: 80 cumple por 0.2 puntos y 40 no cumple | No, como en HNSW |
+| `rq.enabled`, `rq.bits`, `rq.centering` | Fijos: código RQ centrado de 1 bit (`trainQuantizer` en `postings.go`) | `rq`, `entities/vectorindex/hnsw/rq_config.go:30-36`. Bits 8, 4 o 1; `centering` con 4 o 1 | `rq`, `entities/vectorindex/hfresh/config.go:70`. Solo `enabled: true` y `bits: 1`. Rechaza `centering` | `rq`, `entities/vectorindex/flat/config.go:37-42`. Bits 1 u 8 | `true`, 1 y `true` | Rechazar cualquier otro valor, y los bloques `pq`, `sq` y `bq`, con error, como HFresh | No |
+| `rq.trainingLimit` | `UserConfig.TrainingLimit`, 10 000 | `rq.trainingLimit`, `entities/vectorindex/hnsw/rq_config.go:35`. Default 10 000 | No se parsea | No tiene | 10 000 | 1 o más | No |
+| `rq.rescoreLimit` | `UserConfig.RescoreLimit`, 64 | `rq.rescoreLimit`, `entities/vectorindex/hnsw/rq_config.go:33`. Default 20, y 512 con 1 bit | `rq.rescoreLimit`. Default 350, `entities/vectorindex/hfresh/config.go:34` | `rq.rescoreLimit` y `bq.rescoreLimit`, `entities/vectorindex/flat/config.go:33` y `:39`. Default −1, que es k | −1, automático por modo. Ver el acoplamiento | −1, o 0 o más. Efectivo: nunca menos que k | Sí, en vivo |
+| `rq.cache`, enumerado | Tres celdas del arnés: `diskMeta.Halo`, `RoutingCodeWords` y `ScanInMemory` | No tiene: siempre cachea, hasta `vectorCacheMaxObjects` (`:58`) | No tiene | `bq.cache` y `rq.cache`, booleanos, `entities/vectorindex/flat/config.go:34` y `:40`, con `vectorCacheMaxObjects` (`:46`) | `routing`. Ver la comprobación 2 | Uno de los valores del enumerado. Un booleano, con error | No: cada modo es un formato en disco |
+
+**Lo que propongo no exponer en una primera versión:**
+
+- **`Edges` (16), `BuildProbe` (256), `RescueLimit` (64).** Dan forma al build y solo están medidos en sus defaults, con una excepción a 10M (P = 320 y R = 256). El análogo de `Edges` en HNSW sería `maxConnections`, pero aquí cuenta otra cosa: los vecinos fuera del posting propio.
+- **`EntryPostings` (1), `LoadBatch` (4), `SourceMargin` (automático).** Cerrados por lo medido.
+- **`CodeBits` y `ScanCodeBits`.** Los cubre el modo de memoria.
+- **Los bits del código de ruteo** (512; 384 ahorra 16 MB por millón y pierde un 7 % a 0.95 en frío), **el mínimo de fusión** (T / 3), **el umbral de reescritura** (30 % de borrados) y **el K de consolidación.**
+- **`replicas` de HFresh no tiene equivalente.** Las aristas hacen su papel.
+
+### Comprobación 1: `maxPostingSizeKB` como umbral de split
+
+**En HFresh es el umbral de split, y su unidad es KiB de posting.**
+
+- **La conversión a vectores** está en `computeMaxPostingSize` (`adapters/repos/db/vector/hfresh/config.go:163-171`): `ceil(KB × 1024 / (dims / 8 + 25))`. Los 25 B son el id (8), la versión (1) y los metadatos de RQ (16).
+- **Tiene un suelo de 192 vectores** (`maxPostingSizeFloor`, `:32`), y el mínimo de fusión es el máximo entre tres (`setMaxPostingSize`, `:173`).
+- **Es el umbral de split:** un posting con más entradas que `maxPostingSize` encola su split (`insert.go:246`), y con más de cinco veces se parte en el propio insert (`insert.go:236`).
+- **Con su default de 48:** 227 vectores a 1536d y 407 a 768d.
+
+**En este índice el umbral es T = 360 vectores, y deja la media en 236.**
+
+- **La calibración de v2.0:** T = 360 da una media final de 237.4. T = 320 da 212.9 y T = 400, 264.4.
+- **Creciendo desde el 10 % (v2.2):** 241.8 y 242.8.
+- **La media queda entre 0.66 y 0.67 veces T.**
+
+**El valor que deja la media en 236 a 1536d, con la fórmula de HFresh tal cual, es 76.** Da T = 359. Con 77 da 364.
+
+**Cómo cambia con la dimensión:**
+
+| dimensión | B por entrada, con la fórmula de HFresh | con 76 KB fijos: T | media esperada | KB que dejan T en 360 | lo que da el 48 de HFresh |
+|---|---|---|---|---|---|
+| 384 | 73 | 1 067 | 704 | 25.7 | 674 |
+| 768 | 121 | 644 | 425 | 42.5 | 407 |
+| 1024 | 153 | 509 | 336 | 53.8 | 322 |
+| 1536 | 217 | 359 | 237 | 76.3 | 227 |
+| 3072 | 409 | 191, que el suelo deja en 192 | 127 | 143.8 | 121, que el suelo deja en 192 |
+
+- **Con un default fijo en KB, la media en vectores se mueve con la dimensión:** de 127 a 3072d a 704 a 384d.
+- **Todo lo medido tiene la media fijada en 236 vectores, también a 768d.** En wiki-dpr S se fijó a 236 a propósito: el presupuesto de 48 KiB habría dado 438. Un default de 76 a 768d daría una media de 425, que no está medida a esa dimensión. A 1536d y en memoria, S = 512 quedaba a 0.95 veces el QPS a 0.95 (Fase C).
+
+*Propuesta mía:*
+
+- **El default, `0`: automático, T = 360 vectores a cualquier dimensión.** Es lo único que reproduce lo medido. Un valor explícito se convierte con la fórmula de HFresh, para que el mismo número signifique el mismo umbral en los dos índices.
+- **La alternativa, un default fijo de 76,** es más simple de explicar y deja la media en 236 solo a 1536d. Si se prefiere, hay que medir antes 768d con una media de 425.
+- **El mínimo de fusión, T / 3:** 120 con T = 360. v6.0 lo mide con 118.
+
+**Dos avisos sobre la unidad:**
+
+- **Es nominal.** Una entrada de miembro en disco son 208 B a 1536d, no 217, y un posting lleva además sus aristas: 36 B por miembro con el grado medido de 8.98, y 64 B como mucho. Un posting en el umbral pesa unos 86 KiB, no 76. A HFresh le pasa lo mismo en pequeño: su entrada real son 209 B.
+- **El suelo de 192 vectores de HFresh** haría de umbral a 3072d con cualquier valor por debajo de 77 KB. Hay que decidir si se hereda.
+
+### Comprobación 2: el modo de memoria
+
+**Flat sí expone un parámetro de caché de vectores comprimidos.**
+
+- **Se llama `cache`, es booleano y vive dentro del bloque de compresión:** `bq.cache` y `rq.cache` (`entities/vectorindex/flat/config.go:34` y `:40`). Default `false`.
+- **Pide compresión:** `cache: true` sin `enabled: true` da el error «not possible to use the cache without compression» (`:199`).
+- **Con la caché, los códigos están en RAM** y la búsqueda los recorre ahí. Sin ella, cada query recorre el bucket de códigos con un cursor. Los vectores exactos del rescore se leen de disco en los dos casos.
+- **El tamaño lo acota `vectorCacheMaxObjects`** (`:46`), arriba del todo, el mismo nombre que en HNSW.
+- **HNSW no tiene el flag:** sus vectores comprimidos van siempre a la caché.
+
+**Los modos que hay que nombrar,** por qué códigos quedan residentes. A 1M y 1536d:
+
+| modo | qué hay en RAM por vector | heap del índice | lo que cuesta | estado |
+|---|---|---|---|---|
+| ninguno: el halo | Nada. El sketch de cada endpoint viaja en el posting que lleva a él | 35.0 MB | De 1.3 a 1.6 veces la latencia en frío del modo de ruteo | Medido en v4.0 |
+| el código de ruteo | 72 B: un código de 512 bits, con el que se ordenan los postings. El scan lee los códigos completos del posting | 106.0 MB | La referencia | Medido en v4.0. Es la celda sobre la que se miden los inserts |
+| el código de scan y de ruteo | Un código de 512 o 768 bits que sirve para las dos cosas. En disco quedan las aristas y los vectores | Sin medir. Lo residente en ficheros son 105.7 y 137.4 MB | El store baja de 243.0 a 36.8 MB. Pide más rescore: 200 o 400 | v4.1: sin cronometrar todavía, y su criterio sin leer |
+
+**Tres nombres para el parámetro,** como enumerado:
+
+1. **`rq.cache`,** con valores `none`, `routing` y `scan`. Es el nombre y el sitio de flat. El inconveniente: la misma clave es booleana en flat y sería una cadena aquí. Habría que rechazar un booleano con un error que diga los valores, porque los parseadores comunes ignoran en silencio un valor de otro tipo.
+2. **`rq.cacheMode`,** con los mismos valores. Evita el choque de tipos y se lee como enumerado.
+3. **`codeCache`,** arriba, al lado de donde HNSW y flat tienen `vectorCacheMaxObjects`. Dice qué se cachea: códigos, no vectores.
+
+*Propuesta mía:* `rq.cache` si se acepta el choque de tipos con flat, y `rq.cacheMode` si no. El default, `routing`. El valor `scan` no debería existir hasta que v4.1 tenga veredicto.
+
+### Comprobación 3: el ef dinámico
+
+**HNSW lo tiene, y es su default.**
+
+- **`ef` vale −1 por defecto** (`DefaultEF`, `entities/vectorindex/hnsw/config.go:29`).
+- **Con cualquier `ef` menor que 1,** el ef de una query es `k × dynamicEfFactor`, acotado entre `dynamicEfMin` y `dynamicEfMax`, y nunca menor que k (`autoEfFromK`, `adapters/repos/db/vector/hnsw/search.go:63`). Con los defaults: 8 × k, entre 100 y 500.
+- **HFresh no tiene equivalente.** Su único ajuste es `max(k, searchProbe)`.
+
+**Aquí tiene sentido, y no está medido.**
+
+- **A favor: el ef de este índice se compara con k.** La búsqueda para cuando el mejor posting sin cargar no mejora al ef-ésimo candidato, y un ef menor que k se sube a k. Con el default fijo de 20, una query con k = 50 corre con ef = k, que es la parada más temprana posible. A k = 10 esa parada da un recall de 0.92, no de 0.95. Un ef fijo cambia el objetivo de recall según k sin decirlo.
+- **A favor: es la convención de HNSW,** y un usuario que venga de ahí la espera.
+- **En contra: todo lo medido es con k = 10.** El default de 20 es 2 × k, y no sé si ese factor vale con k = 1 o con k = 100.
+
+*Propuesta mía:*
+
+- **Reservar ya los nombres de HNSW** (`ef: -1`, `dynamicEfMin`, `dynamicEfMax`, `dynamicEfFactor`) y la semántica de `autoEfFromK`.
+- **No fijar los valores sin medir.** El punto de partida sería un mínimo de 20 y un factor de 2, que con k = 10 es el default de hoy. Antes de darlo por bueno: un barrido de k (1, 10 y 100) que diga qué ef da 0.95 en cada uno.
+- **Mientras tanto, el default sigue siendo `ef: 20`.**
+
+### El acoplamiento de `rescoreLimit` con `ef`
+
+**Lo medido.** El recall tiene un techo que pone el `rescoreLimit`, y ese techo depende de cuántos bits tiene el código con el que se hace el scan:
+
+| bits del código del scan | con 64 | con 200 | con 400 | con 800 | de dónde sale |
+|---|---|---|---|---|---|
+| 1 536: el código completo a 1536d | techo 0.996 | 0.996 | — | — | Fase B, dbpedia |
+| 768: el código completo a 768d | techo 0.9816 | 0.9904 a ef 160 | el que se cronometra a 0.99 | — | v1.4, wiki-dpr |
+| 768, a 1536d | techo 0.975 | 0.99 a ef 397 | 0.99 a ef 291 | 0.99 a ef 281 | Fase B y v4.1 |
+| 512, a 1536d | techo 0.926 | techo 0.9822 | 0.99 a ef 711 | 0.99 a ef 385 | Fase B y v4.1 |
+| 256, a 1536d | techo 0.788 | techo 0.911 | techo 0.952 | techo 0.974 | Fase B, celda desacoplada |
+
+- **El `rescoreLimit` que hace falta lo decide la anchura del código, no el ef.** Con el código completo a 1536d, 64 llega a 0.99 con ef 188 y a 0.996 con ef 1 024. Con 512 bits, 200 no llega a 0.99 con ningún ef.
+- **Pasado el techo, subir ef baja el recall.** Con 256 bits y 400, el recall sube hasta 0.9516 en ef 320 y cae a 0.9397. Más vectores escaneados compiten por los mismos puestos del rescore con estimaciones ruidosas.
+- **Donde funciona, el `rescoreLimit` es al menos la mitad del ef:** 200 con ef 397 a 768 bits, y 400 con ef 711 a 512.
+- **Cada candidato del rescore es una lectura.** Con el scan en RAM, a 0.95 el rescore son 200 de las 218 lecturas de una query.
+
+*Propuesta mía,* para `rq.rescoreLimit: -1`:
+
+- **Una base por anchura del código del scan:** 64 con 1 536 bits o más, 200 con 768 o más y 400 con 512 o más. Por debajo de 512 bits no se ofrece ningún modo. Esto ya cubre la regla de hoy, «64 a 1536d y 200 a 768d».
+- **Y un suelo de la mitad del ef, solo cuando el scan usa un código más corto que el completo.** Con el código completo no hace falta: 64 aguanta hasta ef 1 024.
+- **El efectivo nunca baja de k,** como en HFresh y en flat.
+- **Un valor explícito se respeta tal cual,** con k como único suelo.
+
+**Lo que esta propuesta no tiene detrás:**
+
+- **El suelo de ef / 2 sale de dos puntos.** No hay ninguna curva medida con el `rescoreLimit` moviéndose con ef. Con 256 bits el techo llega antes, con ef en 0.8 veces el `rescoreLimit`: el factor crece cuando el código se acorta.
+- **Dimensiones intermedias.** No hay nada medido entre 768 y 1 536 bits.
+- **Otros k.** Con k = 100, un `rescoreLimit` de 64 pasa a 100 y no deja margen de reordenación. A k = 10 el margen es de 6.4 veces.
+- **Antes de fijarla:** una curva por modo con la regla puesta, contra las de `rescoreLimit` fijo, en la misma sesión.
+
+## 5. Orden de trabajo propuesto
+
+*Todo este orden es propuesta mía.* Va en pasos, cada uno con lo que necesita antes.
+
+**Paso 0. Decisiones, que bloquean nombres y formato.**
+
+| decisión | bloquea | de qué depende |
+|---|---|---|
+| El nombre del tipo | La configuración en `entities`, los nombres de buckets y directorios, todo el registro | De nada |
+| Dónde viven los vectores exactos: bucket de objetos o fichero propio | El formato en disco, el backup y la replicación | De una medida con objetos reales, que no hay |
+| Un formato en disco o dos: el que crece (v5.0) y el del lote (v4.0) | El camino de lectura y la reorganización | De si la reorganización reescribe al formato del lote |
+| La tabla de parámetros públicos, con el default de `maxPostingSizeKB` y el nombre del modo de memoria | La configuración en `entities` | Del veredicto de v4.1 para el valor `scan` |
+| Si la primera versión lleva limpieza física de deletes | El paso 4 | Del veredicto de v6.0 |
+
+**Paso 1. La configuración y el registro del tipo.** Solo necesita el nombre y la tabla de parámetros.
+
+- La configuración en `entities/vectorindex/`, con su parseo y su validación de cambios.
+- El tipo en el despacho y en las listas cerradas de la sección 1.
+- La rama en `initVectorIndex`, los directorios y los nombres de artefactos.
+- **Puede ir en paralelo con los pasos 2 a 4.** No sirve para nada visible hasta que el índice inserte y borre: detrás de un flag o fuera de `ALLOWED_VECTOR_INDEX_TYPES`.
+
+**Paso 2. El camino de lectura, al paquete.** Necesita las decisiones de formato.
+
+- El formato, la apertura y la búsqueda por rondas de `disk_test.go`, con los buckets nombrados por el id del índice.
+- El estado residente, restaurado al abrir.
+- El rescore, tolerante a un vector que falta.
+- Una búsqueda sobre un índice vacío, que devuelve vacío.
+
+**Paso 3. El camino de escritura, al paquete.** Necesita el paso 2.
+
+- El insert de `grow_test.go`: buscar, aplicar, aristas inversas y split.
+- Empezar vacío: el primer posting y el entrenamiento del cuantizador.
+- La durabilidad: qué está escrito cuando `Add` devuelve.
+- `Flush`, `Shutdown` y `Drop` de verdad.
+
+**Paso 4. Los deletes mínimos.** Necesita el paso 3 y el veredicto de v6.0.
+
+- La marca guardada, `Delete` sin error para ids desconocidos y `ContainsDoc`.
+- Con esto un shard ya puede hacer updates: sin `Delete`, ninguna clase con este índice admite un cambio de vector.
+
+**Paso 5. Los recursos compartidos.** Necesita los pasos 3 y 4.
+
+- El split, el refresco, la limpieza y la reorganización, como tareas de una cola del scheduler del nodo.
+- Las cargas de una ronda, dentro del presupuesto de la query.
+- **Antes de este paso, ninguna medida vale como medida de un nodo.**
+
+**Paso 6. El reinicio y el backup.** Necesita los pasos 2 y 3, y la decisión de los vectores.
+
+- `PostStartup`, `ListFiles`, `PrepareForBackup` y `ResumeAfterBackup`.
+- Los nombres para el borrado en frío y la carga perezosa.
+
+**Paso 7. Lo que falta para que una clase normal funcione.** Necesita el paso 4.
+
+- Los filtros mínimos: búsqueda exacta por debajo del corte y filtro en el scan por encima.
+- `SearchByVectorDistance`.
+- Las métricas de Prometheus y las anotaciones del log de queries lentas.
+
+**Paso 8. La reorganización en segundo plano.** Necesita los pasos 3 y 5.
+
+- Es lo que deja el índice crecido a 1.07 veces el lote en frío. Sin ella queda en 1.33.
+- No está diseñada. Puede ir después de una primera versión si se acepta esa latencia.
+
+**Paso 9. Tests de aceptación, y medir como nodo.** Necesita todo lo anterior.
+
+- Los tests de aceptación que hoy nombran a HFresh, con este tipo.
+- Las curvas de siempre, a través de un shard, con objetos reales y en Linux.
+
+**Lo que bloquea a qué, en una línea:** las decisiones bloquean el formato; el formato bloquea leer; leer bloquea escribir; escribir bloquea borrar; y sin borrar no hay shard que funcione. El registro del tipo es lo único que puede empezar ya.
+
+**Lo que está en vuelo y puede mover este plan:**
+
+- **v6.0,** deletes en memoria: dice qué celda es la mínima, y si la limpieza entra en la primera versión.
+- **v4.1,** el scan con los códigos en RAM: dice si el modo `scan` existe.
+- **v5.2,** inserts con búsquedas en paralelo: dice cómo escala el insert, que hoy son 179 por segundo con un escritor.
+- **La sesión de la noche del 19,** con HFresh configurado como un nodo: son los números de referencia frente a HFresh.
