@@ -299,7 +299,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 					require.Nil(t, err)
 				}
 
-				err = store.UpdateBucketsStatus(storagestate.StatusReadOnly)
+				err = store.PauseBackgroundIO(true)
 				require.NoError(t, err)
 
 				expirableCtx, cancel := context.WithTimeout(ctx, 5*time.Second)

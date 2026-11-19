@@ -974,9 +974,9 @@ func (l *LazyLoadShard) Versioner() *shardVersioner {
 	return l.mustLoad(context.Background()).Versioner()
 }
 
-func (l *LazyLoadShard) isReadOnly() error {
+func (l *LazyLoadShard) refuseWrite() error {
 	if shard := l.currentShard(); shard != nil {
-		return shard.isReadOnly()
+		return shard.refuseWrite()
 	}
 	return l.shardOpts.index.nodeOverlay().RefuseWrite(nil)
 }

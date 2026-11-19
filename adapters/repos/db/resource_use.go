@@ -103,7 +103,7 @@ func (db *DB) resourcePressureReadOnly() bool {
 	return db != nil && db.nodeOverlay.ResourcePressure()
 }
 
-// setReadOnlyFlag flips the overlay's resource pressure flag, read by isReadOnly on each write.
+// setReadOnlyFlag flips the overlay's resource pressure flag, read by refuseWrite on each write.
 func (db *DB) setReadOnlyFlag(readOnly bool) {
 	db.resourceScanState.transition.Lock()
 	defer db.resourceScanState.transition.Unlock()

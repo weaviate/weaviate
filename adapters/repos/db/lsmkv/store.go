@@ -139,12 +139,12 @@ func (s *Store) AcquireBucketConsistentViewForRead(name string) BucketConsistent
 	return view
 }
 
-func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
-	return s.UpdateBucketsStatusBy(func(string) storagestate.Status { return targetStatus })
+func (s *Store) PauseBackgroundIO(paused bool) error {
+	return s.PauseBackgroundIOBy(func(string) bool { return paused })
 }
 
-// UpdateBucketsStatusBy sets each bucket to the status statusOf returns for its name.
-func (s *Store) UpdateBucketsStatusBy(statusOf func(bucket string) storagestate.Status) error {
+// PauseBackgroundIOBy pauses each bucket pausedFor returns true for and resumes the others.
+func (s *Store) PauseBackgroundIOBy(pausedFor func(bucket string) bool) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
@@ -152,7 +152,7 @@ func (s *Store) UpdateBucketsStatusBy(statusOf func(bucket string) storagestate.
 		return fmt.Errorf("%w: updating buckets state in store %q", ErrAlreadyClosed, s.dir)
 	}
 
-	// UpdateBucketsStatus is a write operation on the bucket itself, but from
+	// PauseBackgroundIO is a write operation on the bucket itself, but from
 	// the perspective of our bucket access map this is a read-only operation,
 	// hence an RLock()
 	s.bucketAccessLock.RLock()
@@ -160,7 +160,7 @@ func (s *Store) UpdateBucketsStatusBy(statusOf func(bucket string) storagestate.
 
 	for name, b := range s.bucketsByName {
 		if b != nil {
-			b.UpdateStatus(statusOf(name))
+			b.PauseBackgroundIO(pausedFor(name))
 		}
 	}
 

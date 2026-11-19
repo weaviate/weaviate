@@ -458,7 +458,7 @@ func (c *segmentCleanerCommon) storeSegmentMeta(id, lastProcessedId, size, clean
 
 func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortCallback,
 ) (cleaned bool, err error) {
-	if c.sg.isReadyOnly() {
+	if c.sg.backgroundIOPaused() {
 		return false, nil
 	}
 

@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // A rename that fails on disk must leave the bucket as it was: under its old
@@ -36,7 +35,7 @@ func TestStore_RenameBucketFailingOnDiskLeavesBucketUnchanged(t *testing.T) {
 	blocker := filepath.Join(targetDir, "blocker")
 	require.NoError(t, os.MkdirAll(blocker, 0o700), "a non-empty dir makes the rename fail")
 
-	store.Bucket("moved").UpdateStatus(storagestate.StatusReadOnly)
+	store.Bucket("moved").PauseBackgroundIO(true)
 	require.Error(t, store.RenameBucket(ctx, "moved", "target"))
 
 	require.Nil(t, store.Bucket("target"))

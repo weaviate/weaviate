@@ -149,7 +149,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	isReadOnly() error
+	refuseWrite() error
 	syncStorePause() error
 	setReindexSwapping() error
 	setReindexing(reindexing bool) error
@@ -515,7 +515,7 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 func noopCallback() {}
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWrite(); err != nil {
 		return err
 	}
 
@@ -530,7 +530,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWrite(); err != nil {
 		return err
 	}
 
