@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -409,6 +410,28 @@ func TestFirstSplitSwapsWhenSinglePostingDeleted(t *testing.T) {
 	require.True(t, centroids.Built())
 	require.False(t, centroids.Exists(1))
 	require.ElementsMatch(t, []uint64{1001, 1002}, searchIDs())
+}
+
+// A query that picked posting 1 just before the first split swapped in the
+// graph and emptied it must search the graph instead of returning nothing.
+func TestSearchRacingFirstSplitFindsVectors(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
+	defer index.taskQueue.splitQueue.Resume()
+	all := addRestartVectors(t, index, vectors, 0, 600)
+	require.False(t, index.Centroids.Built())
+
+	var once sync.Once
+	index.afterCentroidSearch = func() {
+		once.Do(func() { require.NoError(t, index.doSplit(t.Context(), 1, true)) })
+	}
+	ids, _, err := index.SearchByVector(t.Context(), all[0], 1, nil)
+	require.NoError(t, err)
+	require.True(t, index.Centroids.Built())
+	require.Equal(t, []uint64{0}, ids)
 }
 
 // A first split cut short by a crash leaves postings without a centroid:

@@ -73,6 +73,9 @@ type HFresh struct {
 	// bootstrapThreshold is singlePostingMaxSize as a vector count, set once
 	// the dimensions are known.
 	bootstrapThreshold uint32
+	// afterCentroidSearch runs between a query's centroid search and its
+	// posting read; set by tests only
+	afterCentroidSearch func()
 
 	// needsNormalization is precomputed at construction from the configured
 	// distance: cosine-dot only equals the cosine distance on unit vectors,
