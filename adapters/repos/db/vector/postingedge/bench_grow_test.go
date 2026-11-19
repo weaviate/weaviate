@@ -88,6 +88,13 @@ var (
 		"cell, the first one with its exact vectors in posting order besides")
 	benchGrowK = flag.Int("bench.growk", 0, "with TestGrowValidate and TestGrowTimedInserts: consolidated edges (v5.1), "+
 		"the changes a row of edges is written whole after. 0 is v5.0: every change a value of its own")
+	benchGrowSearchers = flag.Int("bench.growsearchers", 1, "with TestGrowTimedInserts: the goroutines that run the "+
+		"searches of the inserts of a batch at once (v5.2)")
+	benchGrowBatch = flag.Int("bench.growbatch", 1, "with TestGrowTimedInserts: the inserts of a batch, whose searches "+
+		"all run over the index as the batch finds it, before the writes of any of them (v5.2). With 1 and one "+
+		"searcher it is the insert of always")
+	benchGrowCoverage = flag.Bool("bench.growcoverage", false, "with TestGrowTimedInserts: the coverage of the index is "+
+		"checked at every checkpoint, out of the time of the inserts, and the run stops if it is not complete (v5.2)")
 	benchGrowManifest = flag.String("bench.growmanifest", "", "what TestGrowTimedInserts leaves for TestGrowTimedSearch: "+
 		"the index it grew, its operating points and the ground truth. It must not live under -bench.growdir")
 )
@@ -666,6 +673,10 @@ type growStretch struct {
 	PendingBytes    int64  `json:"pendingBytes"`
 	PendingPostings int    `json:"pendingPostings"`
 	HeapBytes       uint64 `json:"heapBytes"`
+	// Coverage is the check of the index at the end of the stretch, out of
+	// its time, and CoverageSeconds what it took: "" when it is not asked.
+	Coverage        string  `json:"coverage,omitempty"`
+	CoverageSeconds float64 `json:"coverageSeconds,omitempty"`
 }
 
 // growManifest is what the timed run of the inserts leaves: how fast it
@@ -700,6 +711,14 @@ type growManifest struct {
 	FlushSeconds float64   `json:"flushSeconds"`
 	Stats        growStats `json:"stats"`
 	Coverage     string    `json:"coverage"`
+	// Searchers and Batch are those of the inserts in batches (v5.2): 1 and
+	// 1 for the insert of always. ApplyShare is the part of the time of the
+	// inserts their writes took, one after another, and SearchBusy the part
+	// of the time of the searches a searcher was searching.
+	Searchers  int     `json:"searchers"`
+	Batch      int     `json:"batch"`
+	ApplyShare float64 `json:"applyShare"`
+	SearchBusy float64 `json:"searchBusy"`
 	// The store before and after it is compacted for good, untimed.
 	FilesBefore       map[string]int64  `json:"filesBefore"`
 	SegmentsBefore    map[string]int    `json:"segmentsBefore"`
@@ -756,6 +775,7 @@ func TestGrowTimedInserts(t *testing.T) {
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
 		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits,
 		Procs: runtime.GOMAXPROCS(0), Force: *benchGrowForce, Consolidate: *benchGrowK,
+		Searchers: *benchGrowSearchers, Batch: *benchGrowBatch,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
@@ -813,18 +833,50 @@ func TestGrowTimedInserts(t *testing.T) {
 			require.NoError(t, g.close(ctx))
 		}
 	}()
-	t.Logf("the base: %d vectors in %d postings. The timed inserts start", g.meta.Live, g.meta.Postings)
+	searchers, batch := *benchGrowSearchers, *benchGrowBatch
+	require.Positive(t, searchers, "-bench.growsearchers")
+	require.Positive(t, batch, "-bench.growbatch")
+	batched := searchers > 1 || batch > 1
+	t.Logf("the base: %d vectors in %d postings. The timed inserts start: %d searchers, batches of %d", g.meta.Live,
+		g.meta.Postings, searchers, batch)
+	// shares tells the part of the time of the inserts their writes took,
+	// and the part of the time of the searches a searcher was searching.
+	shares := func() (apply, busy float64) {
+		s := &g.stats
+		if phases := s.SearchPhase + s.ApplyPhase; phases > 0 {
+			apply = s.ApplyPhase.Seconds() / phases.Seconds()
+		}
+		if s.SearchPhase > 0 {
+			busy = (s.AssignTime + s.SearchTime).Seconds() / (float64(searchers) * s.SearchPhase.Seconds())
+		}
+		return apply, busy
+	}
 
 	inserted := built
 	total := time.Duration(0)
+	vectors := make([][]float32, 0, batch)
 	for _, percent := range stops {
 		upto := n * percent / 100
 		from := inserted
 		begin := time.Now()
-		for ; inserted < upto; inserted++ {
-			id := order[inserted]
-			if err := g.insert(ctx, id, data.train[id]); err != nil {
-				t.Fatalf("insert %d, doc %d: %v", inserted, id, err)
+		if batched {
+			for inserted < upto {
+				to := min(inserted+batch, upto)
+				vectors = vectors[:0]
+				for _, id := range order[inserted:to] {
+					vectors = append(vectors, data.train[id])
+				}
+				if err := g.insertBatch(ctx, order[inserted:to], vectors, searchers); err != nil {
+					t.Fatalf("inserts %d to %d: %v", inserted, to, err)
+				}
+				inserted = to
+			}
+		} else {
+			for ; inserted < upto; inserted++ {
+				id := order[inserted]
+				if err := g.insert(ctx, id, data.train[id]); err != nil {
+					t.Fatalf("insert %d, doc %d: %v", inserted, id, err)
+				}
 			}
 		}
 		took := time.Since(begin)
@@ -839,10 +891,25 @@ func TestGrowTimedInserts(t *testing.T) {
 		var mem runtime.MemStats
 		runtime.ReadMemStats(&mem)
 		stretch.HeapBytes = mem.HeapInuse
+		if *benchGrowCoverage {
+			// Out of the time of the stretch, and nothing of it is written:
+			// what waits keeps waiting.
+			begin := time.Now()
+			stretch.Coverage = "complete"
+			if err := g.checkCoverage(); err != nil {
+				stretch.Coverage = err.Error()
+			}
+			stretch.CoverageSeconds = time.Since(begin).Seconds()
+		}
 		manifest.Stretches = append(manifest.Stretches, stretch)
 		manifest.Inserts, manifest.Seconds = inserted-built, total.Seconds()
 		manifest.PerSecond = float64(inserted-built) / total.Seconds()
+		manifest.ApplyShare, manifest.SearchBusy = shares()
 		write()
+		if *benchGrowCoverage {
+			require.Equalf(t, "complete", stretch.Coverage, "STOP: the coverage of the index at %d %%", percent)
+			t.Logf("to %d %%: the coverage is complete, checked in %.0f s", percent, stretch.CoverageSeconds)
+		}
 		s := &g.stats
 		t.Logf("to %d %%: %d inserts in %s, %.0f a second | so far %.0f a second | of the time so far: search %.0f %%, "+
 			"write %.1f %%, inverse edges %.1f %%, splits %.1f %%, cycles of the store %.1f %%, the centroid graph %.1f %%",
@@ -850,6 +917,12 @@ func TestGrowTimedInserts(t *testing.T) {
 			100*s.SearchTime.Seconds()/total.Seconds(), 100*s.WriteTime.Seconds()/total.Seconds(),
 			100*s.InverseTime.Seconds()/total.Seconds(), 100*s.SplitTime.Seconds()/total.Seconds(),
 			100*s.CycleTime.Seconds()/total.Seconds(), 100*s.AssignTime.Seconds()/total.Seconds())
+		if batched {
+			t.Logf("to %d %%, %d searchers over batches of %d: the writes %.1f %% of the time so far and the searches "+
+				"the rest, with a searcher searching %.0f %% of it | of %d plans, %d chose their posting again and %d "+
+				"had kept lists that changed, %d lists", percent, searchers, batch, 100*manifest.ApplyShare,
+				100*manifest.SearchBusy, s.BatchInserts, s.PlansReassign, s.PlansStale, s.StaleLists)
+		}
 		if g.edges != nil {
 			t.Logf("to %d %%, consolidated every %d changes: the rows of edges %.1f %% of the time so far | %d rows written, "+
 				"%d by their changes and %d by splits | %d members wait in %d postings, %.2f MB; at their most %d, %.2f MB | "+
@@ -872,6 +945,7 @@ func TestGrowTimedInserts(t *testing.T) {
 			took.Round(time.Millisecond), manifest.PerSecond)
 	}
 	manifest.Stats = g.stats
+	manifest.ApplyShare, manifest.SearchBusy = shares()
 	write()
 
 	// Untimed from here: what the run left, checked and compacted.
@@ -965,6 +1039,40 @@ func TestGrowTimedInserts(t *testing.T) {
 			}
 			low = ef
 		}
+	}
+	// What a query loads at every operating point.
+	for i := range manifest.Points {
+		point := &manifest.Points[i]
+		if !point.Reached {
+			continue
+		}
+		searchUC := uc
+		searchUC.EF = point.EF
+		require.NoError(t, g.ix.UpdateUserConfig(searchUC, func() {}))
+		var loads, rounds, next atomic.Int64
+		eg := enterrors.NewErrorGroupWrapper(logger)
+		for range 8 {
+			eg.Go(func() error {
+				for {
+					q := int(next.Add(1)) - 1
+					if q >= len(data.queries) {
+						return nil
+					}
+					stats := &diskSearchStats{}
+					if _, _, err := g.search(ctx, data.queries[q], k, stats); err != nil {
+						return err
+					}
+					loads.Add(int64(stats.Postings))
+					rounds.Add(int64(stats.Rounds))
+				}
+			})
+		}
+		require.NoError(t, eg.Wait())
+		point.Compared = len(data.queries)
+		point.Loads = float64(loads.Load()) / float64(len(data.queries))
+		point.Rounds = float64(rounds.Load()) / float64(len(data.queries))
+		t.Logf("recall %.2f: ef %d, recall %.4f, %.2f loads a query in %.2f rounds", point.Target, point.EF, point.Recall,
+			point.Loads, point.Rounds)
 	}
 	write()
 }

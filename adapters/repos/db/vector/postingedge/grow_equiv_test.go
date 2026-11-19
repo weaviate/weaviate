@@ -47,6 +47,9 @@ type growFixture struct {
 	opened streamStats
 	// leveled opens the store with its leveled compaction.
 	leveled bool
+	// batchOfOne inserts every vector on disk as a batch of one (v5.2),
+	// which is the same insert.
+	batchOfOne bool
 	// written is what the twin wrote for its last insert.
 	written struct {
 		docID   uint64
@@ -150,7 +153,11 @@ func (f *growFixture) insert(ctx context.Context) (string, error) {
 	if err := f.twin.insert(ctx, docID, f.all[docID]); err != nil {
 		return "", errors.Wrap(err, "insert in memory")
 	}
-	if err := f.g.insert(ctx, docID, f.all[docID]); err != nil {
+	if f.batchOfOne {
+		if err := f.g.insertBatch(ctx, []uint64{docID}, [][]float32{f.all[docID]}, 1); err != nil {
+			return "", errors.Wrap(err, "insert on disk, as a batch of one")
+		}
+	} else if err := f.g.insert(ctx, docID, f.all[docID]); err != nil {
 		return "", errors.Wrap(err, "insert on disk")
 	}
 	// What the twin counted since the index on disk was opened.

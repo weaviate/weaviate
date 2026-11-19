@@ -204,6 +204,23 @@ type growStats struct {
 	SplitTime   time.Duration `json:"splitNs"`
 	CycleTime   time.Duration `json:"cycleNs"`
 	RowTime     time.Duration `json:"rowNs"`
+
+	// By the clock: SearchPhase is the time the searches of the inserts
+	// ran, several at once when the inserts go in batches (v5.2), and
+	// ApplyPhase the time their writes ran, one after another. AssignTime
+	// and SearchTime above add up what every search took by itself.
+	SearchPhase time.Duration `json:"searchPhaseNs"`
+	ApplyPhase  time.Duration `json:"applyPhaseNs"`
+	// Of the inserts that went in batches: the batches; the plans whose
+	// posting an insert of their batch had split, which chose again; and
+	// the lists of edges a plan kept and needed that an insert of its batch
+	// had changed, whose postings were read again, with the plans that met
+	// any.
+	Batches       int `json:"batches,omitempty"`
+	BatchInserts  int `json:"batchInserts,omitempty"`
+	PlansReassign int `json:"plansReassigned,omitempty"`
+	PlansStale    int `json:"plansWithStaleLists,omitempty"`
+	StaleLists    int `json:"staleLists,omitempty"`
 }
 
 // growPending is what waits in memory of a posting with consolidated edges:
@@ -282,18 +299,91 @@ type growIndex struct {
 	lastPosting uint32
 	lastEdges   []uint32
 
-	// What one insert keeps while it runs: the edges of the postings its
-	// search loaded, and the exact vectors its rescore read.
-	kept   []growKept
-	keptAt map[uint32]int
+	// What the insert that is being applied keeps: the edges of the
+	// postings its search loaded, and the exact vectors its rescore read.
+	// They are those of its plan.
+	kept     []growKept
+	keptAt   map[uint32]int
+	captured map[uint64][]float32
+	// own is the plan of the insert of always, one at a time, used again
+	// by every one of them.
+	own *growPlan
 	// touched has the postings whose edges the insert that runs changed.
-	touched   []uint32
-	capturing atomic.Bool
-	captureMu sync.Mutex
-	captured  map[uint64][]float32
+	touched []uint32
+	// batch has the plans of a batch of inserts (v5.2), used again by
+	// every batch, and batchDirty the docs whose list of edges an insert
+	// of the batch that is being applied has changed: nil unless a batch
+	// is being applied. batchStale tells that the insert that is being
+	// applied met one of them among the lists its plan kept.
+	batch      []*growPlan
+	batchDirty map[uint64]struct{}
+	batchStale bool
+	// batchVerify, for the tests, has every list of edges that an insert of
+	// a batch takes from what its plan kept read again from the index, and
+	// fails the insert if the two differ: a plan kept a list that an insert
+	// of its batch changed, and nobody noticed. batchVerified counts them.
+	batchVerify   bool
+	batchVerified int
+	// batchApplied, with batchVerify, has the doc ids of the last batch in
+	// the order their writes were applied.
+	batchApplied []uint64
 	// vectorReads counts the exact vectors read from the file.
 	vectorReads atomic.Int64
 	sinceCycle  int
+}
+
+// growPlan is what the search of an insert leaves for its writes: where the
+// vector goes, its neighbors, and what the search read on the way, which the
+// writes use again. A search writes nothing but its plan, so the searches of
+// several inserts can run at once (v5.2).
+type growPlan struct {
+	docID  uint64
+	vector []float32
+	// entry are the postings the centroid graph gave the vector, the first
+	// of them its posting.
+	entry []uint64
+	// neighbors and dists are what the search returned.
+	neighbors []uint64
+	dists     []float32
+	// kept has the edges of the postings the search loaded, and keptAt
+	// where those of each posting are.
+	kept   []growKept
+	keptAt map[uint32]int
+	// captured has the exact vectors the rescore of the search read, which
+	// reads them from several goroutines, and vectorReads counts them.
+	captureMu   sync.Mutex
+	captured    map[uint64][]float32
+	vectorReads int
+	searched    diskSearchStats
+	// work, when set, takes the work of the search.
+	work *SearchStats
+	// assignTime and searchTime are what the centroid graph and the search
+	// of the neighbors took.
+	assignTime, searchTime time.Duration
+}
+
+func newGrowPlan() *growPlan {
+	return &growPlan{keptAt: make(map[uint32]int), captured: make(map[uint64][]float32)}
+}
+
+// growPlanKey is how the search of a plan tells the read of an exact vector
+// whose it is.
+type growPlanKey struct{}
+
+// keep copies what the inverse edges of the insert need of a posting its
+// search loaded.
+func (p *growPlan) keep(q uint32, dp *diskPosting) {
+	at := len(p.kept)
+	if at < cap(p.kept) {
+		p.kept = p.kept[:at+1]
+	} else {
+		p.kept = append(p.kept, growKept{})
+	}
+	kept := &p.kept[at]
+	kept.docIDs = append(kept.docIDs[:0], dp.docIDs...)
+	kept.edgeStart = append(kept.edgeStart[:0], dp.edgeStart...)
+	kept.edges = append(kept.edges[:0], dp.edges...)
+	p.keptAt[q] = at
 }
 
 func growDocKey(docID uint64) []byte {
@@ -828,8 +918,8 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	g.st.scratch.New = func() any { return newSearchScratch(capacity) }
 	g.rounds.New = func() any { return &diskRound{} }
 	g.sums = make([]float64, meta.Dims)
-	g.keptAt = make(map[uint32]int)
-	g.captured = make(map[uint64][]float32)
+	g.own = newGrowPlan()
+	g.kept, g.keptAt, g.captured = g.own.kept, g.own.keptAt, g.own.captured
 
 	g.ix, err = New(Config{
 		ID:                           "grow",
@@ -935,7 +1025,7 @@ func (g *growIndex) exact(docID uint64, raw []byte, into []float32) ([]byte, []f
 // readVector reads the exact vector of a doc for a rescore, with one
 // positional read. While an insert runs it keeps a copy: the insert needs
 // the vectors of its neighbors again.
-func (g *growIndex) readVector(_ context.Context, docID uint64, container *common.VectorSlice, _ common.BucketView,
+func (g *growIndex) readVector(ctx context.Context, docID uint64, container *common.VectorSlice, _ common.BucketView,
 ) ([]float32, error) {
 	if docID >= uint64(len(g.live)) || !g.live[docID] {
 		return nil, storobj.NewErrNotFoundf(docID, "the index does not hold it")
@@ -945,10 +1035,11 @@ func (g *growIndex) readVector(_ context.Context, docID uint64, container *commo
 	if err != nil {
 		return nil, err
 	}
-	if g.capturing.Load() {
-		g.captureMu.Lock()
-		g.captured[docID] = slices.Clone(container.Slice)
-		g.captureMu.Unlock()
+	if plan, _ := ctx.Value(growPlanKey{}).(*growPlan); plan != nil {
+		plan.captureMu.Lock()
+		plan.captured[docID] = slices.Clone(container.Slice)
+		plan.vectorReads++
+		plan.captureMu.Unlock()
 	}
 	return container.Slice, nil
 }
@@ -1132,8 +1223,8 @@ func (g *growIndex) search(ctx context.Context, vector []float32, k int, stats *
 	return g.searcher().run(ctx, vector, k, nil, stats)
 }
 
-// keep copies what the inverse edges of the insert need of a posting its
-// search loaded.
+// keep copies what the inverse edges of the insert that is being applied
+// need of a posting it reads again.
 func (g *growIndex) keep(p uint32, dp *diskPosting) {
 	at := len(g.kept)
 	if at < cap(g.kept) {
@@ -1152,6 +1243,15 @@ func (g *growIndex) keep(p uint32, dp *diskPosting) {
 // the insert left them, or read again from the store if it did not load q.
 func (g *growIndex) listOf(q uint32, u uint64) ([]uint32, error) {
 	at, found := g.keptAt[q]
+	if found && g.batchDirty != nil {
+		if _, changed := g.batchDirty[u]; changed {
+			// An insert of the batch changed this list after the plan kept
+			// it: its posting is read again, as it is now.
+			found = false
+			g.batchStale = true
+			g.stats.StaleLists++
+		}
+	}
 	if !found {
 		var dp diskPosting
 		if err := g.fetchMembers(q, &dp); err != nil {
@@ -1172,7 +1272,25 @@ func (g *growIndex) listOf(q uint32, u uint64) ([]uint32, error) {
 	if m < 0 {
 		return nil, errors.Errorf("doc %d is not in posting %d, where the map has it", u, q)
 	}
-	return kept.edges[kept.edgeStart[m]:kept.edgeStart[m+1]], nil
+	list := kept.edges[kept.edgeStart[m]:kept.edgeStart[m+1]]
+	if found && g.batchVerify && g.batchDirty != nil {
+		var dp diskPosting
+		if err := g.fetchMembers(q, &dp); err != nil {
+			return nil, err
+		}
+		if err := g.fetchLists(q, &dp); err != nil {
+			return nil, err
+		}
+		if err := g.joinLists(q, &dp); err != nil {
+			return nil, err
+		}
+		now := slices.Index(dp.docIDs, u)
+		if now < 0 || !slices.Equal(dp.edges[dp.edgeStart[now]:dp.edgeStart[now+1]], list) {
+			return nil, errors.Errorf("the plan of the insert kept the edges %v of doc %d in posting %d, and the index has others", list, u, q)
+		}
+		g.batchVerified++
+	}
+	return list, nil
 }
 
 // counted reads the store's count of reads, zero without a counter.
@@ -1198,11 +1316,8 @@ func (g *growIndex) vectorOfNeighbor(docID uint64) ([]float32, error) {
 	return vector, nil
 }
 
-// insert adds one vector by the incremental path of the streaming index
-// (streamIndex.insert), with inverse edges and a split that touches no edge,
-// reading and writing the store. The vector must be normalized as the index
-// stores it. The search parameters of the edge search are the index's own.
-func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) error {
+// insertable tells whether the index can take a vector under a doc id.
+func (g *growIndex) insertable(docID uint64, vector []float32) error {
 	if g.slotOf != nil {
 		return errors.New("the index was laid out again to be searched: it does not grow")
 	}
@@ -1215,7 +1330,52 @@ func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) 
 	if len(vector) != g.meta.Dims {
 		return errors.Errorf("a vector of %d dimensions, the index holds %d", len(vector), g.meta.Dims)
 	}
+	return nil
+}
+
+// insert adds one vector by the incremental path of the streaming index
+// (streamIndex.insert), with inverse edges and a split that touches no edge,
+// reading and writing the store. The vector must be normalized as the index
+// stores it. The search parameters of the edge search are the index's own.
+// It is the search of the vector (plan) and then its writes (apply).
+func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) error {
+	if err := g.insertable(docID, vector); err != nil {
+		return err
+	}
+	clock := time.Now()
+	reads, bytes, err := g.counted()
+	if err != nil {
+		return err
+	}
+	plan := g.own
+	plan.work = g.work
+	if err := g.plan(ctx, plan, docID, vector); err != nil {
+		return err
+	}
+	readsAfter, bytesAfter, err := g.counted()
+	if err != nil {
+		return err
+	}
+	g.stats.StoreSearch.add(int(readsAfter-reads), int(bytesAfter-bytes))
+	g.stats.SearchPhase += time.Since(clock)
+	clock = time.Now()
+	err = g.apply(ctx, plan)
+	g.stats.ApplyPhase += time.Since(clock)
+	return err
+}
+
+// plan is the part of an insert that writes nothing: the posting of the
+// vector, from the centroid graph, and the search for its edges, which
+// leaves in the plan the edges of what it loaded and the vectors it
+// rescored. It reads the index and touches nothing of it, so several can run
+// at once as long as no insert is being applied.
+func (g *growIndex) plan(ctx context.Context, plan *growPlan, docID uint64, vector []float32) error {
 	st := g.st
+	plan.docID, plan.vector = docID, vector
+	plan.kept = plan.kept[:0]
+	clear(plan.keptAt)
+	clear(plan.captured)
+	plan.vectorReads = 0
 
 	clock := time.Now()
 	entry, err := st.centroids.nearest(ctx, vector, max(int(g.ix.entryPostings.Load()), 1))
@@ -1225,55 +1385,59 @@ func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) 
 	if len(entry) == 0 {
 		return errors.New("the centroid graph found no centroid")
 	}
-	p := uint32(entry[0])
 	for _, e := range entry {
 		if e >= uint64(len(g.retired)) || g.retired[e] {
 			return errors.Errorf("the centroid graph returned posting %d, which is not live", e)
 		}
 	}
-	g.stats.AssignTime += time.Since(clock)
+	plan.entry = entry
+	plan.assignTime = time.Since(clock)
 
-	// The search for its edges, which leaves behind the edges of what it
-	// loaded and the vectors it rescored.
 	clock = time.Now()
-	g.kept = g.kept[:0]
-	clear(g.keptAt)
-	clear(g.captured)
+	search := g.searcher()
+	search.loaded = plan.keep
+	plan.searched = diskSearchStats{}
+	if plan.work != nil {
+		*plan.work = SearchStats{}
+		plan.searched.Work = plan.work
+	}
+	plan.neighbors, plan.dists, err = search.run(context.WithValue(ctx, growPlanKey{}, plan), vector, g.meta.Neighbors,
+		entry, &plan.searched)
+	if err != nil {
+		return errors.Wrapf(err, "search the neighbors of doc %d", docID)
+	}
+	plan.searchTime = time.Since(clock)
+	return nil
+}
+
+// apply is the part of an insert that writes: the vector in its posting with
+// its edges, the inverse edges, the split and, with consolidated edges, the
+// rows that are due. One at a time, in the order of the inserts.
+func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
+	st := g.st
+	docID, vector, neighbors, dists := plan.docID, plan.vector, plan.neighbors, plan.dists
+	p := uint32(plan.entry[0])
+	// What the search of the plan left is what the writes read from.
+	g.kept, g.keptAt, g.captured = plan.kept, plan.keptAt, plan.captured
+	defer func() { plan.kept = g.kept }()
+	searched := &plan.searched
+	g.stats.AssignTime += plan.assignTime
+	g.stats.SearchLoads += searched.Postings
+	g.stats.SearchRounds += searched.Rounds
+	g.stats.SearchRows.add(searched.Blocks, searched.BlockBytes)
+	g.stats.SearchVectors.add(plan.vectorReads, plan.vectorReads*4*g.meta.Dims)
+	g.stats.SearchTime += plan.searchTime
 	reads, bytes, err := g.counted()
 	if err != nil {
 		return err
 	}
-	vectorsBefore := g.vectorReads.Load()
-	search := g.searcher()
-	search.loaded = g.keep
-	var searched diskSearchStats
-	if g.work != nil {
-		*g.work = SearchStats{}
-		searched.Work = g.work
-	}
-	g.capturing.Store(true)
-	neighbors, dists, err := search.run(ctx, vector, g.meta.Neighbors, entry, &searched)
-	g.capturing.Store(false)
-	if err != nil {
-		return errors.Wrapf(err, "search the neighbors of doc %d", docID)
-	}
-	g.stats.SearchLoads += searched.Postings
-	g.stats.SearchRounds += searched.Rounds
-	g.stats.SearchRows.add(searched.Blocks, searched.BlockBytes)
-	g.stats.SearchVectors.add(int(g.vectorReads.Load()-vectorsBefore), int(g.vectorReads.Load()-vectorsBefore)*4*g.meta.Dims)
-	readsAfter, bytesAfter, err := g.counted()
-	if err != nil {
-		return err
-	}
-	g.stats.StoreSearch.add(int(readsAfter-reads), int(bytesAfter-bytes))
-	reads, bytes = readsAfter, bytesAfter
-	g.stats.SearchTime += time.Since(clock)
+	var readsAfter, bytesAfter uint64
 
 	// The vector, in its posting, with its edges: of the neighbors, those
 	// outside its posting. The distance of every edge is the exact one from
 	// the vector to its endpoint, which is what a later inverse edge
 	// compares against.
-	clock = time.Now()
+	clock := time.Now()
 	routingCode := st.quantizer.Encode(vector)
 	scanCode := routingCode
 	if st.scanQuantizer != nil {
@@ -1399,6 +1563,131 @@ func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) 
 	return nil
 }
 
+// insertBatch adds the given vectors as insert adds one, with their searches
+// run by the given number of goroutines at once (v5.2, bench-report.md,
+// "inserts con búsquedas en paralelo"). Every search runs over the index as
+// it is when the batch starts, while nobody writes: it does not see the
+// vectors of its batch that come before it. Then the writes of every insert
+// are applied one after another, in the order given, while nobody searches.
+// What it leaves depends on the batches and not on the searchers: a batch of
+// one vector is insert.
+func (g *growIndex) insertBatch(ctx context.Context, docIDs []uint64, vectors [][]float32, searchers int) error {
+	if len(docIDs) != len(vectors) {
+		return errors.Errorf("%d doc ids for %d vectors", len(docIDs), len(vectors))
+	}
+	if searchers < 1 {
+		return errors.Errorf("%d searchers", searchers)
+	}
+	for i, docID := range docIDs {
+		if err := g.insertable(docID, vectors[i]); err != nil {
+			return err
+		}
+		if slices.Contains(docIDs[:i], docID) {
+			return errors.Errorf("doc %d is in the batch twice", docID)
+		}
+	}
+	for len(g.batch) < len(docIDs) {
+		g.batch = append(g.batch, newGrowPlan())
+	}
+	plans := g.batch[:len(docIDs)]
+
+	// The searches, at once. Nothing of the index changes meanwhile.
+	clock := time.Now()
+	reads, bytes, err := g.counted()
+	if err != nil {
+		return err
+	}
+	if err := g.planBatch(ctx, plans, docIDs, vectors, searchers); err != nil {
+		return err
+	}
+	readsAfter, bytesAfter, err := g.counted()
+	if err != nil {
+		return err
+	}
+	g.stats.StoreSearch.add(int(readsAfter-reads), int(bytesAfter-bytes))
+	g.stats.SearchPhase += time.Since(clock)
+
+	// The writes, in order. A plan is brought up to what the inserts of
+	// its batch before it have changed.
+	clock = time.Now()
+	if g.batchDirty == nil {
+		g.batchDirty = make(map[uint64]struct{})
+	}
+	clear(g.batchDirty)
+	defer func() { g.batchDirty = nil }()
+	g.batchApplied = g.batchApplied[:0]
+	for _, plan := range plans {
+		if err := g.refresh(ctx, plan); err != nil {
+			return err
+		}
+		g.batchStale = false
+		if err := g.apply(ctx, plan); err != nil {
+			return err
+		}
+		if g.batchStale {
+			g.stats.PlansStale++
+		}
+		if g.batchVerify {
+			g.batchApplied = append(g.batchApplied, plan.docID)
+		}
+	}
+	g.stats.Batches++
+	g.stats.BatchInserts += len(plans)
+	g.stats.ApplyPhase += time.Since(clock)
+	return nil
+}
+
+// planBatch runs the searches of a batch into the given plans, with the given
+// number of goroutines, each taking the next vector. The index must not
+// change meanwhile. What every plan holds does not depend on how many
+// goroutines there are: it is the search of its vector over the index as it
+// is.
+func (g *growIndex) planBatch(ctx context.Context, plans []*growPlan, docIDs []uint64, vectors [][]float32, searchers int,
+) error {
+	var next atomic.Int64
+	eg := enterrors.NewErrorGroupWrapper(g.logger)
+	for range min(searchers, len(docIDs)) {
+		eg.Go(func() error {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(docIDs) {
+					return nil
+				}
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				plans[i].work = nil
+				if err := g.plan(ctx, plans[i], docIDs[i], vectors[i]); err != nil {
+					return err
+				}
+			}
+		})
+	}
+	return eg.Wait()
+}
+
+// refresh brings a plan of a batch up to what the inserts of the batch
+// applied before it have changed: if one of them split the posting the plan
+// chose, the posting is chosen again. The rest of a plan holds or is seen
+// to when it is applied: its neighbors are doc ids, whose postings are
+// looked up then; the vectors and the distances it read do not change; and
+// a list of edges it kept that one of those inserts changed is read again
+// when the inverse edges ask for it (listOf).
+func (g *growIndex) refresh(ctx context.Context, plan *growPlan) error {
+	if p := plan.entry[0]; p >= uint64(len(g.retired)) || g.retired[p] {
+		entry, err := g.st.centroids.nearest(ctx, plan.vector, max(int(g.ix.entryPostings.Load()), 1))
+		if err != nil {
+			return err
+		}
+		if len(entry) == 0 || entry[0] >= uint64(len(g.retired)) || g.retired[entry[0]] {
+			return errors.Errorf("the centroid graph returned no live posting for doc %d", plan.docID)
+		}
+		plan.entry = entry
+		g.stats.PlansReassign++
+	}
+	return nil
+}
+
 // enterNeighbors gives the new vector, in posting p, a place in the edges of
 // each of its neighbors outside p whose worst edge it beats, as the
 // streaming index does (streamIndex.enterNeighbors): it takes the place its
@@ -1480,8 +1769,12 @@ func (g *growIndex) enterNeighbors(docID uint64, vector []float32, p uint32, nei
 			g.stats.InverseDistsW.add(1, len(distsValue))
 		}
 		// What the insert kept of the posting follows, should the same list
-		// be looked at again.
+		// be looked at again. What the other plans of its batch kept of it
+		// does not.
 		copy(edges, updated)
+		if g.batchDirty != nil {
+			g.batchDirty[u] = struct{}{}
+		}
 		g.stats.InverseEdges++
 		if !slices.Contains(written, q) {
 			written = append(written, q)
