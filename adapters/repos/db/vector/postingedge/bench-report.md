@@ -789,6 +789,15 @@ Se reporta al cerrar cada paso.
 - **Lo que el binario añade:** un test del arnés de HFresh con esa opción. Nada en HFresh.
 - **Escrito a las 10:14,** después de confirmar la enmienda: `TestHFreshDiskInserts` en el arnés de HFresh y `testdata/bench/v5.0/scripts/run_hfresh_inserts.sh`. No escribe sobre un índice que ya exista. Humo a 30k, que no es dato: pasa, y da sus dos tiempos.
 
+### Enmienda 5 (12:10 del 19): los inserts de HFresh con un escritor llevan el ciclo de limpieza de un shard
+
+**Motivo.** El arnés de la enmienda 4 no le da a HFresh la limpieza de tombstones de su grafo de centroides, y un nodo sí, cada 5 minutos (arriba, «Los recursos compartidos del nodo»). Sin ella cada insert busca en un grafo que se llena de centroides borrados: la mitad al acabar el build de v4.0. La corrida de la enmienda 4 no ha empezado. *Es mío: el usuario pidió la opción nueva para las curvas de búsqueda, y la aplico también aquí porque el motivo es el mismo. Si prefiere la corrida como estaba, se quita antes de las 23:00.*
+
+- **Qué cambia:** la corrida va con `-bench.hfresh.cleanup`: el ciclo de limpieza de un shard, cada 5 minutos, con su concurrencia por defecto (GOMAXPROCS / 2). Todo lo demás, como en la enmienda 4, y sigue siendo una sola corrida.
+- **Qué se reporta de más:** los nodos y los tombstones del grafo al último insert y con las colas vacías.
+- **Lo que sigue sin ser un nodo en los inserts:** los vectores de los splits se leen de memoria, los 9 workers de fondo son todos para este índice, y el store lleva el tamaño de memtable por defecto de `lsmkv`, no el dinámico que configura un shard.
+- **No sé el signo:** la limpieza quita nodos del grafo que recorre cada insert, y gasta CPU mientras corre.
+
 ### Pasos 1 y 2, cerrados: el formato, el insert y el split, y la equivalencia a pequeña escala (14:19 del 18)
 
 **Qué hay:**
@@ -1651,6 +1660,45 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
   - *Corregido a las 06:51, antes de compilar:* aquí ponía «de noche, antes de las 03:00». Lo escribí creyendo que seguía siendo de madrugada; son las siete de la mañana.
 - **Lo que no mide:** otro grado de paralelismo, lecturas asíncronas, HFresh por defecto, y Linux.
 - **Lo que el binario añade:** en `hfresh/store.go`, el grado de concurrencia de `MultiGet`, 1 por defecto, con su test. En el arnés de HFresh, una opción para fijarlo.
+
+### Enmienda 7 (12:10 del 19, del usuario): HFresh como en un nodo, junto a las dos celdas
+
+**Motivo.** Al comparar el arnés de HFresh con un nodo salieron dos diferencias que dejan a HFresh peor que en producto (arriba, «Los recursos compartidos del nodo»): el arnés nunca limpia los centroides borrados de su grafo, y da 8 de presupuesto a cada query donde un nodo da 20 a una sola. El usuario pide, a las 12:05: *«añade a la cola de esta noche las curvas de HFresh con la opción nueva (su mejor configuración a 0.95 y 0.99, en serie y en paralelo), junto a nuestras dos celdas en la misma sesión. Los números que enseñamos al grupo saldrían de ahí.»*
+
+**La opción nueva** se escribió y se probó a 30 000 vectores antes de esta enmienda, a las 11:56 (`7860a8e3ca`). No hay ningún dato suyo a 1M.
+
+**Qué corre** (*mío, para aplicarlo*):
+
+- **El índice de HFresh:** una copia del de v4.0, con el mismo build y los mismos postings, y su grafo de centroides limpiado una vez, que es como lo deja el ciclo de tombstones de un shard. El original no se toca.
+- **Su mejor configuración se busca otra vez, sobre el índice limpio:** el barrido de searchProbe con rescoreLimit 64, 100, 200 y 350 y la cuenta de lecturas, los dos como en v4.0. La mejor a 0.95 y a 0.99 es la que menos lee. Sin cronometrar, de día.
+- **Seis curvas en una sesión:**
+  - HFresh a 0.95 y a 0.99, con sus postings leídos uno detrás de otro, que es como busca en producto;
+  - HFresh a 0.95 y a 0.99, con sus postings leídos de 8 en 8, que no es producto;
+  - las dos celdas de posting-edge de v4.0, tal como están en disco: 512 bits en RAM y halo de 512 bits.
+- **El presupuesto de cada query, en las seis, es el del limitador de admisión de un nodo:** 20 con una query, y de 14 a 15 con 8.
+- **Lo demás, como en v4.0:** los dos puntos, 1 y 8 threads, en caliente (tres pasadas) y en frío (500 queries, remontando el volumen), una curva por proceso, dos rondas, la actividad de cada tramo, y menos de un 10 % es un empate.
+- **Cuándo:** es lo primero de la cola de la noche del 19, dentro de la ventana de 23:00 a 03:00. Lo que ya estaba en cola va detrás, en su orden.
+
+**Qué se reporta:**
+
+- La latencia y el QPS de las seis curvas, y las de HFresh frente a cada celda.
+- De HFresh sobre el índice limpio: searchProbe, recall y lecturas por query en sus dos puntos, junto a los de v4.0.
+- Los nodos y los tombstones del grafo, antes y después de limpiar. El heap de HFresh limpio, por componente.
+- **Los criterios de v4.0 se leen otra vez con estos números:** que la celda de 512 bits tenga menos latencia en frío que HFresh a 0.95 y llegue a 0.99, y que el halo no sea más lento. Son los que valen para enseñar.
+
+**Lo que sigue sin ser un nodo:** el objeto de HFresh es solo el vector, que es un suelo para su rescore; no hay otros índices compitiendo por los workers ni por el presupuesto; y las cargas de posting-edge no pasan por el presupuesto, aunque caben en él con 1 y con 8 queries.
+
+**Lo que no es comparable:** estos números con los publicados de v4.0, que son de otra sesión, con el grafo sin limpiar y con presupuesto de 8. Se ponen al lado, diciéndolo. Esta sesión no separa cuánto es de la limpieza y cuánto del presupuesto: haría falta una curva con cada cosa sola.
+
+**Lo que espero** (*mío*, antes de ningún dato):
+
+- **HFresh en serie, en frío a 0.95:** de 43 a 46 ms, donde se publicó 46.8. El frío casi no depende de los centroides.
+- **HFresh en serie, en caliente con 1 thread a 0.95:** de 2.9 a 3.3 ms, donde se publicó 3.38.
+- **HFresh en paralelo, en frío a 0.95:** de 12 a 14 ms, donde se midió 14.3.
+- **Su searchProbe a 0.95:** el mismo 185 o algo menos, y las lecturas por query con él.
+- **La celda de 512 bits, en frío a 0.95:** de 2.9 a 3.5 ms, donde se publicó 3.63, por el rescore con 20 lecturas en vuelo.
+- **Ningún criterio cambia de signo.** La distancia en frío con HFresh en serie sigue por encima de 10 veces.
+- **El heap del índice de HFresh limpio:** unos 73 MB.
 
 ### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
 
