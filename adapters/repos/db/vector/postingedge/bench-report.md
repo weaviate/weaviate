@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 
-**Estado: primera corrida a 1M cerrada el 19 a las 15:41, sin ningún stop: ninguna de las cuatro celdas cumple el criterio. La segunda corrida, con la celda 1b y las referencias de llenado, en marcha desde las 15:42. Las tres enmiendas se escribieron antes de ver ningún dato.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
+**Estado: cerrado el 19 a las 17:25, con dos corridas a 1M y ningún stop. Por el criterio escrito los deletes no se sostienen: ninguna de las cinco celdas lo cumple con el 30 % al azar. La celda 1b es la única que cumple el recall a igual ef; falla solo en cargas, y ese fallo es de llenado: se atribuye a la política de fusión, no a las aristas. Las tres enmiendas se escribieron antes de ver ningún dato.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -458,7 +458,103 @@ Binario de `f3ec2c2ecd`. Datos en `testdata/bench/v6.0/dbpedia-1m-deletes.json` 
 - **Subestimé el refresco:** esperaba que apenas bajara las cargas. Al 30 % las baja de +37.1 % a +28.7 % a 0.95, y al 50 % de +62.6 % a +18.8 %.
 - **La celda 3 en la agrupada no queda cerca de la referencia,** como esperaba: +25.2 % y +29.3 %. La que queda cerca es la 4.
 
-**En marcha desde las 15:42:** la segunda corrida, con la celda 1b y las referencias de llenado en cada punto. No empieza ninguna etapa desde las 21:45, y un guardián para lo que quede a las 22:50.
+### Paso 2, segunda parte: la segunda corrida, con la celda 1b y las referencias de llenado (de 15:42 a 17:25 del 19)
+
+Binario de `936a323672`. Datos en `testdata/bench/v6.0/r2/dbpedia-1m-deletes.json`. Las tablas de las dos corridas, en `testdata/bench/v6.0/deletes-verdict.md`.
+
+- **Las cinco etapas corrieron,** en 103 minutos, sobre un build nuevo del 100 %. En cada punto: la referencia de S = 236, dos referencias de llenado y las celdas 1, 1b, 2, 3 y 4. El churn, con la celda 4, la que eligió la primera corrida.
+- **Ningún stop.** El guardián de las 22:50 no tuvo nada que parar.
+
+**Veredicto de la celda 1b: no cumple el criterio.** Con el 30 % borrado al azar cumple el recall a igual ef y falla las dos condiciones de cargas.
+
+| celda 1b, con el 30 % al azar | medido | listón | cumple |
+|---|---|---|---|
+| peor recall a igual ef | +0.0001, en ef 10 | −0.005 | sí |
+| cargas a 0.95 | 11.08, +19.1 % | +15 % | no, por 4.1 puntos |
+| cargas a 0.99 | 50.56, +13.7 % | +10 % | no, por 3.7 puntos, con un suelo de ruido del 3.0 % |
+
+- **No es, por tanto, la celda más simple que cumple:** no cumple.
+- **Es la única de las cinco que cumple el recall a igual ef.** Queda por encima de la referencia en toda la malla, de +0.0001 a +0.0032.
+
+**La lectura de llenado (enmienda 2) aplica a la celda 1b, y solo a ella:** cumple el recall a igual ef y falla solo en cargas. Contra la referencia en lote de los mismos supervivientes con S = 165, sus cargas quedan dentro de los dos umbrales.
+
+**El fallo de la celda 1b es de llenado, y se atribuye a la política de fusión, no a las aristas.** El criterio original no cambia: la celda 1b no lo cumple.
+
+| celda, con el 30 % al azar | recall a igual ef, contra S = 236 | cargas a 0.95 | cargas a 0.99 | su referencia de llenado | contra ella: cargas a 0.95 | a 0.99 | dentro de los dos umbrales | lectura |
+|---|---|---|---|---|---|---|---|---|
+| 1, borrado lógico | −0.0154 | +48.7 % | +67.2 % | S = 165 | +31.2 % | +25.2 % | no | falla el recall: no aplica |
+| 1b, los borrados como fuentes | +0.0001 | +19.1 % | +13.7 % | S = 165 | +5.1 % | −14.8 % | sí | **fallo de llenado: de la política de fusión, no de las aristas** |
+| 2, endpoints borrados sin puntuar | −0.0235 | +46.6 % | +68.1 % | S = 165 | +29.3 % | +25.9 % | no | falla el recall: no aplica |
+| 3, más limpieza física | −0.0214 | +36.6 % | +50.4 % | S = 197 | +28.9 % | +32.7 % | no | falla el recall: no aplica |
+| 4, más refresco | −0.0173 | +28.1 % | +36.0 % | S = 197 | +20.9 % | +20.0 % | no | falla el recall: no aplica |
+
+- **A las celdas 1 a 4 la lectura no les aplica, porque fallan el recall.** Y contra su referencia de llenado siguen fuera, por 6 a 16 puntos a 0.95 y por 10 a 23 a 0.99: su fallo no es de llenado.
+- **Entre la celda 1 y la 1b solo cambia una cosa:** si un miembro borrado sigue siendo fuente. Con eso el recall en ef 10 pasa de −0.0154 a +0.0001, y las cargas a 0.99, de +67.2 % a +13.7 %.
+
+**Lo que cuesta el llenado por sí solo,** en un índice en lote de los mismos 693 000 vectores:
+
+| referencia en lote | postings | cargas a 0.95 | sobre la de S = 236 | cargas a 0.99 | sobre la de S = 236 |
+|---|---|---|---|---|---|
+| S = 236, la del criterio | 2 937 | 9.30 | — | 44.46 | — |
+| S = 197, el tamaño vivo de las celdas 3 y 4 | 3 518 | 9.85 | +6.0 % | 50.39 | +13.3 % |
+| S = 165, el de las celdas 1, 1b y 2 | 4 200 | 10.54 | +13.4 % | 59.36 | +33.5 % |
+
+- **Un índice en lote con postings de 197 ya queda fuera del listón de 0.99,** +13.3 % con el listón en +10 %, sin un solo borrado. Con 165 queda en +33.5 %.
+- **Ninguna celda que deje los postings en 197 vivos o menos puede cumplir el criterio a 0.99,** haga lo que haga con las aristas. La limpieza de la celda 3 los deja en 197.
+- **La celda 1b a 0.99 carga menos que el lote de su mismo llenado:** 50.56 frente a 59.36. *Lectura mía:* sus postings dan los candidatos de 165 y las fuentes de 236.
+
+**La celda 1b en los cuatro puntos,** contra la referencia de S = 236:
+
+| punto | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | las tres | contra su referencia de llenado |
+|---|---|---|---|---|---|
+| el 10 % al azar | −0.0018 en ef 10 | +6.1 % | +3.6 % | **sí** | S = 212: +3.6 % y −2.7 % |
+| el 30 % al azar | +0.0001 en ef 10 | +19.1 % | +13.7 % | no | S = 165: +5.1 % y −14.8 %, dentro |
+| el 50 % al azar | +0.0001 en ef 1 024 | +42.6 % | +45.1 % | no | S = 118: +2.7 % y −17.0 %, dentro |
+| el 30 % en regiones enteras | +0.0016 en ef 1 024 | −7.6 % | −4.1 % | **sí** | S = 165: −23.8 % y −27.0 % |
+
+- **Con el 10 % cumple las tres condiciones.** Las celdas 1 a 4 no cumplen ni ahí.
+- **Con el 50 % repite la lectura del 30 %:** cumple el recall, falla solo en cargas, y contra el lote de S = 118 queda dentro. También es de llenado.
+- **En regiones enteras cumple, y carga menos que la referencia.** Las celdas 1 y 2 no pasan de un recall de 0.68 en ese punto. Una búsqueda que entra por un posting sin vivos tiene fuentes y sale de él por sus aristas.
+
+**Lo que cuesta la celda 1b,** en ef 160 y con el 30 % al azar:
+
+| | recall | cargas | vectores puntuados en el scan | endpoints puntuados |
+|---|---|---|---|---|
+| referencia, S = 236 | 0.9872 | 34.10 | 8 562 | 16 759 |
+| celda 1 | 0.9839 | 43.77 | 7 675 | 18 144 |
+| celda 1b | 0.9891 | 45.10 | 11 319 | 22 969 |
+| celda 2 | 0.9807 | 36.56 | 6 427 | 11 424 |
+
+- **A igual ef puntúa un 47 % más de vectores que la celda 1,** y un 32 % más que la referencia: cada borrado que sigue en el posting se puntúa.
+- **No recupera nada:** los borrados se quedan en los postings con su código y sus aristas. Cuánto tiempo pueden quedarse no está medido.
+
+**El ruido entre las dos corridas,** con las celdas 1 a 4 medidas dos veces sobre dos builds:
+
+- **Ningún veredicto cambia.**
+- **Cargas, sin el churn:** difieren hasta un 1.1 % a 0.95 y hasta un 0.3 % a 0.99. El suelo de v2.0 a 0.95, un 0.5 %, se queda corto para este protocolo.
+- **Recall a igual ef:** la peor diferencia se mueve hasta 0.0012 entre corridas, sin contar las dos celdas que no llegan a 0.95 en la agrupada.
+- **El churn es lo que más se mueve:** −2.0 % a 0.95 y +1.3 % a 0.99. Su condición de 0.95 cambia de lado, de +15.1 % a +13.0 %. Su veredicto no: falla a 0.99 en las dos, +20.9 % y +22.2 %.
+- **El churn no es de llenado:** contra el lote de S = 230 queda en +11.9 % a 0.95 y +21.5 % a 0.99, con el recall en −0.0073.
+
+**Contra lo que esperaba de la celda 1b y de las referencias** (*mío*):
+
+- **Acerté en la agrupada, y me quedé corto:** esperaba que llegara a 0.99 cargando postings que no dan candidatos. Cumple el criterio, con menos cargas que la referencia.
+- **Al azar esperaba un recall «algo mejor» que el de la celda 1.** Cierra la diferencia entera.
+- **Fallé en las referencias de llenado:** esperaba a las celdas 2, 3 y 4 dentro de los dos umbrales contra la suya. Ninguna lo está. Solo la 1b.
+
+### Veredicto de v6.0
+
+1. **Por el criterio como está escrito, los deletes no se sostienen.** Con el 30 % borrado al azar no cumple ninguna de las cinco celdas, y no hay una «celda más simple que cumple».
+2. **La celda 1b es la única que cumple el recall a igual ef, y es la más simple después de la 1.** Falla solo en cargas, +19.1 % a 0.95 y +13.7 % a 0.99.
+3. **El fallo de la celda 1b es de llenado, y se atribuye a la política de fusión, no a las aristas.** Contra un lote con postings de su mismo tamaño vivo queda dentro de los dos umbrales.
+4. **Las celdas 1 a 4 fallan por otra razón:** dejan de usar a los borrados como fuentes, y desde la 2 también como endpoints. Ni la limpieza ni el refresco lo recuperan, y contra su referencia de llenado siguen fuera.
+
+*Lo que este veredicto deja sin medir, y es mío:*
+
+- **La celda 1b con una fusión que devuelva el llenado.** Las celdas 3 y 4 se montaron sobre la 2, no sobre la 1b. Y la limpieza de la 3 reescribe los postings sin sus borrados: le quitaría a la 1b las fuentes que la hacen funcionar.
+- **La celda 1b en el churn,** que el encargo no pedía.
+- **Cuántos borrados puede cargar un posting** antes de que el scan y el espacio pesen más que lo que rutean.
+- **Todo esto en disco:** son conteos en memoria.
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
