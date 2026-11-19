@@ -198,6 +198,43 @@ func TestFlatSearchByVectorDistanceCompressed(t *testing.T) {
 	}
 }
 
+// An index that holds exactly one page: the first page comes back full and
+// within the distance, the larger search has nothing past it, and the first
+// page is the answer.
+func TestFlatSearchByVectorDistanceOfOnePage(t *testing.T) {
+	const page = common.DefaultSearchByDistInitialLimit
+	ctx := context.Background()
+	index := createTestIndex(t)
+	for i := range page {
+		angle := float64(i) * 0.005
+		vector := []float32{float32(math.Cos(angle)), float32(math.Sin(angle))}
+		require.NoError(t, index.Add(ctx, uint64(i), vector))
+	}
+
+	for _, maxLimit := range []int64{10_000, -1} {
+		var (
+			ids []uint64
+			err error
+		)
+		done := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(done)
+			ids, _, err = index.SearchByVectorDistance(ctx, []float32{1, 0}, 2, maxLimit, nil)
+		}, index.logger)
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("the search by distance with the maximum %d did not return", maxLimit)
+		}
+
+		require.NoError(t, err)
+		require.Len(t, ids, page, "with the maximum %d", maxLimit)
+		for i, id := range ids {
+			require.Equal(t, uint64(i), id, "result %d with the maximum %d", i, maxLimit)
+		}
+	}
+}
+
 func requireNoIDTwice(t *testing.T, ids []uint64) {
 	t.Helper()
 	seen := make(map[uint64]int, len(ids))
