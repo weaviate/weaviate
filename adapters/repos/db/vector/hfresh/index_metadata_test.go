@@ -214,26 +214,11 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.False(t, index.Centroids.Built())
-	size, err := index.PostingSizes.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.EqualValues(t, 300, size)
-	meta, err := index.PostingMap.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.EqualValues(t, 300, meta.Count())
+	requireSinglePostingSize(t, index, 300)
 
-	// the version warmup walks the rebuilt posting map entry, after the
-	// persisted versions, so the delete wins over the default
 	require.Eventually(t, func() bool {
-		for id := range uint64(300) {
-			if inMemoryVersion(index.VersionMap, id) == 0 {
-				return false
-			}
-		}
-		return true
-	}, 10*time.Second, 10*time.Millisecond, "every version must be warmed up")
-	for id := range uint64(300) {
-		require.Equal(t, id == 7, inMemoryVersion(index.VersionMap, id).Deleted(), "vector %d", id)
-	}
+		return inMemoryVersion(index.VersionMap, 7).Deleted()
+	}, 10*time.Second, 10*time.Millisecond, "the version warmup must load the delete")
 
 	ids, _, err := index.SearchByVector(t.Context(), all[7], 1, nil)
 	require.NoError(t, err)
@@ -249,7 +234,7 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 }
 
 // persistedPostingEntry reports whether the posting's map entry reached the
-// store, which for the single posting only the transition's analyze does.
+// store.
 func persistedPostingEntry(t *testing.T, index *HFresh, id uint64) bool {
 	t.Helper()
 	_, err := index.PostingMap.bucket.Get(t.Context(), id)
@@ -260,20 +245,38 @@ func persistedPostingEntry(t *testing.T, index *HFresh, id uint64) bool {
 	return false
 }
 
-func TestSinglePostingRestartKeepsMapEntryInMemory(t *testing.T) {
+// requireSinglePostingSize checks that posting 1 has no map entry and that
+// its size reached the store.
+func requireSinglePostingSize(t *testing.T, index *HFresh, size uint32) {
+	t.Helper()
+	_, err := index.PostingMap.Get(t.Context(), 1)
+	require.ErrorIs(t, err, ErrPostingNotFound)
+	require.False(t, persistedPostingEntry(t, index, 1))
+
+	inMemory, err := index.PostingSizes.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, size, inMemory)
+	persisted, err := index.PostingSizes.store.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, size, persisted)
+}
+
+// The single posting's size is persisted on each append, without a shutdown,
+// and a restart finds the posting by it.
+func TestSinglePostingPersistsOnlyItsSize(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
-	addRestartVectors(t, index, vectors, 0, 300)
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	requireSinglePostingSize(t, index, 300)
 	require.NoError(t, index.Shutdown(t.Context()))
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.False(t, index.Centroids.Built())
-	metadata, err := index.PostingMap.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.EqualValues(t, 300, metadata.Count())
-	require.False(t, persistedPostingEntry(t, index, 1))
+	require.True(t, index.Centroids.Exists(1))
+	requireSinglePostingSize(t, index, 300)
+	requireSelfSearchExcept(t, index, all, -1)
 }
 
 // A restart finds the single posting by its fixed id, even when the ID
