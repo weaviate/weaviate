@@ -89,6 +89,10 @@ type HFresh struct {
 	distancer *Distancer
 	quantizer *compressionhelpers.BinaryRotationalQuantizer
 
+	// holdFirstSplit is set while a backup halts the shard: the graph the
+	// first split creates would miss the backup's commit log capture
+	holdFirstSplit atomic.Bool
+
 	// muvera is used for multi-vector encoding
 	muvera          atomic.Bool
 	muveraEncoder   *multivector.MuveraEncoder
@@ -385,7 +389,15 @@ func (h *HFresh) Flush() error {
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
-	err := h.Centroids.PrepareForBackup(ctx)
+	// a first split already running must create its graph before the
+	// centroids are prepared
+	h.holdFirstSplit.Store(true)
+	err := h.taskQueue.splitQueue.Wait(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = h.Centroids.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}
@@ -415,7 +427,11 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 		queue.DisableMaintenanceMode()
 	}
 
-	return h.Centroids.ResumeAfterBackup(ctx)
+	err := h.Centroids.ResumeAfterBackup(ctx)
+
+	// queue the first split again if the backup held it
+	h.holdFirstSplit.Store(false)
+	return stderrors.Join(err, h.startCentroidGraph())
 }
 
 func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {

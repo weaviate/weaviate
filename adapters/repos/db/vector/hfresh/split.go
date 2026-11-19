@@ -55,6 +55,9 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 	// the single posting's split builds the centroid graph
 	firstSplit := !h.Centroids.Built()
+	if firstSplit && h.holdFirstSplit.Load() {
+		return nil
+	}
 
 	// load the posting from disk
 	p, err := h.PostingStore.Get(ctx, postingID)
