@@ -134,13 +134,17 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **Esa red no sirve hoy a este índice.** Su rescore falla la búsqueda entera si no puede leer un vector (`exactDistance`, `search.go:591`), donde HNSW y HFresh saltan el candidato. Hay que cambiarlo antes que nada: sin eso, cualquier borrado rompe las búsquedas que lo encuentren.
 
-**Lo que hay medido:** v6.0, en memoria y en conteos, en marcha el 19 y sin veredicto. En disco, nada.
+**Lo que hay medido:** v6.0, en memoria y en conteos, cerrado el 19. En disco, nada.
+
+- **Por su criterio, los deletes no se sostienen** con ninguna de las cinco celdas, con el 30 % borrado al azar.
+- **La celda 1b es la única que cumple el recall a igual ef:** un borrado se sigue puntuando y sus aristas se siguen, y nunca es candidato. Falla solo en cargas, +19.1 % a 0.95 y +13.7 % a 0.99, y ese fallo es de llenado: se atribuye a la política de fusión, no a las aristas.
+- **Con el 10 % borrado la celda 1b cumple.**
 
 *Lo mínimo para una primera versión, por lo leído:*
 
-- **La marca de v6.0, guardada con el índice:** un bit por vector. `Delete` la pone y no falla con ids desconocidos. `ContainsDoc` da `false` para un id marcado.
+- **La marca de v6.0, guardada con el índice, con la semántica de la celda 1b:** un bit por vector, y el borrado sigue ruteando mientras esté en su posting. `Delete` la pone y no falla con ids desconocidos. `ContainsDoc` da `false` para un id marcado.
 - **El rescore salta un vector que falta.**
-- **La limpieza física, como tarea de fondo y después.** Si la celda más simple de v6.0 cumple su criterio, la primera versión puede salir sin ella. Si no, la limpieza entra en la primera versión.
+- **La fusión que devuelve el llenado, que no está medida.** La limpieza de v6.0 reescribe los postings sin sus borrados, y eso le quita a la celda 1b las fuentes. Sin esa fusión, una primera versión carga un 19 % más a 0.95 con el 30 % borrado, y cumple con el 10 %.
 
 ### Filtros
 
@@ -163,9 +167,9 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 *La opción mínima que veo, en dos partes:*
 
 1. **Por debajo de un corte, búsqueda exacta sobre la lista.** Se leen los vectores de los ids permitidos con el thunk que el índice ya recibe y se ordenan por distancia exacta. Son unas 90 líneas, con `hfresh/search_flat.go` de plantilla. No hay un helper compartido que reutilizar.
-2. **Por encima, filtrar en el scan.** Un miembro fuera de la lista se puntúa y sus aristas se siguen, y no entra en los candidatos ni en el rescore. Es el mismo mecanismo que la celda 1b de v6.0 aplica a un borrado: la comprobación de la lista iría donde va la de la marca.
+2. **Por encima, filtrar en el scan.** Un miembro fuera de la lista se puntúa y sus aristas se siguen, y no entra en los candidatos ni en el rescore. Es el mismo mecanismo que la celda 1b de v6.0 aplica a un borrado, y ahí cumple el recall a igual ef: la comprobación de la lista iría donde va la de la marca.
 
-- **Nada de esto está medido.** Con un filtro selectivo por encima del corte, la búsqueda cargaría muchos postings para reunir k candidatos permitidos. Lo más parecido que hay es la variante agrupada de v6.0, que borra regiones enteras.
+- **Nada de esto está medido.** Con un filtro selectivo por encima del corte, la búsqueda cargaría muchos postings para reunir k candidatos permitidos. Lo más parecido que hay es la variante agrupada de v6.0, que borra regiones enteras: la celda 1b cumple ahí su criterio, con el 30 % del corpus fuera.
 - **La alternativa: rechazar la query antes de ejecutarla,** con un error claro. Pide fontanería nueva por encima del índice y no tiene precedente.
 
 ### Métricas de distancia
@@ -402,7 +406,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | Un formato en disco o dos: el que crece (v5.0) y el del lote (v4.0) | El camino de lectura y la reorganización | De si la reorganización reescribe al formato del lote |
 | Los tres puntos por confirmar de la tabla de parámetros: dónde vive `rescoreLimit`, su acoplamiento en el modo `routing`, y `distance` | La configuración en `entities` | De nada. Lo demás de la tabla está acordado |
 | El `ef` dinámico | El default de `ef` para k distinto de 10 | **De una medida pendiente: k = 1 y k = 100** |
-| Si la primera versión lleva limpieza física de deletes | El paso 4 | Del veredicto de v6.0 |
+| Qué fusión devuelve el llenado sin quitar las fuentes | El paso 4, si la primera versión tiene que aguantar más de un 10 % de borrados | De una medida que no existe: la celda 1b con fusión |
 
 **Paso 1. La configuración y el registro del tipo.** Solo necesita el nombre y la tabla de parámetros.
 
@@ -425,7 +429,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - La durabilidad: qué está escrito cuando `Add` devuelve.
 - `Flush`, `Shutdown` y `Drop` de verdad.
 
-**Paso 4. Los deletes mínimos.** Necesita el paso 3 y el veredicto de v6.0.
+**Paso 4. Los deletes mínimos.** Necesita el paso 3. La marca es la de la celda 1b de v6.0.
 
 - La marca guardada, `Delete` sin error para ids desconocidos y `ContainsDoc`.
 - Con esto un shard ya puede hacer updates: sin `Delete`, ninguna clase con este índice admite un cambio de vector.
@@ -466,7 +470,6 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Lo que está en vuelo y puede mover este plan:**
 
-- **v6.0,** deletes en memoria: dice qué celda es la mínima, y si la limpieza entra en la primera versión.
 - **v4.1,** el scan con los códigos en RAM: dice si el modo `scan` existe.
 - **v5.2,** inserts con búsquedas en paralelo: dice cómo escala el insert, que hoy son 179 por segundo con un escritor.
 - **La sesión de la noche del 19,** con HFresh configurado como un nodo: son los números de referencia frente a HFresh.

@@ -462,6 +462,38 @@ Un nodo reparte dos recursos entre todos sus índices. El índice tiene que usar
 
 Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en `bench-report.md`, «Los recursos compartidos del nodo».
 
+## Deletes en memoria (v6.0, 2026-11-19)
+
+*De `bench-report.md`, «v6.0: deletes en memoria»: dbpedia 1M en lote, con el 10, el 30 y el 50 % borrado al azar, el 30 % en regiones enteras y un churn del 30 %. Dos corridas, en conteos, cada punto frente a un índice en lote de los vectores que quedan. En memoria: nada de esto está en disco.*
+
+**Veredicto.** Por el criterio del usuario los deletes no se sostienen: con el 30 % borrado al azar ninguna de las cinco celdas queda a 0.005 de recall a igual ef con cargas a 0.95 +15 % o menos y a 0.99 +10 % o menos. Ningún stop: ningún borrado devuelto y cobertura completa.
+
+| celda | qué hace con un borrado | recall a igual ef, con el 30 % al azar | cargas a 0.95 | cargas a 0.99 |
+|---|---|---|---|---|
+| 1 | Lo salta en el scan. Sus apariciones como endpoint se puntúan | −0.0154 | +48.7 % | +67.2 % |
+| 1b | Lo puntúa y sigue sus aristas. Nunca es candidato | +0.0001 | +19.1 % | +13.7 % |
+| 2 | Lo salta, y tampoco lo puntúa como endpoint | −0.0235 | +46.6 % | +68.1 % |
+| 3 | Lo de la 2, y reescribe y fusiona postings | −0.0214 | +36.6 % | +50.4 % |
+| 4 | Lo de la 3, y refresca las listas medio muertas | −0.0173 | +28.1 % | +36.0 % |
+
+- **La celda 1b es la única que cumple el recall a igual ef.** Falla solo en cargas.
+- **Ese fallo es de llenado, y se atribuye a la política de fusión, no a las aristas.** Contra un lote de los mismos vectores con postings de 165, su tamaño vivo, queda en +5.1 % a 0.95 y −14.8 % a 0.99: dentro de los dos umbrales.
+- **Las celdas 1 a 4 fallan por otra razón.** Contra su referencia de llenado siguen fuera, de +20.9 a +31.2 % a 0.95.
+- **Con el 10 % borrado la celda 1b cumple las tres condiciones,** y en regiones enteras también, con menos cargas que la referencia.
+- **El churn, medido solo con la celda 4:** −0.0081 de recall, y cargas +15.1 % y +20.9 %. No es de llenado: sus postings quedan en 230 vivos.
+
+*Lectura mía, para el diseño:*
+
+- **Un borrado tiene que seguir ruteando mientras esté en su posting.** Es la única diferencia entre la celda 1 y la 1b, y vale el recall entero: de −0.0154 a +0.0001.
+- **El llenado es un requisito aparte de las aristas.** Un índice en lote con postings de 197 ya carga un 13.3 % más a 0.99 que uno de 236, sin un solo borrado, y con 165 un 33.5 %. Una fusión que solo rescata a los postings que bajan de la mitad deja la media en 197.
+- **Fusionar y conservar las fuentes tiran en sentidos contrarios.** La limpieza medida reescribe un posting sin sus borrados, que es quitarle las fuentes. Cómo devolver el llenado sin perderlas no está medido.
+- **El refresco sirve cuando las fuentes ya se han tirado.** Con el 50 % borrado baja las cargas a 0.95 de +62.6 % a +18.8 %. Cuesta una búsqueda por vector: 31 cargas y 64 distancias exactas.
+- **La marca sola no es una opción si se borra una región entera.** Las celdas 1 y 2 no pasan de un recall de 0.68: una búsqueda que entra por un posting sin vivos no tiene candidatos ni fuentes.
+- **La celda 1b paga en trabajo y en espacio:** a igual ef puntúa un 47 % más de vectores que la celda 1, y no recupera nada.
+- **El mismo mecanismo sirve para un filtro:** un miembro fuera del filtro rutea y no es candidato (`integration-plan.md`, «Filtros»).
+
+**Sin medir:** la celda 1b con una fusión que devuelva el llenado, la celda 1b en el churn, cuántos borrados aguanta un posting, y todo ello en disco.
+
 ## Open for phase 2
 
 *Añadido al cierre del 2026-11-13 como punto de partida del lunes. Son las cuatro preguntas abiertas, sin resolver. Cada una dice qué hay hoy en el índice en memoria y qué queda por decidir.*
@@ -483,7 +515,7 @@ Abierto:
 
 - **El mapa en sí:** dónde vive, cuánto ocupa (4 B por vector serían 40 MB a 10M) y qué cuesta su indirección por endpoint frente al `postingOf` de hoy. *Medido el 16: de un 28 a un 31 % más por endpoint con docIDs en orden de inserción, y de un 59 a un 65 % barajados (ver «Aristas por docID: el coste en memoria»).*
 - **El sidecar:** si se sigue indexando por slot o pasa al id estable, y qué hace con los huecos que dejan los deletes.
-- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas). *v2.0 no lo resuelve: sus «aristas inversas» son escrituras en las listas de los vecinos de un vector nuevo, no un índice de quién apunta a quién. Y v2.0 no tiene deletes.*
+- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas). *Medido el 19 (v6.0; el detalle, en «Deletes en memoria»): con el borrado como fuente mientras siga en su posting, las aristas hacia él no cuestan recall; sin eso, ni dejarlas ni refrescarlas lo recupera.* *v2.0 no lo resuelve: sus «aristas inversas» son escrituras en las listas de los vecinos de un vector nuevo, no un índice de quién apunta a quién. Y v2.0 no tiene deletes.*
 - **Un update como delete más insert,** y qué les pasa a las aristas de los vecinos del vector movido.
 - **La invisibilidad transitoria de HFresh entre insert y split,** que deja vectores fuera de todo posting, como riesgo que el diseño tiene que cerrar por construcción.
 
