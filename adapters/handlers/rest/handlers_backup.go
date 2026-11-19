@@ -125,7 +125,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		baseBackupID = *params.Body.IncrementalBaseBackupID
 	}
 	if params.Body.ID == baseBackupID {
-		return backups.NewBackupsCreateInternalServerError().
+		return backups.NewBackupsCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupID)))
 	}
 
