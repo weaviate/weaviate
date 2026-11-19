@@ -208,21 +208,21 @@ type deleteFill struct {
 
 // deleteCell is one cell at one point. Variant is "b" for cell 1b.
 type deleteCell struct {
-	Cell     int           `json:"cell"`
-	Variant  string        `json:"variant,omitempty"`
-	Name     string        `json:"name"`
+	Cell    int    `json:"cell"`
+	Variant string `json:"variant,omitempty"`
+	Name    string `json:"name"`
 	// Label, RepairShare, MergeUnder, MergeWithin and Mine are those of a
 	// cell of v6.1.
-	Label       string `json:"label,omitempty"`
-	RepairShare string `json:"repairShare,omitempty"`
-	MergeUnder  int    `json:"mergeUnder,omitempty"`
-	MergeWithin int    `json:"mergeWithin,omitempty"`
-	Mine        bool   `json:"mine,omitempty"`
-	Counts   deleteCounts  `json:"counts"`
-	Work     deleteStats   `json:"work"`
-	Refresh  *refreshStats `json:"refresh,omitempty"`
-	Splits   int           `json:"splits"`
-	Coverage string        `json:"coverage"`
+	Label       string        `json:"label,omitempty"`
+	RepairShare string        `json:"repairShare,omitempty"`
+	MergeUnder  int           `json:"mergeUnder,omitempty"`
+	MergeWithin int           `json:"mergeWithin,omitempty"`
+	Mine        bool          `json:"mine,omitempty"`
+	Counts      deleteCounts  `json:"counts"`
+	Work        deleteStats   `json:"work"`
+	Refresh     *refreshStats `json:"refresh,omitempty"`
+	Splits      int           `json:"splits"`
+	Coverage    string        `json:"coverage"`
 	deleteCurve
 	Verdict deleteVerdict `json:"verdict"`
 	Fill    *deleteFill   `json:"fill,omitempty"`
