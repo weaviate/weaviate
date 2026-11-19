@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 17:48, antes de compilar nada de esta ronda y antes de ningún dato suyo. Paso 1 cerrado y la corrida a 1M en marcha.** El mecanismo, las celdas, las medidas, el criterio y los stops son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+**Estado: cerrado el 19 a las 19:43. Pre-registrado a las 17:48, antes de compilar nada de esta ronda y antes de ningún dato suyo. Con el 30 % borrado al azar la celda más barata que cumple el criterio es reparar con el 25 % o más y fusionar por debajo de 177. En el churn esa celda no cumple. El veredicto, al final de la sección.** El mecanismo, las celdas, las medidas, el criterio y los stops son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -292,7 +292,167 @@ Código en `47788542d1` y `a2c97cc394`, después del pre-registro (`6db1f2c523`)
 - **La fusión de 177 deja postings por debajo de 118.** La regla de la suma frena también a los más pequeños: uno con 100 vivos cuyo vecino más cercano tiene 270 no se fusiona. Es la regla como está escrita, y se cuenta.
 - **A esa escala la fusión de 177 deja la media en 226, no cerca de 300 como esperaba.** De cada 61 postings por debajo de 177, 26 no se fusionan por la suma. No lo extrapolo a 1M.
 
-**En marcha desde las 17:57:** la corrida a 1M. No empieza ninguna etapa desde las 21:15, y un guardián para lo que quede a las 22:50.
+**En marcha desde las 17:56:** la corrida a 1M. No empieza ninguna etapa desde las 21:15, y un guardián para lo que quede a las 22:50.
+
+### Paso 2, cerrado: la corrida a 1M (de 17:56 a 19:43 del 19)
+
+Binario de `a2c97cc394`. Datos en `testdata/bench/v6.1/dbpedia-1m-repair.json` y tablas en `testdata/bench/v6.1/repair-verdict.md`.
+
+- **Las dos etapas corrieron,** en 107 minutos: las seis celdas con el 30 % al azar y sus referencias en 72, y el churn en 28.
+- **Ningún stop:** ningún borrado devuelto, cobertura completa, ninguna lista reparada hacia un borrado, y tras la segunda fase ningún borrado en un posting ni arista hacia uno. El guardián de las 22:50 no tuvo nada que parar.
+- **Los tests del paquete entero,** que al escribir el Paso 1 seguían corriendo, pasaron: 204 s, ningún fallo.
+
+**El criterio, con el 30 % borrado al azar.** Quedan 693 000 vectores. La referencia, su lote con S = 236: 2 937 postings, 9.28 cargas a 0.95 y 44.29 a 0.99.
+
+| celda | peor recall a igual ef | cumple | cargas a 0.95 | cumple | cargas a 0.99 | cumple | las tres |
+|---|---|---|---|---|---|---|---|
+| referencia: la celda 4 de v6.0 | −0.0178 en ef 10 | no | 11.98, +29.1 % | no | 60.88, +37.5 % | no | no |
+| la mitad o más, fusión de 118 (mía) | −0.0175 en ef 10 | no | 11.86, +27.8 % | no | 59.25, +33.8 % | no | no |
+| el 25 % o más, fusión de 118 | −0.0086 en ef 10 | no | 10.18, +9.7 % | sí | 44.85, +1.3 % | sí | no |
+| el 25 % o más, fusión de 177 | −0.0023 en ef 10 | sí | 9.53, +2.7 % | sí | 39.54, −10.7 % | sí | **sí** |
+| una o más, fusión de 118 | −0.0060 en ef 10 | no | 9.97, +7.4 % | sí | 41.14, −7.1 % | sí | no |
+| una o más, fusión de 177 | −0.0010 en ef 10 | sí | 9.39, +1.2 % | sí | 35.21, −20.5 % | sí | **sí** |
+
+**La celda más barata que cumple: el 25 % o más con la fusión de 177.** Es la primera celda de deletes que cumple el criterio original con el 30 % al azar.
+
+- **Cumplen dos,** las dos de la fusión de 177. Con la de 118 no cumple ninguna, sea cual sea el umbral.
+- **Con la fusión de 118 fallan solo el recall en ef 10,** y cumplen las dos condiciones de cargas. «Una o más» se pasa por 0.0010, menos que el suelo de ruido (0.0012): por la regla como está escrita, no cumple.
+- **Las dos celdas del 50 % fallan las tres condiciones,** como la celda 4 en las dos corridas de v6.0.
+
+**Qué hace cada pieza,** leyendo de dos en dos dentro de esta corrida:
+
+| qué cambia | de qué a qué | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 |
+|---|---|---|---|---|
+| el orden, con el 50 % y la fusión de 118 | la celda 4 de v6.0 → dos fases | −0.0178 → −0.0175 | +29.1 % → +27.8 % | +37.5 % → +33.8 % |
+| el umbral, en dos fases con la fusión de 118 | 50 % → 25 % | −0.0175 → −0.0086 | +27.8 % → +9.7 % | +33.8 % → +1.3 % |
+| | 25 % → una o más | −0.0086 → −0.0060 | +9.7 % → +7.4 % | +1.3 % → −7.1 % |
+| la fusión, con el 25 % | 118 → 177 | −0.0086 → −0.0023 | +9.7 % → +2.7 % | +1.3 % → −10.7 % |
+| la fusión, con «una o más» | 118 → 177 | −0.0060 → −0.0010 | +7.4 % → +1.2 % | −7.1 % → −20.5 % |
+
+- **El orden no cambia nada.** Reparar antes de limpiar, y con los borrados navegables, deja el 50 % donde estaba: el recall y las cargas a 0.95 a menos del ruido, y a 0.99 un 2.7 % menos de cargas, con un suelo del 3.0 %. A la celda 4 de v6.0 no le fallaba el orden: le faltaban reparaciones.
+- **El paso grande es del 50 % al 25 %:** de reparar el 14.4 % de los vivos a reparar el 59.5 %. Del 25 % a «una o más», que repara el 83.8 %, se gana menos.
+- **La fusión de 177 es la que cierra el recall en ef bajo.** Con la de 118 una búsqueda puntúa un 14 % menos de vectores a igual ef (7 380 frente a 8 562 en ef 160): los postings son más pequeños.
+
+**Cuántos se reparan y lo que cuesta:**
+
+| celda | vectores reparados | de los vivos | cargas por reparación | endpoints por reparación | cargas de la fase | cargas por borrado | aristas quitadas sin reparar | aristas vivas por vector, después |
+|---|---|---|---|---|---|---|---|---|
+| la celda 4 de v6.0 | 99 641 | 14.4 % | 30.9 | 10 329 | 3 078 233 | 10.4 | no las quita: un 23.8 % siguen muertas | 6.80 |
+| la mitad o más | 99 641 | 14.4 % | 39.6 | 19 174 | 3 948 363 | 13.3 | 1 468 895 | 6.82 |
+| el 25 % o más | 412 369 | 59.5 % | 47.3 | 24 547 | 19 497 196 | 65.6 | 306 928 | 8.53 |
+| una o más | 580 809 | 83.8 % | 47.7 | 24 889 | 27 678 539 | 93.2 | 0 | 9.10 |
+
+- **Reparar con el 25 % cuesta 66 cargas por vector borrado.** Un insert cuesta 35 en el churn de esta corrida, y una query a 0.95, 9.3: cada borrado sale por casi dos inserts, o por siete queries.
+- **«Una o más» cuesta un 42 % más que el 25 %,** 93 cargas por borrado, y también cumple.
+- **Navegar por los borrados encarece cada reparación.** Sobre los mismos 99 641 vectores: 39.6 cargas frente a las 30.9 de la celda 4, que repara después de limpiar, y un 86 % más de endpoints puntuados.
+- **Cada reparación hace 64 distancias exactas,** las del rescore.
+- **Aristas inversas:** 36 818 con el 25 % y 49 626 con «una o más». Menos de una por cada diez reparaciones.
+- **El lote del 100 % tiene 8.98 aristas por vector.** «Una o más» las deja en 9.10 y el 25 % en 8.53. El 50 % las deja en 6.82.
+- **La segunda fase reescribe 4 193 de los 4 195 postings** y suelta los 297 000 borrados.
+
+**El tamaño medio de posting después de fusionar:**
+
+| fusión | fusiones | no hechas por la suma | miembros movidos | splits tras una fusión | postings | tamaño medio | por debajo de 118 | por debajo de 177 |
+|---|---|---|---|---|---|---|---|---|
+| la de v6.0, por debajo de 118 | 743 | — | 63 045 | 61 | 3 513 | 197.3 | 57 | 1 477 |
+| la de llenado, por debajo de 177 | 1 247 | 614 | 147 832 | 0 | 2 948 | 235.1 | 118 | 612 |
+
+- **La fusión de llenado devuelve el llenado:** 235.1 vivos de media, con la referencia en 236.0. Mueve 2.3 veces los miembros que mueve la de v6.0 y no acaba en ningún split.
+- **Deja el doble de postings por debajo de 118,** 118 frente a 57. La regla de la suma frena también a los pequeños cuyo vecino más cercano es grande: 614 fusiones no se hicieron. Es la regla como está escrita.
+- *Los números son los de la celda del 25 %. Con «una o más» difieren en una fusión.*
+
+**Contra su referencia de llenado:**
+
+| referencia en lote | postings | cargas a 0.95 | sobre la de S = 236 | cargas a 0.99 | sobre la de S = 236 |
+|---|---|---|---|---|---|
+| S = 236, la del criterio | 2 937 | 9.28 | — | 44.29 | — |
+| S = 197, de llenado | 3 518 | 9.86 | +6.3 % | 50.39 | +13.8 % |
+| S = 235, de llenado | 2 949 | 9.30 | +0.2 % | 44.42 | +0.3 % |
+
+| celda | su referencia | peor recall a igual ef contra ella | cargas a 0.95 | cargas a 0.99 | dentro de los dos umbrales |
+|---|---|---|---|---|---|
+| referencia: la celda 4 de v6.0 | S = 197 | −0.0140 | +21.5 % | +20.8 % | no |
+| la mitad o más, fusión de 118 (mía) | S = 197 | −0.0138 | +20.2 % | +17.6 % | no |
+| el 25 % o más, fusión de 118 | S = 197 | −0.0049 | +3.2 % | −11.0 % | sí |
+| el 25 % o más, fusión de 177 | S = 235 | −0.0019 | +2.6 % | −11.0 % | sí |
+| una o más, fusión de 118 | S = 197 | −0.0023 | +1.1 % | −18.4 % | sí |
+| una o más, fusión de 177 | S = 235 | −0.0005 | +1.0 % | −20.7 % | sí |
+
+- **El fallo de las dos celdas con la fusión de 118 es de llenado.** Contra el lote de S = 197 quedan dentro de los dos umbrales, y su recall dentro de 0.005: −0.0049 y −0.0023.
+- **Las del 50 % no son de llenado:** siguen fuera por 20 puntos, con el recall en −0.014.
+- **Las de la fusión de 177 están en el llenado del criterio.** Su referencia de llenado es la del criterio, a un 0.3 % o menos.
+
+**A 0.99 las cuatro celdas reparadas cargan menos que un lote de su mismo llenado,** entre un 11 % y un 21 % menos.
+
+| en ef 160 | recall | cargas | vectores puntuados | endpoints puntuados |
+|---|---|---|---|---|
+| referencia, el lote con S = 236 | 0.9873 | 34.10 | 8 562 | 16 754 |
+| el 25 % o más, fusión de 177 | 0.9887 | 33.99 | 8 465 | 16 248 |
+| una o más, fusión de 177 | 0.9898 | 34.13 | 8 501 | 17 033 |
+
+- **A igual ef hacen el mismo trabajo y sacan entre 0.0014 y 0.0025 más de recall.** La lectura a 0.99 lo amplifica: la curva es casi plana ahí, y esa diferencia vale entre un 11 % y un 20 % de cargas.
+- **La del 25 % queda por debajo de la referencia en ef 10 a 40,** hasta 0.0023, y por encima desde ef 80.
+- *Lectura mía, sin medir:* una lista rehecha por búsqueda con ef 160 es mejor que la del lote. No lo separo aquí, y no lo uso para el veredicto.
+
+**El churn, con el 25 % o más y la fusión de 177: no cumple.** Una base de 760 000 vectores y diez rondas que borran 22 800 e insertan otros tantos, con la pasada entera en cada ronda. La referencia, el lote del conjunto final con S = 236: 9.37 cargas a 0.95 y 44.39 a 0.99.
+
+| | peor recall a igual ef | cumple | cargas a 0.95 | cumple | cargas a 0.99 | cumple | las tres |
+|---|---|---|---|---|---|---|---|
+| el 25 % o más, fusión de 177, en el churn | −0.0071 en ef 10 | no | 10.51, +12.1 % | sí | 51.91, +16.9 % | no | no |
+
+- **No es de llenado.** La fusión mantiene los postings entre 238.0 y 239.1 vivos en las diez rondas, sin un solo split tras una fusión. Contra el lote de S = 238 queda igual: +12.4 %, +17.0 % y −0.0071.
+- **Son las aristas.** En las diez rondas la pasada repara 144 936 vectores y quita 1 643 211 aristas sin reparar.
+
+| ronda | reparados | de los vivos | aristas de un reparado, antes | aristas quitadas sin reparar, en la ronda | aristas por vector vivo, al acabar |
+|---|---|---|---|---|---|
+| 1 | 11 880 | 1.6 % | 4.35 | 177 405 | 8.62 |
+| 2 | 12 474 | 1.6 % | 4.43 | 174 653 | 8.41 |
+| 4 | 13 540 | 1.8 % | 4.51 | 168 480 | 8.03 |
+| 6 | 14 803 | 1.9 % | 4.63 | 161 825 | 7.70 |
+| 8 | 16 167 | 2.1 % | 4.68 | 158 093 | 7.42 |
+| 10 | 17 007 | 2.2 % | 4.73 | 152 865 | 7.18 |
+
+- **Las listas se acortan ronda a ronda:** de 8.62 aristas por vector a 7.18, con el lote del 100 % en 8.98. En la última ronda aún bajan un 1.5 %: no es un estado estable, y con más churn seguiría bajando.
+- **Se ve en la búsqueda:** en ef 160 puntúa 14 950 endpoints frente a los 17 092 de la referencia, un 12.5 % menos, con las mismas cargas (34.56 y 34.36) y casi los mismos vectores puntuados (8 526 y 8 627).
+- **Por qué: el umbral es una proporción de la lista en el momento de la pasada, y la pasada no guarda memoria.** Con un 3 % borrado por ronda, un vector de 9 aristas pierde una de vez en cuando. Una de 9 no llega al 25 %, la segunda fase la quita, y la pasada siguiente ve una lista limpia de 8. Para repararse tendría que perder tres en la misma ronda.
+- **Solo se reparan los vectores de lista corta:** entre 4.4 y 4.7 aristas de media antes de reparar, donde una muerta ya es el 25 %.
+- **Por cada borrado,** la pasada única del 30 % repara 1.39 vectores y quita 1.03 aristas sin reparar. El churn repara 0.64 y quita 7.2.
+- **El mismo 30 % de borrados y la misma regla, y lo que se repara depende de cuántos borrados ve cada pasada.** Medido está esto: una pasada sobre el 30 % cumple, y diez pasadas sobre el 3 % cada una no.
+- **Lo que costó,** tal como corrió: 3 924 085 cargas de reparación, 17.2 por borrado, y 35.0 cargas por insert.
+- **Contra el churn de v6.0,** que corrió con la celda 4 y es otra corrida, así que a 0.99 no se compara: el recall quedó en −0.0073 allí y en −0.0071 aquí, y las cargas a 0.95 en +13.0 % y +12.1 %. A menos del ruido del churn entre las dos corridas de v6.0, un 2.0 %.
+
+**Dos cosas del arnés, que no cambian ningún número:**
+
+- **La línea de log de cada ronda decía «so far … refreshed» con el número de la ronda.** Corregida.
+- **En el JSON, los `inserts` de una ronda llevan cuatro cuentas de la ronda** (`inserted`, `splits`, `searchLoads`, `inverseEdges`) **y el resto acumuladas,** como en v6.0. Las tablas solo usan las cuatro. Anotado en el código.
+
+**Contra lo que esperaba** (*mío*):
+
+- **Cuántos se reparan: fallé en los dos.** Con «una o más» esperaba el 96 % y es el 83.8 %. Con el 25 % esperaba unos 370 000 y son 412 369. Las listas no son todas de 9: el 16.2 % sin ninguna arista muerta son vectores de unas 2 aristas de media.
+- **Coste por reparación: fallé.** Esperaba unas 31 cargas, las del refresco de v6.0, y son 47. No conté con lo que cuesta navegar por los borrados.
+- **Recall dentro de 0.005 con los dos umbrales: solo con la fusión de 177.** Con la de 118, −0.0086 y −0.0060.
+- **Con la fusión de 118 no cumple ninguna: acerté en el veredicto y fallé en el motivo.** Esperaba el fallo en las cargas a 0.99, por el +13.3 % del lote de 197. Las cumplen, +1.3 % y −7.1 %, y fallan el recall en ef 10.
+- **Con la fusión de 177 esperaba postings cerca de 300: fallé.** Quedan en 235.1. La condición de cargas se cumple con el llenado del criterio, no por tamaño.
+- **La más barata que cumple: acerté.**
+- **El 50 % en dos fases, mejor que la celda 4: no.** Empatan.
+- **Del churn no dejé escrita ninguna expectativa.**
+
+### Veredicto de v6.1
+
+1. **Con el 30 % borrado al azar, la limpieza en dos fases cumple el criterio original.** Cumplen dos celdas, y la más barata es reparar con el 25 % o más y fusionar por debajo de 177: −0.0023 de recall, +2.7 % de cargas a 0.95 y −10.7 % a 0.99.
+2. **Hacen falta las dos piezas.** Con la fusión de 118 no cumple ningún umbral, y es un fallo de llenado. Con el 50 % no cumple, y no es de llenado.
+3. **Cuesta 66 cargas por vector borrado,** casi dos inserts: se repara el 59.5 % de los vivos, a 47 cargas cada uno.
+4. **En el churn esa misma celda no cumple:** −0.0071 de recall y +16.9 % de cargas a 0.99. No es de llenado. Las listas se acortan, porque el umbral se mide en cada pasada y no acumula lo perdido en las anteriores.
+5. **Como pasada de mantenimiento periódica, con el umbral como está escrito, la limpieza no se sostiene todavía.** Como pasada única sobre muchos borrados, sí.
+
+*Lo que este veredicto deja sin medir, y es mío. No lanzo nada:*
+
+- **El umbral contado sobre lo que la lista ha perdido desde que se construyó,** y no sobre lo que tiene muerto en esta pasada. Pide un contador por vector. Con él, diez pasadas del 3 % repararían lo que repara una del 30 %. Que así cumpla el churn es una hipótesis: lo medido es que hoy no acumula, no que acumulando baste.
+- **«Una o más» en el churn.** No deja ninguna arista sin reparar, así que no se acorta nada. Repararía en cada ronda a todo vector que pierda una arista.
+- **La pasada cada varias rondas,** que es el caso que sí está medido con una sola.
+- **Si una lista rehecha es mejor que la del lote,** que explicaría las cargas a 0.99.
+- **Lo que quedó sin medir en v6.0:** la celda 1b con la fusión de llenado, y cuántos borrados puede cargar un posting.
+- **Todo esto en disco:** son conteos en memoria.
 
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 

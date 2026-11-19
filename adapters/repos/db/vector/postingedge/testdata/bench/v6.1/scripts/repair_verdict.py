@@ -287,6 +287,7 @@ def main():
                     rep['work']['searchLoads'] / max(rep['refreshed'], 1), num(w['merges']),
                     num(w.get('mergesSkippedBySize', 0))))
             print()
+            edge_table_churn(churn)
         if churn['cells'] and churn['reference'].get('points'):
             ref = churn['reference']
             print('- **Corpus:** %s vectores, %s borrados y %s insertados.' % (
@@ -298,6 +299,27 @@ def main():
             cost_tables_churn(churn)
             fill_tables(churn, target)
             work_tables(churn)
+
+
+def edge_table_churn(churn):
+    """What each round's pass does to the edges: how many vectors it repairs,
+    how long their lists are, how many edges it takes out without a repair and
+    how many a live vector is left with. Of a round's work only the counts of
+    the pass are cumulative, so the edges taken out are a difference."""
+    print('Las aristas, ronda a ronda:')
+    print()
+    print('| ronda | reparados | de los vivos | aristas de un reparado, antes | después | aristas quitadas sin reparar, '
+          'en la ronda | aristas por vector vivo, al acabar |')
+    print('|---|---|---|---|---|---|---|')
+    dropped = 0
+    for r in churn['rounds']:
+        c, w, rep = r['counts'], r['work'], r['refresh']
+        print('| %d | %s | %.1f %% | %.2f | %.2f | %s | %.2f |' % (
+            r['round'], num(rep['refreshed']), 100 * rep['refreshed'] / max(c['live'], 1),
+            rep['edgesBefore'] / max(rep['refreshed'], 1), rep['edgesAfter'] / max(rep['refreshed'], 1),
+            num(w.get('edgesDropped', 0) - dropped), (c['edges'] - c['deadEdges']) / max(c['live'], 1)))
+        dropped = w.get('edgesDropped', 0)
+    print()
 
 
 def cost_tables_churn(churn):

@@ -949,6 +949,9 @@ func TestStreamDeletes(t *testing.T) {
 				stage.Stopped = fmt.Sprintf("round %d, coverage: %v", round+1, err)
 			}
 			out.Counts, out.Work = d.counts(uc.TargetPostingSize), d.stats
+			// Of the inserts of a round, these four counts are of the round.
+			// Every other count of out.Inserts, and all of out.Work, are of
+			// the rounds so far. out.Refresh is of the round.
 			out.Inserts = s.stats.clone()
 			out.Inserts.Inserted -= inserts.Inserted
 			out.Inserts.Splits -= inserts.Splits
@@ -962,11 +965,11 @@ func TestStreamDeletes(t *testing.T) {
 			}
 			c := out.Counts
 			t.Logf("churn, round %d: %d deleted and %d inserted so far | %d live in %d postings of %.1f live members | "+
-				"dead edges %.3f | this round: %d splits, %.1f loads an insert; so far %d rewritten, %d merges, %d refreshed",
+				"dead edges %.3f | this round: %d splits, %.1f loads an insert, %d lists built again; so far %d rewritten, %d merges",
 				round+1, out.Deleted, out.Inserted, c.Live, c.Postings, float64(c.LiveMembers)/float64(max(c.Postings, 1)),
 				float64(c.DeadEdges)/float64(max(c.Edges, 1)), out.Inserts.Splits,
-				float64(out.Inserts.SearchLoads)/float64(max(out.Inserts.Inserted, 1)), out.Work.Rewritten, out.Work.Merges,
-				out.Refresh.Refreshed)
+				float64(out.Inserts.SearchLoads)/float64(max(out.Inserts.Inserted, 1)), out.Refresh.Refreshed,
+				out.Work.Rewritten, out.Work.Merges)
 		}
 		live := make([]bool, n)
 		copy(live, s.live)
