@@ -719,7 +719,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	t.Run("While its namespace is suspended a copy is refused before any step, and applies once it is active", func(t *testing.T) {
 		const nsClass = "alpha:Books"
 		namespaces := m.cfg.NamespacesController
-		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode}}, nsCreateIndex))
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode, removeNode}}, nsCreateIndex))
 		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
 			PartitioningEnabled: true,
 			Physical: map[string]sharding.Physical{
@@ -759,7 +759,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	t.Run("While its namespace is being deleted a copy is refused before any step", func(t *testing.T) {
 		const nsClass = "beta:Books"
 		namespaces := m.cfg.NamespacesController
-		require.NoError(t, namespaces.Create(command.Namespace{Name: "beta", HomeNodes: []string{sourceNode}}, nsCreateIndex))
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "beta", HomeNodes: []string{sourceNode, removeNode}}, nsCreateIndex))
 		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
 			PartitioningEnabled: true,
 			Physical: map[string]sharding.Physical{
