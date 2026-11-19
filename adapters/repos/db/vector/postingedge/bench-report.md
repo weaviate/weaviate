@@ -876,6 +876,43 @@ El usuario pidió comprobar dos cosas en él antes de cronometrar, y parar si al
 - **Sobre qué se mide el 10 %** (añadido a las 10:45, todavía sin ningún dato cronometrado): entre dos índices, sobre HFresh; entre dos rondas, sobre la primera.
 - **Una curva repetida de noche viene de otra sesión que las curvas con las que se compara.** El veredicto lo dice en cada comparación donde pase.
 
+### Enmienda 6 (06:51 del 19, del usuario): HFresh con sus postings leídos en paralelo
+
+*Pre-registro, antes de compilar nada de esta celda y antes de ningún dato suyo. La celda la pide el usuario. Lo que deja abierto lo fijo aquí, marcado como mío.*
+
+**Del usuario:** HFresh con lecturas de postings en paralelo, ahora, con su pre-registro antes de compilar.
+
+**Por qué** (*mío*): la sesión de día dejó sin separar dos causas de la diferencia en frío. HFresh lee los postings de una búsqueda uno detrás de otro, y además lee tres veces más que posting-edge. Mi estimación, sin medir, era que con lecturas en paralelo HFresh quedaría en unos 12 ms a 0.95, a 2.8 veces de la celda de 512 bits en RAM.
+
+*Mío, para aplicarlo:*
+
+- **Qué cambia:** `PostingStore.MultiGet` pide los postings de una búsqueda con 8 lecturas en vuelo en vez de una. Nada más: los mismos postings, en el mismo orden, el mismo scan y el mismo rescore.
+  - **Por qué 8:** es el presupuesto de concurrencia de una query, el que ya usa el rescore de HFresh, y las lecturas que posting-edge tiene en vuelo en una ronda: 4 postings por 2 bloques.
+  - **En el producto, el grado es 1 por defecto:** sin el arnés nada cambia.
+- **Corrección, antes de cronometrar:** con 8 lecturas en vuelo `MultiGet` devuelve los mismos postings en el mismo orden que con una, en un test. Y cada proceso cronometrado comprueba, como ya hacía, que su recall sobre las 5 000 queries es el del manifiesto. Si no, stop.
+- **Curvas,** cada una en su proceso, en la misma sesión y en dos rondas:
+
+  | curva | qué es |
+  |---|---|
+  | HFresh, la mejor a 0.95, en serie | el control: searchProbe 185 y rescoreLimit 100, como en la sesión de día |
+  | HFresh, la mejor a 0.95, en paralelo | la misma, con 8 lecturas en vuelo |
+  | HFresh, la mejor a 0.99, en serie | el control: searchProbe 928 y rescoreLimit 350 |
+  | HFresh, la mejor a 0.99, en paralelo | la misma, con 8 lecturas en vuelo |
+  | 512 bits en RAM | la celda de posting-edge de v4.0, otra vez, para compararse en la misma sesión |
+  | halo de 512 bits | igual |
+
+  - HFresh por defecto no va: su recall no es 0.95 ni 0.99.
+  - El índice de HFresh y las dos celdas son los de v4.0, sin tocar.
+- **Medidas,** como en v4.0: p50, p95, p99 y QPS, en caliente y en frío, con 1 y 8 threads, y la parte de la latencia media que es leer postings.
+- **Lo que se reporta:**
+  - **en paralelo entre en serie,** en cada punto: cuánto de la latencia de HFresh era leer en serie;
+  - **posting-edge entre HFresh en paralelo:** lo que queda de la diferencia cuando los dos leen en paralelo;
+  - **los criterios 2 y 3 de v4.0, leídos otra vez contra HFresh en paralelo,** a título informativo y con la regla del empate del 10 %. Se dice si alguno cambia. Los criterios pre-registrados eran contra el HFresh de main, y su veredicto no se toca.
+- **Lo esperado, antes de medir:** a 0.95 en frío con 1 thread, unos 12 ms de p50 donde en serie eran 46.8.
+- **Condiciones:** de noche, ahora, antes de las 03:00, con la máquina despierta, 15 minutos sin teclado ni trackpad, dos rondas y el registro de actividad por tramo. Una curva que derive o coincida con actividad se marca. No hay otra noche comprometida para repetirla: se dice.
+- **Lo que no mide:** otro grado de paralelismo, lecturas asíncronas, HFresh por defecto, y Linux.
+- **Lo que el binario añade:** en `hfresh/store.go`, el grado de concurrencia de `MultiGet`, 1 por defecto, con su test. En el arnés de HFresh, una opción para fijarlo.
+
 ### Resultados de v4.0, sin cronometrar: posting-edge a 1M (2026-11-18)
 
 *Escrito después de la corrida sin cronometrar sobre el volumen APFS, de 09:07 a 09:59. Son conteos: nada de aquí lleva tiempo. Las tablas completas están en `v4.0/disk-verdict.md`.*
