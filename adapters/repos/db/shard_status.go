@@ -112,10 +112,7 @@ func (s *Shard) syncStorePause() error {
 		return err
 	}
 
-	if paused && next == storagestate.StatusReady {
-		next = storagestate.StatusReadOnly
-	}
-	next = s.index.nodeOverlay().Status(s.index.Config.ClassName.String(), s.name, next)
+	next = storagestate.Status(s.index.nodeOverlay().Report(s.index.Config.ClassName.String(), s.name, s.phase, next).Status)
 	if prev := s.countedStatus; prev != "" && prev != next.String() {
 		lvl := logrus.DebugLevel
 		if next == storagestate.StatusReadOnly {
@@ -250,6 +247,16 @@ func (i *Index) updateShardStatus(_ context.Context, shardName, targetStatus str
 	return shard.retryHeldMigrations()
 }
 
-func (i *Index) reportedStatus(shardName string, status storagestate.Status) string {
-	return i.nodeOverlay().Status(i.Config.ClassName.String(), shardName, status).String()
+// reportedStatus is a shard's status on this node and the conditions behind it; a nil shard is cold.
+func (i *Index) reportedStatus(shardName string, shard ShardLike) storagestate.Report {
+	status, phase := storagestate.StatusLazyLoading, (*clusterschema.ShardPhase)(nil)
+	if shard != nil {
+		status = shard.GetStatus()
+		if s, ok := shard.(*Shard); ok {
+			phase = s.phase
+		} else if lazy, ok := asLazyLoadShard(shard); ok && lazy.currentShard() != nil {
+			phase = lazy.currentShard().phase
+		}
+	}
+	return i.nodeOverlay().Report(i.Config.ClassName.String(), shardName, phase, status)
 }

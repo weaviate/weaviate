@@ -95,12 +95,12 @@ func TestNodeOverlayDecides(t *testing.T) {
 		},
 		{
 			name: "a reindex keeps its temp buckets writable", conditions: PhaseReindexing,
-			wantWrite: storagestate.ErrStatusReadOnly.Error(), wantStore: true, wantStatus: storagestate.StatusReady,
+			wantWrite: storagestate.ErrStatusReadOnly.Error(), wantStore: true, wantStatus: storagestate.StatusReadOnly,
 		},
 		{
 			name: "a reindex swapping pauses its temp buckets", conditions: PhaseReindexing | PhaseReindexSwapping,
 			wantWrite: storagestate.ErrStatusReadOnly.Error(), wantStore: true, wantTemp: true,
-			wantStatus: storagestate.StatusReady,
+			wantStatus: storagestate.StatusReadOnly,
 		},
 		{
 			name: "a held migration wins over pressure", pressure: true, conditions: PhaseReindexing | PhaseMigrationHeld,
@@ -129,7 +129,7 @@ func TestNodeOverlayDecides(t *testing.T) {
 			store, temp := o.StorePaused(phase)
 			assert.Equal(t, tt.wantStore, store, "store")
 			assert.Equal(t, tt.wantTemp, temp, "temp buckets")
-			assert.Equal(t, tt.wantStatus, o.Status("C", "s1", storagestate.StatusReady))
+			assert.Equal(t, tt.wantStatus.String(), o.Report("C", "s1", phase, storagestate.StatusReady).Status)
 		})
 	}
 }

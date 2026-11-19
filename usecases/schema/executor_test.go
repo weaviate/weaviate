@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
@@ -352,21 +353,36 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("GetShardsStorageStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]map[string]string{"S1": {"N1": "INDEXING"}, "S2": {"N1": "READY"}}
-		legacy := map[string]string{"S1": "INDEXING", "S2": "READY"}
+		status := map[string]map[string]storagestate.Report{
+			"S1": {"N1": {Status: "INDEXING", Conditions: []string{}}},
+			"S2": {
+				"N1": {Status: "READONLY", Conditions: []string{storagestate.ConditionUserReadOnly, storagestate.ConditionResourcePressure}},
+				"N2": {Status: "READY"},
+			},
+		}
+		legacy := map[string]string{"S1": "INDEXING", "S2": "READONLY"}
 		migrator.On("GetShardsStorageStatus", Anything, "A", "").Return(status, legacy, nil)
 		migrator.On("GetShardsQueueSize", Anything, "A", "").Return(map[string]int64{"S1": 42, "S2": 0}, nil)
 		x := newMockExecutor(migrator, store)
 		got, err := x.GetShardsStorageStatus(ctx, "A", "")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, models.ShardStatusList{
-			{Name: "S1", Status: "INDEXING", PerNodeStatus: map[string]string{"N1": "INDEXING"}, VectorQueueSize: 42},
-			{Name: "S2", Status: "READY", PerNodeStatus: map[string]string{"N1": "READY"}, VectorQueueSize: 0},
+			{
+				Name: "S1", Status: "INDEXING", VectorQueueSize: 42,
+				PerNodeStatus:     map[string]string{"N1": "INDEXING"},
+				PerNodeConditions: map[string][]string{"N1": {}},
+			},
+			{
+				Name: "S2", Status: "READONLY", VectorQueueSize: 0,
+				PerNodeStatus: map[string]string{"N1": "READONLY", "N2": "READY"},
+				// N2 did not report conditions, so it is missing
+				PerNodeConditions: map[string][]string{"N1": {storagestate.ConditionUserReadOnly, storagestate.ConditionResourcePressure}},
+			},
 		}, got)
 	})
 	t.Run("GetShardsStorageStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]map[string]string{"A": {"B": "C"}}
+		status := map[string]map[string]storagestate.Report{"A": {"B": {Status: "C"}}}
 		legacy := map[string]string{"A": "C"}
 		migrator.On("GetShardsStorageStatus", Anything, "A", "").Return(status, legacy, ErrAny)
 		x := newMockExecutor(migrator, store)
@@ -375,7 +391,7 @@ func TestExecutor(t *testing.T) {
 	})
 	t.Run("GetShardsStorageStatusQueueSizeError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]map[string]string{"S1": {"N1": "READY"}}
+		status := map[string]map[string]storagestate.Report{"S1": {"N1": {Status: "READY"}}}
 		legacy := map[string]string{"S1": "READY"}
 		migrator.On("GetShardsStorageStatus", Anything, "A", "").Return(status, legacy, nil)
 		migrator.On("GetShardsQueueSize", Anything, "A", "").Return(map[string]int64(nil), ErrAny)
@@ -393,7 +409,9 @@ func TestExecutor(t *testing.T) {
 }
 
 func TestExecutor_GetShardsStorageStatus(t *testing.T) {
-	status := map[string]map[string]string{"a": {"node1": "READY"}, "b": {"node1": "READONLY"}}
+	status := map[string]map[string]storagestate.Report{"a": {"node1": {Status: "READY"}}, "b": {"node1": {Status: "READONLY"}}}
+	perNode := map[string]map[string]string{"a": {"node1": "READY"}, "b": {"node1": "READONLY"}}
+	none := map[string][]string{}
 	legacy := map[string]string{"a": "READY", "b": "READONLY"}
 	for _, tc := range []struct {
 		name  string
@@ -404,15 +422,15 @@ func TestExecutor_GetShardsStorageStatus(t *testing.T) {
 			name:  "every shard in both lookups",
 			queue: map[string]int64{"a": 3, "b": 0},
 			want: models.ShardStatusList{
-				{Name: "a", Status: "READY", PerNodeStatus: status["a"], VectorQueueSize: 3},
-				{Name: "b", Status: "READONLY", PerNodeStatus: status["b"]},
+				{Name: "a", Status: "READY", PerNodeStatus: perNode["a"], PerNodeConditions: none, VectorQueueSize: 3},
+				{Name: "b", Status: "READONLY", PerNodeStatus: perNode["b"], PerNodeConditions: none},
 			},
 		},
 		{
 			name:  "tenant deleted between the lookups",
 			queue: map[string]int64{"a": 3},
 			want: models.ShardStatusList{
-				{Name: "a", Status: "READY", PerNodeStatus: status["a"], VectorQueueSize: 3},
+				{Name: "a", Status: "READY", PerNodeStatus: perNode["a"], PerNodeConditions: none, VectorQueueSize: 3},
 			},
 		},
 	} {

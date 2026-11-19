@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -405,21 +406,15 @@ const NodeUnresponsive = "[node unresponsive]"
 
 func (f *FakeRemoteClient) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
-) (string, error) {
+) (storagestate.Report, error) {
 	if f.shardStatus == nil || f.shardStatus[shardName] == nil {
-		return "", nil
+		return storagestate.Report{}, nil
 	}
 	status := f.shardStatus[shardName][hostName]
 	if status == NodeUnresponsive {
-		return "", errors.New(NodeUnresponsive)
+		return storagestate.Report{}, errors.New(NodeUnresponsive)
 	}
-	return status, nil
-}
-
-func (f *FakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	return nil
+	return storagestate.Report{Status: status, Conditions: []string{}}, nil
 }
 
 func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,

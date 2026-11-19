@@ -83,9 +83,9 @@ func (c *shardStatusRemoteClient) reply(ctx context.Context, host, shard string)
 	return r, r.err
 }
 
-func (c *shardStatusRemoteClient) GetShardStatus(ctx context.Context, host, _, shard string) (string, error) {
+func (c *shardStatusRemoteClient) GetShardStatus(ctx context.Context, host, _, shard string) (storagestate.Report, error) {
 	r, err := c.reply(ctx, host, shard)
-	return r.status, err
+	return storagestate.Report{Status: r.status}, err
 }
 
 func (c *shardStatusRemoteClient) GetShardQueueSize(ctx context.Context, host, _, shard string) (int64, error) {
@@ -455,7 +455,14 @@ func TestIndex_ShardsStatusAndQueueSize_ReplicaFailures(t *testing.T) {
 						if err != nil {
 							return err
 						}
-						require.Equal(t, tc.wantPerNode, perNode, "per node status")
+						statuses := make(map[string]map[string]string, len(perNode))
+						for shard, reports := range perNode {
+							statuses[shard] = make(map[string]string, len(reports))
+							for node, report := range reports {
+								statuses[shard][node] = report.Status
+							}
+						}
+						require.Equal(t, tc.wantPerNode, statuses, "per node status")
 						require.Equal(t, tc.wantStatus, status, "legacy status")
 						return nil
 					},
@@ -622,7 +629,7 @@ func TestIndex_IncomingShardStatusReadsOfABusyShard(t *testing.T) {
 			size, queueErr := index.IncomingGetShardQueueSize(t.Context(), "s1")
 			if tc.kind != localLocked {
 				require.NoError(t, errors.Join(statusErr, queueErr))
-				require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+				require.Equal(t, storagestate.StatusLazyLoading.String(), status.Status)
 				require.Zero(t, size)
 				return
 			}

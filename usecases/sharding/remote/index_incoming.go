@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -78,7 +79,7 @@ type IndexIncomingRepo interface {
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
-	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
+	IncomingGetShardStatus(ctx context.Context, shardName string) (storagestate.Report, error)
 	IncomingOverwriteObjects(ctx context.Context, shard string,
 		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
@@ -283,10 +284,10 @@ func (rii *IndexIncoming) GetShardQueueSize(ctx context.Context,
 
 func (rii *IndexIncoming) GetShardStatus(ctx context.Context,
 	indexName, shardName string,
-) (string, error) {
+) (storagestate.Report, error) {
 	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
-		return "", enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+		return storagestate.Report{}, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingGetShardStatus(ctx, shardName)

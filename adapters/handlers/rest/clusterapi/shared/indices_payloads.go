@@ -26,6 +26,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/file"
 
@@ -78,6 +79,7 @@ type indicesPayloads struct {
 	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
 	GetShardStatusParams       getShardStatusParamsPayload
 	GetShardStatusResults      getShardStatusResultsPayload
+	ShardStatusReport          shardStatusReportPayload
 	UpdateShardsStatusResults  updateShardsStatusResultsPayload
 	ShardFiles                 shardFilesPayload
 	ShardFileMetadataResults   shardFileMetadataResultsPayload
@@ -1229,6 +1231,39 @@ func (p getShardStatusResultsPayload) SetContentTypeHeader(w http.ResponseWriter
 func (p getShardStatusResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
+}
+
+// shardStatusReportPayload is asked for via Accept; an older node ignores it and sends the plain status.
+type shardStatusReportPayload struct{}
+
+func (p shardStatusReportPayload) MIME() string {
+	return "application/vnd.weaviate.shardstatusreport+json"
+}
+
+func (p shardStatusReportPayload) SetAcceptHeader(r *http.Request) {
+	r.Header.Set("accept", p.MIME())
+}
+
+func (p shardStatusReportPayload) Accepted(r *http.Request) bool {
+	return r.Header.Get("accept") == p.MIME()
+}
+
+func (p shardStatusReportPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p shardStatusReportPayload) CheckContentTypeHeader(r *http.Response) bool {
+	return r.Header.Get("content-type") == p.MIME()
+}
+
+func (p shardStatusReportPayload) Marshal(in storagestate.Report) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p shardStatusReportPayload) Unmarshal(in []byte) (storagestate.Report, error) {
+	var out storagestate.Report
+	err := json.Unmarshal(in, &out)
+	return out, err
 }
 
 type updateShardsStatusResultsPayload struct{}
