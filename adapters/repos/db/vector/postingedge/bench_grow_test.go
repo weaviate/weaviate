@@ -86,6 +86,8 @@ var (
 		"exist, or be empty")
 	benchGrowOrdered = flag.String("bench.growordered", "", "with TestGrowReorganize: the directory of the second "+
 		"cell, the first one with its exact vectors in posting order besides")
+	benchGrowK = flag.Int("bench.growk", 0, "with TestGrowValidate and TestGrowTimedInserts: consolidated edges (v5.1), "+
+		"the changes a row of edges is written whole after. 0 is v5.0: every change a value of its own")
 	benchGrowManifest = flag.String("bench.growmanifest", "", "what TestGrowTimedInserts leaves for TestGrowTimedSearch: "+
 		"the index it grew, its operating points and the ground truth. It must not live under -bench.growdir")
 )
@@ -124,7 +126,12 @@ func growStoreWrites() (map[string]growIO, error) {
 // its vectors and of its centroid graph, and the segments of every bucket.
 func growFiles(dir string) (map[string]int64, map[string]int, error) {
 	sizes, segments := make(map[string]int64), make(map[string]int)
-	for _, bucket := range []string{growBucketPostings, growBucketMap, growBucketRouting, growBucketDists} {
+	buckets := []string{growBucketPostings, growBucketMap, growBucketRouting, growBucketDists}
+	// The bucket of the rows of edges, in an index with consolidated edges.
+	if _, err := os.Stat(filepath.Join(dir, diskStoreDir, growBucketEdges)); err == nil {
+		buckets = append(buckets, growBucketEdges)
+	}
+	for _, bucket := range buckets {
 		root := filepath.Join(dir, diskStoreDir, bucket)
 		size, err := sizeOnDisk(root)
 		if err != nil {
@@ -168,6 +175,12 @@ type growCheckpoint struct {
 	// Written is what the store wrote to its files, by strategy and
 	// operation.
 	Written map[string]growIO `json:"written"`
+	// With consolidated edges: what waited in memory when the checkpoint
+	// came, members and the bytes of their lists and distances, in how many
+	// postings. The checkpoint writes it all before it checks anything.
+	PendingMembers  int64 `json:"pendingMembers"`
+	PendingBytes    int64 `json:"pendingBytes"`
+	PendingPostings int   `json:"pendingPostings"`
 }
 
 // growSearch is what the searches of one operating point read from the
@@ -195,15 +208,18 @@ type growSearch struct {
 }
 
 type growResult struct {
-	Dataset     string           `json:"dataset"`
-	Vectors     int              `json:"vectors"`
-	Queries     int              `json:"queries"`
-	K           int              `json:"k"`
-	Start       int              `json:"start"`
-	Threshold   int              `json:"threshold"`
-	InsertEF    int              `json:"insertEF"`
-	RoutingBits int              `json:"routingBits"`
-	Config      map[string]any   `json:"config"`
+	Dataset     string         `json:"dataset"`
+	Vectors     int            `json:"vectors"`
+	Queries     int            `json:"queries"`
+	K           int            `json:"k"`
+	Start       int            `json:"start"`
+	Threshold   int            `json:"threshold"`
+	InsertEF    int            `json:"insertEF"`
+	RoutingBits int            `json:"routingBits"`
+	Config      map[string]any `json:"config"`
+	// Consolidate is the changes a row of edges is written whole after, 0
+	// without consolidated edges (v5.0).
+	Consolidate int              `json:"consolidate"`
 	Base        growCheckpoint   `json:"base"`
 	Checkpoints []growCheckpoint `json:"checkpoints"`
 	// Force tells the compaction of the bucket of postings while the index
@@ -298,6 +314,7 @@ func TestGrowValidate(t *testing.T) {
 	result := &growResult{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
 		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits, Force: *benchGrowForce,
+		Consolidate: *benchGrowK,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
@@ -346,7 +363,7 @@ func TestGrowValidate(t *testing.T) {
 	dir := *benchGrowDir
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	begin = time.Now()
-	cfg := growConfig{keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1}
+	cfg := growConfig{keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1, consolidate: *benchGrowK}
 	require.NoError(t, writeGrowIndex(ctx, logger, dir, st, cfg, provider, vectorOf))
 	t.Logf("wrote the base in %s", time.Since(begin).Round(time.Second))
 
@@ -389,8 +406,14 @@ func TestGrowValidate(t *testing.T) {
 	checkpoint := func(percent int, seconds float64) growCheckpoint {
 		cp := growCheckpoint{
 			Percent: percent, Live: g.meta.Live, Postings: g.meta.Postings, Splits: g.meta.Splits, Seconds: seconds,
-			Coverage: "complete", Equal: "the same as the twin", Stats: g.stats,
+			Coverage: "complete", Equal: "the same as the twin",
+			PendingMembers: g.pendingMembers, PendingBytes: g.pendingBytes, PendingPostings: len(g.pending),
 		}
+		// With everything written: the index is checked with nothing waiting
+		// in memory, from what its store holds.
+		require.NoError(t, g.flushPending())
+		require.Empty(t, g.pending)
+		cp.Stats = g.stats
 		require.NoError(t, g.cleanCentroidGraph())
 		// The checks read what is on disk and in the memtables.
 		if err := g.checkCoverage(); err != nil {
@@ -456,6 +479,15 @@ func TestGrowValidate(t *testing.T) {
 			per(s.StoreSearch.N), per(s.StoreSearch.Bytes)/1e6, per(s.StoreInverse.N), per(s.StoreSplit.N),
 			per(int64(s.InverseEdges)), per(int64(s.InversePostings)),
 			float64(cp.Files[growBucketPostings])/1e6, cp.Segments[growBucketPostings])
+		if g.edges != nil {
+			t.Logf("%d %%, consolidated every %d changes: %d rows of edges written so far, %d by their changes, %d by splits "+
+				"and %d by checkpoints, %.2f KB an insert, and %.2f rows read to be written again | %d members waited in %d "+
+				"postings, %.2f MB; at its most %d, %.2f MB | bucket of edges %.1f MB in %d segments",
+				percent, g.meta.Consolidate, s.RowWrites.N, s.RowWritesFull, s.RowWritesSplit, s.RowWritesClose,
+				per(s.RowWrites.Bytes)/1e3, per(s.RowReads.N), cp.PendingMembers, cp.PendingPostings,
+				float64(cp.PendingBytes)/1e6, s.PendingPeak, float64(s.PendingPeakBytes)/1e6,
+				float64(cp.Files[growBucketEdges])/1e6, cp.Segments[growBucketEdges])
+		}
 	}
 
 	// The searches over the whole index: the operating points from the twin,
@@ -560,8 +592,13 @@ func TestGrowValidate(t *testing.T) {
 			point.StoreReads, point.StoreBytes = float64(readsAfter-reads)/queries, float64(bytesAfter-bytes)/queries
 			point.MemberBytes, point.EdgeBytes = float64(memberBytes.Load())/queries, float64(edgeBytes.Load())/queries
 			// A list of edges carries the id of its member: 4 B a member
-			// that the model does not count.
-			point.ModelBytes = (float64(memberBytes.Load()) + float64(edgeBytes.Load()) - 4*members) / queries
+			// that the model does not count. A row of edges in one value
+			// carries its degree too, and how many members it has.
+			extra := 4 * members
+			if g.edges != nil {
+				extra = 5*members + 4*float64(loads.Load())
+			}
+			point.ModelBytes = (float64(memberBytes.Load()) + float64(edgeBytes.Load()) - extra) / queries
 			point.Rescored = float64(rescored.Load()) / queries
 			_, segments, err := growFiles(dir)
 			require.NoError(t, err)
@@ -622,6 +659,13 @@ type growStretch struct {
 	PerSecond float64   `json:"perSecond"`
 	Postings  int       `json:"postings"`
 	Stats     growStats `json:"stats"`
+	// With consolidated edges: what waited in memory at the end of the
+	// stretch. HeapBytes is the heap in use of the process then, after a
+	// collection.
+	PendingMembers  int64  `json:"pendingMembers"`
+	PendingBytes    int64  `json:"pendingBytes"`
+	PendingPostings int    `json:"pendingPostings"`
+	HeapBytes       uint64 `json:"heapBytes"`
 }
 
 // growManifest is what the timed run of the inserts leaves: how fast it
@@ -646,7 +690,16 @@ type growManifest struct {
 	Inserts   int           `json:"inserts"`
 	Seconds   float64       `json:"seconds"`
 	PerSecond float64       `json:"perSecond"`
-	Coverage  string        `json:"coverage"`
+	// Consolidate is the changes a row of edges is written whole after, 0
+	// without consolidated edges (v5.0). With them, what waits at the end
+	// is written as the index would when it closes: FlushRows rows in
+	// FlushSeconds, which are in Seconds and in PerSecond. Stats are those
+	// of the whole run, with that.
+	Consolidate  int       `json:"consolidate"`
+	FlushRows    int       `json:"flushRows"`
+	FlushSeconds float64   `json:"flushSeconds"`
+	Stats        growStats `json:"stats"`
+	Coverage     string    `json:"coverage"`
 	// The store before and after it is compacted for good, untimed.
 	FilesBefore       map[string]int64  `json:"filesBefore"`
 	SegmentsBefore    map[string]int    `json:"segmentsBefore"`
@@ -702,7 +755,7 @@ func TestGrowTimedInserts(t *testing.T) {
 	manifest := &growManifest{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
 		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits,
-		Procs: runtime.GOMAXPROCS(0), Force: *benchGrowForce,
+		Procs: runtime.GOMAXPROCS(0), Force: *benchGrowForce, Consolidate: *benchGrowK,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
@@ -746,7 +799,7 @@ func TestGrowTimedInserts(t *testing.T) {
 	}
 	dir := *benchGrowDir
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	cfg := growConfig{keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1}
+	cfg := growConfig{keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1, consolidate: *benchGrowK}
 	require.NoError(t, writeGrowIndex(ctx, logger, dir, st, cfg, provider, vectorOf))
 	require.NoError(t, index.Shutdown(ctx))
 	runtime.GC()
@@ -779,7 +832,13 @@ func TestGrowTimedInserts(t *testing.T) {
 		stretch := growStretch{
 			Percent: percent, Inserts: inserted - from, Seconds: took.Seconds(),
 			PerSecond: float64(inserted-from) / took.Seconds(), Postings: g.meta.Postings, Stats: g.stats,
+			PendingMembers: g.pendingMembers, PendingBytes: g.pendingBytes, PendingPostings: len(g.pending),
 		}
+		// Between two stretches, out of the time of both.
+		runtime.GC()
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		stretch.HeapBytes = mem.HeapInuse
 		manifest.Stretches = append(manifest.Stretches, stretch)
 		manifest.Inserts, manifest.Seconds = inserted-built, total.Seconds()
 		manifest.PerSecond = float64(inserted-built) / total.Seconds()
@@ -791,7 +850,29 @@ func TestGrowTimedInserts(t *testing.T) {
 			100*s.SearchTime.Seconds()/total.Seconds(), 100*s.WriteTime.Seconds()/total.Seconds(),
 			100*s.InverseTime.Seconds()/total.Seconds(), 100*s.SplitTime.Seconds()/total.Seconds(),
 			100*s.CycleTime.Seconds()/total.Seconds(), 100*s.AssignTime.Seconds()/total.Seconds())
+		if g.edges != nil {
+			t.Logf("to %d %%, consolidated every %d changes: the rows of edges %.1f %% of the time so far | %d rows written, "+
+				"%d by their changes and %d by splits | %d members wait in %d postings, %.2f MB; at their most %d, %.2f MB | "+
+				"heap in use %.1f MB", percent, g.meta.Consolidate, 100*s.RowTime.Seconds()/total.Seconds(), s.RowWrites.N,
+				s.RowWritesFull, s.RowWritesSplit, stretch.PendingMembers, stretch.PendingPostings,
+				float64(stretch.PendingBytes)/1e6, s.PendingPeak, float64(s.PendingPeakBytes)/1e6, float64(mem.HeapInuse)/1e6)
+		}
 	}
+	if g.edges != nil {
+		// What waits is written as the index does when it closes, and its
+		// time is the inserts' too.
+		begin := time.Now()
+		before := g.stats.RowWritesClose
+		require.NoError(t, g.flushPending())
+		took := time.Since(begin)
+		total += took
+		manifest.FlushRows, manifest.FlushSeconds = g.stats.RowWritesClose-before, took.Seconds()
+		manifest.Seconds, manifest.PerSecond = total.Seconds(), float64(inserted-built)/total.Seconds()
+		t.Logf("wrote the %d rows of edges that waited in %s: %.0f inserts a second with it", manifest.FlushRows,
+			took.Round(time.Millisecond), manifest.PerSecond)
+	}
+	manifest.Stats = g.stats
+	write()
 
 	// Untimed from here: what the run left, checked and compacted.
 	require.NoError(t, g.cleanCentroidGraph())
@@ -956,8 +1037,9 @@ func TestGrowTimedSearch(t *testing.T) {
 		require.NoError(t, os.WriteFile(*benchOut, raw, 0o644))
 	}
 	write()
-	t.Logf("cell grown: heap in use %.1f MB after opening, footprint %.1f MB | postings bucket %.1f MB",
-		float64(mem.HeapInuse)/1e6, float64(footprint)/1e6, float64(files[growBucketPostings])/1e6)
+	t.Logf("cell grown: heap in use %.1f MB after opening, footprint %.1f MB | postings bucket %.1f MB, bucket of edges %.1f MB",
+		float64(mem.HeapInuse)/1e6, float64(footprint)/1e6, float64(files[growBucketPostings])/1e6,
+		float64(files[growBucketEdges])/1e6)
 	timeDisk(ctx, t, &timedRun{
 		name: "cell grown", disk: g, open: func() timedDisk { return open() },
 		storeDir: filepath.Join(dir, diskStoreDir), points: manifest.Points, uc: uc, queries: data.queries,

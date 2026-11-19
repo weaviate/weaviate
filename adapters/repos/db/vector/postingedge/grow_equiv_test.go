@@ -60,6 +60,13 @@ type growFixture struct {
 // endpoints are ranked by, 0 for the full code.
 func newGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, threshold int) *growFixture {
 	t.Helper()
+	return newGrowFixtureWith(t, total, base, dims, cosine, bits, threshold, 0)
+}
+
+// newGrowFixtureWith is newGrowFixture with consolidated edges when
+// consolidate is positive: the changes a row of edges is written after.
+func newGrowFixtureWith(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int) *growFixture {
+	t.Helper()
 	ctx := context.Background()
 	f := &growFixture{
 		all:      clusteredVectors(total, dims, 12, 4107),
@@ -92,7 +99,7 @@ func newGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, thre
 	}
 
 	f.dir = t.TempDir()
-	cfg := growConfig{keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7}
+	cfg := growConfig{keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7, consolidate: consolidate}
 	require.NoError(t, writeGrowIndex(ctx, testLogger(), f.dir, st, cfg, f.provider, vectorOf))
 	f.twin, err = newStreamIndex(index, total, streamConfig{threshold: threshold, inverse: true, seed: 7, followGraph: true}, vectorOf)
 	require.NoError(t, err)
@@ -560,4 +567,145 @@ func TestGrowReorganized(t *testing.T) {
 			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), cell, t.TempDir(), false), "laid out again already")
 		})
 	}
+}
+
+// With consolidated edges (v5.1) the index is still the streaming index of
+// v2.x at every insert, with the changes to its edges waiting in memory, and
+// with everything written it is the same index in its store: the rows of
+// edges are written whole after so many changes, when a posting splits and
+// when the index closes, and nothing else writes an edge.
+func TestGrowConsolidatedEqualsMemory(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		// k is the changes a row of edges is written after.
+		k         int
+		cosine    bool
+		bits      int
+		threshold int
+		// flushEvery is in inserts, 0 for never; with leveled the store
+		// compacts by levels, one round after every flush.
+		flushEvery int
+		leveled    bool
+		// reopenAt closes the index, which writes what waits, and opens it.
+		reopenAt int
+	}{
+		{name: "a row at every change", k: 1, bits: 64, threshold: 60, flushEvery: 37},
+		{name: "a row every three changes", k: 3, bits: 64, threshold: 60, flushEvery: 41, reopenAt: 500},
+		{name: "a row every sixteen, cosine", k: 16, bits: 128, cosine: true, threshold: 60, flushEvery: 29, reopenAt: 333},
+		{name: "rows only at splits and at the end", k: 1 << 20, bits: 64, threshold: 60, flushEvery: 53},
+		{name: "few splits, rows by their changes", k: 8, bits: 64, threshold: 400, flushEvery: 47},
+		{name: "the full code, everything in the memtable", k: 5, threshold: 60},
+		{name: "the leveled compaction of the store", k: 4, bits: 64, threshold: 60, flushEvery: 23, leveled: true, reopenAt: 700},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const total, base, dims = 2200, 1000, 64
+			f := newGrowFixtureWith(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, tt.k)
+			if tt.leveled {
+				f.leveled = true
+				f.reopen(t)
+			}
+			require.NotNil(t, f.g.edges)
+			f.same(t, "the base")
+			var rows, atClose int
+			for f.inserted < total {
+				at := f.inserted
+				difference, err := f.insert(ctx)
+				require.NoError(t, err, "doc %d", at)
+				require.Empty(t, difference)
+				done := f.inserted - base
+				if tt.flushEvery > 0 && done%tt.flushEvery == 0 {
+					require.NoError(t, f.g.flushAll())
+					if tt.leveled {
+						f.g.compaction.CycleCallback(func() bool { return false })
+					}
+				}
+				if done == tt.reopenAt {
+					f.same(t, "before closing, with changes waiting")
+					rows += f.g.stats.RowWritesFull + f.g.stats.RowWritesSplit
+					f.reopen(t)
+					require.Empty(t, f.g.pending, "an index that was closed has nothing waiting")
+					f.same(t, "opened again")
+				}
+				if done%300 == 0 {
+					f.same(t, "on the way, with changes waiting")
+				}
+			}
+			f.same(t, "at the end, with changes waiting")
+			if tt.k < 100 {
+				assert.Positive(t, f.g.stats.RowWritesFull, "rows are written after %d changes", tt.k)
+				assert.Positive(t, f.g.stats.PendingPeak)
+			} else {
+				assert.Zero(t, f.g.stats.RowWritesFull, "no posting gets to %d changes", tt.k)
+				assert.NotEmpty(t, f.g.pending, "the changes since the last split wait")
+			}
+			if tt.threshold < 100 {
+				assert.Positive(t, f.g.stats.RowWritesSplit)
+			}
+			assert.Zero(t, f.g.stats.InverseTombs.N, "no list is taken out of a row value by value")
+			for p, pend := range f.g.pending {
+				assert.Less(t, pend.changes, max(tt.k, 1), "posting %d waits with fewer changes than a row is written after", p)
+			}
+
+			// With everything written, the store holds the index: nothing
+			// waits, and it is the twin, as it is and opened again.
+			require.NoError(t, f.g.flushPending())
+			atClose = f.g.stats.RowWritesClose
+			require.Empty(t, f.g.pending)
+			require.Zero(t, f.g.pendingMembers)
+			require.Zero(t, f.g.pendingBytes)
+			f.same(t, "with everything written")
+			f.reopen(t)
+			f.same(t, "with everything written, opened again")
+			if tt.leveled {
+				f.leveled = false
+				f.reopen(t)
+			}
+			_, err := f.g.compactAll()
+			require.NoError(t, err)
+			f.same(t, "compacted")
+			if tt.k > 1 {
+				assert.Positive(t, atClose+rows, "rows are written")
+			}
+			// No list lives in the bucket of postings.
+			for p := range uint32(f.g.meta.Postings) {
+				lists, err := f.g.postings.SetList(diskKey(p, diskBlockEdges))
+				require.NoError(t, err)
+				require.Empty(t, lists, "posting %d", p)
+			}
+		})
+	}
+}
+
+// A row of edges as one value comes back as it was written, and tells what
+// it is not.
+func TestGrowEdgesBlock(t *testing.T) {
+	tests := []struct {
+		name  string
+		ids   []uint64
+		lists [][]uint32
+	}{
+		{name: "no member"},
+		{name: "one member without edges", ids: []uint64{7}, lists: [][]uint32{nil}},
+		{name: "members with and without edges", ids: []uint64{9, 3, 400000, 12}, lists: [][]uint32{{1, 2, 3}, nil, {5}, {8, 6, 7, 5, 3, 0, 9}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block, err := growEdgesBlock(tt.ids, tt.lists)
+			require.NoError(t, err)
+			var row growBlock
+			require.NoError(t, row.decode(block))
+			require.Len(t, row.ids, len(tt.ids))
+			for i, id := range tt.ids {
+				require.Equal(t, uint32(id), row.ids[i])
+				require.ElementsMatch(t, tt.lists[i], row.edges[row.start[i]:row.start[i+1]])
+			}
+			for cut := 0; cut < len(block); cut++ {
+				require.Error(t, row.decode(block[:cut]), "a row cut at %d bytes", cut)
+			}
+		})
+	}
+	_, err := growEdgesBlock([]uint64{1}, [][]uint32{make([]uint32, 256)})
+	require.ErrorContains(t, err, "256 edges")
 }

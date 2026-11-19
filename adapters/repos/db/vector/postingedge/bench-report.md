@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v5.1: aristas consolidadas (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado.** Escrito el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
+**Estado: paso 1 cerrado, validación a 1M en marcha.** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
@@ -276,6 +276,33 @@ Inserts por segundo; filas y lecturas por carga durante el crecimiento y al fina
 3. La sesión cronometrada, de noche.
 
 Se reporta al cerrar cada paso.
+
+### Paso 1, cerrado: el mecanismo y su equivalencia a pequeña escala (09:36 del 19)
+
+**Estado: hecho. Con todo volcado, y también con cambios pendientes, el índice es el gemelo en memoria.** Compilado después de confirmar el pre-registro. Sin datos de 1M todavía.
+
+- **Qué se escribió,** todo en ficheros de test:
+  - **Lo pendiente por posting:** por miembro cambiado, su lista y las distancias de sus aristas, en el orden en que llegó.
+  - **La fila de aristas** en un bucket Replace, con el posting como clave: un valor, con el id, el grado y las aristas de cada miembro.
+  - **Su escritura:** por K cambios, al acabar el insert que los completa; en un split, las de los dos hijos, con la lápida de la del padre; y al cerrar, la de todo posting con algo pendiente.
+  - **La lectura:** la fila de disco con lo pendiente encima, miembro a miembro. La usan la búsqueda, las aristas inversas, el split y las dos comprobaciones.
+  - **K = 0 es el código de v5.0,** sin tocar: sus tests siguen pasando.
+- **Equivalencia, pasa:** 7 configuraciones, de 1 000 a 2 200 vectores, comparando con el gemelo en cada insert y el estado entero cada 300.
+  - **K de 1, 3, 4, 5, 8 y 16,** y una K tan grande que las filas solo se escriben en splits y al cerrar.
+  - **Splits con cambios pendientes, cierres a mitad con cambios pendientes,** volcados cada pocos inserts, la compactación por niveles, y todo en la memtable.
+  - **Al final, con todo volcado:** nada espera, el índice es el gemelo tal cual, reabierto y compactado, y el bucket de postings no tiene ninguna lista.
+- **La comprobación de cobertura mira además** que la fila de un posting y lo pendiente tengan lista para sus miembros y para nadie más, y que un posting retirado no deje fila ni nada pendiente.
+- **El test falla cuando debe:** rompí el mecanismo de cinco maneras, y las cinco las caza.
+  - Una fila reescrita que olvida las aristas inversas pendientes.
+  - Un split que no escribe las distancias pendientes.
+  - Las distancias de un miembro leídas del bucket cuando hay otras más nuevas esperando.
+  - Una lista pendiente que se pierde antes de leerse.
+  - La fila de un posting retirado que se queda.
+- **Humo a 30k, de punta a punta:** las dos K pasan la validación, la corrida cronometrada y las búsquedas. No es dato: comprueba el camino.
+- **El arnés:** K es una opción de la validación y de la corrida cronometrada. La sesión es `testdata/bench/v5.1/scripts/run_v51.sh` y el veredicto, `consolidated_verdict.py`, que lee al lado los resultados de v5.0.
+- **Dos precisiones del arnés:**
+  - **La validación escribe lo pendiente en cada checkpoint,** como fija la corrección. Son filas que la corrida cronometrada no escribe hasta cerrar: se cuentan aparte, como escritas por checkpoint.
+  - **La corrida cronometrada mete en su tiempo el volcado de lo pendiente al acabar,** que es lo que haría un cierre. Esto no estaba en el pre-registro, y se da también aparte.
 
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 

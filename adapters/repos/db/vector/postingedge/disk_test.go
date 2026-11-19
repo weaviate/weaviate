@@ -713,6 +713,10 @@ type diskPosting struct {
 	// the store returned them, and which one is of each member.
 	lists  [][]byte
 	listOf []int32
+	// block is the row of edges of a posting of an index with consolidated
+	// edges (v5.1), as the store returned it, and row what it decodes to.
+	block []byte
+	row   growBlock
 	// bytes is what the store returned for its blocks.
 	bytes [3]int
 }
