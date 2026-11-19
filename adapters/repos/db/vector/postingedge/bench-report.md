@@ -277,6 +277,30 @@ Inserts por segundo; filas y lecturas por carga durante el crecimiento y al fina
 
 Se reporta al cerrar cada paso.
 
+### Enmienda 1 (10:00 del 19, del usuario): en caliente, lo que cuesta traer cada fila
+
+*Escrita antes de compilar el cambio y antes de ningún dato cronometrado de v5.1. Las dos validaciones a 1M corren desde las 09:37 con el binario anterior: no cronometran, y no dan esta medida.*
+
+**Del usuario:** además de lo pre-registrado, separar en caliente cuánto cuesta traer la fila de aristas, que ahora es un valor entero, y cuánto la de miembros, que sigue valor a valor, frente al lote. Con eso se decide si los miembros también necesitan consolidarse.
+
+*Mío, para medirlo:*
+
+- **Qué se cronometra:** cada lectura de fila por separado, desde que se pide al store hasta que queda decodificada en el posting. Se suma por query la de miembros y la de aristas.
+  - **En el índice que crece,** la fila de aristas lleva además el juntar sus listas por miembro, que va después de las lecturas, en serie. Al buscar no hay nada pendiente.
+  - **En el lote,** son sus bloques de miembros y de aristas.
+- **En las cuatro curvas de la sesión, con el mismo binario:** K = 16, K = 64, el crecido de v5.0 y la celda en lote. Sale también en frío; la lectura pedida es en caliente.
+- **No es tiempo de pared.** Las filas de una ronda se piden a la vez: la suma de sus tiempos es más de lo que la ronda espera. Se da junto al «traer los bloques» de siempre, que sí es de pared.
+  - **Lo que una ronda espera lo marca su fila más lenta.** Por eso una fila de aristas más barata puede no notarse en el traer los bloques si la de miembros sigue siendo la lenta.
+  - **Con 8 threads las lecturas compiten por CPU** y sus tiempos se inflan. La lectura es con 1 thread.
+- **Cómo se da:** por carga, en microsegundos, a 0.95 y a 0.99, con 1 thread, en caliente, en la primera ronda: la fila de miembros y la de aristas de cada índice, y cada una entre la del lote.
+- **Sin umbral:** el usuario decide con las dos razones.
+- **Lo esperado, antes de medir:**
+  - **la fila de miembros, de 1.5 a 2.5 veces la del lote,** igual en v5.0 y en v5.1, que no la tocan;
+  - **la fila de aristas de v5.1, de 1.0 a 1.5 veces la del lote,** y la de v5.0 de 3 a 5 veces;
+  - **el traer los bloques de v5.1, en caliente, entre el de v5.0 y el del lote, más cerca del de v5.0,** si la fila de miembros es la lenta.
+- **Lo que cuesta medirlo:** dos lecturas de reloj por fila, en las cuatro curvas por igual.
+- **Lo que el binario añade:** esos relojes en la lectura de filas de los dos formatos, en ficheros de test, y sus campos en el resultado.
+
 ### Paso 1, cerrado: el mecanismo y su equivalencia a pequeña escala (09:36 del 19)
 
 **Estado: hecho. Con todo volcado, y también con cambios pendientes, el índice es el gemelo en memoria.** Compilado después de confirmar el pre-registro. Sin datos de 1M todavía.
@@ -523,6 +547,33 @@ Se reporta al cerrar cada paso.
 - **Lo esperado, antes de medir:** la celda 1 baja las lecturas por carga de 3.76 a 2 y debería cerrar parte del traer bloques en frío. La celda 2 debería dejar el rescore como el del lote. Lo que ninguna toca es que el store entrega las filas valor a valor, que en caliente cuesta 2.2 veces: espero la celda 2 entre 1.15 y 1.30 veces el lote, sin saber de qué lado del 1.20 cae.
 - **Lo que no mide:** una reorganización en segundo plano de verdad, con quién la hace, cuándo y cuánto escribe; ni la otra forma de guardar las aristas, dentro del elemento del miembro.
 - **Lo que el binario añade:** en ficheros de test, la reescritura del bucket y del fichero de vectores, y la tabla de posiciones opcional del índice que crece. Nada en `lsmkv` ni en el índice.
+
+### Enmienda 4 (10:00 del 19, del usuario): los inserts de HFresh a 1M con un escritor
+
+*Pre-registro, escrito antes de compilar nada de esta medida y antes de ningún dato suyo.*
+
+**Del usuario:** el ritmo de inserción de HFresh a 1M: de los logs si lo dan, y si no, medido en el mismo arnés detrás de lo que hay en cola, con 1 escritor y por defecto, hasta el último insert y hasta que su cola de fondo quede vacía.
+
+**Los logs no lo dan.** El único build de HFresh a 1M, el de v4.0, corrió con 10 escritores: 8 622 `Add` por segundo, y 5 030 con sus tareas de fondo acabadas (abajo, «Junto a los inserts de HFresh»). Con un escritor no hay ninguna corrida. Se mide.
+
+*Mío, para medirlo:*
+
+- **El arnés** es el del build de HFresh de v4.0, con el número de escritores como opción. El índice, su store y su configuración son los de aquel build: la configuración por defecto, y los ciclos de volcado y compactación del store corriendo de fondo, como en un servidor que importa.
+- **Un escritor:** los 990 000 `Add`, uno detrás de otro, por orden de id, desde el índice vacío.
+- **Sus tareas de fondo no se tocan:** corren a la vez que los inserts, en los workers que el índice tiene por defecto, 9 en esta máquina. Un escritor no es un solo core.
+- **Dos tiempos, desde el primer `Add`:**
+  - **hasta el último insert:** cuando vuelve el último `Add`;
+  - **hasta que su cola de fondo queda vacía:** cuando sus colas de análisis, splits, merges y reasignaciones no tienen nada pendiente. Sin las pasadas de búsqueda con que el build de v4.0 provocaba los merges que faltaban.
+- **Se da además:** el ritmo por tramos del 10 %, lo que queda en cada cola al acabar el último insert, y los postings y entradas que deja.
+- **Los vectores exactos** se escriben antes, aparte, en su bucket, como en aquel build. Su tiempo se da al lado y no entra en el de los inserts.
+- **Durante los inserts, HFresh lee de memoria** los vectores exactos que piden sus splits y sus reasignaciones: así lo hace este arnés al construir. Posting-edge los lee de su fichero. Se dice así en la tabla.
+- **Comprobación, después y sin cronometrar:** el recall del índice que deja, con su configuración por defecto, sobre las 5 000 queries. El build de 10 escritores dio 0.9674.
+- **Condiciones:** cronometrado, solo, de noche, detrás de la sesión de v5.1, con la máquina despierta y el registro de actividad del tramo. Una corrida. Si coincide con actividad, se marca y se repite la noche siguiente.
+- **Dónde:** en un directorio nuevo del volumen de pruebas. El índice de HFresh de v4.0 no se toca.
+- **Sin umbral.** Va junto a los 179 inserts por segundo de v5.0 y a los de v5.1, todos con un escritor.
+- **Lo que seguirá sin ser lo mismo:** HFresh construye desde cero y posting-edge crece desde un 10 % en lote; HFresh deja trabajo para después y posting-edge no; y el vector exacto de posting-edge va dentro de su insert.
+- **Lo esperado, antes de medir:** por escritor, el build de 10 dio 862 `Add` por segundo. Con uno solo, y los 9 workers de fondo para él, espero entre 1 000 y 3 000 hasta el último insert, y poco menos hasta la cola vacía.
+- **Lo que el binario añade:** un test del arnés de HFresh con esa opción. Nada en HFresh.
 
 ### Pasos 1 y 2, cerrados: el formato, el insert y el split, y la equivalencia a pequeña escala (14:19 del 18)
 
