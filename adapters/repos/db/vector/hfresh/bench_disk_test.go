@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"slices"
 	"strconv"
 	"strings"
@@ -84,9 +85,11 @@ var (
 	diskK       = flag.Int("bench.hfresh.k", 10, "top k")
 	diskDrop    = flag.String("bench.hfresh.drop", "", "with TestHFreshDiskTimed: the shell command that drops the "+
 		"system's cache of the files under -bench.hfresh.dir, run with the index closed before every cold batch")
-	diskCold     = flag.Int("bench.hfresh.cold", 500, "with TestHFreshDiskTimed: the cold queries of every point")
-	diskBudget   = flag.Int("bench.hfresh.budget", 8, "the concurrency budget of one query, which the rescore reads its vectors within")
-	diskPasses   = flag.Int("bench.hfresh.passes", 3, "with TestHFreshDiskTimed: the timed warm passes of every point")
+	diskCold   = flag.Int("bench.hfresh.cold", 500, "with TestHFreshDiskTimed: the cold queries of every point")
+	diskBudget = flag.Int("bench.hfresh.budget", 8, "the concurrency budget of one query, which the rescore reads its vectors within")
+	diskPasses = flag.Int("bench.hfresh.passes", 3, "with TestHFreshDiskTimed: the timed warm passes of every point")
+	diskHeap   = flag.String("bench.hfresh.heap", "", "with TestHFreshDiskTimed: the file the heap profile of the process "+
+		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed")
 	diskRescores = flag.String("bench.hfresh.rescores", "64,100,200,350", "with TestHFreshDiskBuild: the rescore limits "+
 		"searchProbe is swept with, to find for every recall the configuration that reads the least")
 	diskReads = flag.String("bench.hfresh.reads", "", "what TestHFreshDiskCount left, for TestHFreshDiskTimed: the reads "+
@@ -1169,6 +1172,29 @@ func TestHFreshDiskTimed(t *testing.T) {
 	write()
 	t.Logf("heap in use %.1f MB after opening, footprint %.1f MB | on disk: %v | segments: %v",
 		float64(mem.HeapInuse)/1e6, float64(footprint)/1e6, files, segments)
+	if *diskHeap != "" {
+		// The profile is that of the collection above: what the heap in
+		// use was measured over, the queries and the manifest included.
+		file, err := os.Create(*diskHeap)
+		require.NoError(t, err)
+		require.NoError(t, pprof.Lookup("heap").WriteTo(file, 0))
+		require.NoError(t, file.Close())
+		t.Logf("heap profile in %s, of %.1f MB allocated and in use, with %d points to time kept", *diskHeap,
+			float64(mem.HeapAlloc)/1e6, len(points))
+		// The centroid graph: its nodes, and those among them that are
+		// deleted centroids nobody cleaned up, since the benchmark gives
+		// the index no tombstone cleanup cycle.
+		graph, err := b.index.Centroids.hnsw.Stats()
+		require.NoError(t, err)
+		nodes := uint(0)
+		for _, count := range graph.DistributionLayers {
+			nodes += count
+		}
+		t.Logf("centroid graph: %d nodes, %d of them tombstones, %d codes in its cache, %d postings alive", nodes,
+			graph.NumTombstones, graph.CacheSize, b.index.Centroids.counter.Load())
+		b.close()
+		return
+	}
 
 	run := func(which []int, threads int) ([]time.Duration, []map[string]any, int, time.Duration) {
 		latencies := make([]time.Duration, len(which))

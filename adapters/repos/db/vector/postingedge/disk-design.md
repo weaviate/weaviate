@@ -370,6 +370,7 @@ Lo que queda por medir:
 | HFresh, la configuración que menos lee | 163.3 MB | 3.47 | 46.81 | 16.33 | 179.0 |
 | HFresh por defecto, recall 0.9674 | 163.3 MB | 5.51 | 69.52 | — | — |
 
+- **El heap de la tabla lleva 40 MB que no son del índice** (*desglosado el 19, `bench-report.md`, «El heap a 1M, por componente»*): las queries del arnés y el proceso. El índice son 106.0 MB con 512 bits en RAM, 35.0 MB con halo y 123.0 MB en HFresh. De los de HFresh, unos 50 MB son centroides borrados que el arnés no limpia y un nodo sí: limpio quedaría en unos 73 MB, estimado, por debajo de la celda de 512 bits.
 - **Los criterios del usuario se cumplen:** la celda de 512 bits en RAM tiene menos latencia en frío que HFresh a 0.95 y llega a 0.99, y el halo no es más lento. No hay ningún empate, con la regla del 10 %.
 - **En frío, la diferencia mezcla dos cosas.** HFresh lee sus postings uno detrás de otro (`PostingStore.MultiGet`): de sus 46.3 ms de media a 0.95, 40.3 son 210 lecturas a 0.19 ms. Posting-edge lee tres veces menos y pide a la vez los bloques de una ronda. La sesión no las separa.
   - *Estimación mía, sin medir:* con sus postings leídos de 8 en 8, HFresh quedaría en unos 12 ms, 2.8 veces la celda de 512 bits.
@@ -384,7 +385,7 @@ Lo que queda por medir:
 - **La poda del halo no compra latencia.** Empata con el halo sin podar: un −1.6 % a 0.95 y un +9.6 % a 0.99. Lo que ahorra es disco, 495 MB frente a 663, y bytes leídos.
 - **De 512 a 384 bits de ruteo se ahorran 16 MB de heap por millón** y se pierde un 7 % a 0.95 y un 11 % a 0.99 en frío.
 - **El rescore ya pesa:** 1.6 ms de los 3.4 a 6.3 ms de una query fría a 0.95, por 64 lecturas. El orden de posting del fichero no las junta. Es el siguiente término a bajar en los modos con códigos en RAM.
-- **El modo todo en disco no es de RAM cero:** 74.8 MB de heap a 1M, con los centroides sin comprimir y el mapa de posting y slot. A 100M serían 7.5 GB si escalara tal cual, sin medir.
+- **El modo todo en disco no es de RAM cero:** 35.0 MB de índice a 1M, con los centroides sin comprimir (26.4 MB) y el mapa de posting y slot (7.9 MB). A 100M serían 3.5 GB si escalara tal cual, sin medir. *Corregido el 19: los 74.8 MB de heap de la tabla llevan 40 MB del arnés y del proceso, como todas sus filas.*
 - **HFresh gana leyendo sus postings en paralelo, y no alcanza.** Es un cambio en HFresh y no en este índice. Explica dos tercios de su latencia en frío con 1 thread; lo que queda, 4 veces a 0.95, son las lecturas que hace de más.
 
 **Sin medir:** inserts, refresco, deletes y splits en disco; el modo pread cronometrado; un formato afinado (alineación a página, los tres bloques en una lectura); Linux, otro disco y 10M.

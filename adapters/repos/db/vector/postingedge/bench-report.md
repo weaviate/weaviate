@@ -139,7 +139,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Parte de la diferencia en frío es cómo lee HFresh:** sus postings, uno detrás de otro. Posting-edge pide a la vez los bloques de una ronda. Lee además tres veces menos: 101 lecturas frente a 310 a 0.95.
   - **Medido el 19, con HFresh leyendo 8 postings a la vez:** baja de 46.80 a 14.28 ms en frío a 0.95. La celda de 512 bits tarda entonces 4.0 veces menos, y el halo 3.0. Con 8 threads HFresh no gana nada.
 - **Cada celda devuelve desde disco lo mismo que en memoria,** y el store lee de 1.002 a 1.005 veces los bytes del modelo de v3.0.
-- **RAM a 1M, heap tras abrir:** 145.8 MB con los códigos de 512 bits en RAM, 74.8 MB con todo en disco y 163.3 MB en HFresh.
+- **RAM a 1M, heap tras abrir:** 145.8 MB con los códigos de 512 bits en RAM, 74.8 MB con todo en disco y 163.3 MB en HFresh. *Desglosado el 19: 40 MB de cada cifra son del arnés y del proceso, y el índice son 106.0, 35.0 y 123.0 MB. Los de HFresh llevan unos 50 MB de centroides borrados que el arnés no limpia y un nodo sí.*
 - **Cinco de las ocho curvas quedaron marcadas,** cuatro por entrada de teclado o trackpad durante la primera ronda y tres por una mediana en caliente con 8 threads que se movió un 13 a un 15 % entre rondas. Se repitieron la noche del 18, y ningún veredicto cambia: las cifras de arriba son las de la repetición, a menos de un 3 % de las de la primera ronda.
 - **Los números absolutos del Mac no valen para producción:** vale la comparación.
 - **Sin medir:** inserts, refresco, deletes y splits en disco; Linux; 10M.
@@ -258,9 +258,47 @@ Las de v4.0 y v5.0: la máquina despierta, 15 minutos sin teclado ni trackpad an
 - **RAM:** `s512`, lo de la actual (145.8 MB) más 7.9 MB de doc ids, unos 154 MB. `s768`, 31.7 MB más de sketches: unos 185 MB.
 - **Disco:** el store baja de 243 MB a unos 37. El total lo sigue mandando el fichero de vectores, 6 083 MB.
 
+## El heap a 1M, por componente (2026-11-19)
+
+**Estado: medido el 19 a las 11:35, sin cronometrar nada.** Encargo del usuario: el desglose del heap a 1M de HFresh y de las dos celdas de posting-edge (512 bits en RAM y halo), en centroides, mapas por vector, códigos y resto.
+
+**Cómo:** los índices de v4.0 que hay en disco, abiertos con el arnés de v4.0 hasta el punto donde mide el heap (tras abrir y recolectar), y ahí un perfil de heap con todas las asignaciones (`-test.memprofilerate=1`), agrupado por quién asigna. Los tres heaps salen donde salieron en v4.0.
+
+| MB | HFresh, como está en el arnés | posting-edge, 512 bits en RAM | posting-edge, halo |
+|---|---|---|---|
+| centroides | 98.3 | 26.4 | 26.4 |
+| mapas por vector | 19.0 | 7.9 | 7.9 |
+| códigos de los vectores | 0 | 71.3 | 0 |
+| resto del índice | 5.7 | 0.3 | 0.7 |
+| **el índice** | **123.0** | **106.0** | **35.0** |
+| el arnés: las queries y el manifiesto | 31.8 | 31.8 | 31.7 |
+| sin atribuir: el runtime y el proceso | 8.5 | 8.1 | 8.1 |
+| heap en uso, el que se venía dando | 163.4 | 145.9 | 74.8 |
+
+- **El heap que se venía dando lleva 40 MB que no son del índice,** en los tres. Son las 5 000 queries del arnés (30.8 MB) y su manifiesto con el ground truth (0.9 MB), que ya están cargados cuando mide, y unos 8 MB que el perfil no atribuye. Es lo que v4.0 dejó sin desglosar: «el heap queda 40 MB por encima de lo residente en ficheros».
+- **Centroides.**
+  - **Posting-edge:** 4 195 centroides sin comprimir, de 6 144 B (25.8 MB), y su grafo (0.6 MB).
+  - **HFresh:** tiene 6.8 veces más postings vivos, 28 466, con 5.25 entradas por vector y 182 por posting. Los guarda comprimidos a 8 bits, 1 552 B cada uno: la cuarta parte por centroide. Sus 98.3 MB son los códigos en la caché del grafo (91.1 MB) y el grafo (7.2 MB).
+  - **Pero el grafo de HFresh carga 57 433 nodos, y 28 967 son centroides borrados** que el arnés no limpia y un nodo sí (abajo, «Los recursos compartidos del nodo»). A prorrata, 48.7 MB son de centroides vivos y 49.6 de borrados.
+- **Mapas por vector.**
+  - **Posting-edge:** 8 B por vector, su posting y su slot.
+  - **HFresh:** el mapa de postings (18.0 MB, 3.5 B por cada una de las 5.19 M entradas de sus postings) y la versión de cada vector (1.0 MB, 1 B).
+- **Códigos de los vectores.** Solo la celda de 512 bits los tiene en RAM: 72 B por vector, dos tercios de su índice. HFresh los tiene en sus postings y el halo en los suyos.
+- **Resto.** En HFresh, 5.3 MB de filtros de bloom del store. En posting-edge el store no llega a 0.1 MB.
+
+**Con el grafo de centroides de HFresh limpio, estimado y sin medir:** 123.0 − 49.6 = 73.4 MB.
+
+- **La frase de v4.0 «la celda de 512 bits ocupa menos heap que HFresh» vale para el HFresh del arnés,** 106.0 frente a 123.0 MB. **No valdría para un HFresh con el grafo limpio,** que quedaría por debajo: unos 73 MB frente a 106.
+- **El halo sigue por debajo:** 35.0 MB, la mitad de ese HFresh limpio.
+- **Por cada 100M, si escalara tal cual y sin medir:** 10.6 GB la celda de 512 bits, 3.5 GB el halo, y HFresh 12.3 GB como está en el arnés y unos 7.3 GB limpio. Los 14.6 y 16.3 GB de v4.0 llevaban los 40 MB del arnés multiplicados por 100.
+
+**Lo que no está medido:** el heap de HFresh tras una limpieza de su grafo. Pide limpiar una copia del índice y abrirla.
+
+**Reproducir:** `TestDiskTimed` con `-bench.diskheap <fichero>` y `TestHFreshDiskTimed` con `-bench.hfresh.heap <fichero>`, los dos con `-test.memprofilerate=1`. Escriben el perfil donde miden el heap y acaban ahí. El de HFresh dice además cuántos nodos y cuántos tombstones tiene su grafo de centroides.
+
 ## Los recursos compartidos del nodo: lo que configura el arnés y lo que configura un nodo (2026-11-19)
 
-**Estado: comprobado en el código el 19, de 11:20 a 11:30, sin correr nada.** El contexto llega del equipo de HFresh a través del usuario: los workers de fondo de HFresh son compartidos por nodo, y sus goroutines de búsqueda salen de un presupuesto compartido. El encargo es comprobar cómo configura el arnés esas dos cosas frente a un nodo, decir qué números pueden cambiar, y parar antes de la sesión de la noche del 19 si el arnés deja a HFresh peor que en producto. **Lo deja peor en un punto, el rescore, y se le dijo al usuario hacia las 11:25.** Nada de lo de abajo está medido con el presupuesto de un nodo: los techos son aritmética sobre las partes ya medidas.
+**Estado: comprobado en el código el 19, de 11:20 a 11:30, sin correr nada.** El contexto llega del equipo de HFresh a través del usuario: los workers de fondo de HFresh son compartidos por nodo, y sus goroutines de búsqueda salen de un presupuesto compartido. El encargo es comprobar cómo configura el arnés esas dos cosas frente a un nodo, decir qué números pueden cambiar, y parar antes de la sesión de la noche del 19 si el arnés deja a HFresh peor que en producto. **Lo deja peor en dos puntos:** el rescore, dicho al usuario hacia las 11:25, y la limpieza de los centroides borrados, hallada a las 11:40 al desglosar el heap y dicha entonces. Nada de lo de abajo está medido con el presupuesto de un nodo: los techos son aritmética sobre las partes ya medidas.
 
 ### Lo que hace un nodo
 
@@ -280,6 +318,7 @@ Las de v4.0 y v5.0: la máquina despierta, 15 minutos sin teclado ni trackpad an
 | presupuesto con 8 queries a la vez | de 14 a 15 cada una | 8 cada una | peor, en el rescore |
 | lectura de sus postings | uno detrás de otro | igual; 8 a la vez en las curvas `-par`, que no son producto | igual; mejor en `-par` |
 | vectores que piden sus splits, en los inserts | del bucket `objects` | de memoria | mejor |
+| limpieza de los centroides borrados | el ciclo de tombstones del shard, cada 5 minutos y sin mínimo | ninguna: el arnés le pasa un ciclo vacío | peor, en RAM y en la búsqueda de centroides |
 
 - **El 8 es el del pre-registro de v4.0,** «el mismo presupuesto de concurrencia por query en los dos índices», y lo llevan los dos arneses (`-bench.hfresh.budget` y `-bench.diskbudget`). Posting-edge también lo usa solo en su rescore.
 - **Las cargas de posting-edge no pasan por ningún presupuesto.** Una ronda pide a la vez los bloques de sus postings: 4 postings por 2 bloques son 8 lecturas en vuelo por query, y 12 con halo. Con 8 queries, 64 y 96.
@@ -306,7 +345,20 @@ La parte del rescore en la latencia media de una query, medida con el presupuest
 - **Las cargas en paralelo de posting-edge con 8 queries.** En un nodo tendrían que caber en lo concedido, y en esta máquina caben: 8 lecturas en vuelo por query, o 12 con halo, frente a 20 con una query y de 14 a 15 con 8. Los números con 1 y con 8 threads no cambiarían por esto. Dejan de caber a partir de unas 18 queries a la vez (11 con halo), donde lo concedido baja de 8 (de 12). Ahí una ronda tendría que pedir sus bloques en tandas, y eso no está medido.
 - **Lo que no cambia:** recall, cargas, lecturas y bytes por query, RAM y disco. Tampoco las repeticiones de la noche del 19, que son control de deriva y necesitan el presupuesto de 8 de su primera ronda.
 
-**Lo que no se puede decir sin medir:** cuánto del techo se cumple. Las lecturas de rescore son aleatorias, de 6 144 B en posting-edge y de un objeto en HFresh, y con más de 8 en vuelo este disco no está medido.
+### Los centroides borrados, que el arnés no limpia
+
+- **En un nodo,** el grafo de centroides de HFresh recibe el ciclo de limpieza de tombstones del shard (`shard_init_vector.go`, `vectorTombstoneCleanupCallbacks`). Corre cada 5 minutos (`DefaultCleanupIntervalSeconds`) y no tiene mínimo de tombstones (`TOMBSTONE_DELETION_MIN_PER_CYCLE`, 0 por defecto). Un split borra el centroide del posting que parte, y un merge el del posting que absorbe. La limpieza los saca del grafo y de su caché.
+- **El arnés le pasa un ciclo vacío** (`cyclemanager.NewCallbackGroupNoop()`, en `openDiskBench`), en el build y en cada apertura. Nada los limpia nunca.
+- **Medido el 19 sobre el índice de 1M, el de todas las curvas de HFresh:** 57 433 nodos en el grafo, 28 967 de ellos tombstones, para 28 466 postings vivos. La mitad del grafo son centroides borrados.
+- **Qué puede cambiar en HFresh:**
+  - **Su RAM.** Sus centroides son 98.3 MB de heap, y la mitad sobra (arriba, «El heap a 1M, por componente»).
+  - **Su latencia en caliente.** La búsqueda de centroides es el 20 % de su latencia media con 1 thread a 0.95 (0.68 de 3.45 ms), el 19 % a 0.99 (3.11 de 16.16) y el 18 % por defecto (1.01 de 5.64). Un grafo con la mitad de los nodos borrados los recorre igual y no puede devolverlos. Si limpio costara la mitad, HFresh ganaría un 10 % en caliente: es el techo que pongo, sin medir.
+  - **Su latencia en frío, casi nada:** los centroides son el 2 % (0.80 de 46.44 ms), y el 6 % con los postings en paralelo.
+  - **Su punto de operación.** El searchProbe de 0.95 y de 0.99 se buscó sobre este grafo, y puede moverse.
+  - **Sus inserts.** Cada insert busca centroides en un grafo que crece con los borrados. En un nodo habría limpiezas durante el import, que quitan nodos y gastan CPU. No sé el signo.
+- **Nada de posting-edge cambia:** el grafo del índice en lote no tiene borrados. El crecido de v5.0 guarda los centroides de sus 3 684 postings retirados, sin limpiar: en eso está como el HFresh del arnés.
+
+**Lo que no se puede decir sin medir:** cuánto del techo se cumple, en el rescore y en los centroides. Las lecturas de rescore son aleatorias, de 6 144 B en posting-edge y de un objeto en HFresh, y con más de 8 en vuelo este disco no está medido.
 
 **Para el índice,** el requisito queda en `disk-design.md`: las tareas de fondo y el paralelismo de búsqueda usan estos recursos compartidos, no workers propios por índice.
 
@@ -1869,10 +1921,10 @@ Latencia media del rescore dentro de una query. Los dos índices leen sus vector
 | HFresh | 163.3 MB | 338.3 MB | 1 296.1 MB | 6 221.8 MB | 7.8 MB | 7 525.6 MB |
 
 - **El heap es el de Go tras abrir el índice y recolectar,** en un proceso que solo abre ese índice. La caché del sistema no cuenta. La huella es el máximo residente del proceso.
-- **La celda de 512 bits ocupa menos heap que HFresh,** 145.8 MB frente a 163.3, y las de halo menos de la mitad.
-- **El heap queda 40 MB por encima de lo residente en ficheros, en las cinco celdas.** No lo he desglosado.
+- **La celda de 512 bits ocupa menos heap que HFresh,** 145.8 MB frente a 163.3, y las de halo menos de la mitad. *Corregido el 19: vale para el HFresh del arnés, que no limpia sus centroides borrados. Con el grafo limpio HFresh quedaría por debajo de la celda de 512 bits, en unos 73 MB de índice frente a 106, estimado («El heap a 1M, por componente»).*
+- **El heap queda 40 MB por encima de lo residente en ficheros, en las cinco celdas.** No lo he desglosado. *Desglosado el 19: 31.8 MB son las queries y el manifiesto del arnés, y 8 MB el runtime y el proceso. No son del índice.*
 - **El modo todo en disco no es de RAM cero:** 74.8 MB a 1M. De ellos, 34.5 MB son ficheros residentes: los centroides sin comprimir (25.8 MB) y el posting y el slot de cada vector.
-- **Sobre los 7 GB por cada 100M:** con el heap medido, la celda de 512 bits serían 14.6 GB por cada 100M si escalara tal cual, y HFresh 16.3 GB con la misma cuenta. Ninguna de las dos es una medida a 100M.
+- **Sobre los 7 GB por cada 100M:** con el heap medido, la celda de 512 bits serían 14.6 GB por cada 100M si escalara tal cual, y HFresh 16.3 GB con la misma cuenta. Ninguna de las dos es una medida a 100M. *Corregido el 19: sin los 40 MB del arnés son 10.6 y 12.3 GB, y HFresh con su grafo de centroides limpio quedaría en unos 7.3 GB, estimado.*
 - **En disco, posting-edge ocupa de 6.42 a 6.78 GB y HFresh 7.53 GB.** El store son 243 MB con los códigos en RAM, 663 y 495 MB con halo, y 1 296 MB en HFresh, que guarda 5.25 entradas por vector.
 - **Las celdas de posting-edge comparten un solo fichero de vectores,** enlazado: en disco está una vez. En HFresh, «vectores exactos» es su bucket `objects` y «store» sus otros buckets.
 - **Reabrir tras el remontaje,** con el índice de los segmentos leído: de 44 a 188 ms en posting-edge y unos 420 ms en HFresh. No entra en las latencias.

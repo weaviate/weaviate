@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"slices"
 	"strings"
 	"sync"
@@ -56,6 +57,9 @@ var (
 	benchDiskBudget = flag.Int("bench.diskbudget", 8, "with TestDiskTimed: the concurrency budget of one query, which "+
 		"the rescore reads its vectors within")
 	benchDiskPasses = flag.Int("bench.diskpasses", 3, "with TestDiskTimed: the timed warm passes of every point")
+	benchDiskHeap   = flag.String("bench.diskheap", "", "with TestDiskTimed: the file the heap profile of the process "+
+		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed. "+
+		"With -test.memprofilerate=1 the profile holds every allocation")
 )
 
 // diskTargets are the recalls a cell is measured at.
@@ -623,6 +627,15 @@ func TestDiskTimed(t *testing.T) {
 	t.Logf("cell %s: heap in use %.1f MB after opening, footprint %.1f MB | store %.1f MB, vectors %.1f MB, resident "+
 		"files %.1f MB", cell.Spec.Name, float64(mem.HeapInuse)/1e6, float64(footprint)/1e6,
 		float64(files["store"])/1e6, float64(files["vectors"])/1e6, float64(files["resident"])/1e6)
+	if *benchDiskHeap != "" {
+		// The profile is that of the collection above: what the heap in
+		// use was measured over, the queries and the manifest included.
+		require.NoError(t, writeHeapProfile(*benchDiskHeap))
+		t.Logf("cell %s: heap profile in %s, of %.1f MB allocated and in use", cell.Spec.Name, *benchDiskHeap,
+			float64(mem.HeapAlloc)/1e6)
+		require.NoError(t, disk.close(ctx))
+		return
+	}
 
 	timeDisk(ctx, t, &timedRun{
 		name: "cell " + cell.Spec.Name, disk: disk, open: func() timedDisk { return open() },
@@ -632,6 +645,21 @@ func TestDiskTimed(t *testing.T) {
 			write()
 		},
 	})
+}
+
+// writeHeapProfile writes the heap profile of the process, as of its last
+// collection.
+func writeHeapProfile(path string) (err error) {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := file.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	return pprof.Lookup("heap").WriteTo(file, 0)
 }
 
 // timedDisk is an index on disk as the timed tests see it: the one written
