@@ -95,9 +95,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if len(centroids.data) == 0 {
 			return nil, nil, nil
 		}
-		if h.afterCentroidSearch != nil {
-			h.afterCentroidSearch()
-		}
 
 		selectedCentroids, err = h.selectCentroids(ctx, centroids, candidateCentroidNum)
 		if err != nil {
@@ -588,9 +585,6 @@ func (h *HFresh) searchByFDE(
 		}
 		if len(centroids.data) == 0 {
 			return nil, nil
-		}
-		if h.afterCentroidSearch != nil {
-			h.afterCentroidSearch()
 		}
 
 		// Step 2: Filter centroids by distance and posting existence
