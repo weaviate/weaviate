@@ -901,7 +901,6 @@ func TestHandlerLogsFailures(t *testing.T) {
 	tests := []struct {
 		name        string
 		searcherErr error
-		body        string
 		wantStatus  int
 		wantLevel   logrus.Level
 		wantLogged  string
@@ -910,7 +909,6 @@ func TestHandlerLogsFailures(t *testing.T) {
 		{
 			name:        "provider failure logs at error, hidden from the client",
 			searcherErr: enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad")),
-			body:        `{"query":["space"]}`,
 			wantStatus:  http.StatusInternalServerError,
 			wantLevel:   logrus.ErrorLevel,
 			wantLogged:  "sk-bad",
@@ -919,7 +917,6 @@ func TestHandlerLogsFailures(t *testing.T) {
 		{
 			name:        "missing vectorizer header logs at warn with the full chain",
 			searcherErr: missingHeaderErr(),
-			body:        `{"query":["space"]}`,
 			wantStatus:  http.StatusUnprocessableEntity,
 			wantLevel:   logrus.WarnLevel,
 			wantLogged:  "vectorize keywords: " + missingClusterURLMsg,
@@ -928,7 +925,6 @@ func TestHandlerLogsFailures(t *testing.T) {
 		{
 			name:        "overload logs at warn with the shard detail, hidden from the client",
 			searcherErr: fmt.Errorf("shard Movie_abc: %w", queryadmission.ErrOverloaded),
-			body:        `{"query":["space"]}`,
 			wantStatus:  http.StatusTooManyRequests,
 			wantLevel:   logrus.WarnLevel,
 			wantLogged:  "shard Movie_abc",
@@ -938,7 +934,6 @@ func TestHandlerLogsFailures(t *testing.T) {
 			name: "no vectorizer configured stays at debug",
 			searcherErr: enterrors.NewErrQueryVectorization(
 				enterrors.NewErrNoVectorizerModule(errors.New("no vectorizer module configured"))),
-			body:       `{"query":["space"]}`,
 			wantStatus: http.StatusUnprocessableEntity,
 			wantLevel:  logrus.DebugLevel,
 		},
@@ -951,7 +946,7 @@ func TestHandlerLogsFailures(t *testing.T) {
 			deps.handler.logger = logger
 			deps.searcher.err = tt.searcherErr
 
-			_, apiErr := doNearText(t, deps, nil, "Movie", tt.body)
+			_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
 			require.NotNil(t, apiErr)
 			assert.Equal(t, tt.wantStatus, apiErr.Status)
 			if tt.wantHidden != "" {

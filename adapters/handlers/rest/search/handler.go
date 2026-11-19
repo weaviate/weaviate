@@ -270,9 +270,9 @@ func (h *Handler) logAPIError(op, collection string, apiErr *APIError) {
 	}
 
 	var precondition enterrors.ErrModulePrecondition
-	missingHeader := apiErr.Status == http.StatusUnprocessableEntity && errors.As(apiErr.Cause(), &precondition)
-	overloaded := apiErr.Status == http.StatusTooManyRequests && errors.Is(apiErr.Cause(), queryadmission.ErrOverloaded)
-	if missingHeader || overloaded {
+	missingPrecondition := errors.As(apiErr.Cause(), &precondition)
+	overloaded := errors.Is(apiErr.Cause(), queryadmission.ErrOverloaded)
+	if missingPrecondition || overloaded {
 		entry.Warnf("%s rejected: %v", op, apiErr.Cause())
 		return
 	}
@@ -417,8 +417,7 @@ func statusFromError(err error) *APIError {
 		// must stay above ErrQueryVectorization (see func doc)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &precondition):
-		// a missing header or env var, found before any provider call: the
-		// module's own message is safe to show and tells the caller what to fix
+		// the module's sentence only; the chain goes to the log
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: precondition, cause: err}
 	case errors.As(err, &srcNotFound):
 		// near-object: the id names no object — a bad body value, like an
