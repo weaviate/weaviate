@@ -354,6 +354,36 @@ Se reporta al cerrar cada paso.
   - Si la razón pasa de 1.10 y ese resto es cero, el veredicto dice: **NO se cumple, por el formato y no por el algoritmo.**
 - **El coste por insert se reporta de la validación,** con la política por niveles, y la amplificación de escritura, de las dos corridas.
 
+### Enmienda 3 (07:27 del 19, del usuario): control de reorganización sobre el índice crecido
+
+*Pre-registro, escrito antes de compilar nada de este control y antes de ningún dato suyo. El control, sus dos celdas y su lectura son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío. Se confirma en git cuando acaba la sesión de HFresh en paralelo, que cronometra mientras se escribe.*
+
+**Del usuario:**
+
+- **Sobre el índice crecido de v5.0,** dos celdas, en la misma sesión que el crecido tal cual y la celda en lote:
+  1. **Un segmento:** el bucket de postings reescrito fuera de la compactación: leer todas las filas y escribirlas en un bucket nuevo con un solo volcado. Solo código de test, sin tocar `lsmkv`.
+  2. **Un segmento y vectores en orden de posting:** lo anterior, más el fichero de vectores reescrito en orden de posting.
+- **Lectura:** si la celda 2 queda a 1.20 veces o menos del lote en frío a 0.95, lo que falta es reorganización en segundo plano, y el formato vale. Si no, se reporta cuánto queda y en qué fase, traer bloques o rescore, en frío y en caliente.
+- **Se reporta cuánto recupera la celda 1 sola.**
+- **Va detrás de la sesión de HFresh en paralelo.**
+
+*Mío, para aplicarlo:*
+
+- **El índice de partida** es el que dejó la corrida cronometrada de v5.0, tal cual está en disco: 990 000 vectores, con su bucket de postings en 2 segmentos y sus puntos en ef 21 y ef 158.
+- **La celda 1** es una copia suya con el bucket de postings escrito de nuevo: de cada posting vivo, sus dos filas leídas del índice crecido, con los miembros en su orden y una lista viva por miembro, añadidas a un bucket vacío que se vuelca una vez. El formato de las filas es el mismo, con su marco por valor. Lo demás no cambia: el mapa, los códigos de ruteo, las distancias, los centroides con su grafo y el fichero de vectores.
+- **La celda 2** es la celda 1 con otro fichero de vectores: los de cada posting seguidos, en el orden de sus miembros, y los postings en el orden de su id. El índice necesita entonces una tabla de la posición de cada vector, 4 B por vector en RAM, que el crecido tal cual no tiene.
+- **Corrección, antes de cronometrar. Es stop:** cada celda devuelve lo mismo que el índice crecido tal cual sobre las 5 000 queries, en los dos puntos: ids, distancias y trabajo. Son el mismo índice con sus bytes en otro sitio.
+- **Conteo, sin cronometrar:** las lecturas y los bytes por carga que cuenta el store en modo pread, para el crecido tal cual y para la celda 1. De ahí sale lo que faltaba del criterio 1: lo que lee una búsqueda con el bucket en un segmento a 1M.
+- **Cuatro curvas,** cada una en su proceso, en dos rondas, en caliente y en frío, con 1 y 8 threads, como en el paso 4: el crecido tal cual, la celda 1, la celda 2 y la celda de 512 bits en lote de v4.0.
+- **Cuándo:** detrás de la sesión de HFresh en paralelo, de día, con las condiciones de aquella: la máquina despierta, 15 minutos sin teclado ni trackpad antes de arrancar, y el registro de actividad por tramo. Una curva que derive o coincida con actividad se marca, y se repite esa noche.
+- **La lectura del usuario se aplica al p50 con 1 thread, en frío, a 0.95, en la primera ronda:** el de la celda 2 entre el del lote.
+  - **1.20 o menos:** falta reorganización en segundo plano, y el formato vale.
+  - **Más de 1.20:** se da lo que queda, celda 2 menos lote, por fase de la latencia media (traer bloques, scan y ruteo, rescore), en frío y en caliente.
+- **Lo que recupera la celda 1:** de la distancia entre el crecido tal cual y el lote, la parte que la celda 1 cierra, en el p50 y por fase, en frío y en caliente. Lo mismo para la celda 2.
+- **Lo esperado, antes de medir:** la celda 1 baja las lecturas por carga de 3.76 a 2 y debería cerrar parte del traer bloques en frío. La celda 2 debería dejar el rescore como el del lote. Lo que ninguna toca es que el store entrega las filas valor a valor, que en caliente cuesta 2.2 veces: espero la celda 2 entre 1.15 y 1.30 veces el lote, sin saber de qué lado del 1.20 cae.
+- **Lo que no mide:** una reorganización en segundo plano de verdad, con quién la hace, cuándo y cuánto escribe; ni la otra forma de guardar las aristas, dentro del elemento del miembro.
+- **Lo que el binario añade:** en ficheros de test, la reescritura del bucket y del fichero de vectores, y la tabla de posiciones opcional del índice que crece. Nada en `lsmkv` ni en el índice.
+
 ### Pasos 1 y 2, cerrados: el formato, el insert y el split, y la equivalencia a pequeña escala (14:19 del 18)
 
 **Qué hay:**
@@ -656,6 +686,21 @@ Primera ronda. En caliente: la pasada de QPS mediano de las cronometradas. En fr
 |---|---|---|
 | crecido por inserts | 175.36 MB | 371.08 MB |
 | escrito en lote (v4.0, 512 bits en RAM) | 145.79 MB | 288.74 MB |
+
+**Junto a los inserts de HFresh** (*añadido el 19, a petición del usuario, sin correr nada nuevo: del log y el manifiesto de su build de v4.0, el de la mañana del 18*):
+
+| | inserts por segundo | escritores | qué hay dentro |
+|---|---|---|---|
+| posting-edge, v5.0 | 179 | 1 | todo: la búsqueda de sus aristas, sus aristas inversas, sus splits, su vector exacto y los ciclos del store. Al acabar el insert no queda nada pendiente |
+| HFresh, sus `Add` | 8 622 | 10 | los 990 000 `Add`, en 114.8 s, con sus tareas de fondo corriendo a la vez y sin esperar a que acaben |
+| HFresh, con sus tareas de fondo acabadas | 5 030 | 10 | lo anterior más 82.0 s de espera a sus colas de splits, merges y reasignaciones |
+
+- **Lo que da el log:** «990000 vectors in 1m55s, maintenance 1m22s, 422 compactions», y «objects: 990000 vectors written in 15s».
+- **Lo que el log no da:** el número de escritores. Sale del código del build, que reparte los `Add` entre tantos hilos como `GOMAXPROCS`, 10 en esta máquina. Tampoco da cuántos splits, merges y reasignaciones hizo.
+- **Sus tareas de fondo corren durante los inserts,** y lo que queda al acabar son los 82 s. Dentro de esos 82 s van también las pasadas de búsqueda con que el arnés provoca los merges que faltan, así que es una cota por arriba de la espera.
+- **No incluye sus vectores exactos:** se escribieron antes, aparte, en 15 s. Ni las 422 rondas de compactación del final, que no se cronometraron.
+- **Por escritor,** 862 por segundo frente a 179: 4.8 veces. No son la misma cosa: HFresh construye de cero y deja trabajo para después, y posting-edge crece desde un 10 % en lote y busca las aristas de cada vector dentro de su insert, que es el 93 % de su tiempo.
+- **Sin medir:** HFresh con un escritor, y posting-edge con varios.
 
 **Lo que la sesión no dice:**
 
