@@ -58,6 +58,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
+	// Only an AddClass holds two of these locks, collectionAddLocks before homeNodesLocks.
+	unlockHomeNodes, err := st.lockHomeNodes(req)
+	if err != nil {
+		return 0, err
+	}
+	defer unlockHomeNodes()
+
 	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
@@ -75,7 +82,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
 	// has not drained what it inherited must not judge yet. After the tenant,
-	// collection and task-movement locks, not before: each is held across the
+	// collection, home-node and task-movement locks, not before: each is held across the
 	// apply, so a caller can wait on it long enough for leadership to turn over,
 	// and a term confirmed before the wait says nothing about the term it wakes
 	// up in.
@@ -122,6 +129,39 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
+}
+
+// lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter checks req
+// against and returns the unlock. An UPDATE_NAMESPACE takes it exclusively,
+// and class creates, restores and updates share it.
+func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
+		ns, err := updatedNamespace(req)
+		if err != nil {
+			return nil, err
+		}
+		st.homeNodesLocks.Lock(ns)
+		return func() { st.homeNodesLocks.Unlock(ns) }, nil
+	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS:
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		if ns == "" {
+			return func() {}, nil
+		}
+		st.homeNodesLocks.RLock(ns)
+		return func() { st.homeNodesLocks.RUnlock(ns) }, nil
+	default:
+		return func() {}, nil
+	}
+}
+
+// updatedNamespace returns the name of the namespace an UPDATE_NAMESPACE changes.
+func updatedNamespace(req *api.ApplyRequest) (string, error) {
+	sub := &api.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return "", fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return sub.Namespace.Name, nil
 }
 
 // refuseUnknownFields refuses an update carrying a field this binary does not
@@ -322,11 +362,11 @@ func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
 	if req.Type != api.ApplyRequest_TYPE_UPDATE_NAMESPACE {
 		return nil
 	}
-	sub := &api.UpdateNamespaceRequest{}
-	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	ns, err := updatedNamespace(req)
+	if err != nil {
+		return err
 	}
-	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
+	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, ns)
 }
 
 // admitCreateLike refuses a create-like, property or class update command

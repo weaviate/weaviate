@@ -119,6 +119,9 @@ type SchemaManager struct {
 	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
 	// emitted.
 	shouldLogSlowApply func() bool
+	// minimumFactor is REPLICATION_MINIMUM_FACTOR, which bounds the lower factor
+	// a factor refusal suggests.
+	minimumFactor int64
 
 	// metadataOnly nodes never reload, so a record would never be drained.
 	metadataOnly bool
@@ -274,6 +277,12 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 // SetMetadataOnly marks a node that stores no class data.
 func (s *SchemaManager) SetMetadataOnly(v bool) {
 	s.metadataOnly = v
+}
+
+// SetMinimumFactor installs REPLICATION_MINIMUM_FACTOR. Call once during FSM
+// bootstrap.
+func (s *SchemaManager) SetMinimumFactor(factor int) {
+	s.minimumFactor = int64(factor)
 }
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
@@ -469,11 +478,14 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		}
 	}
 
-	if req.Type == command.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+	switch req.Type {
+	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS, command.ApplyRequest_TYPE_UPDATE_CLASS:
+		return s.checkClassAgainstHomeNodes(req)
+	case command.ApplyRequest_TYPE_UPDATE_NAMESPACE:
 		return s.checkHomeNodesAgainstClassFactors(req)
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 // checkTenantNodesAreHomeNodes refuses a namespaced tenant add or explicit unfreeze
@@ -501,6 +513,49 @@ func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) 
 		return fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
 	}
 	return nil
+}
+
+// checkClassAgainstHomeNodes refuses a namespaced class create, restore or
+// factor raise above the HomeNodes count. The receiving node checked a create
+// or raise against its own copy of the namespace, which can lag, and checks no
+// restore. Store.Execute holds homeNodesLocks until the apply returns.
+func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) error {
+	ns, ok := s.classNamespace(req.Class)
+	if !ok {
+		return nil
+	}
+	var class *models.Class
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS {
+		sub := command.UpdateClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		class = sub.Class
+	} else {
+		sub := command.AddClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		class = sub.Class
+	}
+	factor := replicationFactor(class)
+	// Only a raise is checked, so a class already above the HomeNodes count can
+	// still be lowered or changed otherwise.
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS && factor <= int64(s.schema.ClassInfo(req.Class).ReplicationFactor) {
+		return nil
+	}
+	if err := ns.CheckReplicationFactor(factor, s.minimumFactor); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return nil
+}
+
+// replicationFactor returns the factor class sets, or 0 where it sets none.
+func replicationFactor(class *models.Class) int64 {
+	if class == nil || class.ReplicationConfig == nil {
+		return 0
+	}
+	return class.ReplicationConfig.Factor
 }
 
 // checkTenantNodesCoverFactor refuses a namespaced tenant add or explicit unfreeze
@@ -720,16 +775,8 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// Capture previous and updated replication factors
-		var initialRF int64
-		if meta.Class.ReplicationConfig != nil {
-			initialRF = meta.Class.ReplicationConfig.Factor
-		}
-
-		var updatedRF int64
-		if u.ReplicationConfig != nil {
-			updatedRF = u.ReplicationConfig.Factor
-		}
+		initialRF := replicationFactor(&meta.Class)
+		updatedRF := replicationFactor(u)
 
 		// validate replication factor increase
 		if initialRF < updatedRF {

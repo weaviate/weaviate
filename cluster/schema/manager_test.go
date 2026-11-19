@@ -1236,6 +1236,23 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 	}
 }
 
+// TestSchemaManager_UpdateClass_FactorRaiseNeedsEnoughReplicas pins UpdateClass
+// refusing a factor raise above a shard's replica count.
+func TestSchemaManager_UpdateClass_FactorRaiseNeedsEnoughReplicas(t *testing.T) {
+	raised := &models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 2}}
+	parser := fakes.NewMockParser()
+	parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(raised, nil)
+	sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, sm.schema.addClass(
+		&models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+		&sharding.State{Physical: map[string]sharding.Physical{"S1": {Name: "S1", BelongsToNodes: []string{"n1"}}}}, 1))
+	sub, err := json.Marshal(&cmd.UpdateClassRequest{Class: raised})
+	require.NoError(t, err)
+
+	err = sm.UpdateClass(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_CLASS, Class: "C", Version: 2, SubCommand: sub}, "test-node", true, false)
+	require.ErrorContains(t, err, `not enough replicas in shard "S1" to increase replication factor to 2`)
+}
+
 // TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
 // on the UpdateClass apply path: when an update removes a dropped ("none")
 // VectorConfig entry, the MutationGuard MUST be consulted with the removed names
@@ -1531,6 +1548,63 @@ func TestPreApplyFilter_UpdateNamespaceShrink(t *testing.T) {
 	require.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
 	assert.NotErrorIs(t, err, ErrBadRequest)
 	assert.ErrorContains(t, err, "alpha:Docs")
+}
+
+// TestPreApplyFilter_ClassFactorAgainstHomeNodes pins the leader's refusal of a
+// class create, restore or factor raise in namespace alpha, whose home nodes
+// are n1 and n2. alpha:Foo is held at factor 1 unless a row says otherwise.
+func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
+	const aboveHomeNodes = "replication factor 3 exceeds the 2 home node(s) of the namespace"
+	tests := []struct {
+		name    string
+		typ     cmd.ApplyRequest_Type
+		class   string // alpha:Bar when empty
+		held    int64  // alpha:Foo's factor in the schema, 1 when 0
+		factor  int64
+		wantErr string // the refusal's text; admitted when empty
+	}{
+		{name: "add: a factor equal to the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, factor: 2},
+		{name: "add: a factor above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, factor: 3, wantErr: aboveHomeNodes},
+		{name: "add: an unqualified class is not checked", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, class: "Bar", factor: 3},
+		{name: "restore: a factor above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_RESTORE_CLASS, factor: 3, wantErr: aboveHomeNodes},
+		{name: "update: a raise to the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS, class: "alpha:Foo", factor: 2},
+		{
+			name: "update: a raise above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", factor: 3, wantErr: aboveHomeNodes,
+		},
+		{
+			name: "update: a factor already above the home nodes is admitted unchanged", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", held: 3, factor: 3,
+		},
+		{
+			name: "update: a lowering still above the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", held: 4, factor: 3,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManagerWithNamespacedClass(t, cmp.Or(tt.held, 1), []string{"n1", "n2"}, nil)
+			class := &models.Class{
+				Class:              cmp.Or(tt.class, "alpha:Bar"),
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				ReplicationConfig:  &models.ReplicationConfig{Factor: tt.factor},
+			}
+			var sub any = cmd.AddClassRequest{Class: class, State: &sharding.State{PartitioningEnabled: true}}
+			if tt.typ == cmd.ApplyRequest_TYPE_UPDATE_CLASS {
+				sub = cmd.UpdateClassRequest{Class: class, Origin: cmd.ClassUpdateOriginUser}
+			}
+			raw, err := json.Marshal(sub)
+			require.NoError(t, err)
+
+			err = sm.PreApplyFilter(&cmd.ApplyRequest{Type: tt.typ, Class: class.Class, SubCommand: raw})
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrBadRequest)
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }
 
 // TestPreApplyFilter_TenantNodesAreHomeNodes pins the leader's refusal of a

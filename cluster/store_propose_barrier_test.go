@@ -198,7 +198,7 @@ func TestProposeBarrier_ConcurrentCallersShareOneBarrier(t *testing.T) {
 		"%d concurrent first-of-term callers appended one barrier each", callers)
 }
 
-// A caller can wait on the tenant or task lock long enough for leadership to turn over, so waitLeaderFSMCaughtUp must run after the lock.
+// A caller can wait on the tenant, home-node or task lock long enough for leadership to turn over, so waitLeaderFSMCaughtUp must run after the lock.
 // Red if it moves above a lock, since the caller then trusts the stale memo and issues no barrier.
 func TestProposeBarrier_ReconfirmsAfterWaitingOnALock(t *testing.T) {
 	const class = "Docs"
@@ -219,6 +219,10 @@ func TestProposeBarrier_ReconfirmsAfterWaitingOnALock(t *testing.T) {
 		{
 			name: "tenant add waits on the tenant lock", locks: func(st *Store) *evictingKeyRWLocker { return st.tenantAddLocks }, key: class,
 			req: &command.ApplyRequest{Type: command.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: addT1},
+		},
+		{
+			name: "class create waits on the home-node lock", locks: func(st *Store) *evictingKeyRWLocker { return st.homeNodesLocks }, key: "acme",
+			req: addClassCmd(t, "acme:X"),
 		},
 		{
 			name: "tenant delete waits on the task lock", locks: func(st *Store) *evictingKeyRWLocker { return st.taskMovementLocks }, key: classLockKey(class),
