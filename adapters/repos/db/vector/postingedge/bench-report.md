@@ -168,6 +168,148 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
+
+**Estado: pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo.** El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
+
+### El encargo (del usuario)
+
+Celda nueva: scan con los sketches en RAM. Códigos de 512 y 768 bits residentes, usados para ruteo y para el scan. En disco, solo la fila de aristas y el fichero de vectores. Rescore de 200, 400 y 800. Sobre el índice en lote, con el arnés de v4.0, detrás de lo que hay en cola.
+
+- **Medidas:** lo mismo que en v4.0, en frío y en caliente, a 0.95 y 0.99, frente a la celda de 512 bits actual en la misma sesión.
+- **Lectura:** es una opción si a 0.95 en frío queda a 1.20 veces o menos de la celda actual y llega a 0.99. Se reportan lecturas y bytes por query, y disco total.
+
+### Qué cambia frente a la celda actual
+
+| | 512 bits en RAM, la actual (`r512`) | sketches en RAM, la nueva (`s512`, `s768`) |
+|---|---|---|
+| en RAM, por vector | el sketch de 512 bits (72 B), para el ruteo | el sketch de 512 bits (72 B) o de 768 (104 B), para el ruteo y para el scan; y su doc id (8 B) |
+| en disco, por posting | miembros (ids y código completo, 208 B por miembro) y aristas | solo aristas |
+| scan de un posting cargado | con el código completo, leído del bloque de miembros | con el sketch, de RAM |
+| lecturas por posting cargado | 2 | 1 |
+| rescoreLimit | 64 | 200, 400 y 800 |
+
+### Cómo lo leo, para escribirlo (*mío*)
+
+- **Formato:** el de v4.0 sin el bloque de miembros. El bucket lleva un bloque por posting, el de aristas, con la clave y el contenido de v4.0. Los sketches van en el fichero que v4.0 ya carga a RAM, por slot: el scan de un posting recorre un tramo contiguo de ese array, y el ruteo lee del mismo.
+- **Los doc ids de los miembros** venían en el bloque de miembros. Pasan a RAM: el doc id de cada slot, 8 B por vector. Se saca al abrir de la tabla de slots por doc id, que ya es residente, y no añade nada al disco.
+- **Un build para las tres celdas.** Un build en lote nuevo, con la configuración del de v4.0 (S = 236, P = 256, R = 64, código completo), y de él se escriben la celda actual y las dos nuevas, que comparten fichero de vectores y grafo de centroides. La partición y las aristas son las del build con código completo, y los sketches se ponen encima, como en v3.0 y v4.0.
+  - **La celda actual se escribe otra vez, de este build,** con el formato de v4.0 sin tocar. No es el directorio de v4.0: así las tres curvas salen del mismo índice y entran por el mismo grafo. Se dice si su punto de operación sale donde salió en v4.0 (ef 21 y 187).
+- **Seis curvas nuevas:** `s512` y `s768`, cada una con rescoreLimit 200, 400 y 800. El índice en disco de una anchura es el mismo para sus tres rescores.
+- **Punto de operación:** por curva, el menor ef cuyo recall llega al objetivo sobre las 5 000 queries, con su rescoreLimit fijo, buscado sin cronometrar como en v4.0. Sin segundo intento con otro rescore: si una curva no llega a 0.99 con ef 2048, se dice hasta dónde llega. La celda actual lleva su regla de v4.0, con rescoreLimit 64.
+- **El resto de la búsqueda, como en la celda actual:** una entrada, lotes de 4 postings, ef de centroides 8 y margen 0.06.
+- **Nada pasa al índice:** el formato, la lectura y la búsqueda van en los ficheros de test de v4.0.
+
+### Corrección, antes de cronometrar
+
+**Cada curva devuelve de disco lo mismo que su equivalente en memoria. Si no, stop.** Como en v4.0:
+
+- **El equivalente en memoria** es el estado del build con el sketch como código del scan y del ruteo, sobre las aristas del build y con el grafo de centroides reabierto de disco.
+- **Lo mismo** son, para las 5 000 queries y en los dos puntos de operación de la curva: los mismos ids en el mismo orden, las mismas distancias bit a bit, y las mismas cargas, rondas y endpoints puntuados.
+- **Las lecturas reales,** contadas por el store en modo pread, a un 25 % o menos del modelo. Si no, stop. El modelo de la celda nueva son 4 B por arista de los postings que carga; el bloque lleva además 1 B por miembro, como en v4.0.
+- **Además, en los tests,** con índices pequeños y en más configuraciones de búsqueda.
+
+### Medidas
+
+Las de v4.0, con su arnés: a 0.95 y a 0.99, con 1 y con 8 threads, latencia (p50, p95 y p99) y QPS, en caliente y en frío, con las partes de la latencia (centroides, espera de los bloques, visita y rescore).
+
+- **Lecturas y bytes por query:** los bloques, contados por el store, y el rescore, que son rescoreLimit lecturas de 6 144 B. Se dan juntos y por separado.
+- **Disco total:** el store, el fichero de vectores y lo residente.
+- **RAM residente:** el heap tras abrir y recolectar, como en v4.0.
+- **En frío:** remontando el volumen, 500 queries por punto, en tandas de 10 con 1 thread y de 16 con 8.
+- **Una curva por proceso.**
+
+### El presupuesto de la query: dos pasadas (*mío*)
+
+Esta celda mueve lecturas del posting al rescore, y el rescore es lo que limita el presupuesto de concurrencia de la query. El arnés de v4.0 da 8 a cada query. Un nodo da 20 a una query sola en esta máquina, y de 14 a 15 con 8 a la vez (abajo, «Los recursos compartidos del nodo»). El resultado de esta celda depende de cuál se use, así que se mide con los dos:
+
+- **Con 8,** el del arnés de v4.0: comparable con todo lo medido hasta hoy.
+- **Con el de un nodo:** el limitador de admisión real (`usecases/queryadmission`, con sus defaults), al que cada query pide `2 × GOMAXPROCS`, como `Shard.ObjectVectorSearch`.
+- **Las siete curvas van en las dos pasadas,** la celda actual incluida. Cada razón se toma dentro de su pasada.
+- **Las cargas de una ronda siguen sin pasar por el presupuesto,** como en v4.0: 4 lecturas en vuelo en la celda nueva y 8 en la actual. Caben en lo que da un nodo con 1 y con 8 queries.
+
+### Lectura (del usuario) y cómo la aplico
+
+**Es una opción si a 0.95 en frío queda a 1.20 veces o menos de la celda actual y llega a 0.99.**
+
+*Mío, para aplicarla:*
+
+- **Por curva:** el p50 en frío con 1 thread a 0.95, primera ronda, sobre el de la celda actual en la misma sesión y la misma pasada; y que la curva tenga punto de operación a 0.99.
+- **Una anchura es una opción si alguna de sus tres curvas cumple las dos cosas.** Se dice cuáles.
+- **La lectura se aplica con el presupuesto de 8,** que es el del arnés de v4.0 que nombra el encargo. Con el de un nodo se da la misma razón al lado, y se dice si la lectura cambia. Si el usuario decide antes de la sesión que mande el de un nodo, se enmienda aquí, antes de ningún dato.
+- **Por debajo del 10 % entre dos curvas es empate,** como siempre.
+- **Con 8 threads, en caliente y a 0.99** se reporta sin umbral.
+
+### Condiciones de la sesión cronometrada
+
+Las de v4.0 y v5.0: la máquina despierta, 15 minutos sin teclado ni trackpad antes de empezar, dos rondas (la segunda detecta deriva, al 10 %) y la actividad de cada tramo anotada.
+
+- **Va detrás de lo que hay en cola,** que acaba con los inserts de HFresh pasadas las 03:00. Empieza cuando la cola acabe y la máquina lleve 15 minutos quieta, a la hora que sea: fuera de la ventana de 23:00 a 03:00. Se dice a qué hora corrió.
+- **Las curvas marcadas** por deriva o por actividad se repiten la noche siguiente, dentro de la ventana.
+- **La parte sin cronometrar** (el build, la escritura y las dos comprobaciones) corre antes, de día.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **Bytes por query a 0.95.** La celda actual lee 1.16 MB de bloques y 0.39 MB de rescore: 1.56 MB en 101 lecturas. Si la nueva cargara los mismos 18.6 postings, leería 0.19 MB de aristas y el rescore: 1.42 MB en 219 lecturas con rescoreLimit 200, 2.65 MB en 419 con 400, y 5.10 MB en 819 con 800. No cargará los mismos: el sketch ordena peor que el código completo, y el ef para 0.95 se moverá.
+- **Recall.** En v1.2, en memoria y con el índice construido con el código capado, 768 bits llegaba a 0.99 con rescoreLimit 200 o más, y 512 bits pedía 800 para llegar con margen. Aquí las aristas son las del build con código completo: espero lo mismo o algo mejor. `s512` con rescoreLimit 200 puede no llegar a 0.99.
+- **Frío a 0.95, con presupuesto de 8.** El rescore de la celda actual son 1.68 ms de 4.43 de media, por 64 lecturas. Con 200 serían unos 5 ms solo de rescore. **Espero que ninguna curva quede dentro de 1.20 con el presupuesto de 8:** de 1.4 a 1.8 veces con rescoreLimit 200, y más con 400 y 800.
+- **Frío a 0.95, con el presupuesto de un nodo.** Si las lecturas escalan con las que hay en vuelo, el rescore de 200 baja a unos 2 ms y la curva queda cerca de la actual: de 0.9 a 1.2 veces. Es donde la lectura puede cambiar.
+- **En caliente,** la nueva se ahorra la espera del bloque de miembros (0.29 ms de 1.22) y paga más rescore (0.13 ms por 64 vectores): espero empate con rescoreLimit 200 y peor con 800.
+- **RAM:** `s512`, lo de la actual (145.8 MB) más 7.9 MB de doc ids, unos 154 MB. `s768`, 31.7 MB más de sketches: unos 185 MB.
+- **Disco:** el store baja de 243 MB a unos 37. El total lo sigue mandando el fichero de vectores, 6 083 MB.
+
+## Los recursos compartidos del nodo: lo que configura el arnés y lo que configura un nodo (2026-11-19)
+
+**Estado: comprobado en el código el 19, de 11:20 a 11:30, sin correr nada.** El contexto llega del equipo de HFresh a través del usuario: los workers de fondo de HFresh son compartidos por nodo, y sus goroutines de búsqueda salen de un presupuesto compartido. El encargo es comprobar cómo configura el arnés esas dos cosas frente a un nodo, decir qué números pueden cambiar, y parar antes de la sesión de la noche del 19 si el arnés deja a HFresh peor que en producto. **Lo deja peor en un punto, el rescore, y se le dijo al usuario hacia las 11:25.** Nada de lo de abajo está medido con el presupuesto de un nodo: los techos son aritmética sobre las partes ya medidas.
+
+### Lo que hace un nodo
+
+- **Workers de fondo.** Un `queue.Scheduler` por nodo (`adapters/repos/db/queue/scheduler.go`; lo crea `adapters/repos/db/repo.go`, sin fijar `Workers`). Son `max(1, GOMAXPROCS − 1)` workers para todos los índices del nodo: 9 en esta máquina. Por ellos pasan las colas de fondo de HFresh (splits, merges, reasignaciones y análisis) y la indexación asíncrona. Mira las colas cada segundo (`QUEUE_SCHEDULER_INTERVAL`) y reparte las tareas de un lote entre los workers por su clave.
+- **Presupuesto de búsqueda.** El nodo tiene `16 × GOMAXPROCS` unidades (`usecases/queryadmission`, `QUERY_ADMISSION_BUDGET`): 160 aquí. `Shard.ObjectVectorSearch` pide `2 × GOMAXPROCS` por query, 20, y recibe `min(lo pedido, max(lo libre / 4, 1))`. Lo concedido viaja en el contexto de la query, y cada reparto de trabajo lo lee de ahí (`entities/concurrency`).
+  - **Una query sola recibe 20.** Con varias a la vez, simulando la regla con queries que salen y vuelven a entrar sin parar: 20 con 2 y con 4, de 14 a 15 con 8, de 8 a 9 con 16, y de 4 a 5 con 32.
+  - **HFresh lo lee en un solo sitio: el rescore** (`hfresh/search.go`), que lanza `min(presupuesto, 2 × GOMAXPROCS, candidatos)` goroutines a leer los vectores exactos. Sus postings los lee uno detrás de otro, sin presupuesto, y la búsqueda de centroides es una goroutine.
+  - **En `main`** (`3507945a0c`, del 18) el scheduler, el presupuesto y la búsqueda de HFresh son los de este branch.
+
+### Lo que configura el arnés
+
+| | un nodo, en esta máquina | el arnés | para HFresh |
+|---|---|---|---|
+| workers de fondo | 9, para todos los índices y la indexación asíncrona | 9, el mismo default, para un solo índice | igual o mejor |
+| intervalo del scheduler | 1 s | 1 s | igual |
+| presupuesto de una query sola | 20 | 8 | peor, en el rescore |
+| presupuesto con 8 queries a la vez | de 14 a 15 cada una | 8 cada una | peor, en el rescore |
+| lectura de sus postings | uno detrás de otro | igual; 8 a la vez en las curvas `-par`, que no son producto | igual; mejor en `-par` |
+| vectores que piden sus splits, en los inserts | del bucket `objects` | de memoria | mejor |
+
+- **El 8 es el del pre-registro de v4.0,** «el mismo presupuesto de concurrencia por query en los dos índices», y lo llevan los dos arneses (`-bench.hfresh.budget` y `-bench.diskbudget`). Posting-edge también lo usa solo en su rescore.
+- **Las cargas de posting-edge no pasan por ningún presupuesto.** Una ronda pide a la vez los bloques de sus postings: 4 postings por 2 bloques son 8 lecturas en vuelo por query, y 12 con halo. Con 8 queries, 64 y 96.
+
+### Qué números pueden cambiar
+
+La parte del rescore en la latencia media de una query, medida con el presupuesto de 8 (primera ronda de v4.0):
+
+| curva | 1 thread, caliente | 1 thread, frío | 8 threads, caliente | 8 threads, frío |
+|---|---|---|---|---|
+| HFresh a 0.95 | 8 % (0.29 de 3.45 ms) | 8 % (3.79 de 46.44) | 8 % | 20 % (15.43 de 79.07) |
+| HFresh a 0.95, postings en paralelo | 10 % | 27 % (3.85 de 14.41) | 12 % | 27 % (19.72 de 74.19) |
+| HFresh a 0.99 | 4 % | 6 % (10.87 de 174.97) | 6 % | 18 % (42.97 de 241.46) |
+| HFresh a 0.99, postings en paralelo | 5 % | 22 % (11.05 de 49.28) | 9 % | 24 % (58.99 de 241.05) |
+| HFresh por defecto | 14 % | 16 % (10.93 de 68.87) | 16 % | 38 % (51.66 de 136.21) |
+| posting-edge, 512 bits en RAM, a 0.95 | 11 % (0.13 de 1.22) | 38 % (1.68 de 4.43) | 16 % | 47 % (5.85 de 12.51) |
+| posting-edge, 512 bits en RAM, a 0.99 | 3 % | 13 % (1.56 de 11.58) | 4 % | 18 % (4.65 de 26.09) |
+| posting-edge, halo, a 0.95 | 8 % | 25 % (1.57 de 6.32) | 10 % | 30 % (5.61 de 18.44) |
+
+- **HFresh con 1 thread.** Con 20 lecturas en vuelo en vez de 8, el rescore bajaría como mucho a 8/20 de lo que tarda: es el techo, si las lecturas escalaran sin pérdida. Sobre la media en frío es un 5 % menos a 0.95 (46.4 → 44.2 ms), un 4 % a 0.99 y un 10 % por defecto. En las dos curvas con postings en paralelo, un 16 % y un 13 % (14.4 → 12.1 ms y 49.3 → 42.6). En caliente el rescore es CPU sobre 10 cores y el techo es 8/10: un 3 % o menos de la media.
+- **HFresh con 8 threads.** De 8 a 14 o 15 por query. El techo es un 9 % menos a 0.95 en frío y un 17 % por defecto. Con 8 queries a la vez el disco ya tiene 64 lecturas de rescore en vuelo, así que es de esperar bastante menos que el techo.
+- **Los inserts de HFresh.** El presupuesto de búsqueda no les toca. Los workers de fondo son tantos como en un nodo, y en el arnés son todos para un índice: el ritmo hasta colas vacías es el mejor caso, y en un nodo con más índices o con indexación asíncrona baja. Un nodo tampoco inserta con 1 ni con 10 escritores: entra por sus workers de import (1.5 × GOMAXPROCS, 15 aquí) o, con indexación asíncrona, por esos mismos 9 workers.
+- **El rescore de posting-edge** está igual de limitado, y pesa más en su latencia. Con el mismo techo, un 23 % menos en frío a 0.95 con 1 thread (4.43 → 3.42 ms de media). **El presupuesto de 8 no favorece a posting-edge en la comparación:** lo llevan los dos, y a quien más le quita es a posting-edge.
+- **Las cargas en paralelo de posting-edge con 8 queries.** En un nodo tendrían que caber en lo concedido, y en esta máquina caben: 8 lecturas en vuelo por query, o 12 con halo, frente a 20 con una query y de 14 a 15 con 8. Los números con 1 y con 8 threads no cambiarían por esto. Dejan de caber a partir de unas 18 queries a la vez (11 con halo), donde lo concedido baja de 8 (de 12). Ahí una ronda tendría que pedir sus bloques en tandas, y eso no está medido.
+- **Lo que no cambia:** recall, cargas, lecturas y bytes por query, RAM y disco. Tampoco las repeticiones de la noche del 19, que son control de deriva y necesitan el presupuesto de 8 de su primera ronda.
+
+**Lo que no se puede decir sin medir:** cuánto del techo se cumple. Las lecturas de rescore son aleatorias, de 6 144 B en posting-edge y de un objeto en HFresh, y con más de 8 en vuelo este disco no está medido.
+
+**Para el índice,** el requisito queda en `disk-design.md`: las tareas de fondo y el paralelismo de búsqueda usan estos recursos compartidos, no workers propios por índice.
+
 ## v5.1: aristas consolidadas (pre-registro, 2026-11-19)
 
 **Estado: paso 1 cerrado, validación a 1M en marcha.** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
@@ -1128,7 +1270,7 @@ Las cargas de una ronda se piden en paralelo. Los vectores exactos del rescore v
 
 - **Una ronda pide a la vez todos los bloques de sus postings,** hasta 4 postings de 2 o 3 bloques, y los procesa después en el orden de siempre. El posting de entrada va solo.
 - **El rescore de posting-edge son 64 lecturas de 6 144 B** del fichero de vectores, una por candidato, con `pread`.
-- **El mismo presupuesto de concurrencia por query en los dos índices: 8.** Posting-edge lo usa en las lecturas del rescore y HFresh en las suyas. HFresh lee sus postings uno detrás de otro: es como busca hoy, y no se toca.
+- **El mismo presupuesto de concurrencia por query en los dos índices: 8.** Posting-edge lo usa en las lecturas del rescore y HFresh en las suyas. HFresh lee sus postings uno detrás de otro: es como busca hoy, y no se toca. *Un nodo da 20 a una query sola en esta máquina, no 8: lo que eso puede mover está en «Los recursos compartidos del nodo», del 19.*
 - **Modo de acceso del store: mmap,** que es el default y con el que corre un HFresh por defecto. Las dos familias de celdas van igual.
 - **El modo pread no se cronometra.** Se usa para contar, abajo.
 

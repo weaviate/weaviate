@@ -445,6 +445,21 @@ Lo que queda por medir:
 
 **En marcha (v5.1, pre-registrado el 19):** las aristas consolidadas. Los cambios de aristas de un posting esperan en memoria y su fila se escribe entera, como un solo valor, cada K cambios, en el split y al cerrar.
 
+## Requisito de integración: los recursos compartidos del nodo (2026-11-19)
+
+Un nodo reparte dos recursos entre todos sus índices. El índice tiene que usarlos, no traer los suyos.
+
+- **Tareas de fondo: los workers del `queue.Scheduler` del nodo** (`adapters/repos/db/queue/scheduler.go`). Son `GOMAXPROCS − 1` para todos los índices del nodo y para la indexación asíncrona. El refresco de aristas, la consolidación de filas, los splits y la reorganización en segundo plano van como tareas de una cola de ese scheduler, igual que los splits, merges y reasignaciones de HFresh. Sin workers propios por índice y sin goroutines que el nodo no cuente.
+- **Paralelismo de búsqueda: el presupuesto de la query.** Lo concede `usecases/queryadmission` y viaja en el contexto (`entities/concurrency`): una query sola recibe `2 × GOMAXPROCS`, y varias a la vez se reparten `16 × GOMAXPROCS`. Las lecturas en vuelo de una ronda y las del rescore salen de ese presupuesto, con `concurrency.NumWorkers`. Una ronda tiene que poder pedir sus filas en tandas cuando lo concedido no llega.
+
+**Lo que el prototipo no cumple todavía:**
+
+- **Las cargas de una ronda no miran el presupuesto.** Pide a la vez las filas de sus 4 postings: 8 lecturas en vuelo, 12 con halo. En una máquina de 10 procs caben en lo concedido hasta unas 17 queries a la vez (10 con halo). Por encima, la ronda se alarga, y eso no está medido.
+- **El mantenimiento corre dentro del insert, sin cola.** En v5.0 y v5.1 el split, el refresco y la escritura de filas los hace el propio insert. Con una cola compartida, el ritmo de inserts y lo que hay pendiente dependen de cuántos workers le toquen al índice: sin medir.
+- **El rescore sí lo mira,** como el de HFresh.
+
+Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en `bench-report.md`, «Los recursos compartidos del nodo».
+
 ## Open for phase 2
 
 *Añadido al cierre del 2026-11-13 como punto de partida del lunes. Son las cuatro preguntas abiertas, sin resolver. Cada una dice qué hay hoy en el índice en memoria y qué queda por decidir.*
