@@ -170,7 +170,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.0: deletes en memoria (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
+**Estado: paso 1 cerrado y la corrida a 1M en marcha.** Pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -288,6 +288,26 @@ Por celda y punto, y para cada referencia:
 - **Agrupada:** las celdas 1 y 2 cargan postings vacíos; la 3 los retira y queda cerca de la referencia. Las aristas muertas se concentran en los bordes de las regiones.
 - **Fracción de aristas muertas:** la de vectores borrados, 0.10, 0.30 y 0.50 al azar, y mucho menos en la agrupada.
 - **Churn:** con inserts que rellenan los postings, mejor que el 30 % sin inserts.
+
+### Paso 1, cerrado: el mecanismo y sus tests a pequeña escala (14:27 del 19)
+
+Código en `f3ec2c2ecd`, después del pre-registro (`d274cd0b5a`).
+
+- **La marca, en la búsqueda del índice** (`search.go`, `index.go`): un miembro marcado no se puntúa en el scan, así que no es candidato ni fuente, y con la segunda opción sus apariciones como endpoint se saltan. Sin marcas la búsqueda es la de siempre: los tests de las rondas anteriores pasan sin tocarlos.
+- **Lo demás, en el arnés de streaming** (`delete_test.go`): el borrado, la reescritura de un posting, la fusión con el vecino de centroide más cercano, la pasada de refresco y la cobertura de un índice con deletes.
+- **Tests, sin el tag de benchmark** (`delete_cells_test.go`):
+  - **Borrar con la marca es lo mismo que quitar.** Sobre un mismo índice, las búsquedas con marcas devuelven los mismos ids y distancias, con las mismas cargas, miembros puntuados y endpoints puntuados, que tras sacar físicamente a los borrados de sus postings; y, con los endpoints borrados sin puntuar, que tras quitar además las aristas hacia ellos.
+  - **La limpieza,** en siete casos (10, 30 y 50 % al azar, cosine, fusiones que acaban en split, sin mínimo, y postings enteros borrados): ningún posting queda con más del 30 % de borrados ni por debajo del mínimo sin haber recibido una fusión, no se pierde ningún vivo y el mapa sigue a los postings.
+  - **El refresco:** no queda ningún vector vivo con la mitad o más de sus aristas muertas, y ninguna lista refrescada apunta a un borrado.
+  - **Churn** en seis rondas, solo con marcas, con limpieza y con limpieza y refresco: cobertura en cada ronda, ningún borrado devuelto y lo insertado se encuentra.
+  - **La cobertura caza** ocho índices rotos a mano, cada uno por su motivo.
+- **Siete fallos provocados a mano, los siete cazados:** el scan puntúa a un borrado, un borrado hace de fuente cuando no hay corte, los endpoints borrados se puntúan siempre, una fusión no actualiza el mapa, un posting fusionado sigue en el grafo de centroides, la reescritura salta al doble de la fracción, y el refresco pide más de la mitad en vez de la mitad.
+- **Lint y tests del paquete pasan,** con y sin el tag.
+- **Una prueba de la corrida entera a 30 000 vectores, que no es un dato:** las cinco etapas pasan en un minuto, sin ningún stop.
+
+**Lo que la prueba pequeña enseña del mecanismo, y mi expectativa no vio:** en la variante agrupada, con postings enteros borrados, las celdas 1 y 2 no solo cargan postings vacíos. Una búsqueda que entra por un posting sin ningún miembro vivo no encuentra nada: no hay candidatos y, como un borrado no es fuente, tampoco aristas que seguir. Si a 1M pasa lo mismo, esas dos celdas no llegarán a 0.95 en esa variante, y lo que lo arregla es retirar el posting vacío, que es de la celda 3.
+
+**En marcha desde las 14:27:** la corrida a 1M, en una sola pasada y sin cronometrar. Orden: 30 % al azar, 10 %, 50 %, agrupada y churn.
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
