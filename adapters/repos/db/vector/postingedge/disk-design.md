@@ -494,6 +494,43 @@ Lo comprobado en el código, y qué números del arnés pueden cambiar por ello,
 
 **Sin medir:** la celda 1b con una fusión que devuelva el llenado, la celda 1b en el churn, cuántos borrados aguanta un posting, y todo ello en disco.
 
+*La fusión que devuelve el llenado se midió después, dentro de otra pasada: ver «Limpieza en dos fases».*
+
+## Limpieza en dos fases (v6.1, 2026-11-19)
+
+*De `bench-report.md`, «v6.1: limpieza en dos fases»: el punto de v6.0, dbpedia 1M en lote con el 30 % borrado al azar, y el churn del 30 % en diez rondas. Una corrida, en conteos y en memoria: nada de esto está en disco.*
+
+**La pasada,** en este orden:
+
+1. **Reparar:** todo vector vivo con una proporción X o más de sus aristas hacia borrados rehace su lista por búsqueda. Durante esa búsqueda los borrados se puntúan y sus aristas se siguen. Nunca entran en la lista nueva.
+2. **Eliminar:** los postings se reescriben sin sus borrados, las aristas hacia ellos que queden se quitan, y los postings pequeños se fusionan.
+
+**Veredicto.** Con el 30 % borrado al azar cumplen el criterio dos celdas, y la más barata repara con X = 25 % y fusiona por debajo de 177 vivos si la suma con el vecino más cercano no pasa de T = 360. En el churn esa misma celda no cumple. Ningún stop.
+
+| celda | recall a igual ef | cargas a 0.95 | cargas a 0.99 | cumple |
+|---|---|---|---|---|
+| la celda 4 de v6.0, repetida | −0.0178 | +29.1 % | +37.5 % | no |
+| X = 50 %, fusión de 118 | −0.0175 | +27.8 % | +33.8 % | no |
+| X = 25 %, fusión de 118 | −0.0086 | +9.7 % | +1.3 % | no, por el recall |
+| X = 25 %, fusión de 177 | −0.0023 | +2.7 % | −10.7 % | **sí** |
+| una arista o más, fusión de 118 | −0.0060 | +7.4 % | −7.1 % | no, por el recall |
+| una arista o más, fusión de 177 | −0.0010 | +1.2 % | −20.5 % | **sí** |
+| X = 25 %, fusión de 177, en el churn | −0.0071 | +12.1 % | +16.9 % | no |
+
+*Lectura mía, para el diseño:*
+
+- **Reparar antes de eliminar es lo que permite quitar los borrados.** v6.0 decía que un borrado tiene que seguir ruteando mientras esté en su posting. La reparación usa esas fuentes una última vez, y después ya no hacen falta.
+- **El orden por sí solo no arregla nada.** Con X = 50 %, reparar antes o después de limpiar da lo mismo. Cuenta cuántos se reparan: el 14 % de los vivos con el 50 %, el 60 % con el 25 % y el 84 % con una arista o más.
+- **La fusión tiene que devolver el llenado.** Con la de v6.0, por debajo de 118, no cumple ningún umbral, y es un fallo de llenado. La de 177 con tope en T deja la media en 235.1, con la referencia en 236.0, y no acaba en ningún split.
+- **La regla de la suma deja postings pequeños:** 118 por debajo de 118 vivos, el doble que la fusión de v6.0. Solo mira al vecino más cercano.
+- **Un borrado cuesta casi dos inserts:** 66 cargas por vector borrado con X = 25 %, a 47 por reparación, con un insert en 35.
+- **Navegar por los borrados encarece la reparación:** 39.6 cargas frente a 30.9 sobre los mismos vectores.
+- **El umbral como proporción de la lista en el momento de la pasada no vale para pasadas frecuentes.** Con un 3 % borrado por pasada casi ningún vector llega al 25 % de una vez. La eliminación quita la arista muerta, y la pasada siguiente ya no la ve. En diez rondas se quitan 1.64 M de aristas sin reparar, y las listas pasan de 8.6 a 7.2 aristas por vector, sin llegar a un estado estable.
+- **El diseño necesita memoria de lo perdido:** un contador por vector, o el largo de la lista cuando se construyó. Sin medir.
+- **Una lista reparada parece mejor que la del lote.** A 0.99 las celdas reparadas cargan entre un 11 y un 21 % menos que un lote de su mismo llenado. Sin separar.
+
+**Sin medir:** el umbral acumulado en el churn, «una arista o más» en el churn, la pasada cada varias rondas, y todo ello en disco.
+
 ## Open for phase 2
 
 *Añadido al cierre del 2026-11-13 como punto de partida del lunes. Son las cuatro preguntas abiertas, sin resolver. Cada una dice qué hay hoy en el índice en memoria y qué queda por decidir.*
@@ -515,7 +552,7 @@ Abierto:
 
 - **El mapa en sí:** dónde vive, cuánto ocupa (4 B por vector serían 40 MB a 10M) y qué cuesta su indirección por endpoint frente al `postingOf` de hoy. *Medido el 16: de un 28 a un 31 % más por endpoint con docIDs en orden de inserción, y de un 59 a un 65 % barajados (ver «Aristas por docID: el coste en memoria»).*
 - **El sidecar:** si se sigue indexando por slot o pasa al id estable, y qué hace con los huecos que dejan los deletes.
-- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas). *Medido el 19 (v6.0; el detalle, en «Deletes en memoria»): con el borrado como fuente mientras siga en su posting, las aristas hacia él no cuestan recall; sin eso, ni dejarlas ni refrescarlas lo recupera.* *v2.0 no lo resuelve: sus «aristas inversas» son escrituras en las listas de los vecinos de un vector nuevo, no un índice de quién apunta a quién. Y v2.0 no tiene deletes.*
+- **Las aristas que apuntan a un vector borrado:** si se quedan como lápida, que solo cuesta trabajo y rango, o se reparan, y quién las encuentra (hoy no hay aristas inversas). *Medido el 19 (v6.0; el detalle, en «Deletes en memoria»): con el borrado como fuente mientras siga en su posting, las aristas hacia él no cuestan recall; sin eso, ni dejarlas ni refrescarlas lo recupera.* *Medido el 19 (v6.1; «Limpieza en dos fases»): repararlas antes de quitar el borrado cumple el criterio con el 30 % borrado en una pasada. Quitarlas sin reparar, pasada tras pasada, acorta las listas.* *v2.0 no lo resuelve: sus «aristas inversas» son escrituras en las listas de los vecinos de un vector nuevo, no un índice de quién apunta a quién. Y v2.0 no tiene deletes.*
 - **Un update como delete más insert,** y qué les pasa a las aristas de los vecinos del vector movido.
 - **La invisibilidad transitoria de HFresh entre insert y split,** que deja vectores fuera de todo posting, como riesgo que el diseño tiene que cerrar por construcción.
 

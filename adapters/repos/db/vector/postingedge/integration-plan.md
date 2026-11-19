@@ -12,6 +12,7 @@
 - **Casi todo lo que se ha medido en disco es código de test.** El paquete tiene 3 216 líneas de código y 27 165 de test. La lectura de disco, los inserts y los deletes viven en `disk_test.go`, `grow_test.go`, `stream_test.go` y `delete_test.go`.
 - **Registrar el tipo en Weaviate es mecánico y disperso:** unos quince sitios, sin una lista única. Es lo único que puede empezar ya.
 - **Lo que bloquea de verdad es `Delete`.** El shard lo llama en cada borrado y en cada update que cambia un vector. Sin él, ninguna clase con este índice admite cambios.
+- **Los deletes tienen una celda que cumple con el 30 % borrado, en una pasada de limpieza (v6.1).** Con pasadas pequeñas y frecuentes, en un churn, todavía no.
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
 - **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
@@ -134,17 +135,22 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **Esa red no sirve hoy a este índice.** Su rescore falla la búsqueda entera si no puede leer un vector (`exactDistance`, `search.go:591`), donde HNSW y HFresh saltan el candidato. Hay que cambiarlo antes que nada: sin eso, cualquier borrado rompe las búsquedas que lo encuentren.
 
-**Lo que hay medido:** v6.0, en memoria y en conteos, cerrado el 19. En disco, nada.
+**Lo que hay medido:** v6.0 y v6.1, en memoria y en conteos, cerrados el 19. En disco, nada.
 
 - **Por su criterio, los deletes no se sostienen** con ninguna de las cinco celdas, con el 30 % borrado al azar.
 - **La celda 1b es la única que cumple el recall a igual ef:** un borrado se sigue puntuando y sus aristas se siguen, y nunca es candidato. Falla solo en cargas, +19.1 % a 0.95 y +13.7 % a 0.99, y ese fallo es de llenado: se atribuye a la política de fusión, no a las aristas.
 - **Con el 10 % borrado la celda 1b cumple.**
+- **v6.1, la limpieza en dos fases, cumple con el 30 % borrado al azar en una pasada.** Primero repara los vectores con el 25 % o más de sus aristas hacia borrados, navegando por ellos. Después los quita y fusiona por debajo de 177 vivos si la suma no pasa de T. Queda en −0.0023 de recall, +2.7 % de cargas a 0.95 y −10.7 % a 0.99.
+- **Cuesta 66 cargas por vector borrado,** casi dos inserts.
+- **En el churn esa pasada no cumple:** −0.0071 de recall y +16.9 % de cargas a 0.99, con un 3 % borrado por ronda. El umbral se mide en cada pasada y no acumula lo perdido en las anteriores: las listas pasan de 8.6 a 7.2 aristas por vector.
 
 *Lo mínimo para una primera versión, por lo leído:*
 
 - **La marca de v6.0, guardada con el índice, con la semántica de la celda 1b:** un bit por vector, y el borrado sigue ruteando mientras esté en su posting. `Delete` la pone y no falla con ids desconocidos. `ContainsDoc` da `false` para un id marcado.
 - **El rescore salta un vector que falta.**
-- **La fusión que devuelve el llenado, que no está medida.** La limpieza de v6.0 reescribe los postings sin sus borrados, y eso le quita a la celda 1b las fuentes. Sin esa fusión, una primera versión carga un 19 % más a 0.95 con el 30 % borrado, y cumple con el 10 %.
+- **La fusión que devuelve el llenado, medida en v6.1 dentro de la pasada de dos fases.** Por debajo de 177 vivos, con el vecino más cercano, si la suma no pasa de T: deja la media en 235.1, con la referencia en 236.0.
+- **No está medida sobre la celda 1b sola.** Reescribir un posting sin sus borrados le quita las fuentes, y por eso la pasada repara antes. Sin pasada, una primera versión con la marca sola carga un 19 % más a 0.95 con el 30 % borrado, y cumple con el 10 %.
+- **La pasada no está lista para un churn continuo.** Le falta que el umbral de reparación cuente lo que una lista ha perdido desde que se construyó. Sin medir.
 
 ### Filtros
 
@@ -320,7 +326,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **El default, `0`: automático, T = 360 vectores a cualquier dimensión.** Es lo único que reproduce lo medido. Un valor explícito se convierte con la fórmula de HFresh, para que el mismo número signifique el mismo umbral en los dos índices.
 - **La alternativa, un default fijo de 76,** es más simple de explicar y deja la media en 236 solo a 1536d. Si se prefiere, hay que medir antes 768d con una media de 425.
-- **El mínimo de fusión, T / 3:** 120 con T = 360. v6.0 lo mide con 118.
+- **El mínimo de fusión, T / 3:** 120 con T = 360. v6.0 lo mide con 118. v6.1 mide además una fusión por debajo de 177, tres cuartos de la media, si la suma no pasa de T: es la que devuelve el llenado.
 
 **Dos avisos sobre la unidad:**
 
@@ -475,6 +481,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Paso 5. Los recursos compartidos.** Necesita los pasos 3 y 4.
 
 - El split, el refresco, la limpieza y la reorganización, como tareas de una cola del scheduler del nodo.
+- La limpieza medida es la pasada de v6.1: reparar y después eliminar. Cumple en una pasada sobre el 30 % borrado, y con pasadas pequeñas y frecuentes todavía no.
 - Las cargas de una ronda, dentro del presupuesto de la query.
 - **Antes de este paso, ninguna medida vale como medida de un nodo.**
 
@@ -506,6 +513,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **k = 1 y k = 100,** para decidir el `ef` dinámico. Con el `ef` fijo en 20, una query con k = 100 corre con ef = k, la parada más temprana.
 - **El `rescoreLimit` con k = 100:** 64 pasa a 100 y no deja margen de reordenación. Sale de la misma medida.
 - **Un barrido corto, sin cronometrar, a 768d, con rescore 64, 100, 150 y 200,** para fijar el ancla del `rescoreLimit` automático. *Propuesta mía, para el mismo barrido:* 16, 32 y 48 a 1536d.
+
+**Sin medir, de v6.1** (*mío*; no está acordado como pendiente): el umbral de reparación acumulado, en el churn. Es lo que separa la pasada medida de una tarea de mantenimiento continua.
 
 **Lo que está en vuelo y puede mover este plan:**
 
