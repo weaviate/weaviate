@@ -437,7 +437,7 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 	}
 
 	err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc}, payload,
-		[]string{unitID}, idx, logger, "swap-requested", true,
+		[]string{unitID}, idx, logger, "swap-requested", "starting", true,
 		func(unitID string, _ ShardLike, unitTasks []*ShardReindexTaskGeneric, _ bool) phaseResult {
 			return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, logger)
 		})

@@ -156,8 +156,7 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 
 			swap, _ := newSearchableRetokenizeTask(t, idx, className, propName,
 				models.PropertyTokenizationField, preStrategy, cold.migrationUnit())
-			require.Error(t, swap.RunSwapOnShard(ctx, cold),
-				"fixture: the flip cannot run, but its decision is recorded write-ahead")
+			require.Error(t, swap.RunSwapOnShard(ctx, cold), "fixture: the flip cannot run, but its decision is recorded write-ahead")
 
 			require.NoError(t, cold.Shutdown(ctx))
 			simulateProcessRestartBucketCleanup(t, lsmPath)
@@ -217,6 +216,4 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 	return idx, cold, preStrategy
 }
 
-type noRecoveryTaskReindexer struct{}
-
-func (r *noRecoveryTaskReindexer) RunAfterLsmInit(context.Context, *Shard) error { return nil }
+type noRecoveryTaskReindexer struct{ shardReindexerV3Noop }

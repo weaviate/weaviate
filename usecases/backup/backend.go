@@ -888,7 +888,6 @@ type fileWriter struct {
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
 	GoPoolSize int
-	migrator   func(classPath string) error
 	logger     logrus.FieldLogger
 }
 
@@ -911,8 +910,6 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	fw.GoPoolSize = routinePoolSize(p)
 	return fw
 }
-
-func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files into the staging directory. materializedName keys the
 // staging dir; it differs from desc.Name only under namespace-graduation
@@ -937,12 +934,6 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 			}
 		}
 
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
-		}
 	}
 
 	return nil

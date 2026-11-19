@@ -81,6 +81,7 @@ func TestServerVersionOlderThan(t *testing.T) {
 	tests := []struct {
 		serverVersion string
 		want          bool
+		wantErr       bool
 	}{
 		{serverVersion: "1.9", want: true},
 		{serverVersion: "1.100", want: false},
@@ -90,15 +91,27 @@ func TestServerVersionOlderThan(t *testing.T) {
 		{serverVersion: "1.16", want: true},
 		{serverVersion: "2.0", want: false},
 		{serverVersion: "0.9", want: true},
-		{serverVersion: "", want: false},
-		{serverVersion: "garbage", want: false},
-		{serverVersion: "1", want: false},
-		{serverVersion: "1.x", want: false},
-		{serverVersion: "v1.22", want: false},
+		// Release builds write the version from the OpenAPI spec, suffixes included.
+		{serverVersion: "1.38.24", want: false},
+		{serverVersion: "1.23.0-rc.0", want: false},
+		{serverVersion: "1.38.0-dev", want: false},
+		{serverVersion: "1.25.0-raft", want: false},
+		{serverVersion: "1.22.0-rc.0", want: true},
+		{serverVersion: "", wantErr: true},
+		{serverVersion: "garbage", wantErr: true},
+		{serverVersion: "1", wantErr: true},
+		{serverVersion: "1.x", wantErr: true},
+		{serverVersion: "v1.22", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%q", tc.serverVersion), func(t *testing.T) {
-			assert.Equal(t, tc.want, serverVersionOlderThan(tc.serverVersion, 1, 23))
+			got, err := serverVersionOlderThan(tc.serverVersion, 1, 23)
+			if tc.wantErr {
+				require.ErrorIs(t, err, errUnreadableServerVersion)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -133,9 +146,11 @@ func TestCheckRestorableVersion(t *testing.T) {
 		// A lexical compare read "1.100" as older than "1.23" and would have refused it.
 		{version: Version, serverVersion: "1.100"},
 		{version: Version, serverVersion: "2.0"},
-		// An unreadable server version is never classified as an old format.
-		{version: Version, serverVersion: ""},
-		{version: Version, serverVersion: "garbage"},
+		{version: Version, serverVersion: "1.38.0-rc.0"},
+		// A server version that does not parse is refused, not restored as a current format.
+		{version: Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
+		{version: Version, serverVersion: "", wantErr: errUnreadableServerVersion},
+		{version: Version, serverVersion: "garbage", wantErr: errUnreadableServerVersion},
 		// Both clauses match; the format the version names is reported first.
 		{version: "1.0", serverVersion: "1.16", wantErr: errLegacyUncompressed},
 	}

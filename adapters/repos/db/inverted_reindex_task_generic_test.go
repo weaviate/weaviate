@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 // testMigrationStrategy wraps MapToBlockmaxStrategy but replaces
@@ -51,11 +52,12 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 // testShardReindexer wraps a single task into a ShardReindexerV3 for use
 // during shard initialization. It calls task methods synchronously.
 type testShardReindexer struct {
+	shardReindexerV3Noop
 	task *ShardReindexTaskGeneric
 }
 
-func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnAfterLsmInit(ctx, shard)
+func (r *testShardReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric {
+	return []*ShardReindexTaskGeneric{r.task}
 }
 
 func createTestObjectWithText(className, text string) *storobj.Object {
@@ -478,4 +480,13 @@ func TestBothChangeTokenizationHalvesRecordTheBucketStrategy(t *testing.T) {
 		subject := task.migrationSubject(nil, payload.Properties, time.Time{})
 		require.Equal(t, lsmkv.StrategyMapCollection, subject.BucketStrategy, subject.Key.StrategyCode)
 	}
+}
+
+func TestSwapLoggerSamplesRetries(t *testing.T) {
+	logger := logrus.New()
+	task := &ShardReindexTaskGeneric{logger: logger}
+	retries := logrusext.NewSampler(logger, 1, time.Hour)
+	require.Same(t, logger, task.swapLogger(retries), "the first attempt logs in full")
+	require.Same(t, logger, task.swapLogger(retries), "a retry within the sample logs")
+	require.Same(t, discardLogger, task.swapLogger(retries), "a retry past the sample does not")
 }

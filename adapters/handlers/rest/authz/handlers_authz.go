@@ -125,14 +125,9 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 
 	// Check if user can manage roles with matching permissions
 	if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_MATCH), authorization.Roles(roleName)...); err == nil {
-		// Verify user has all permissions they're trying to grant
-		var errs error
-		for _, policy := range policies {
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-		return errs
+		// Verify user has all permissions they're trying to grant. The policies
+		// are in stored form already, so nothing is projected.
+		return rolevisibility.AuthorizePolicies(ctx, h.authorizer, principal, "", policies)
 	}
 
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
@@ -276,37 +271,10 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 
 // authorizeAssignRolePermissions blocks privilege escalation via role
 // assignment: the caller must already hold every permission the assigned roles
-// grant, else assign_and_revoke_users alone could be used to grant admin. For a
-// namespaced caller each permission is projected into the assignee's namespace
-// before the check, so a global template role is evaluated as it applies to the
-// assignee rather than against its raw unqualified resource strings.
+// grant, else assign_and_revoke_users alone could be used to grant admin.
 func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
-	namespaced := rolevisibility.CallerConfined(h.namespacesEnabled, principal)
-	var errs error
-	for _, policies := range roles {
-		for _, policy := range policies {
-			// GetRoles returns this placeholder for permission-less roles; it grants nothing.
-			if policy.Resource == conv.InternalPlaceHolder {
-				continue
-			}
-			resource := policy.Resource
-			if namespaced {
-				projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
-				if err != nil {
-					// A role bound elsewhere can't be granted here; deny without
-					// echoing the foreign resource back to the caller.
-					errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
-					continue
-				}
-				resource = projected
-			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-	}
-	if errs != nil {
-		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", errs)
+	if err := rolevisibility.AuthorizeRolePermissions(ctx, h.authorizer, h.namespacesEnabled, principal, targetNamespace, roles); err != nil {
+		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", err)
 	}
 	return nil
 }
@@ -882,7 +850,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	if err := h.authorizeAssignRolePermissions(ctx, principal, namespacing.NamespaceFromQualified(internalID), existedRoles); err != nil {
+	targetNamespace := namespacing.NamespaceFromQualified(internalID)
+	if params.Body.UserType == models.UserTypeInputDb && h.isStaticAPIKeyUser(internalID) {
+		targetNamespace = ""
+	}
+	if err := h.authorizeAssignRolePermissions(ctx, principal, targetNamespace, existedRoles); err != nil {
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -964,8 +936,9 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupNotFound()
 	}
 
-	// Group assignment is global-only (a namespaced caller is denied above), so
-	// no namespace projection applies.
+	// A group has no namespace of its own, so its roles are checked as stored.
+	// A namespaced member holds a bare users/ grant in its own namespace, which
+	// this check does not cover.
 	if err := h.authorizeAssignRolePermissions(ctx, principal, "", existedRoles); err != nil {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -1595,7 +1568,7 @@ func (h *authZHandlers) userExistsDeprecated(user string) (bool, error) {
 // dbUserExists reports whether a db user exists: a static API-key user or a
 // dynamic user known to the controller.
 func (h *authZHandlers) dbUserExists(user string) (bool, error) {
-	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, user) {
+	if h.isStaticAPIKeyUser(user) {
 		return true, nil
 	}
 
@@ -1604,6 +1577,12 @@ func (h *authZHandlers) dbUserExists(user string) (bool, error) {
 		return false, err
 	}
 	return len(users) == 1, nil
+}
+
+// isStaticAPIKeyUser reports whether userID is a static API-key user. Such a
+// user logs in as a global operator, so a ':' in its id names no namespace.
+func (h *authZHandlers) isStaticAPIKeyUser(userID string) bool {
+	return h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID)
 }
 
 // validateRootGroup validates that enduser do not touch the internal root group
@@ -1653,7 +1632,7 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 	if !h.namespacesEnabled {
 		return nil
 	}
-	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
+	if h.isStaticAPIKeyUser(userID) {
 		return nil
 	}
 	if !conv.ContainsNamespaceSeparator(userID) {

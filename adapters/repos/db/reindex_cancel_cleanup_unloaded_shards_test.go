@@ -37,6 +37,8 @@ type committedMigration struct {
 	prop     string
 	owned    string
 	promoted bool
+	// Empty puts the row in one shared unit, so only a set unit adds a second.
+	unit string
 }
 
 func mustMainBucket(t *testing.T, propName, indexType string) string {
@@ -299,9 +301,9 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 				"a backup copy from a release before this one is reclaimed here or never")
 
 			logger, _ := test.NewNullLogger()
-			store, someRecordsUnreadable, err := migrationRecordStoreAt(residueLSM, logger)
+			store, unreadable, err := migrationRecordStoreAt(residueLSM, logger)
 			require.NoError(t, err)
-			require.False(t, someRecordsUnreadable)
+			require.Empty(t, unreadable)
 			rec, ok := store.Get(MigrationRecordKey{TaskVersion: tc.gen, StrategyCode: tc.code, UnitID: unitID})
 			require.True(t, ok, "the record outlives the rename that answers it")
 			assert.Equal(t, MigrationStatePromoted, rec.State())
@@ -573,6 +575,17 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			sidecars:        []string{"property_category__enable_filterable_ingest_1"},
 			wantFinalizable: true,
 		},
+		// Records of two units (backup restore, replica move) fail open like an unreadable set.
+		{
+			name:      "records of two units",
+			indexType: "filterable",
+			committed: append(slices.Clone(deferredFinalize), committedMigration{
+				code: StrategyCodeEnableFilterable, gen: 2, prop: "category",
+				owned: "property_category__enable_filterable_ingest_2", unit: "shard-1__node-9",
+			}),
+			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			wantStale: true,
+		},
 		{
 			name:                "a .migrations dir the gate cannot enumerate",
 			indexType:           "filterable",
@@ -605,7 +618,11 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				if c.promoted {
 					state = MigrationStatePromoted
 				}
-				mkMigrationRecordAt(t, lsm, "shard-1__node-0", c.code, c.gen,
+				unit := c.unit
+				if unit == "" {
+					unit = "shard-1__node-0"
+				}
+				mkMigrationRecordAt(t, lsm, unit, c.code, c.gen,
 					map[string]string{c.prop: c.owned},
 					map[string]string{c.prop: mustMainBucket(t, c.prop, tc.indexType)}, state)
 			}
@@ -637,7 +654,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				return
 			}
 			if tc.wantSweepFails {
-				err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
+				err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType, nil)
 				require.Error(t, err,
 					"a sweep that removed nothing because it could not read the shard "+
 						"must not be summarized as one that finished")
@@ -905,15 +922,69 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 
 	sweepErr := idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, nil)
 
-	require.ErrorIs(t, sweepErr, ErrCleanupShardFailed)
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
-	require.Equal(t, CleanupSweepFailed, outcome)
+	require.Equal(t, CleanupSweepWithheld, outcome, "nothing was removed, so nothing is partly swept")
+	wantMsg, wantLevel := CleanupSweepSummary(sweepPhaseIndexCleanup, CleanupSweepWithheld)
 	summary := onlySweepSummary(t, hook)
-	require.Equal(t, logrus.ErrorLevel, summary.Level)
-	require.Contains(t, summary.Message, "could not be swept")
+	require.Equal(t, wantLevel, summary.Level)
+	require.True(t, strings.HasPrefix(summary.Message, wantMsg), summary.Message)
 
 	require.True(t, dirExistsAt(t, lsm, staleSidecar),
 		"the state the summary must not report as swept")
+}
+
+// Load returns no error for records split across two units, but the index
+// sweep still has to report the shard as unreadable, loaded or not.
+func TestIndexCleanStalePartialReindexStateReportsRecordsOfTwoUnits(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tenant    = "restored-tenant"
+		owned     = "property_category__enable_filterable_ingest_1"
+		stale     = "property_category__enable_filterable_ingest_2"
+	)
+	for _, loaded := range []bool{true, false} {
+		t.Run(fmt.Sprintf("loaded=%v", loaded), func(t *testing.T) {
+			ctx := testCtx()
+			logger, hook := test.NewNullLogger()
+			class := newTestClassWithProps("TwoUnitRecords_"+uuid.NewString()[:8], []string{propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false, func(i *Index) { i.logger = logger })
+			defer shd.Shutdown(context.Background())
+
+			shardName, lsm := shd.Name(), shd.(*Shard).pathLSM()
+			if !loaded {
+				lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+					false, idx.bitmapBufPool)
+				idx.shards.Store(tenant, lazy)
+				defer func() {
+					if lazy.isLoaded() {
+						require.NoError(t, lazy.Shutdown(context.Background()))
+					}
+				}()
+				shardName, lsm = tenant, shardPathLSM(idx.path(), tenant)
+			}
+			require.NoError(t, os.MkdirAll(filepath.Join(lsm, stale), 0o755))
+			main := mustMainBucket(t, propName, indexType)
+			own := MigrationUnitID(shardName, idx.getSchema.NodeName())
+			for _, unit := range []string{own, shardName + "__node-9"} {
+				mkFlippedMigrationRecord(t, lsm, unit, StrategyCodeEnableFilterable, 1, propName, owned, main)
+			}
+
+			hook.Reset()
+			cache := &dirNamesCache{}
+			require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, cache))
+
+			count, reasons := cache.unreadableRecordSets()
+			require.Equal(t, 1, count)
+			require.ErrorContains(t, reasons, "records of 2 units")
+			summary := onlySweepSummary(t, hook)
+			require.Equal(t, logrus.WarnLevel, summary.Level)
+			require.Equal(t, 1, summary.Data["unreadable_record_sets"])
+			require.True(t, dirExistsAt(t, lsm, stale), "a shard whose records are unreadable keeps every sidecar")
+		})
+	}
 }
 
 // The gate's answer must depend on nothing but this shard's own disk, and must

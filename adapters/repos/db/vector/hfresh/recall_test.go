@@ -142,7 +142,8 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 	cfg.Logger = l
 	scheduler := queue.NewScheduler(
 		queue.SchedulerOptions{
-			Logger: l,
+			Logger:           l,
+			ScheduleInterval: testScheduleInterval,
 		},
 	)
 	scheduler.Start()

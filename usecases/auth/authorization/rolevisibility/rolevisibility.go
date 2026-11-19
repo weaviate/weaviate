@@ -10,17 +10,20 @@
 //
 
 // Package rolevisibility decides whether a caller may see another subject's
-// assigned role, given the role's stored name and policies. The rules are shared
-// by every handler that lists a subject's roles so a role is hidden or revealed
-// identically regardless of which endpoint returns it.
+// role, and whether the caller holds every permission a set of roles grants.
+// Handlers share these checks so every endpoint judges a role the same way.
 package rolevisibility
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -65,25 +68,149 @@ func RolePoliciesVisibleToPrincipal(ctx context.Context, authorizer authorizatio
 	if err := authorizer.Authorize(ctx, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles()...); err == nil {
 		return true
 	}
-	namespaced := CallerConfined(namespacesEnabled, principal)
+	var namespace string
+	if namespacesEnabled {
+		namespace = namespacing.ConfinedNamespace(principal)
+	}
+	// List endpoints run this for every role, so stop at the first policy the caller lacks.
+	for i := range policies {
+		if AuthorizePolicies(ctx, authorizer, principal, namespace, policies[i:i+1]) != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// AuthorizeRolePermissions returns an error unless the caller holds every
+// permission the roles grant a subject in targetNamespace, projected into it.
+// A permission bound to another namespace grants that subject nothing.
+func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
+	if !namespacesEnabled {
+		targetNamespace = ""
+	}
+	var errs error
+	for _, policies := range roles {
+		for _, policy := range policies {
+			// A role with no permissions carries this placeholder, which grants nothing.
+			if policy.Resource == conv.InternalPlaceHolder {
+				continue
+			}
+			resource, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
+			if errors.Is(err, namespacing.ErrForeignNamespace) {
+				continue
+			}
+			if err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
+		}
+	}
+	return errs
+}
+
+// AuthorizePolicies returns an error unless the caller holds every permission
+// the policies grant, projecting each resource into a non-empty namespace first.
+func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, namespace string, policies []authorization.Policy) error {
+	var errs error
 	for _, policy := range policies {
 		// Permission-less roles carry this placeholder; it grants nothing.
 		if policy.Resource == conv.InternalPlaceHolder {
 			continue
 		}
-		resource := policy.Resource
-		if namespaced {
-			projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, principal.Namespace)
-			if err != nil {
-				return false
-			}
-			resource = projected
+		resource, err := namespacing.ProjectResourceForNamespace(policy.Resource, namespace)
+		if err != nil {
+			// A global role can name a user in another namespace, which a confined
+			// caller cannot hold. Deny without echoing the resource back to the caller.
+			errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
+			continue
 		}
-		if err := authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
-			return false
+		errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
+	}
+	return errs
+}
+
+// authorizeResource returns an error unless the caller holds verb on resource.
+// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*".
+// A wildcard passes both, and so can a pattern that excludes names, such as "[^a]*".
+func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
+	wildcard := regexSegmentsToWildcard(resource)
+	// A caller pattern such as ".." matches the text ".*" without holding
+	// every name, so the stored text must pass as well.
+	if wildcard != resource {
+		if err := authorizePolicy(ctx, authorizer, principal, verb, resource); err != nil {
+			return err
 		}
 	}
-	return true
+	return authorizePolicy(ctx, authorizer, principal, verb, wildcard)
+}
+
+// regexSyntax lists the regex characters a stored pattern can carry besides
+// '.' and the ".*" conv writes for '*'.
+const regexSyntax = `\+?()[]{}|^$`
+
+// regexSegmentsToWildcard replaces each segment using regexSyntax with ".*",
+// keeping its "<ns>:" qualifier. casbin treats the request as literal text, so
+// "(eu|admin)" would pass for a caller holding "*eu*" and reach admin.
+func regexSegmentsToWildcard(resource string) string {
+	if !strings.ContainsAny(resource, regexSyntax) {
+		return resource
+	}
+	segments := strings.Split(resource, "/")
+	for i, segment := range segments {
+		if !strings.ContainsAny(segment, regexSyntax) {
+			continue
+		}
+		ns := namespacing.NamespaceFromQualified(segment)
+		if strings.ContainsAny(ns, regexSyntax) {
+			ns = ""
+		}
+		segments[i] = namespacing.QualifiedName(ns, ".*")
+	}
+	return strings.Join(segments, "/")
+}
+
+// authorizePolicy checks each verb of the policy on its own. A denied verb of a
+// union such as manage_backups is reported once under the union's action, since
+// no API action names a single verb of it.
+func authorizePolicy(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
+	verbs := grantedVerbs(verb)
+	for _, v := range verbs {
+		err := authorizer.AuthorizeSilent(ctx, principal, v, resource)
+		if err == nil {
+			continue
+		}
+		var forbidden authzerrors.Forbidden
+		if len(verbs) == 1 || !errors.As(err, &forbidden) {
+			return err
+		}
+		perm, permErr := conv.PathToPermission(verb, resource)
+		if permErr != nil {
+			return err
+		}
+		prefix, ok := strings.CutSuffix(err.Error(), forbidden.Error())
+		if !ok {
+			return err
+		}
+		return fmt.Errorf("%s%w", prefix, forbidden.WithVerb(*perm.Action))
+	}
+	return nil
+}
+
+// grantedVerbs splits a stored verb union such as "(C)|(R)|(U)|(D)_MATCH" into
+// single verbs, each keeping the scope suffix. casbin's unanchored match would
+// pass the whole union for a caller holding any one of its verbs.
+func grantedVerbs(verb string) []string {
+	union, scope, scoped := strings.Cut(verb, "_")
+	verbs := strings.Split(union, "|")
+	for i, v := range verbs {
+		v = strings.Trim(v, "()")
+		if scoped {
+			v = authorization.VerbWithScope(v, scope)
+		}
+		verbs[i] = v
+	}
+	return verbs
 }
 
 // RoleVisibleToCaller reports whether the caller may see another subject's role

@@ -257,7 +257,7 @@ func NewSchemaObjectsPropertiesDeleteUnprocessableEntity() *SchemaObjectsPropert
 /*
 SchemaObjectsPropertiesDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid index, property or collection provided.
+Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.
 */
 type SchemaObjectsPropertiesDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse

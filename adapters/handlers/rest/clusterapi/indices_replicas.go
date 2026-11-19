@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -43,6 +44,8 @@ type replicatedIndices struct {
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
+	// asyncReplicationInMaintenanceEnabled lets async replication routes through while in maintenance mode.
+	asyncReplicationInMaintenanceEnabled func() bool
 
 	logger logrus.FieldLogger
 	// nodeReady reports whether the node is ready to accept requests
@@ -96,19 +99,53 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
+// asyncReplicationRoutes allowlists the async replication routes; each regex must match the path from prefix to end.
+var asyncReplicationRoutes = []struct {
+	methods []string
+	prefix  string
+	re      *regexp.Regexp
+}{
+	{methods: []string{http.MethodPost}, prefix: "/replicas", re: regexCompareHashTreeRoots},
+	{methods: []string{http.MethodPost}, prefix: "/replicas", re: regxHashTreeLevel},
+	{methods: []string{http.MethodPost}, prefix: "/replicas", re: regexCompareDigests},
+	{methods: []string{http.MethodPost}, prefix: "/replicas", re: regexObjectsDigestsInRange},
+	{methods: []string{http.MethodPut}, prefix: "/replicas", re: regxOverwriteObjects},
+	{methods: []string{http.MethodGet, http.MethodPost, http.MethodDelete}, prefix: "", re: regxAsyncCheckpoint},
+}
+
+// isAsyncReplicationRoute reports whether method and path address an async replication endpoint.
+// Matches are anchored because the route regexes are unanchored and a crafted path could otherwise dispatch elsewhere.
+func isAsyncReplicationRoute(method, path string) bool {
+	if path == shared.CompareHashTreeRootsMultiPath {
+		return method == http.MethodPost
+	}
+	for _, route := range asyncReplicationRoutes {
+		if !slices.Contains(route.methods, method) {
+			continue
+		}
+		loc := route.re.FindStringIndex(path)
+		if loc != nil && loc[1] == len(path) && path[:loc[0]] == route.prefix {
+			return true
+		}
+	}
+	return false
+}
+
 func NewReplicatedIndices(
 	replicator replicaTypes.Replicator,
 	auth auth,
 	maintenanceModeEnabled func() bool,
+	asyncReplicationInMaintenanceEnabled func() bool,
 	logger logrus.FieldLogger,
 	nodeReady func() bool,
 ) *replicatedIndices {
 	return &replicatedIndices{
-		replicator:             replicator,
-		auth:                   auth,
-		maintenanceModeEnabled: maintenanceModeEnabled,
-		logger:                 logger,
-		nodeReady:              nodeReady,
+		replicator:                           replicator,
+		auth:                                 auth,
+		maintenanceModeEnabled:               maintenanceModeEnabled,
+		asyncReplicationInMaintenanceEnabled: asyncReplicationInMaintenanceEnabled,
+		logger:                               logger,
+		nodeReady:                            nodeReady,
 	}
 }
 
@@ -118,7 +155,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if i.maintenanceModeEnabled() {
+		if i.maintenanceModeEnabled() && !i.asyncReplicationAllowedInMaintenance(r) {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
@@ -130,6 +167,11 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 
 		i.handleRequest(w, r)
 	}
+}
+
+func (i *replicatedIndices) asyncReplicationAllowedInMaintenance(r *http.Request) bool {
+	return i.asyncReplicationInMaintenanceEnabled != nil && i.asyncReplicationInMaintenanceEnabled() &&
+		isAsyncReplicationRoute(r.Method, r.URL.Path)
 }
 
 func (i *replicatedIndices) handleRequest(w http.ResponseWriter, r *http.Request) {

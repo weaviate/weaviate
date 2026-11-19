@@ -866,6 +866,69 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	// A manage permission is stored as a union of the verbs C, R, U and D.
+	// casbin's unanchored verb match accepts that union from a caller holding
+	// any one of them, such as the viewer role's R.
+	t.Run("holding one verb of manage_backups is not enough to add it", func(t *testing.T) {
+		manageBackups := func() *models.Permission {
+			return helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection("*").Permission()
+		}
+		addManageBackups := func() error {
+			_, err := helper.Client(t).Authz.AddPermissions(
+				authz.NewAddPermissionsParams().WithID(newRole).WithBody(authz.AddPermissionsBody{
+					Permissions: []*models.Permission{manageBackups()},
+				}),
+				limitedAuth,
+			)
+			return err
+		}
+
+		t.Run("a viewer cannot add manage_backups", func(t *testing.T) {
+			helper.AssignRoleToUser(t, adminKey, authorization.Viewer, limitedUser)
+			defer helper.RevokeRoleFromUser(t, adminKey, authorization.Viewer, limitedUser)
+			helper.WaitForOwnRole(t, limitedKey, authorization.Viewer)
+
+			var forbidden *authz.AddPermissionsForbidden
+			err := addManageBackups()
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T: %v", err, err)
+			requireDeniedOnce(t, forbidden.Payload.Error[0].Message, authorization.ManageBackups)
+		})
+
+		t.Run("a holder of manage_backups can add it", func(t *testing.T) {
+			backupManager := "backup-manager"
+			helper.DeleteRole(t, adminKey, backupManager)
+			helper.CreateRole(t, adminKey, &models.Role{Name: &backupManager, Permissions: []*models.Permission{manageBackups()}})
+			defer helper.DeleteRole(t, adminKey, backupManager)
+			helper.AssignRoleToUser(t, adminKey, backupManager, limitedUser)
+			helper.WaitForOwnRole(t, limitedKey, backupManager)
+
+			require.NoError(t, addManageBackups())
+		})
+	})
+
+	t.Run("limited user can delete a role it emptied", func(t *testing.T) {
+		emptied := "emptied-role"
+		createCollection1 := &models.Permission{
+			Action:      String(authorization.CreateCollections),
+			Collections: &models.PermissionCollections{Collection: String("Collection1")},
+		}
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{Name: &emptied, Permissions: []*models.Permission{createCollection1}}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+		_, err = helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(emptied).WithBody(authz.RemovePermissionsBody{
+				Permissions: []*models.Permission{createCollection1},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
+
+		_, err = helper.Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(emptied), limitedAuth)
+		require.NoError(t, err)
+	})
+
 	t.Run("admin can still manage all roles", func(t *testing.T) {
 		// Admin can delete roles created by limited user
 		helper.DeleteRole(t, adminKey, newRole)

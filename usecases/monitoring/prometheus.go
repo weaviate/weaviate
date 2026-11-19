@@ -70,7 +70,7 @@ type PrometheusMetrics struct {
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
 	FileIOWrites                        *prometheus.SummaryVec
-	FileIOReads                         *prometheus.SummaryVec
+	FileIOReads                         *StripedSummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
@@ -78,6 +78,7 @@ type PrometheusMetrics struct {
 	RangeableInMemoryRebuildDegraded *prometheus.CounterVec
 	MigrationRecordsWedged           prometheus.Counter
 	MigrationRecordsNotUnderstood    prometheus.Counter
+	ReindexHeldShards                prometheus.Gauge
 
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
@@ -626,10 +627,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
-		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "file_io_reads_total_bytes",
-			Help: "Total number of bytes read from disk",
-		}, []string{"operation"}),
+		FileIOReads: NewStripedSummaryVec("file_io_reads_total_bytes",
+			"Total number of bytes read from disk", "operation"),
 		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "mmap_operations_total",
 			Help: "Total number of mmap operations",
@@ -647,6 +646,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		MigrationRecordsWedged: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "migration_records_wedged_total",
 			Help: "Reindex migration records a reconciliation pass left standing, either wedged for a reason no later load can change or with a reconciliation that errored. A shard load counts every one it found, and a periodic pass counts only the ones it newly wedged, so the total is a sum of diagnoses rather than a count of distinct records; the log line for each names the record and the shard.",
+		}),
+		ReindexHeldShards: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "reindex_held_shards",
+			Help: "Shards on this node held READONLY because a reindex migration's double-write mirror could not arm and its Unmirrored stamp could not be written. Each needs its cause cleared; the node's Error log line names the shard and the cause.",
 		}),
 		MigrationRecordsNotUnderstood: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "migration_records_not_understood_total",
@@ -1027,6 +1030,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 	}
 
+	m.Registerer.MustRegister(m.FileIOReads)
+
 	if err := m.initObjectsTtl(); err != nil {
 		panic(err)
 	}
@@ -1112,6 +1117,15 @@ func (m *PrometheusMetrics) AddMigrationRecordsWedged(wedged, notUnderstood int)
 	if notUnderstood > 0 {
 		m.MigrationRecordsNotUnderstood.Add(float64(notUnderstood))
 	}
+}
+
+// AddReindexHeldShards is unlabelled for the same reason. A gauge works here because
+// every held shard moves it back down when it is lifted, shut down or dropped.
+func (m *PrometheusMetrics) AddReindexHeldShards(delta float64) {
+	if m == nil {
+		return
+	}
+	m.ReindexHeldShards.Add(delta)
 }
 
 const (

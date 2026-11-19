@@ -60,6 +60,14 @@ func createClass(t *testing.T, class *models.Class, auth runtime.ClientAuthInfoW
 	return err
 }
 
+// requireDeniedOnce asserts that a 403 message reports action as the only
+// permission the caller lacks.
+func requireDeniedOnce(t *testing.T, message, action string) {
+	t.Helper()
+	require.Equal(t, 1, strings.Count(message, "insufficient permissions"), message)
+	require.Contains(t, message, "insufficient permissions to "+action+" ")
+}
+
 func generateMissingLists(permissions []*models.Permission) [][]*models.Permission {
 	var result [][]*models.Permission
 

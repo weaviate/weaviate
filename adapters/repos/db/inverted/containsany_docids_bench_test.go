@@ -14,6 +14,7 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"runtime"
@@ -1029,4 +1030,86 @@ func TestDocIDs_DocBitmapSlowLogIsBounded(t *testing.T) {
 		require.GreaterOrEqual(t, summary.Slowest[i-1]["took"], summary.Slowest[i]["took"],
 			"slowest entries come first")
 	}
+}
+
+// A long filter value must not be written in full into each kept entry.
+func TestDocBitmap_SlowLogValueIsCapped(t *testing.T) {
+	f := newContainsFixture(t, 10)
+	bucket := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+
+	for _, tc := range []struct {
+		name    string
+		size    int
+		wantLen int
+	}{
+		{"under the cap", 8, 8},
+		{"one past the cap", filters.LogMaxStringChars + 1, filters.LogMaxStringChars},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			value := bytes.Repeat([]byte("x"), tc.size)
+			bm, err := f.searcher.docBitmap(ctx, bucket, 0, &propValuePair{
+				prop: benchPropName, operator: filters.OperatorEqual, value: value,
+			})
+			require.NoError(t, err)
+			bm.release()
+
+			entries, ok := docBitmapSlowLogEntries(ctx)
+			require.True(t, ok)
+			require.Len(t, entries, 1)
+			require.Equal(t, value[:tc.wantLen], entries[0]["value"])
+		})
+	}
+}
+
+func TestDocBitmap_SlowLogEntryFields(t *testing.T) {
+	f := newContainsFixture(t, 10)
+	bucket := f.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+	values, _ := f.sampleValues(1)
+	pv := func() *propValuePair {
+		return &propValuePair{prop: benchPropName, operator: filters.OperatorEqual, value: []byte(values[0])}
+	}
+
+	t.Run("a resolved leaf", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		bm, err := f.searcher.docBitmap(ctx, bucket, 0, pv())
+		require.NoError(t, err)
+		want := bm.count()
+		bm.release()
+		require.Positive(t, want)
+
+		entries, ok := docBitmapSlowLogEntries(ctx)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, benchPropName, entries[0]["prop"])
+		require.Equal(t, filters.OperatorEqual, entries[0]["operator"])
+		require.Equal(t, want, entries[0]["count"])
+		require.Equal(t, false, entries[0]["failed"])
+		require.Equal(t, bucket.Strategy(), entries[0]["strategy"])
+	})
+
+	t.Run("a failed leaf", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(helpers.InitSlowQueryDetails(context.Background()))
+		cancel()
+		_, err := f.searcher.docBitmap(ctx, bucket, 0, pv())
+		require.Error(t, err)
+
+		entries, ok := docBitmapSlowLogEntries(ctx)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, true, entries[0]["failed"])
+	})
+
+	t.Run("a geo leaf", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		_, err := f.searcher.docBitmap(ctx, nil, 0, &propValuePair{
+			prop: "location", operator: filters.OperatorWithinGeoRange,
+		})
+		require.NoError(t, err)
+
+		entries, ok := docBitmapSlowLogEntries(ctx)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, "geo", entries[0]["strategy"])
+	})
 }

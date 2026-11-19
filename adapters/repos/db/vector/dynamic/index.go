@@ -35,9 +35,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -46,6 +48,8 @@ import (
 const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
+
+	compressRetryCooldown = time.Minute
 
 	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
 	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
@@ -213,6 +217,11 @@ type dynamic struct {
 	// above) lets tests substitute a failing or blocking rebuild without a
 	// test-only branch in the production path. Production always runs doUpgrade.
 	upgradeFn func() error
+
+	// covers the compression that follows the swap, when status is already upgraded
+	upgradeRunning atomic.Bool
+	// unix nanos before which a failed compression is not retried
+	compressRetryAfter atomic.Int64
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -315,12 +324,10 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 // recoverInterruptedUpgrade restores a consistent flat stage after an
 // interrupted flat→HNSW upgrade (the in-progress-upgrade marker present on load,
-// or an ordinary abort in doUpgrade). The in-progress HNSW shares the flat
-// stage's on-disk compressed bucket, so a quantized upgrade that died mid-copy
-// left it a mix of flat- and HNSW-format codes of different byte lengths, and
-// later flat searches fail with "vector lengths don't match". The raw vectors
-// bucket is untouched and complete, so every flat compressed code is re-derived
-// from it, overwriting any pollution.
+// or an ordinary abort in doUpgrade). The commit removes the flat stage's
+// compressed bucket just before the verdict, and older versions let the
+// in-progress HNSW write its own codes into it. The raw vectors bucket is
+// untouched, so every flat compressed code is re-derived from it.
 //
 // The marker is cleared ONLY after a fully successful, durable rebuild: any
 // failure returns without clearing it, so the next restart retries rather than
@@ -762,7 +769,11 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	dynamic.Lock()
 	defer dynamic.Unlock()
 	if dynamic.status.IsUpgraded() {
-		return dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
+		err := dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
+		if err == nil {
+			dynamic.uc = parsed
+		}
+		return err
 	}
 	dynamic.uc = parsed
 	return dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
@@ -947,7 +958,15 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 	}
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.(upgradableIndexer).ShouldUpgrade()
+	index := dynamic.index.(upgradableIndexer)
+	if compressesOnUpgrade(dynamic.uc.HnswUC) && !index.Upgraded() {
+		// hnsw never asks for BQ, and asks for RQ on every round
+		if index.UpgradeInProgress() || time.Now().UnixNano() < dynamic.compressRetryAfter.Load() {
+			return false, 0
+		}
+		return true, 1
+	}
+	return index.ShouldUpgrade()
 }
 
 func (dynamic *dynamic) Upgraded() bool {
@@ -959,7 +978,7 @@ func (dynamic *dynamic) Upgraded() bool {
 // UpgradeInProgress reports a flat→HNSW restructure in flight, or (post-upgrade)
 // an in-flight compression on the inner HNSW.
 func (dynamic *dynamic) UpgradeInProgress() bool {
-	if dynamic.status.IsUpgrading() {
+	if dynamic.status.IsUpgrading() || dynamic.upgradeRunning.Load() {
 		return true
 	}
 	if !dynamic.status.IsUpgraded() {
@@ -987,7 +1006,23 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	}
 
 	if dynamic.status.IsUpgraded() {
-		return dynamic.index.(upgradableIndexer).Upgrade(callback)
+		dynamic.RLock()
+		index, isHnsw := dynamic.index.(*hnsw.HNSW)
+		pending := isHnsw && compressesOnUpgrade(dynamic.uc.HnswUC) && !index.Compressed()
+		dynamic.RUnlock()
+		if !pending {
+			return dynamic.index.(upgradableIndexer).Upgrade(callback)
+		}
+		if !dynamic.upgradeRunning.CompareAndSwap(false, true) {
+			callback()
+			return nil
+		}
+		enterrors.GoWrapper(func() {
+			defer callback()
+			defer dynamic.upgradeRunning.Store(false)
+			dynamic.compressUpgraded(index)
+		}, dynamic.logger)
+		return nil
 	}
 
 	if !dynamic.status.TryUpgrading() {
@@ -997,8 +1032,10 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return nil
 	}
 
+	dynamic.upgradeRunning.Store(true)
 	enterrors.GoWrapper(func() {
 		defer callback()
+		defer dynamic.upgradeRunning.Store(false)
 		// re-arm on error AND panic (GoWrapper recovers): a later Upgrade call
 		// must be able to retry. doUpgrade flips status only on success.
 		defer func() {
@@ -1030,15 +1067,25 @@ func (dynamic *dynamic) doUpgrade() error {
 // (panic, error, or a concurrent delete); production passes nil. The wrapper is
 // only the copy destination — the real HNSW is what gets started and swapped in.
 func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorIndex) error {
+	index, err := dynamic.buildUpgraded(wrapCopyTarget)
+	if err != nil {
+		return err
+	}
+	if err := dynamic.installUpgraded(index); err != nil {
+		return err
+	}
+	dynamic.compressUpgraded(index)
+	return nil
+}
+
+func (dynamic *dynamic) buildUpgraded(wrapCopyTarget func(VectorIndex) VectorIndex) (*hnsw.HNSW, error) {
 	// Persist the in-progress-upgrade marker BEFORE building the HNSW or touching
-	// any bucket. From here on the new HNSW writes its (possibly different-length)
-	// quantized codes into the compressed bucket the flat stage shares, so an
-	// interruption before the commit below must be recoverable: the marker's
-	// presence on the next load (or on an ordinary abort here) drives the flat
+	// any bucket. The commit below removes the flat stage's compressed bucket
+	// before the verdict; if interrupted in between, the marker drives the flat
 	// stage to rebuild that bucket from the raw vectors.
 	// See https://github.com/weaviate/0-weaviate-issues/issues/451.
 	if err := dynamic.markUpgrading(); err != nil {
-		return errors.Wrap(err, "mark dynamic upgrade in progress")
+		return nil, errors.Wrap(err, "mark dynamic upgrade in progress")
 	}
 
 	// The read lock keeps the current index alive (not dropped/closed) while
@@ -1066,13 +1113,20 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 				MakeBucketOptions:            dynamic.MakeBucketOptions,
 				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
 			},
-			dynamic.uc.HnswUC,
+			uncompressedDuringCopy(dynamic.uc.HnswUC),
 			dynamic.tombstoneCallbacks,
 			dynamic.store,
 		)
 		if err != nil {
 			return nil, err
 		}
+		// also on panic: an in-process retry must not replay this attempt's commit log
+		built := false
+		defer func() {
+			if !built {
+				dynamic.cleanupAbortedUpgrade(index)
+			}
+		}()
 
 		// The copy destination may be wrapped (tests only) to interrupt AddBatch;
 		// the real index is still what PostStartup + the swap below use.
@@ -1081,7 +1135,6 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			copyTarget = wrapCopyTarget(index)
 		}
 		if err := dynamic.copyToVectorIndex(copyTarget); err != nil {
-			dynamic.cleanupAbortedUpgrade(index)
 			return nil, err
 		}
 
@@ -1089,15 +1142,15 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 		// is a no-op because cachePrefilled was already set during init (fresh
 		// index with no commit-log state) and the cache is populated by AddBatch.
 		index.PostStartup(dynamic.ctx)
+		built = true
 		return index, nil
 	}()
 	if err != nil {
 		// Ordinary (non-crash) upgrade failure: hnsw.New or the copy errored and
-		// the flat stage stays live. Any copied batch may have written
-		// HNSW-format codes into the shared compressed bucket, so recover it in
-		// place — rebuild from raw, durable flush, clear the marker — before the
-		// flat index resumes serving. Skip while shutting down (ctx cancelled):
-		// the store is tearing down and the next start recovers from the marker.
+		// the flat stage stays live. Recover it in place — rebuild its compressed
+		// bucket from raw, durable flush, clear the marker. Skip while shutting
+		// down (ctx cancelled): the store is tearing down and the next start
+		// recovers from the marker.
 		// Best-effort: on failure the marker survives, so a restart retries.
 		//
 		// Under the EXCLUSIVE lock: the rebuild mutates the shared compressed
@@ -1115,9 +1168,67 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 					Errorf("recover flat stage after aborted upgrade: %v", rerr)
 			}
 		}
-		return err
+		return nil, err
+	}
+	return index, nil
+}
+
+// The flat stage reads the shared compressed bucket until the swap, so BQ and
+// RQ, which would write to it on insert, are only switched on afterwards.
+func uncompressedDuringCopy(uc hnswent.UserConfig) hnswent.UserConfig {
+	uc.BQ.Enabled = false
+	uc.RQ.Enabled = false
+	return uc
+}
+
+// PQ, SQ and centered RQ train later, triggered by the indexing queue.
+func compressesOnUpgrade(uc hnswent.UserConfig) bool {
+	return uc.BQ.Enabled || (uc.RQ.Enabled && !uc.RQ.Centering)
+}
+
+func (dynamic *dynamic) compressUpgraded(index *hnsw.HNSW) {
+	if err := dynamic.startCompression(index); err != nil {
+		dynamic.compressRetryAfter.Store(time.Now().Add(compressRetryCooldown).UnixNano())
+		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
+			Errorf("compress upgraded index, retrying in %s: %v", compressRetryCooldown, err)
+		return
 	}
 
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if dynamic.uc.HnswUC.BQ.Enabled {
+		index.SetCompressedVectorCacheMaxObjects(dynamic.uc.HnswUC.VectorCacheMaxObjects)
+	}
+}
+
+func (dynamic *dynamic) startCompression(index *hnsw.HNSW) error {
+	// the read lock keeps a shutdown out until the compression is registered
+	dynamic.RLock()
+	if dynamic.ctx.Err() != nil || !compressesOnUpgrade(dynamic.uc.HnswUC) || index.Compressed() {
+		dynamic.RUnlock()
+		return nil
+	}
+	// created here because hnsw gives up on RQ for good if it cannot create the bucket
+	err := dynamic.store.CreateOrLoadBucket(dynamic.ctx, dynamic.getCompressedBucketName(),
+		dynamic.MakeBucketOptions(lsmkv.StrategyReplace)...)
+	if err != nil {
+		dynamic.RUnlock()
+		return errors.Wrap(err, "create compressed bucket")
+	}
+	done := make(chan struct{})
+	err = index.Upgrade(func() { close(done) })
+	dynamic.RUnlock()
+	<-done
+	if err != nil {
+		return err
+	}
+	if !index.Compressed() {
+		return errors.New("index is still uncompressed")
+	}
+	return nil
+}
+
+func (dynamic *dynamic) installUpgraded(index *hnsw.HNSW) error {
 	// Lock the index for writing but check if it was already
 	// closed in the meantime
 	dynamic.Lock()
@@ -1129,20 +1240,13 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
-	// commit the verdict; the in-progress marker is cleared right after. Order
-	// matters: verdict first, so a crash between the two leaves verdict {1} + a
-	// stale marker, which init reads as a committed upgrade (marker dropped as
-	// stale) rather than an interrupted one.
-	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-		return b.Put(dynamic.dbKey(), []byte{verdictUpgraded})
-	})
-	if err != nil {
-		// the new index is never installed, so tear it down like any other
-		// aborted upgrade. The in-progress marker stays put, so a restart rolls
-		// back to a consistent flat stage.
+	if err := dynamic.commitUpgrade(index); err != nil {
 		dynamic.cleanupAbortedUpgrade(index)
-		return errors.Wrap(err, "update dynamic")
+		if rerr := dynamic.restoreFlatStage(); rerr != nil {
+			dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+				Errorf("recover flat stage after failed upgrade commit: %v", rerr)
+		}
+		return err
 	}
 	if err := dynamic.clearUpgradingMarker(); err != nil {
 		// non-fatal: verdict {1} already committed the upgrade; a lingering
@@ -1166,32 +1270,67 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			errs = append(errs, err)
 		}
 	}
-	// Due to the potential for a different quantizer using a different endianness
-	// we remove the bucket here if needed
-	removeCompressedBucket := false
-	if dynamic.uc.FlatUC.BQ.Enabled || dynamic.uc.FlatUC.RQ.Enabled {
-		if !dynamic.uc.HnswUC.BQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
-			removeCompressedBucket = true
-		}
-	}
-
-	if removeCompressedBucket {
-		if bDir, err := dynamic.bucketDir(dynamic.getCompressedBucketName()); err != nil {
-			errs = append(errs, err)
-		} else {
-			if err := dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName()); err != nil {
-				errs = append(errs, err)
-			}
-			if err := os.RemoveAll(bDir); err != nil {
-				errs = append(errs, err)
-			}
-		}
+	if err := index.UpdateUserConfig(dynamic.uc.HnswUC, func() {}); err != nil {
+		errs = append(errs, errors.Wrap(err, "apply hnsw config to upgraded index"))
 	}
 	if len(errs) > 0 {
 		dynamic.logger.Warn(simpleErrors.Join(errs...))
 	}
 
 	return nil
+}
+
+// Order matters for crash safety: flush, remove the flat compressed bucket, then verdict.
+func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
+	// flushes and fsyncs the commit log
+	if err := index.PrepareForBackup(dynamic.ctx); err != nil {
+		return errors.Wrap(err, "sync commit log of upgraded index")
+	}
+	commitLogDir := hnswCommitLogDirectory(dynamic.rootPath, dynamic.id)
+	if err := diskio.Fsync(commitLogDir); err != nil && !os.IsNotExist(err) {
+		return errors.Wrap(err, "sync commit log directory of upgraded index")
+	}
+	if err := dynamic.removeCompressedBucket(); err != nil {
+		return errors.Wrap(err, "remove flat compressed bucket")
+	}
+	err := dynamic.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		return b.Put(dynamic.dbKey(), []byte{verdictUpgraded})
+	})
+	return errors.Wrap(err, "update dynamic")
+}
+
+func (dynamic *dynamic) removeCompressedBucket() error {
+	name := dynamic.getCompressedBucketName()
+	bDir, err := dynamic.bucketDir(name)
+	switch {
+	case simpleErrors.Is(err, lsmkv.ErrBucketNotFound):
+		// an unloaded bucket can still be on disk, left by an earlier upgrade attempt
+		bDir = filepath.Join(dynamic.store.GetDir(), name)
+	case err != nil:
+		return err
+	default:
+		if err := dynamic.store.ShutdownBucket(dynamic.ctx, name); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(bDir); err != nil {
+		return err
+	}
+	return diskio.Fsync(filepath.Dir(bDir))
+}
+
+type compressedBucketCreator interface {
+	CreateOrLoadCompressedBucket(ctx context.Context) error
+}
+
+func (dynamic *dynamic) restoreFlatStage() error {
+	if creator, ok := dynamic.index.(compressedBucketCreator); ok {
+		if err := creator.CreateOrLoadCompressedBucket(dynamic.ctx); err != nil {
+			return err
+		}
+	}
+	return dynamic.recoverInterruptedUpgrade()
 }
 
 // cleanupAbortedUpgrade tears down a partially-built HNSW index after an

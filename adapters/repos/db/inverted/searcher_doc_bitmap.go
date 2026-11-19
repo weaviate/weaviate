@@ -34,24 +34,16 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 ) (bm docBitmap, err error) {
 	before := time.Now()
 	strategy := "geo"
-	defer func() {
-		if !helpers.HasSlowQueryDetails(ctx) {
-			return
+	defer helpers.AnnotateSlowQueryLogSlowest(ctx, docBitmapSlowLogKey, before, func() map[string]any {
+		return map[string]any{
+			"prop":     pv.prop,
+			"operator": pv.operator,
+			"value":    pv.value[:min(len(pv.value), filters.LogMaxStringChars)],
+			"count":    bm.count(),
+			"failed":   err != nil,
+			"strategy": strategy,
 		}
-		took := time.Since(before)
-		vals := map[string]any{
-			"prop":        pv.prop,
-			"operator":    pv.operator,
-			"took":        took,
-			"took_string": took.String(),
-			"value":       pv.value,
-			"count":       bm.count(),
-			"failed":      err != nil,
-			"strategy":    strategy,
-		}
-
-		helpers.AnnotateSlowQueryLogAppendReducible(ctx, docBitmapSlowLogKey, vals, helpers.ReduceToSlowest)
-	}()
+	})
 
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter

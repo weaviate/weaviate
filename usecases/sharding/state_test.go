@@ -390,6 +390,43 @@ func TestBackwardCompatibilityBefore1_17(t *testing.T) {
 		newVersion.Physical["hello-replication"].BelongsToNodes)
 }
 
+func TestValidateShardNames(t *testing.T) {
+	generated, err := InitState("C", config.Config{DesiredCount: 3}, "node1", []string{"node1"}, 1, false)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		physical map[string]Physical
+		wantErr  bool
+	}{
+		{name: "generated shard names", physical: generated.Physical},
+		{name: "tenant names", physical: map[string]Physical{
+			"tenant-1": {Name: "tenant-1"}, "Tenant_2": {Name: "Tenant_2"},
+		}},
+		{name: "key leaves the index dir", physical: map[string]Physical{
+			"../../../../bin": {Name: "bin"},
+		}, wantErr: true},
+		{name: "name leaves the index dir", physical: map[string]Physical{
+			"tenant1": {Name: "../tenant2"},
+		}, wantErr: true},
+		{name: "one bad shard among valid ones", physical: map[string]Physical{
+			"tenant1": {Name: "tenant1"}, "tenant2": {Name: "tenant2"}, "tenant3": {Name: "../tenant3"},
+		}, wantErr: true},
+		{name: "parent dir", physical: map[string]Physical{"..": {Name: ".."}}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := State{Physical: tc.physical}
+			err := s.ValidateShardNames()
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestApplyNodeMapping(t *testing.T) {
 	type test struct {
 		name        string

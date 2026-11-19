@@ -57,6 +57,7 @@ function main() {
   run_acceptance_reindex_multinode_restart_b=false
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
+  run_acceptance_reindex_multinode_postops=false
   run_acceptance_reindex_singlenode_a=false
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
@@ -127,6 +128,7 @@ function main() {
           --acceptance-reindex-multinode-restart-b|-armrb) run_all_tests=false; run_acceptance_reindex_multinode_restart_b=true;;
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
+          --acceptance-reindex-multinode-postops|-armpo) run_all_tests=false; run_acceptance_reindex_multinode_postops=true;;
           --acceptance-reindex-singlenode-a|-arsa) run_all_tests=false; run_acceptance_reindex_singlenode_a=true;;
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
@@ -189,6 +191,7 @@ function main() {
               "--acceptance-reindex-multinode-restart-b | -armrb"\
               "--acceptance-reindex-multinode-scale | -arms"\
               "--acceptance-reindex-multinode-changetok | -armct"\
+              "--acceptance-reindex-multinode-postops | -armpo"\
               "--acceptance-reindex-singlenode-a | -arsa"\
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
@@ -402,7 +405,7 @@ function main() {
   fi
 
   if $run_acceptance_reindex_multinode; then
-    echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
+    echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok/-postops sub-shards)"
     run_acceptance_reindex_multinode
   fi
 
@@ -434,6 +437,11 @@ function main() {
   if $run_acceptance_reindex_multinode_changetok; then
     echo "running reindex multinode change-tokenization acceptance tests"
     run_acceptance_reindex_multinode_changetok
+  fi
+
+  if $run_acceptance_reindex_multinode_postops; then
+    echo "running reindex multinode post-migration backup/replication acceptance tests"
+    run_acceptance_reindex_multinode_postops
   fi
 
   if $run_acceptance_reindex_singlenode_a; then
@@ -898,7 +906,7 @@ function run_acceptance_recovery() {
 
 function run_acceptance_reindex_multinode() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
+  echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok/-postops sub-shards)"
   # The reindex_multinode package is partitioned across 6 CI shards to
   # keep each shard's wall-clock under ~10 min for fast PR feedback.
   # This "catch-all" shard runs only tests NOT claimed by a
@@ -923,11 +931,12 @@ function run_acceptance_reindex_multinode() {
   #                 TestMultiNode_BackToBackChangeTokenization_* +
   #                 TestLiveQueriesDuringChangeTokenization +
   #                 TestPartialResultsDuringChangeTokenization
+  #   -postops    : TestMultiNode_PostMigrationOps
   #
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
   # double-running the same tests.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization|TestMultiNode_PostMigrationOps' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
@@ -1030,6 +1039,16 @@ function run_acceptance_reindex_multinode_changetok() {
   # (~1m45s margin under the ~10m budget).
   AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode-changetok" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_postops() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-multinode-postops"
+  # Backup/restore and replica MOVE/COPY right after a reindex finishes, with
+  # and without a restart in between. Its own shard: nine cases with two to
+  # three node restarts each would push any existing shard over budget.
+  AOF_GROUP_RUN='TestMultiNode_PostMigrationOps' \
+    run_aof_group "reindex-multinode-postops" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_aj() {

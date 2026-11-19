@@ -36,6 +36,7 @@ type WeaviateRuntimeConfig struct {
 	UsageLimitsErrorMessage                   *runtime.DynamicValue[string]        `json:"usage_limits_error_message" yaml:"usage_limits_error_message"`
 	AutoschemaEnabled                         *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
 	AsyncReplicationDisabled                  *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	AsyncReplicationInMaintenanceEnabled      *runtime.DynamicValue[bool]          `json:"async_replication_in_maintenance_enabled" yaml:"async_replication_in_maintenance_enabled"`
 	AsyncReplicationSchedulerWorkers          *runtime.DynamicValue[int]           `json:"async_replication_scheduler_workers" yaml:"async_replication_scheduler_workers"`
 	AsyncReplicationHashtreeInitConcurrency   *runtime.DynamicValue[int]           `json:"async_replication_hashtree_init_concurrency" yaml:"async_replication_hashtree_init_concurrency"`
 	AsyncReplicationHashtreeHeight            *runtime.DynamicValue[int]           `json:"async_replication_hashtree_height" yaml:"async_replication_hashtree_height"`
@@ -425,6 +426,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.MaximumAllowedShardsPerCollection = cfg.UsageLimits.MaxShardsPerCollection
 	registered.UsageLimitsErrorMessage = cfg.UsageLimits.ErrorMessage
 	registered.AsyncReplicationDisabled = cfg.Replication.AsyncReplicationDisabled
+	registered.AsyncReplicationInMaintenanceEnabled = cfg.Replication.AsyncReplicationInMaintenanceEnabled
 	registered.AsyncReplicationSchedulerWorkers = cfg.Replication.AsyncReplicationSchedulerWorkers
 	registered.AsyncReplicationHashtreeInitConcurrency = cfg.Replication.AsyncReplicationHashtreeInitConcurrency
 	registered.AsyncReplicationHashtreeHeight = cfg.Replication.AsyncReplicationHashtreeHeight

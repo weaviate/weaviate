@@ -58,6 +58,12 @@ func NewNamespaceForbidden(principal *models.Principal) Forbidden {
 	}
 }
 
+// WithVerb returns f reporting verb as the denied action.
+func (f Forbidden) WithVerb(verb string) Forbidden {
+	f.verb = verb
+	return f
+}
+
 func (f Forbidden) Error() string {
 	if f.isNamespace {
 		username := "unknown"

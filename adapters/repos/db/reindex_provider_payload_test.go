@@ -13,6 +13,8 @@ package db
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -87,6 +89,41 @@ func TestExtractReindexTaskReplicas(t *testing.T) {
 			for shard, nodes := range tc.want {
 				require.ElementsMatch(t, nodes, got[shard])
 			}
+		})
+	}
+}
+
+// Adding a payload field must force a decision on whether GET /v1/tasks may show
+// it to a caller without tenant read.
+func TestTaskPayloadFieldsAreClassifiedForTasksList(t *testing.T) {
+	tests := []struct {
+		payload any
+		visible []string
+		hidden  []string
+	}{
+		{
+			payload: ReindexTaskPayload{},
+			visible: ReindexTaskVisiblePayloadFields,
+			hidden:  []string{"properties", "tenants", "unitToNode", "unitToShard"},
+		},
+		{
+			payload: DropVectorIndexTaskPayload{},
+			visible: DropVectorIndexTaskVisiblePayloadFields,
+			hidden:  []string{"targets", "unitToNode", "unitToShard", "cleanedShards", "deferredShards"},
+		},
+	}
+	for _, tt := range tests {
+		payloadType := reflect.TypeOf(tt.payload)
+		t.Run(payloadType.Name(), func(t *testing.T) {
+			fields := make([]string, 0, payloadType.NumField())
+			for i := 0; i < payloadType.NumField(); i++ {
+				name, _, _ := strings.Cut(payloadType.Field(i).Tag.Get("json"), ",")
+				require.NotEmpty(t, name, "field %s needs a json name", payloadType.Field(i).Name)
+				fields = append(fields, name)
+			}
+
+			require.ElementsMatch(t, fields, append(append([]string{}, tt.visible...), tt.hidden...),
+				"each payload field must be in exactly one of the visible or hidden lists")
 		})
 	}
 }

@@ -35,6 +35,9 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		prop       string
 		collection string // empty means "C"
 		badBytes   bool
+		// partial: the run decided tenant t1's swap out of t1 and t2.
+		partial bool
+		owed    bool
 	}
 	failed := func(mt db.ReindexMigrationType, prop string) rec {
 		return rec{status: distributedtask.TaskStatusFailed, mt: mt, prop: prop}
@@ -43,6 +46,11 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 	filterable := failed(db.ReindexTypeEnableFilterable, "foo")
 	onD := filterable
 	onD.collection = "D"
+	partialRun := rec{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}
+	partialChangeTok := partialRun
+	partialChangeTok.mt = db.ReindexTypeChangeTokenization
+	partialOwed := partialRun
+	partialOwed.owed = true
 	changeTokThenFixes := []rec{
 		failed(db.ReindexTypeChangeTokenization, "foo"),
 		withStatus(filterable, distributedtask.TaskStatusFinished),
@@ -78,6 +86,10 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a failed repair on an index dropped since is not kept", records: []rec{failed(db.ReindexTypeRepairFilterable, "foo")}, filterableOff: true, filterable: "ready", searchable: "ready"},
 		{name: "a failed enable on an index still off is kept", records: []rec{filterable}, filterableOff: true, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
 		{name: "a cancelled migration is not kept", records: []rec{withStatus(filterable, distributedtask.TaskStatusCancelled)}, filterable: "ready", searchable: "ready"},
+		{name: "a newer cancelled run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusCancelled)}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
+		{name: "finished runs that flip nothing keep a partial run", records: []rec{partialChangeTok, withStatus(failed(db.ReindexTypeRebuildSearchable, "foo"), distributedtask.TaskStatusFinished), withStatus(failed(db.ReindexTypeRepairFilterable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1, 2}, filterable: "ready", searchable: "ready"},
+		{name: "a finished flip releases a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
+		{name: "a swap a replica still owes keeps a partial run past a finished flip", records: []rec{partialOwed, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1}, filterable: "ready", searchable: "ready"},
 		{name: "an unreadable record is not kept", records: []rec{{status: distributedtask.TaskStatusFailed, badBytes: true}}, filterable: "ready", searchable: "ready"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,6 +107,16 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 				task.StartedAt = now.Add(time.Duration(i) * time.Minute)
 				if r.badBytes {
 					task.Payload = []byte("{")
+				}
+				if r.partial {
+					task.Units = map[string]*distributedtask.Unit{
+						"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"},
+					}
+					task.IndexGroups()
+					task.SwapDecidedGroups = map[string]time.Time{"t1": now}
+				}
+				if r.owed {
+					task.SwapsOwed = map[string][]string{"t1": {"n2"}}
 				}
 				all = append(all, task)
 			}
@@ -136,7 +158,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 			}
 			for indexType, want := range map[string]string{"filterable": tt.filterable, "searchable": tt.searchable} {
 				idx := &models.IndexStatus{Type: indexType, Status: "ready"}
-				mergeReindexStatus(idx, "C", "foo", indexType, parseReindexTasks(kept), nil)
+				mergeReindexStatus(idx, "C", "foo", indexType, db.ReindexRuns(kept), nil)
 				require.Equal(t, want, idx.Status, indexType)
 			}
 			require.Equal(t, tt.wantKept, keptIdx)

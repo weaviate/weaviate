@@ -84,6 +84,9 @@ func (i *interruptingIndex) AddBatch(ctx context.Context, ids []uint64, vectors 
 // the flat compressed bucket from the intact raw vectors bucket, so searches
 // succeed with the flat stage's own codes again. The restart here goes through a
 // full store shutdown + reopen, so recovery runs against the on-disk buckets.
+//
+// The in-progress HNSW now keeps out of the bucket, so this interruption no
+// longer pollutes it; the tests below fabricate a polluted one.
 func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.T) {
 	rq8 := func() flatent.UserConfig {
 		fuc := flatent.UserConfig{}
@@ -99,13 +102,7 @@ func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.
 		return fuc
 	}
 	hnswWith := func(mutate func(*hnswent.UserConfig)) hnswent.UserConfig {
-		hnswuc := hnswent.UserConfig{
-			MaxConnections:        30,
-			EFConstruction:        64,
-			EF:                    32,
-			VectorCacheMaxObjects: 1_000_000,
-		}
-		hnswuc.SetDefaults()
+		hnswuc := smallHNSWUserConfig()
 		mutate(&hnswuc)
 		return hnswuc
 	}
@@ -231,7 +228,7 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	}
 
 	// Interrupt the upgrade mid-copy, before the second copy batch, after the first
-	// has already written HNSW codes over the flat codes for ids 0..batchSize-1.
+	// went into the HNSW for ids 0..batchSize-1.
 	// runtime.Goexit ends the upgrade goroutine without a panic — none of
 	// doUpgrade's error/cleanup paths run, leaving exactly the on-disk residue a
 	// hard crash leaves. (A panic would depend on GoWrapper's recover, which is
@@ -331,10 +328,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
 
-	hnswuc := hnswent.UserConfig{
-		MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000,
-	}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	uc := ent.UserConfig{Threshold: uint64(vectorsSize), Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
@@ -536,8 +530,7 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 	fuc.SetDefaults()
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
-	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	config := Config{
@@ -661,8 +654,7 @@ func TestUpgrade_FailedRebuildKeepsMarker(t *testing.T) {
 	fuc.SetDefaults()
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
-	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	config := Config{
@@ -731,8 +723,7 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	fuc.SetDefaults()
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
-	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	config := Config{
@@ -761,10 +752,10 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	}
 	require.True(t, idx.Compressed())
 
-	// delete the first id of batch 1 during that batch (it was already snapshotted
-	// into the batch), so the batch's AddBatch re-writes its compressed code as an
-	// orphan; then abort before batch 2. Delete via the underlying flat index to
-	// avoid re-entering the dynamic read lock held by the copy.
+	// delete the first id of batch 1 during that batch and write an HNSW-format
+	// code for it, as older versions' AddBatch did; then abort before batch 2.
+	// Delete via the underlying flat index to avoid re-entering the dynamic read
+	// lock held by the copy.
 	var victim uint64
 	var deleted bool
 	idx.upgradeFn = func() error {
@@ -773,6 +764,9 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 				if call == 1 {
 					victim = ids[0]
 					require.NoError(t, idx.index.Delete(victim))
+					key := make([]byte, 8)
+					binary.BigEndian.PutUint64(key, victim)
+					require.NoError(t, idx.store.Bucket(idx.getCompressedBucketName()).Put(key, make([]byte, 8)))
 					deleted = true
 				}
 				if call >= 2 {

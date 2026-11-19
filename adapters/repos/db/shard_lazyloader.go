@@ -606,33 +606,7 @@ func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors
 ) {
 	if l.isLoaded() {
 		l.shard.updatePropertyBuckets(ctx, eg, property, counts)
-	} else {
-		// The unloaded path removes bucket dirs by name and reads no records.
-		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
-}
-
-func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
-	eg *enterrors.ErrorGroupWrapper,
-	prop *models.Property,
-) {
-	eg.Go(func() error {
-		// Shares the loaded path's index types so Index.updateProperty's summary
-		// log names what this branch removed too. Not its body: this path
-		// removes the main bucket dir by name and nothing else, so a cold
-		// tenant's migration and sidecar dirs outlive the property delete.
-		// That is a gap, not a property of unloaded shards.
-		for _, indexType := range disabledIndexTypes(prop) {
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
-			if !ok {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
-			}
-			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
-			}
-		}
-		return nil
-	})
 }
 
 // DropVectorIndex routes to the loaded shard or to disk, deciding and acting
@@ -1134,7 +1108,7 @@ func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) boo
 	if err := store.Load(); err != nil || len(store.Unreadable()) > 0 {
 		return true
 	}
-	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
+	tasks := []distributedtask.TaskStatusEntry{task.StatusEntryFor(l.shardOpts.name)}
 	for _, rec := range store.Records() {
 		if _, found := findMigrationTask(rec.Subject(), tasks); found && !rec.FlipDecided() {
 			return true

@@ -43,6 +43,7 @@ func asyncCheckpointHandlerTestServer(t *testing.T, rep replicaTypes.Replicator)
 	indices := clusterapi.NewReplicatedIndices(
 		rep, auth,
 		func() bool { return false }, // maintenance mode off
+		func() bool { return false },
 		logger,
 		func() bool { return true }, // node ready
 	)

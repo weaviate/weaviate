@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -643,7 +644,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return nil
 			default:
 				// avoid footprint of empty shards
-				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+				if i.skipLoadingEmptyShard(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
@@ -792,6 +793,11 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 	return err == nil && count == 0
 }
 
+// skipLoadingEmptyShard keeps a never-written tenant shard unloaded, except when only async replication in maintenance can refill it.
+func (i *Index) skipLoadingEmptyShard(shardName string) bool {
+	return i.partitioningEnabled && !i.asyncReplicationRunsInMaintenance() && i.unloadedShardIsEmpty(shardName)
+}
+
 // warmupCandidate reports whether the startup sweep should load this shard, and
 // where it should not, the outcome naming why. An object count it cannot read
 // answers true, so no shard is left cold on a number nobody could take.
@@ -808,8 +814,7 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 		return false, monitoring.WarmupSkippedAlreadyLoaded
 	}
 
-	// avoid footprint of empty shards
-	if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+	if i.skipLoadingEmptyShard(shardName) {
 		return false, monitoring.WarmupSkippedEmpty
 	}
 
@@ -883,8 +888,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 		return monitoring.WarmupSkippedAlreadyLoaded, nil
 	}
 
-	// avoid footprint of empty shards
-	if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+	if i.skipLoadingEmptyShard(shardName) {
 		return monitoring.WarmupSkippedEmpty, nil
 	}
 
@@ -939,6 +943,17 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 
 func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
+}
+
+// asyncReplicationBlockedByMaintenance reports whether maintenance mode pauses async replication on this node.
+func (i *Index) asyncReplicationBlockedByMaintenance() bool {
+	return i.maintenanceModeEnabled() && !i.asyncReplicationRunsInMaintenance()
+}
+
+// asyncReplicationRunsInMaintenance reports whether this node is in maintenance mode with async replication still running.
+func (i *Index) asyncReplicationRunsInMaintenance() bool {
+	return i.maintenanceModeEnabled() &&
+		i.globalreplicationConfig != nil && i.globalreplicationConfig.AsyncReplicationInMaintenanceEnabled.Get()
 }
 
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
@@ -2733,7 +2748,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	// Therefore, we should set the maximum amount of concurrency to at least 3
 	// so that single-tenant rf=3 queries are not serialized. For any higher value of
 	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
-	eg.SetLimit(_NUMCPU*2 + 1)
+	workers := _NUMCPU*2 + 1
+	// A ref filter's search runs inside an admitted query and inherits its grant:
+	// split the grant between the shards searched at once.
+	if budget := concurrency.BudgetFromCtx(ctx, 0); budget > 0 {
+		workers = concurrency.NumWorkers(ctx, len(readPlan.Shards()), workers)
+		ctx = concurrency.CtxWithBudget(ctx, max(1, budget/workers))
+	}
+	eg.SetLimit(workers)
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
@@ -3729,34 +3751,91 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		return i.aggregateCount(ctx, readPlan)
 	}
 
-	shards := readPlan.Shards()
-	results := make([]*aggregation.Result, len(shards))
-	for j, shardName := range shards {
-		var res *aggregation.Result
-
-		err := i.withShardOrRemote(ctx, params.Tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				var err error
-				res, err = shard.Aggregate(ctx, params, modules)
-				return err
-			},
-			func() error {
-				var err error
-				res, err = i.remote.Aggregate(ctx, shardName, params)
-				if err != nil || res == nil {
-					return err
-				}
-				// restore wire state here so a malformed payload error still names the shard
-				return aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-
-		results[j] = res
+	// Every shard scans all of its data, so the shards run side by side, each on
+	// a different node where the replicas allow: the query then takes as long as
+	// its slowest shard, not all of them in turn on one node.
+	replicas := readPlan.SpreadReplicas()
+	replicasOf := make(map[string][]routerTypes.Replica, len(replicas))
+	for _, r := range readPlan.Replicas() {
+		replicasOf[r.ShardName] = append(replicasOf[r.ShardName], r)
+	}
+	results := make([]*aggregation.Result, len(replicas))
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	// at least 3, so that a single-tenant rf=3 query is not serialized on 1 CPU
+	eg.SetLimit(_NUMCPU*2 + 1)
+	for j, replica := range replicas {
+		eg.Go(func() error {
+			res, err := i.aggregateShard(ctx, readPlan.LocalHostname, replica, replicasOf[replica.ShardName], params, modules)
+			if err != nil {
+				return errors.Wrapf(err, "shard %s", replica.ShardName)
+			}
+			results[j] = res
+			return nil
+		}, replica.ShardName)
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	return aggregator.NewShardCombiner().Do(results)
+}
+
+// aggregateShard aggregates the shard on the picked replica and, if that fails,
+// on the shard's other read replicas in plan order, the local one first.
+func (i *Index) aggregateShard(ctx context.Context, localNode string, picked routerTypes.Replica,
+	replicas []routerTypes.Replica, params aggregation.Params, modules *modules.Provider,
+) (*aggregation.Result, error) {
+	others := slices.DeleteFunc(slices.Clone(replicas), func(r routerTypes.Replica) bool {
+		return r.NodeName == picked.NodeName
+	})
+	var err error
+	for _, replica := range append([]routerTypes.Replica{picked}, others...) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		var res *aggregation.Result
+		if res, err = i.aggregateOnReplica(ctx, localNode, replica, params, modules); err == nil {
+			return res, nil
+		}
+		err = fmt.Errorf("node %s: %w", replica.NodeName, err)
+	}
+	return nil, err
+}
+
+func (i *Index) aggregateOnReplica(ctx context.Context, localNode string, replica routerTypes.Replica,
+	params aggregation.Params, modules *modules.Provider,
+) (*aggregation.Result, error) {
+	if replica.NodeName == localNode {
+		shard, release, err := i.getShardForDirectLocalOperation(ctx, params.Tenant, replica.ShardName, localShardOperationRead, 0)
+		defer release()
+		if err != nil {
+			return nil, err
+		}
+		if shard == nil {
+			return nil, fmt.Errorf("shard %s is not loaded here", replica.ShardName)
+		}
+		return shard.Aggregate(ctx, params, modules)
+	}
+
+	if err := i.admitRemoteRead(); err != nil {
+		return nil, err
+	}
+	res, err := i.remote.Aggregate(ctx, replica.NodeName, replica.ShardName, params)
+	if err != nil || res == nil {
+		return res, err
+	}
+	// restore wire state here so a malformed payload error still names the shard
+	return res, aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
+}
+
+// admitRemoteRead refuses a read sent to a peer whenever a local shard read would
+// be refused: on a closed index or in a namespace that does not allow reads.
+func (i *Index) admitRemoteRead() error {
+	if err := i.enterRead(); err != nil {
+		return err
+	}
+	defer i.exitRead()
+	return i.requireNamespaceAllowsShardLoad(callerUserRequest)
 }
 
 // aggregateCount counts every shard in readPlan against that plan's replicas,

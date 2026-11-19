@@ -1536,7 +1536,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 
 func TestSchedulerRestoration(t *testing.T) {
 	var (
-		cls         = "MyClass-A"
+		cls         = "MyClassA"
 		nodeA       = "Node-A"
 		nodeB       = "Node-B"
 		any         = mock.Anything
@@ -1704,6 +1704,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		metaWithBase.BaseBackupID = baseID
 		baseMeta := backup.DistributedBackupDescriptor{
 			ID:              baseID,
+			ServerVersion:   meta.ServerVersion,
 			Status:          backup.Success,
 			CompressionType: backup.CompressionGZIP,
 		}
@@ -1931,6 +1932,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			{name: "uncompressed 1.0", version: "1.0", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "uncompressed 1", version: "1", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "flat file structure", version: meta.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+			{name: "unreadable server version", version: meta.Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1965,7 +1967,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			ID:            id,
 			StartedAt:     timePt,
 			Version:       version,
-			ServerVersion: "2",
+			ServerVersion: "2.0",
 			Status:        backup.Success,
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodeName: {Classes: []string{cls}},
@@ -1983,13 +1985,54 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success, ServerVersion: "1.23"})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "corrupted")
+	})
+
+	t.Run("RejectEscapingNamesBeforeCanCommit", func(t *testing.T) {
+		const escape = "../../../../bin"
+		classBytes, err := json.Marshal(&models.Class{Class: cls})
+		require.NoError(t, err)
+		tests := []struct {
+			name    string
+			class   string
+			shard   string
+			wantMsg string
+		}{
+			{name: "class name", class: escape, shard: "S1", wantMsg: "not a valid class name"},
+			{name: "shard name", class: cls, shard: escape, wantMsg: "not a valid tenant name"},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				crafted := meta
+				crafted.Nodes = map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{tc.class}}}
+				ssBytes, err := json.Marshal(&sharding.State{
+					Physical: map[string]sharding.Physical{tc.shard: {Name: tc.shard, BelongsToNodes: []string{nodeName}}},
+				})
+				require.NoError(t, err)
+				nodeMeta := backup.BackupDescriptor{ID: id, Status: backup.Success, Classes: []backup.ClassDescriptor{{
+					Name: tc.class, Schema: classBytes, ShardingState: ssBytes,
+				}}}
+
+				fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(crafted), nil)
+				fs.backend.On("GetObject", ctx, id+"/"+nodeName, BackupFile).Return(marshalMeta(nodeMeta), nil)
+				fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).Return(nil, ErrAny)
+				fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				_, err = fs.scheduler().Restore(ctx, nil, &BackupRequest{Backend: backendName, ID: id}, false)
+				require.ErrorContains(t, err, tc.wantMsg)
+				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+			})
+		}
 	})
 
 	t.Run("WrongBackupFile", func(t *testing.T) {
