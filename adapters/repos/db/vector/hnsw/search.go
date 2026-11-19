@@ -1625,11 +1625,17 @@ func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
 		offsetCap := searchParams.offsetCapacity(ids)
 		totalLimitCap := searchParams.totalLimitCapacity(ids)
 
-		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
-
-		if len(ids) == 0 {
+		// nothing past what the earlier pages returned: they are the answer
+		if offsetCap == totalLimitCap {
 			return false, nil
 		}
+
+		// The answer is this search from its first result, not the earlier pages
+		// followed by what this search has past them: a search that is asked for
+		// more can rank its first results in another order, and pages put one
+		// after the other would then return an id twice and leave another out.
+		ids, dist = ids[:totalLimitCap], dist[:totalLimitCap]
+		resultIDs, resultDist = resultIDs[:0], resultDist[:0]
 
 		lastFound := dist[len(dist)-1]
 		shouldContinue = lastFound <= targetDistance
