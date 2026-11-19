@@ -101,10 +101,13 @@ type UserLister interface {
 // BuiltInAssignments returns an RBAC snapshot of the admin and viewer assignments the given db user ids hold, or nil when they hold none.
 //
 // OIDCBuiltInAssignments returns an RBAC snapshot of the oidc-specific admin and viewer assignments for the given namespaces, or nil when there are none.
+//
+// Snapshot returns an RBAC snapshot of this node's store; with no roles it covers the whole store.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
 	BuiltInAssignments(userIDs ...string) ([]byte, error)
 	OIDCBuiltInAssignments(namespaces ...string) ([]byte, error)
+	Snapshot(roles ...string) ([]byte, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -382,7 +385,12 @@ func (c *coordinator) releaseSlotOnPanic(op Op, id string, handedOff *bool, err 
 // rolesAndUsersBlobs are the snapshots applied cluster-wide. A field is empty
 // when the backup lacks that snapshot, the subsystem is off, or the request
 // opted out.
-type rolesAndUsersBlobs struct{ roles, users []byte }
+type rolesAndUsersBlobs struct {
+	roles, users []byte
+	// refreshRoles, when set, takes roles and returns the rows to dispatch in
+	// its place. The result is a subset of the input.
+	refreshRoles func(roles []byte) ([]byte, error)
+}
 
 // Restore coordinates a distributed restoration among participants
 func (c *coordinator) Restore(
@@ -609,15 +617,25 @@ func (c *coordinator) restoreClasses(
 }
 
 // restoreRolesAndUsers applies both snapshots in a single RAFT entry. The strip
-// flag matches the one the class restore uses. Errors append to the descriptor
-// error so a class failure and a roles-and-users failure both reach the
-// operator.
+// flag matches the one the class restore uses. When refreshRoles is set and the
+// roles blob is non-empty, refreshRoles runs just before dispatch. A refreshRoles
+// error skips the RAFT entry, so neither snapshot is applied. Errors append to the descriptor error so a class failure and a
+// roles-and-users failure both reach the operator.
 func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUsersBlobs) {
 	if c.rolesAndUsers == nil || (len(blobs.roles) == 0 && len(blobs.users) == 0) {
 		return
 	}
 	strip := !c.schema.NamespacesEnabled()
-	if err := c.rolesAndUsers.RestoreRolesAndUsers(ctx, blobs.roles, blobs.users, strip); err != nil {
+	var err error
+	if blobs.refreshRoles != nil && len(blobs.roles) > 0 {
+		if blobs.roles, err = blobs.refreshRoles(blobs.roles); err != nil {
+			err = fmt.Errorf("refresh roles: %w", err)
+		}
+	}
+	if err == nil {
+		err = c.rolesAndUsers.RestoreRolesAndUsers(ctx, blobs.roles, blobs.users, strip)
+	}
+	if err != nil {
 		msg := fmt.Sprintf("restore roles and users: %v", err)
 		if c.descriptor.Error != "" {
 			msg = c.descriptor.Error + "; " + msg

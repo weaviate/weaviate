@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -20,9 +21,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // composeUp sets up proper RBAC test environment
@@ -63,13 +66,24 @@ func composeUp(t *testing.T, admins map[string]string, users map[string]string, 
 	}
 }
 
+func queryGraphQL(t *testing.T, key, query string) *models.GraphQLResponse {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{Query: query})
+	resp, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(key))
+	require.NoError(t, err)
+	return resp.Payload
+}
+
 func Test_RBAC_AliasPermissions(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 	restrictedKey := "restricted-key"
 	restrictedUser := "restricted-user"
+	collectionReaderKey := "collection-reader-key"
+	collectionReaderUser := "collection-reader-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{restrictedUser: restrictedKey})
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey},
+		map[string]string{collectionReaderUser: collectionReaderKey},
+		map[string]string{restrictedUser: restrictedKey})
 	defer down()
 
 	weaviateURL := compose.GetWeaviate().URI()
@@ -174,5 +188,28 @@ func Test_RBAC_AliasPermissions(t *testing.T) {
 
 			assert.NotEqual(t, http.StatusOK, resp.StatusCode, "User without permissions should be denied alias access")
 		})
+	})
+
+	t.Run("read_data on the collection allows GraphQL where through the alias", func(t *testing.T) {
+		require.NoError(t, helper.CreateObjectAuth(t, &models.Object{
+			Class:      className,
+			Properties: map[string]interface{}{"title": "Dune"},
+		}, adminKey))
+
+		// /graphql itself requires read_collections on every collection
+		helper.CreateRoleAndAssign(t, adminKey, collectionReaderUser, collectionReaderUser+"-role",
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(className).Permission())
+
+		where := `(where:{path:["title"] operator:Equal valueText:"Dune"})`
+		resp := queryGraphQL(t, collectionReaderKey, fmt.Sprintf(`{ Get { %s%s { title } } }`, aliasName, where))
+		require.Empty(t, resp.Errors)
+		assert.Len(t, resp.Data["Get"].(map[string]interface{})[aliasName], 1)
+
+		resp = queryGraphQL(t, collectionReaderKey, fmt.Sprintf(`{ Aggregate { %s%s { meta { count } } } }`, aliasName, where))
+		require.Empty(t, resp.Errors)
+		groups := resp.Data["Aggregate"].(map[string]interface{})[aliasName].([]interface{})
+		require.Len(t, groups, 1)
+		assert.Equal(t, json.Number("1"), groups[0].(map[string]interface{})["meta"].(map[string]interface{})["count"])
 	})
 }

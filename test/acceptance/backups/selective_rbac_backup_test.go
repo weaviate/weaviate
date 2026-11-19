@@ -135,9 +135,10 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		// A selected role keeps the assignment to a selected user.
 		assert.Contains(t, roleNamesForUser(t, userName(1)), roleName(1))
 
-		// The assignment from a selected role to an unselected user is also in the
-		// blob, so the grant returns even though the user did not.
-		assert.Contains(t, helper.GetUserForRoles(t, roleName(2), adminKey), userName(4))
+		// User 4 held role 2 at backup time but was not selected. The backup
+		// carries assignments only for the users it carries, so this grant does
+		// not return.
+		assert.NotContains(t, helper.GetUserForRoles(t, roleName(2), adminKey), userName(4))
 	})
 
 	t.Run("WholeClusterBackupCarriesEverything", func(t *testing.T) {
