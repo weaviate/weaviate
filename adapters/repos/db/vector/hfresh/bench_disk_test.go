@@ -91,6 +91,8 @@ var (
 		"searchProbe is swept with, to find for every recall the configuration that reads the least")
 	diskReads = flag.String("bench.hfresh.reads", "", "what TestHFreshDiskCount left, for TestHFreshDiskTimed: the reads "+
 		"of every configuration and the one that reads the least for every recall")
+	diskReaders = flag.Int("bench.hfresh.readers", 1, "with TestHFreshDiskTimed: the postings of a search that are read "+
+		"at once. 1 is the index as it is, which reads them one after another")
 	diskPoints = flag.String("bench.hfresh.points", "", "with TestHFreshDiskTimed: the configurations to time, "+
 		"comma-separated: default, and 0.95 or 0.99 for the one that reads the least for that recall (empty = all)")
 )
@@ -258,6 +260,9 @@ func openDiskBench(t *testing.T, dir string, dims int, train [][]float32, backgr
 	// misses from the store.
 	index.Centroids.hnsw.PostStartup(ctx)
 	index.warmVersionMap()
+	// The index reads the postings of a search one after another. With
+	// -bench.hfresh.readers the benchmark has it read several at once.
+	index.PostingStore.readConcurrency, index.PostingStore.readLogger = *diskReaders, logger
 	b.index = index
 	return b
 }
@@ -876,13 +881,16 @@ type diskTimedPoint struct {
 }
 
 type diskTimedResult struct {
-	Dataset        string           `json:"dataset"`
-	Queries        int              `json:"queries"`
-	K              int              `json:"k"`
-	Budget         int              `json:"budget"`
-	Procs          int              `json:"gomaxprocs"`
-	Access         string           `json:"access"`
-	Drop           string           `json:"drop"`
+	Dataset string `json:"dataset"`
+	Queries int    `json:"queries"`
+	K       int    `json:"k"`
+	Budget  int    `json:"budget"`
+	Procs   int    `json:"gomaxprocs"`
+	Access  string `json:"access"`
+	Drop    string `json:"drop"`
+	// Readers is the postings of a search that are read at once: 1 in the
+	// index as it is.
+	Readers        int              `json:"readers"`
 	HeapBytes      uint64           `json:"heapBytes"`
 	FootprintBytes int64            `json:"footprintBytes"`
 	Files          map[string]int64 `json:"files"`
@@ -956,7 +964,8 @@ func TestHFreshDiskTimed(t *testing.T) {
 	require.NoError(t, err)
 	result := &diskTimedResult{
 		Dataset: manifest.Dataset, Queries: len(queries), K: k, Budget: *diskBudget, Procs: runtime.GOMAXPROCS(0),
-		Access: "mmap", Drop: *diskDrop, HeapBytes: mem.HeapInuse, FootprintBytes: footprint, Files: files, Segments: segments,
+		Access: "mmap", Drop: *diskDrop, Readers: *diskReaders, HeapBytes: mem.HeapInuse, FootprintBytes: footprint,
+		Files: files, Segments: segments,
 	}
 	write := func() {
 		out, err := json.MarshalIndent(result, "", "  ")

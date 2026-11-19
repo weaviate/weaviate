@@ -64,7 +64,12 @@
 #            repeat of the curves the verdict marks, on the same night:
 #            ROUNDS=night CURVES="..." NIGHT=1 run_v40_disk.sh timed verdict
 #   CURVES   the curves of the timed stage. Default: every cell of $CELLS,
-#            then hfresh-default, hfresh-best95 and hfresh-best99.
+#            then hfresh-default, hfresh-best95 and hfresh-best99. A curve of
+#            HFresh with -par after its name reads the postings of a search
+#            $READERS at a time, where the index reads them one by one (the
+#            sixth amendment):
+#            ROUNDS="p1 p2" CURVES="hfresh-best95 hfresh-best95-par ..."
+#   READERS  the postings a -par curve reads at once. Default 8.
 #   EXTRA_PE, EXTRA_HF  more flags for the two binaries. A smoke:
 #            EXTRA_PE="-bench.limit 30000 -bench.queries 500"
 #            EXTRA_HF="-bench.hfresh.limit 30000 -bench.hfresh.queries 500" COLDQ=40
@@ -92,6 +97,8 @@ PE="$WORK/postingedge-v40.test"
 HF="$WORK/hfresh-v40.test"
 LABEL="dbpedia-1m-disk"
 HF_CURVES="hfresh-default hfresh-best95 hfresh-best99"
+HF_PAR_CURVES="hfresh-default-par hfresh-best95-par hfresh-best99-par"
+READERS="${READERS:-8}"
 CURVES="${CURVES:-$CELLS $HF_CURVES}"
 STRETCHES="$OUT/$LABEL-stretches.tsv"
 mkdir -p "$WORK" "$OUT" || exit 1
@@ -176,10 +183,12 @@ timed_cell() {
   passed "$WORK/$LABEL-$2-$1.log"
 }
 
-# timed_hfresh <curve> <round>: one configuration of HFresh
+# timed_hfresh <curve> <round>: one configuration of HFresh, with its
+# postings read one by one or, for a -par curve, $READERS at a time
 timed_hfresh() {
-  local which
-  case "$1" in
+  local which readers=1
+  case "$1" in *-par) readers="$READERS" ;; esac
+  case "${1%-par}" in
     hfresh-default) which=default ;;
     hfresh-best95)  which=0.95 ;;
     hfresh-best99)  which=0.99 ;;
@@ -187,7 +196,7 @@ timed_hfresh() {
   (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HF" -test.run 'TestHFreshDiskTimed$' -test.timeout 0 -test.v \
     -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$DISK/hf" \
     -bench.hfresh.manifest "$OUT/$LABEL-hfresh-manifest.json" -bench.hfresh.reads "$OUT/$LABEL-hfresh-reads.json" \
-    -bench.hfresh.points "$which" -bench.hfresh.drop "$DROP" -bench.hfresh.cold "$COLDQ" \
+    -bench.hfresh.points "$which" -bench.hfresh.readers "$readers" -bench.hfresh.drop "$DROP" -bench.hfresh.cold "$COLDQ" \
     -bench.hfresh.out "$OUT/$LABEL-$2-$1.json" > "$WORK/$LABEL-$2-$1.log" 2>&1)
   lines "$WORK/$LABEL-$2-$1.log" "bench_disk_test"
   passed "$WORK/$LABEL-$2-$1.log"
@@ -215,7 +224,7 @@ stretch() {
     idle1=$(hid_idle)
     logged="$(power_log_since "$start")"
     [ -z "$logged" ] || events=$(printf '%s\n' "$logged" | wc -l | tr -d ' ')
-    { echo "== $round, $curve: from $start, $secs s"; [ -z "$logged" ] || printf '%s\n' "$logged"; } >> "${STRETCHES%.tsv}.log"
+    { echo "== $round, $curve: from $start, $secs s"; [ -z "$logged" ] || printf '%s\n' "$logged"; } >> "${STRETCHES%.tsv}-events.txt"
     [ "$idle1" -ge "$secs" ] || echo "-- keyboard or trackpad used during $round, $curve: idle for $idle1 s at its end, and it took $secs s"
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$round" "$curve" "$start" "$(date '+%Y-%m-%d %H:%M:%S')" \
@@ -226,7 +235,7 @@ stretch() {
 stage_timed() {
   attach_image
   for curve in $CURVES; do
-    case " $CELLS $HF_CURVES " in *" $curve "*) ;; *) echo "== unknown curve $curve"; exit 1 ;; esac
+    case " $CELLS $HF_CURVES $HF_PAR_CURVES " in *" $curve "*) ;; *) echo "== unknown curve $curve"; exit 1 ;; esac
   done
   if [ "$OS" = Darwin ]; then
     # shellcheck source=/dev/null
@@ -270,6 +279,11 @@ stage_timed() {
 stage_verdict() {
   python3 -I -B "$HERE/disk_verdict.py" "$OUT" > "$OUT/disk-verdict.md" 2>&1 \
     || echo "== the verdict script failed, see $OUT/disk-verdict.md"
+  # the cell of the sixth amendment, when it has run
+  if ls "$OUT/$LABEL"-p[0-9]-*.json > /dev/null 2>&1; then
+    python3 -I -B "$HERE/parallel_verdict.py" "$OUT" > "$OUT/parallel-verdict.md" 2>&1 \
+      || echo "== the verdict script of the parallel reads failed, see $OUT/parallel-verdict.md"
+  fi
 }
 
 [ "$#" -gt 0 ] || set -- bin write hfresh count timed verdict
