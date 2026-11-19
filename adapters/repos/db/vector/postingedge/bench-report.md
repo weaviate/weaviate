@@ -307,7 +307,7 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
   - once formas de tanda (de 2 a 100 inserts, con y sin aristas consolidadas, cosine, cruzando splits, cerrando y abriendo): cobertura completa cada cinco tandas y al final, los inserts aplicados en orden, y cada lista que un insert toma de su plan comparada con la que tiene el índice;
   - una tanda que no se puede insertar se rechaza entera, sin buscar ni escribir nada.
 - **El detector de carreras sale limpio** en esos tests.
-- **Seis fallos provocados a mano, los seis cazados:** usar una lista que cambió, no marcar las listas que cambian, quedarse con un posting partido, guardar el buffer del rescore en vez de una copia, y aplicar los planes al revés; este último no lo cazaba ningún test y se añadió la comprobación del orden.
+- **Cinco fallos provocados a mano, los cinco cazados:** usar una lista que cambió, no marcar las listas que cambian, quedarse con un posting partido, guardar el buffer del rescore en vez de una copia, y aplicar los planes al revés; este último no lo cazaba ningún test y se añadió la comprobación del orden.
 - **El arnés** (`TestGrowTimedInserts`): `-bench.growsearchers`, `-bench.growbatch` y `-bench.growcoverage`, que comprueba la cobertura en cada checkpoint con el reloj parado, y las cargas en los dos puntos de operación.
 - **Una prueba a 30 000 vectores, que no es un dato** y corrió con la máquina ocupada: las cuatro celdas pasan la cobertura en cada checkpoint, con y sin aristas consolidadas. Con tandas de 32, 54 de 27 000 planes eligieron posting otra vez y 1 214 releyeron alguna lista.
 
