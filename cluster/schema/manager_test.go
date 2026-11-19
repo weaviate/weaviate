@@ -1550,23 +1550,33 @@ func TestPreApplyFilter_UpdateNamespaceShrink(t *testing.T) {
 	assert.ErrorContains(t, err, "alpha:Docs")
 }
 
+const notHomeNodes = "the node that received this request has not yet applied the namespace's current home nodes"
+
 // TestPreApplyFilter_ClassFactorAgainstHomeNodes pins the leader's refusal of a
-// class create, restore or factor raise in namespace alpha, whose home nodes
-// are n1 and n2. alpha:Foo is held at factor 1 unless a row says otherwise.
+// class create, restore or factor raise in namespace alpha above its home nodes
+// n1 and n2, and of a create placed outside them.
 func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
 	const aboveHomeNodes = "replication factor 3 exceeds the 2 home node(s) of the namespace"
 	tests := []struct {
 		name    string
 		typ     cmd.ApplyRequest_Type
-		class   string // alpha:Bar when empty
-		held    int64  // alpha:Foo's factor in the schema, 1 when 0
+		class   string   // alpha:Bar when empty
+		held    int64    // alpha:Foo's factor in the schema, 1 when 0
+		placed  []string // the nodes of the class's one shard; a multi-tenant class without shards when nil
 		factor  int64
 		wantErr string // the refusal's text; admitted when empty
 	}{
 		{name: "add: a factor equal to the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, factor: 2},
 		{name: "add: a factor above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, factor: 3, wantErr: aboveHomeNodes},
 		{name: "add: an unqualified class is not checked", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, class: "Bar", factor: 3},
+		{name: "add: a shard on the home nodes in another order is admitted", typ: cmd.ApplyRequest_TYPE_ADD_CLASS, placed: []string{"n2", "n1"}, factor: 2},
+		{
+			name: "add: a shard with a replica outside the home nodes is refused", typ: cmd.ApplyRequest_TYPE_ADD_CLASS,
+			placed: []string{"n1", "n3"}, factor: 2, wantErr: notHomeNodes,
+		},
 		{name: "restore: a factor above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_RESTORE_CLASS, factor: 3, wantErr: aboveHomeNodes},
+		// This row records behaviour, not intent. A restore keeps the backup's placement.
+		{name: "restore: a shard outside the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_RESTORE_CLASS, placed: []string{"n3"}, factor: 1},
 		{name: "update: a raise to the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS, class: "alpha:Foo", factor: 2},
 		{
 			name: "update: a raise above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
@@ -1589,7 +1599,12 @@ func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				ReplicationConfig:  &models.ReplicationConfig{Factor: tt.factor},
 			}
-			var sub any = cmd.AddClassRequest{Class: class, State: &sharding.State{PartitioningEnabled: true}}
+			state := &sharding.State{PartitioningEnabled: true}
+			if tt.placed != nil {
+				class.MultiTenancyConfig = nil
+				state = &sharding.State{Physical: map[string]sharding.Physical{"S1": {Name: "S1", BelongsToNodes: tt.placed}}}
+			}
+			var sub any = cmd.AddClassRequest{Class: class, State: state}
 			if tt.typ == cmd.ApplyRequest_TYPE_UPDATE_CLASS {
 				sub = cmd.UpdateClassRequest{Class: class, Origin: cmd.ClassUpdateOriginUser}
 			}
@@ -1684,7 +1699,7 @@ func TestPreApplyFilter_TenantNodesAreHomeNodes(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, err, ErrBadRequest)
-			assert.ErrorContains(t, err, "the node that received this request has not yet applied the namespace's current home nodes")
+			assert.ErrorContains(t, err, notHomeNodes)
 		})
 	}
 }

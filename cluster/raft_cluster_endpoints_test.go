@@ -191,11 +191,11 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(mock.Anything).Return(nil).Maybe()
 
 	require.NoError(t, m.cfg.NamespacesController.Create(
-		cmd.Namespace{Name: "tenant-a", HomeNodes: []string{"node-4"}}, 1))
+		cmd.Namespace{Name: "tenant-a", HomeNodes: []string{"node-1"}}, 1))
 	require.NoError(t, m.cfg.NamespacesController.Create(
 		cmd.Namespace{Name: "tenant-b", HomeNodes: []string{"node-1"}}, 2))
 	require.NoError(t, m.cfg.NamespacesController.Create(
-		cmd.Namespace{Name: "home-gone", HomeNodes: []string{"node-9"}}, 3))
+		cmd.Namespace{Name: "home-gone", HomeNodes: []string{"node-1"}}, 3))
 
 	r := NewRaft(mocks.NewMockNodeSelector("node-1", "node-2", "node-3", "node-4"), m.store, nil)
 	require.NoError(t, r.Open(ctx, m.indexer))
@@ -208,6 +208,8 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 		className   string
 		factor      int64
 		shards      map[string][]string
+		namespace   string   // the class's namespace, whose home nodes become homeNodes after the create
+		homeNodes   []string // the leader refuses a create outside the home nodes, so they change after it
 		removedNode string
 		want        map[string][]string
 	}{
@@ -221,6 +223,8 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 				"S1": {"node-1"}, "S2": {"node-1"}, "S3": {"node-1"},
 				"S4": {"node-1"}, "S5": {"node-1"}, "S6": {"node-1"},
 			},
+			namespace:   "tenant-a",
+			homeNodes:   []string{"node-4"},
 			removedNode: "node-1",
 			want: map[string][]string{
 				"S1": {"node-4"}, "S2": {"node-4"}, "S3": {"node-4"},
@@ -240,6 +244,8 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 			className:   "home-gone:Orphan",
 			factor:      1,
 			shards:      map[string][]string{"S1": {"node-1"}},
+			namespace:   "home-gone",
+			homeNodes:   []string{"node-9"},
 			removedNode: "node-1",
 			want:        map[string][]string{"S1": {"node-1"}},
 		},
@@ -281,6 +287,9 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 				_, err := r.DeleteClass(ctx, tt.className)
 				require.NoError(t, err)
 			}()
+			if tt.homeNodes != nil {
+				require.NoError(t, m.cfg.NamespacesController.Update(cmd.Namespace{Name: tt.namespace, HomeNodes: tt.homeNodes}))
+			}
 
 			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
 

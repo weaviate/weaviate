@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -41,6 +42,8 @@ var (
 	ErrBadRequest = errors.New("bad request")
 	errDB         = errors.New("updating db")
 	ErrSchema     = errors.New("updating schema")
+
+	errHomeNodesNotApplied = fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
 )
 
 type replicationFSM interface {
@@ -510,21 +513,25 @@ func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) 
 		}
 	}
 	if next < len(nodes) {
-		return fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
+		return errHomeNodesNotApplied
 	}
 	return nil
 }
 
-// checkClassAgainstHomeNodes refuses a namespaced class create, restore or
-// factor raise above the HomeNodes count. The receiving node checked a create
-// or raise against its own copy of the namespace, which can lag, and checks no
-// restore. Store.Execute holds homeNodesLocks until the apply returns.
+// checkClassAgainstHomeNodes refuses a namespaced class create, restore or factor
+// raise above the HomeNodes count, and a create placed outside HomeNodes. The
+// receiving node checks no restore and reads its own copy of the namespace,
+// which can lag. Store.Execute holds homeNodesLocks until the apply returns.
 func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) error {
 	ns, ok := s.classNamespace(req.Class)
 	if !ok {
 		return nil
 	}
-	var class *models.Class
+	var (
+		class *models.Class
+		// A restore keeps the shards where the backup had them.
+		created *sharding.State
+	)
 	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS {
 		sub := command.UpdateClassRequest{}
 		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
@@ -537,6 +544,9 @@ func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) er
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
 		class = sub.Class
+		if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
+			created = sub.State
+		}
 	}
 	factor := replicationFactor(class)
 	// Only a raise is checked, so a class already above the HomeNodes count can
@@ -546,6 +556,23 @@ func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) er
 	}
 	if err := ns.CheckReplicationFactor(factor, s.minimumFactor); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return checkShardsOnHomeNodes(ns, created)
+}
+
+// checkShardsOnHomeNodes refuses state where a shard has a replica on a node
+// not in ns.HomeNodes. It checks membership only, so a create placed by a node
+// that lags a reorder of HomeNodes is admitted.
+func checkShardsOnHomeNodes(ns command.Namespace, state *sharding.State) error {
+	if state == nil {
+		return nil
+	}
+	for _, shard := range state.Physical {
+		for _, node := range shard.BelongsToNodes {
+			if !slices.Contains(ns.HomeNodes, node) {
+				return errHomeNodesNotApplied
+			}
+		}
 	}
 	return nil
 }
