@@ -450,6 +450,9 @@ func TestFirstSplitCutShortRecoversOnRestart(t *testing.T) {
 				require.Positive(t, index.taskQueue.reassignQueue.Size(), "the leftover's vectors are reassigned")
 			}
 			index.waitForMaintenance(t)
+			// the reassigned vectors take posting 1 past the max posting size,
+			// but not past the limit
+			require.Equal(t, tt.wantBuilt, index.Centroids.Built())
 			requireSelfSearchExcept(t, index, all, -1)
 		})
 	}
