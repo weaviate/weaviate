@@ -16,9 +16,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,6 +46,19 @@ func TestSegmentInMemory(t *testing.T) {
 
 		s := NewSegmentInMemory(logger)
 		assert.Equal(t, bmSize*65, s.Size())
+	})
+
+	t.Run("size counts headroom", func(t *testing.T) {
+		s := newSegmentInMemoryWithDeadSpace(t, 4, 1024)
+		s.Compact()
+
+		capacity, length := 0, 0
+		for i := range s.bitmaps {
+			capacity += s.bitmaps[i].CapInBytes()
+			length += s.bitmaps[i].LenInBytes()
+		}
+		require.Greater(t, capacity, length, "headroom must be spare capacity or the case tests nothing")
+		assert.Equal(t, capacity, s.Size())
 	})
 
 	t.Run("merging", func(t *testing.T) {
@@ -547,7 +562,6 @@ func TestSegmentInMemoryReaderResultHeadroom(t *testing.T) {
 
 	bufPool := newRangedBufPool(t)
 	ctx := context.Background()
-	keysNodeSize := func(bm *sroar.Bitmap) uint64 { return binary.LittleEndian.Uint64(bm.ToBuffer()) }
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%s %d", tc.operator.Name(), tc.value), func(t *testing.T) {
@@ -634,6 +648,228 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	})
 }
 
+func TestSegmentInMemoryCompact(t *testing.T) {
+	// dense enough that layer 0 holds bitmap containers
+	const keys, docsPerKey = 4, 8192
+
+	t.Run("dead space reclaimed", func(t *testing.T) {
+		seg := newSegmentInMemoryWithDeadSpace(t, keys, docsPerKey)
+		layer0Before := seg.bitmaps[0].LenInBytes()
+		sizeBefore := 0
+		for i := range seg.bitmaps {
+			sizeBefore += seg.bitmaps[i].LenInBytes()
+		}
+
+		seg.Compact()
+
+		assert.Less(t, seg.bitmaps[0].CapInBytes(), layer0Before, "odd containers of layer 0 must turn into arrays")
+		assert.Less(t, seg.Size(), sizeBefore)
+	})
+}
+
+// Pins a compacted layer taking a flush's rows at new keys and in its
+// containers' tails without moving its keys node or growing its buffer.
+func TestSegmentInMemoryCompactAbsorbsMerge(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const keys, docsPerKey = 64, 40
+
+	seg := newSegmentInMemoryWithDeadSpace(t, keys, docsPerKey)
+	seg.Compact()
+
+	mem := NewMemtable(logger)
+	for i, value := range []uint64{0, 13, math.MaxUint64} {
+		for _, docID := range []uint64{keys << 16, (keys + 8) << 16, docsPerKey, 2<<16 + docsPerKey} {
+			mem.Insert(value, []uint64{docID + uint64(i)})
+		}
+	}
+
+	var capBefore, keysBefore, cardBefore [65]int
+	for i, bm := range seg.bitmaps {
+		capBefore[i], keysBefore[i], cardBefore[i] = bm.CapInBytes(), int(keysNodeSize(bm)), bm.GetCardinality()
+	}
+
+	seg.MergeMemtableEventually(mem)
+	waitUntilMemtablesMerged(t, seg)
+
+	require.Greater(t, seg.bitmaps[64].GetCardinality(), cardBefore[64], "top layer must take rows or the case tests nothing")
+	for i, bm := range seg.bitmaps {
+		if bm.GetCardinality() == cardBefore[i] {
+			continue
+		}
+		assert.Equal(t, capBefore[i], bm.CapInBytes(), "layer %d grew", i)
+		assert.Equal(t, keysBefore[i], int(keysNodeSize(bm)), "layer %d keys node moved", i)
+	}
+}
+
+// Pins a compacted layer growing by sroar's plain doubling, not by the spare ratio again.
+func TestSegmentInMemoryCompactPadsOnlyOnce(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	testCases := []struct {
+		name string
+		seg  *SegmentInMemory
+	}{
+		{name: "populated", seg: newSegmentInMemoryWithDeadSpace(t, 4, 40)},
+		{name: "empty", seg: NewSegmentInMemory(logger)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.seg.Compact()
+			want := tc.seg.bitmaps[0].Clone()
+
+			// one container per merge, so a growth is a single step
+			for key := uint64(100); ; key++ {
+				require.Less(t, key, uint64(1000), "layer 0 never grew")
+				capBefore := tc.seg.bitmaps[0].CapInBytes()
+
+				mem := NewMemtable(logger)
+				mem.Insert(0, []uint64{key << 16})
+				mergeMemtableNow(tc.seg, mem)
+				want.Set(key << 16)
+
+				if capAfter := tc.seg.bitmaps[0].CapInBytes(); capAfter != capBefore {
+					assert.Equal(t, 2*capBefore, capAfter)
+					break
+				}
+			}
+			assert.Equal(t, want.ToArray(), tc.seg.bitmaps[0].ToArray())
+		})
+	}
+}
+
+// BenchmarkSegmentInMemoryCompactHeadroom merges a run of flushes into layers of
+// 1 to 13 MiB compacted with each spare ratio. It reports the bytes growths copied
+// under the write lock, the flushes merged before the first one, and the idle capacity.
+func BenchmarkSegmentInMemoryCompactHeadroom(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	const flushes = 24
+
+	for _, keys := range []uint64{128, 512, 2048} {
+		base := newHeadroomBenchLayers(keys)
+		for _, flush := range []struct {
+			name             string
+			appends, updates uint64
+		}{
+			{"appends_64k", 1 << 16, 0},
+			{"appends_512k", 1 << 19, 0},
+			{"updates_64k", 1 << 16, 1 << 12},
+			{"updates_512k", 1 << 19, 1 << 15},
+		} {
+			memtables := newHeadroomBenchFlushes(logger, keys, flushes, flush.appends, flush.updates)
+			for _, spareRatio := range []float64{0, 0.02, 0.05, 0.10, 0.25} {
+				name := fmt.Sprintf("layer_%.0fMiB/%s/spare_%.2f", float64(base[0].LenInBytes())/(1<<20), flush.name, spareRatio)
+				b.Run(name, func(b *testing.B) {
+					copied, maxCopy, copies, flushesBeforeCopy, runs := 0, 0, 0, 0, 0
+					var seg *SegmentInMemory
+					for b.Loop() {
+						b.StopTimer()
+						seg = NewSegmentInMemory(logger)
+						for i, bm := range base {
+							seg.bitmaps[i] = bm.CompactedTo(nil, sroar.BuildOpts{InitialSpareRatio: spareRatio})
+						}
+						b.StartTimer()
+
+						copiedInRun := false
+						for _, mem := range memtables {
+							var capBefore, lenBefore [65]int
+							for i, bm := range seg.bitmaps {
+								capBefore[i], lenBefore[i] = bm.CapInBytes(), bm.LenInBytes()
+							}
+							mergeMemtableNow(seg, mem)
+							for i, bm := range seg.bitmaps {
+								if bm.CapInBytes() != capBefore[i] {
+									copied += lenBefore[i]
+									maxCopy = max(maxCopy, lenBefore[i])
+									copies++
+									copiedInRun = true
+								}
+							}
+							if !copiedInRun {
+								flushesBeforeCopy++
+							}
+						}
+						runs++
+					}
+
+					length := 0
+					for _, bm := range seg.bitmaps {
+						length += bm.LenInBytes()
+					}
+					b.ReportMetric(float64(copied)/float64(runs)/(1<<20), "copied_MiB/op")
+					b.ReportMetric(float64(maxCopy)/(1<<20), "max_copy_MiB")
+					b.ReportMetric(float64(copies)/float64(runs), "copies/op")
+					b.ReportMetric(float64(flushesBeforeCopy)/float64(runs), "flushes_before_copy")
+					b.ReportMetric(float64(seg.Size()-length)/(1<<20), "idle_MiB")
+					b.ReportMetric(float64(seg.Size())/float64(length), "cap/len")
+				})
+			}
+		}
+	}
+}
+
+// newHeadroomBenchLayers builds the layers of keys containers of docs with 8-bit
+// values. Every 4th container keeps one doc in 64, as if the rest were deleted.
+func newHeadroomBenchLayers(keys uint64) [65]*sroar.Bitmap {
+	var layers [65]*sroar.Bitmap
+	for i := range layers {
+		layers[i] = sroar.NewBitmap()
+	}
+	const keysPerChunk = 64
+	var lists [9][]uint64
+	for first := uint64(0); first < keys; first += keysPerChunk {
+		for l := range lists {
+			lists[l] = lists[l][:0]
+		}
+		for key := first; key < min(first+keysPerChunk, keys); key++ {
+			for i := uint64(0); i < 1<<16; i++ {
+				if key%4 == 3 && i%64 != 0 {
+					continue
+				}
+				docID := key<<16 + i
+				lists[0] = append(lists[0], docID)
+				for bit, value := 0, headroomBenchValue(docID); bit < 8; bit++ {
+					if value>>bit&1 == 1 {
+						lists[bit+1] = append(lists[bit+1], docID)
+					}
+				}
+			}
+		}
+		for l, list := range lists {
+			layers[l].Or(sroar.FromSortedList(list))
+		}
+	}
+	return layers
+}
+
+// newHeadroomBenchFlushes appends docs past the last of keys containers and
+// moves random live docs to new values, as a property-only update does.
+func newHeadroomBenchFlushes(logger logrus.FieldLogger, keys uint64, flushes int, appends, updates uint64) []*Memtable {
+	rnd := rand.New(rand.NewPCG(1, 2))
+	memtables := make([]*Memtable, flushes)
+	nextDocID := keys << 16
+	for f := range memtables {
+		mem := NewMemtable(logger)
+		for range appends {
+			mem.Insert(headroomBenchValue(nextDocID), []uint64{nextDocID})
+			nextDocID++
+		}
+		for range updates {
+			key, i := rnd.Uint64N(keys), rnd.Uint64N(1<<16)
+			if key%4 == 3 {
+				i &^= 63
+			}
+			mem.Insert(rnd.Uint64N(256), []uint64{key<<16 + i})
+		}
+		memtables[f] = mem
+	}
+	return memtables
+}
+
+func headroomBenchValue(docID uint64) uint64 {
+	return docID * 0x9E3779B97F4A7C15 >> 56
+}
+
 func BenchmarkSegmentInMemoryReader(b *testing.B) {
 	bufPool := newRangedBufPool(b)
 	ctx := context.Background()
@@ -700,6 +936,48 @@ func newSegmentInMemoryFrom(tb testing.TB, mem *Memtable) *SegmentInMemory {
 	seg := NewSegmentInMemory(logger)
 	require.NoError(tb, seg.MergeSegmentByCursor(newFakeSegmentCursor(mem)))
 	return seg
+}
+
+// newSegmentInMemoryWithDeadSpace merges two segments over keys containers of
+// docsPerKey docs each. The second deletes all but every 64th doc of the odd
+// containers and moves every 4th doc of the even ones to another value.
+func newSegmentInMemoryWithDeadSpace(tb testing.TB, keys, docsPerKey uint64) *SegmentInMemory {
+	tb.Helper()
+	logger, _ := test.NewNullLogger()
+	base, update := NewMemtable(logger), NewMemtable(logger)
+	for key := uint64(0); key < keys; key++ {
+		for i := uint64(0); i < docsPerKey; i++ {
+			docID := key<<16 + i
+			base.Insert(deadSpaceValue(i), []uint64{docID})
+			switch {
+			case key%2 == 1 && i%64 != 0:
+				update.Delete(0, []uint64{docID})
+			case key%2 == 0 && i%4 == 0:
+				update.Insert(i%20+100, []uint64{docID})
+			}
+		}
+	}
+	seg := newSegmentInMemoryFrom(tb, base)
+	require.NoError(tb, seg.MergeSegmentByCursor(newFakeSegmentCursor(update)))
+	return seg
+}
+
+// deadSpaceValue spreads docs over 19 low values and the maximum.
+func deadSpaceValue(i uint64) uint64 {
+	if value := i % 20; value != 19 {
+		return value
+	}
+	return math.MaxUint64
+}
+
+func keysNodeSize(bm *sroar.Bitmap) uint64 {
+	return binary.LittleEndian.Uint64(bm.ToBuffer())
+}
+
+// mergeMemtableNow merges mem on the calling goroutine.
+func mergeMemtableNow(s *SegmentInMemory, mem *Memtable) {
+	s.memtables = append(s.memtables, mem)
+	s.mergeMemtables()
 }
 
 // newRangedBufPool returns the production pool, whose buckets round sizes up.

@@ -520,3 +520,54 @@ func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	assert.Zero(t, countLogLevel(hook, logrus.WarnLevel),
 		"a validated, published rep must never trigger the per-read fallback WARN, even when unpopulated")
 }
+
+// Pins load and rebuild publishing a compacted rep, which a second Compact
+// leaves the same size.
+func TestSegmentGroupRoaringSetRangeRep_BuiltCompacted(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := []struct {
+		name string
+		open func(t *testing.T, dir string) *Bucket
+	}{
+		{
+			name: "load",
+			open: func(t *testing.T, dir string) *Bucket {
+				return createTestBucketRoaringSetRange(t, ctx, dir, true)
+			},
+		},
+		{
+			name: "rebuild",
+			open: func(t *testing.T, dir string) *Bucket {
+				b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+				require.NoError(t, b.RebuildRangeableSegmentInMemory(ctx))
+				return b
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+			for docID := uint64(0); docID < 10_000; docID++ {
+				require.NoError(t, b.RoaringSetRangeAdd(docID%20, docID))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			for docID := uint64(0); docID < 10_000; docID += 2 {
+				require.NoError(t, b.RoaringSetRangeRemove(docID%20, docID))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			b = tc.open(t, dir)
+			defer b.Shutdown(ctx)
+
+			rep := b.disk.roaringSetRangeSegmentInMemory
+			require.NotNil(t, rep)
+			size := rep.Size()
+			rep.Compact()
+			assert.Equal(t, size, rep.Size(), "rep was published uncompacted")
+		})
+	}
+}

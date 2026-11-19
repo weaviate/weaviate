@@ -149,12 +149,30 @@ func (s *SegmentInMemory) IsUnpopulated() bool {
 	return len(s.memtables) == 0
 }
 
+// Size counts the bytes the layers hold, headroom included.
 func (s *SegmentInMemory) Size() int {
 	size := 0
 	for i := range s.bitmaps {
-		size += s.bitmaps[i].LenInBytes()
+		size += s.bitmaps[i].CapInBytes()
 	}
 	return size
+}
+
+// compactSpareRatio sizes the spare capacity of each layer Compact rewrites. A larger
+// ratio holds more idle memory until merges fill it, a smaller one copies a whole layer
+// under the write lock sooner. BenchmarkSegmentInMemoryCompactHeadroom sweeps it.
+const compactSpareRatio = 0.10
+
+// Compact rewrites each layer without the space deleted values left behind, in a
+// buffer (1+compactSpareRatio) times its size. Later growths follow sroar's own policy.
+// Layers are rewritten one at a time, so live memory peaks at one extra layer.
+func (s *SegmentInMemory) Compact() {
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
+
+	for i := range s.bitmaps {
+		s.bitmaps[i] = s.bitmaps[i].CompactedTo(nil, sroar.BuildOpts{InitialSpareRatio: compactSpareRatio})
+	}
 }
 
 func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []InnerReader, release func()) {
