@@ -505,6 +505,54 @@ def inserts(d, manifests, v50_manifest):
     print()
 
 
+def rows_apart(results, curves):
+    """The first amendment: what the read of each row takes, the row of
+    members and the row of edges apart, next to the blocks of the batch
+    cell."""
+    def us(lat, key):
+        if lat is None or not lat.get('loads') or key not in lat:
+            return None
+        return 1e3 * lat[key] / lat['loads']
+
+    def cell(x, digits=1):
+        return '—' if x is None else '%.*f' % (digits, x)
+
+    def over(x, y):
+        return '—' if x is None or not y else '%.2fx' % (x / y)
+
+    if not any(us(latency(results[c]['r1'], 0.95, 1, 'warm'), 'memberms') is not None for c, _ in curves):
+        return
+    print('**Lo que cuesta traer cada fila (enmienda 1).** Por carga, en microsegundos, en la primera ronda: cada lectura de fila desde que se pide al store hasta que queda decodificada en el posting. En el índice que crece, la de aristas lleva además el juntar sus listas por miembro.')
+    print()
+    for state, key, threads in (('en caliente, 1 thread', 'warm', 1), ('en caliente, 8 threads', 'warm', 8), ('en frío, 1 thread', 'cold', 1)):
+        if not any(latency(results[c]['r1'], target, threads, key) for c, _ in curves for target in (0.95, 0.99)):
+            continue
+        print('*%s:*' % state.capitalize())
+        print()
+        print('| recall | índice | cargas | traer los bloques, de pared, por carga | fila de miembros | entre la del lote | fila de aristas | entre la del lote | las dos filas | entre las del lote |')
+        print('|---|---|---|---|---|---|---|---|---|---|')
+        for target in (0.95, 0.99):
+            base = latency(results['batch']['r1'], target, threads, key)
+            bm, be = us(base, 'memberms'), us(base, 'edgems')
+            for c, label in curves:
+                lat = latency(results[c]['r1'], target, threads, key)
+                if lat is None:
+                    continue
+                m, e = us(lat, 'memberms'), us(lat, 'edgems')
+                both = None if m is None or e is None else m + e
+                both_base = None if bm is None or be is None else bm + be
+                wall = None if not lat.get('loads') else 1e3 * lat['fetchms'] / lat['loads']
+                last = c == 'batch'
+                print('| %.2f | %s | %s | %s | %s | %s | %s | %s | %s | %s |' % (
+                    target, label, cell(lat.get('loads'), 2), cell(wall), cell(m), '' if last else over(m, bm), cell(e),
+                    '' if last else over(e, be), cell(both), '' if last else over(both, both_base)))
+        print()
+    print('- **No son partes del tiempo de pared:** las filas de una ronda se piden a la vez. Lo que la ronda espera lo marca su fila más lenta.')
+    print('- **Con 8 threads las lecturas compiten por CPU** y sus tiempos se inflan: la lectura es con 1 thread.')
+    print('- **En frío** el tiempo de una fila es sobre todo esperar al disco.')
+    print()
+
+
 def latencies(d, ks, read_verdicts):
     stretches = read_stretches(d)
     curves = [('k%d' % k, 'K = %d' % k) for k in ks] + [
@@ -562,6 +610,8 @@ def latencies(d, ks, read_verdicts):
                         cells.append(times(x['p50ms'] / y['p50ms'] if x and y else None))
                 print('| %s | %s | %s |' % (label, state, ' | '.join(cells)))
         print()
+
+    rows_apart(results, curves)
 
     print('**Segunda mitad del criterio: la latencia en frío a 0.95, a 1.20 veces o menos del lote.**')
     print()

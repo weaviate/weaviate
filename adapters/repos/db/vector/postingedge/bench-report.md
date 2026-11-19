@@ -300,6 +300,7 @@ Se reporta al cerrar cada paso.
   - **el traer los bloques de v5.1, en caliente, entre el de v5.0 y el del lote, más cerca del de v5.0,** si la fila de miembros es la lenta.
 - **Lo que cuesta medirlo:** dos lecturas de reloj por fila, en las cuatro curvas por igual.
 - **Lo que el binario añade:** esos relojes en la lectura de filas de los dos formatos, en ficheros de test, y sus campos en el resultado.
+- **Escrito a las 10:14,** después de confirmar la enmienda: los relojes están en los dos formatos, los tests de los dos comprueban que cada fila leída queda cronometrada, y el veredicto saca la tabla por fila. Humo a 30k, que no es dato: pasa.
 
 ### Paso 1, cerrado: el mecanismo y su equivalencia a pequeña escala (09:36 del 19)
 
@@ -574,6 +575,7 @@ Se reporta al cerrar cada paso.
 - **Lo que seguirá sin ser lo mismo:** HFresh construye desde cero y posting-edge crece desde un 10 % en lote; HFresh deja trabajo para después y posting-edge no; y el vector exacto de posting-edge va dentro de su insert.
 - **Lo esperado, antes de medir:** por escritor, el build de 10 dio 862 `Add` por segundo. Con uno solo, y los 9 workers de fondo para él, espero entre 1 000 y 3 000 hasta el último insert, y poco menos hasta la cola vacía.
 - **Lo que el binario añade:** un test del arnés de HFresh con esa opción. Nada en HFresh.
+- **Escrito a las 10:14,** después de confirmar la enmienda: `TestHFreshDiskInserts` en el arnés de HFresh y `testdata/bench/v5.0/scripts/run_hfresh_inserts.sh`. No escribe sobre un índice que ya exista. Humo a 30k, que no es dato: pasa, y da sus dos tiempos.
 
 ### Pasos 1 y 2, cerrados: el formato, el insert y el split, y la equivalencia a pequeña escala (14:19 del 18)
 

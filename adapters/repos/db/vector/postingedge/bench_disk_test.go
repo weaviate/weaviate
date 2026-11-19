@@ -481,6 +481,15 @@ type diskLatencies struct {
 	FetchMs    float64 `json:"fetchms"`
 	VisitMs    float64 `json:"visitms"`
 	RescoreMs  float64 `json:"rescorems"`
+	// Loads is the postings a query fetched, and MemberMs, EdgeMs and HaloMs
+	// what the reads of their blocks took, by block, added up over a query:
+	// each from asking the store for the block to having it decoded in its
+	// posting. They are not parts of FetchMs: the blocks of a round are read
+	// at once, and FetchMs is what the query waited for them.
+	Loads    float64 `json:"loads"`
+	MemberMs float64 `json:"memberms"`
+	EdgeMs   float64 `json:"edgems"`
+	HaloMs   float64 `json:"haloms"`
 }
 
 func diskLatenciesOf(latencies []time.Duration, stats []diskSearchStats, wall time.Duration) diskLatencies {
@@ -493,6 +502,10 @@ func diskLatenciesOf(latencies []time.Duration, stats []diskSearchStats, wall ti
 		out.FetchMs += ms(stats[i].FetchTime) / float64(len(latencies))
 		out.VisitMs += ms(stats[i].VisitTime) / float64(len(latencies))
 		out.RescoreMs += ms(stats[i].RescoreTime) / float64(len(latencies))
+		out.Loads += float64(stats[i].Postings) / float64(len(latencies))
+		out.MemberMs += ms(stats[i].MemberTime) / float64(len(latencies))
+		out.EdgeMs += ms(stats[i].EdgeTime) / float64(len(latencies))
+		out.HaloMs += ms(stats[i].HaloTime) / float64(len(latencies))
 	}
 	slices.Sort(sorted)
 	out.P50, out.P95, out.P99 = percentileOf(sorted, 0.50), percentileOf(sorted, 0.95), percentileOf(sorted, 0.99)
@@ -729,8 +742,10 @@ func timeDisk(ctx context.Context, t *testing.T, r *timedRun) {
 			}
 			warm := timed.Warm[len(timed.Warm)/2]
 			t.Logf("%s at recall %.2f (ef %d), %d threads, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | "+
-				"fetch %.3f ms, visit %.3f, rescore %.3f, centroids %.3f", r.name, point.Target, point.EF, threads,
-				warm.P50, warm.P95, warm.P99, warm.QPS, warm.FetchMs, warm.VisitMs, warm.RescoreMs, warm.CentroidMs)
+				"fetch %.3f ms, visit %.3f, rescore %.3f, centroids %.3f | of %.2f loads, a row of members %.1f us "+
+				"and one of edges %.1f", r.name, point.Target, point.EF, threads,
+				warm.P50, warm.P95, warm.P99, warm.QPS, warm.FetchMs, warm.VisitMs, warm.RescoreMs, warm.CentroidMs,
+				warm.Loads, 1e3*warm.MemberMs/max(warm.Loads, 1), 1e3*warm.EdgeMs/max(warm.Loads, 1))
 
 			if *benchDiskDrop != "" {
 				batch := 10

@@ -719,6 +719,18 @@ type diskPosting struct {
 	row   growBlock
 	// bytes is what the store returned for its blocks.
 	bytes [3]int
+	// took is what the read of each of its blocks took, from asking the
+	// store for it to having it decoded in the posting. The blocks of a
+	// round are read at once: these add up to more than the round waits.
+	took [3]time.Duration
+}
+
+// timedRead runs the read of one block and leaves what it took.
+func timedRead(took *time.Duration, read func() error) error {
+	clock := time.Now()
+	err := read()
+	*took = time.Since(clock)
+	return err
 }
 
 // diskRound holds the postings of one round, fetched together.
@@ -824,11 +836,17 @@ func (d *diskIndex) fetch(round *diskRound, ids []scored) error {
 	eg := enterrors.NewErrorGroupWrapper(d.logger)
 	for i, pick := range ids {
 		p, dp := uint32(pick.id), &round.postings[i]
-		dp.bytes = [3]int{}
-		eg.Go(func() error { return d.fetchMembers(p, dp) })
-		eg.Go(func() error { return d.fetchEdges(p, dp) })
+		dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
+		eg.Go(func() error {
+			return timedRead(&dp.took[diskBlockMembers], func() error { return d.fetchMembers(p, dp) })
+		})
+		eg.Go(func() error {
+			return timedRead(&dp.took[diskBlockEdges], func() error { return d.fetchEdges(p, dp) })
+		})
 		if d.meta.Halo {
-			eg.Go(func() error { return d.fetchHalo(p, dp) })
+			eg.Go(func() error {
+				return timedRead(&dp.took[diskBlockHalo], func() error { return d.fetchHalo(p, dp) })
+			})
 		}
 	}
 	if err := eg.Wait(); err != nil {
@@ -890,6 +908,13 @@ type diskSearchStats struct {
 	FetchTime    time.Duration
 	VisitTime    time.Duration
 	RescoreTime  time.Duration
+	// MemberTime, EdgeTime and HaloTime split by block what the reads of the
+	// postings took, each from asking the store to having the block decoded
+	// in its posting. The blocks of a round are read at once, so these add
+	// up to more than FetchTime, which is what the search waited.
+	MemberTime time.Duration
+	EdgeTime   time.Duration
+	HaloTime   time.Duration
 }
 
 // search is the search of the index (Index.searchFrom) with the postings
@@ -1005,6 +1030,9 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 			stats.MemberBytes += visiting.bytes[diskBlockMembers]
 			stats.EdgeBytes += visiting.bytes[diskBlockEdges]
 			stats.HaloBytes += visiting.bytes[diskBlockHalo]
+			stats.MemberTime += visiting.took[diskBlockMembers]
+			stats.EdgeTime += visiting.took[diskBlockEdges]
+			stats.HaloTime += visiting.took[diskBlockHalo]
 			stats.Blocks += blocks
 			if f.loaded != nil {
 				f.loaded(uint32(pick.id), visiting)

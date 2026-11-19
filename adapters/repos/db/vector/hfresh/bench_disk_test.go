@@ -95,6 +95,8 @@ var (
 		"at once. 1 is the index as it is, which reads them one after another")
 	diskPoints = flag.String("bench.hfresh.points", "", "with TestHFreshDiskTimed: the configurations to time, "+
 		"comma-separated: default, and 0.95 or 0.99 for the one that reads the least for that recall (empty = all)")
+	diskWriters = flag.Int("bench.hfresh.writers", 0, "with TestHFreshDiskInserts: the goroutines that insert. 0 is as "+
+		"many as TestHFreshDiskBuild inserts with, one per GOMAXPROCS; 1 inserts one vector after another, by id")
 )
 
 var diskTargets = []float64{0.95, 0.99}
@@ -492,6 +494,198 @@ type diskManifestFile struct {
 	Files    map[string]int64 `json:"files"`
 	Segments map[string]int   `json:"segments"`
 	Truth    [][]uint64       `json:"truth"`
+}
+
+// diskInsertStretch is the inserts between two shares of the dataset, with
+// one writer.
+type diskInsertStretch struct {
+	Percent   int     `json:"percent"`
+	Inserts   int     `json:"inserts"`
+	Seconds   float64 `json:"seconds"`
+	PerSecond float64 `json:"perSecond"`
+	// Pending is what waited in every background queue of the index when
+	// the stretch ended.
+	Pending map[string]int64 `json:"pending"`
+}
+
+// diskInsertsResult is how fast the index took its inserts.
+type diskInsertsResult struct {
+	Dataset string `json:"dataset"`
+	Vectors int    `json:"vectors"`
+	Dims    int    `json:"dims"`
+	// Config is the user config of the index, the default one.
+	Config ent.UserConfig `json:"config"`
+	// Writers is the goroutines that inserted, and Workers the ones the
+	// index runs its background tasks on, next to them.
+	Writers int `json:"writers"`
+	Procs   int `json:"gomaxprocs"`
+	Workers int `json:"backgroundWorkers"`
+	// ObjectsSeconds is the exact vectors written to their bucket, before
+	// the inserts and out of their time.
+	ObjectsSeconds float64             `json:"objectsSeconds"`
+	Stretches      []diskInsertStretch `json:"stretches,omitempty"`
+	// InsertSeconds goes from the first Add to the return of the last one,
+	// and QueueSeconds from the first Add to the background queues of the
+	// index with nothing left in them.
+	InsertSeconds       float64          `json:"insertSeconds"`
+	InsertsPerSecond    float64          `json:"insertsPerSecond"`
+	QueueSeconds        float64          `json:"queueSeconds"`
+	QueuePerSecond      float64          `json:"queuePerSecond"`
+	PendingAtLastInsert map[string]int64 `json:"pendingAtLastInsert"`
+	// What the inserts left, and its recall with the default search, over
+	// every query, measured afterwards.
+	Postings     uint64           `json:"postings"`
+	Entries      uint64           `json:"entries"`
+	Replication  float64          `json:"replication"`
+	Queries      int              `json:"queries"`
+	K            int              `json:"k"`
+	SearchProbe  int              `json:"searchProbe"`
+	RescoreLimit int              `json:"rescoreLimit"`
+	Recall       float64          `json:"recall"`
+	Files        map[string]int64 `json:"files"`
+	Segments     map[string]int   `json:"segments"`
+}
+
+// pending returns what waits in every background queue of the index.
+func (b *diskBench) pending() map[string]int64 {
+	queues := b.index.taskQueue
+	return map[string]int64{
+		"analyze":  queues.analyzeQueue.Size(),
+		"split":    queues.splitQueue.Size(),
+		"merge":    queues.mergeQueue.Size(),
+		"reassign": queues.reassignQueue.Size(),
+	}
+}
+
+// TestHFreshDiskInserts times the inserts of the index, built as
+// TestHFreshDiskBuild builds it, with its default configuration and the
+// flush and compaction cycles of the store running, by -bench.hfresh.writers
+// goroutines: from the first Add to the return of the last one, and to the
+// background queues of the index empty, which is the splits, the merges and
+// the reassignments the inserts left. Nothing is searched meanwhile. It is
+// the fourth amendment of v5.0 in the report of the posting-edge index:
+// HFresh next to its inserts on disk, with one writer.
+//
+// The exact vectors go to their bucket before, out of the time. The index
+// reads the ones its splits and reassignments ask for from memory, as in
+// TestHFreshDiskBuild. The directory must not exist, or be empty.
+func TestHFreshDiskInserts(t *testing.T) {
+	if *diskDataset == "" || *diskDir == "" {
+		t.Skip("no -bench.hfresh.dataset and -bench.hfresh.dir given")
+	}
+	require.NotEmpty(t, *diskOut, "TestHFreshDiskInserts writes its result to -bench.hfresh.out")
+	require.GreaterOrEqual(t, *diskWriters, 0)
+	diskQuiet(t)
+	ctx := context.Background()
+	raw, truth := diskLoad(t, true)
+	n, dims := len(raw.Train), raw.Dims
+	if entries, err := os.ReadDir(*diskDir); err == nil {
+		require.Empty(t, entries, "%s is not empty: this test does not write over an index", *diskDir)
+	}
+	require.NoError(t, os.MkdirAll(*diskDir, 0o755))
+	b := openDiskBench(t, *diskDir, dims, raw.Train, true, false, nil)
+	defer b.close()
+	uc := ent.NewDefaultUserConfig()
+	writers := *diskWriters
+	if writers == 0 {
+		writers = runtime.GOMAXPROCS(0)
+	}
+	result := &diskInsertsResult{
+		Dataset: raw.Name, Vectors: n, Dims: dims, Config: uc, Writers: writers, Procs: runtime.GOMAXPROCS(0),
+		Workers: b.scheduler.Workers, Queries: len(raw.Queries), K: *diskK,
+		SearchProbe: int(uc.SearchProbe), RescoreLimit: uc.RQ.RescoreLimit,
+	}
+	write := func() {
+		out, err := json.MarshalIndent(result, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(*diskOut, out, 0o644))
+	}
+
+	// The exact vectors, where a search reads them.
+	objects := b.store.Bucket(helpers.ObjectsBucketLSM)
+	begin := time.Now()
+	for id, vector := range raw.Train {
+		value := make([]byte, 4*dims)
+		for i, x := range vector {
+			binary.LittleEndian.PutUint32(value[4*i:], math.Float32bits(x))
+		}
+		require.NoError(t, objects.Put(diskObjectKey(uint64(id)), value, lsmkv.WithSecondaryKey(0, diskDocIDKey(uint64(id)))))
+	}
+	require.NoError(t, objects.FlushAndSwitch())
+	result.ObjectsSeconds = time.Since(begin).Seconds()
+	t.Logf("objects: %d vectors written in %s. The timed inserts start: %d writers, %d background workers",
+		n, time.Since(begin).Round(time.Second), writers, result.Workers)
+
+	begin = time.Now()
+	if writers == 1 {
+		// One vector after another, by id, with the pace of every tenth.
+		const shares = 10
+		last, at := begin, 0
+		for share := 1; share <= shares; share++ {
+			upto := n * share / shares
+			from := at
+			for ; at < upto; at++ {
+				if err := b.index.Add(ctx, uint64(at), raw.Train[at]); err != nil {
+					t.Fatalf("insert %d: %v", at, err)
+				}
+			}
+			now := time.Now()
+			stretch := diskInsertStretch{
+				Percent: 100 * share / shares, Inserts: at - from, Seconds: now.Sub(last).Seconds(), Pending: b.pending(),
+			}
+			stretch.PerSecond = float64(stretch.Inserts) / stretch.Seconds
+			result.Stretches = append(result.Stretches, stretch)
+			last = now
+		}
+	} else {
+		var next atomic.Int64
+		eg := enterrors.NewErrorGroupWrapper(b.logger)
+		for range writers {
+			eg.Go(func() error {
+				for {
+					i := next.Add(1) - 1
+					if i >= int64(n) {
+						return nil
+					}
+					if err := b.index.Add(ctx, uint64(i), raw.Train[i]); err != nil {
+						return errors.Wrapf(err, "insert %d", i)
+					}
+				}
+			})
+		}
+		require.NoError(t, eg.Wait())
+	}
+	inserted := time.Since(begin)
+	result.PendingAtLastInsert = b.pending()
+	b.index.waitForMaintenance(t)
+	emptied := time.Since(begin)
+	result.InsertSeconds, result.InsertsPerSecond = inserted.Seconds(), float64(n)/inserted.Seconds()
+	result.QueueSeconds, result.QueuePerSecond = emptied.Seconds(), float64(n)/emptied.Seconds()
+	write()
+	for _, stretch := range result.Stretches {
+		t.Logf("to %d %%: %d inserts in %.1f s, %.0f a second | waiting: %d splits, %d merges, %d reassignments, %d to analyze",
+			stretch.Percent, stretch.Inserts, stretch.Seconds, stretch.PerSecond, stretch.Pending["split"],
+			stretch.Pending["merge"], stretch.Pending["reassign"], stretch.Pending["analyze"])
+	}
+	t.Logf("inserts: %d vectors by %d writers in %.1f s to the last insert, %.0f a second, and %.1f s to the background "+
+		"queues empty, %.0f a second | at the last insert there waited %d splits, %d merges, %d reassignments, %d to analyze",
+		n, writers, result.InsertSeconds, result.InsertsPerSecond, result.QueueSeconds, result.QueuePerSecond,
+		result.PendingAtLastInsert["split"], result.PendingAtLastInsert["merge"], result.PendingAtLastInsert["reassign"],
+		result.PendingAtLastInsert["analyze"])
+
+	// Untimed from here: what the inserts left, and that it searches.
+	require.NoError(t, b.store.FlushMemtables(ctx))
+	result.Postings, result.Entries = b.index.PostingSizes.Count(), b.index.PostingSizes.totalSize.Load()
+	result.Replication = float64(result.Entries) / float64(n)
+	result.Recall = b.recall(raw.Queries, truth, *diskK, result.SearchProbe, result.RescoreLimit)
+	// A search enqueues a merge for every posting it finds too small.
+	b.index.waitForMaintenance(t)
+	var err error
+	result.Files, result.Segments, err = diskFiles(*diskDir)
+	require.NoError(t, err)
+	write()
+	t.Logf("it left %d postings and %d entries, %.2f per vector | recall %.4f with searchProbe %d and rescoreLimit %d",
+		result.Postings, result.Entries, result.Replication, result.Recall, result.SearchProbe, result.RescoreLimit)
 }
 
 func diskLoad(t *testing.T, withTrain bool) (*testinghelpers.RawDataset, [][]uint64) {

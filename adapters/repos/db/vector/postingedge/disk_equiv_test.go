@@ -298,6 +298,11 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 								}
 								require.Equal(t, len(loaded), stats.Postings)
 								require.Nil(t, stats.Loaded)
+								// The read of every block was timed, and of no
+								// block the format does not have.
+								require.Positive(t, stats.MemberTime)
+								require.Positive(t, stats.EdgeTime)
+								require.Equal(t, cell.halo, stats.HaloTime > 0)
 								kept := &diskSearchStats{KeepLoaded: true}
 								_, _, err = disk.search(ctx, query, search.k, kept)
 								require.NoError(t, err)

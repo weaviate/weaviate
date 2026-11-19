@@ -709,3 +709,36 @@ func TestGrowEdgesBlock(t *testing.T) {
 	_, err := growEdgesBlock([]uint64{1}, [][]uint32{make([]uint32, 256)})
 	require.ErrorContains(t, err, "256 edges")
 }
+
+// A search over the index that grows tells what the reads of its rows took,
+// the row of members and the row of edges apart, with one value per list and
+// with the row of edges in one value.
+func TestGrowSearchTimesItsRows(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		consolidate int
+	}{
+		{name: "one value per list"},
+		{name: "the row of edges in one value", consolidate: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newGrowFixtureWith(t, 1300, 1000, 64, false, 64, 60, tt.consolidate)
+			for f.inserted < 1300 {
+				difference, err := f.insert(ctx)
+				require.NoError(t, err)
+				require.Empty(t, difference)
+			}
+			for i, query := range f.queries {
+				var stats diskSearchStats
+				_, _, err := f.g.search(ctx, query, 10, &stats)
+				require.NoError(t, err)
+				require.Positive(t, stats.Postings, "query %d", i)
+				require.Positive(t, stats.MemberTime, "query %d", i)
+				require.Positive(t, stats.EdgeTime, "query %d", i)
+				require.Zero(t, stats.HaloTime, "query %d", i)
+			}
+		})
+	}
+}

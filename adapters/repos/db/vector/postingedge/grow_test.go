@@ -1094,18 +1094,25 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 	eg := enterrors.NewErrorGroupWrapper(g.logger)
 	for i, pick := range picks {
 		p, dp := uint32(pick.id), &round.postings[i]
-		dp.bytes = [3]int{}
-		eg.Go(func() error { return g.fetchMembers(p, dp) })
-		eg.Go(func() error { return g.fetchLists(p, dp) })
+		dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
+		eg.Go(func() error {
+			return timedRead(&dp.took[diskBlockMembers], func() error { return g.fetchMembers(p, dp) })
+		})
+		eg.Go(func() error {
+			return timedRead(&dp.took[diskBlockEdges], func() error { return g.fetchLists(p, dp) })
+		})
 	}
 	if err := eg.Wait(); err != nil {
 		return err
 	}
 	for i, pick := range picks {
 		dp := &round.postings[i]
+		// Laying the edges out by member is part of reading their row.
+		clock := time.Now()
 		if err := g.joinLists(uint32(pick.id), dp); err != nil {
 			return err
 		}
+		dp.took[diskBlockEdges] += time.Since(clock)
 		dp.post = posting{docIDs: dp.docIDs, codes: dp.codes, edges: dp.edges, edgeStart: dp.edgeStart, byDocID: true}
 	}
 	return nil
