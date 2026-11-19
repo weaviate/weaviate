@@ -73,9 +73,18 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 		// every named vector. 0 leaves every configured vector without data.
 		vectorDimensions  int
 		dimensionTracking dimensionTracking
+		generatedIDs      bool
 	}{
 		{name: "configured vectors without data", namedVectors: withMultiVector},
 		{name: "configured vectors with data", namedVectors: namedVectors, vectorDimensions: 32},
+		{
+			// a rebuilt index lives under an ID unrelated to its vector's name, and
+			// the unloaded path finds its files through the shard's mapping
+			name:             "vectors built under generated IDs",
+			namedVectors:     namedVectors,
+			vectorDimensions: 32,
+			generatedIDs:     true,
+		},
 		{
 			// a node reporting usage without TRACK_VECTOR_DIMENSIONS has no dimensions
 			// bucket for the loaded path to read, and the report must survive that
@@ -103,6 +112,7 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 				namedVectors:      tt.namedVectors,
 				vectorDimensions:  tt.vectorDimensions,
 				dimensionTracking: tt.dimensionTracking,
+				generatedIDs:      tt.generatedIDs,
 			})
 			t.Cleanup(func() { _ = index.Shutdown(ctx) })
 

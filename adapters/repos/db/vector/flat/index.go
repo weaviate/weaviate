@@ -60,6 +60,7 @@ type flat struct {
 	metadata          *bolt.DB
 	metadataLock      *sync.RWMutex
 	store             *lsmkv.Store
+	makeBucketOptions lsmkv.MakeBucketOptions
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
 	initOnce          sync.Once
@@ -107,6 +108,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		compressionType:      extractCompression(uc),
 		pool:                 newPools(),
 		store:                store,
+		makeBucketOptions:    cfg.MakeBucketOptions,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	index.rescore.Store(extractRescorePolicy(uc))
@@ -306,24 +308,8 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	); err != nil {
 		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
-	if index.compressionType != CompressionNone {
-		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
-			cfg.MakeBucketOptions(lsmkv.StrategyReplace,
-				lsmkv.WithForceCompaction(forceCompaction),
-				lsmkv.WithUseBloomFilter(false),
-				// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
-				// was simply missing. Now we want to explicitly set it to false for
-				// performance reasons. There are pread performance improvements in the
-				// pipeline, but as of now, mmap is much more performant – especially for
-				// parallel cache prefilling.
-				//
-				// In the future when the pure pread performance is on par with mmap, we
-				// should update this to pass the global setting.
-				lsmkv.WithPread(false),
-			)...,
-		); err != nil {
-			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
-		}
+	if err := index.CreateOrLoadCompressedBucket(ctx); err != nil {
+		return err
 	}
 
 	bucket, release, err := index.getBucket(index.getBucketName())
@@ -333,6 +319,30 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	defer release()
 	atomic.StoreUint64(&index.count, uint64(bucket.CountAsync()))
 
+	return nil
+}
+
+func (index *flat) CreateOrLoadCompressedBucket(ctx context.Context) error {
+	if index.compressionType == CompressionNone {
+		return nil
+	}
+	if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
+		index.makeBucketOptions(lsmkv.StrategyReplace,
+			lsmkv.WithForceCompaction(shouldForceCompaction()),
+			lsmkv.WithUseBloomFilter(false),
+			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+			// was simply missing. Now we want to explicitly set it to false for
+			// performance reasons. There are pread performance improvements in the
+			// pipeline, but as of now, mmap is much more performant – especially for
+			// parallel cache prefilling.
+			//
+			// In the future when the pure pread performance is on par with mmap, we
+			// should update this to pass the global setting.
+			lsmkv.WithPread(false),
+		)...,
+	); err != nil {
+		return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
+	}
 	return nil
 }
 
@@ -879,8 +889,8 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 	return nil
 }
 
-func (index *flat) Drop(ctx context.Context, keepFiles bool) error {
-	if err := index.removeMetadataFile(keepFiles); err != nil {
+func (index *flat) Drop(ctx context.Context) error {
+	if err := index.removeMetadataFile(); err != nil {
 		return err
 	}
 	// Shard::drop will take care of handling store's buckets
@@ -906,7 +916,7 @@ func (index *flat) ResumeAfterBackup(context.Context) error {
 	return nil
 }
 
-func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	fullPath := filepath.Join(index.rootPath, index.getMetadataFile())
 	if _, err := os.Stat(fullPath); err != nil {
 		// no metadata file yet — nothing to snapshot (mirrors ListFiles)
@@ -918,7 +928,7 @@ func (index *flat) SnapshotMutableFiles(ctx context.Context, basePath, stagingDi
 		return nil, fmt.Errorf("metadata relative path: %w", err)
 	}
 
-	if err := index.snapshotMetadata(filepath.Join(stagingDir, relPath)); err != nil {
+	if err := index.snapshotMetadata(dstFor(relPath)); err != nil {
 		return nil, err
 	}
 

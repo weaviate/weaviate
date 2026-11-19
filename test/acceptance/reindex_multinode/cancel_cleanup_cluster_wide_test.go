@@ -95,7 +95,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	require.GreaterOrEqual(t, len(allShards), 3,
 		"sanity: expected ≥3 shards on a 3-shard class; got %v", allShards)
 
-	// A cancel is accepted only while the task reads STARTED, and that is
+	// A cancel is accepted only while the task reads STARTED or PREPARING, and that is
 	// decided on the leader inside a RAFT apply, one round trip after the
 	// request leaves. No check the test performs first can hold that
 	// state, so losing the race is a legal outcome of a correct server.
@@ -470,9 +470,8 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS: an in-flight
-// backup sends Index.drop down the rename-aside keepFiles path, defeating the
-// post-delete "class dir removed" assertion. Budget sized for a starved VM.
+// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS. Budget sized
+// for a starved VM.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{

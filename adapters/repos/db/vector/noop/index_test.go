@@ -13,6 +13,7 @@ package noop
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,10 @@ import (
 )
 
 func Test_SnapshotMutableFiles(t *testing.T) {
-	relPaths, err := NewIndex().SnapshotMutableFiles(context.Background(), t.TempDir(), t.TempDir())
+	staging := t.TempDir()
+	relPaths, err := NewIndex().SnapshotMutableFiles(context.Background(), t.TempDir(), func(relPath string) string {
+		return filepath.Join(staging, relPath)
+	})
 	require.NoError(t, err)
 	assert.Nil(t, relPaths)
 }

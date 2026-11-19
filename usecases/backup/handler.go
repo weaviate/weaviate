@@ -178,10 +178,12 @@ type dynUserSnapshotter interface {
 
 // RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
 // Snapshot filters to a role subset for backups; zero args is the full snapshot.
-// configure_api.go leaves it nil when RBAC is disabled. A backup then carries
-// no roles, and an includeRoles request fails.
+// ScopedSnapshot also drops the dynamic-user assignments of users not in
+// forUsers. configure_api.go leaves it nil when RBAC is disabled. A backup then
+// carries no roles, and an includeRoles request fails.
 type RBACSnapshotter interface {
 	Snapshot(roles ...string) ([]byte, error)
+	ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error)
 }
 
 // rolesAndUsersRestorer applies a backup's role and user snapshots through RAFT.

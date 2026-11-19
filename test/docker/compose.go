@@ -1131,7 +1131,7 @@ func (d *Compose) With3NodeCluster() *Compose {
 
 func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string) ([]*DockerContainer, error) {
 	if size == 0 || size > 3 {
-		return nil, nil
+		return nil, fmt.Errorf("weaviate cluster of %d nodes not supported, 1 to 3", size)
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v
@@ -1222,9 +1222,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateNamespaces {
 		settings["NAMESPACES_ENABLED"] = "true"
 		settings["DISABLE_GRAPHQL"] = "true"
-		// Namespaces pin each namespace's shards to a single home_node;
-		// the startup invariant rejects RF>1 because the home_node would
-		// silently disagree with the configured replication.
+		// enforceNamespaceStartupInvariants refuses to start a namespaced
+		// cluster with any other value.
 		settings["REPLICATION_MAXIMUM_FACTOR"] = "1"
 		// Tight cleanup tick for acceptance: deletion tests poll for the
 		// 404 that arrives once the leader has finished tearing down the

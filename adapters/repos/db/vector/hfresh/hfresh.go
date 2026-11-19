@@ -197,7 +197,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	idStore := NewDurableBucketStore(bucket, newBucketRef(store, postingsBucketName(cfg.ID)))
+	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +214,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
+
+	h.repairOrphanPostings()
 
 	h.taskQueue.Register()
 
@@ -280,7 +283,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	return nil
 }
 
-func (h *HFresh) Drop(ctx context.Context, keepFiles bool) error {
+func (h *HFresh) Drop(ctx context.Context) error {
 	_ = h.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
@@ -375,7 +378,7 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
-func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, nil
 }
 

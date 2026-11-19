@@ -24,7 +24,7 @@ const (
 	// DefaultRQRescoreLimit and DefaultBRQRescoreLimit are what
 	// RescoreLimitAuto resolves to for 4/8-bit and 1-bit codes.
 	DefaultRQRescoreLimit  = 20
-	DefaultBRQRescoreLimit = 256
+	DefaultBRQRescoreLimit = 512
 	// DefaultRQRescoreFactor and DefaultBRQRescoreFactor are what
 	// RescoreFactorAuto resolves to for 4/8-bit and 1-bit codes.
 	DefaultRQRescoreFactor  = 2.0

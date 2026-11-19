@@ -183,6 +183,17 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	h.postingLocks.Unlock(postingID)
 	h.taskQueue.SplitDone(postingID)
 
+	// a posting that outgrew twice the limit before its split ran leaves
+	// oversized children, and no append may come to split them
+	for i, id := range newPostingIDs {
+		if len(result[i].Posting) > int(h.maxPostingSize) {
+			err = h.taskQueue.EnqueueSplit(id)
+			if err != nil {
+				return errors.Wrapf(err, "failed to enqueue split for oversized posting %d", id)
+			}
+		}
+	}
+
 	if !reassign {
 		return nil
 	}

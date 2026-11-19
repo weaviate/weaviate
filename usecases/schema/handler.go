@@ -84,8 +84,8 @@ type Handler struct {
 	parser      Parser
 	classGetter *ClassGetter
 
-	// namespacesExister resolves a namespace name to its entity (HomeNode)
-	// for placement; unused on NS-disabled clusters.
+	// namespacesExister resolves a namespace to its HomeNodes. NS-disabled
+	// clusters never call it.
 	namespacesExister namespaces.Exister
 
 	qualifier namespacing.Qualifier

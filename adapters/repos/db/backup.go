@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
@@ -44,6 +45,9 @@ type BackupState struct {
 }
 
 var errShardNoLocalData = errors.New("shard has no local data")
+
+// fsNameMax reads the file name limit of the filesystem that holds a staging root.
+var fsNameMax = file.NameMax
 
 const (
 	lsmDir        = "lsm"
@@ -205,32 +209,14 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	}()
 
 	idx := db.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		// a class whose drop is still running is unpublished but registered in
-		// droppingIndex. The release finds it there and resets its backup state.
-		idx = db.droppingIndex(indexID(schema.ClassName(class)))
-	}
-
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
-	} else {
-		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
-		path := filepath.Join(db.config.RootPath, backup.DeleteMarkerAdd(indexID(schema.ClassName(class))))
-		exists, err := diskio.DirExists(path)
-		if err != nil {
-			return err
-		}
-		if exists {
-			if err := os.RemoveAll(path); err != nil {
-				return err
-			}
-		}
+	}
 
-		// Clean up staging directory that may have been created by CreateBackupSnapshot
-		stagingDir := backupStagingDir(db.config.RootPath, bakID, schema.ClassName(class))
-		if err := os.RemoveAll(stagingDir); err != nil {
-			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
-		}
+	// the class was deleted during the backup, which leaves only its staging dir
+	stagingDir := backupStagingDir(db.config.RootPath, bakID, schema.ClassName(class))
+	if err := os.RemoveAll(stagingDir); err != nil {
+		db.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 	return nil
 }
@@ -357,6 +343,18 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		}
 	}()
 
+	fsLimit, limitErr := fsNameMax(stagingRoot)
+	if limitErr != nil {
+		fsLimit = 0
+	}
+	desc.StagingNameMax, err = backup.StagedNameMax(fsLimit)
+	if err != nil {
+		return fmt.Errorf("stage in %s: %w", stagingRoot, err)
+	}
+	if limitErr != nil {
+		i.logger.WithField("stagingRoot", stagingRoot).
+			Warnf("staged names are cut to %d bytes, because reading the file name limit failed: %v", desc.StagingNameMax, limitErr)
+	}
 	desc.StagingDir = stagingRoot
 
 	shardNames, stateBytes, replicas, err := i.readSchema()
@@ -375,11 +373,14 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	for _, name := range shardNames {
 		eg.Go(func() error {
-			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot, gate)
+			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot, desc.StagingNameMax, gate)
 			if err != nil {
 				if errors.Is(err, errShardNoLocalData) {
 					i.logger.WithField("shard", name).Debug("skipping shard with no local data")
 					return nil
+				}
+				if errors.Is(err, syscall.ENAMETOOLONG) {
+					return stagedNameTooLongError(err, stagingRoot, desc.StagingNameMax, limitErr == nil)
 				}
 				return err
 			}
@@ -408,6 +409,17 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
+// stagedNameTooLongError wraps an ENAMETOOLONG from staging with the byte
+// length StagedFilePath cut each name to, so the operator sees that the
+// length caused it.
+func stagedNameTooLongError(err error, stagingRoot string, nameMax int, limitRead bool) error {
+	if !limitRead {
+		return fmt.Errorf("staged names cut to %d bytes because the name limit of %s could not be read: %w",
+			nameMax, stagingRoot, err)
+	}
+	return fmt.Errorf("staged names cut to %d bytes, the limit read on %s: %w", nameMax, stagingRoot, err)
+}
+
 // backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
 // it checks the shardMap to determine whether the shard is active (loaded in memory) or
 // inactive (on disk only), and uses the appropriate backup path.
@@ -416,8 +428,9 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // preventShutdown refcount) so concurrent queries — which RLock the same per-shard
 // key in getOptInitLocalShard — don't block for the snapshot duration. See
 // weaviate/0-weaviate-issues#234.
-func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor, stagingRoot string, gate reindexGate) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor, stagingRoot string, nameMax int, gate reindexGate) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
+	shardStaging := backup.NewShardStaging(stagingRoot, name, nameMax)
 
 	// Deferred before backupLock so it runs after the unlock: dropping the last
 	// shard reference can run the shard teardown inline, and doing that under
@@ -442,7 +455,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 	if shard == nil {
 		// Not in shardMap => back up from disk if directory exists.
-		if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot, gate); err != nil {
+		if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, shardStaging, gate); err != nil {
 			return nil, err
 		}
 		return &sd, nil
@@ -457,7 +470,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		if lazyShard.currentShard() == nil {
 			// Shard is in the map but not loaded; read from disk.
 			defer releaseBlock()
-			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot, gate); err != nil {
+			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, shardStaging, gate); err != nil {
 				return nil, err
 			}
 			return &sd, nil
@@ -482,12 +495,12 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	i.shardCreateLocks.Unlock(name)
 	shardCreateLocksHeld = false
 
-	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot, gate)
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, shardStaging, gate)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
 	}
 
-	if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
+	if err := sd.FillFileInfo(files, shardBaseDescr, backup.NewFlatFileSource(shardStaging)); err != nil {
 		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
 	}
 
@@ -496,7 +509,8 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 
 // backupInactiveShardWithHardlinks backs up an inactive (unloaded) shard by reading
 // its files from disk and hardlinking them into the staging directory.
-func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, stagingRoot string, gate reindexGate) error {
+// shardStaging.Dir must not exist, and its parent must.
+func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, shardStaging backup.ShardStaging, gate reindexGate) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
 		if os.IsNotExist(err) {
@@ -510,26 +524,25 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	if err := i.refuseIfReindexInFlight(name, gate); err != nil {
 		return err
 	}
-
 	files, err := i.listInactiveShardFiles(name, sd)
 	if err != nil {
 		return fmt.Errorf("list inactive shard %s files: %w", name, err)
+	}
+	if err := os.Mkdir(shardStaging.Dir, 0o755); err != nil {
+		return fmt.Errorf("create staging dir for inactive shard %s: %w", name, err)
 	}
 
 	var hardlinks []file.HardlinkPair
 	for _, relPath := range files {
 		src := filepath.Join(i.Config.RootPath, relPath)
-		dst := filepath.Join(stagingRoot, relPath)
+		dst := backup.StagedFilePath(shardStaging, relPath)
 		if backup.IsImmutableFile(relPath) {
 			hardlinks = append(hardlinks, file.HardlinkPair{Src: src, Dst: dst})
 			continue
 		}
 		// Mutable files are copied, not hard-linked — a shared inode would let
-		// post-snapshot writes corrupt the staged copy. CopyFile, unlike
-		// HardlinkFiles, doesn't create the destination dir.
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
-		}
+		// post-snapshot writes corrupt the staged copy. CopyFile writes into the
+		// dir the shard's os.Mkdir made.
 		if err := file.CopyFile(src, dst); err != nil {
 			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 		}
@@ -538,7 +551,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("hardlink inactive shard %s files to staging: %w", name, err)
 	}
 
-	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+	if err := sd.FillFileInfo(files, shardBaseDescr, backup.NewTreeFileSource(i.Config.RootPath)); err != nil {
 		return fmt.Errorf("gather inactive shard %s file info: %w", name, err)
 	}
 
@@ -598,7 +611,7 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
 	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
-		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 
 	_ = i.withEachLoadedShard(func(name string, shard ShardLike) error {

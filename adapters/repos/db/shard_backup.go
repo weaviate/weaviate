@@ -197,7 +197,8 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 // a staging directory, then immediately resumes compaction. This minimizes the
 // compaction pause to just the time needed for enumeration and hardlink creation
 // (typically 2-5s), rather than blocking for the entire upload duration.
-func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) (files []string, err error) {
+// shardStaging.Dir must not exist, and its parent must.
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) (files []string, err error) {
 	if err := s.haltForTransfer(ctx, false, gate); err != nil {
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
@@ -212,11 +213,15 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 	if err != nil {
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
+	if err := os.Mkdir(shardStaging.Dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create shard staging dir: %w", err)
+	}
 
 	staged := make(map[string]struct{})
+	dstFor := func(relPath string) string { return backup.StagedFilePath(shardStaging, relPath) }
 
 	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
-		relPaths, err := idx.SnapshotMutableFiles(ctx, s.index.Config.RootPath, stagingRoot)
+		relPaths, err := idx.SnapshotMutableFiles(ctx, s.index.Config.RootPath, dstFor)
 		if err != nil {
 			return fmt.Errorf("snapshot mutable files of vector %q: %w", targetVector, err)
 		}
@@ -230,7 +235,7 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 	}
 
 	if s.metadataDB != nil {
-		relPath, err := s.metadataDB.Snapshot(s.index.Config.RootPath, stagingRoot)
+		relPath, err := s.metadataDB.Snapshot(s.index.Config.RootPath, dstFor)
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +260,7 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		}
 		pairs = append(pairs, file.HardlinkPair{
 			Src: filepath.Join(s.index.Config.RootPath, relPath),
-			Dst: filepath.Join(stagingRoot, relPath),
+			Dst: dstFor(relPath),
 		})
 	}
 	if err := file.HardlinkFiles(pairs); err != nil {

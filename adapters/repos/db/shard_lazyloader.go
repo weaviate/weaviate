@@ -581,7 +581,7 @@ func (l *LazyLoadShard) ID() string {
 	return shardId(l.shardOpts.index.ID(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) drop(keepFiles bool) error {
+func (l *LazyLoadShard) drop() error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
@@ -617,21 +617,19 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		// rename sync (must complete even if ctx is expired); RemoveAll async.
 		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
 		// blocking RemoveAll the loaded path was changed to avoid.
-		if !keepFiles {
-			path := shardPath(idx.path(), shardName)
-			deleted, err := renameForAsyncDelete(path, idx.logger)
-			if err != nil {
-				return fmt.Errorf("rename shard for async delete: %w", err)
-			}
-			if deleted != "" {
-				spawnAsyncDelete(deleted, idx.logger)
-			}
+		path := shardPath(idx.path(), shardName)
+		deleted, err := renameForAsyncDelete(path, idx.logger)
+		if err != nil {
+			return fmt.Errorf("rename shard for async delete: %w", err)
+		}
+		if deleted != "" {
+			spawnAsyncDelete(deleted, idx.logger)
 		}
 
 		return nil
 	}
 
-	return shard.drop(keepFiles)
+	return shard.drop()
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
@@ -661,33 +659,7 @@ func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors
 ) {
 	if shard := l.loadedShard(); shard != nil {
 		shard.updatePropertyBuckets(ctx, eg, property, counts)
-	} else {
-		// The unloaded path removes bucket dirs by name and reads no records.
-		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
-}
-
-func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
-	eg *enterrors.ErrorGroupWrapper,
-	prop *models.Property,
-) {
-	eg.Go(func() error {
-		// Shares the loaded path's index types so Index.updateProperty's summary
-		// log names what this branch removed too. Not its body: this path
-		// removes the main bucket dir by name and nothing else, so a cold
-		// tenant's migration and sidecar dirs outlive the property delete.
-		// That is a gap, not a property of unloaded shards.
-		for _, indexType := range disabledIndexTypes(prop) {
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
-			if !ok {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
-			}
-			if err := removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
-			}
-		}
-		return nil
-	})
 }
 
 // DropVectorIndex routes to the loaded shard or to disk, deciding and acting
@@ -775,12 +747,12 @@ func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDe
 	return shard.ListBackupFiles(ctx, ret)
 }
 
-func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error) {
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error) {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return shard.CreateBackupSnapshot(ctx, sd, stagingRoot, gate)
+	return shard.CreateBackupSnapshot(ctx, sd, shardStaging, gate)
 }
 
 func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
@@ -1167,7 +1139,7 @@ func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) boo
 	if err := store.Load(); err != nil || len(store.Unreadable()) > 0 {
 		return true
 	}
-	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
+	tasks := []distributedtask.TaskStatusEntry{task.StatusEntryFor(l.shardOpts.name)}
 	for _, rec := range store.Records() {
 		if _, found := findMigrationTask(rec.Subject(), tasks); found && !rec.FlipDecided() {
 			return true

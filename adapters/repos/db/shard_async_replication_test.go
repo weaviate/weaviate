@@ -2821,49 +2821,28 @@ func TestEnableAsyncReplicationShutObservedUnderLock(t *testing.T) {
 	t.Fatal("enable never reached the in-lock check across attempts")
 }
 
-// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no snapshot consumed, no tree, no registration, nothing resurrected.
+// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no tree, no registration, nothing resurrected.
 func TestEnableAsyncReplicationSkipsDroppedShard(t *testing.T) {
 	ctx := context.Background()
+	sl, _ := testShard(t, ctx, "EnableSkipsDroppedShard", withAsyncScheduler(t))
+	s := concreteShard(t, sl)
 
-	t.Run("keepFiles drop leaves planted snapshot", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardKeep", withAsyncScheduler(t))
-		s := concreteShard(t, sl)
+	require.NoError(t, s.drop())
 
-		dir := s.pathHashTree()
-		require.NoError(t, os.MkdirAll(dir, os.ModePerm))
-		stray := filepath.Join(dir, "hashtree-00000000000000aa.ht")
-		require.NoError(t, os.WriteFile(stray, []byte("snapshot"), 0o600))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree)
+	s.asyncReplicationRWMux.RUnlock()
+	_, err := os.Stat(s.path())
+	require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
 
-		require.NoError(t, s.drop(true))
-
-		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-		s.asyncReplicationRWMux.RLock()
-		require.Nil(t, s.hashtree)
-		s.asyncReplicationRWMux.RUnlock()
-		require.Len(t, htFilesInDir(t, dir), 1, "skip must not consume the snapshot")
-
-		sched := s.index.asyncReplicationScheduler
-		require.Never(t, func() bool {
-			sched.mu.Lock()
-			defer sched.mu.Unlock()
-			_, registered := sched.entries[s]
-			return registered
-		}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
-	})
-
-	t.Run("full drop resurrects nothing", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardFull", withAsyncScheduler(t))
-		s := concreteShard(t, sl)
-
-		require.NoError(t, s.drop(false))
-
-		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-		s.asyncReplicationRWMux.RLock()
-		require.Nil(t, s.hashtree)
-		s.asyncReplicationRWMux.RUnlock()
-		_, err := os.Stat(s.path())
-		require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
-	})
+	sched := s.index.asyncReplicationScheduler
+	require.Never(t, func() bool {
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		_, registered := sched.entries[s]
+		return registered
+	}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
 }
 
 // TestRebuildFromScratchSkipsDroppedShard: a rebuild racing a tenant delete must install nothing and resurrect nothing.
@@ -2873,7 +2852,7 @@ func TestRebuildFromScratchSkipsDroppedShard(t *testing.T) {
 	s := concreteShard(t, sl)
 	enableAndAwaitAsync(t, ctx, s)
 
-	require.NoError(t, s.drop(false))
+	require.NoError(t, s.drop())
 
 	require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
 	s.asyncReplicationRWMux.RLock()
@@ -2890,7 +2869,7 @@ func TestDisableAsyncReplicationSkipsDroppedShard(t *testing.T) {
 	s := concreteShard(t, sl)
 	enableAndAwaitAsync(t, ctx, s)
 
-	require.NoError(t, s.drop(false))
+	require.NoError(t, s.drop())
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
 	_, err := os.Stat(s.path())
@@ -3163,4 +3142,96 @@ func TestEnableAsyncReplicationInvalidHeightLeavesHashtreeNil(t *testing.T) {
 
 	enableAndAwaitAsync(t, ctx, s)
 	require.NoError(t, s.disableAsyncReplication(ctx))
+}
+
+// TestRunHashbeatCycleMaintenanceGate: a not-ready peer error proves the cycle reached the replicator; a nil error with the skip log proves the gate held.
+func TestRunHashbeatCycleMaintenanceGate(t *testing.T) {
+	ctx := context.Background()
+	const skipMsg = "skipping async replication in maintenance mode"
+
+	newGatedShard := func(t *testing.T, class string, maintenance *atomic.Bool, flag *configRuntime.DynamicValue[bool]) (*Shard, *test.Hook) {
+		logger, hook := test.NewNullLogger()
+		sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx),
+			withRemoteReplicaClient(t, &notReadyHashTreeClient{}),
+			func(i *Index) {
+				i.logger = logger
+				i.Config.MaintenanceModeEnabled = maintenance.Load
+				i.globalreplicationConfig = &entreplication.GlobalConfig{AsyncReplicationInMaintenanceEnabled: flag}
+			},
+		)
+		s := concreteShard(t, sl)
+		idx.SetReplicationFSMReader(nil)
+		setShardReplicas(t, idx, "node1", "node2")
+		enableAndAwaitAsync(t, ctx, s)
+		return s, hook
+	}
+
+	hasSkipLog := func(hook *test.Hook) bool {
+		for _, e := range hook.AllEntries() {
+			if e.Message == skipMsg {
+				return true
+			}
+		}
+		return false
+	}
+
+	tests := []struct {
+		name        string
+		maintenance bool
+		flag        *configRuntime.DynamicValue[bool]
+		wantBlocked bool
+	}{
+		{name: "maintenance off, flag nil", maintenance: false, flag: nil, wantBlocked: false},
+		{name: "maintenance off, flag off", maintenance: false, flag: configRuntime.NewDynamicValue(false), wantBlocked: false},
+		{name: "maintenance off, flag on", maintenance: false, flag: configRuntime.NewDynamicValue(true), wantBlocked: false},
+		{name: "maintenance on, flag nil", maintenance: true, flag: nil, wantBlocked: true},
+		{name: "maintenance on, flag off", maintenance: true, flag: configRuntime.NewDynamicValue(false), wantBlocked: true},
+		{name: "maintenance on, flag on", maintenance: true, flag: configRuntime.NewDynamicValue(true), wantBlocked: false},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var maintenance atomic.Bool
+			maintenance.Store(tt.maintenance)
+			s, hook := newGatedShard(t, fmt.Sprintf("HashbeatMaintenanceGate%d", i), &maintenance, tt.flag)
+
+			propagated, err := s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+			require.False(t, propagated)
+			if tt.wantBlocked {
+				require.NoError(t, err)
+				require.True(t, hasSkipLog(hook))
+				return
+			}
+			require.ErrorIs(t, err, errAsyncReplicationNotActive)
+			require.False(t, hasSkipLog(hook))
+		})
+	}
+
+	t.Run("flag flip between cycles applies on the next cycle", func(t *testing.T) {
+		var maintenance atomic.Bool
+		maintenance.Store(true)
+		flag := configRuntime.NewDynamicValue(false)
+		s, hook := newGatedShard(t, "HashbeatMaintenanceGateFlip", &maintenance, flag)
+
+		_, err := s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.NoError(t, err)
+		require.True(t, hasSkipLog(hook))
+
+		require.NoError(t, flag.SetValue(true))
+		hook.Reset()
+		_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, hasSkipLog(hook))
+
+		flag.Reset()
+		hook.Reset()
+		_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.NoError(t, err)
+		require.True(t, hasSkipLog(hook))
+
+		maintenance.Store(false)
+		hook.Reset()
+		_, err = s.runHashbeatCycle(ctx, minAsyncReplicationConfig())
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.False(t, hasSkipLog(hook))
+	})
 }

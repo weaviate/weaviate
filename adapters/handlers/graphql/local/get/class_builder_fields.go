@@ -388,7 +388,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		sort = filters.ExtractSortFromArgs(sortArg.([]interface{}))
 	}
 
-	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+	filters, err := common_filters.ExtractFilters(p.Args, className)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %w", err)
 	}

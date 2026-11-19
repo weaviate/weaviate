@@ -115,12 +115,12 @@ type ShardLike interface {
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairDigest, err error)
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error)
 	ID() string // Get the shard id
-	drop(keepFiles bool) error
+	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -434,6 +434,8 @@ type Shard struct {
 	migrationRecords *MigrationRecordStore
 
 	migrationMirrors migrationMirrorRegistry
+	// Held by the retry goroutine, not its caller, so a lift arriving during a stuck retry is refused.
+	liftRetry sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -530,16 +532,6 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
-	}
-
-	legacy := s.index.GetVectorIndexConfig("")
-	targets := s.index.getTargetVectorIndexConfigs()
-
-	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, legacy, targets, updated); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_target_vectors",
-			"shard_id": s.ID(),
-		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	var err error
@@ -786,6 +778,10 @@ func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	}
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
+	s.retirePropertyOverlayLocked(propName, indexType)
+}
+
+func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
 	entry, ok := s.propertyOverlay[propName]
 	if !ok {
 		return
