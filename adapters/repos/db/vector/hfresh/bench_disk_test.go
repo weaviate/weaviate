@@ -367,6 +367,14 @@ type diskGraph struct {
 	Postings   int `json:"postings"`
 }
 
+// diskCleaned is what cleaning the centroid graph of an index did to it.
+type diskCleaned struct {
+	Before  diskGraph `json:"before"`
+	After   diskGraph `json:"after"`
+	Rounds  int       `json:"rounds"`
+	Seconds float64   `json:"seconds"`
+}
+
 func (b *diskBench) centroidGraph() diskGraph {
 	stats, err := b.index.Centroids.hnsw.Stats()
 	require.NoError(b.t, err)
@@ -547,6 +555,11 @@ type diskManifestFile struct {
 	// rescore limit.
 	Sweep     []diskProbe `json:"sweep"`
 	MaxRecall float64     `json:"maxRecall"`
+	// Cleaned is set in the manifest of an index whose centroid graph was
+	// cleaned of its deleted centroids (TestHFreshDiskClean): the graph
+	// before and after. Sweep, Default and Candidates are then of the index
+	// cleaned.
+	Cleaned *diskCleaned `json:"cleaned,omitempty"`
 	// Default is the index searched as it comes, and Candidates one point
 	// per rescore limit and recall.
 	Default    diskPoint   `json:"default"`
@@ -594,6 +607,13 @@ type diskInsertsResult struct {
 	QueueSeconds        float64          `json:"queueSeconds"`
 	QueuePerSecond      float64          `json:"queuePerSecond"`
 	PendingAtLastInsert map[string]int64 `json:"pendingAtLastInsert"`
+	// Cleanup tells that the centroid graph had the tombstone cleanup cycle
+	// of a shard (-bench.hfresh.cleanup). GraphAtLastInsert and GraphAtEmpty
+	// are the graph at the return of the last insert and with the queues
+	// empty: its nodes, and the deleted centroids not cleaned up yet.
+	Cleanup           bool      `json:"cleanup"`
+	GraphAtLastInsert diskGraph `json:"graphAtLastInsert"`
+	GraphAtEmpty      diskGraph `json:"graphAtEmpty"`
 	// What the inserts left, and its recall with the default search, over
 	// every query, measured afterwards.
 	Postings     uint64           `json:"postings"`
@@ -719,8 +739,10 @@ func TestHFreshDiskInserts(t *testing.T) {
 	}
 	inserted := time.Since(begin)
 	result.PendingAtLastInsert = b.pending()
+	result.Cleanup, result.GraphAtLastInsert = *diskCleanup, b.centroidGraph()
 	b.index.waitForMaintenance(t)
 	emptied := time.Since(begin)
+	result.GraphAtEmpty = b.centroidGraph()
 	result.InsertSeconds, result.InsertsPerSecond = inserted.Seconds(), float64(n)/inserted.Seconds()
 	result.QueueSeconds, result.QueuePerSecond = emptied.Seconds(), float64(n)/emptied.Seconds()
 	write()
@@ -734,6 +756,10 @@ func TestHFreshDiskInserts(t *testing.T) {
 		n, writers, result.InsertSeconds, result.InsertsPerSecond, result.QueueSeconds, result.QueuePerSecond,
 		result.PendingAtLastInsert["split"], result.PendingAtLastInsert["merge"], result.PendingAtLastInsert["reassign"],
 		result.PendingAtLastInsert["analyze"])
+	t.Logf("centroid graph, tombstone cleanup cycle %t: %d nodes and %d tombstones at the last insert, %d and %d with the "+
+		"queues empty, for %d postings alive", result.Cleanup, result.GraphAtLastInsert.Nodes,
+		result.GraphAtLastInsert.Tombstones, result.GraphAtEmpty.Nodes, result.GraphAtEmpty.Tombstones,
+		result.GraphAtEmpty.Postings)
 
 	// Untimed from here: what the inserts left, and that it searches.
 	require.NoError(t, b.store.FlushMemtables(ctx))
@@ -860,20 +886,38 @@ func TestHFreshDiskBuild(t *testing.T) {
 		manifest.Replication, manifest.MinPostingSize, manifest.MaxPostingSize, manifest.EntryBytes,
 		uc.Replicas, uc.MaxPostingSizeKB, uc.SearchProbe, uc.RQ.RescoreLimit, uc.RQ.Bits)
 
+	diskSweep(t, b, manifest, raw.Queries, truth)
+	b.close()
+
+	manifest.Files, manifest.Segments, err = diskFiles(*diskDir)
+	require.NoError(t, err)
+	t.Logf("on disk: %v | segments: %v", manifest.Files, manifest.Segments)
+	out, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(*diskManifest, out, 0o644))
+}
+
+// diskSweep measures the recall of the index by searchProbe, as it comes and
+// with every rescore limit of -bench.hfresh.rescores, and leaves it in the
+// manifest: the default configuration, the sweep, and one candidate per
+// rescore limit and recall, the smallest searchProbe that reaches it.
+func diskSweep(t *testing.T, b *diskBench, manifest *diskManifestFile, queries [][]float32, truth [][]uint64) {
+	uc := manifest.Config
+	manifest.Sweep, manifest.Candidates, manifest.MaxRecall = nil, nil, 0
 	// The recall of one configuration, measured once.
 	type config struct{ probe, rescore int }
 	recalls := map[config]float64{}
 	queriesOf := func(probe int) int {
 		if probe > diskFullProbe {
-			return min(diskFewQueries, len(raw.Queries))
+			return min(diskFewQueries, len(queries))
 		}
-		return len(raw.Queries)
+		return len(queries)
 	}
 	recall := func(probe, rescore int) float64 {
 		at := config{probe, rescore}
 		if _, done := recalls[at]; !done {
 			n := queriesOf(probe)
-			recalls[at] = b.recall(raw.Queries[:n], truth[:n], *diskK, probe, rescore)
+			recalls[at] = b.recall(queries[:n], truth[:n], *diskK, probe, rescore)
 			t.Logf("rescoreLimit %d, searchProbe %d: recall %.4f over %d queries", rescore, probe, recalls[at], n)
 			manifest.Sweep = append(manifest.Sweep, diskProbe{Probe: probe, RescoreLimit: rescore, Recall: recalls[at], Queries: n})
 		}
@@ -939,14 +983,6 @@ func TestHFreshDiskBuild(t *testing.T) {
 		return cmp.Or(a.RescoreLimit-b.RescoreLimit, a.Probe-b.Probe)
 	})
 	require.Zero(t, b.index.taskQueue.Size(), "the sweep left background work")
-	b.close()
-
-	manifest.Files, manifest.Segments, err = diskFiles(*diskDir)
-	require.NoError(t, err)
-	t.Logf("on disk: %v | segments: %v", manifest.Files, manifest.Segments)
-	out, err := json.Marshal(manifest)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(*diskManifest, out, 0o644))
 }
 
 func diskReadManifest(t *testing.T) *diskManifestFile {
@@ -1404,32 +1440,49 @@ func TestHFreshDiskTimed(t *testing.T) {
 // did (bench-report.md, "los centroides borrados, que el arnés no limpia"). A
 // split deletes the centroid of the posting it splits and a merge that of the
 // posting it takes in; until they are cleaned up they stay in the graph, where
-// every search walks them. The script gives it a copy of the index.
+// every search walks them. The index is then another one to search: its
+// recall by searchProbe is measured again, as TestHFreshDiskBuild measures
+// it, and the manifest of the cleaned index goes to -bench.hfresh.out. The
+// script gives it a copy of the index.
 func TestHFreshDiskClean(t *testing.T) {
-	if *diskDir == "" {
-		t.Skip("no -bench.hfresh.dir given")
+	if *diskDataset == "" || *diskDir == "" {
+		t.Skip("no -bench.hfresh.dataset and -bench.hfresh.dir given")
 	}
+	require.NotEmpty(t, *diskOut, "TestHFreshDiskClean writes the manifest of the cleaned index to -bench.hfresh.out")
 	diskQuiet(t)
 	manifest := diskReadManifest(t)
+	require.Nil(t, manifest.Cleaned, "the index of this manifest was cleaned already")
+	raw, _ := diskLoad(t, false)
+	require.Len(t, raw.Queries, len(manifest.Truth))
 	b := openDiskBench(t, *diskDir, manifest.Dims, nil, false, false, nil)
-	before := b.centroidGraph()
+	cleaned := &diskCleaned{Before: b.centroidGraph()}
 	begin := time.Now()
-	rounds := 0
 	for b.centroidGraph().Tombstones > 0 {
-		require.Less(t, rounds, 10, "the cleanup leaves tombstones round after round")
+		require.Less(t, cleaned.Rounds, 10, "the cleanup leaves tombstones round after round")
 		require.NoError(t, b.index.Centroids.hnsw.CleanUpTombstonedNodes(func() bool { return false }))
-		rounds++
+		cleaned.Rounds++
 	}
-	after := b.centroidGraph()
+	cleaned.Seconds = time.Since(begin).Seconds()
+	cleaned.After = b.centroidGraph()
+	before, after := cleaned.Before, cleaned.After
 	t.Logf("centroid graph: %d nodes, %d of them tombstones, for %d postings alive | cleaned in %d rounds and %s: %d nodes",
-		before.Nodes, before.Tombstones, before.Postings, rounds, time.Since(begin).Round(time.Millisecond), after.Nodes)
+		before.Nodes, before.Tombstones, before.Postings, cleaned.Rounds, time.Since(begin).Round(time.Millisecond), after.Nodes)
 	require.Equal(t, before.Postings, after.Postings, "the cleanup takes no posting away")
 	require.Equal(t, before.Nodes-before.Tombstones, after.Nodes, "the nodes left are those that were not deleted")
 	b.close()
 
 	// What a search opens from now on.
 	b = openDiskBench(t, *diskDir, manifest.Dims, nil, false, false, nil)
-	reopened := b.centroidGraph()
+	require.Equal(t, after, b.centroidGraph(), "the graph reopened from disk")
+	manifest.Cleaned = cleaned
+	diskSweep(t, b, manifest, raw.Queries, manifest.Truth)
 	b.close()
-	require.Equal(t, after, reopened, "the graph reopened from disk")
+
+	var err error
+	manifest.Files, manifest.Segments, err = diskFiles(*diskDir)
+	require.NoError(t, err)
+	t.Logf("on disk: %v | segments: %v", manifest.Files, manifest.Segments)
+	out, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(*diskOut, out, 0o644))
 }
