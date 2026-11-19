@@ -1042,3 +1042,25 @@ func TestAggregate_AdmissionShedMapsToRateLimit(t *testing.T) {
 		"raw ErrOverloaded message must not leak to the client")
 	resolver.AssertExpectations(t)
 }
+
+func TestAggregateWithAlias(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolver(config.Config{})
+
+	resolver.On("Aggregate", &aggregation.Params{
+		ClassName:  "Car",
+		Properties: []aggregation.ParamProperty{},
+		GroupBy:    groupCarByMadeByManufacturerName(),
+		Filters: &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       &filters.Path{Class: "Car", Property: "modelName"},
+			Value:    &filters.Value{Value: "Fast", Type: schema.DataTypeText},
+		}},
+		IncludeMetaCount: true,
+	}).Return([]aggregation.Group{}, nil).Once()
+
+	resolver.AssertResolve(t, `{ Aggregate { CarAlias(
+		where:{path:["modelName"] operator:Equal valueText:"Fast"}
+		groupBy:["madeBy", "Manufacturer", "name"]
+	) { meta { count } } } }`)
+}
