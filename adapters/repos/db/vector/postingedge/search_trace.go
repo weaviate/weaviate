@@ -125,7 +125,7 @@ func (tr *edgeTrace) predict(sc *searchScratch, postingOf []uint32, post *postin
 	clear(tr.prior)
 	clear(tr.seen)
 	for i, dist := range sc.memberDist {
-		if dist > cut {
+		if !(dist <= cut) {
 			continue
 		}
 		row := post.edgesOf(i)

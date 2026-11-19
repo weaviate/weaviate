@@ -100,6 +100,16 @@ type state struct {
 	visited       *visited.Pool
 	scratch       sync.Pool
 	build         BuildStats
+	// deleted marks the vectors that were deleted and are still in their
+	// postings, by the key the postings address them by: nil when there is
+	// none. The scan of a posting skips a marked member, which is then no
+	// candidate, is never returned, and has none of its edges followed.
+	// Only the deletes experiment sets it (delete_test.go).
+	deleted []bool
+	// skipDeletedEndpoints leaves out the edges that lead to a marked
+	// vector. Without it such an endpoint is scored as any other, from its
+	// sidecar code, and can have its posting loaded: a routing hint.
+	skipDeletedEndpoints bool
 }
 
 // New creates an empty index.

@@ -28,6 +28,11 @@ import (
 
 var inf32 = float32(math.Inf(1))
 
+// deletedDist stands in the member estimates of a posting for a member that
+// is marked deleted and was not scored. It is not a number, so that it is
+// within no source cut, not even an infinite one.
+var deletedDist = float32(math.NaN())
+
 // searchScratch is the per-search working memory, pooled per built index.
 type searchScratch struct {
 	// rank is the best estimate among the known edge endpoints of a posting,
@@ -56,8 +61,11 @@ type searchScratch struct {
 	unscored     []uint32
 	unscoredDist []float32
 	// memberDist holds the estimates of the members of the posting being
-	// loaded, in posting order.
+	// loaded, in posting order: deletedDist for one that is marked deleted.
 	memberDist []float32
+	// skipEndpoints, when set, marks the endpoints that are not to be
+	// scored: the deleted vectors (state.skipDeletedEndpoints).
+	skipEndpoints []bool
 }
 
 func newSearchScratch(postings int) *searchScratch {
@@ -374,7 +382,14 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 
 	separateStop := s.stop != &sc.pool
 	sc.memberDist = sc.memberDist[:0]
+	deleted := s.st.deleted
+	skipped := 0
 	for i, docID := range post.docIDs {
+		if deleted != nil && deleted[post.key(i)] {
+			sc.memberDist = append(sc.memberDist, deletedDist)
+			skipped++
+			continue
+		}
 		dist, err := s.scan.Distance(post.codes[i*words : (i+1)*words])
 		if err != nil {
 			return errors.Wrapf(err, "estimate distance to doc %d", docID)
@@ -397,10 +412,13 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 	if s.stats != nil {
 		s.stats.ScanTime += time.Since(clock)
 		s.stats.PostingsLoaded++
-		s.stats.VectorsScanned += len(post.docIDs)
+		s.stats.VectorsScanned += len(post.docIDs) - skipped
 		// Counted in a pass of its own, outside the timed sections, so
 		// that the loop below stays as it runs without stats.
 		for i := range post.docIDs {
+			if deleted != nil && deleted[post.key(i)] {
+				continue
+			}
 			if sc.endpoints.Visited(uint64(post.key(i))) {
 				s.stats.ScannedAgain++
 			}
@@ -427,6 +445,10 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 		clock = time.Now()
 	}
 
+	sc.skipEndpoints = nil
+	if s.st.skipDeletedEndpoints {
+		sc.skipEndpoints = deleted
+	}
 	sc.collectEndpoints(side.postingOf, post, cut)
 
 	// Scored as one batch, then folded into the ranks of their postings.
@@ -460,11 +482,17 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 // cut, whose estimates are in sc.memberDist.
 func (sc *searchScratch) collectEndpoints(postingOf []uint32, post *posting, cut float32) {
 	sc.unscored = sc.unscored[:0]
+	skip := sc.skipEndpoints
 	for i, dist := range sc.memberDist {
-		if dist > cut {
+		// Not within the cut: beyond it, or a deleted member, whose
+		// estimate is not a number.
+		if !(dist <= cut) {
 			continue
 		}
 		for _, endpoint := range post.edgesOf(i) {
+			if skip != nil && skip[endpoint] {
+				continue
+			}
 			if sc.loaded[postingOf[endpoint]] || sc.endpoints.CheckAndVisit(uint64(endpoint)) {
 				continue
 			}

@@ -256,6 +256,12 @@ type streamIndex struct {
 	// the batch rule reads the candidates of every vector from. probes is
 	// only valid during the call.
 	onRebuild func(docID uint64, probes []uint32)
+	// beforeSplit, when set, is called with a posting that an insert left
+	// past the threshold, before it is split: it may make the posting
+	// smaller, and the posting is split only if it is still past it. The
+	// deletes experiment drops the deleted members of the posting there
+	// (delete_test.go).
+	beforeSplit func(p uint32)
 }
 
 // newStreamIndex takes over a built index: its state is converted to the
@@ -465,6 +471,9 @@ func (s *streamIndex) insert(ctx context.Context, docID uint64, vector []float32
 			return err
 		}
 		s.stats.InverseTime += time.Since(clock)
+	}
+	if len(st.postings.lists[p].docIDs) > s.cfg.threshold && s.beforeSplit != nil {
+		s.beforeSplit(p)
 	}
 	if len(st.postings.lists[p].docIDs) > s.cfg.threshold {
 		if err := s.split(ctx, p); err != nil {
