@@ -14,8 +14,8 @@
 - **Lo que bloquea de verdad es `Delete`.** El shard lo llama en cada borrado y en cada update que cambia un vector. Sin él, ninguna clase con este índice admite cambios.
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
-- **En parámetros,** lo acordado son cinco: `ef`, `efConstruction`, `rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`. Quedan tres puntos por confirmar frente a mi tabla: dónde vive `rescoreLimit`, qué significa «acoplado a `ef`» en el modo por defecto, y `distance`, que no está en la lista.
-- **Pendiente antes de integrar:** medir k = 1 y k = 100, para decidir el `ef` dinámico.
+- **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
+- **Pendiente antes de integrar:** medir k = 1 y k = 100, para decidir el `ef` dinámico, y un barrido corto a 768d con rescore 64, 100, 150 y 200, para fijar la regla del `rescoreLimit` automático.
 - **Al leer apareció un bug en flat y en HFresh,** en la búsqueda por distancia. Está arreglado en esta rama con sus tests, y sigue en `main`.
 
 ## 1. Qué exige un tipo de índice
@@ -174,11 +174,27 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 ### Métricas de distancia
 
-- **Soportamos dos: `cosine` y `l2-squared`.** Las mismas que HFresh, que valida al parsear (`entities/vectorindex/hfresh/config.go:113`). HNSW y flat admiten también `dot`, `manhattan` y `hamming`.
-- **Por qué no `dot`:** la partición y el grafo de centroides trabajan en l2, que coincide con el coseno sobre vectores normalizados y no con un producto escalar crudo.
-- **Todo lo medido es en coseno.** `l2-squared` pasa los tests y no tiene ni una curva. Tampoco tiene margen de source calibrado: en l2 el índice sigue las aristas de todos los vectores escaneados.
+**Acordado: `distance` se expone, y la primera versión valida solo `cosine`.** Cualquier otro valor da error de configuración.
+
+- **El error tiene que salir al parsear,** para que la clase no llegue a crearse. Hoy la distancia se rechaza al crear el índice (`Config.validate`, `config.go:259`), es decir, al arrancar el shard. HFresh valida las suyas al parsear (`entities/vectorindex/hfresh/config.go:113`).
+- **El código de hoy admite también `l2-squared` por dentro,** y sus tests pasan. Con lo acordado queda sin camino desde el esquema.
 - **El shard no normaliza:** el índice recibe vectores crudos y los normaliza él para el coseno. Ya lo hace, en el insert, en la query y en el rescore.
-- **Un detalle que cambiar:** la distancia se rechaza al crear el índice (`Config.validate`, `config.go:259`), es decir, al arrancar el shard. Tiene que rechazarse al parsear, para que la clase no llegue a crearse.
+
+**Qué haría falta para `l2-squared`:**
+
+- **Medirlo: no hay ninguna medida con esa métrica.** Ni una curva de recall, ni de cargas, ni el recall de arista. Todos los defaults (el `ef` de 20, el `rescoreLimit` automático, T, P y R) salen de dos datasets en coseno.
+- **El margen de expansión está en unidades de la distancia** (`SourceMargin`, `config.go`). El 0.06 calibrado vale para el coseno, donde la distancia va de 0 a 2. En l2 la escala depende de la norma de los vectores de cada dataset, y un valor absoluto no puede ser un default: habría que recalibrarlo por dataset o hacerlo relativo, por ejemplo al umbral de parada de la propia búsqueda.
+- **Sin margen el índice pierde su mejor palanca.** Hoy, en l2, sigue las aristas de todos los vectores escaneados. En coseno el margen daba de un 41 a un 64 % más de QPS a igual recall.
+- **Lo que ya vale tal cual:** la partición y el grafo de centroides trabajan en l2, y el código RQ soporta l2.
+
+**Qué haría falta para `dot`:**
+
+- **Lo mismo que para l2:** ninguna medida, y un margen que no vale.
+- **Y un diseño que no existe.** La partición y el grafo de centroides trabajan en l2, que coincide con el coseno sobre vectores normalizados y no con un producto escalar crudo: el centroide más cercano en l2 no es el posting de mayor producto. Hoy `dot` se rechaza por eso. *Dos caminos que veo, ninguno probado:*
+  - **Transformar los vectores** para reducir el producto escalar máximo a una búsqueda en l2, con una dimensión más que lleva la norma. Pide una cota de la norma conocida de antemano, y mantenerla con los inserts.
+  - **Rutear por producto escalar,** que cambia la partición y la asignación.
+- **Las aristas.** *Lectura mía:* los vecinos más cercanos por producto escalar tienden a ser los vectores de norma grande, que acabarían de vecinos de casi todos. Sin medir.
+- **Un margen relativo no vale sin más:** la distancia `dot` es el producto cambiado de signo, y un umbral que puede ser negativo no se puede escalar por un factor.
 
 ### Multi-vector
 
@@ -221,9 +237,10 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 | público | default | a qué corresponde dentro | qué validar |
 |---|---|---|---|
+| `distance` | `cosine` | `UserConfig.Distance` | Solo `cosine` en la primera versión. Cualquier otro valor, error de configuración |
 | `ef` | 20 | `UserConfig.EF`. El efectivo es el mayor entre `ef` y k | 1 o más |
 | `efConstruction` | 160 | El ef de la búsqueda de un insert | 16 o más: el número de aristas |
-| `rescoreLimit` | Acoplado a `ef` | `UserConfig.RescoreLimit`. El efectivo nunca baja de k | 0 o más, o el valor que signifique «automático» |
+| `rq.rescoreLimit` | Automático, por los bits del código de scan: 64 a 1536d y 200 a 768d. Sin acoplar a `ef` en el modo `routing` | `UserConfig.RescoreLimit`. El efectivo nunca baja de k | −1 para el automático, o 0 o más |
 | `maxPostingSizeKB` | `0`: automático, 236 vectores de media | El umbral de split T: 360 vectores en automático. Un valor explícito, con la fórmula de HFresh | 0, o de 8 a 1024 |
 | `rq.cacheMode` | `routing` | Qué códigos quedan en RAM: `routing`, el de ruteo; `none`, ninguno (el halo); `scan`, reservado hasta el veredicto de v4.1 | Uno de los tres valores. `scan` se rechaza mientras esté reservado |
 
@@ -239,11 +256,11 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **`dynamicEfMin`, `dynamicEfMax` y `dynamicEfFactor` no son públicos.** Yo reservaba los nombres. Pasa a pendiente: ver la comprobación 3.
 - **`rq.enabled`, `rq.bits`, `rq.centering` y `rq.trainingLimit` son internos.** Yo los listaba como públicos de valor fijo. Una consecuencia para el parseo: una configuración que traiga `rq.enabled: false`, otros `bits`, o un bloque `pq`, `sq` o `bq` tiene que dar error, como en HFresh. Los parseadores comunes ignoran en silencio lo que no conocen.
 
-**Tres puntos que hay que confirmar:**
+**Los tres puntos que quedaban, resueltos por el usuario el 19 por la tarde:**
 
-1. **Dónde vive `rescoreLimit`.** La lista lo escribe sin prefijo, y `cacheMode` con `rq.`. En HNSW, HFresh y flat vive dentro del bloque de compresión (`rq.rescoreLimit`), nunca arriba. Mi tabla lo tiene en `rq.rescoreLimit`. Si va arriba, sería el único índice que lo tiene ahí.
-2. **Qué significa «acoplado a `ef` por defecto» en el modo `routing`.** Por lo medido, en `routing` y en `none` el scan usa el código completo, y ahí el `rescoreLimit` no depende de `ef`: 64 aguanta de ef 21 a ef 1 024 a 1536d, y 200 a 768d. Mi propuesta solo lo mueve con `ef` en el modo `scan`. Si el acoplamiento se aplica siempre, con un suelo de ef / 2, en el punto de 0.99 (ef 188) serían 94 lecturas de rescore en vez de 64: un 14 % más de lecturas por query, sin ganancia medida.
-3. **`distance` no está en la lista.** En mi tabla es público, como en los otros tres índices. La configuración de un índice tiene que decir su distancia (`DistanceName()`), y el shard construye el proveedor a partir de ella (`adapters/repos/db/shard_init_vector.go:140-155`). Si es interno, el índice queda fijo en `cosine`. Todo lo medido es en coseno.
+1. **`rq.rescoreLimit`,** dentro del bloque de compresión, como en HNSW, HFresh y flat.
+2. **Sin acoplar a `ef` en el modo `routing`.** El automático no es un 64 fijo: a 768d su techo es 0.9816. Sale de una regla por los bits del código de scan: ver «El valor automático de `rq.rescoreLimit`».
+3. **`distance` se expone, y la primera versión valida solo `cosine`.** Lo que harían falta `l2-squared` y `dot` está en la sección 3, «Métricas de distancia».
 
 ### Mi tabla original, con los equivalentes en HNSW, HFresh y flat
 
@@ -251,14 +268,14 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 | público, propuesto | interno hoy | en HNSW | en HFresh | en flat | default propuesto | qué validar | ¿cambia después? |
 |---|---|---|---|---|---|---|---|
-| `distance` | `UserConfig.Distance` (`config.go`) | `distance`, `entities/vectorindex/hnsw/config.go:60` | `distance`, `entities/vectorindex/hfresh/config.go:69` | `distance`, `entities/vectorindex/flat/config.go:45` | `cosine` | `cosine` o `l2-squared`, y al parsear, como HFresh. HNSW y flat lo rechazan más tarde, al crear el shard | No, como en los tres |
+| `distance` | `UserConfig.Distance` (`config.go`) | `distance`, `entities/vectorindex/hnsw/config.go:60` | `distance`, `entities/vectorindex/hfresh/config.go:69` | `distance`, `entities/vectorindex/flat/config.go:45` | `cosine` | Acordado: solo `cosine` en la primera versión, y al parsear, como hace HFresh con las suyas. HNSW y flat lo rechazan más tarde, al crear el shard | No, como en los tres |
 | `maxPostingSizeKB` | El umbral de split T: `streamConfig.threshold` y `growConfig.threshold`, en test. En el build en lote, su media: `UserConfig.TargetPostingSize` | No tiene | `maxPostingSizeKB`, `entities/vectorindex/hfresh/config.go:66`. Default 48, de 8 a 1024 | No tiene | `0`, automático: T = 360 vectores. Ver la comprobación 1 | 0, o de 8 a 1024 como HFresh. El T que resulte, de 192 vectores o más | No. HFresh acepta el cambio y no lo aplica hasta reconstruir el índice: mejor rechazarlo |
 | `ef` | `UserConfig.EF`, 20 | `ef`, `entities/vectorindex/hnsw/config.go:54`. Default −1 | `searchProbe`, `entities/vectorindex/hfresh/config.go:68`. Default 256. Es el concepto equivalente, no el mismo nombre | No tiene | 20. O −1, si se adopta el ef dinámico: ver la comprobación 3 | −1, o 1 o más. Se sube a k, como hoy | Sí, en vivo, como en HNSW y como hoy |
 | `dynamicEfMin`, `dynamicEfMax`, `dynamicEfFactor` | No existen | `entities/vectorindex/hnsw/config.go:55-57`. Defaults 100, 500 y 8 | No tiene | No tiene | Sin proponer valores: falta medir otros k | Mínimo de 1 o más, máximo no menor que el mínimo, factor de 1 o más | Sí, en vivo |
 | `efConstruction` | El ef de la búsqueda de un insert: 160, flag del arnés. En el build en lote lo sustituyen `BuildProbe` (256) y `RescueLimit` (64) | `efConstruction`, `entities/vectorindex/hnsw/config.go:53`. Default 128, mínimo 4 | No tiene. Lo más cercano es interno: `InternalPostingCandidates`, 64 | No tiene | 160 | El número de aristas (16) o más. Medido: 80 cumple por 0.2 puntos y 40 no cumple | No, como en HNSW |
 | `rq.enabled`, `rq.bits`, `rq.centering` | Fijos: código RQ centrado de 1 bit (`trainQuantizer` en `postings.go`) | `rq`, `entities/vectorindex/hnsw/rq_config.go:30-36`. Bits 8, 4 o 1; `centering` con 4 o 1 | `rq`, `entities/vectorindex/hfresh/config.go:70`. Solo `enabled: true` y `bits: 1`. Rechaza `centering` | `rq`, `entities/vectorindex/flat/config.go:37-42`. Bits 1 u 8 | `true`, 1 y `true` | Rechazar cualquier otro valor, y los bloques `pq`, `sq` y `bq`, con error, como HFresh | No |
 | `rq.trainingLimit` | `UserConfig.TrainingLimit`, 10 000 | `rq.trainingLimit`, `entities/vectorindex/hnsw/rq_config.go:35`. Default 10 000 | No se parsea | No tiene | 10 000 | 1 o más | No |
-| `rq.rescoreLimit` | `UserConfig.RescoreLimit`, 64 | `rq.rescoreLimit`, `entities/vectorindex/hnsw/rq_config.go:33`. Default 20, y 512 con 1 bit | `rq.rescoreLimit`. Default 350, `entities/vectorindex/hfresh/config.go:34` | `rq.rescoreLimit` y `bq.rescoreLimit`, `entities/vectorindex/flat/config.go:33` y `:39`. Default −1, que es k | −1, automático por modo. Ver el acoplamiento | −1, o 0 o más. Efectivo: nunca menos que k | Sí, en vivo |
+| `rq.rescoreLimit` | `UserConfig.RescoreLimit`, 64 | `rq.rescoreLimit`, `entities/vectorindex/hnsw/rq_config.go:33`. Default 20, y 512 con 1 bit | `rq.rescoreLimit`. Default 350, `entities/vectorindex/hfresh/config.go:34` | `rq.rescoreLimit` y `bq.rescoreLimit`, `entities/vectorindex/flat/config.go:33` y `:39`. Default −1, que es k | −1, automático. Ver «El valor automático de `rq.rescoreLimit`» | −1, o 0 o más. Efectivo: nunca menos que k | Sí, en vivo |
 | `rq.cache`, enumerado | Tres celdas del arnés: `diskMeta.Halo`, `RoutingCodeWords` y `ScanInMemory` | No tiene: siempre cachea, hasta `vectorCacheMaxObjects` (`:58`) | No tiene | `bq.cache` y `rq.cache`, booleanos, `entities/vectorindex/flat/config.go:34` y `:40`, con `vectorCacheMaxObjects` (`:46`) | `routing`. Ver la comprobación 2 | Uno de los valores del enumerado. Un booleano, con error | No: cada modo es un formato en disco |
 
 **Lo que propongo no exponer en una primera versión:**
@@ -360,38 +377,59 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **No fijar los valores sin medir.** El punto de partida sería un mínimo de 20 y un factor de 2, que con k = 10 es el default de hoy. Antes de darlo por bueno: un barrido de k (1, 10 y 100) que diga qué ef da 0.95 en cada uno.
 - **Mientras tanto, el default sigue siendo `ef: 20`.**
 
-### El acoplamiento de `rescoreLimit` con `ef`
+### El valor automático de `rq.rescoreLimit`
 
-**Lo medido.** El recall tiene un techo que pone el `rescoreLimit`, y ese techo depende de cuántos bits tiene el código con el que se hace el scan:
+**Acordado:** vive en `rq.rescoreLimit`. En el modo `routing` no se acopla a `ef`. Y el automático no puede ser un 64 fijo.
 
-| bits del código del scan | con 64 | con 200 | con 400 | con 800 | de dónde sale |
-|---|---|---|---|---|---|
-| 1 536: el código completo a 1536d | techo 0.996 | 0.996 | — | — | Fase B, dbpedia |
-| 768: el código completo a 768d | techo 0.9816 | 0.9904 a ef 160 | el que se cronometra a 0.99 | — | v1.4, wiki-dpr |
-| 768, a 1536d | techo 0.975 | 0.99 a ef 397 | 0.99 a ef 291 | 0.99 a ef 281 | Fase B y v4.1 |
-| 512, a 1536d | techo 0.926 | techo 0.9822 | 0.99 a ef 711 | 0.99 a ef 385 | Fase B y v4.1 |
-| 256, a 1536d | techo 0.788 | techo 0.911 | techo 0.952 | techo 0.974 | Fase B, celda desacoplada |
+**Lo medido.** El recall tiene un techo que pone el `rescoreLimit`. La tabla da ese techo, el recall a ef 1 024 subiendo solo ef, por los bits del código. Todo con k = 10 y en coseno. Sale de «v1.2, Fase B» y de «v1.4» en `bench-report.md`.
 
-- **El `rescoreLimit` que hace falta lo decide la anchura del código, no el ef.** Con el código completo a 1536d, 64 llega a 0.99 con ef 188 y a 0.996 con ef 1 024. Con 512 bits, 200 no llega a 0.99 con ningún ef.
-- **Pasado el techo, subir ef baja el recall.** Con 256 bits y 400, el recall sube hasta 0.9516 en ef 320 y cae a 0.9397. Más vectores escaneados compiten por los mismos puestos del rescore con estimaciones ruidosas.
-- **Donde funciona, el `rescoreLimit` es al menos la mitad del ef:** 200 con ef 397 a 768 bits, y 400 con ef 711 a 512.
-- **Cada candidato del rescore es una lectura.** Con el scan en RAM, a 0.95 el rescore son 200 de las 218 lecturas de una query.
+| bits del código | de dónde | con 64 | 200 | 400 | 800 | 1 600 | 3 200 |
+|---|---|---|---|---|---|---|---|
+| 1 536 | dbpedia 1536d, el código completo | 0.9960 | 0.9963 | — | — | — | — |
+| 768 | wiki-dpr 768d, el código completo | 0.9816 | 0.9961 | 0.9978 | — | — | — |
+| 768 | dbpedia 1536d, capado | 0.9749 | 0.9937 | 0.9958 | 0.9963 | — | — |
+| 512 | wiki-dpr 768d, capado | 0.9176 | 0.9772 | 0.9913 | 0.9959 | — | — |
+| 512 | dbpedia 1536d, capado | 0.9255 | 0.9836 | 0.9910 | 0.9947 | 0.9960 | 0.9963 |
+| 384 | wiki-dpr 768d, capado | 0.8436 | 0.9411 | 0.9706 | 0.9863 | — | — |
+| 256 | dbpedia 1536d, capado | 0.7521 | 0.8867 | 0.9369 | 0.9692 | 0.984 | 0.991 |
+
+- **Cuentan los bits, no la dimensión.** Las dos filas de 768 bits se parecen, y las dos de 512 también.
+- **El `rescoreLimit` que deja el techo en 0.99 crece con el cubo de lo que se acorta el código.** Interpolando entre columnas: de 100 a 140 con 768 bits, unos 355 con 512, unos 1 070 con 384 y unos 2 800 con 256. Es 120 × (768 / bits)³, con un error de un 15 % como mucho.
+- **Con 1 536 bits esa ley daría 15.** Lo único medido ahí es 64 y 200, y los dos dejan el techo donde lo deja el índice, en 0.996.
 
 *Propuesta mía,* para `rq.rescoreLimit: -1`:
 
-- **Una base por anchura del código del scan:** 64 con 1 536 bits o más, 200 con 768 o más y 400 con 512 o más. Por debajo de 512 bits no se ofrece ningún modo. Esto ya cubre la regla de hoy, «64 a 1536d y 200 a 768d».
-- **Y un suelo de la mitad del ef, solo cuando el scan usa un código más corto que el completo.** Con el código completo no hace falta: 64 aguanta hasta ef 1 024.
-- **El efectivo nunca baja de k,** como en HFresh y en flat.
+**El automático es el mayor entre 64 y 200 × (768 / bits)³,** con los bits del código con el que se hace el scan. El efectivo nunca baja de k.
+
+| bits del scan | 384 | 512 | 768 | 1 024 | 1 536 | 3 072 |
+|---|---|---|---|---|---|---|
+| automático | 1 600 | 675 | 200 | 85 | 64 | 64 |
+| lo medido más cerca | 800 no llega: 0.9863 | 400 llega justo, a ef 640 y 1 024. 800, a ef 320 y 640 | 200 llega: a ef 160 a 768d, y a ef 640 capado | nada | 64 llega: a ef 188 | nada |
+
+- **Cumple «0.99 alcanzable subiendo solo `ef`» en los dos datasets:** con 200 a 768d (0.9904 en ef 160) y con 64 a 1536d.
+- **No gasta lecturas de más a 1536d:** se queda en el 64 de hoy.
+- **El ancla de 200 lleva margen sobre el mínimo interpolado,** de 1.5 a 2 veces. Un techo de 0.99 justo obliga a un ef muy alto: con 512 bits y 400 hace falta ef 1 024.
+- **En `routing` y en `none`,** los bits del scan son los de la dimensión, redondeados a 64. En `scan` serían los del sketch.
 - **Un valor explícito se respeta tal cual,** con k como único suelo.
 
-**Frente a lo acordado,** «`rescoreLimit` acoplado a `ef` por defecto»: esta propuesta solo lo acopla en el modo `scan`. Es el punto 2 de «Diferencias con mi tabla».
+**Qué puntos faltan para fijarla:**
 
-**Lo que esta propuesta no tiene detrás:**
+1. **Dónde cruza 0.99 con 768 bits, entre 64 y 200.** Es el ancla de la regla y cae en un hueco sin medir. La interpolación dice que entre 100 y 140. Si 150 deja margen, son 50 lecturas menos por query a 768d.
+2. **Por debajo de 64 con 1 536 bits.** El suelo de 64 está ahí porque no hay nada medido por debajo, y la ley dice que bastarían unos 25. A 0.95 el rescore son 64 de las 101 lecturas de una query: es donde más habría que ahorrar.
+3. **Una anchura entre 768 y 1 536,** por ejemplo 1 024 bits. La regla da 85 sin ningún dato cerca.
+4. **Un dataset nativo de menos de 768d.** Los puntos de 512, 384 y 256 bits son códigos capados de vectores de 768d y de 1536d.
+5. **Otros k.** Todo es con k = 10, y no sé si el valor escala con k. Sale de la medida pendiente de k = 1 y k = 100.
+6. **Un segundo dataset a 1536d.** El 64 sale solo de dbpedia.
 
-- **El suelo de ef / 2 sale de dos puntos.** No hay ninguna curva medida con el `rescoreLimit` moviéndose con ef. Con 256 bits el techo llega antes, con ef en 0.8 veces el `rescoreLimit`: el factor crece cuando el código se acorta.
-- **Dimensiones intermedias.** No hay nada medido entre 768 y 1 536 bits.
-- **Otros k.** Con k = 100, un `rescoreLimit` de 64 pasa a 100 y no deja margen de reordenación. A k = 10 el margen es de 6.4 veces.
-- **Antes de fijarla:** una curva por modo con la regla puesta, contra las de `rescoreLimit` fijo, en la misma sesión.
+**Pendiente antes de integrar,** junto a k = 1 y k = 100:
+
+- **Un barrido corto, sin cronometrar, a 768d, con rescore 64, 100, 150 y 200.** Fija el ancla, que es el punto 1. Hace falta.
+- *Propuesta mía, para el mismo barrido:* 16, 32 y 48 a 1536d, que es el punto 2. Sin él la regla es correcta a 1536d y quizá cara.
+
+**Dos avisos:**
+
+- **Por debajo de 768 bits el rescore se dispara:** 675 lecturas con 512 bits y 1 600 con 384. *Lectura mía:* ahí un código de 1 bit por dimensión se queda corto, y habría que mirar un código de más bits antes que un rescore tan ancho.
+- **El modo `scan`, reservado, puede necesitar además un suelo que suba con `ef`.** Con un código corto, pasado el techo, subir `ef` baja el recall: con 256 bits y 400, de 0.9516 a 0.9397. Mi propuesta anterior ponía ese suelo en la mitad del `ef`. Sale de dos puntos y no está medido como regla: queda para cuando ese modo tenga veredicto.
 
 ## 5. Orden de trabajo propuesto
 
@@ -404,7 +442,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | El nombre del tipo | La configuración en `entities`, los nombres de buckets y directorios, todo el registro | De nada |
 | Dónde viven los vectores exactos: bucket de objetos o fichero propio | El formato en disco, el backup y la replicación | De una medida con objetos reales, que no hay |
 | Un formato en disco o dos: el que crece (v5.0) y el del lote (v4.0) | El camino de lectura y la reorganización | De si la reorganización reescribe al formato del lote |
-| Los tres puntos por confirmar de la tabla de parámetros: dónde vive `rescoreLimit`, su acoplamiento en el modo `routing`, y `distance` | La configuración en `entities` | De nada. Lo demás de la tabla está acordado |
+| La regla del `rescoreLimit` automático | El default de `rq.rescoreLimit` | **De una medida pendiente: el barrido a 768d con rescore 64, 100, 150 y 200.** El resto de la tabla de parámetros está acordado |
 | El `ef` dinámico | El default de `ef` para k distinto de 10 | **De una medida pendiente: k = 1 y k = 100** |
 | Qué fusión devuelve el llenado sin quitar las fuentes | El paso 4, si la primera versión tiene que aguantar más de un 10 % de borrados | De una medida que no existe: la celda 1b con fusión |
 
@@ -467,6 +505,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **k = 1 y k = 100,** para decidir el `ef` dinámico. Con el `ef` fijo en 20, una query con k = 100 corre con ef = k, la parada más temprana.
 - **El `rescoreLimit` con k = 100:** 64 pasa a 100 y no deja margen de reordenación. Sale de la misma medida.
+- **Un barrido corto, sin cronometrar, a 768d, con rescore 64, 100, 150 y 200,** para fijar el ancla del `rescoreLimit` automático. *Propuesta mía, para el mismo barrido:* 16, 32 y 48 a 1536d.
 
 **Lo que está en vuelo y puede mover este plan:**
 
