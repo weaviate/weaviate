@@ -420,6 +420,16 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, tf.Index.Shutdown(ctx))
 	})
 
+	t.Run("never splits the single posting inline", func(t *testing.T) {
+		// far past the inline split of graph mode, still under the limit
+		setSinglePostingLimit(t, 2000)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		insert(t, &tf, 1600)
+		require.Greater(t, uint32(1600), 5*tf.Index.maxPostingSize)
+		require.False(t, tf.Index.Centroids.Built())
+		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
+	})
+
 	t.Run("filtered search finds pre-threshold vectors before the first split", func(t *testing.T) {
 		setSinglePostingLimit(t, singlePostingThreshold)
 		tf := newTestIndex(t, singlePostingUserConfig(), nil)
