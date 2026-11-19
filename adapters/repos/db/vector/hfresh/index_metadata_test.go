@@ -502,6 +502,26 @@ func TestFirstSplitSurvivesLostCommitLogDirectory(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
+// A backup captures the centroid graph's commit log before the queues, which
+// keep running: the first split must wait for the backup to end, or the
+// backup holds its children without the graph.
+func TestFirstSplitWaitsForBackup(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	require.NoError(t, index.PrepareForBackup(t.Context()))
+	all := addRestartVectors(t, index, vectors, 0, 600)
+	index.waitForMaintenance(t)
+	require.False(t, index.Centroids.Built(), "the first split must wait for the backup")
+	requireSinglePostingSize(t, index, 600)
+
+	require.NoError(t, index.ResumeAfterBackup(t.Context()))
+	index.waitForMaintenance(t)
+	require.True(t, index.Centroids.Built())
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
 // The queued first split sits in its own queue file, which a crash can lose;
 // the restart queues it again for a read-only tenant.
 func TestFirstSplitLostInCrashIsRequeued(t *testing.T) {
