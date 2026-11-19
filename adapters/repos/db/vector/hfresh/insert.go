@@ -237,19 +237,20 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	h.postingLocks.Unlock(centroidID)
 
-	if !reassigned {
-		// analyze tasks are not queued for the single posting: each one
-		// would read the whole posting
-		if !h.Centroids.Built() {
-			if h.singlePostingFull(count) {
-				err = h.taskQueue.EnqueueSplit(centroidID)
-				if err != nil {
-					return false, err
-				}
+	// analyze tasks are not queued for the single posting, each one would
+	// read the whole posting, and reassigned vectors count toward its limit
+	// like inserts
+	if !h.Centroids.Built() {
+		if h.singlePostingFull(count) {
+			err = h.taskQueue.EnqueueSplit(centroidID)
+			if err != nil {
+				return false, err
 			}
-			return true, nil
 		}
+		return true, nil
+	}
 
+	if !reassigned {
 		if count > h.maxPostingSize*5 {
 			err = h.doSplit(ctx, centroidID, true)
 			if err != nil {
