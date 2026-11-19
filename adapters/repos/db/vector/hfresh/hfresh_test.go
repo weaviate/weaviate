@@ -430,6 +430,29 @@ func TestSinglePostingMode(t *testing.T) {
 		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
 	})
 
+	t.Run("deleted entries do not count toward the limit", func(t *testing.T) {
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		vectors := insert(t, &tf, singlePostingThreshold+200)
+		for id := range uint64(700) {
+			require.NoError(t, tf.Index.Delete(id))
+		}
+		tf.Index.taskQueue.splitQueue.Resume()
+		tf.Index.waitForMaintenance(t)
+
+		// 500 live entries are above the max posting size but under the limit
+		require.False(t, tf.Index.Centroids.Built())
+		size, err := tf.Index.PostingSizes.Get(ctx, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, 500, size)
+		for i := 700; i < len(vectors); i++ {
+			ids, _, err := tf.Index.SearchByVector(ctx, vectors[i], 1, nil)
+			require.NoError(t, err)
+			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+		}
+	})
+
 	t.Run("filtered search finds pre-threshold vectors before the first split", func(t *testing.T) {
 		setSinglePostingLimit(t, singlePostingThreshold)
 		tf := newTestIndex(t, singlePostingUserConfig(), nil)
