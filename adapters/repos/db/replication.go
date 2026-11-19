@@ -1074,7 +1074,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 ) (result []types.RepairResponse, err error) {
 	s, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shardName)
+		return nil, fmt.Errorf("shard %q not found locally: %w", shardName, err)
 	}
 	defer release()
 
