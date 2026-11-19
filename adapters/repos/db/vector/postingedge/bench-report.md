@@ -168,6 +168,127 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v6.0: deletes en memoria (pre-registro, 2026-11-19)
+
+**Estado: pre-registrado el 19 a las 14:12, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo base, las cuatro celdas, el protocolo, los stops, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos: nada se cronometra.
+
+### El encargo (del usuario)
+
+Deletes en memoria, en conteos. Sobre el arnés de streaming, 1M dbpedia. Tiene que acabar o pausarse antes de las 23:00.
+
+**Mecanismo base:** borrado lógico con una marca por vector. El scan salta los miembros borrados, y un vector borrado nunca se devuelve.
+
+**Celdas, acumulativas:**
+
+1. Solo borrado lógico. Las aristas hacia vectores borrados se siguen usando como pistas de ruteo.
+2. Los endpoints borrados no se puntúan.
+3. Más limpieza física: un posting con más del 30 % de miembros borrados se reescribe sin ellos, y uno que queda por debajo de un tamaño mínimo se fusiona con su vecino más cercano (merge simple propio, con el mapa actualizado).
+4. Más refresco: un vector con la mitad o más de sus aristas apuntando a borrados rehace su lista por búsqueda.
+
+**Protocolo:**
+
+- Índice en lote del 100 %, y se borra el 10 %, el 30 % y el 50 % al azar. La referencia de cada punto es un índice en lote construido solo con los supervivientes.
+- Variante agrupada, solo al 30 %: se borran regiones enteras (los vectores de un conjunto de postings vecinos), que es el peor caso para las aristas.
+- Churn, solo con la mejor celda: borrar el 30 % e insertar otros tantos vectores nuevos con el camino de inserts (aristas inversas, ef 160), comparado con el lote del conjunto final.
+
+**Stops:** un vector borrado devuelto en una búsqueda, o un fallo de cobertura (cada vector vivo en exactamente un posting).
+
+**Medidas por celda y punto:** recall y cargas a igual ef, cargas a 0.95 y 0.99, tamaño medio de posting, fracción de aristas muertas, y trabajo de limpieza y refresco en conteos.
+
+**Pre-registro:** los deletes se sostienen si, con el 30 % borrado al azar, alguna celda queda a 0.005 de recall o menos de su referencia a igual ef, con cargas a 0.95 +15 % o menos y a 0.99 +10 % o menos. Se reporta cuál es la celda más simple que lo cumple. La regla de ruido a 0.99 se aplica igual que en v2.x.
+
+### El índice y la búsqueda (*mío*)
+
+- **El de v2.x:** índice en memoria con código completo, S = 236, P = 256, R = 64, y el índice de streaming por doc id, con split a T = 360, aristas inversas y ef de inserción 160. La búsqueda, con sus defaults: una entrada, lotes de 4, ef de centroides 8, margen 0.06 y rescoreLimit 64.
+- **La marca vive en la búsqueda del índice,** una por doc id. Es el único cambio fuera de los ficheros de test, y sin marcas la búsqueda es la de siempre.
+- **Un miembro borrado no se puntúa, no es candidato y no es fuente:** sus aristas no se siguen. Sigue en su posting, con su código, hasta que una limpieza lo saque.
+- **Malla de búsqueda:** ef de 10 a 1 024, la de v2.x (10, 20, 40, 80, 160, 320, 640 y 1 024), sobre las 5 000 queries, con k = 10. El ground truth de cada punto es el exacto sobre los vectores vivos.
+
+### Las celdas, en detalle (*mío*)
+
+| celda | qué añade | cómo |
+|---|---|---|
+| 1 | borrado lógico | el endpoint borrado se puntúa con su código, que sigue en RAM, y puede llevar a cargar su posting |
+| 2 | los endpoints borrados no se puntúan | una arista hacia un borrado se salta al recoger endpoints |
+| 3 | limpieza física | una pasada por los postings al llegar al punto: reescritura y fusión |
+| 4 | refresco | una pasada por los vectores vivos, después de la limpieza |
+
+- **Las cuatro corren sobre el mismo índice, una detrás de otra,** en cada punto. Las celdas 1 y 2 son el mismo índice buscado de dos formas; la 3 lo cambia y la 4 lo vuelve a cambiar.
+- **Cada punto parte de una copia del índice en lote del 100 %,** el mismo build para todos.
+- **La limpieza y el refresco son pasadas al llegar al punto,** no un disparador delete a delete. En producto se dispararían al borrar; aquí todos los deletes de un punto llegan antes.
+- **Reescritura (celda 3):** un posting con más del 30 % de sus miembros borrados se copia sin ellos, con sus códigos y sus listas de aristas. Los demás conservan sus borrados.
+- **Fusión (celda 3):** después de las reescrituras, por orden de posting, uno con menos de **118 miembros vivos** se fusiona con el posting vivo de centroide más cercano, que el grafo de centroides devuelve.
+  - **Por qué 118:** es S / 2, y un tercio del umbral de split (360). HFresh guarda la misma proporción entre su mínimo y su máximo, 75 y 227.
+  - **Qué hace:** los miembros vivos pasan al final del vecino, con sus códigos y sus listas; el mapa de posting de cada uno se actualiza; sus borrados se sueltan; el posting se retira y su centroide sale del grafo. El centroide del vecino no se recalcula. Ninguna arista cambia: son doc ids.
+  - **Si el vecino pasa de 360,** se parte con el split de siempre.
+  - **Un posting sin miembros vivos** se retira sin más.
+  - Un posting que ya recibió una fusión en la pasada no se vuelve a mirar.
+- **Refresco (celda 4):** se listan los vectores vivos con al menos una arista y la mitad o más de ellas hacia borrados, y cada uno rehace su lista con el refresco de v2.3: una búsqueda con ef 160 desde su propio posting, sus 16 vecinos vivos más cercanos, los de fuera de su posting, y su entrada en las listas de esos vecinos como arista inversa.
+  - La lista se fija antes de empezar: las aristas inversas de un refresco no añaden vectores a la pasada.
+- **Lo que ninguna celda hace:** quitar una arista muerta de una lista que no llega a la mitad, ni recalcular centroides.
+
+### Protocolo, en detalle (*mío*)
+
+- **Al azar:** una sola permutación de los 990 000 vectores, con semilla fija. El 10 % son sus primeros 99 000, el 30 % sus primeros 297 000 y el 50 % sus primeros 495 000: cada punto contiene al anterior.
+- **Referencia de cada punto:** un build en lote solo con los supervivientes, con la misma configuración, medido con la misma malla, en la misma corrida.
+- **Agrupada, al 30 %:** regiones de 64 postings vecinos. Se sortea un posting semilla entre los no tomados y se toman él y sus 63 más cercanos por distancia entre centroides, también entre los no tomados; así hasta que los vectores de los postings tomados lleguen al 30 % del corpus. La última región se corta al llegar. Se borran todos los vectores de esos postings.
+- **Churn, con la mejor celda:**
+  - **La base** es un build en lote de 760 000 vectores, los primeros de otra permutación con semilla fija. Los 230 000 restantes son los nuevos. No puede ser el índice del 100 %: no quedarían vectores que insertar.
+  - **Diez rondas.** En cada una se borran 22 800 vectores de la base, al azar, y se insertan 22 800 nuevos con el insert de streaming, y después corren las pasadas de la celda. Al final se ha borrado el 30 % de la base y se ha insertado otro tanto.
+  - **Con limpieza física, un posting que tiene que partirse suelta antes sus borrados,** y solo se parte si sigue por encima de 360.
+  - **Referencia:** un build en lote del conjunto final, 532 000 supervivientes y 228 000 nuevos.
+  - **Cobertura y stop en cada ronda; la malla, al final.**
+- **La mejor celda** es la más simple que cumple el criterio al 30 % al azar. Si ninguna lo cumple, la de menos cargas a 0.99 sobre su referencia en ese punto; entre dos a menos del suelo de ruido, la más simple. La elige la propia corrida, con esta regla.
+
+### Stops
+
+- **Un vector borrado devuelto:** se comprueba en cada query de cada ef de la malla, en cada celda y punto, y en las búsquedas de los refrescos y de los inserts.
+- **Cobertura,** tras marcar los deletes y tras cada pasada: cada vector vivo está en un posting y solo en uno, el mapa dice lo mismo que los postings, ningún posting retirado guarda miembros ni sigue en el grafo de centroides, y todo miembro que no está vivo lleva la marca.
+- **Cualquiera de los dos para la corrida** en ese punto y se reporta.
+
+### Medidas
+
+Por celda y punto, y para cada referencia:
+
+- **Por ef de la malla:** recall, cargas, vectores puntuados en el scan y endpoints puntuados.
+- **Cargas a 0.95 y a 0.99,** leídas de la malla como en v2.x: entre los dos ef que rodean el recall, lineal en recall y logarítmico en cargas. Se dice entre qué dos ef cruza 0.99.
+- **Postings:** cuántos hay vivos, su tamaño medio en miembros vivos y en miembros que ocupan sitio, y cuántos quedan por debajo de 118 y de 177 vivos.
+- **Aristas:** las de los vectores vivos, las que apuntan a borrados y su fracción, y los vectores con la mitad o más de las suyas muertas.
+- **Limpieza:** postings reescritos, miembros borrados que se sueltan, miembros vivos que se copian, fusiones, miembros movidos y splits que provocan.
+- **Refresco:** vectores refrescados, sus cargas, sus endpoints puntuados y sus distancias exactas, y las aristas inversas que entran.
+
+### Criterio (del usuario) y cómo lo aplico
+
+**Los deletes se sostienen si, con el 30 % borrado al azar, alguna celda queda a 0.005 de recall o menos de su referencia a igual ef, con cargas a 0.95 +15 % o menos y a 0.99 +10 % o menos.**
+
+*Mío, para aplicarlo, como en v2.2:*
+
+- **El recall a igual ef** se mira en cada ef de la malla: cuenta la peor diferencia por debajo de la referencia.
+- **Las cargas** son las leídas a 0.95 y a 0.99 en la celda, sobre las de su referencia.
+- **Una celda que no llega a 0.99 en la malla no cumple.**
+- **Suelo de ruido,** el de v2.0: hasta 0.0009 de recall, un 0.5 % en cargas a 0.95 y un 3.0 % en cargas a 0.99. Una condición que se cumpla o falle por menos se marca como no distinguible del ruido.
+- **Regla de ruido a 0.99, como en v2.3:** las cuatro celdas de un punto se comparan entre sí dentro de la corrida, sobre un solo índice. La referencia es otro índice, construido en la misma corrida: es la única comparación a 0.99 entre índices, porque el criterio lo pide así. Nada a 0.99 se compara con v2.x.
+- **Los demás puntos** (10 %, 50 %, agrupada y churn) se reportan con las mismas tres condiciones, sin veredicto.
+
+### Antes de las 23:00
+
+- **Una sola corrida, sin cronometrar, de día.** Escribe sus resultados después de cada etapa.
+- **Orden:** 30 % al azar, que es el del criterio; después 10 %, 50 %, agrupada y churn.
+- **A partir de las 22:15 no empieza ninguna etapa.** Lo que falte se reporta como no corrido y se retoma otro día. La cola de la noche no arranca mientras esta corrida siga viva.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **El problema al 30 % no serán las aristas sino lo vacíos que quedan los postings.** Al azar, cada posting pierde el 30 % de sus miembros: 165 vivos de media donde la referencia tiene 236. Para ver los mismos vectores hay que cargar más postings.
+- **Celdas 1 y 2 al 30 %:** recall a igual ef dentro de 0.005, y cargas a 0.95 de un 25 a un 40 % por encima. No cumplen.
+- **Celda 3 al 30 %:** reescribe la mitad de los postings, pero fusiona pocos, porque casi todos quedan por encima de 118. Cargas de un 20 a un 35 % por encima. No cumple.
+- **Celda 4 al 30 %:** refresca en torno a un 10 % de los vectores. Sube algo el recall a igual ef y apenas baja las cargas. No cumple.
+- **Espero, por tanto, que ninguna celda cumpla al 30 %,** y que falle por las cargas y no por el recall. Lo que faltaría es compactar postings medio vacíos, que no está entre las celdas.
+- **Al 10 %:** las cuatro dentro de las tres condiciones, con cargas un 10 % por encima.
+- **Al 50 %:** las celdas 1 y 2, cargas de un 70 a un 100 % por encima. La 3 recupera mucho, porque la mitad de los postings baja de 118 y se fusiona.
+- **Agrupada:** las celdas 1 y 2 cargan postings vacíos; la 3 los retira y queda cerca de la referencia. Las aristas muertas se concentran en los bordes de las regiones.
+- **Fracción de aristas muertas:** la de vectores borrados, 0.10, 0.30 y 0.50 al azar, y mucho menos en la agrupada.
+- **Churn:** con inserts que rellenan los postings, mejor que el 30 % sin inserts.
+
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
 **Estado: paso 1 cerrado, con dos enmiendas. Va sobre el camino de v5.0, y sus cuatro corridas a 1M están en cola detrás de v4.1.** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
