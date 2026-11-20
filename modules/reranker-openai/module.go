@@ -35,7 +35,7 @@ type ReRankerOpenAIModule struct {
 }
 
 type ReRankerOpenAIClient interface {
-	RankProperty(ctx context.Context, query, property string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]any, error)
 }
 
@@ -55,7 +55,7 @@ func (m *ReRankerOpenAIModule) Init(ctx context.Context,
 	client := clients.New(apiKey, organization, params.GetConfig().ModuleHttpClientTimeout, clients.MaxDocumentsPerQuery,
 		params.GetLogger())
 	m.reranker = client
-	m.additionalPropertiesProvider = rerankeradditional.NewPropertyRankerProvider(client)
+	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(client)
 	return nil
 }
 

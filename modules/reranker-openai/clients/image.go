@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const (
@@ -97,7 +95,7 @@ func imageMIME(encoded string) (string, error) {
 	return "", errors.New("not a PNG, JPEG, GIF or WebP image")
 }
 
-func imageDataURL(encoded string) (string, error) {
+func (r judgeRequest) imageDataURL(encoded string) (string, error) {
 	mime, err := imageMIME(encoded)
 	if err != nil {
 		return "", err
@@ -106,10 +104,10 @@ func imageDataURL(encoded string) (string, error) {
 }
 
 // checkImages runs before any request is sent and billed.
-func (c *client) checkImages(documents []ent.Document, positions []int) error {
+func (c *client) checkImages(documents []string, positions []int) error {
 	for _, position := range positions {
-		if _, err := imageMIME(documents[position].Value); err != nil {
-			return fmt.Errorf("object %s: image: %w", documents[position].ID, err)
+		if _, err := imageMIME(documents[position]); err != nil {
+			return fmt.Errorf("image: %w", err)
 		}
 	}
 	return nil
@@ -119,7 +117,7 @@ func (r judgeRequest) input(document string) (any, error) {
 	if !r.image {
 		return document, nil
 	}
-	url, err := imageDataURL(document)
+	url, err := r.imageDataURL(document)
 	if err != nil {
 		return nil, err
 	}

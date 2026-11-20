@@ -29,7 +29,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -49,10 +48,6 @@ const (
 	changeEmail    = "How do I change the email on my account?"
 	testTimeout    = 30 * time.Second
 	defaultFakeKey = "apiKey"
-	firstID        = "00000000-0000-0000-0000-000000000000"
-	// The empty document is not sent, so an error naming secondID names the
-	// request's document, not its position.
-	secondID = "00000000-0000-0000-0000-000000000001"
 )
 
 func TestRankOneRequestPerDocument(t *testing.T) {
@@ -70,8 +65,8 @@ func TestRankOneRequestPerDocument(t *testing.T) {
 			f.probabilities = map[string]float64{noRefund: 0.91, chargedTwice: 0.64, changeEmail: 0.03}
 			documents := []string{noRefund, chargedTwice, changeEmail}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(documents...), classConfig(f.url(), tt.settings))
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+				documents, classConfig(f.url(), tt.settings))
 
 			require.NoError(t, err)
 			assert.Equal(t, &ent.RankResult{Query: churn, DocumentScores: []ent.DocumentScore{
@@ -116,8 +111,8 @@ func TestRankScoresARefusedDocumentZero(t *testing.T) {
 			f.refusals = tt.refusals
 			documents := []string{noRefund, chargedTwice, changeEmail}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(documents...), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+				documents, classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			scores := make([]float64, len(res.DocumentScores))
@@ -137,10 +132,10 @@ func TestRankSendsARequestAgainWhenAPooledConnectionBreaks(t *testing.T) {
 	f.replies = map[int]fakeReply{1: {hangUp: true}}
 	c := newTestClient(defaultFakeKey)
 
-	_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+	_, err := c.Rank(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 	require.NoError(t, err)
 	require.Equal(t, int64(1), f.opened.Load())
-	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(chargedTwice), classConfig(f.url(), nil))
+	res, err := c.Rank(context.Background(), churn, "text", []string{chargedTwice}, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: chargedTwice, Score: 0.5}}, res.DocumentScores)
@@ -192,13 +187,13 @@ func TestRankSendsARequestOnce(t *testing.T) {
 			c := newTestClient(defaultFakeKey)
 			want := []string{chargedTwice}
 			if tt.pooled {
-				_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+				_, err := c.Rank(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 				require.NoError(t, err)
 				want = []string{noRefund, chargedTwice}
 			}
 			f.replies = map[int]fakeReply{len(want) - 1: tt.reply}
 
-			_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(chargedTwice), classConfig(f.url(), nil))
+			_, err := c.Rank(context.Background(), churn, "text", []string{chargedTwice}, classConfig(f.url(), nil))
 
 			require.ErrorContains(t, err, tt.wantErr)
 			assert.Equal(t, want, inputs(f.received()))
@@ -211,8 +206,8 @@ func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
 
-	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documentsOf("", "a", "a", "b"), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+		[]string{"", "a", "a", "b"}, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{
@@ -228,8 +223,8 @@ func TestRankScoresAWhitespaceOnlyDocumentZeroWithoutSendingIt(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
 
-	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documentsOf(" ", "a", "\t\n ", "b"), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+		[]string{" ", "a", "\t\n ", "b"}, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{
@@ -244,8 +239,8 @@ func TestRankScoresAWhitespaceOnlyDocumentZeroWithoutSendingIt(t *testing.T) {
 func TestRankWithEveryDocumentEmpty(t *testing.T) {
 	f := newFake(t)
 
-	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documentsOf("", ""), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+		[]string{"", ""}, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: "", Score: 0}, {Document: "", Score: 0}}, res.DocumentScores)
@@ -265,8 +260,8 @@ func TestRankRequiresAQuery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), tt.query, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), tt.query, "text",
+				[]string{noRefund}, classConfig(f.url(), nil))
 
 			require.EqualError(t, err, "rerank.query is required by reranker-openai: the query is the condition the model judges")
 			assert.Empty(t, f.received())
@@ -292,8 +287,8 @@ func TestRankLimitsTheQuerySize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), strings.Repeat("q", tt.queryBytes), "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), strings.Repeat("q", tt.queryBytes), "text",
+				[]string{noRefund}, classConfig(f.url(), nil))
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -362,7 +357,7 @@ func TestRankCapsTheDocumentsOfAQuery(t *testing.T) {
 			f := newFake(t)
 			c := New(defaultFakeKey, "", testTimeout, tt.cap, nullLogger())
 
-			res, err := c.RankProperty(context.Background(), churn, tt.property, documentsOf(tt.documents...),
+			res, err := c.Rank(context.Background(), churn, tt.property, tt.documents,
 				classConfig(f.url(), nil))
 
 			assert.Len(t, f.received(), tt.wantSent)
@@ -406,8 +401,8 @@ func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, tt.property,
-				documentsOf(noRefund), tt.cfg)
+			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, tt.property,
+				[]string{noRefund}, tt.cfg)
 
 			require.EqualError(t, err, tt.wantErr)
 		})
@@ -420,8 +415,8 @@ func TestRankSendsABlobPropertyAsAnImage(t *testing.T) {
 	f.probabilities = map[string]float64{"data:image/png;base64," + pngBase64: 0.8, "data:image/jpeg;base64," + jpegBase64: 0.2}
 	documents := []string{pngBase64, jpegBase64}
 
-	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), "The product has visible damage", "photo",
-		documentsOf(documents...), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), "The product has visible damage", "photo",
+		documents, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: pngBase64, Score: 0.8}, {Document: jpegBase64, Score: 0.2}}, res.DocumentScores)
@@ -446,30 +441,30 @@ func TestRankRejectsAnImageBeforeSending(t *testing.T) {
 		{
 			name:      "base64 of text",
 			documents: []string{pngBase64, textBase64, jpegBase64},
-			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not a PNG, JPEG, GIF or WebP image",
+			wantErr:   "image: not a PNG, JPEG, GIF or WebP image",
 		},
 		{
 			name:      "a BMP",
 			documents: []string{pngBase64, bmpBase64},
-			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not a PNG, JPEG, GIF or WebP image",
+			wantErr:   "image: not a PNG, JPEG, GIF or WebP image",
 		},
 		{
 			name:      "not base64",
 			documents: []string{pngBase64, "%%%%"},
-			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not base64",
+			wantErr:   "image: not base64",
 		},
 		{
 			name:      "20 MiB + 1 byte",
 			documents: []string{pngBase64, pngOfSize(maxImageBytes + 1)},
-			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: 20971521 bytes exceed the limit of 20 MiB per image",
+			wantErr:   "image: 20971521 bytes exceed the limit of 20 MiB per image",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "photo",
-				documentsOf(tt.documents...), classConfig(f.url(), nil))
+			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "photo",
+				tt.documents, classConfig(f.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Empty(t, f.received())
@@ -480,8 +475,8 @@ func TestRankRejectsAnImageBeforeSending(t *testing.T) {
 func TestRankSendsBase64TextAsText(t *testing.T) {
 	f := newFake(t)
 
-	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documentsOf(pngBase64), classConfig(f.url(), nil))
+	_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+		[]string{pngBase64}, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	requests := f.received()
@@ -494,8 +489,8 @@ func TestRankReadsTheDeprecatedStringTypeAsText(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{noRefund: 0.9}
 
-	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "legacy",
-		documentsOf(noRefund), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "legacy",
+		[]string{noRefund}, classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: noRefund, Score: 0.9}}, res.DocumentScores)
@@ -537,36 +532,36 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			wantErr: "connection to OpenAI API failed with status 500: " + strings.Repeat("x", 511),
 		},
 		{
-			name:    "400 names the object",
+			name:    "400 quotes the message",
 			reply:   fakeReply{status: http.StatusBadRequest, body: `{"error":{"message":"Invalid input","type":"invalid_request_error"}}`},
-			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+			wantErr: "connection to OpenAI API failed with status 400: Invalid input",
 		},
 		{
-			name: "400 with a param in the input names the object",
+			name: "400 with a param in the input",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":"Invalid value: 'input_image'.","type":"invalid_request_error","param":"input[0].type","code":"invalid_value"}}`,
 			},
-			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid value: 'input_image'.",
+			wantErr: "connection to OpenAI API failed with status 400: Invalid value: 'input_image'.",
 		},
 		{
-			name: "400 with a null param names the object",
+			name: "400 with a null param",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":"Invalid input","type":"invalid_request_error","param":null,"code":null}}`,
 			},
-			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+			wantErr: "connection to OpenAI API failed with status 400: Invalid input",
 		},
 		{
-			name: "400 with a number as the code names the object and keeps the message",
+			name: "400 with a number as the code keeps the message",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":"Invalid input","param":7,"code":400}}`,
 			},
-			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+			wantErr: "connection to OpenAI API failed with status 400: Invalid input",
 		},
 		{
-			name: "400 with a message that is not a string keeps the param and names no object",
+			name: "400 with a message that is not a string",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":["Unsupported model"],"param":"model","code":"invalid_value"}}`,
@@ -574,15 +569,15 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			wantErr: "connection to OpenAI API failed with status 400",
 		},
 		{
-			name: "400 with an error that is a string names the object and quotes it",
+			name: "400 with an error that is a string quotes it",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":"Invalid input"}`,
 			},
-			wantErr: "object " + secondID + ": connection to OpenAI API failed with status 400: Invalid input",
+			wantErr: "connection to OpenAI API failed with status 400: Invalid input",
 		},
 		{
-			name: "400 with a param in the questions names no object",
+			name: "400 with a param in the questions",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":"Invalid instructions","type":"invalid_request_error","param":"questions[0].instructions","code":"invalid_value"}}`,
@@ -590,7 +585,7 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			wantErr: "connection to OpenAI API failed with status 400: Invalid instructions",
 		},
 		{
-			name: "400 with the param model names no object",
+			name: "400 with the param model",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":"Unsupported model","type":"invalid_request_error","param":"model","code":"invalid_value"}}`,
@@ -598,7 +593,7 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			wantErr: "connection to OpenAI API failed with status 400: Unsupported model",
 		},
 		{
-			name: "400 with the code model_not_found names no object",
+			name: "400 with the code model_not_found",
 			reply: fakeReply{
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":"Unknown model","type":"invalid_request_error","param":null,"code":"model_not_found"}}`,
@@ -607,7 +602,7 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 		},
 		{
 			// The API's reply to an unknown model and to a model of another kind.
-			name: "404 for an unknown model names no object",
+			name: "404 for an unknown model",
 			reply: fakeReply{
 				status: http.StatusNotFound,
 				body: "{\"error\":{\"message\":\"The model `x` does not exist or you do not have access to it.\"," +
@@ -621,8 +616,8 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: tt.reply}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf("", noRefund), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+				[]string{"", noRefund}, classConfig(f.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Nil(t, res)
@@ -642,8 +637,8 @@ func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 		f.replies[i] = fakeReply{status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`}
 	}
 
-	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documentsOf(numbered("ticket %d", maxConcurrentRequests+1)...), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+		numbered("ticket %d", maxConcurrentRequests+1), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, "connection to OpenAI API failed with status 429: slow down")
 	assert.Nil(t, res)
@@ -651,8 +646,8 @@ func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 }
 
 func TestRankSendsNothingForAClassBaseURLWithoutAScheme(t *testing.T) {
-	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documentsOf(noRefund), classConfig("api.openai.com", nil))
+	_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+		[]string{noRefund}, classConfig("api.openai.com", nil))
 
 	require.EqualError(t, err, `send OpenAI request: Post "api.openai.com/v1/decisions": unsupported protocol scheme ""`)
 }
@@ -690,7 +685,7 @@ func TestRankReportsA401AndA403WithoutTheBody(t *testing.T) {
 			logger, hook := debugLogger()
 			c := New(secret, "", testTimeout, MaxDocumentsPerQuery, logger)
 
-			_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+			_, err := c.Rank(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Len(t, f.received(), 1)
@@ -747,8 +742,8 @@ func TestRankReportsAnErrorObjectInA200(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+				[]string{noRefund}, classConfig(f.url(), nil))
 
 			assert.Len(t, f.received(), 1)
 			if tt.wantErr != "" {
@@ -863,7 +858,7 @@ func TestRankHeaders(t *testing.T) {
 			}
 			c := New(tt.serverKey, tt.serverOrganization, testTimeout, MaxDocumentsPerQuery, nullLogger())
 
-			_, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(classServer.url(), nil))
+			_, err := c.Rank(ctx, churn, "text", []string{noRefund}, classConfig(classServer.url(), nil))
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -905,8 +900,8 @@ func TestRankTakesAHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
 			headerBaseURL := strings.NewReplacer("<class>", f.url(), "<port>", port).Replace(tt.headerBaseURL)
 			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{headerBaseURL})
 
-			_, err = New("env", "org-env", testTimeout, MaxDocumentsPerQuery, nullLogger()).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+			_, err = New("env", "org-env", testTimeout, MaxDocumentsPerQuery, nullLogger()).Rank(ctx, churn, "text",
+				[]string{noRefund}, classConfig(f.url(), nil))
 
 			require.EqualError(t, err, "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request")
 			assert.Empty(t, f.received())
@@ -943,8 +938,8 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 			ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
 			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{strings.ReplaceAll(tt.baseURL, "<fake>", f.url())})
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(classHost.url(), nil))
+			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
+				[]string{noRefund}, classConfig(classHost.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Empty(t, f.received())
@@ -977,8 +972,8 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url() + tt.path})
 			}
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(classBaseURL, nil))
+			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
+				[]string{noRefund}, classConfig(classBaseURL, nil))
 
 			require.NoError(t, err)
 			assert.Empty(t, unused.received())
@@ -1005,7 +1000,7 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 		{
 			name:    "a 400 from the class base URL",
 			reply:   fakeReply{status: http.StatusBadRequest, body: banner},
-			wantErr: "object " + firstID + ": connection to OpenAI API failed with status 400: internal banner",
+			wantErr: "connection to OpenAI API failed with status 400: internal banner",
 		},
 		{
 			name:       "a 400 from the header base URL",
@@ -1095,8 +1090,8 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			}
 			used.replies = map[int]fakeReply{0: tt.reply}
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(classServer.url(), nil))
+			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
+				[]string{noRefund}, classConfig(classServer.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Len(t, used.received(), 1)
@@ -1162,7 +1157,7 @@ func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 				require.EqualError(t, err, tt.wantErr)
 			case <-time.After(time.Second):
 				used.server.CloseClientConnections()
-				t.Fatal("RankProperty waited for the body of the error reply")
+				t.Fatal("Rank waited for the body of the error reply")
 			}
 			assert.Len(t, used.received(), 1)
 		})
@@ -1230,7 +1225,7 @@ func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
 				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{"http://" + host})
 			}
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
 				classConfig(classBaseURL, nil))
 
 			require.Error(t, err)
@@ -1320,7 +1315,7 @@ func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
 				require.ErrorIs(t, err, tt.wantIs)
 				assert.EqualError(t, err, tt.wantErr)
 			case <-time.After(5 * time.Second):
-				t.Fatal("RankProperty did not return within 5 seconds")
+				t.Fatal("Rank did not return within 5 seconds")
 			}
 		})
 	}
@@ -1422,7 +1417,7 @@ func TestRankCutsLongErrorText(t *testing.T) {
 			}
 			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: hugeNumber}}
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
 				classConfig(classServer.url(), nil))
 
 			require.Error(t, err)
@@ -1447,7 +1442,7 @@ func TestRankReturnsADeadlineError(t *testing.T) {
 	case err := <-result:
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(5 * time.Second):
-		t.Fatal("RankProperty did not fail with the client timeout within 5 seconds")
+		t.Fatal("Rank did not fail with the client timeout within 5 seconds")
 	}
 }
 
@@ -1459,7 +1454,7 @@ func TestRankReadsHeadersFromGRPCMetadata(t *testing.T) {
 		"x-openai-organization", "grpcOrg",
 	))
 
-	_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+	_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
 		classConfig(classHost.url(), nil))
 
 	require.NoError(t, err)
@@ -1502,7 +1497,7 @@ func TestRankKeepsTheNumberLiteralOutOfTheDecodeError(t *testing.T) {
 			}
 			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
 				classConfig(classServer.url(), nil))
 
 			require.Error(t, err)
@@ -1551,8 +1546,8 @@ func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
 			var call sync.WaitGroup
 			defer call.Wait()
 			call.Go(func() {
-				_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, tt.property,
-					documentsOf(tt.documents...), classConfig(f.url(), nil))
+				_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, tt.property,
+					tt.documents, classConfig(f.url(), nil))
 				result <- err
 			})
 
@@ -1578,8 +1573,8 @@ func TestRankStartsNoMoreGoroutinesThanTheLimit(t *testing.T) {
 		var calls sync.WaitGroup
 		var err error
 		calls.Go(func() {
-			_, err = c.RankProperty(context.Background(), churn, "text",
-				documentsOf(numbered("ticket %d", documents)...), classConfig("http://unused.invalid", nil))
+			_, err = c.Rank(context.Background(), churn, "text",
+				numbered("ticket %d", documents), classConfig("http://unused.invalid", nil))
 		})
 
 		synctest.Wait()
@@ -1643,7 +1638,7 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 	release()
 	waitFor(t, &f.handlers)
 	assert.Len(t, f.received(), maxConcurrentRequests, "the requests waiting for a slot are not sent")
-	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+	res, err := c.Rank(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 	require.NoError(t, err)
 	assert.Len(t, res.DocumentScores, 1)
 }
@@ -1660,7 +1655,7 @@ func rankInBackground(t *testing.T, ctx context.Context, c *client, f *fakeOpenA
 	t.Cleanup(calls.Wait)
 	result := make(chan error, 1)
 	calls.Go(func() {
-		_, err := c.RankProperty(ctx, churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
+		_, err := c.Rank(ctx, churn, "text", documents, classConfig(f.url(), nil))
 		result <- err
 	})
 	return result
@@ -1672,7 +1667,7 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 	case err := <-result:
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
-		t.Fatal("RankProperty did not return within a second of the cancel")
+		t.Fatal("Rank did not return within a second of the cancel")
 	}
 }
 
@@ -1686,68 +1681,68 @@ func TestRankChecksTheAnswers(t *testing.T) {
 		{
 			name:    "no answers",
 			body:    `{"answers":[]}`,
-			wantErr: "object " + secondID + ": OpenAI response has 0 answers, want 1",
+			wantErr: "OpenAI response has 0 answers, want 1",
 		},
 		{
 			name:    "no answers field",
 			body:    `{"model":"gpt-6-luna"}`,
-			wantErr: "object " + secondID + ": OpenAI response has 0 answers, want 1",
+			wantErr: "OpenAI response has 0 answers, want 1",
 		},
 		{
 			name: "two answers",
 			body: `{"answers":[{"type":"predicate","name":"condition","probability":0.9},` +
 				`{"type":"predicate","name":"condition","probability":0.1}]}`,
-			wantErr: "object " + secondID + ": OpenAI response has 2 answers, want 1",
+			wantErr: "OpenAI response has 2 answers, want 1",
 		},
 		{
 			name:    "an answer to another question",
 			body:    `{"answers":[{"type":"predicate","name":"relevance","probability":0.9}]}`,
-			wantErr: "object " + secondID + `: OpenAI answer is for "relevance", want "condition"`,
+			wantErr: `OpenAI answer is for "relevance", want "condition"`,
 		},
 		{
 			name:    "an answer without a name",
 			body:    `{"answers":[{"type":"predicate","probability":0.9}]}`,
-			wantErr: "object " + secondID + `: OpenAI answer is for "", want "condition"`,
+			wantErr: `OpenAI answer is for "", want "condition"`,
 		},
 		{
 			name:    "a name above 512 bytes is cut",
 			body:    `{"answers":[{"type":"predicate","name":"` + strings.Repeat("x", 600) + `","probability":0.9}]}`,
-			wantErr: "object " + secondID + `: OpenAI answer is for "` + strings.Repeat("x", 512) + `", want "condition"`,
+			wantErr: `OpenAI answer is for "` + strings.Repeat("x", 512) + `", want "condition"`,
 		},
 		{
 			name:    "a type above 512 bytes is cut",
 			body:    `{"answers":[{"type":"` + strings.Repeat("x", 600) + `","name":"condition","probability":0.9}]}`,
-			wantErr: "object " + secondID + `: OpenAI answer has type "` + strings.Repeat("x", 512) + `", want "predicate"`,
+			wantErr: `OpenAI answer has type "` + strings.Repeat("x", 512) + `", want "predicate"`,
 		},
 		{
 			name:    "a refusal of another question",
 			body:    `{"answers":[{"type":"refusal","name":"relevance"}]}`,
-			wantErr: "object " + secondID + `: OpenAI answer is for "relevance", want "condition"`,
+			wantErr: `OpenAI answer is for "relevance", want "condition"`,
 		},
 		{
 			name:    "a choice answer",
 			body:    `{"answers":[{"type":"choice","name":"condition","choice":"yes","confidence":0.9}]}`,
-			wantErr: "object " + secondID + `: OpenAI answer has type "choice", want "predicate"`,
+			wantErr: `OpenAI answer has type "choice", want "predicate"`,
 		},
 		{
 			name:    "no probability",
 			body:    `{"answers":[{"type":"predicate","name":"condition"}]}`,
-			wantErr: "object " + secondID + ": OpenAI answer has no probability",
+			wantErr: "OpenAI answer has no probability",
 		},
 		{
 			name:    "a null probability",
 			body:    `{"answers":[{"type":"predicate","name":"condition","probability":null}]}`,
-			wantErr: "object " + secondID + ": OpenAI answer has no probability",
+			wantErr: "OpenAI answer has no probability",
 		},
 		{
 			name:    "probability above 1",
 			body:    `{"answers":[{"type":"predicate","name":"condition","probability":1.5}]}`,
-			wantErr: "object " + secondID + ": OpenAI answer has probability 1.5, outside [0, 1]",
+			wantErr: "OpenAI answer has probability 1.5, outside [0, 1]",
 		},
 		{
 			name:    "probability below 0",
 			body:    `{"answers":[{"type":"predicate","name":"condition","probability":-0.1}]}`,
-			wantErr: "object " + secondID + ": OpenAI answer has probability -0.1, outside [0, 1]",
+			wantErr: "OpenAI answer has probability -0.1, outside [0, 1]",
 		},
 		{
 			name:      "probability 0",
@@ -1781,8 +1776,8 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf("", noRefund), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+				[]string{"", noRefund}, classConfig(f.url(), nil))
 
 			assert.Len(t, f.received(), 1)
 			if tt.wantErr != "" {
@@ -1814,8 +1809,8 @@ func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
+				[]string{noRefund}, classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			assert.Equal(t, []ent.DocumentScore{{Document: noRefund, Score: 0.7}}, res.DocumentScores)
@@ -1836,15 +1831,6 @@ func debugLogger() (logrus.FieldLogger, *test.Hook) {
 
 func newTestClient(apiKey string) *client {
 	return New(apiKey, "", testTimeout, MaxDocumentsPerQuery, nullLogger())
-}
-
-// IDs are 00000000-0000-0000-0000-<i in 12 digits>.
-func documentsOf(values ...string) []ent.Document {
-	out := make([]ent.Document, len(values))
-	for i, value := range values {
-		out[i] = ent.Document{ID: strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)), Value: value}
-	}
-	return out
 }
 
 func numbered(format string, n int) []string {

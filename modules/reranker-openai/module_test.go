@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -65,12 +63,12 @@ func TestInitPassesTheDocumentsPerQueryCap(t *testing.T) {
 		ModuleConfig: map[string]any{Name: map[string]any{"baseURL": server.URL}},
 	}
 	cfg := modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{})
-	documents := make([]ent.Document, 1001)
+	documents := make([]string, 1001)
 	for i := range documents {
-		documents[i] = ent.Document{ID: strfmt.UUID(strconv.Itoa(i)), Value: "document " + strconv.Itoa(i)}
+		documents[i] = "document " + strconv.Itoa(i)
 	}
 
-	_, err := m.reranker.RankProperty(context.Background(), "q", "text", documents, cfg)
+	_, err := m.reranker.Rank(context.Background(), "q", "text", documents, cfg)
 
 	require.EqualError(t, err, "rerank of 1001 objects: reranker-openai sends one request per object and takes at most 1000 per query")
 	assert.Zero(t, received.Load())
@@ -102,8 +100,8 @@ func TestInitPassesTheClientTimeout(t *testing.T) {
 	t.Cleanup(calls.Wait)
 	t.Cleanup(func() { close(hold) })
 	calls.Go(func() {
-		_, err := m.reranker.RankProperty(context.Background(), "q", "text",
-			[]ent.Document{{ID: "1", Value: "doc"}}, cfg)
+		_, err := m.reranker.Rank(context.Background(), "q", "text",
+			[]string{"doc"}, cfg)
 		errs <- err
 	})
 
@@ -111,6 +109,6 @@ func TestInitPassesTheClientTimeout(t *testing.T) {
 	case err := <-errs:
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(5 * time.Second):
-		t.Fatal("RankProperty did not return within 5 seconds")
+		t.Fatal("Rank did not return within 5 seconds")
 	}
 }

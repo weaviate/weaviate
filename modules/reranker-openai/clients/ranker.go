@@ -98,14 +98,14 @@ func (c *client) validateQuery(query string) error {
 	return nil
 }
 
-// RankProperty judges each document in its own request. A blank document and
+// Rank judges each document in its own request. A blank document and
 // a duplicate of an earlier document have none.
 //
 // A reply with an error status, such as a 429 or a 500, fails the query, and
 // its request is not sent again. The shared transport sends a request again
 // when a connection from its pool breaks before a reply arrives. The host can
 // then receive the same request more than once.
-func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
+func (c *client) Rank(ctx context.Context, query, property string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	if err := c.validateQuery(query); err != nil {
@@ -124,13 +124,13 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	owner := make(map[string]int, len(documents))
 	var pending []int
 	for i, document := range documents {
-		if strings.TrimSpace(document.Value) == "" {
+		if strings.TrimSpace(document) == "" {
 			continue
 		}
-		if _, ok := owner[document.Value]; ok {
+		if _, ok := owner[document]; ok {
 			continue
 		}
-		owner[document.Value] = i
+		owner[document] = i
 		pending = append(pending, i)
 	}
 	if len(pending) > c.maxDocumentsPerQuery {
@@ -177,10 +177,10 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	documentScores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
 		score := 0.0
-		if position, ok := owner[document.Value]; ok {
+		if position, ok := owner[document]; ok {
 			score = scores[position]
 		}
-		documentScores[i] = ent.DocumentScore{Document: document.Value, Score: score}
+		documentScores[i] = ent.DocumentScore{Document: document, Score: score}
 	}
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
@@ -206,32 +206,21 @@ type judgeRequest struct {
 	apiKey       string
 	organization string
 	// hostFromHeader says the request header named the host. Anyone who may
-	// query can name one, so an error quotes nothing of its replies and names
-	// no object.
+	// query can name one, so an error quotes nothing of its replies.
 	hostFromHeader bool
 	model          string
 	query          string
 	image          bool
 }
 
-// judge names the document's object in a 400 about the document and in a
-// rejected answer. It names no object for a host the request header named:
-// which errors carry the name would tell what that host replied.
-func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, error) {
-	response, err := c.send(ctx, r, document.Value)
+func (c *client) judge(ctx context.Context, r judgeRequest, document string) (float64, error) {
+	response, err := c.send(ctx, r, document)
 	if err != nil {
-		var rejected rejectedError
-		if errors.As(err, &rejected) && rejected.aboutDocument {
-			return 0, fmt.Errorf("object %s: %w", document.ID, err)
-		}
 		return 0, err
 	}
 	score, err := response.score(questionName)
 	if err != nil {
-		if r.hostFromHeader {
-			return 0, c.replyError(err, true)
-		}
-		return 0, fmt.Errorf("object %s: %w", document.ID, err)
+		return 0, c.replyError(err, r.hostFromHeader)
 	}
 	return score, nil
 }
@@ -323,17 +312,13 @@ func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromH
 	return response, nil
 }
 
-// Param and Code are any: OpenAI sends a string or null, and other servers
-// send a number as the code.
 type apiError struct {
 	Message string
-	Param   any
-	Code    any
 }
 
 // UnmarshalJSON takes the error object of OpenAI and an error that is a
 // string, which some OpenAI-compatible servers send. A message that is not a
-// string reads as no message, so that param and code are still decoded.
+// string reads as no message.
 func (e *apiError) UnmarshalJSON(data []byte) error {
 	var message string
 	if json.Unmarshal(data, &message) == nil {
@@ -342,14 +327,11 @@ func (e *apiError) UnmarshalJSON(data []byte) error {
 	}
 	var fields struct {
 		Message any `json:"message"`
-		Param   any `json:"param"`
-		Code    any `json:"code"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
 	e.Message, _ = fields.Message.(string)
-	e.Param, e.Code = fields.Param, fields.Code
 	return nil
 }
 
@@ -395,31 +377,12 @@ func (c *client) statusError(res *http.Response, hostFromHeader bool) error {
 	if !hostFromHeader {
 		apiErr = c.readAPIError(res.Body)
 	}
-	return rejectedError{
-		status:        res.StatusCode,
-		message:       apiErr.message(),
-		aboutDocument: !hostFromHeader && apiErr.aboutDocument(res.StatusCode),
-	}
-}
-
-// aboutDocument reports whether a status error is about the document of the
-// request. A 400 is, unless the error object points at the model or the
-// questions, which are the same for every object of the query. param is a
-// path into the request body, such as "input[0].type".
-func (e apiError) aboutDocument(status int) bool {
-	if status != http.StatusBadRequest {
-		return false
-	}
-	param, _ := e.Param.(string)
-	code, _ := e.Code.(string)
-	return !strings.HasPrefix(param, "model") && !strings.HasPrefix(param, "questions") && code != "model_not_found"
+	return rejectedError{status: res.StatusCode, message: apiErr.message()}
 }
 
 type rejectedError struct {
 	status  int
 	message string
-	// aboutDocument says the error names the object of the request.
-	aboutDocument bool
 }
 
 func (e rejectedError) Error() string {
