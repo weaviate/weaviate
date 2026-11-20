@@ -289,20 +289,30 @@ func (h *HFresh) centroidCommitLogExists() bool {
 
 // restoreCentroids brings the centroid index back to its pre-restart state.
 // Building the graph creates its commit log directory, so without one the
-// index is still in single-posting mode, and the size persisted on each
-// append tells whether posting 1 exists.
+// index is still in single-posting mode.
 func (h *HFresh) restoreCentroids() error {
 	if h.centroidCommitLogExists() {
 		return h.Centroids.Build()
 	}
 
-	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
-	if err != nil {
-		return err
+	return h.restoreSinglePosting()
+}
+
+// restoreSinglePosting rebuilds posting 1's map entry and size from the
+// posting itself: appends keep them in memory only, and the ones a merge
+// persisted are stale.
+func (h *HFresh) restoreSinglePosting() error {
+	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return errors.Wrapf(err, "read single posting %d", singlePostingID)
 	}
-	if size > 0 {
-		h.Centroids.restoreSingle()
+	if len(posting) == 0 {
+		return nil
 	}
+
+	h.Centroids.restoreSingle()
+	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
+	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
 	return nil
 }
 

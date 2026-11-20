@@ -56,11 +56,17 @@ func (p *PostingSizes) FastIncrement(postingID uint64) uint32 {
 	return newSize
 }
 
-// Increment increases the size of the posting and persists the new size, for
-// a posting whose size no analyze task persists.
-func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32, error) {
-	size := p.FastIncrement(postingID)
-	return size, p.store.Set(ctx, postingID, size)
+// FastSet sets the size of the posting in memory only.
+func (p *PostingSizes) FastSet(postingID uint64, size uint32) {
+	page, slot := p.data.EnsurePageFor(postingID)
+	oldSize := atomic.SwapUint32(&page[slot], size)
+	if oldSize == 0 && size > 0 {
+		p.count.Add(1)
+	}
+	p.addToTotalSize(oldSize, size)
+
+	p.metrics.SetPostings(int(p.count.Load()))
+	p.metrics.SetSize(int(p.totalSize.Load()))
 }
 
 // Get returns the size of the posting with the given ID. If the posting does not exist, it returns 0.

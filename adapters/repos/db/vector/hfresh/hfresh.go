@@ -257,12 +257,6 @@ func (h *HFresh) startCentroidGraph() error {
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
-	// appends do not maintain the single posting's map entry, so one written
-	// here would go stale
-	if postingID == singlePostingID && !h.Centroids.Built() {
-		return h.PostingSizes.Set(ctx, postingID, len(posting))
-	}
-
 	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
 		return err
 	}
