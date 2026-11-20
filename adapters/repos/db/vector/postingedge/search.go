@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 var inf32 = float32(math.Inf(1))
@@ -283,7 +284,8 @@ func (ix *Index) searchFrom(ctx context.Context, vector []float32, k int, allow 
 		stats.SpreadTime = time.Since(clock)
 		clock = time.Now()
 	}
-	if err := ix.rescore(ctx, query, candidates); err != nil {
+	candidates, err := ix.rescore(ctx, query, candidates)
+	if err != nil {
 		return nil, nil, err
 	}
 	sc.result.reset(k)
@@ -546,10 +548,21 @@ func (st *state) rescoreSpread(sc *searchScratch, candidates []scored) (postings
 	return postings, len(candidates) - found
 }
 
+// goneDist stands for the exact distance of a candidate whose vector is no
+// longer there to be read. It is not a number, so it is told apart from any
+// distance.
+var goneDist = float32(math.NaN())
+
 // rescore replaces the estimated distance of every candidate with the exact
-// one. Like the HNSW rescore it fans out within the query's concurrency
-// budget, which pays off when the vectors are read from disk.
-func (ix *Index) rescore(ctx context.Context, query []float32, candidates []scored) error {
+// one, and returns the candidates that have one, in the order given: it
+// reuses their slice. Like the HNSW rescore it fans out within the query's
+// concurrency budget, which pays off when the vectors are read from disk.
+//
+// A candidate whose vector is not found is left out, as HNSW and HFresh
+// leave it out: its object was deleted after the index took it in, and
+// whoever loads the objects of the result would drop it all the same. Any
+// other failure to read a vector fails the search.
+func (ix *Index) rescore(ctx context.Context, query []float32, candidates []scored) ([]scored, error) {
 	view := ix.cfg.GetViewThunk()
 	defer view.ReleaseView()
 
@@ -557,13 +570,13 @@ func (ix *Index) rescore(ctx context.Context, query []float32, candidates []scor
 		ix.rescoreConcurrency, len(candidates)))
 	if workers == 1 {
 		for i := range candidates {
-			dist, err := ix.exactDistance(ctx, query, candidates[i].id, view)
+			dist, err := ix.exactOrGone(ctx, query, candidates[i].id, view)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			candidates[i].dist = dist
 		}
-		return nil
+		return withoutGone(candidates), nil
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(ix.logger)
@@ -573,7 +586,7 @@ func (ix *Index) rescore(ctx context.Context, query []float32, candidates []scor
 				if err := ctx.Err(); err != nil {
 					return errors.Wrap(err, "rescore")
 				}
-				dist, err := ix.exactDistance(ctx, query, candidates[i].id, view)
+				dist, err := ix.exactOrGone(ctx, query, candidates[i].id, view)
 				if err != nil {
 					return err
 				}
@@ -582,12 +595,41 @@ func (ix *Index) rescore(ctx context.Context, query []float32, candidates []scor
 			return nil
 		})
 	}
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return withoutGone(candidates), nil
+}
+
+// exactOrGone is exactDistance, with goneDist for a vector that is not found.
+func (ix *Index) exactOrGone(ctx context.Context, query []float32, docID uint64, view common.BucketView,
+) (float32, error) {
+	dist, err := ix.exactDistance(ctx, query, docID, view)
+	if err != nil {
+		var notFound storobj.ErrNotFound
+		if errors.As(err, &notFound) {
+			return goneDist, nil
+		}
+		return 0, err
+	}
+	return dist, nil
+}
+
+// withoutGone takes out of the rescored candidates those whose vector was
+// not found, keeping the order of the others.
+func withoutGone(candidates []scored) []scored {
+	kept := candidates[:0]
+	for _, cand := range candidates {
+		if !math.IsNaN(float64(cand.dist)) {
+			kept = append(kept, cand)
+		}
+	}
+	return kept
 }
 
 // exactDistance reads the full-precision vector of a doc and returns its
-// distance to the query. A vector that cannot be read fails the search:
-// without deletes there is no legitimate reason for it to be missing.
+// distance to the query. A vector that is not found comes back as the error
+// of whoever looked for it, which the rescore tells apart (exactOrGone).
 func (ix *Index) exactDistance(ctx context.Context, query []float32, docID uint64,
 	view common.BucketView,
 ) (float32, error) {

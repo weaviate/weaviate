@@ -493,17 +493,20 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 		return topResults(candidates, k)
 	}
 	clock := time.Now()
-	if err := ix.rescore(ctx, query, candidates); err != nil {
+	// Every candidate is a read, whether its vector was there or not.
+	asked := len(candidates)
+	candidates, err := ix.rescore(ctx, query, candidates)
+	if err != nil {
 		return nil, nil, err
 	}
 	sc.result.reset(k)
 	for _, cand := range candidates {
 		sc.result.push(cand.id, cand.dist)
 	}
-	stats.Rescored = len(candidates)
+	stats.Rescored = asked
 	stats.RescoreTime = time.Since(clock)
 	if stats.Work != nil {
-		stats.Work.Rescored = len(candidates)
+		stats.Work.Rescored = asked
 	}
 	return topResults(sc.result.sorted(), k)
 }
