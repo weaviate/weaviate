@@ -202,7 +202,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		}
 	}
 
-	h.Centroids, err = NewHNSWIndex(metrics, store, cfg)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, h.singlePostingMaxSize > 0)
 	if err != nil {
 		return nil, err
 	}
@@ -223,37 +223,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
-	// after the restore, so a single posting written under a higher limit
-	// splits into the graph, and an empty index gets its graph up front when
-	// the feature is off
-	err = h.startCentroidGraph()
-	if err != nil {
-		return nil, err
-	}
-
 	h.repairOrphanPostings()
 
 	h.taskQueue.Register()
 
 	return &h, nil
-}
-
-func (h *HFresh) startCentroidGraph() error {
-	if h.Centroids.Built() {
-		return nil
-	}
-	if !h.Centroids.Exists(singlePostingID) {
-		if h.singlePostingMaxSize == 0 {
-			return h.Centroids.Build()
-		}
-		return nil
-	}
-
-	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
-	if err != nil || size <= h.splitLimit() {
-		return err
-	}
-	return h.taskQueue.EnqueueSplit(singlePostingID)
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {

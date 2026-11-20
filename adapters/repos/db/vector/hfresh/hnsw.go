@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"math"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -65,9 +66,8 @@ func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 // graph exists.
 const singlePostingID = 1
 
-// HNSWIndex holds the centroids in an HNSW graph. Until Build creates the
-// graph, the index is in single-posting mode: posting 1 holds every vector and
-// has no centroid.
+// HNSWIndex holds the centroids in an HNSW graph. A lazy index has no graph
+// until its first split: posting 1 holds every vector and has no centroid.
 type HNSWIndex struct {
 	metrics *Metrics
 	store   *lsmkv.Store
@@ -84,7 +84,10 @@ type HNSWIndex struct {
 	buildMu sync.Mutex
 }
 
-func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config) (*HNSWIndex, error) {
+// NewHNSWIndex creates the centroid graph, reloading it from its commit log.
+// A lazy index only does so if the graph was created before, which left its
+// commit log directory.
+func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, lazy bool) (*HNSWIndex, error) {
 	index := HNSWIndex{
 		metrics: metrics,
 		store:   store,
@@ -97,25 +100,20 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config) (*HNSWIndex
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
 
-	return &index, nil
-}
-
-// Build creates the centroid graph, reloading it from its commit log.
-func (i *HNSWIndex) Build() error {
-	i.buildMu.Lock()
-	defer i.buildMu.Unlock()
-
-	if i.Built() {
-		return nil
+	if lazy {
+		_, err := os.Stat(hnsw.CommitLogDirectory(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID))
+		if err != nil {
+			return &index, nil
+		}
 	}
 
-	h, err := i.pendingGraph()
+	h, err := index.pendingGraph()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	i.publish(h)
+	index.publish(h)
 
-	return nil
+	return &index, nil
 }
 
 // pendingGraph returns the graph searches do not see yet, creating it on first

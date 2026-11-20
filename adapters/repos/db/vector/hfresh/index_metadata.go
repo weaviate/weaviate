@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"slices"
 	"sync/atomic"
 
@@ -25,7 +24,6 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
@@ -240,13 +238,8 @@ func (i *IndexMetadataStore) GetMuveraData() (*compression.MuveraData, error) {
 
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.IndexMetadata.GetDimensions()
-	if err != nil {
+	if err != nil || dims == 0 {
 		return err
-	}
-	if dims == 0 {
-		// nothing was inserted yet, but the commit log directory still decides
-		// whether the centroid graph must exist
-		return h.restoreCentroids()
 	}
 
 	if err := h.restoreDimensions(dims); err != nil {
@@ -274,28 +267,14 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
-	if err := h.restoreCentroids(); err != nil {
-		return err
+	if !h.Centroids.Built() {
+		err = h.restoreSinglePosting()
+		if err != nil {
+			return err
+		}
 	}
 
 	return h.restoreMetrics()
-}
-
-func (h *HFresh) centroidCommitLogExists() bool {
-	hnswCfg := h.config.Centroids.HNSWConfig
-	_, err := os.Stat(hnsw.CommitLogDirectory(hnswCfg.RootPath, hnswCfg.ID))
-	return err == nil
-}
-
-// restoreCentroids brings the centroid index back to its pre-restart state.
-// Building the graph creates its commit log directory, so without one the
-// index is still in single-posting mode.
-func (h *HFresh) restoreCentroids() error {
-	if h.centroidCommitLogExists() {
-		return h.Centroids.Build()
-	}
-
-	return h.restoreSinglePosting()
 }
 
 // restoreSinglePosting rebuilds posting 1's map entry and size from the
@@ -313,6 +292,12 @@ func (h *HFresh) restoreSinglePosting() error {
 	h.Centroids.restoreSingle()
 	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
 	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
+
+	// a crash can lose the queued split, and a lowered limit applies without
+	// waiting for an insert
+	if uint32(len(posting)) > h.splitLimit() {
+		return h.taskQueue.EnqueueSplit(singlePostingID)
+	}
 	return nil
 }
 
