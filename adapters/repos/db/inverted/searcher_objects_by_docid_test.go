@@ -93,7 +93,7 @@ func newObjectsBucketSearcher(t *testing.T, numObjects int, deleted, corrupt []u
 
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return uint64(numObjects) })
 	getClass := func(string) *models.Class { return &models.Class{Class: objectsByDocIDClass} }
-	searcher := NewSearcher(logger, store, getClass, nil, nil,
+	searcher := NewSearcher(logger, store, getClass, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 	return searcher, alive

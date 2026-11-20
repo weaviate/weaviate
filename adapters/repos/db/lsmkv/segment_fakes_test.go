@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -323,6 +324,10 @@ func (f *fakeSegment) newRoaringSetCursor() roaringset.SegmentCursor {
 }
 
 func (f *fakeSegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) newGeoPointsReader() (*geopoints.SegmentReader, error) {
 	panic("not implemented")
 }
 

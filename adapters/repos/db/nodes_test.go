@@ -747,7 +747,6 @@ func scannableShards(t *testing.T, shardNames []string,
 		shard.EXPECT().Name().Return(name).Maybe()
 		shard.EXPECT().GetStatus().Return(storagestate.StatusReady).Maybe()
 		shard.EXPECT().ForEachVectorQueue(mock.Anything).Return(nil).Maybe()
-		shard.EXPECT().ForEachGeoQueue(mock.Anything).Return(nil).Maybe()
 		shard.EXPECT().ForEachVectorIndex(mock.Anything).Return(nil).Maybe()
 		shard.EXPECT().getAsyncReplicationStats(mock.Anything).Return(nil).Maybe()
 		shard.EXPECT().Shutdown(mock.Anything).Return(nil).Maybe()

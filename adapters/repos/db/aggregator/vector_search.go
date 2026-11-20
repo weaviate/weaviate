@@ -97,7 +97,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 	)
 
 	if a.params.Filters != nil {
-		allow, err = inverted.NewSearcher(a.logger, a.store, a.getSchema.ReadOnlyClass, a.propIndices,
+		allow, err = inverted.NewSearcher(a.logger, a.store, a.getSchema.ReadOnlyClass,
 			a.classSearcher, a.stopwordProvider, a.shardVersion, a.isFallbackToSearchable,
 			a.isRangeableLocallyReady, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).
 			WithTokenizationResolver(a.tokResolver).

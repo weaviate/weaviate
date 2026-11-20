@@ -97,6 +97,15 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			},
 		},
 		{
+			name:     "geopoints",
+			strategy: StrategyGeoPoints,
+			seed: func(t *testing.T, bucket *Bucket, seg, n int) {
+				for i := 0; i < n; i++ {
+					require.NoError(t, bucket.GeoPointsAdd(uint64(seg*n+i), float32(i%180-90), float32(i%360-180)))
+				}
+			},
+		},
+		{
 			name:     "roaringsetrange",
 			strategy: StrategyRoaringSetRange,
 			seed: func(t *testing.T, bucket *Bucket, seg, n int) {

@@ -190,6 +190,11 @@ func (m *Memtable) writeSegmentTo(path, suffixAfterDB string) (segmentPath strin
 			return "", err
 		}
 
+	case StrategyGeoPoints:
+		if keys, err = m.flushDataGeoPoints(segmentFile); err != nil {
+			return "", err
+		}
+
 	case StrategyMapCollection:
 		if keys, err = m.flushDataMap(segmentFile); err != nil {
 			return "", err

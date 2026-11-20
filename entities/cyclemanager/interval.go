@@ -58,28 +58,6 @@ func MemtableFlushCycleTicker(backoff bool) CycleTicker {
 }
 
 const (
-	geoCommitLoggerMinInterval = 10 * time.Second
-	geoCommitLoggerMaxInterval = 60 * time.Second
-	geoCommitLoggerBase        = uint(2)
-	geoCommitLoggerSteps       = uint(4)
-)
-
-// 10s . 13.3s .. 20s .... 33.3s ........ 60s
-func GeoCommitLoggerCycleIntervals() CycleIntervals {
-	return NewExpIntervals(geoCommitLoggerMinInterval, geoCommitLoggerMaxInterval,
-		geoCommitLoggerBase, geoCommitLoggerSteps)
-}
-
-// backoff true backs off towards the max interval while cycles report no work and
-// resets to min once work is done; false pins the fixed min interval.
-func GeoCommitLoggerCycleTicker(backoff bool) CycleTicker {
-	if !backoff {
-		return NewFixedTicker(geoCommitLoggerMinInterval)
-	}
-	return newCycleTicker(GeoCommitLoggerCycleIntervals())
-}
-
-const (
 	hnswCommitLoggerMinInterval = 500 * time.Millisecond
 	hnswCommitLoggerMaxInterval = 10 * time.Second
 	hnswCommitLoggerBase        = uint(2)
