@@ -1259,7 +1259,7 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 				"tenants":      tenantNames(req.Tenants),
 				"sent_nodes":   req.ClusterNodes,
 				"placed_nodes": req.ClusterNodes[:factor],
-			}).Info("cut a tenant add's node list to the class's replication factor")
+			}).Debug("cut a tenant add's node list to the class's replication factor")
 			req.ClusterNodes = req.ClusterNodes[:factor]
 		}
 	}

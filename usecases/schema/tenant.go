@@ -115,9 +115,9 @@ func (h *Handler) AddTenants(ctx context.Context,
 	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
-// tenantClusterNodes returns namespaceCandidates at the local factor, or every
-// home node that is a storage candidate where this node has not applied the
-// class. Apply places each tenant on the list's first factor entries.
+// tenantClusterNodes returns candidateHomeNodes at this node's factor, or every
+// storage candidate on NS-disabled clusters. SchemaManager places each tenant on the
+// list's first entries up to the factor it applies with, which can be above this node's.
 func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil
@@ -125,17 +125,8 @@ func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
 	// TODO(v1.42): send nil for SchemaManager to fill from HomeNodes at apply.
 	// v1.38 to v1.40 nodes refuse a tenant with no nodes. The fill cannot skip
 	// home nodes that are not storage candidates, so nil gives up that skip.
-	if info := h.schemaReader.ClassInfo(qualifiedClass); info.Exists {
-		return h.namespaceCandidates(qualifiedClass, int64(info.ReplicationFactor))
-	}
-	ns, present, err := h.presentHomeNodes(qualifiedClass)
-	if err != nil {
-		return nil, err
-	}
-	if err := h.checkPresentHomeNodes(ns, present, 1); err != nil {
-		return nil, err
-	}
-	return present, nil
+	factor := h.schemaReader.ClassInfo(qualifiedClass).ReplicationFactor
+	return h.candidateHomeNodes(qualifiedClass, int64(factor))
 }
 
 // updateTenantsClusterNodes returns tenantClusterNodes for a tenant update. For a

@@ -280,69 +280,57 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	return nil
 }
 
-// namespaceCandidates returns the first factor HomeNodes entries that are storage
-// candidates, or every storage candidate on NS-disabled clusters. It warns when it
-// skips one of the first factor entries, and refuses when fewer than factor remain.
+// namespaceCandidates returns the first factor entries of candidateHomeNodes, or
+// every storage candidate on NS-disabled clusters.
 func (h *Handler) namespaceCandidates(qualifiedClass string, factor int64) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil
 	}
-	factor = max(factor, 1)
-	ns, present, err := h.presentHomeNodes(qualifiedClass)
+	present, err := h.candidateHomeNodes(qualifiedClass, factor)
 	if err != nil {
 		return nil, err
 	}
-	if err := h.checkNamespaceFactor(ns, factor); err != nil {
+	return present[:max(factor, 1)], nil
+}
+
+// candidateHomeNodes returns the HomeNodes entries that are storage candidates, in
+// HomeNodes order. It warns when it skips one of the first factor entries, and
+// refuses when fewer than factor remain.
+func (h *Handler) candidateHomeNodes(qualifiedClass string, factor int64) ([]string, error) {
+	factor = max(factor, 1)
+	ns := namespacing.NamespaceFromQualified(qualifiedClass)
+	if ns == "" {
+		return nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
+	}
+	logger := h.logger.WithField("namespace", ns)
+	refuse := func(entry logrus.FieldLogger, err error) ([]string, error) {
+		entry.Warnf("refusing shard placement: %v", err)
 		return nil, err
 	}
-	if err := h.checkPresentHomeNodes(ns, present, factor); err != nil {
+	got, ok := h.namespacesExister.GetNamespace(ns)
+	if !ok {
+		return refuse(logger, errors.New("namespace not found"))
+	}
+	if err := h.checkNamespaceFactor(got, factor); err != nil {
 		return nil, err
 	}
-	placed := present[:factor]
-	if !slices.Equal(placed, ns.HomeNodes[:factor]) {
-		missing := ns.MissingHomeNodes(present)
-		h.logger.WithField("namespace", ns.Name).WithField("home_nodes", missing).Warnf(
+	missing := got.MissingHomeNodes(h.membership.StorageCandidates())
+	present := slices.DeleteFunc(slices.Clone(got.HomeNodes), func(node string) bool {
+		return slices.Contains(missing, node)
+	})
+	if int64(len(present)) < factor {
+		return refuse(logger.WithField("home_nodes", missing), fmt.Errorf(
+			"only %d of the namespace's %d home node(s) are storage candidates, fewer than "+
+				"replication factor %d; placement resumes when the others rejoin, or an administrator must "+
+				"replace them in its home_nodes",
+			len(present), len(got.HomeNodes), factor))
+	}
+	if !slices.Equal(present[:factor], got.HomeNodes[:factor]) {
+		logger.WithField("home_nodes", missing).Warnf(
 			"placing shards on the other home nodes: %d home node(s) of the namespace are not storage candidates",
 			len(missing))
 	}
-	return placed, nil
-}
-
-// presentHomeNodes returns the namespace of qualifiedClass and its HomeNodes
-// entries that are storage candidates, in HomeNodes order.
-func (h *Handler) presentHomeNodes(qualifiedClass string) (api.Namespace, []string, error) {
-	name := namespacing.NamespaceFromQualified(qualifiedClass)
-	if name == "" {
-		return api.Namespace{}, nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
-	}
-	ns, ok := h.namespacesExister.GetNamespace(name)
-	if !ok {
-		err := refusePlacement(h.logger.WithField("namespace", name), errors.New("namespace not found"))
-		return api.Namespace{}, nil, err
-	}
-	candidates := h.membership.StorageCandidates()
-	present := slices.DeleteFunc(slices.Clone(ns.HomeNodes), func(node string) bool {
-		return !slices.Contains(candidates, node)
-	})
-	return ns, present, nil
-}
-
-// checkPresentHomeNodes refuses when present holds fewer than factor nodes.
-func (h *Handler) checkPresentHomeNodes(ns api.Namespace, present []string, factor int64) error {
-	if int64(len(present)) >= factor {
-		return nil
-	}
-	entry := h.logger.WithField("namespace", ns.Name).WithField("home_nodes", ns.MissingHomeNodes(present))
-	return refusePlacement(entry, fmt.Errorf(
-		"only %d of the namespace's %d home node(s) are storage candidates, fewer than "+
-			"replication factor %d; placement resumes when the others rejoin, or an administrator must "+
-			"replace them in its home_nodes",
-		len(present), len(ns.HomeNodes), factor))
-}
-
-func refusePlacement(entry logrus.FieldLogger, err error) error {
-	entry.Warnf("refusing shard placement: %v", err)
-	return err
+	return present, nil
 }
 
 // checkNamespaceFactor refuses a factor above the HomeNodes count of ns.
