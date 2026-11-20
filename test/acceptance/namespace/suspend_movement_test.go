@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -293,7 +294,11 @@ func requireNoMovementErrorsInHistory(t *testing.T, opID strfmt.UUID) {
 	require.NotNil(t, details.Payload.Status)
 
 	for _, status := range append(details.Payload.StatusHistory, details.Payload.Status) {
-		require.Empty(t, status.Errors, "the op recorded errors in %s", status.State)
+		messages := make([]string, 0, len(status.Errors))
+		for _, e := range status.Errors {
+			messages = append(messages, e.Message)
+		}
+		require.Empty(t, messages, "the op recorded errors in %s", status.State)
 	}
 }
 
@@ -360,22 +365,20 @@ func TestNamespaces_SuspendKeepsCopyInFlight(t *testing.T) {
 }
 
 // A MOVE held in INTEGRATING under a suspend keeps its source and target loaded,
-// then reaches READY on the target alone. Every object written before the move
-// reads back after the resume. Not parallel, because it stops a third node to
-// hold the op in INTEGRATING.
-//
-// No write runs during the move, because with NAMESPACES_ENABLED the target
-// fails to replay a captured write, whose object is stored without its class
-// name (DKF-235).
+// then reaches READY on the target alone. Every object written before and
+// during the move reads back after the resume. Not parallel, because it stops a
+// third node to hold the op in INTEGRATING.
 func TestNamespaces_SuspendKeepsIntegratingMove(t *testing.T) {
 	const (
-		sourceNode = docker.Weaviate1
-		targetNode = docker.Weaviate0
-		class      = "IntegratingMove"
+		sourceNode   = docker.Weaviate1
+		targetNode   = docker.Weaviate0
+		class        = "IntegratingMove"
+		patchedTitle = "patched during the move"
 	)
 	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
-	written := seedObjects(t, class, userKey, 1000)
+	seeded := seedObjects(t, class, userKey, 1000)
+	patched, deleted := seeded[0], seeded[1]
 	live := map[string]presentShard{
 		sourceNode: newPresentShard(t, sourceNode),
 		targetNode: newPresentShard(t, targetNode),
@@ -383,12 +386,32 @@ func TestNamespaces_SuspendKeepsIntegratingMove(t *testing.T) {
 
 	// The target's consumer leaves INTEGRATING only once every node has reported
 	// it, so the op waits there while restartNodeName is down.
-	var opID strfmt.UUID
+	var (
+		opID  strfmt.UUID
+		added []strfmt.UUID
+	)
 	withNodeStopped(t, restartNodeName, nil, func(t *testing.T) {
 		var err error
 		opID, err = registerMovement(t, qualified, shardName, sourceNode, targetNode, api.MOVE.String())
 		require.NoError(t, err)
 		require.Equal(t, api.INTEGRATING, waitMovementState(t, opID, api.INTEGRATING))
+
+		// The source's change log captures these writes, and the target replays
+		// them under the suspend once the op leaves INTEGRATING.
+		t.Run("a batch insert, a PATCH and a DELETE land while the op waits in INTEGRATING", func(t *testing.T) {
+			added = seedObjects(t, class, userKey, 100)
+			_, err := helper.Client(t).Objects.ObjectsClassPatch(
+				objects.NewObjectsClassPatchParams().WithClassName(class).WithID(patched).
+					WithBody(&models.Object{Class: class, Properties: map[string]any{"title": patchedTitle}}),
+				helper.CreateAuth(userKey),
+			)
+			require.NoError(t, err)
+			_, err = helper.Client(t).Objects.ObjectsClassDelete(
+				objects.NewObjectsClassDeleteParams().WithClassName(class).WithID(deleted),
+				helper.CreateAuth(userKey),
+			)
+			require.NoError(t, err)
+		})
 		helper.SuspendNamespace(t, ns, adminKey)
 		t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
 
@@ -406,9 +429,15 @@ func TestNamespaces_SuspendKeepsIntegratingMove(t *testing.T) {
 		requireReplicasEventually(t, qualified, shardName, targetNode)
 	})
 
-	t.Run("every object written before the move reads back after the resume", func(t *testing.T) {
+	// The target can also take those writes directly as a write replica, so the
+	// reads below cannot tell whether its replay applied them.
+	t.Run("no state of the op recorded an error", func(t *testing.T) {
+		requireNoMovementErrorsInHistory(t, opID)
+	})
+
+	t.Run("every write before and during the move reads back after the resume", func(t *testing.T) {
 		helper.ResumeNamespace(t, ns, adminKey)
-		for _, id := range written {
+		for _, id := range slices.Concat(seeded[2:], added) {
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
 				obj, err := helper.GetObjectAuth(t, qualified, id, adminKey)
 				if assert.NoError(c, err) {
@@ -416,6 +445,17 @@ func TestNamespaces_SuspendKeepsIntegratingMove(t *testing.T) {
 				}
 			}, 30*time.Second, 250*time.Millisecond, "object %s never read back", id)
 		}
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			obj, err := helper.GetObjectAuth(t, qualified, patched, adminKey)
+			if assert.NoError(c, err) {
+				assert.Equal(c, patchedTitle, obj.Properties.(map[string]any)["title"])
+			}
+		}, 30*time.Second, 250*time.Millisecond, "the patched object never read back patched")
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := helper.GetObjectAuth(t, qualified, deleted, adminKey)
+			var notFound *objects.ObjectsClassGetNotFound
+			assert.ErrorAs(c, err, &notFound)
+		}, 30*time.Second, 250*time.Millisecond, "the deleted object still reads back")
 	})
 }
 
