@@ -409,6 +409,8 @@ type Shard struct {
 	metadataDB *shardmeta.DB
 	// mapping is the shard's persisted view of its vector indexes.
 	mapping *vectorIndexMapping
+	// tasks are the vector index rebuilds in progress on this shard.
+	tasks *vectorIndexTasks
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool

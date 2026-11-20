@@ -152,6 +152,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
 	}
 	s.mapping = newVectorIndexMapping(s.metadataDB)
+	s.tasks = newVectorIndexTasks(s.metadataDB)
 
 	if err := s.sweepChangelogDir(); err != nil {
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)

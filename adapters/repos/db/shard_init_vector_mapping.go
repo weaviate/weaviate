@@ -13,12 +13,17 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -110,6 +115,96 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 		}
 	}
 	return toBuild, nil
+}
+
+// recoverVectorIndexTasks finishes the rebuilds a restart interrupted, before
+// any index or queue opens. The mapping decides: the index it names stays,
+// the other index the task names is deleted, then the task. When it names
+// the candidate, the writes the queue kept during the rebuild are served
+// again. A vector without a live index loses both. Every task is checked
+// before anything is deleted.
+func (s *Shard) recoverVectorIndexTasks(ctx context.Context, records map[string]vectorIndexRecord,
+	initialized bool, inSchema func(name string) bool,
+) error {
+	tasks, err := s.tasks.Load()
+	if err != nil || len(tasks) == 0 {
+		return err
+	}
+	if !initialized {
+		return errors.New("vector index rebuild tasks without a vector index mapping")
+	}
+
+	type recovery struct {
+		name    string
+		task    vectorIndexTask
+		remove  []vectorIndexTaskIndex
+		rewind  string // queue ID to serve again, if any
+		outcome string
+	}
+	recoveries := make([]recovery, 0, len(tasks))
+	for _, name := range slices.Sorted(maps.Keys(tasks)) {
+		task := tasks[name]
+		r := recovery{name: name, task: task}
+		rec, ok := records[name]
+		switch {
+		case !ok && inSchema(name):
+			return fmt.Errorf("vector %q: a rebuild task but no record", name)
+		case !ok || rec.State == vectorIndexStateDropping:
+			r.remove = []vectorIndexTaskIndex{task.Source, task.Candidate}
+			r.outcome = "the vector has no live index"
+		case rec.storageID() == task.Source.storageID():
+			r.remove = []vectorIndexTaskIndex{task.Candidate}
+			r.outcome = "the switch did not happen, the source stays"
+		case rec.storageID() == task.Candidate.storageID():
+			r.remove = []vectorIndexTaskIndex{task.Source}
+			r.rewind = rec.queueIDOrDefault()
+			r.outcome = "the switch happened, the candidate stays"
+		default:
+			return fmt.Errorf("vector %q: the mapping names %q, the rebuild task names source %q and candidate %q",
+				name, rec.recordedID(), task.Source.recordedID(), task.Candidate.recordedID())
+		}
+		recoveries = append(recoveries, r)
+	}
+
+	// every index the shard records or a task names keeps its files
+	var known []string
+	for _, rec := range records {
+		known = append(known, rec.storageID())
+	}
+	for _, task := range tasks {
+		known = append(known, task.Source.storageID(), task.Candidate.storageID())
+	}
+
+	for _, r := range recoveries {
+		s.index.logger.WithFields(logrus.Fields{
+			"shard":         s.ID(),
+			"target_vector": r.name,
+			"task_id":       r.task.TaskID,
+			"task_version":  r.task.TaskVersion,
+			"source":        r.task.Source.recordedID(),
+			"candidate":     r.task.Candidate.recordedID(),
+		}).Infof("recovering a vector index rebuild interrupted by a restart: %s", r.outcome)
+		if r.rewind != "" {
+			err := queue.RewindDir(filepath.Join(s.path(), helpers.QueueDirName(r.rewind)))
+			if err != nil {
+				return fmt.Errorf("vector %q: serve the writes kept during the rebuild again: %w", r.name, err)
+			}
+		}
+		for _, index := range r.remove {
+			id := index.storageID()
+			protected := slices.DeleteFunc(slices.Clone(known), func(other string) bool { return other == id })
+			err := s.removeVectorIndexStorage(ctx, id, protected)
+			if err != nil {
+				return fmt.Errorf("vector %q: remove the %s index at %q: %w", r.name, index.IndexType, index.recordedID(), err)
+			}
+		}
+		// last, so a failed cleanup is retried at the next load
+		err := s.tasks.Delete(r.name)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // refuseSharedVectorIndexQueues fails when two records name one queue: two

@@ -82,6 +82,16 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	if len(stripped) > 0 {
 		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
+	// before any index or queue opens: a queue that opens deletes the
+	// chunks a rebuild kept
+	err = s.recoverVectorIndexTasks(ctx, records, initialized, func(name string) bool {
+		_, isActive := active[name]
+		_, isSkipped := skipped[name]
+		return isActive || isSkipped
+	})
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
 	if initialized {
 		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
 		if err != nil {
@@ -486,27 +496,14 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec
 			otherIDs = append(otherIDs, rec.storageID())
 		}
 	}
-	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
-	for _, bucket := range artifacts.LSMBuckets {
-		err := s.removeBucket(ctx, bucket)
-		if err != nil {
-			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, name, err)
-		}
-	}
-	for _, dir := range artifacts.ShardDirs {
-		err := removeDirIfExists(s.path(), dir)
-		if err != nil {
-			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
-		}
-	}
-	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
-	err := removeDirIfExists(s.path(), queueDir)
-	if err != nil {
-		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
-	}
-	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
+	err := s.removeVectorIndexStorage(ctx, physicalID, otherIDs)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
+	err = removeDirIfExists(s.path(), queueDir)
+	if err != nil {
+		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
 	}
 	// the record goes last, so a failed drop keeps it for the retry
 	err = s.mapping.Delete(name)
@@ -514,6 +511,25 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec
 		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
 	}
 	return nil
+}
+
+// removeVectorIndexStorage deletes the files an index at id owns and its
+// dynamic state key, sparing the files an index at one of protectedIDs owns.
+func (s *Shard) removeVectorIndexStorage(ctx context.Context, id string, protectedIDs []string) error {
+	artifacts := helpers.VectorIndexArtifactsForID(id, protectedIDs)
+	for _, bucket := range artifacts.LSMBuckets {
+		err := s.removeBucket(ctx, bucket)
+		if err != nil {
+			return fmt.Errorf("drop bucket %q: %w", bucket, err)
+		}
+	}
+	for _, dir := range artifacts.ShardDirs {
+		err := removeDirIfExists(s.path(), dir)
+		if err != nil {
+			return fmt.Errorf("drop directory %q: %w", dir, err)
+		}
+	}
+	return dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), id)
 }
 
 // DropVectorIndex removes the named vector's index and queue from this shard
