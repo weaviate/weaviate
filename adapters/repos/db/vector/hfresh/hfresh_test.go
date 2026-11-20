@@ -428,6 +428,18 @@ func TestSinglePostingMode(t *testing.T) {
 		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
 	})
 
+	t.Run("splits the single posting inline far above its limit", func(t *testing.T) {
+		// a limit under the max posting size leaves the latter as the limit
+		setSinglePostingLimit(t, 100)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		defer tf.Index.taskQueue.splitQueue.Resume()
+
+		vectors := insert(t, &tf, 5*int(tf.Index.maxPostingSize)+1)
+		require.True(t, tf.Index.Centroids.Built(), "the insert splits the posting when its queued split is that late")
+		assertSelfSearch(t, &tf, vectors)
+	})
+
 	t.Run("deleted entries do not count toward the limit", func(t *testing.T) {
 		setSinglePostingLimit(t, singlePostingThreshold)
 		tf := newTestIndex(t, singlePostingUserConfig(), nil)
