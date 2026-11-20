@@ -30,12 +30,9 @@ func requireRegistryConsistent(t *testing.T, r *LoadedShardRegistry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	require.EqualValues(t, len(r.shards), r.loaded.Load())
-	perNamespace := map[string]int{}
 	for i, l := range r.shards {
 		require.Equal(t, i+1, l.regSlot)
-		perNamespace[l.namespace()]++
 	}
-	require.Equal(t, perNamespace, r.byNamespace)
 }
 
 func TestLoadedShardRegistry(t *testing.T) {
@@ -43,16 +40,16 @@ func TestLoadedShardRegistry(t *testing.T) {
 		name       string
 		namespaces []string
 		remove     []int
-		wantNS     map[string]int
+		wantLoaded int64
 	}{
-		{name: "empty", wantNS: map[string]int{}},
-		{name: "single", namespaces: []string{""}, wantNS: map[string]int{"": 1}},
-		{name: "remove the only one", namespaces: []string{""}, remove: []int{0}, wantNS: map[string]int{}},
-		{name: "remove first swaps last in", namespaces: []string{"a", "b", "c"}, remove: []int{0}, wantNS: map[string]int{"b": 1, "c": 1}},
-		{name: "remove last", namespaces: []string{"a", "a", "b"}, remove: []int{2}, wantNS: map[string]int{"a": 2}},
-		{name: "remove the same twice", namespaces: []string{"a", "b", "a", "b"}, remove: []int{1, 1}, wantNS: map[string]int{"a": 2, "b": 1}},
-		{name: "remove two in the middle", namespaces: []string{"a", "b", "a", "b"}, remove: []int{1, 2}, wantNS: map[string]int{"a": 1, "b": 1}},
-		{name: "remove all", namespaces: []string{"a", "b"}, remove: []int{0, 1, 0}, wantNS: map[string]int{}},
+		{name: "empty"},
+		{name: "single", namespaces: []string{""}, wantLoaded: 1},
+		{name: "remove the only one", namespaces: []string{""}, remove: []int{0}},
+		{name: "remove first swaps last in", namespaces: []string{"a", "b", "c"}, remove: []int{0}, wantLoaded: 2},
+		{name: "remove last", namespaces: []string{"a", "a", "b"}, remove: []int{2}, wantLoaded: 2},
+		{name: "remove the same twice", namespaces: []string{"a", "b", "a", "b"}, remove: []int{1, 1}, wantLoaded: 3},
+		{name: "remove two in the middle", namespaces: []string{"a", "b", "a", "b"}, remove: []int{1, 2}, wantLoaded: 2},
+		{name: "remove all", namespaces: []string{"a", "b"}, remove: []int{0, 1, 0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -68,10 +65,7 @@ func TestLoadedShardRegistry(t *testing.T) {
 				r.remove(wrappers[idx])
 				requireRegistryConsistent(t, r)
 			}
-			for ns, n := range tt.wantNS {
-				require.Equal(t, n, r.NamespaceCounts(nil)[ns])
-			}
-			require.Len(t, r.byNamespace, len(tt.wantNS))
+			require.Equal(t, tt.wantLoaded, r.Loaded())
 		})
 	}
 }
@@ -127,7 +121,6 @@ func TestLazyLoadShard_UnloaderHooks(t *testing.T) {
 	f.put(t)
 	require.EqualValues(t, 1, f.unloader.beforeLoads.Load())
 	require.EqualValues(t, 1, f.unloader.registry.Loaded())
-	require.Equal(t, 1, f.unloader.registry.NamespaceCounts(nil)[""])
 
 	f.put(t)
 	require.EqualValues(t, 1, f.unloader.beforeLoads.Load(), "a warm shard does not call BeforeLoad")
@@ -333,28 +326,6 @@ func TestLazyLoadShard_DeferredShutdownLeavesTheRegistry(t *testing.T) {
 	release()
 	require.Eventually(t, func() bool { return shardKnownShut(f.lazy) }, 5*time.Second, 10*time.Millisecond)
 	require.Zero(t, f.unloader.registry.Loaded(), "a shard the last release shut no longer counts as loaded")
-}
-
-func TestLoadedShardRegistryNamespaceCounts(t *testing.T) {
-	tests := []struct {
-		name       string
-		namespaces []string
-		dst        map[string]int
-		want       map[string]int
-	}{
-		{name: "empty into nil", want: map[string]int{}},
-		{name: "stale entries cleared", dst: map[string]int{"gone": 3}, want: map[string]int{}},
-		{name: "per namespace", namespaces: []string{"a", "b", "a", ""}, dst: map[string]int{"gone": 1}, want: map[string]int{"a": 2, "b": 1, "": 1}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := NewLoadedShardRegistry()
-			for _, ns := range tt.namespaces {
-				r.add(registryWrapper(ns), nil)
-			}
-			require.Equal(t, tt.want, r.NamespaceCounts(tt.dst))
-		})
-	}
 }
 
 func TestLazyLoadShard_UnloadedAtTracksTheLastUnload(t *testing.T) {

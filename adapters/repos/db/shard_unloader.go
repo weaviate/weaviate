@@ -58,16 +58,15 @@ type UnloadRequest struct {
 // a policy can sweep them without walking every index. It is touched only
 // on load and unload. mu is a leaf lock: nothing else is taken while it is held.
 type LoadedShardRegistry struct {
-	mu          sync.Mutex
-	shards      []*LazyLoadShard
-	byNamespace map[string]int
+	mu     sync.Mutex
+	shards []*LazyLoadShard
 
 	loaded    atomic.Int64
 	unloading atomic.Int64
 }
 
 func NewLoadedShardRegistry() *LoadedShardRegistry {
-	return &LoadedShardRegistry{byNamespace: map[string]int{}}
+	return &LoadedShardRegistry{}
 }
 
 // add registers l with the shard it just loaded. Callers hold l.mutex, so add
@@ -81,7 +80,6 @@ func (r *LoadedShardRegistry) add(l *LazyLoadShard, s *Shard) {
 	r.shards = append(r.shards, l)
 	l.regSlot = len(r.shards)
 	l.regShard = s
-	r.byNamespace[l.namespace()]++
 	r.loaded.Add(1)
 }
 
@@ -116,10 +114,6 @@ func (r *LoadedShardRegistry) removeLocked(l *LazyLoadShard) {
 	r.shards = r.shards[:last]
 	l.regSlot = 0
 	l.regShard = nil
-	ns := l.namespace()
-	if r.byNamespace[ns]--; r.byNamespace[ns] <= 0 {
-		delete(r.byNamespace, ns)
-	}
 	r.loaded.Add(-1)
 }
 
@@ -128,20 +122,6 @@ func (r *LoadedShardRegistry) Loaded() int64 { return r.loaded.Load() }
 
 // Unloading is the number of TryUnload teardowns in flight.
 func (r *LoadedShardRegistry) Unloading() int64 { return r.unloading.Load() }
-
-// NamespaceCounts replaces dst's entries with the loaded count per namespace and returns it.
-func (r *LoadedShardRegistry) NamespaceCounts(dst map[string]int) map[string]int {
-	if dst == nil {
-		dst = map[string]int{}
-	}
-	clear(dst)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for ns, n := range r.byNamespace {
-		dst[ns] = n
-	}
-	return dst
-}
 
 // AppendChunk appends up to limit wrappers from slot from on to dst and returns
 // dst and the next slot, or -1 past the end. Walking it releases mu between

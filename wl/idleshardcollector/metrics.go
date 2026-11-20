@@ -24,9 +24,9 @@ const (
 	resultFailed = "failed"
 )
 
-// metrics carry no per-shard labels; namespace labels only the loaded gauge, and only when namespaces are on.
+// metrics carry no per-shard or per-namespace labels, so series stay bounded however many namespaces exist.
 type metrics struct {
-	loaded    *prometheus.GaugeVec
+	loaded    prometheus.Gauge
 	unloading prometheus.Gauge
 	unloads   *prometheus.CounterVec
 
@@ -35,16 +35,12 @@ type metrics struct {
 }
 
 // newMetrics registers with reg; a nil reg leaves the metrics working but unregistered.
-func newMetrics(reg prometheus.Registerer, namespaces bool, logger logrus.FieldLogger) *metrics {
-	var nsLabel []string
-	if namespaces {
-		nsLabel = []string{"namespace"}
-	}
+func newMetrics(reg prometheus.Registerer, logger logrus.FieldLogger) *metrics {
 	m := &metrics{
-		loaded: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		loaded: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "weaviate_idle_shard_collector_loaded_shards",
 			Help: "Loaded lazy shards on this node.",
-		}, nsLabel),
+		}),
 		unloading: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "weaviate_idle_shard_collector_unloading_shards",
 			Help: "Lazy shard unloads in flight on this node.",

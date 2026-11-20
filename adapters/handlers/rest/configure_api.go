@@ -499,11 +499,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 	shardUnloader := idleShardCollectorFor(idleShardCollectorModeFor(appState.ServerConfig.Config), func() db.ShardUnloader {
 		return idleshardcollector.New(idleshardcollector.Config{
-			Logger:            appState.Logger,
-			Registerer:        metricsRegisterer,
-			Knobs:             idleshardcollector.KnobsFrom(appState.ServerConfig.Config.IdleShardCollector),
-			NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
-			NamespaceActive:   namespaceActiveFor(appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController),
+			Logger:          appState.Logger,
+			Registerer:      metricsRegisterer,
+			Knobs:           idleshardcollector.KnobsFrom(appState.ServerConfig.Config.IdleShardCollector),
+			NamespaceActive: namespaceActiveFor(appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController),
 		})
 	})
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
