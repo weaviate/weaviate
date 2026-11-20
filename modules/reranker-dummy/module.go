@@ -37,7 +37,7 @@ type ReRankerDummyModule struct {
 }
 
 type ReRankerDummyClient interface {
-	RankProperty(ctx context.Context, query, property string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -64,7 +64,7 @@ func (m *ReRankerDummyModule) initAdditional(ctx context.Context, timeout time.D
 ) error {
 	client := clients.New(logger)
 	m.reranker = client
-	m.additionalPropertiesProvider = rerankeradditional.NewPropertyRankerProvider(m.reranker)
+	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)
 	return nil
 }
 

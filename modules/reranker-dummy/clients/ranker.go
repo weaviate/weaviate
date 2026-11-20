@@ -29,16 +29,14 @@ func New(logger logrus.FieldLogger) *client {
 	}
 }
 
-// RankProperty scores a document by the length of its value, so a test can
-// tell which values reached the module. It takes text and blob properties.
-func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
+func (c *client) Rank(ctx context.Context, query, property string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	documentScores := make([]ent.DocumentScore, 0, len(documents))
 	for _, doc := range documents {
 		documentScores = append(documentScores, ent.DocumentScore{
-			Document: doc.Value,
-			Score:    float64(len(doc.Value)),
+			Document: doc,
+			Score:    float64(len(doc)),
 		})
 	}
 

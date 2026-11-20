@@ -12,32 +12,18 @@
 package additional
 
 import (
-	"context"
-
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	rankerrank "github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const PropertyRerank = "rerank"
-
-type reRankerClient interface {
-	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
-}
 
 type GraphQLAdditionalRankerProvider struct {
 	ReRankerProvider AdditionalProperty
 }
 
-func NewRankerProvider(client reRankerClient) *GraphQLAdditionalRankerProvider {
+func NewRankerProvider(client rankerrank.ReRankerClient) *GraphQLAdditionalRankerProvider {
 	return &GraphQLAdditionalRankerProvider{rankerrank.New(client)}
-}
-
-// NewPropertyRankerProvider is for a client that ranks text and blob
-// properties.
-func NewPropertyRankerProvider(client rankerrank.PropertyReRankerClient) *GraphQLAdditionalRankerProvider {
-	return &GraphQLAdditionalRankerProvider{rankerrank.NewWithProperty(client)}
 }
 
 func (p *GraphQLAdditionalRankerProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

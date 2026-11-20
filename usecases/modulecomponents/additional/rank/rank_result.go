@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,
@@ -42,8 +41,9 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 		return in, errors.New("no properties provided")
 	}
 
-	documents := make([]ent.Document, len(in))
-	for i := range in {
+	documents := make([]string, len(in))
+	for i := range in { // for each result of the general GraphQL Query
+		// get text property
 		rankPropertyValue := ""
 		schema := in[i].Object().Properties.(map[string]interface{})
 		for property, value := range schema {
@@ -53,11 +53,11 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 				}
 			}
 		}
-		documents[i] = ent.Document{ID: in[i].ID, Value: rankPropertyValue}
+		documents[i] = rankPropertyValue
 	}
 
 	// rank results
-	result, err := p.client.RankProperty(ctx, query, rankProperty, documents, cfg)
+	result, err := p.client.Rank(ctx, query, rankProperty, documents, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("client rank: %w", err)
 	}

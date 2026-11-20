@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -132,7 +131,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 type fakeRankClient struct{}
 
-func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (result *ent.RankResult, err error) {
+func (c *fakeRankClient) Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (result *ent.RankResult, err error) {
 	if query == "unavailable" {
 		return nil, errors.New("unavailable")
 	}
@@ -151,7 +150,7 @@ func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []str
 
 type fixedScoresClient struct{ scores map[string]float64 }
 
-func (c *fixedScoresClient) Rank(_ context.Context, query string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+func (c *fixedScoresClient) Rank(_ context.Context, query, _ string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
 	out := make([]ent.DocumentScore, len(documents))
 	for i, d := range documents {
 		out[i] = ent.DocumentScore{Document: d, Score: c.scores[d]}
@@ -227,25 +226,13 @@ func TestRankKeepsSearchOrderOnEqualScores(t *testing.T) {
 	}
 }
 
-type recordingPropertyClient struct {
+type recordingClient struct {
 	property  string
-	documents []ent.Document
+	documents []string
 }
 
-func (c *recordingPropertyClient) RankProperty(_ context.Context, query, property string, documents []ent.Document, _ moduletools.ClassConfig) (*ent.RankResult, error) {
-	c.property = property
-	c.documents = documents
-	out := make([]ent.DocumentScore, len(documents))
-	for i, d := range documents {
-		out[i] = ent.DocumentScore{Document: d.Value, Score: 1}
-	}
-	return &ent.RankResult{Query: query, DocumentScores: out}, nil
-}
-
-type recordingTextClient struct{ documents []string }
-
-func (c *recordingTextClient) Rank(_ context.Context, query string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
-	c.documents = documents
+func (c *recordingClient) Rank(_ context.Context, query, property string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.property, c.documents = property, documents
 	out := make([]ent.DocumentScore, len(documents))
 	for i, d := range documents {
 		out[i] = ent.DocumentScore{Document: d, Score: 1}
@@ -253,98 +240,20 @@ func (c *recordingTextClient) Rank(_ context.Context, query string, documents []
 	return &ent.RankResult{Query: query, DocumentScores: out}, nil
 }
 
-func TestRankPropertyReceivesTheRerankProperty(t *testing.T) {
-	client := &recordingPropertyClient{}
-	in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aGVsbG8="}}}
+func TestRankClientReceivesThePropertyAndItsValues(t *testing.T) {
+	in := []search.Result{
+		{ID: "1", Schema: map[string]interface{}{"photo": "aGVsbG8=", "content": "a"}},
+		{ID: "2", Schema: map[string]interface{}{"content": "b"}},
+	}
 	property := "photo"
 	query := "q"
 	limit := len(in)
+	client := &recordingClient{}
 
-	_, err := NewWithProperty(client).AdditionalPropertyFn(context.Background(), in,
-		&Params{Property: &property, Query: &query}, &limit, nil, blobPhotoConfig{})
+	_, err := New(client).AdditionalPropertyFn(context.Background(), in,
+		&Params{Property: &property, Query: &query}, &limit, nil, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "photo", client.property)
-}
-
-// blobPhotoConfig is the config of a class whose photo property is a blob.
-type blobPhotoConfig struct{ moduletools.ClassConfig }
-
-func (blobPhotoConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return map[string]schema.DataType{"photo": schema.DataTypeBlob, "content": schema.DataTypeText}
-}
-
-func TestRankRejectsABlobPropertyForATextClient(t *testing.T) {
-	client := &recordingTextClient{}
-	in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aGVsbG8=", "content": "a"}}}
-	query := "q"
-	limit := len(in)
-
-	t.Run("a blob property fails without a call to the client", func(t *testing.T) {
-		property := "photo"
-		_, err := New(client).AdditionalPropertyFn(context.Background(), in,
-			&Params{Property: &property, Query: &query}, &limit, nil, blobPhotoConfig{})
-
-		require.EqualError(t, err, `client rank: property "photo" is a blob property; this reranker ranks text properties`)
-		assert.Nil(t, client.documents)
-	})
-
-	t.Run("a text property of the same class reaches the client", func(t *testing.T) {
-		property := "content"
-		_, err := New(client).AdditionalPropertyFn(context.Background(), in,
-			&Params{Property: &property, Query: &query}, &limit, nil, blobPhotoConfig{})
-
-		require.NoError(t, err)
-		assert.Equal(t, []string{"a"}, client.documents)
-	})
-}
-
-func TestRankClientsReceiveTheDocuments(t *testing.T) {
-	first := strfmt.UUID("00000000-0000-0000-0000-000000000001")
-	second := strfmt.UUID("00000000-0000-0000-0000-000000000002")
-	tests := []struct {
-		name       string
-		in         []search.Result
-		wantDocs   []ent.Document
-		wantValues []string
-	}{
-		{
-			name: "both results have the property",
-			in: []search.Result{
-				{ID: first, Schema: map[string]interface{}{"content": "a"}},
-				{ID: second, Schema: map[string]interface{}{"content": "b"}},
-			},
-			wantDocs:   []ent.Document{{ID: first, Value: "a"}, {ID: second, Value: "b"}},
-			wantValues: []string{"a", "b"},
-		},
-		{
-			name: "a result without the property",
-			in: []search.Result{
-				{ID: first, Schema: map[string]interface{}{"content": "a"}},
-				{ID: second, Schema: map[string]interface{}{"title": "b"}},
-			},
-			wantDocs:   []ent.Document{{ID: first, Value: "a"}, {ID: second, Value: ""}},
-			wantValues: []string{"a", ""},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			property := "content"
-			query := "q"
-			limit := len(tt.in)
-			params := &Params{Property: &property, Query: &query}
-
-			propertyClient := &recordingPropertyClient{}
-			_, err := NewWithProperty(propertyClient).AdditionalPropertyFn(context.Background(),
-				append([]search.Result(nil), tt.in...), params, &limit, nil, nil)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantDocs, propertyClient.documents)
-
-			textClient := &recordingTextClient{}
-			_, err = New(textClient).AdditionalPropertyFn(context.Background(),
-				append([]search.Result(nil), tt.in...), params, &limit, nil, nil)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantValues, textClient.documents)
-		})
-	}
+	assert.Equal(t, []string{"aGVsbG8=", ""}, client.documents)
 }
