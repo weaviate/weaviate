@@ -540,15 +540,17 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Qué hay.** Una clase puede crearse con `vectorIndexType: "postingedge"`. El shard abre el índice sobre su propio store, vacío, y el índice inserta, busca, borra con la marca guardada y vuelve como estaba tras un reinicio. Cubre los pasos 1 a 4 del orden de la sección 5 y, del paso 5, solo el presupuesto de la query.
 
-**Lo que cambió respecto del plan.** *Lo marcado como mío lo decidí al integrar y está sin confirmar.*
+**Lo que cambió respecto del plan.** *Lo marcado como mío lo decidí al integrar. El usuario lo confirmó el 20 a las 14:15: el nombre `postingedge`, provisional; los vectores en fichero propio, con su coste en disco anotado; la base de 10 000; el tope de 1 600; el suelo de 192; el cerrojo; y la parada si una escritura falla a medias.*
 
 - **El índice del shard es un tipo nuevo, `postingedge.Persistent`** (`persistent.go`, `postingedge.Open`). `Index` sigue siendo el índice en memoria construido en lote: lo usan los experimentos, y `Persistent` lo usa para su primer lote.
 - **Empezar vacío** (*mío*). Los primeros vectores se guardan aparte, en un bucket propio, y se buscan de forma exacta. Al llegar a 10 000 (el límite de entrenamiento de RQ centrado) se construye con ellos el primer lote, con el build en lote, y desde ahí todo entra por inserts. Es el camino que midió v5.0, con una base de 10 000 en vez del 10 % del corpus.
   - **El insert que completa la base paga ese build entero,** dentro de la petición: no hay tareas de fondo.
+  - **Para el hito 2 (del usuario, 20): el build de la base no puede ir dentro de un insert.** Mientras dura, ese insert no vuelve y las búsquedas esperan al cerrojo. Tiene que ser una tarea de fondo, con los inserts y las búsquedas servidos de forma exacta mientras tanto.
   - **Crecer cien veces desde una base de 10 000 no está medido.** v2.2 midió crecer diez veces desde el 10 %.
   - **Una colección de menos de 10 000 vectores se queda en búsqueda exacta,** leyendo sus vectores del bucket en cada query.
 - **Los vectores exactos viven en un fichero propio,** por doc id, como en v5.0 (*mío*). Con la celda 1b el split necesita el vector de un miembro borrado, que el bucket de objetos ya no tiene.
-- **El insert son dos pasos** (del usuario, 20): `plan`, que solo lee, y `apply`, que escribe en orden. En el hito corren en serie, un insert cada vez.
+  - **Lo que cuesta en disco:** 4 B por dimensión y por doc id, 6 144 B a 1536d, que son 6.1 GB por cada millón de vectores. Es una segunda copia: el bucket de objetos guarda la suya con cada objeto.
+  - **Crece con los doc ids emitidos, no con los vivos.** El vector de doc id d está en la posición d, así que un borrado deja su hueco, y un update, que gasta un doc id nuevo, también. Nada lo recupera en este hito.- **El insert son dos pasos** (del usuario, 20): `plan`, que solo lee, y `apply`, que escribe en orden. En el hito corren en serie, un insert cada vez.
 - **Concurrencia** (*mío*): un cerrojo de lectura y escritura. Las búsquedas y el paso de cálculo de un insert corren a la vez. El aplicador, un delete y la construcción de la base excluyen a las búsquedas mientras duran. Sin medir.
 - **Las aristas van detrás de una interfaz** (`growEdges`, en `grow_edges.go`). La implementación del índice es la de v5.0, un valor por lista. La consolidada de v5.1 y v5.3 se queda en test (`grow_rows_test.go`) y los arneses la siguen usando.
 - **La configuración pública es nueva y vive en `entities/vectorindex/postingedge`.** El `UserConfig` del paquete del índice no se movió: se queda como configuración interna, con los ajustes de los experimentos.
