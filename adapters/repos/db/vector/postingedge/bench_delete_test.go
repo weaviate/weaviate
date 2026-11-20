@@ -43,7 +43,8 @@ var (
 		"deleted at random), clustered30 (whole regions of neighboring postings) and churn (deletes and inserts in "+
 		"rounds, with the best cell of random30, which must come before it). And those of v6.1: repair30 (the maintenance "+
 		"pass in two phases, repair and eliminate, in its cells, over 30 % deleted at random) and repairchurn (the churn "+
-		"with the best of them)")
+		"with the best of them). And those of v6.2: memory30 (the pass of v6.1, B and C, each over its own copy with "+
+		"30 % deleted at random) and memorychurn (the churn with the pass of v6.1, A, B and C, each over its own base)")
 	benchDeleteMin = flag.Int("bench.deletemin", 118, "with -bench.deletes: the live members under which the cleanup "+
 		"merges a posting into its nearest one")
 	benchDeleteOver = flag.Float64("bench.deleteover", 0.30, "with -bench.deletes: the share of deleted members past "+
@@ -181,6 +182,8 @@ type deleteReference struct {
 	Postings     int     `json:"postings"`
 	SizeMean     float64 `json:"sizeMean"`
 	BuildSeconds float64 `json:"buildSeconds"`
+	// Edges is the edge recall of the sample of a stage of v6.2.
+	Edges *memoryEdges `json:"edgeRecall,omitempty"`
 	deleteCurve
 }
 
@@ -226,6 +229,8 @@ type deleteCell struct {
 	deleteCurve
 	Verdict deleteVerdict `json:"verdict"`
 	Fill    *deleteFill   `json:"fill,omitempty"`
+	// Memory is what a cell of v6.2 adds.
+	Memory *memoryCell `json:"memory,omitempty"`
 }
 
 // deleteRound is one round of the churn.
@@ -514,6 +519,9 @@ func TestStreamDeletes(t *testing.T) {
 		require.NoError(t, index.Build(ctx))
 		return index, time.Since(begin)
 	}
+	// sampled, which a stage of v6.2 sets, counts the edge recall of its
+	// sample in a batch index of the vectors that are left.
+	var sampled func(index *Index) *memoryEdges
 	// reference builds the vectors that are left in batch, for the given
 	// posting size, and searches them.
 	reference := func(live []bool, truth [][]uint64, target int) deleteReference {
@@ -536,6 +544,9 @@ func TestStreamDeletes(t *testing.T) {
 		var stopped string
 		ref.deleteCurve, stopped = deleteSweep(ctx, t, logger, index, sized, data.queries, truth, k, nil)
 		require.Empty(t, stopped)
+		if sampled != nil {
+			ref.Edges = sampled(index)
+		}
 		t.Logf("reference with postings of %d: %d vectors in %d postings, built in %s | loads at 0.95 %.2f, at 0.99 %.2f "+
 			"(reached %t, between ef %d and %d)", target, ref.Vectors, ref.Postings, took.Round(time.Second), ref.Loads95,
 			ref.Loads99, ref.Reached99, ref.Crossing[0], ref.Crossing[1])
@@ -618,7 +629,9 @@ func TestStreamDeletes(t *testing.T) {
 
 	var whole *Index
 	var built *state
-	needWhole := slices.ContainsFunc(stages, func(stage string) bool { return stage != "churn" && stage != "repairchurn" })
+	needWhole := slices.ContainsFunc(stages, func(stage string) bool {
+		return stage != "churn" && stage != "repairchurn" && stage != "memorychurn"
+	})
 	if needWhole {
 		all := make([]uint64, n)
 		for i := range all {
@@ -989,6 +1002,268 @@ func TestStreamDeletes(t *testing.T) {
 		}
 	}
 
+	// memoryMeasure counts a cell of v6.2 when its passes end and searches
+	// it. Its verdict waits for the reference of its stage, which is built
+	// after the cells (memoryJudge). It returns false if the stage has to
+	// stop.
+	memoryMeasure := func(stage *deleteStage, spec memorySpec, index *Index, d *deleteIndex, truth [][]uint64,
+		memory *memoryCell, sample []uint64, nearest [][]scored, inserted []bool,
+	) bool {
+		out := deleteCell{
+			Cell: 6, Name: spec.name, Label: spec.key, RepairShare: "a quarter or more", MergeUnder: fillUnder,
+			MergeWithin: cfg.threshold, Mine: spec.mine, Counts: d.counts(uc.TargetPostingSize), Work: d.stats,
+			Splits: d.s.stats.Splits, Coverage: "complete", Memory: memory,
+		}
+		if err := d.checkCoverage(); err != nil {
+			out.Coverage = err.Error()
+			stage.Stopped = fmt.Sprintf("%s, coverage: %v", spec.key, err)
+		} else if edges, err := d.edgesOfSample(sample, nearest, inserted); err != nil {
+			stage.Stopped = fmt.Sprintf("%s, the edge recall: %v", spec.key, err)
+		} else {
+			memory.Edges = &edges
+			var stopped string
+			out.deleteCurve, stopped = deleteSweep(ctx, t, logger, index, uc, data.queries, truth, k, d.deleted)
+			if stopped != "" {
+				stage.Stopped = fmt.Sprintf("%s: %s", spec.key, stopped)
+			}
+		}
+		stage.Cells = append(stage.Cells, out)
+		write()
+		if stage.Stopped != "" {
+			t.Logf("STOP, %s: %s", stage.Name, stage.Stopped)
+			return false
+		}
+		c, e := out.Counts, memory.Edges.All
+		deleted := float64(max(memory.Deleted, 1))
+		t.Logf("%s, %s: loads at 0.95 %.2f, at 0.99 %.2f (reached %t, between ef %d and %d) | %d postings of %.1f live "+
+			"members | %.2f edges a live vector | edge recall %.4f on %d vectors, of postings %.4f, %d substitutes of which "+
+			"%d are true edges | a deleted vector: %.1f search loads, %.2f postings of the second phase, %.1f exact "+
+			"distances, %.1f code distances and %.1f of the rehearsals", stage.Name, spec.key, out.Loads95, out.Loads99,
+			out.Reached99, out.Crossing[0], out.Crossing[1], c.Postings, float64(c.LiveMembers)/float64(max(c.Postings, 1)),
+			float64(c.Edges)/float64(max(c.Live, 1)), e.Recall, e.Vectors, e.PostingRecall, e.Substitutes, e.SubstitutesTrue,
+			float64(memory.SearchLoads)/deleted, float64(memory.SecondPhasePostings)/deleted,
+			float64(memory.SearchRescored+memory.InverseDistances)/deleted, float64(memory.CodeDistances)/deleted,
+			float64(memory.RehearsalCodeDistances)/deleted)
+		return true
+	}
+	// memoryJudge sets every cell of a stage of v6.2 against its reference.
+	memoryJudge := func(stage *deleteStage) {
+		for i := range stage.Cells {
+			cell := &stage.Cells[i]
+			cell.Verdict = deleteJudge(&cell.deleteCurve, &stage.Reference.deleteCurve)
+			t.Logf("%s, %s: worst recall at equal ef %+.4f (ef %d) | loads at 0.95 %.3f of the reference, at 0.99 %.3f | "+
+				"meets %t", stage.Name, cell.Label, cell.Verdict.WorstRecall, cell.Verdict.WorstEF, cell.Verdict.Loads95,
+				cell.Verdict.Loads99, cell.Verdict.Meets)
+		}
+		if ref := stage.Reference.Edges; ref != nil {
+			t.Logf("%s, the reference: edge recall %.4f on %d vectors, of postings %.4f, %.2f edges a vector", stage.Name,
+				ref.All.Recall, ref.All.Vectors, ref.All.PostingRecall, ref.All.Degree)
+		}
+		write()
+	}
+	// memoryLog logs one pass of a cell of v6.2.
+	memoryLog := func(stage *deleteStage, spec memorySpec, round int, pass *memoryPass, counts deleteCounts) {
+		t.Logf("%s, %s, pass %d: %d lists built again with %d loads and %d exact distances | %d postings in the second "+
+			"phase, %d merges | %d edges substituted with %d code distances, %d taken out with none, %d code distances in "+
+			"the rehearsal | %.2f edges a live vector, %d of them substitutes | %d edges lost in the count, of %d vectors",
+			stage.Name, spec.key, round, pass.Repair.Refreshed, pass.Repair.Work.SearchLoads,
+			pass.Repair.Work.SearchRescored+pass.Repair.Work.InverseDistances, pass.SecondPhasePostings, pass.Merges,
+			pass.Substitution.Substituted, pass.Substitution.CodeDistances, pass.Dropped, pass.Rehearsal.CodeDistances,
+			float64(counts.Edges)/float64(max(counts.Live, 1)), pass.Memory.SubstituteEdges, pass.Memory.Lost,
+			pass.Memory.WithLost)
+	}
+
+	// memoryPoint runs the cells of v6.2 over copies of the whole index with
+	// the given vectors deleted at once, each on a copy of its own: the pass
+	// of v6.1, B and C. With every count at zero A is the pass of v6.1. The
+	// references are built after the cells.
+	memoryPoint := func(stage *deleteStage, gone []uint64) {
+		live := make([]bool, n)
+		for i := range live {
+			live[i] = true
+		}
+		for _, id := range gone {
+			live[id] = false
+		}
+		stage.Corpus, stage.Deleted = n, len(gone)
+		var truth [][]uint64
+		truth, stage.TruthFallbacks = liveTruthOf(t, data, live, k)
+		sample := memorySample(live, memorySampleSize)
+		nearest, err := memoryNearest(ctx, logger, whole.provider, vectorOf, live, sample, uc.Edges)
+		require.NoError(t, err)
+		sampled = func(index *Index) *memoryEdges {
+			edges, err := edgesOfBatch(index.state.Load(), n, sample, nearest)
+			require.NoError(t, err)
+			return &edges
+		}
+		defer func() { sampled = nil }()
+
+		cell := func(spec memorySpec) bool {
+			whole.state.Store(built)
+			s, err := newStreamIndex(whole, n, cfg, vectorOf)
+			require.NoError(t, err)
+			graph, err := newCentroidIndex(ctx, &whole.cfg, t.TempDir(), slices.Clone(built.centroids.vectors))
+			require.NoError(t, err)
+			s.st.centroids = graph
+			defer func() {
+				whole.state.Store(built)
+				require.NoError(t, graph.shutdown(ctx))
+			}()
+			d := newDeleteIndex(s, *benchDeleteOver, *benchDeleteMin)
+			d.remember()
+			for _, id := range gone {
+				require.NoError(t, d.remove(id))
+			}
+			require.NoError(t, whole.UpdateUserConfig(insertUC, func() {}))
+			memory := &memoryCell{Deleted: len(gone)}
+			pass, err := d.pass(ctx, spec, fillUnder, cfg.threshold)
+			if err != nil {
+				stage.Stopped = fmt.Sprintf("%s: %v", spec.key, err)
+				write()
+				t.Logf("STOP, %s: %s", stage.Name, stage.Stopped)
+				return false
+			}
+			if err := s.cleanCentroidGraph(); err != nil {
+				t.Logf("%s, %s: cleaning the centroid graph failed, measured with its tombstones: %v", stage.Name, spec.key, err)
+			}
+			memory.add(pass)
+			memoryLog(stage, spec, 1, &pass, d.counts(uc.TargetPostingSize))
+			return memoryMeasure(stage, spec, whole, d, truth, memory, sample, nearest, nil)
+		}
+		for _, spec := range memorySpecs {
+			if spec.key == "A" {
+				continue
+			}
+			if !cell(spec) {
+				return
+			}
+		}
+		stage.Reference = reference(live, truth, uc.TargetPostingSize)
+		write()
+		memoryJudge(stage)
+		fill(stage, live, truth)
+	}
+
+	// memoryChurn runs the churn of v6.1 with every cell of v6.2, each over a
+	// base index of its own, built the same, with the same deletes and the
+	// same inserts: ten rounds that delete 3 % of the base and insert as many
+	// new vectors, and the pass of the cell after each. Until a pass takes
+	// them out the deleted vectors are navigable, for the searches of the
+	// inserts too. The references are built after the cells.
+	memoryChurn := func(stage *deleteStage) {
+		order := rand.New(rand.NewPCG(6, 6)).Perm(n)
+		baseN := n * 760 / 990
+		each := baseN * 3 / 100
+		const rounds = 10
+		base, fresh := make([]uint64, baseN), make([]uint64, 0, n-baseN)
+		for i, id := range order {
+			if i < baseN {
+				base[i] = uint64(id)
+			} else {
+				fresh = append(fresh, uint64(id))
+			}
+		}
+		require.GreaterOrEqual(t, len(fresh), rounds*each, "new vectors to insert")
+		// The base is deleted in the order of another shuffle of it.
+		leaving := slices.Clone(base)
+		rand.New(rand.NewPCG(7, 7)).Shuffle(len(leaving), func(i, j int) { leaving[i], leaving[j] = leaving[j], leaving[i] })
+		// The live vectors when the rounds end, the same in every cell.
+		live, inserted := make([]bool, n), make([]bool, n)
+		for _, id := range base {
+			live[id] = true
+		}
+		for _, id := range leaving[:rounds*each] {
+			live[id] = false
+		}
+		for _, id := range fresh[:rounds*each] {
+			live[id], inserted[id] = true, true
+		}
+		stage.Corpus, stage.Deleted, stage.Inserted = baseN, rounds*each, rounds*each
+		var truth [][]uint64
+		truth, stage.TruthFallbacks = liveTruthOf(t, data, live, k)
+		sample := memorySample(live, memorySampleSize)
+		var nearest [][]scored
+		defer func() { sampled = nil }()
+
+		cell := func(spec memorySpec) bool {
+			index, took := build(base, uc.TargetPostingSize)
+			defer func() { require.NoError(t, index.Shutdown(ctx)) }()
+			t.Logf("%s, %s: the base, %d vectors, built in %s", stage.Name, spec.key, baseN, took.Round(time.Second))
+			if nearest == nil {
+				var err error
+				nearest, err = memoryNearest(ctx, logger, index.provider, vectorOf, live, sample, uc.Edges)
+				require.NoError(t, err)
+				sampled = func(index *Index) *memoryEdges {
+					edges, err := edgesOfBatch(index.state.Load(), n, sample, nearest)
+					require.NoError(t, err)
+					return &edges
+				}
+			}
+			s, err := newStreamIndex(index, n, cfg, vectorOf)
+			require.NoError(t, err)
+			d := newDeleteIndex(s, *benchDeleteOver, *benchDeleteMin)
+			d.remember()
+			d.scoreDeletedEndpoints(true)
+			d.deletedAreSources(true)
+			require.NoError(t, index.UpdateUserConfig(insertUC, func() {}))
+			memory := &memoryCell{Deleted: rounds * each}
+			stop := func(format string, args ...any) bool {
+				stage.Stopped = spec.key + ", " + fmt.Sprintf(format, args...)
+				write()
+				t.Logf("STOP, %s: %s", stage.Name, stage.Stopped)
+				return false
+			}
+			for round := range rounds {
+				out := deleteRound{Round: round + 1, Coverage: "complete"}
+				for _, id := range leaving[round*each : (round+1)*each] {
+					require.NoError(t, d.remove(id))
+				}
+				inserts := s.stats.clone()
+				for _, id := range fresh[round*each : (round+1)*each] {
+					if err := s.insert(ctx, id, data.train[id]); err != nil {
+						return stop("round %d, insert of doc %d: %v", round+1, id, err)
+					}
+				}
+				out.Deleted, out.Inserted = (round+1)*each, (round+1)*each
+				pass, err := d.pass(ctx, spec, fillUnder, cfg.threshold)
+				if err != nil {
+					return stop("round %d: %v", round+1, err)
+				}
+				if err := s.cleanCentroidGraph(); err != nil {
+					t.Logf("%s, %s, round %d: cleaning the centroid graph failed: %v", stage.Name, spec.key, round+1, err)
+				}
+				if err := d.checkCoverage(); err != nil {
+					return stop("round %d, coverage: %v", round+1, err)
+				}
+				out.Counts, out.Work, out.Refresh = d.counts(uc.TargetPostingSize), d.stats, pass.Repair
+				// Of the inserts of a round, these four counts are of the
+				// round. Every other count of out.Inserts, and all of
+				// out.Work, are of the rounds so far.
+				out.Inserts = s.stats.clone()
+				out.Inserts.Inserted -= inserts.Inserted
+				out.Inserts.Splits -= inserts.Splits
+				out.Inserts.SearchLoads -= inserts.SearchLoads
+				out.Inserts.InverseEdges -= inserts.InverseEdges
+				memory.add(pass)
+				memory.Rounds = append(memory.Rounds, out)
+				memoryLog(stage, spec, round+1, &pass, out.Counts)
+			}
+			if !slices.Equal(live, s.live) {
+				return stop("the live vectors when the rounds end are not those the sample was drawn from")
+			}
+			return memoryMeasure(stage, spec, index, d, truth, memory, sample, nearest, inserted)
+		}
+		for _, spec := range memorySpecs {
+			if !cell(spec) {
+				return
+			}
+		}
+		stage.Reference = reference(live, truth, uc.TargetPostingSize)
+		write()
+		memoryJudge(stage)
+		fill(stage, live, truth)
+	}
+
 	for _, name := range stages {
 		name = strings.TrimSpace(name)
 		if !until.IsZero() && !time.Now().Before(until) {
@@ -1033,6 +1308,14 @@ func TestStreamDeletes(t *testing.T) {
 			require.NotNilf(t, spec, "repairchurn runs with the best cell of repair30, or with that of -bench.repaircell: %q",
 				result.BestRepair)
 			churn(stage, 5, spec)
+		case "memory30":
+			gone := make([]uint64, n*30/100)
+			for i := range gone {
+				gone[i] = uint64(random[i])
+			}
+			memoryPoint(stage, gone)
+		case "memorychurn":
+			memoryChurn(stage)
 		default:
 			t.Fatalf("unknown stage %q of -bench.deletes", name)
 		}

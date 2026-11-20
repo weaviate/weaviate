@@ -1362,7 +1362,12 @@ func (c *edgeCounts) add(o edgeCounts) {
 // countEdges counts one vector in posting p with the given edges against its
 // nearest live neighbors, with the posting map as it is.
 func (s *streamIndex) countEdges(p uint32, edges []uint32, nearest []scored) edgeCounts {
-	postingOf := s.st.side.postingOf
+	return countEdgesIn(s.st.side.postingOf, p, edges, nearest)
+}
+
+// countEdgesIn counts one vector in posting p with the given edges against its
+// nearest live neighbors, with the given posting map.
+func countEdgesIn(postingOf []uint32, p uint32, edges []uint32, nearest []scored) edgeCounts {
 	c := edgeCounts{Vectors: 1, Edges: len(edges)}
 	covered := map[uint32]bool{}
 	for _, endpoint := range edges {
