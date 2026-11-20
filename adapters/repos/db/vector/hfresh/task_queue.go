@@ -240,6 +240,12 @@ func (tq *TaskQueue) MergeContains(postingID uint64) bool {
 }
 
 func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
+	// the single posting's map entry and size are rebuilt from the posting at
+	// startup: an analyze would reread all of it after every append
+	if !tq.index.Centroids.Built() {
+		return nil
+	}
+
 	// Check if the operation is already enqueued
 	if !tq.analyzeList.TryAdd(postingID) {
 		return nil

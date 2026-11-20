@@ -234,24 +234,12 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		return false, err
 	}
 	count := h.PostingSizes.FastIncrement(centroidID)
-	single := !h.Centroids.Built()
 
 	h.postingLocks.Unlock(centroidID)
 
-	// the single posting's map entry and size are rebuilt from the posting at
-	// startup: an analyze would reread all of it after every append
-	if single {
-		if count > h.splitLimit() {
-			err = h.taskQueue.EnqueueSplit(centroidID)
-			if err != nil {
-				return false, err
-			}
-		}
-		return true, nil
-	}
-
+	limit := h.splitLimit()
 	if !reassigned {
-		if count > h.maxPostingSize*5 {
+		if uint64(count) > uint64(limit)*5 {
 			err = h.doSplit(ctx, centroidID, true)
 			if err != nil {
 				return false, err
@@ -261,7 +249,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		}
 
 		// If the posting is too big, split it asynchronously.
-		if count > h.maxPostingSize {
+		if count > limit {
 			err = h.taskQueue.EnqueueSplit(centroidID)
 			if err != nil {
 				return false, err
@@ -281,8 +269,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
 	// however during a reassign, we want to split immediately.
-	max := h.maxPostingSize
-	if count > max {
+	if count > limit {
 		err = h.doSplit(ctx, centroidID, false)
 	} else {
 		// enqueue an analyze operation to persist the changes and update the posting map on disk
