@@ -236,6 +236,31 @@ func isolationRequestSet(extra string) []string {
 	return reqs
 }
 
+type isolationPermArgs struct {
+	kind   uint8
+	t1, t2 string
+}
+
+// distinctIsolationPerms lists the buildIsolationPerm arguments for every kind and
+// attack, once per distinct permission. {"*", t1} tests the second slot alone, since
+// a tenant pattern such as ".*" fails the class-name rule as a collection.
+func distinctIsolationPerms() []isolationPermArgs {
+	var out []isolationPermArgs
+	seen := map[string]bool{}
+	for kind := uint8(0); kind < 13; kind++ {
+		for _, t1 := range isolationAttacks {
+			for _, ts := range [][2]string{{t1, ""}, {t1, t1}, {"*", t1}} {
+				key := permString(buildIsolationPerm(kind, ts[0], ts[1]))
+				if !seen[key] {
+					seen[key] = true
+					out = append(out, isolationPermArgs{kind, ts[0], ts[1]})
+				}
+			}
+		}
+	}
+	return out
+}
+
 // TestNamespaceIsolationAttackSeeds stores every attack target in every slot as
 // abc, as a global operator and as abcd, the neighbour sharing abc's prefix. It
 // then enforces each stored policy for a caller confined to abc.
@@ -243,15 +268,11 @@ func TestNamespaceIsolationAttackSeeds(t *testing.T) {
 	reqs := isolationRequestSet("")
 	accepted := map[string]int{}
 	ns, other := isolationNamespaces[0], isolationNamespaces[1]
-	for kind := uint8(0); kind < 13; kind++ {
-		for _, t1 := range isolationAttacks {
-			for _, t2 := range []string{"", t1} {
-				perm := buildIsolationPerm(kind, t1, t2)
-				for _, storer := range []string{ns, "", other} {
-					if checkIsolation(t, perm, storer, ns, reqs) != nil {
-						accepted[storer]++
-					}
-				}
+	for _, a := range distinctIsolationPerms() {
+		perm := buildIsolationPerm(a.kind, a.t1, a.t2)
+		for _, storer := range []string{ns, "", other} {
+			if checkIsolation(t, perm, storer, ns, reqs) != nil {
+				accepted[storer]++
 			}
 		}
 	}
@@ -295,6 +316,7 @@ func TestNamespaceIsolationAttackSeeds(t *testing.T) {
 		{buildIsolationPerm(5, "*", ""), "abc", authorization.Roles("abc:editor")[0], true},
 		{buildIsolationPerm(10, "", ""), "abc", authorization.Mcp(), true},
 		{buildIsolationPerm(0, "*", ""), "abcd", authorization.CollectionsMetadata("abc:Movies")[0], false},
+		{buildIsolationPerm(1, "*", ".*"), "abc", authorization.ShardsMetadata("abc:Movies", "T1")[0], true},
 	} {
 		stored, err := storeAs(c.storer, c.perm)
 		if err != nil {
@@ -310,10 +332,8 @@ func TestNamespaceIsolationAttackSeeds(t *testing.T) {
 // FuzzNamespaceIsolation fuzzes the permission targets, the storing caller,
 // the enforcing namespace and an extra request name.
 func FuzzNamespaceIsolation(f *testing.F) {
-	for kind := uint8(0); kind < 13; kind++ {
-		for _, t1 := range isolationAttacks {
-			f.Add(kind, t1, t1, kind, "", "")
-		}
+	for _, a := range distinctIsolationPerms() {
+		f.Add(a.kind, a.t1, a.t2, a.kind, "", "")
 	}
 	f.Add(uint8(4), `b\x3a.*`, "", uint8(1), "b:alice", "bcd")
 	reqsBase := isolationRequestSet("")
