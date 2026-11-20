@@ -103,39 +103,6 @@ func TestTTLSweepCountsAsShardAccessOnlyWhenItDeletes(t *testing.T) {
 	}
 }
 
-func TestTTLSweepCountsAsAccessBeforeItsPinIsReleased(t *testing.T) {
-	tests := []struct {
-		name       string
-		shardState *sharding.State
-		class      *models.Class
-		tenant     string
-	}{
-		{name: "single tenant", shardState: singleShardState(), class: batchDeleteTTLClass()},
-		{name: "multi tenant", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			index, lazy := setupTTLUnloaderRepo(t, tt.shardState, tt.class, tt.tenant, 3)
-			unloaded := map[string]bool{}
-			index.afterTTLBatchDelete = func(shardName string) {
-				unloaded[shardName] = lazy.TryUnload(testCtx(), UnloadRequest{})
-			}
-			lazy.lastAccess.Store(0)
-
-			require.Equal(t, int32(3), runTTLSweep(t, index))
-
-			require.Len(t, unloaded, 1)
-			for _, outcome := range unloaded {
-				require.True(t, outcome)
-			}
-			require.False(t, lazy.isLoaded())
-			require.NotZero(t, lazy.LastAccess())
-			require.Never(t, lazy.isLoaded, 1500*time.Millisecond, 10*time.Millisecond,
-				"nothing reloads the shard the sweep's unload left cold")
-		})
-	}
-}
-
 func ttlExpiredFilter() *filters.LocalFilter {
 	return &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,

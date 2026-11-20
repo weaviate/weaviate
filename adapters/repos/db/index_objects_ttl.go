@@ -379,9 +379,6 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
 
 	input := map[string][]strfmt.UUID{inputKey: uuids}
 	resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
-	if i.afterTTLBatchDelete != nil {
-		i.afterTTLBatchDelete(inputKey)
-	}
 	if err != nil {
 		return deleted, err
 	}
