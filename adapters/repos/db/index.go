@@ -319,9 +319,6 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
-	// afterTTLBatchDelete, when set by a test, runs once a TTL batch delete has released its shard pin.
-	afterTTLBatchDelete func(shardName string)
-
 	replicaSnapshotsMu sync.Mutex
 	replicaSnapshots   map[string]struct{}
 
