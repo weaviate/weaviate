@@ -13,7 +13,6 @@ package hfresh
 
 import (
 	"context"
-	stderrors "errors"
 	"math"
 	"slices"
 	"sync"
@@ -90,8 +89,7 @@ type centroidMode struct {
 const singlePostingID = 1
 
 // CentroidIndex is the centroid index HFresh queries. It starts as a single
-// posting and switches to an HNSW graph when the first split of that posting
-// deletes it, or on Build.
+// posting and switches to an HNSW graph on Build.
 type CentroidIndex struct {
 	metrics *Metrics
 	store   *lsmkv.Store
@@ -99,13 +97,10 @@ type CentroidIndex struct {
 	mode    atomic.Pointer[centroidMode]
 	counter atomic.Int32
 	buildMu sync.Mutex
-	// pending holds the children of the first split until it deletes the
-	// single posting; guarded by buildMu
-	pending *hnswCentroids
 }
 
-// NewCentroidIndex prepares the centroid index in single-posting mode; the
-// first split or Build switches it to the graph.
+// NewCentroidIndex prepares the centroid index in single-posting mode; Build
+// switches it to the graph.
 func NewCentroidIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config) (*CentroidIndex, error) {
 	index := CentroidIndex{
 		metrics: metrics,
@@ -137,27 +132,12 @@ func (c *CentroidIndex) Build() error {
 		return nil
 	}
 
-	graph, err := c.pendingGraph()
+	graph, err := newHNSWCentroids(c.store, c.cfg)
 	if err != nil {
 		return err
 	}
 	c.mode.Store(&centroidMode{graph})
-	c.pending = nil
 	return nil
-}
-
-// pendingGraph returns the graph that replaces the single posting, creating
-// it on first use. The caller holds buildMu.
-func (c *CentroidIndex) pendingGraph() (*hnswCentroids, error) {
-	if c.pending != nil {
-		return c.pending, nil
-	}
-	graph, err := newHNSWCentroids(c.store, c.cfg)
-	if err != nil {
-		return nil, err
-	}
-	c.pending = graph
-	return graph, nil
 }
 
 // Built reports whether the centroid graph exists.
@@ -181,7 +161,7 @@ func (c *CentroidIndex) Insert(id uint64, centroid *Centroid) error {
 		return nil
 	}
 
-	err := c.insert(id, centroid)
+	err := c.current().Insert(id, centroid)
 	if err != nil {
 		return err
 	}
@@ -190,56 +170,12 @@ func (c *CentroidIndex) Insert(id uint64, centroid *Centroid) error {
 	return nil
 }
 
-func (c *CentroidIndex) insert(id uint64, centroid *Centroid) error {
-	if _, ok := c.current().(*singleCentroid); !ok {
-		return c.current().Insert(id, centroid)
-	}
-
-	c.buildMu.Lock()
-	defer c.buildMu.Unlock()
-	single, ok := c.current().(*singleCentroid)
-	if !ok {
-		return c.current().Insert(id, centroid)
-	}
-	if single.snapshot() == 0 {
-		return single.Insert(id, centroid)
-	}
-	// the first split publishes its children here, out of sight until it
-	// deletes the single posting
-	graph, err := c.pendingGraph()
-	if err != nil {
-		return err
-	}
-	return graph.Insert(id, centroid)
-}
-
 func (c *CentroidIndex) MarkAsDeleted(id uint64) error {
 	if !c.Exists(id) {
 		return nil
 	}
 	c.counter.Add(-1)
-	return c.delete(id)
-}
-
-func (c *CentroidIndex) delete(id uint64) error {
-	if _, ok := c.current().(*singleCentroid); !ok {
-		return c.current().Delete(id)
-	}
-
-	c.buildMu.Lock()
-	defer c.buildMu.Unlock()
-	single, ok := c.current().(*singleCentroid)
-	if !ok {
-		return c.current().Delete(id)
-	}
-	if c.pending == nil {
-		return single.Delete(id)
-	}
-	// the first split deletes the single posting once both children are in
-	// the graph, so searches never see only one of them
-	c.mode.Store(&centroidMode{c.pending})
-	c.pending = nil
-	return nil
+	return c.current().Delete(id)
 }
 
 func (c *CentroidIndex) Exists(id uint64) bool {
@@ -261,59 +197,24 @@ func (c *CentroidIndex) GetMaxID() uint64 {
 	return c.current().MaxID()
 }
 
-// all returns the current index and the graph of a first split in progress,
-// whose files already exist.
-func (c *CentroidIndex) all() []centroidIndex {
-	c.buildMu.Lock()
-	defer c.buildMu.Unlock()
-	if c.pending == nil {
-		return []centroidIndex{c.current()}
-	}
-	return []centroidIndex{c.current(), c.pending}
-}
-
 func (c *CentroidIndex) Shutdown(ctx context.Context) error {
-	var errs []error
-	for _, index := range c.all() {
-		errs = append(errs, index.Shutdown(ctx))
-	}
-	return stderrors.Join(errs...)
+	return c.current().Shutdown(ctx)
 }
 
 func (c *CentroidIndex) Flush() error {
-	var errs []error
-	for _, index := range c.all() {
-		errs = append(errs, index.Flush())
-	}
-	return stderrors.Join(errs...)
+	return c.current().Flush()
 }
 
 func (c *CentroidIndex) PrepareForBackup(ctx context.Context) error {
-	var errs []error
-	for _, index := range c.all() {
-		errs = append(errs, index.PrepareForBackup(ctx))
-	}
-	return stderrors.Join(errs...)
+	return c.current().PrepareForBackup(ctx)
 }
 
 func (c *CentroidIndex) ResumeAfterBackup(ctx context.Context) error {
-	var errs []error
-	for _, index := range c.all() {
-		errs = append(errs, index.ResumeAfterBackup(ctx))
-	}
-	return stderrors.Join(errs...)
+	return c.current().ResumeAfterBackup(ctx)
 }
 
 func (c *CentroidIndex) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	var files []string
-	for _, index := range c.all() {
-		indexFiles, err := index.ListFiles(ctx, basePath)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, indexFiles...)
-	}
-	return files, nil
+	return c.current().ListFiles(ctx, basePath)
 }
 
 func (c *CentroidIndex) PostStartup(ctx context.Context) {
@@ -325,12 +226,6 @@ func (c *CentroidIndex) PostStartup(ctx context.Context) {
 type singleCentroid struct {
 	mu sync.RWMutex
 	id uint64 // 0 until the first posting exists
-}
-
-func (s *singleCentroid) snapshot() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.id
 }
 
 func (s *singleCentroid) Get(id uint64) (*Centroid, error) {

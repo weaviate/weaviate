@@ -407,37 +407,6 @@ func TestFirstSplitBuildsCentroidGraph(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
-// The first split inserts its children one at a time: they stay out of sight
-// until it deletes the single posting, which still holds every vector.
-func TestFirstSplitSwapsWhenSinglePostingDeleted(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 10)
-	centroids := index.Centroids
-	searchIDs := func() []uint64 {
-		results, err := centroids.Search(all[0], 10, nil)
-		require.NoError(t, err)
-		var ids []uint64
-		for id := range results.Iter() {
-			ids = append(ids, id)
-		}
-		return ids
-	}
-
-	require.NoError(t, centroids.Insert(1001, &Centroid{Uncompressed: all[0]}))
-	require.NoError(t, centroids.Insert(1002, &Centroid{Uncompressed: all[1]}))
-	require.False(t, centroids.Built())
-	require.True(t, centroids.Exists(1))
-	require.Equal(t, []uint64{1}, searchIDs())
-
-	require.NoError(t, centroids.MarkAsDeleted(1))
-	require.True(t, centroids.Built())
-	require.False(t, centroids.Exists(1))
-	require.ElementsMatch(t, []uint64{1001, 1002}, searchIDs())
-}
-
 // A first split cut short by a crash leaves postings without a centroid:
 // the children before the graph exists, posting 1 after it.
 func TestFirstSplitCutShortRecoversOnRestart(t *testing.T) {

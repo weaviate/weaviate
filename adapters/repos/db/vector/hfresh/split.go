@@ -57,11 +57,6 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			Trace("centroid not found, skipping split operation")
 		return nil
 	}
-	// the single posting's split builds the centroid graph
-	firstSplit := !h.Centroids.Built()
-	if firstSplit && h.holdFirstSplit.Load() {
-		return nil
-	}
 
 	// load the posting from disk
 	p, err := h.PostingStore.Get(ctx, postingID)
@@ -101,10 +96,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
 		}
 
-		// skip if the filtered posting is now too small; the single posting
-		// may also be back under its limit once deleted entries are gone
-		lf := len(filtered)
-		if lf < int(h.maxPostingSize) || (firstSplit && !h.singlePostingFull(uint32(lf))) {
+		// skip if the filtered posting is now too small
+		if lf := len(filtered); lf < int(h.maxPostingSize) {
 			if lf == lp {
 				// no changes, just return
 				return nil
@@ -182,8 +175,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		}
 	}
 
-	// the single posting has no centroid to compare its vectors against
-	if !reassign || firstSplit {
+	if !reassign {
 		return nil
 	}
 
