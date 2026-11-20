@@ -86,6 +86,11 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	out.ClassName = class.Class
+	hnswParams, err := parseHNSWSearch(req.GetHnsw())
+	if err != nil {
+		return dto.GetParams{}, err
+	}
+	out.HNSW = hnswParams
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
@@ -1511,6 +1516,18 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		Vectors:       vectors,
 		TargetVectors: targetVectors,
 	}, targetCombination, nil
+}
+
+func parseHNSWSearch(in *pb.HNSWSearch) (*searchparams.HNSW, error) {
+	if in == nil || in.Ef == nil {
+		return nil, nil
+	}
+	ef := int(in.GetEf())
+	params := &searchparams.HNSW{EF: &ef}
+	if err := params.Validate(); err != nil {
+		return nil, err
+	}
+	return params, nil
 }
 
 func parseSelection(sel *pb.Selection) *searchparams.Selection {

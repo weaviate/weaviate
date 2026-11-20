@@ -197,6 +197,8 @@ func (db *DB) VectorSearch(ctx context.Context,
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
+	ctx = searchparams.WithHNSWSearch(ctx, params.HNSW)
+
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,

@@ -45,7 +45,9 @@ type AggregateRequest struct {
 	//	*AggregateRequest_NearDepth
 	//	*AggregateRequest_NearThermal
 	//	*AggregateRequest_NearImu
-	Search        isAggregateRequest_Search `protobuf_oneof:"search"`
+	Search isAggregateRequest_Search `protobuf_oneof:"search"`
+	// HNSW-only parameters for the vector search used to select objects.
+	Hnsw          *HNSWSearch `protobuf:"bytes,70,opt,name=hnsw,proto3,oneof" json:"hnsw,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -229,6 +231,13 @@ func (x *AggregateRequest) GetNearImu() *NearIMUSearch {
 		if x, ok := x.Search.(*AggregateRequest_NearImu); ok {
 			return x.NearImu
 		}
+	}
+	return nil
+}
+
+func (x *AggregateRequest) GetHnsw() *HNSWSearch {
+	if x != nil {
+		return x.Hnsw
 	}
 	return nil
 }
@@ -2225,7 +2234,7 @@ var File_v1_aggregate_proto protoreflect.FileDescriptor
 
 const file_v1_aggregate_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/aggregate.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\"\x9d\x14\n" +
+	"\x12v1/aggregate.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\"\xd8\x14\n" +
 	"\x10AggregateRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -2253,7 +2262,8 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\n" +
 	"near_depth\x180 \x01(\v2\x1c.weaviate.v1.NearDepthSearchH\x00R\tnearDepth\x12C\n" +
 	"\fnear_thermal\x181 \x01(\v2\x1e.weaviate.v1.NearThermalSearchH\x00R\vnearThermal\x127\n" +
-	"\bnear_imu\x182 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x00R\anearImu\x1a\xbb\v\n" +
+	"\bnear_imu\x182 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x00R\anearImu\x120\n" +
+	"\x04hnsw\x18F \x01(\v2\x17.weaviate.v1.HNSWSearchH\x05R\x04hnsw\x88\x01\x01\x1a\xbb\v\n" +
 	"\vAggregation\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12E\n" +
 	"\x03int\x18\x02 \x01(\v21.weaviate.v1.AggregateRequest.Aggregation.IntegerH\x00R\x03int\x12J\n" +
@@ -2317,7 +2327,8 @@ const file_v1_aggregate_proto_rawDesc = "" +
 	"\t_group_byB\b\n" +
 	"\x06_limitB\n" +
 	"\n" +
-	"\b_filters\"\x80\x1b\n" +
+	"\b_filtersB\a\n" +
+	"\x05_hnsw\"\x80\x1b\n" +
 	"\x0eAggregateReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x12I\n" +
 	"\rsingle_result\x18\x02 \x01(\v2\".weaviate.v1.AggregateReply.SingleH\x00R\fsingleResult\x12N\n" +
@@ -2461,49 +2472,52 @@ func file_v1_aggregate_proto_rawDescGZIP() []byte {
 	return file_v1_aggregate_proto_rawDescData
 }
 
-var file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
-var file_v1_aggregate_proto_goTypes = []any{
-	(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
-	(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
-	(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
-	(*AggregateRequest_GroupBy)(nil),                                                  // 3: weaviate.v1.AggregateRequest.GroupBy
-	(*AggregateRequest_Aggregation_Integer)(nil),                                      // 4: weaviate.v1.AggregateRequest.Aggregation.Integer
-	(*AggregateRequest_Aggregation_Number)(nil),                                       // 5: weaviate.v1.AggregateRequest.Aggregation.Number
-	(*AggregateRequest_Aggregation_Text)(nil),                                         // 6: weaviate.v1.AggregateRequest.Aggregation.Text
-	(*AggregateRequest_Aggregation_Boolean)(nil),                                      // 7: weaviate.v1.AggregateRequest.Aggregation.Boolean
-	(*AggregateRequest_Aggregation_Date)(nil),                                         // 8: weaviate.v1.AggregateRequest.Aggregation.Date
-	(*AggregateRequest_Aggregation_Reference)(nil),                                    // 9: weaviate.v1.AggregateRequest.Aggregation.Reference
-	(*AggregateReply_Aggregations)(nil),                                               // 10: weaviate.v1.AggregateReply.Aggregations
-	(*AggregateReply_Single)(nil),                                                     // 11: weaviate.v1.AggregateReply.Single
-	(*AggregateReply_Group)(nil),                                                      // 12: weaviate.v1.AggregateReply.Group
-	(*AggregateReply_Grouped)(nil),                                                    // 13: weaviate.v1.AggregateReply.Grouped
-	(*AggregateReply_Aggregations_Aggregation)(nil),                                   // 14: weaviate.v1.AggregateReply.Aggregations.Aggregation
-	(*AggregateReply_Aggregations_Aggregation_Integer)(nil),                           // 15: weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
-	(*AggregateReply_Aggregations_Aggregation_Number)(nil),                            // 16: weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
-	(*AggregateReply_Aggregations_Aggregation_Text)(nil),                              // 17: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
-	(*AggregateReply_Aggregations_Aggregation_Boolean)(nil),                           // 18: weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
-	(*AggregateReply_Aggregations_Aggregation_Date)(nil),                              // 19: weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
-	(*AggregateReply_Aggregations_Aggregation_Reference)(nil),                         // 20: weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
-	(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences)(nil),               // 21: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
-	(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence)(nil), // 22: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
-	(*AggregateReply_Group_GroupedBy)(nil),                                            // 23: weaviate.v1.AggregateReply.Group.GroupedBy
-	(*Filters)(nil),                                                                   // 24: weaviate.v1.Filters
-	(*Hybrid)(nil),                                                                    // 25: weaviate.v1.Hybrid
-	(*NearVector)(nil),                                                                // 26: weaviate.v1.NearVector
-	(*NearObject)(nil),                                                                // 27: weaviate.v1.NearObject
-	(*NearTextSearch)(nil),                                                            // 28: weaviate.v1.NearTextSearch
-	(*NearImageSearch)(nil),                                                           // 29: weaviate.v1.NearImageSearch
-	(*NearAudioSearch)(nil),                                                           // 30: weaviate.v1.NearAudioSearch
-	(*NearVideoSearch)(nil),                                                           // 31: weaviate.v1.NearVideoSearch
-	(*NearDepthSearch)(nil),                                                           // 32: weaviate.v1.NearDepthSearch
-	(*NearThermalSearch)(nil),                                                         // 33: weaviate.v1.NearThermalSearch
-	(*NearIMUSearch)(nil),                                                             // 34: weaviate.v1.NearIMUSearch
-	(*TextArray)(nil),                                                                 // 35: weaviate.v1.TextArray
-	(*IntArray)(nil),                                                                  // 36: weaviate.v1.IntArray
-	(*BooleanArray)(nil),                                                              // 37: weaviate.v1.BooleanArray
-	(*NumberArray)(nil),                                                               // 38: weaviate.v1.NumberArray
-	(*GeoCoordinatesFilter)(nil),                                                      // 39: weaviate.v1.GeoCoordinatesFilter
-}
+var (
+	file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+	file_v1_aggregate_proto_goTypes  = []any{
+		(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
+		(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
+		(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
+		(*AggregateRequest_GroupBy)(nil),                                                  // 3: weaviate.v1.AggregateRequest.GroupBy
+		(*AggregateRequest_Aggregation_Integer)(nil),                                      // 4: weaviate.v1.AggregateRequest.Aggregation.Integer
+		(*AggregateRequest_Aggregation_Number)(nil),                                       // 5: weaviate.v1.AggregateRequest.Aggregation.Number
+		(*AggregateRequest_Aggregation_Text)(nil),                                         // 6: weaviate.v1.AggregateRequest.Aggregation.Text
+		(*AggregateRequest_Aggregation_Boolean)(nil),                                      // 7: weaviate.v1.AggregateRequest.Aggregation.Boolean
+		(*AggregateRequest_Aggregation_Date)(nil),                                         // 8: weaviate.v1.AggregateRequest.Aggregation.Date
+		(*AggregateRequest_Aggregation_Reference)(nil),                                    // 9: weaviate.v1.AggregateRequest.Aggregation.Reference
+		(*AggregateReply_Aggregations)(nil),                                               // 10: weaviate.v1.AggregateReply.Aggregations
+		(*AggregateReply_Single)(nil),                                                     // 11: weaviate.v1.AggregateReply.Single
+		(*AggregateReply_Group)(nil),                                                      // 12: weaviate.v1.AggregateReply.Group
+		(*AggregateReply_Grouped)(nil),                                                    // 13: weaviate.v1.AggregateReply.Grouped
+		(*AggregateReply_Aggregations_Aggregation)(nil),                                   // 14: weaviate.v1.AggregateReply.Aggregations.Aggregation
+		(*AggregateReply_Aggregations_Aggregation_Integer)(nil),                           // 15: weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
+		(*AggregateReply_Aggregations_Aggregation_Number)(nil),                            // 16: weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
+		(*AggregateReply_Aggregations_Aggregation_Text)(nil),                              // 17: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
+		(*AggregateReply_Aggregations_Aggregation_Boolean)(nil),                           // 18: weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
+		(*AggregateReply_Aggregations_Aggregation_Date)(nil),                              // 19: weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
+		(*AggregateReply_Aggregations_Aggregation_Reference)(nil),                         // 20: weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
+		(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences)(nil),               // 21: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
+		(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence)(nil), // 22: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
+		(*AggregateReply_Group_GroupedBy)(nil),                                            // 23: weaviate.v1.AggregateReply.Group.GroupedBy
+		(*Filters)(nil),                                                                   // 24: weaviate.v1.Filters
+		(*Hybrid)(nil),                                                                    // 25: weaviate.v1.Hybrid
+		(*NearVector)(nil),                                                                // 26: weaviate.v1.NearVector
+		(*NearObject)(nil),                                                                // 27: weaviate.v1.NearObject
+		(*NearTextSearch)(nil),                                                            // 28: weaviate.v1.NearTextSearch
+		(*NearImageSearch)(nil),                                                           // 29: weaviate.v1.NearImageSearch
+		(*NearAudioSearch)(nil),                                                           // 30: weaviate.v1.NearAudioSearch
+		(*NearVideoSearch)(nil),                                                           // 31: weaviate.v1.NearVideoSearch
+		(*NearDepthSearch)(nil),                                                           // 32: weaviate.v1.NearDepthSearch
+		(*NearThermalSearch)(nil),                                                         // 33: weaviate.v1.NearThermalSearch
+		(*NearIMUSearch)(nil),                                                             // 34: weaviate.v1.NearIMUSearch
+		(*HNSWSearch)(nil),                                                                // 35: weaviate.v1.HNSWSearch
+		(*TextArray)(nil),                                                                 // 36: weaviate.v1.TextArray
+		(*IntArray)(nil),                                                                  // 37: weaviate.v1.IntArray
+		(*BooleanArray)(nil),                                                              // 38: weaviate.v1.BooleanArray
+		(*NumberArray)(nil),                                                               // 39: weaviate.v1.NumberArray
+		(*GeoCoordinatesFilter)(nil),                                                      // 40: weaviate.v1.GeoCoordinatesFilter
+	}
+)
 var file_v1_aggregate_proto_depIdxs = []int32{
 	2,  // 0: weaviate.v1.AggregateRequest.aggregations:type_name -> weaviate.v1.AggregateRequest.Aggregation
 	3,  // 1: weaviate.v1.AggregateRequest.group_by:type_name -> weaviate.v1.AggregateRequest.GroupBy
@@ -2518,37 +2532,38 @@ var file_v1_aggregate_proto_depIdxs = []int32{
 	32, // 10: weaviate.v1.AggregateRequest.near_depth:type_name -> weaviate.v1.NearDepthSearch
 	33, // 11: weaviate.v1.AggregateRequest.near_thermal:type_name -> weaviate.v1.NearThermalSearch
 	34, // 12: weaviate.v1.AggregateRequest.near_imu:type_name -> weaviate.v1.NearIMUSearch
-	11, // 13: weaviate.v1.AggregateReply.single_result:type_name -> weaviate.v1.AggregateReply.Single
-	13, // 14: weaviate.v1.AggregateReply.grouped_results:type_name -> weaviate.v1.AggregateReply.Grouped
-	4,  // 15: weaviate.v1.AggregateRequest.Aggregation.int:type_name -> weaviate.v1.AggregateRequest.Aggregation.Integer
-	5,  // 16: weaviate.v1.AggregateRequest.Aggregation.number:type_name -> weaviate.v1.AggregateRequest.Aggregation.Number
-	6,  // 17: weaviate.v1.AggregateRequest.Aggregation.text:type_name -> weaviate.v1.AggregateRequest.Aggregation.Text
-	7,  // 18: weaviate.v1.AggregateRequest.Aggregation.boolean:type_name -> weaviate.v1.AggregateRequest.Aggregation.Boolean
-	8,  // 19: weaviate.v1.AggregateRequest.Aggregation.date:type_name -> weaviate.v1.AggregateRequest.Aggregation.Date
-	9,  // 20: weaviate.v1.AggregateRequest.Aggregation.reference:type_name -> weaviate.v1.AggregateRequest.Aggregation.Reference
-	14, // 21: weaviate.v1.AggregateReply.Aggregations.aggregations:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation
-	10, // 22: weaviate.v1.AggregateReply.Single.aggregations:type_name -> weaviate.v1.AggregateReply.Aggregations
-	10, // 23: weaviate.v1.AggregateReply.Group.aggregations:type_name -> weaviate.v1.AggregateReply.Aggregations
-	23, // 24: weaviate.v1.AggregateReply.Group.grouped_by:type_name -> weaviate.v1.AggregateReply.Group.GroupedBy
-	12, // 25: weaviate.v1.AggregateReply.Grouped.groups:type_name -> weaviate.v1.AggregateReply.Group
-	15, // 26: weaviate.v1.AggregateReply.Aggregations.Aggregation.int:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
-	16, // 27: weaviate.v1.AggregateReply.Aggregations.Aggregation.number:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
-	17, // 28: weaviate.v1.AggregateReply.Aggregations.Aggregation.text:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
-	18, // 29: weaviate.v1.AggregateReply.Aggregations.Aggregation.boolean:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
-	19, // 30: weaviate.v1.AggregateReply.Aggregations.Aggregation.date:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
-	20, // 31: weaviate.v1.AggregateReply.Aggregations.Aggregation.reference:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
-	21, // 32: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.top_occurences:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
-	22, // 33: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.items:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
-	35, // 34: weaviate.v1.AggregateReply.Group.GroupedBy.texts:type_name -> weaviate.v1.TextArray
-	36, // 35: weaviate.v1.AggregateReply.Group.GroupedBy.ints:type_name -> weaviate.v1.IntArray
-	37, // 36: weaviate.v1.AggregateReply.Group.GroupedBy.booleans:type_name -> weaviate.v1.BooleanArray
-	38, // 37: weaviate.v1.AggregateReply.Group.GroupedBy.numbers:type_name -> weaviate.v1.NumberArray
-	39, // 38: weaviate.v1.AggregateReply.Group.GroupedBy.geo:type_name -> weaviate.v1.GeoCoordinatesFilter
-	39, // [39:39] is the sub-list for method output_type
-	39, // [39:39] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	35, // 13: weaviate.v1.AggregateRequest.hnsw:type_name -> weaviate.v1.HNSWSearch
+	11, // 14: weaviate.v1.AggregateReply.single_result:type_name -> weaviate.v1.AggregateReply.Single
+	13, // 15: weaviate.v1.AggregateReply.grouped_results:type_name -> weaviate.v1.AggregateReply.Grouped
+	4,  // 16: weaviate.v1.AggregateRequest.Aggregation.int:type_name -> weaviate.v1.AggregateRequest.Aggregation.Integer
+	5,  // 17: weaviate.v1.AggregateRequest.Aggregation.number:type_name -> weaviate.v1.AggregateRequest.Aggregation.Number
+	6,  // 18: weaviate.v1.AggregateRequest.Aggregation.text:type_name -> weaviate.v1.AggregateRequest.Aggregation.Text
+	7,  // 19: weaviate.v1.AggregateRequest.Aggregation.boolean:type_name -> weaviate.v1.AggregateRequest.Aggregation.Boolean
+	8,  // 20: weaviate.v1.AggregateRequest.Aggregation.date:type_name -> weaviate.v1.AggregateRequest.Aggregation.Date
+	9,  // 21: weaviate.v1.AggregateRequest.Aggregation.reference:type_name -> weaviate.v1.AggregateRequest.Aggregation.Reference
+	14, // 22: weaviate.v1.AggregateReply.Aggregations.aggregations:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation
+	10, // 23: weaviate.v1.AggregateReply.Single.aggregations:type_name -> weaviate.v1.AggregateReply.Aggregations
+	10, // 24: weaviate.v1.AggregateReply.Group.aggregations:type_name -> weaviate.v1.AggregateReply.Aggregations
+	23, // 25: weaviate.v1.AggregateReply.Group.grouped_by:type_name -> weaviate.v1.AggregateReply.Group.GroupedBy
+	12, // 26: weaviate.v1.AggregateReply.Grouped.groups:type_name -> weaviate.v1.AggregateReply.Group
+	15, // 27: weaviate.v1.AggregateReply.Aggregations.Aggregation.int:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
+	16, // 28: weaviate.v1.AggregateReply.Aggregations.Aggregation.number:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
+	17, // 29: weaviate.v1.AggregateReply.Aggregations.Aggregation.text:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
+	18, // 30: weaviate.v1.AggregateReply.Aggregations.Aggregation.boolean:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
+	19, // 31: weaviate.v1.AggregateReply.Aggregations.Aggregation.date:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
+	20, // 32: weaviate.v1.AggregateReply.Aggregations.Aggregation.reference:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
+	21, // 33: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.top_occurences:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
+	22, // 34: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.items:type_name -> weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
+	36, // 35: weaviate.v1.AggregateReply.Group.GroupedBy.texts:type_name -> weaviate.v1.TextArray
+	37, // 36: weaviate.v1.AggregateReply.Group.GroupedBy.ints:type_name -> weaviate.v1.IntArray
+	38, // 37: weaviate.v1.AggregateReply.Group.GroupedBy.booleans:type_name -> weaviate.v1.BooleanArray
+	39, // 38: weaviate.v1.AggregateReply.Group.GroupedBy.numbers:type_name -> weaviate.v1.NumberArray
+	40, // 39: weaviate.v1.AggregateReply.Group.GroupedBy.geo:type_name -> weaviate.v1.GeoCoordinatesFilter
+	40, // [40:40] is the sub-list for method output_type
+	40, // [40:40] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_v1_aggregate_proto_init() }

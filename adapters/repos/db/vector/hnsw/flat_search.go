@@ -32,6 +32,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	if !h.shouldRescore() || h.muvera.Load() {
 		limit = k
 	}
+	limit = h.boundSearchEF(limit)
 
 	h.RLock()
 	nodeSize := uint64(len(h.nodes))

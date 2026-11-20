@@ -126,6 +126,9 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
 		return nil, grpcErr
 	}
+	if grpcErr := unprocessableToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
+	}
 
 	return result, errInner
 }
@@ -330,6 +333,9 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
 		return nil, grpcErr
 	}
+	if grpcErr := unprocessableToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
+	}
 
 	return result, errInner
 }
@@ -342,6 +348,14 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 func admissionToGRPCError(err error) error {
 	if errors.Is(err, queryadmission.ErrOverloaded) {
 		return status.Error(codes.ResourceExhausted, err.Error())
+	}
+	return nil
+}
+
+func unprocessableToGRPCError(err error) error {
+	var unprocessable enterrors.ErrUnprocessable
+	if errors.As(err, &unprocessable) {
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
 	return nil
 }

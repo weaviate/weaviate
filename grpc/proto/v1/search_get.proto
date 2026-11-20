@@ -51,6 +51,10 @@ message SearchRequest {
 
   optional Boost boost = 62;
 
+  // HNSW-only parameters for the vector search in this request (near_vector,
+  // near_object, hybrid, near_text and the other near_* searches).
+  optional HNSWSearch hnsw = 70;
+
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
   bool uses_127_api = 102; 

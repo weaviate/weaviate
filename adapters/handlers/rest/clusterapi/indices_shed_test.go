@@ -80,7 +80,7 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 		NewNoopAuthHandler(), func() bool { return false }, logger)
 
 	body, err := shared.IndicesPayloads.SearchParams.Marshal(
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost,

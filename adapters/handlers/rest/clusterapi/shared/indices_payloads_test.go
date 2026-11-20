@@ -223,10 +223,10 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("test", func(t *testing.T) {
-			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			require.Nil(t, err)
 
-			vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
+			vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
 			require.Nil(t, err)
 			assert.Equal(t, tt.SearchVectors, vecs)
 			assert.Equal(t, tt.Targets, targets)
@@ -240,7 +240,8 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.SearchVectors[0], vecsOld)
 				assert.Equal(t, tt.Targets[0], targetsOld)
 
-				vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
+				vecs, targets, _, _, _, _, _, _, _, _, _, _, hnswEf, err := payload.Unmarshal(b125)
+				assert.Nil(t, hnswEf)
 				require.Nil(t, err)
 				assert.Equal(t, tt.SearchVectors, vecs)
 				assert.Equal(t, tt.Targets, targets)
@@ -248,6 +249,30 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSearchParamsPayloadRoundTripsHNSWEF(t *testing.T) {
+	ef := 64
+	payload := searchParamsPayload{}
+	body, err := payload.Marshal(
+		[]models.Vector{[]float32{1, 2, 3}},
+		[]string{"default"},
+		0.2, 10, nil, nil, nil, nil, nil,
+		additional.Properties{}, nil, nil, &ef,
+	)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"hnswEf":64`)
+
+	_, _, _, _, _, _, _, _, _, _, _, _, got, err := payload.Unmarshal(body)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, 64, *got)
+
+	// A payload from a node that does not know about search-time ef leaves it unset.
+	legacy := []byte(`{"searchVector":[1,2,3],"targetVector":"default","limit":10}`)
+	_, _, _, _, _, _, _, _, _, _, _, _, got, err = payload.Unmarshal(legacy)
+	require.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 func Test_searchParametersPayload_Unmarshal(t *testing.T) {

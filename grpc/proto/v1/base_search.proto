@@ -89,6 +89,20 @@ message Hybrid {
   repeated Vectors vectors = 21;
 }
 
+// HNSWSearch is a search-time override for HNSW indexes.
+// Unset fields keep the collection's vector index config. Flat, HFresh and
+// skipped indexes reject a request that sets ef. Dynamic indexes accept it
+// and apply it once the active index is HNSW; an exhaustive flat search
+// ignores it because that search is already exact.
+message HNSWSearch {
+  // ef is the size of the HNSW candidate list for this query.
+  // It overrides vectorIndexConfig.ef, including dynamic ef.
+  // Must be between 1 and 1048576. When it is smaller than the number of
+  // neighbors requested, the search raises it to that number so the result
+  // list is not truncated. The index also caps ef to the number of indexed nodes.
+  optional int32 ef = 1;
+}
+
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vectors

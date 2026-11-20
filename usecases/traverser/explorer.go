@@ -809,6 +809,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 	}
 
+	ctx = searchparams.WithHNSWSearch(ctx, params.HNSW)
 	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
 	if err != nil {
 		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.

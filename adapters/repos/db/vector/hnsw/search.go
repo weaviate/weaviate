@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -58,6 +59,52 @@ func (h *hnsw) searchTimeEF(k int) int {
 		ef = k
 	}
 
+	return ef
+}
+
+// effectiveSearchEF is the candidate-list size for this query.
+// A search-time ef (see searchparams.WithHNSWSearch) overrides the index
+// configuration, including dynamic ef. It is raised to at least k so the
+// result list is not truncated, matching searchTimeEF.
+func (h *hnsw) effectiveSearchEF(ctx context.Context, k int) int {
+	ef, ok := searchparams.HNSWSearchEF(ctx)
+	if !ok {
+		ef = h.searchTimeEF(k)
+	} else if ef < k {
+		ef = k
+	}
+	ef = h.boundSearchEF(ef)
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef", ef)
+	return ef
+}
+
+// searchableNodeCount is the number of vectors the index can return.
+// The node slice grows ahead of the inserts, so its length is not the
+// searchable set. A candidate queue larger than the vector count cannot
+// return more neighbors.
+func (h *hnsw) searchableNodeCount() int {
+	n := h.cacheSize()
+	if n <= 0 {
+		return 0
+	}
+	if n > math.MaxInt {
+		return math.MaxInt
+	}
+	return int(n)
+}
+
+// boundSearchEF limits ef to the searchable graph. An empty graph is left
+// unchanged so callers that never allocate (an empty knn search) keep the
+// requested value. A non-empty graph never allocates a candidate queue larger
+// than its node set.
+func (h *hnsw) boundSearchEF(ef int) int {
+	if ef < 1 {
+		return 1
+	}
+	n := h.searchableNodeCount()
+	if n > 0 && ef > n {
+		return n
+	}
 	return ef
 }
 
@@ -89,10 +136,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return h.flatSearch(ctx, vector, k, h.effectiveSearchEF(ctx, k), allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+	return h.knnSearchByVector(ctx, vector, k, h.effectiveSearchEF(ctx, k), allowList)
 }
 
 func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
@@ -278,6 +325,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
 
+	// GetMin/GetMax allocate the candidate queues up front. Cap ef by the
+	// graph so a request cannot reserve a multi-gigabyte heap or panic on
+	// an impossible slice capacity.
+	ef = h.boundSearchEF(ef)
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
@@ -1255,27 +1306,64 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 }
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	kPrime := k
-	candidateSet := make(map[uint64]struct{})
-	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
-		if err != nil {
+	// Each stored vector is its own graph node, and several nodes can belong
+	// to one document. ef raised only to k can therefore fill the candidate
+	// list with one document's vectors and drop other documents that a wider
+	// search would still reach. Grow ef until k distinct documents are in
+	// hand or the search stops returning a full candidate list (the eligible
+	// graph is exhausted).
+	ef := h.effectiveSearchEF(ctx, k)
+	nodes := h.searchableNodeCount()
+	var candidateSet map[uint64]struct{}
+	for {
+		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		for _, id := range ids {
-			var docId uint64
-			if !h.compressed.Load() {
-				docId, _ = h.cache.GetKeys(id)
-			} else {
-				docId, _ = h.compressor.GetKeys(id)
+		candidateSet = make(map[uint64]struct{})
+		saturated := false
+		for _, vec := range queryVectors {
+			ids, _, err := h.knnSearchByVector(ctx, vec, ef, ef, allowList)
+			if err != nil {
+				return nil, nil, err
 			}
-			candidateSet[docId] = struct{}{}
+			if len(ids) >= ef {
+				saturated = true
+			}
+			for _, id := range ids {
+				candidateSet[h.vectorNodeDocID(id)] = struct{}{}
+			}
 		}
+		if k <= 0 || len(candidateSet) >= k || !saturated {
+			break
+		}
+		if nodes > 0 && ef >= nodes {
+			break
+		}
+		next := ef * 2
+		if next <= ef {
+			break
+		}
+		if nodes > 0 && next > nodes {
+			next = nodes
+		}
+		if next <= ef {
+			break
+		}
+		ef = next
 	}
 	beforeRescore := time.Now()
 	ids, dists, err := h.computeLateInteraction(ctx, queryVectors, k, candidateSet)
 	helpers.AnnotateSlowQueryLog(ctx, "multivector_rescore_took", time.Since(beforeRescore))
 	return ids, dists, err
+}
+
+func (h *hnsw) vectorNodeDocID(id uint64) uint64 {
+	if !h.compressed.Load() {
+		docID, _ := h.cache.GetKeys(id)
+		return docID
+	}
+	docID, _ := h.compressor.GetKeys(id)
+	return docID
 }
 
 func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {

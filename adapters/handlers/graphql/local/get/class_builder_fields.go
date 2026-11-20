@@ -234,6 +234,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"sort":       sortArgument(class.Class),
 			"nearVector": nearVectorArgument(class.Class),
 			"nearObject": nearObjectArgument(class.Class),
+			"hnsw":       common_filters.HNSWArgument("GetObjects" + class.Class),
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 			"groupBy":    groupByArgument(class.Class),
@@ -470,6 +471,11 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 
 	group := extractGroup(p.Args)
 
+	hnswParams, err := common_filters.ExtractHNSW(p.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract hnsw params: %w", err)
+	}
+
 	var groupByParams *searchparams.GroupBy
 	if groupBy, ok := p.Args["groupBy"]; ok {
 		p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
@@ -486,6 +492,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		Sort:                    sort,
 		NearVector:              nearVectorParams,
 		NearObject:              nearObjectParams,
+		HNSW:                    hnswParams,
 		Group:                   group,
 		ModuleParams:            moduleParams,
 		AdditionalProperties:    addlProps,

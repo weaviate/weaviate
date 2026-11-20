@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -401,7 +403,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties, searchparams.HNSWSearchEFValue(ctx))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
@@ -417,13 +419,30 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	if err != nil {
-		// Rehydrate the shed's identity (429) past retry exhaustion so it
-		// reaches the ingress mapping instead of a generic 500.
-		if he, ok := AsHTTPError(err); ok && he.StatusCode() == http.StatusTooManyRequests {
-			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
-		}
+		err = rehydrateSearchShardStatus(err)
 	}
 	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
+}
+
+// rehydrateSearchShardStatus keeps the shed (429) and unprocessable (422)
+// identities past retry exhaustion so callers can map them instead of a generic 500.
+func rehydrateSearchShardStatus(err error) error {
+	he, ok := AsHTTPError(err)
+	if !ok {
+		return err
+	}
+	switch he.StatusCode() {
+	case http.StatusTooManyRequests:
+		return fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
+	case http.StatusUnprocessableEntity:
+		msg := strings.TrimSpace(string(he.Body))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return enterrors.NewErrUnprocessable(errors.New(msg))
+	default:
+		return err
+	}
 }
 
 type searchShardResp struct {
@@ -472,11 +491,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	// Retried once only: the caller moves on to the shard's other replicas.
 	err = c.doWithCustomMarshaller(timeout, req, body, resp.decode, successCode, 1)
 	if err != nil {
-		// Rehydrate the shed's identity (429) past retry exhaustion, as in
-		// SearchShard, so it reaches the ingress mapping.
-		if he, ok := AsHTTPError(err); ok && he.StatusCode() == http.StatusTooManyRequests {
-			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
-		}
+		err = rehydrateSearchShardStatus(err)
 	}
 	return resp.Result, err
 }
