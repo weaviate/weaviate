@@ -502,20 +502,33 @@ func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
-func TestSinglePostingSurvivesRestartWithZeroThreshold(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+// Turning the feature off creates the graph at open, and the startup repair
+// moves the single posting into it, whatever its size.
+func TestSinglePostingReopenedWithFeatureOff(t *testing.T) {
+	tests := []struct {
+		name    string
+		vectors int
+	}{
+		{"above the max posting size", 600},
+		{"below the max posting size", 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := testinghelpers.NewDummyStore(t)
+			cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 600)
-	require.NoError(t, index.Shutdown(t.Context()))
+			index := makeHFreshWithConfig(t, store, cfg, uc)
+			all := addRestartVectors(t, index, vectors, 0, tt.vectors)
+			require.NoError(t, index.Shutdown(t.Context()))
 
-	// a threshold of zero splits the restored single posting into the graph
-	setSinglePostingLimit(t, 0)
-	index = makeHFreshWithConfig(t, store, cfg, uc)
-	index.waitForMaintenance(t)
-	require.True(t, index.Centroids.Built())
-	requireSelfSearchExcept(t, index, all, -1)
+			setSinglePostingLimit(t, 0)
+			index = makeHFreshWithConfig(t, store, cfg, uc)
+			require.True(t, index.Centroids.Built())
+			index.waitForMaintenance(t)
+			require.False(t, index.Centroids.Exists(1))
+			requireSelfSearchExcept(t, index, all, -1)
+		})
+	}
 }
 
 // A lowered limit must apply when the shard opens, not only on the next
