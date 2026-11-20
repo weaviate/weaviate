@@ -181,7 +181,7 @@ type nodeCompactor struct {
 	// nodeScratch holds the node under construction, grown when one needs more
 	// bytes and reused by the next. writeLayer writes the node before returning,
 	// and an io.Writer may not retain the slice it was passed.
-	nodeScratch []byte
+	nodeScratch roaringset.SegmentNodeScratch
 
 	cleanupDeletions bool
 	// deletionsLeft and deletionsRight are nil where that side deletes nothing.
@@ -308,9 +308,8 @@ func (nc *nodeCompactor) writeLayer(key uint8, layer roaringset.BitmapLayer) err
 		return nil
 	}
 
-	sn, scratch := NewSegmentNodeCompacted(key, cleanLayer.Additions,
-		cleanLayer.Deletions, nc.nodeScratch)
-	nc.nodeScratch = scratch
+	sn := NewSegmentNodeCompacted(key, cleanLayer.Additions,
+		cleanLayer.Deletions, &nc.nodeScratch)
 
 	n, err := nc.bufw.Write(sn.ToBuffer())
 	if err != nil {

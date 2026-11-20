@@ -195,7 +195,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/weaviate/s5cmd/v2 v2.0.1 // indirect
-	github.com/weaviate/sroar v0.0.18 // indirect
+	github.com/weaviate/sroar v0.0.19-0.20261109135748-d795633ecb1e // indirect
 	github.com/weaviate/tiktoken-go v0.0.4 // indirect
 	github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect

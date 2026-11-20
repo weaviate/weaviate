@@ -218,7 +218,7 @@ type nodeCompactor struct {
 	// nodeScratch holds the node under construction, grown when one needs more and
 	// reused by the next. Safe because emitNode hands the node to the writer
 	// before returning, and records the cursor's key rather than the node's.
-	nodeScratch []byte
+	nodeScratch SegmentNodeScratch
 
 	cleanupDeletions bool
 }
@@ -329,11 +329,10 @@ func (c *nodeCompactor) emitNode(key []byte, additions, deletions *sroar.Bitmap)
 		return nil
 	}
 
-	sn, scratch, err := NewSegmentNodeCompacted(key, add, del, c.nodeScratch)
+	sn, err := NewSegmentNodeCompacted(key, add, del, &c.nodeScratch)
 	if err != nil {
 		return fmt.Errorf("new segment node: %w", err)
 	}
-	c.nodeScratch = scratch
 
 	n, err := c.bufw.Write(sn.ToBuffer())
 	if err != nil {

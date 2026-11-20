@@ -108,23 +108,20 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 	return sroar.FromBufferWithCopy(rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
-// AdditionsUnlimited returns the additions roaring bitmap with shared state. Only use
-// this method if you can guarantee that you will only use it while holding a
-// maintenance lock or can otherwise be sure that no compaction can occur. If
-// you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
-// CAUTION: bitmap uses entire capacity of underlying buffer. By expanding it may overwrite
-// node's data after additions bitmap
-//
-// It returns nil when the node holds no additions (length indicator 0), the
-// same contract as [*SegmentNode.Additions].
-func (sn *SegmentNode) AdditionsUnlimited() *sroar.Bitmap {
+// AdditionsOwningBuf returns the additions bitmap over the node's memory and
+// takes over release, which frees that memory. The bitmap grows over the rest
+// of the node's buffer before taking buffers from pool, so nothing may read sn
+// after this call. With no additions it returns a nil bitmap and hands release
+// back uncalled.
+func (sn *SegmentNode) AdditionsOwningBuf(pool BitmapBufPool, release func()) (*sroar.Bitmap, func()) {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
 	if len(buf) == 0 {
-		return nil
+		return nil, release
 	}
-	return sroar.FromBufferUnlimited(buf)
+	requireEvenLength(buf)
+	return fromBufferToBuf(pool, buf, release)
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -204,77 +201,30 @@ func NewSegmentNode(
 	return &sn, nil
 }
 
-// NewSegmentNodeCompacted builds the node into scratch, growing it as needed and
-// handing it back for the next call. Write the node through [SegmentNode.ToBuffer];
-// scratch runs to the largest node built so far, so writing it writes trailing
-// bytes that belong to no node. The node points into scratch, so nothing may hold
-// it past the next call, and neither bitmap may live in scratch: sroar leaves an
-// overlapping side undefined, and nothing here checks for one. Whether such a
-// caller loses the side, crashes, or is saved by a reallocation depends on
-// whether the node it is building happens to outgrow the scratch it was handed.
-// A nil bitmap is an empty side.
+// NewSegmentNodeCompacted builds the node into scratch, which grows as needed
+// and is reused by the next call. Write the node through [SegmentNode.ToBuffer].
+// The node points into scratch, so nothing may hold it past the next call.
+// Neither bitmap may live in scratch, because sroar leaves an overlapping side
+// undefined and nothing here checks for one. A nil bitmap is an empty side.
 func NewSegmentNodeCompacted(
-	key []byte, additions, deletions *sroar.Bitmap, scratch []byte,
-) (SegmentNode, []byte, error) {
-	buf := scratch
-	// Ahead of the callbacks below, so none of them sizes a node around a key
-	// length the node cannot record.
+	key []byte, additions, deletions *sroar.Bitmap, scratch *SegmentNodeScratch,
+) (SegmentNode, error) {
+	// Ahead of Reserve, so no buffer is sized around a key length the node
+	// cannot record.
 	if len(key) > math.MaxUint32 {
-		return SegmentNode{}, scratch, fmt.Errorf("key too long: %d bytes, max is %d",
+		return SegmentNode{}, fmt.Errorf("key too long: %d bytes, max is %d",
 			len(key), math.MaxUint32)
 	}
 
 	// offset + 2*uint64 length indicators + uint32 length indicator
 	const overhead = 8 + 8 + 8 + 4
+	scratch.Reserve(overhead + len(key) + additions.LenInBytes() + deletions.LenInBytes())
+	aSize := scratch.CompactAt(additions, 16)
+	dSize := scratch.CompactAt(deletions, 24+aSize)
+	buf := scratch.Node(overhead + len(key) + aSize + dSize)
 
-	var aSize, dSize int
-	// IsEmpty walks every container until it finds a non-empty one, so an emptied
-	// bitmap pays a full walk; the switch below would ask twice.
-	addEmpty, delEmpty := additions.IsEmpty(), deletions.IsEmpty()
-
-	// An empty side skips CompactedToBuf, which would hand back a non-empty
-	// region where NewSegmentNode writes a zero length indicator and Additions
-	// reads it back as nil. Where both sides are present the calls nest: the
-	// deletions region starts after the additions one, so the inner callback is
-	// the first point at which both sizes are known, and it must not touch
-	// deletions — sroar sizes the outer result before calling back.
-	writeAdditions := func() {
-		additions.CompactedToBuf(func(size int) []byte {
-			aSize = size
-			buf = byteops.Resize(buf, overhead+aSize+dSize+len(key))
-			end := 16 + aSize
-			// The three-index slice holds sroar to this payload's own region,
-			// which it would otherwise adopt to the end of buf's capacity.
-			return buf[16:end:end]
-		})
-	}
-	deletionsRegion := func() []byte {
-		start := 24 + aSize
-		end := start + dSize
-		return buf[start:end:end]
-	}
-
-	switch {
-	case !addEmpty && !delEmpty:
-		deletions.CompactedToBuf(func(size int) []byte {
-			dSize = size
-			writeAdditions()
-			return deletionsRegion()
-		})
-	case !addEmpty:
-		writeAdditions()
-	case !delEmpty:
-		deletions.CompactedToBuf(func(size int) []byte {
-			dSize = size
-			buf = byteops.Resize(buf, overhead+dSize+len(key))
-			return deletionsRegion()
-		})
-	default:
-		buf = byteops.Resize(buf, overhead+len(key))
-	}
-
-	// The payloads are already in place; this writes every remaining byte,
-	// because Resize hands back the previous node's bytes still in it.
+	// The payloads are already in place. Every remaining byte is written here,
+	// because scratch still holds the previous node's bytes.
 	rw := byteops.NewReadWriter(buf)
 	rw.WriteUint64(uint64(len(buf)))
 	rw.WriteUint64(uint64(aSize))
@@ -282,10 +232,72 @@ func NewSegmentNodeCompacted(
 	rw.WriteUint64(uint64(dSize))
 	rw.MoveBufferToAbsolutePosition(uint64(24 + aSize + dSize))
 	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
-		return SegmentNode{}, buf[:cap(buf)], err
+		return SegmentNode{}, err
 	}
 
-	return SegmentNode{data: buf}, buf[:cap(buf)], nil
+	return SegmentNode{data: buf}, nil
+}
+
+// SegmentNodeScratch is the buffer NewSegmentNodeCompacted builds nodes in, kept
+// by its caller across nodes. CompactAt compacts each payload straight into it,
+// at the offset it was given.
+type SegmentNodeScratch struct {
+	buf []byte
+	// next is where the region scratchPool.Get hands out next starts.
+	next int
+	// reserve is the node size the buffer grows to at once, if it must grow.
+	reserve int
+	// dst is the struct CompactedToBuf builds into, held so CompactedToBuf does not
+	// allocate one per payload. CompactAt discards it once the bytes are in buf.
+	dst sroar.Bitmap
+}
+
+// Reserve sizes the next growth for a node of about n bytes, so a node that
+// outgrows the buffer reallocates it once rather than per payload.
+func (s *SegmentNodeScratch) Reserve(n int) {
+	s.reserve = n
+}
+
+// CompactAt compacts bm into the buffer at start and returns its size. An empty
+// bm takes no room, where CompactedToBuf would still write an empty bitmap.
+// start must not precede the end of the previous payload, which growth would drop.
+func (s *SegmentNodeScratch) CompactAt(bm *sroar.Bitmap, start int) int {
+	if bm.IsEmpty() {
+		return 0
+	}
+	s.next = start
+	bm.CompactedToBuf(&s.dst, scratchPool{s})
+	s.dst = sroar.Bitmap{}
+	return s.next - start
+}
+
+// Node returns the first n bytes of the buffer, holding the payloads put so far.
+func (s *SegmentNodeScratch) Node(n int) []byte {
+	s.grow(n)
+	return s.buf
+}
+
+// scratchPool is the sroar.BufPool CompactAt hands CompactedToBuf. It is valid
+// only within that call, so SegmentNodeScratch does not export it.
+type scratchPool struct{ *SegmentNodeScratch }
+
+// Get hands sroar the next region, capped so it does not adopt the rest of the
+// buffer.
+func (p scratchPool) Get(minBytes int) ([]byte, func()) {
+	start, end := p.next, p.next+minBytes
+	p.grow(end)
+	p.next = end
+	return p.buf[start:end:end], nil
+}
+
+// grow sets the buffer's length to n, keeping what it holds.
+func (s *SegmentNodeScratch) grow(n int) {
+	if n > cap(s.buf) {
+		buf := make([]byte, n, max(n, s.reserve))
+		copy(buf, s.buf)
+		s.buf = buf
+	}
+	s.buf = s.buf[:n]
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
