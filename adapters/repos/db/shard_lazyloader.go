@@ -87,6 +87,8 @@ type LazyLoadShard struct {
 	loadWaiters atomic.Int32
 	// unloadMarkedHook, set only by tests, runs inside TryUnload once shardCreateLocks is released.
 	unloadMarkedHook func()
+	// manualReadOnly carries a user-set READONLY across a TryUnload to the next load; guarded by mutex.
+	manualReadOnly bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -288,6 +290,19 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		return nil, false, errors.New(msg)
+	}
+
+	if l.manualReadOnly {
+		// Before publishing, so the write that triggered the reload is refused.
+		if err := shard.SetStatusReadonly(statusReasonManualUpdate); err != nil {
+			l.shardOpts.promMetrics.FailLoadingShard()
+			if shutErr := shard.Shutdown(ctx); shutErr != nil {
+				l.shardOpts.index.logger.WithField("action", "shard_load").WithField("shard", l.shardOpts.name).
+					Errorf("shut down shard after failing to restore READONLY: %v", shutErr)
+			}
+			return nil, false, fmt.Errorf("restore READONLY on shard %s: %w", l.shardOpts.name, err)
+		}
+		l.manualReadOnly = false
 	}
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
