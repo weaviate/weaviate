@@ -1590,7 +1590,7 @@ La parte del rescore en la latencia media de una query, medida con el presupuest
 
 ## v5.1: aristas consolidadas (pre-registro, 2026-11-19)
 
-**Estado: cerrado. No sirve, tal como se pre-registró: ninguna K cumple ninguna de las dos mitades del criterio. En caliente cierra más de la mitad de la distancia de v5.0 con el lote; en frío, nada. Abajo, «Paso 2», «Paso 3» y «Veredicto de v5.1».** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
+**Estado: cerrado. No sirve, tal como se pre-registró: ninguna K cumple ninguna de las dos mitades del criterio. En caliente cierra más de la mitad de la distancia de v5.0 con el lote; en frío, nada. Abajo, «Paso 2», «Paso 3» y «Veredicto de v5.1». Un control combinado, pre-registrado el 20, mide el índice de K = 64 reorganizado: «Enmienda 2».** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
@@ -2018,6 +2018,70 @@ Los miembros con cambios esperando y los bytes de sus listas y de sus distancias
 - **Lo que no da:** nada en frío, que es donde estaba el criterio. Y no sé decir si es del formato o de dónde quedaron los ficheros.
 - **v5.2 va sobre el camino de v5.0,** como decía su enmienda 2.
 - **Para la integración** queda una pregunta abierta, no una decisión: las aristas en un valor valen la pena en caliente si el frío se arregla por otro lado, que por lo medido en el control de v5.0 es reorganizar el bucket y el fichero de vectores.
+
+### Enmienda 2 (09:55 del 20, del usuario): control combinado, el índice de K = 64 reorganizado
+
+*Pre-registro, escrito antes de compilar nada de este control y antes de ningún dato suyo. El encargo llega a las 06:55 del 20, con v5.2 cronometrando: se redactó entonces, y se confirma en git a las 09:55, con la cola parada, solo y antes de compilar. El control, su sesión, la lectura y lo que se reporta son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.*
+
+**Motivo.** La sesión cronometrada (arriba, «Paso 3») deja dos mitades que no se han medido juntas. Las aristas consolidadas cierran en caliente más de la mitad de la distancia con el lote, y no mejoran nada en frío. El control de reorganización de v5.0 cierra el frío, 1.07 veces el lote, y casi nada del caliente, 1.34. Y no sé por qué v5.1 no mejora en frío.
+
+**Del usuario:**
+
+- **El índice crecido de v5.1 con K = 64, reorganizado como la celda 2 del control de ayer:** el bucket en un segmento y los vectores en orden de posting. En la misma sesión que la celda 2 de v5.0 y el lote.
+- **Lectura:** es el formato candidato si queda a 1.20 veces o menos del lote en frío a 0.95 y a 1.25 o menos en caliente.
+- **Se reportan las lecturas y los bytes por carga en frío de v5.1 antes de reorganizar, frente a v5.0,** para ver de dónde sale que v5.1 no mejore en frío.
+- **Va detrás de v6.2 y de v5.2.**
+
+*Mío, para aplicarlo:*
+
+- **El índice de partida** es el que dejó la corrida cronometrada de K = 64, tal como está en disco: 990 000 vectores, su bucket de miembros en 2 segmentos, su bucket de filas de aristas en 1, y sus puntos en ef 21 y ef 166.
+- **La celda nueva** es una copia suya escrita como la celda 2 de v5.0:
+  - **el bucket de miembros,** con la fila de cada posting vivo leída del índice y añadida a un bucket vacío que se vuelca una vez: un segmento, con el mismo formato de fila, valor a valor;
+  - **el bucket de filas de aristas,** igual: la fila de cada posting vivo, que ya es un valor, escrita en un bucket vacío que se vuelca una vez;
+  - **el fichero de vectores,** con los de cada posting seguidos, en el orden de sus miembros, y los postings en el orden de su id, con la tabla de la posición de cada vector, 4 B por vector en RAM;
+  - **lo demás, copiado:** el mapa, los códigos de ruteo, las distancias, y los centroides con su grafo.
+- **La reorganización de ayer no acepta un índice con las aristas consolidadas.** Hay que escribirle ese caso, en ficheros de test. Nada en `lsmkv` ni en el índice.
+- **Corrección, antes de cronometrar. Es stop:** la celda nueva devuelve lo mismo que el índice de K = 64 tal cual sobre las 5 000 queries, en sus dos puntos: ids, distancias y trabajo. Son el mismo índice con sus bytes en otro sitio.
+- **Cuatro curvas,** cada una en su proceso, en dos rondas, en caliente y en frío, con 1 y 8 threads, como en el control de ayer:
+
+  | curva | qué es | de quién |
+  |---|---|---|
+  | K = 64, reorganizado | la celda nueva | del usuario |
+  | la celda 2 de v5.0 | la que hay en disco, escrita ayer: un valor por cambio, un segmento y vectores en orden de posting | del usuario |
+  | el lote | la celda de 512 bits en RAM de v4.0 | del usuario |
+  | K = 64, tal cual | el índice de partida, sin reorganizar | **mía** |
+
+  - **La cuarta curva** dice, dentro de la sesión, cuánto recupera la reorganización. Son siete minutos por ronda. Si el usuario no la quiere, se quita antes de la sesión.
+- **La lectura se aplica al p50 con 1 thread a 0.95, en la primera ronda,** de la celda nueva entre el del lote de la misma sesión:
+  - **en frío, 1.20 o menos; y en caliente, 1.25 o menos.** Es el formato candidato si cumple las dos.
+  - **El encargo no dice a qué recall es el caliente:** lo leo a 0.95, como el frío. A 0.99 y con 8 threads se reporta sin umbral.
+  - **Frente a la celda 2 de v5.0,** por debajo de un 10 % es un empate.
+- **Si no cumple,** se da lo que queda, celda nueva menos lote, por fase de la latencia media (traer los bloques, scan y ruteo, rescore) y por fila, en frío y en caliente.
+
+**Las lecturas y los bytes por carga en frío, antes de reorganizar** (*mío, para medirlo*). Sobre los dos índices tal como están en disco, el de K = 64 y el crecido de v5.0, con las 500 queries de la tanda en frío de cada punto:
+
+- **Lo que cuenta el store,** en modo pread: lecturas y bytes por carga, separados por fila, la de miembros y la de aristas. En v5.1 las dos filas están en buckets distintos. En v5.0 comparten bucket, y se separan trayendo las filas de una en una en la pasada de conteo, que no se cronometra.
+  - **Es lo mismo en frío que en caliente:** el store pide las mismas lecturas esté o no la página en caché. Se da porque es lo que el encargo pide y porque es lo que el formato decide.
+- **Lo que el sistema lee del disco de verdad,** que es lo que cambia en frío: los bytes y las páginas que el proceso trae del disco durante la tanda en frío, por carga, de la contabilidad que el sistema lleva de cada proceso. Con el store leyendo por su mapping, como en las curvas.
+  - **Solo si el sistema lo da sin root.** Si no lo da, o no cuadra con una lectura de tamaño conocido, lo digo y no lo reporto.
+  - **Junto a las curvas, no dentro:** en una pasada aparte, para no añadir llamadas al tramo cronometrado.
+- **Cuántos sitios distintos del disco toca una carga:** ficheros y segmentos por fila, que sale de lo anterior y del manifiesto.
+- **Lo que esto puede y no puede separar:** separa si v5.1 pide más lecturas, más bytes, o lo mismo en más sitios. No separa dónde quedaron los ficheros en el volumen. Eso lo dice la celda nueva: sus ficheros se escriben de una vez, como los de la celda 2 de v5.0.
+
+**Condiciones.** Las del control de ayer: la máquina despierta, 15 minutos sin teclado ni trackpad antes de arrancar, dos rondas y la actividad de cada tramo. Arranca cuando v6.2 haya terminado y la máquina lleve 15 minutos quieta, de día o de noche. Una curva que derive o coincida con actividad se marca, y se repite en la ventana de la noche.
+
+**Lo que no mide:** una reorganización en segundo plano de verdad; cómo se mantiene el orden de los vectores con inserts; K = 16; la fila de miembros consolidada; y lo que les pasa a las búsquedas mientras se reorganiza.
+
+**Lo que el binario añade:** en ficheros de test, la reorganización de un índice con las aristas consolidadas, con su test de equivalencia; el conteo por fila; y la lectura de la contabilidad del proceso. En el script de la sesión, la curva nueva y su veredicto.
+
+**Lo que espero** (*mío*, antes de ningún dato):
+
+- **En frío a 0.95, la celda nueva entre 1.05 y 1.15 veces el lote,** y en empate con la celda 2 de v5.0, que salió a 1.07. En un segmento una carga son dos lecturas en los dos formatos, y el rescore es el mismo.
+- **En caliente a 0.95, entre 1.12 y 1.22 veces el lote.** K = 64 tal cual salió a 1.22 con el bucket de miembros en dos segmentos, y pasar a uno le dio a v5.0 de 1.45 a 1.34.
+- **Cumple las dos mitades.** De la de en caliente estoy menos seguro: el margen sobre 1.25 es poco si un segmento no le da nada.
+- **Con 8 threads en caliente, peor que con 1:** de 1.2 a 1.3 veces.
+- **Lo que cuenta el store, antes de reorganizar:** v5.1 pide menos lecturas por carga que v5.0, unas 3.0 frente a 3.9, y menos bytes, unos 67 KB frente a 72. La cuenta del store no va a explicar el frío.
+- **Lo que explica el frío, si la contabilidad del sistema lo deja ver:** que v5.1 trae del disco tantos bytes o más que v5.0 en más sitios, tres por carga donde v5.0 toca dos, porque sus dos filas van seguidas en cada segmento. No sé si se verá.
 
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
