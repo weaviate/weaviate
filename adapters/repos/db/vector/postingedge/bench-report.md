@@ -179,7 +179,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.2b: churn largo y borrado por regiones (pre-registro, 2026-11-20)
 
-**Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
+**Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo. La etapa del banco está escrita y probada a pequeña escala (abajo, «Paso 1»); la corrida a 1M, lanzada el 20 por la tarde.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
 
 ### De dónde sale
 
@@ -245,6 +245,17 @@ v6.2 dejó dos cosas sin medir en su veredicto. En diez rondas se renueva el 30 
 - **C no se separa de B por encima del suelo de ruido** en ninguna de las tres rondas, y repara entre 1 500 y 3 000 listas por ronda.
 - **El recall de arista de B baja de 0.78 a entre 0.70 y 0.75** en la ronda 30, y el de los vectores con sustitutos es el más bajo de los grupos.
 - **Con el borrado por regiones** hay muchas menos aristas muertas que al azar, porque las de dentro de una región se van con sus dueños. De las que quedan, B encuentra sustituto para entre el 55 y el 75 %. Las dos celdas entran en el criterio, y aquí C sí repara más que en el churn: entre un 2 y un 6 % de los vectores vivos.
+
+### Paso 1, cerrado: la etapa del banco y su prueba pequeña (16:55 del 20)
+
+Código en `346e5c591f` y en el commit de esta nota, después del pre-registro (`3f0e88d4c1`). El mecanismo es el de v6.2, sin tocar: las mismas celdas y la misma pasada, con sus tests.
+
+- **Dos etapas nuevas del banco de deletes:** `memorylong`, el churn de v6.2 con el número de rondas, las rondas de medida, la base y las celdas como opciones; y `memoryclustered`, las celdas de v6.2 sobre el borrado por regiones de v6.0.
+- **Cada ronda de medida lleva su propia referencia:** el lote de los vivos en ese momento, construido cuando la primera celda llega a ella. Antes de medir se comprueba que los vivos del índice son los que se calcularon para esa ronda: si no, stop.
+- **Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** las dos celdas hacen sus treinta rondas sin que salte ningún stop, se miden en las rondas 10, 20 y 30, el borrado por regiones corre con las dos, y el script saca sus tablas.
+- **Script y tablas:** `testdata/bench/v6.2b/scripts/run_v62b.sh` y `long_verdict.py`.
+
+Lint, con la etiqueta del banco y sin ella, `go vet` y el linter de goroutines pasan.
 
 ## v5.3: la fila de aristas en un valor, junto a la de miembros (pre-registro, 2026-11-20)
 
