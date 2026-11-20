@@ -511,7 +511,9 @@ func (index *flat) searchTimeRescore(k int) int {
 	return index.rescore.Load().Candidates(k)
 }
 
-func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+	// flat has no search-time knob: params is accepted for interface
+	// consistency and ignored.
 	// route on the runtime compression state, not the configured type: with RQ
 	// the quantizer only exists after the first Add ran initializeDimensionsAndRQ,
 	// and until then the uncompressed bucket is the only complete source
@@ -813,7 +815,7 @@ func (index *flat) normalized(vector []float32) []float32 {
 
 func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64, allow helpers.AllowList,
-	_ *searchparams.VectorSearchParams,
+	params *searchparams.VectorSearchParams,
 ) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
@@ -824,7 +826,7 @@ func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := index.SearchByVector(ctx, vector, totalLimit, allow, nil)
+		ids, dist, err := index.SearchByVector(ctx, vector, totalLimit, allow, params)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}

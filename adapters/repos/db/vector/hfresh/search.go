@@ -46,9 +46,16 @@ const (
 	intermediateRescoreMinPool = 1024
 )
 
-func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
 	// Normalize before any search path to ensure consistent distance calculations
 	vector = h.normalizeVec(vector)
+
+	// Annotate only when a request override is present: boxing the int into
+	// `any` allocates, and the default path must stay allocation-free.
+	requestedProbe := params.SearchProbeOrZero()
+	if requestedProbe > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_requested", requestedProbe)
+	}
 
 	// this must run before any search path reads the quantizer or distancer,
 	// including flatSearch, which uses the distancer
@@ -58,8 +65,13 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
+		// Brute force: no centroid routing happens, so there is no effective
+		// probe to report. Boxing a bool does not allocate (the runtime uses
+		// a static table for single-byte values).
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_flat_search", true)
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_flat_search", false)
 
 	// The candidate pool must be at least as large as the requested k:
 	// rescoreLimit is a quality floor for the RQ1 candidate depth, not a cap
@@ -74,9 +86,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	var selectedCentroids []uint64
 	var postings []Posting
 
-	// If k is larger than the configured number of candidates, use k as the candidate number
-	// to enlarge the search space.
-	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
+	// If k is larger than the configured (or requested) number of candidates,
+	// use k as the candidate number to enlarge the search space.
+	candidateCentroidNum := h.searchProbeFor(k, params)
+	if requestedProbe > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_effective", candidateCentroidNum)
+	}
 
 	nAllowList := allowList
 	if allowList != nil {
@@ -473,7 +488,12 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	// Encode query vectors into FDE (Fast Dense Encoding) representation
 	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
 
-	routingBudget, rerankBudget := h.muveraSearchBudgets(k)
+	routingBudget, rerankBudget := h.muveraSearchBudgets(k, params)
+	// Annotate only when a request override is present (see SearchByVector).
+	if requestedProbe := params.SearchProbeOrZero(); requestedProbe > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_requested", requestedProbe)
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_effective", routingBudget)
+	}
 
 	candidateIDs, err := h.searchByFDE(ctx, queryFDE, routingBudget, rerankBudget, allow)
 	if err != nil {
@@ -483,10 +503,26 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
 }
 
+// searchProbeFor returns the centroid routing budget for one search:
+// max(k, params.SearchProbe) when the request overrides the probe, otherwise
+// max(k, searchProbe) from the collection config. A request probe replaces
+// the configured one in both directions (it may be lower), but never drops
+// below k. params is already resolved to the searched target vector; nil
+// means collection defaults. The override is per request only: it is never
+// forwarded to the centroid HNSW index.
+func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorSearchParams) int {
+	if params.SearchProbeOrZero() > 0 {
+		return max(k, params.SearchProbe)
+	}
+	// Atomic load: UpdateUserConfig stores searchProbe concurrently.
+	return max(k, int(atomic.LoadUint32(&h.searchProbe)))
+}
+
 // muveraSearchBudgets computes the decoupled budgets for a multi-vector
 // search:
 //   - routingBudget (centroid selection and posting scan breadth) is
-//     max(k, searchProbe). searchProbe defaults to 256 at schema parse time
+//     searchProbeFor(k, params): max(k, params.SearchProbe) for a per-request
+//     override, else max(k, searchProbe). searchProbe defaults to 256 at schema parse time
 //     and is respected in BOTH directions: a low explicit probe genuinely
 //     reduces routing work (latency/recall knob), it is not floored by
 //     rescoreLimit. This matches the pre-decoupling behavior, where the
@@ -499,10 +535,9 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 // silently capped searches with k > rescoreLimit at rescoreLimit results
 // . Any further rework of this path must preserve max(k, ...)
 // semantics for both budgets.
-func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
-	searchProbe := int(atomic.LoadUint32(&h.searchProbe))
+func (h *HFresh) muveraSearchBudgets(k int, params *searchparams.VectorSearchParams) (routingBudget, rerankBudget int) {
 	rescoreLimit := int(atomic.LoadUint32(&h.rescoreLimit))
-	return max(k, searchProbe), max(k, rescoreLimit)
+	return h.searchProbeFor(k, params), max(k, rescoreLimit)
 }
 
 // selectCentroids filters a centroid search result down to the candidates

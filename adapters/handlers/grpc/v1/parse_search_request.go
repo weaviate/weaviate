@@ -258,14 +258,15 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	// Mirror the REST surface: a request that runs no vector search (bm25
 	// only, or a plain object listing) cannot use per-request vector params,
 	// so they are a client mistake. Hybrid is accepted.
-	if req.VectorSearchParams != nil && !hasVectorSearch(req) {
+	if (req.VectorSearchParams != nil || len(req.VectorSearchParamsForTargets) > 0) && !hasVectorSearch(req) {
 		if req.Bm25Search != nil {
-			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params is not applicable to bm25 search")
+			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params / vector_search_params_for_targets is not applicable to bm25 search")
 		}
-		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params requires a near* or hybrid search")
+		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params / vector_search_params_for_targets requires a near* or hybrid search")
 	}
 
-	vsp, err := extractVectorSearchParams(req.VectorSearchParams, config.HNSWMaxSearchEF)
+	vsp, err := extractVectorSearchParams(req.VectorSearchParams, req.VectorSearchParamsForTargets,
+		targetVectors, class.Class, config.HNSWMaxSearchEF, config.HFreshMaxSearchProbe)
 	if err != nil {
 		return dto.GetParams{}, err
 	}
@@ -492,18 +493,91 @@ func hasVectorSearch(req *pb.SearchRequest) bool {
 		req.NearImu != nil
 }
 
-// extractVectorSearchParams converts the per-request vector search params.
-// A nil message or ef == 0 means "use the collection default" and yields nil.
-// The proto field is a uint32, so negative values cannot occur.
-func extractVectorSearchParams(in *pb.VectorSearchParams, maxEF int64) (*searchparams.VectorSearchParams, error) {
-	if in == nil || in.GetEf() == 0 {
+// extractVectorSearchParams converts the request-wide vector search params
+// and the per-target overrides. It returns nil only when nothing is set: the
+// request-wide message is absent or all zero/unspecified and there are no
+// per-target entries. Per-target entries are stored as given (not merged with
+// the request-wide values); VectorSearchParams.ForTarget merges at search
+// time. targetVectors is the request's resolved target vector set (explicit
+// targets or the collection's single named vector); it is empty for a legacy
+// collection without named vectors, which cannot take per-target entries.
+// The proto fields are uint32, so negative values cannot occur.
+func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.VectorSearchParamsForTarget,
+	targetVectors []string, className string, maxEF, maxProbe int64,
+) (*searchparams.VectorSearchParams, error) {
+	out, err := validateVectorSearchParams(in, maxEF, maxProbe, "vector_search_params.")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(perTarget) > 0 {
+		if len(targetVectors) == 0 {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"vector_search_params_for_targets requires named vectors; collection %s has none", className)
+		}
+		out.PerTarget = make(map[string]searchparams.VectorSearchParams, len(perTarget))
+		for i, entry := range perTarget {
+			target := entry.GetTarget()
+			if target == "" {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_search_params_for_targets[%d]: target must be set", i)
+			}
+			if entry.GetParams() == nil {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_search_params_for_targets[%s]: params must be set", target)
+			}
+			if _, dup := out.PerTarget[target]; dup {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_search_params_for_targets: target %q given more than once", target)
+			}
+			if !slices.Contains(targetVectors, target) {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_search_params_for_targets: %q is not a target vector of this request (targets: %v)", target, targetVectors)
+			}
+			p, err := validateVectorSearchParams(entry.GetParams(), maxEF, maxProbe,
+				fmt.Sprintf("vector_search_params_for_targets[%s].", target))
+			if err != nil {
+				return nil, err
+			}
+			out.PerTarget[target] = p
+		}
+	}
+
+	if out.IsZero() {
 		return nil, nil
 	}
-	ef := in.GetEf()
-	if int64(ef) > maxEF {
-		return nil, status.Errorf(codes.InvalidArgument, "vector_search_params.ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", ef, maxEF)
+	return &out, nil
+}
+
+// validateVectorSearchParams validates and converts one VectorSearchParams
+// message (request-wide or a per-target entry). A nil message yields the zero
+// value. prefix is prepended to the field name in error messages.
+func validateVectorSearchParams(in *pb.VectorSearchParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorSearchParams, error) {
+	var out searchparams.VectorSearchParams
+	if in == nil {
+		return out, nil
 	}
-	return &searchparams.VectorSearchParams{EF: int(ef)}, nil
+	if ef := in.GetEf(); int64(ef) > maxEF {
+		return out, status.Errorf(codes.InvalidArgument, "%sef %d exceeds HNSW_MAX_SEARCH_EF (%d)", prefix, ef, maxEF)
+	}
+	if probe := in.GetSearchProbe(); int64(probe) > maxProbe {
+		return out, status.Errorf(codes.InvalidArgument, "%ssearch_probe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", prefix, probe, maxProbe)
+	}
+	out.EF = int(in.GetEf())
+	out.SearchProbe = int(in.GetSearchProbe())
+
+	switch fs := in.GetFilterStrategy(); fs {
+	case pb.FilterStrategy_FILTER_STRATEGY_UNSPECIFIED:
+	case pb.FilterStrategy_FILTER_STRATEGY_SWEEPING:
+		out.FilterStrategy = searchparams.FilterStrategySweeping
+	case pb.FilterStrategy_FILTER_STRATEGY_ACORN:
+		out.FilterStrategy = searchparams.FilterStrategyAcorn
+	case pb.FilterStrategy_FILTER_STRATEGY_PATHSEER:
+		out.FilterStrategy = searchparams.FilterStrategyPathseer
+	default:
+		return out, status.Errorf(codes.InvalidArgument, "%sfilter_strategy %d is not one of sweeping, acorn, pathseer", prefix, int32(fs))
+	}
+	return out, nil
 }
 
 func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {

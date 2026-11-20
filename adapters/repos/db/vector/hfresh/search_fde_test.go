@@ -286,7 +286,7 @@ func TestMuveraSearchBudgets(t *testing.T) {
 			if tt.searchProbe > 0 {
 				updateSearchProbe(t, &tf, tt.searchProbe)
 			}
-			routing, rerank := tf.Index.muveraSearchBudgets(tt.k)
+			routing, rerank := tf.Index.muveraSearchBudgets(tt.k, nil)
 			require.Equal(t, tt.wantRouting, routing, "routingBudget")
 			require.Equal(t, tt.wantRerank, rerank, "rerankBudget")
 		})
@@ -347,7 +347,7 @@ func TestSearchProbeChangesResults(t *testing.T) {
 
 	// end to end: the collection-level searchProbe drives the same budgets
 	updateSearchProbe(t, &tf, 16)
-	routing, rerank := tf.Index.muveraSearchBudgets(10)
+	routing, rerank := tf.Index.muveraSearchBudgets(10, nil)
 	require.Equal(t, 16, routing)
 	require.Equal(t, 350, rerank)
 	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil, nil)

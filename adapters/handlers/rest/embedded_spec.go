@@ -12076,6 +12076,13 @@ func init() {
           "type": "string",
           "x-nullable": true
         },
+        "targetVectorSearchParams": {
+          "description": "Per-target overrides of ` + "`" + `vectorSearchParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorSearchParams` + "`" + `, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/SearchVectorSearchParams"
+          }
+        },
         "tenant": {
           "description": "The tenant to search in a multi-tenant collection.",
           "type": "string"
@@ -12133,9 +12140,20 @@ func init() {
                 "type": "string"
               }
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "description": "The named vector to search. Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
+            },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "vector": {
               "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
@@ -12173,9 +12191,20 @@ func init() {
               "type": "string",
               "format": "uuid"
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector.",
+              "description": "The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
+            },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -12212,25 +12241,33 @@ func init() {
                 "type": "string"
               }
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "description": "The named vector to search. Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
+            },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
       ]
     },
     "SearchNearVectorRequest": {
-      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `vectorPerTarget` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `targetVector` + "`" + `, ` + "`" + `targetVectors` + "`" + ` and ` + "`" + `targetCombination` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
         },
         {
           "type": "object",
-          "required": [
-            "vector"
-          ],
           "properties": {
             "certainty": {
               "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
@@ -12244,12 +12281,28 @@ func init() {
               "format": "float64",
               "x-nullable": true
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
             },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. With several target vectors the same vector is searched against each of them. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set."
+            },
+            "vectorPerTarget": {
+              "description": "One query vector per target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": [0.1, 0.2], \"body\": [0.3, 0.4, 0.5]}` + "`" + `. The keys must be exactly the request's target vectors. Each value has the form of ` + "`" + `vector` + "`" + `. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set.",
+              "type": "object",
+              "additionalProperties": false
             }
           }
         }
@@ -12476,12 +12529,52 @@ func init() {
         }
       }
     },
+    "SearchTargetCombination": {
+      "description": "How the per-target results of a multi-target vector search are combined into one ranking.",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "The combination method: ` + "`" + `sum` + "`" + `, ` + "`" + `average` + "`" + ` or ` + "`" + `minimum` + "`" + ` of the per-target distances, ` + "`" + `manualWeights` + "`" + ` (weighted sum of the distances) or ` + "`" + `relativeScore` + "`" + ` (weighted sum of the normalized distances). Omitted with several target vectors defaults to ` + "`" + `minimum` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "sum",
+            "average",
+            "minimum",
+            "manualWeights",
+            "relativeScore"
+          ]
+        },
+        "weights": {
+          "description": "The weight of each target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": 0.7, \"body\": 0.3}` + "`" + `. Required, with one entry per target vector, for ` + "`" + `manualWeights` + "`" + ` and ` + "`" + `relativeScore` + "`" + `; not allowed for the other methods.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "float64"
+          }
+        }
+      }
+    },
     "SearchVectorSearchParams": {
       "description": "Per-request tuning of the vector index search.",
       "type": "object",
       "properties": {
         "ef": {
           "description": "HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "filterStrategy": {
+          "description": "HNSW filtered-walk strategy for this request only: ` + "`" + `sweeping` + "`" + `, ` + "`" + `acorn` + "`" + ` or ` + "`" + `pathseer` + "`" + `. Omitted uses the collection's vectorIndexConfig. Has no effect without a filter, or when the filter matches fewer objects than flatSearchCutoff (a flat search is used). Ignored by non-HNSW indexes.",
+          "type": "string",
+          "enum": [
+            "sweeping",
+            "acorn",
+            "pathseer"
+          ]
+        },
+        "searchProbe": {
+          "description": "HFresh number of centroid postings visited for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
@@ -25839,6 +25932,13 @@ func init() {
           "type": "string",
           "x-nullable": true
         },
+        "targetVectorSearchParams": {
+          "description": "Per-target overrides of ` + "`" + `vectorSearchParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorSearchParams` + "`" + `, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/SearchVectorSearchParams"
+          }
+        },
         "tenant": {
           "description": "The tenant to search in a multi-tenant collection.",
           "type": "string"
@@ -25896,9 +25996,20 @@ func init() {
                 "type": "string"
               }
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "description": "The named vector to search. Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
+            },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "vector": {
               "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
@@ -25936,9 +26047,20 @@ func init() {
               "type": "string",
               "format": "uuid"
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector.",
+              "description": "The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
+            },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -25975,25 +26097,33 @@ func init() {
                 "type": "string"
               }
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "description": "The named vector to search. Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
+            },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
       ]
     },
     "SearchNearVectorRequest": {
-      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `vectorPerTarget` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `targetVector` + "`" + `, ` + "`" + `targetVectors` + "`" + ` and ` + "`" + `targetCombination` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
         },
         {
           "type": "object",
-          "required": [
-            "vector"
-          ],
           "properties": {
             "certainty": {
               "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
@@ -26007,12 +26137,28 @@ func init() {
               "format": "float64",
               "x-nullable": true
             },
+            "targetCombination": {
+              "description": "How the per-target results of a multi-target search are combined. Only meaningful with several ` + "`" + `targetVectors` + "`" + `; omitted defaults to ` + "`" + `minimum` + "`" + `.",
+              "$ref": "#/definitions/SearchTargetCombination"
+            },
             "targetVector": {
-              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector, unless ` + "`" + `targetVectors` + "`" + ` is set.",
               "type": "string"
             },
+            "targetVectors": {
+              "description": "The named vectors to search, for a multi-target search. Mutually exclusive with ` + "`" + `targetVector` + "`" + `. The per-target results are merged as ` + "`" + `targetCombination` + "`" + ` specifies.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. With several target vectors the same vector is searched against each of them. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set."
+            },
+            "vectorPerTarget": {
+              "description": "One query vector per target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": [0.1, 0.2], \"body\": [0.3, 0.4, 0.5]}` + "`" + `. The keys must be exactly the request's target vectors. Each value has the form of ` + "`" + `vector` + "`" + `. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set.",
+              "type": "object",
+              "additionalProperties": false
             }
           }
         }
@@ -26239,12 +26385,52 @@ func init() {
         }
       }
     },
+    "SearchTargetCombination": {
+      "description": "How the per-target results of a multi-target vector search are combined into one ranking.",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "The combination method: ` + "`" + `sum` + "`" + `, ` + "`" + `average` + "`" + ` or ` + "`" + `minimum` + "`" + ` of the per-target distances, ` + "`" + `manualWeights` + "`" + ` (weighted sum of the distances) or ` + "`" + `relativeScore` + "`" + ` (weighted sum of the normalized distances). Omitted with several target vectors defaults to ` + "`" + `minimum` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "sum",
+            "average",
+            "minimum",
+            "manualWeights",
+            "relativeScore"
+          ]
+        },
+        "weights": {
+          "description": "The weight of each target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": 0.7, \"body\": 0.3}` + "`" + `. Required, with one entry per target vector, for ` + "`" + `manualWeights` + "`" + ` and ` + "`" + `relativeScore` + "`" + `; not allowed for the other methods.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "float64"
+          }
+        }
+      }
+    },
     "SearchVectorSearchParams": {
       "description": "Per-request tuning of the vector index search.",
       "type": "object",
       "properties": {
         "ef": {
           "description": "HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "filterStrategy": {
+          "description": "HNSW filtered-walk strategy for this request only: ` + "`" + `sweeping` + "`" + `, ` + "`" + `acorn` + "`" + ` or ` + "`" + `pathseer` + "`" + `. Omitted uses the collection's vectorIndexConfig. Has no effect without a filter, or when the filter matches fewer objects than flatSearchCutoff (a flat search is used). Ignored by non-HNSW indexes.",
+          "type": "string",
+          "enum": [
+            "sweeping",
+            "acorn",
+            "pathseer"
+          ]
+        },
+        "searchProbe": {
+          "description": "HFresh number of centroid postings visited for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true

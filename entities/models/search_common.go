@@ -72,6 +72,9 @@ type SearchCommon struct {
 	// Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).
 	SinglePrompt *string `json:"singlePrompt,omitempty"`
 
+	// Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{"title": {"ef": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.
+	TargetVectorSearchParams map[string]SearchVectorSearchParams `json:"targetVectorSearchParams,omitempty"`
+
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`
 
@@ -99,6 +102,10 @@ func (m *SearchCommon) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateReturnReferences(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTargetVectorSearchParams(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -242,6 +249,32 @@ func (m *SearchCommon) validateReturnReferences(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SearchCommon) validateTargetVectorSearchParams(formats strfmt.Registry) error {
+	if swag.IsZero(m.TargetVectorSearchParams) { // not required
+		return nil
+	}
+
+	for k := range m.TargetVectorSearchParams {
+
+		if err := validate.Required("targetVectorSearchParams"+"."+k, "body", m.TargetVectorSearchParams[k]); err != nil {
+			return err
+		}
+		if val, ok := m.TargetVectorSearchParams[k]; ok {
+			if err := val.Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("targetVectorSearchParams" + "." + k)
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("targetVectorSearchParams" + "." + k)
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 func (m *SearchCommon) validateVectorSearchParams(formats strfmt.Registry) error {
 	if swag.IsZero(m.VectorSearchParams) { // not required
 		return nil
@@ -292,6 +325,10 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTargetVectorSearchParams(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateVectorSearchParams(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -333,6 +370,21 @@ func (m *SearchCommon) contextValidateReturnReferences(ctx context.Context, form
 				} else if ce, ok := err.(*errors.CompositeError); ok {
 					return ce.ValidateName("returnReferences" + "." + strconv.Itoa(i))
 				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *SearchCommon) contextValidateTargetVectorSearchParams(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.TargetVectorSearchParams {
+
+		if val, ok := m.TargetVectorSearchParams[k]; ok {
+			if err := val.ContextValidate(ctx, formats); err != nil {
 				return err
 			}
 		}

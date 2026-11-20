@@ -138,7 +138,7 @@ func TestHnswPersistence(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -164,7 +164,7 @@ func TestHnswPersistence(t *testing.T) {
 	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
-			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -212,7 +212,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -276,7 +276,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
-			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -330,7 +330,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -359,7 +359,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
-			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -422,7 +422,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -450,7 +450,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
-			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -497,7 +497,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
-			res, _, err := thirdIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+			res, _, err := thirdIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 			require.Nil(t, err)
 			assert.Equal(t, []uint64{3}, res)
 		})
@@ -547,7 +547,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}
 		position := 3
-		res, _, err := fourthIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := fourthIndex.knnSearchByVector(ctx, testVectors[position], 50, 36, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})

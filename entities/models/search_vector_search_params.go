@@ -18,9 +18,12 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // SearchVectorSearchParams Per-request tuning of the vector index search.
@@ -30,10 +33,71 @@ type SearchVectorSearchParams struct {
 
 	// HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.
 	Ef *int64 `json:"ef,omitempty"`
+
+	// HNSW filtered-walk strategy for this request only: `sweeping`, `acorn` or `pathseer`. Omitted uses the collection's vectorIndexConfig. Has no effect without a filter, or when the filter matches fewer objects than flatSearchCutoff (a flat search is used). Ignored by non-HNSW indexes.
+	// Enum: [sweeping acorn pathseer]
+	FilterStrategy string `json:"filterStrategy,omitempty"`
+
+	// HFresh number of centroid postings visited for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.
+	SearchProbe *int64 `json:"searchProbe,omitempty"`
 }
 
 // Validate validates this search vector search params
 func (m *SearchVectorSearchParams) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateFilterStrategy(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var searchVectorSearchParamsTypeFilterStrategyPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["sweeping","acorn","pathseer"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		searchVectorSearchParamsTypeFilterStrategyPropEnum = append(searchVectorSearchParamsTypeFilterStrategyPropEnum, v)
+	}
+}
+
+const (
+
+	// SearchVectorSearchParamsFilterStrategySweeping captures enum value "sweeping"
+	SearchVectorSearchParamsFilterStrategySweeping string = "sweeping"
+
+	// SearchVectorSearchParamsFilterStrategyAcorn captures enum value "acorn"
+	SearchVectorSearchParamsFilterStrategyAcorn string = "acorn"
+
+	// SearchVectorSearchParamsFilterStrategyPathseer captures enum value "pathseer"
+	SearchVectorSearchParamsFilterStrategyPathseer string = "pathseer"
+)
+
+// prop value enum
+func (m *SearchVectorSearchParams) validateFilterStrategyEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, searchVectorSearchParamsTypeFilterStrategyPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *SearchVectorSearchParams) validateFilterStrategy(formats strfmt.Registry) error {
+	if swag.IsZero(m.FilterStrategy) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateFilterStrategyEnum("filterStrategy", "body", m.FilterStrategy); err != nil {
+		return err
+	}
+
 	return nil
 }
 

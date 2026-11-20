@@ -190,3 +190,208 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 		assert.Equal(t, true, details["hnsw_flat_search"])
 	})
 }
+
+func Test_effectiveFilterStrategy(t *testing.T) {
+	index := &hnsw{}
+
+	tests := []struct {
+		name       string
+		configured FilterStrategy
+		params     *searchparams.VectorSearchParams
+		expected   FilterStrategy
+	}{
+		{"nil params, configured sweeping", SWEEPING, nil, SWEEPING},
+		{"nil params, configured acorn", ACORN, nil, ACORN},
+		{"nil params, configured pathseer", PATHSEER, nil, PATHSEER},
+		{"empty strategy keeps configured", ACORN, &searchparams.VectorSearchParams{EF: 10}, ACORN},
+		{"request sweeping over acorn", ACORN, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategySweeping}, SWEEPING},
+		{"request acorn over sweeping", SWEEPING, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyAcorn}, ACORN},
+		{"request pathseer over acorn", ACORN, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
+		{"request same as configured", PATHSEER, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			index.configuredFilterStrategy.Store(int32(tt.configured))
+			assert.Equal(t, tt.expected, index.effectiveFilterStrategy(tt.params))
+		})
+	}
+}
+
+func Test_FilterStrategy_String(t *testing.T) {
+	tests := []struct {
+		strategy FilterStrategy
+		expected string
+	}{
+		{SWEEPING, "sweeping"},
+		{ACORN, "acorn"},
+		{RRE, "rre"},
+		{PATHSEER, "pathseer"},
+		{FilterStrategy(99), "unknown"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, tt.strategy.String())
+	}
+}
+
+// Test_SearchByVector_FilterStrategyOverride checks that a per-request filter
+// strategy replaces the collection's configured one for that search only, that
+// the slow-query log names both the requested strategy and the one that ran
+// (after fallbacks), and that the default path does not annotate at all.
+func Test_SearchByVector_FilterStrategyOverride(t *testing.T) {
+	const (
+		size = 300
+		dims = 8
+		k    = 5
+	)
+	ctx := context.Background()
+	vectors, queryVecs := testinghelpers.RandomVecsFixedSeed(size, 1, dims)
+	query := queryVecs[0]
+
+	store := testinghelpers.NewDummyStore(t)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "search-params-filter-strategy",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		AcornFilterRatio:      0.4,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+	}, ent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        64,
+		EF:                    size, // beam covers the whole graph: every strategy is exact
+		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        ent.FilterStrategyAcorn,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	t.Cleanup(func() { index.Shutdown(ctx) })
+	r := rand.New(rand.NewSource(42))
+	index.randFunc = r.Float64
+	for id, v := range vectors {
+		require.NoError(t, index.Add(ctx, uint64(id), v))
+	}
+	require.Equal(t, ACORN, FilterStrategy(index.configuredFilterStrategy.Load()))
+
+	allowed := []uint64{3, 17, 42, 77, 101, 150, 199, 230, 261, 299}
+	allowList := helpers.NewAllowList(allowed...)
+
+	// Ground truth for the filtered query by brute force over the allow-list.
+	l2 := distancer.NewL2SquaredProvider()
+	type cand struct {
+		id   uint64
+		dist float32
+	}
+	cands := make([]cand, 0, len(allowed))
+	for _, id := range allowed {
+		d, err := l2.SingleDist(query, vectors[id])
+		require.NoError(t, err)
+		cands = append(cands, cand{id, d})
+	}
+	for i := range cands {
+		for j := i + 1; j < len(cands); j++ {
+			if cands[j].dist < cands[i].dist {
+				cands[i], cands[j] = cands[j], cands[i]
+			}
+		}
+	}
+	wantFiltered := make([]uint64, k)
+	for i := range wantFiltered {
+		wantFiltered[i] = cands[i].id
+	}
+	wantUnfiltered, _, err := index.SearchByVector(ctx, query, k, nil, nil)
+	require.NoError(t, err)
+
+	strategy := func(s string) *searchparams.VectorSearchParams {
+		return &searchparams.VectorSearchParams{FilterStrategy: s}
+	}
+
+	tests := []struct {
+		name          string
+		configured    FilterStrategy
+		flatCutoff    int64
+		allowList     helpers.AllowList
+		params        *searchparams.VectorSearchParams
+		wantRequested string // "" => key must be absent
+		wantEffective string // "" => key must be absent
+		wantFlat      bool
+	}{
+		{
+			name:       "nil params keeps configured acorn and does not annotate",
+			configured: ACORN, flatCutoff: 1, allowList: allowList,
+		},
+		{
+			name:       "empty strategy does not annotate",
+			configured: ACORN, flatCutoff: 1, allowList: allowList,
+			params: &searchparams.VectorSearchParams{EF: size},
+		},
+		{
+			name:       "sweeping overrides configured acorn",
+			configured: ACORN, flatCutoff: 1, allowList: allowList,
+			params:        strategy(searchparams.FilterStrategySweeping),
+			wantRequested: "sweeping", wantEffective: "sweeping",
+		},
+		{
+			name:       "pathseer overrides configured acorn",
+			configured: ACORN, flatCutoff: 1, allowList: allowList,
+			params:        strategy(searchparams.FilterStrategyPathseer),
+			wantRequested: "pathseer", wantEffective: "pathseer",
+		},
+		{
+			name:       "acorn overrides configured sweeping",
+			configured: SWEEPING, flatCutoff: 1, allowList: allowList,
+			params:        strategy(searchparams.FilterStrategyAcorn),
+			wantRequested: "acorn", wantEffective: "acorn",
+		},
+		{
+			name:       "acorn without a filter runs sweeping",
+			configured: SWEEPING, flatCutoff: 1, allowList: nil,
+			params:        strategy(searchparams.FilterStrategyAcorn),
+			wantRequested: "acorn", wantEffective: "sweeping",
+		},
+		{
+			name:       "flat search reports the request but no effective strategy",
+			configured: ACORN, flatCutoff: 1000, allowList: allowList,
+			params:        strategy(searchparams.FilterStrategyPathseer),
+			wantRequested: "pathseer", wantFlat: true,
+		},
+	}
+
+	prevCutoff := atomic.LoadInt64(&index.flatSearchCutoff)
+	t.Cleanup(func() { atomic.StoreInt64(&index.flatSearchCutoff, prevCutoff) })
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			index.configuredFilterStrategy.Store(int32(tt.configured))
+			atomic.StoreInt64(&index.flatSearchCutoff, tt.flatCutoff)
+
+			sctx := helpers.InitSlowQueryDetails(context.Background())
+			ids, _, err := index.SearchByVector(sctx, query, k, tt.allowList, tt.params)
+			require.NoError(t, err)
+			details := helpers.ExtractSlowQueryDetails(sctx)
+
+			if tt.allowList == nil {
+				assert.Equal(t, wantUnfiltered, ids)
+			} else {
+				assert.Equal(t, wantFiltered, ids)
+			}
+			assert.Equal(t, tt.wantFlat, details["hnsw_flat_search"])
+			if tt.wantRequested == "" {
+				assert.NotContains(t, details, "hnsw_filter_strategy_requested")
+			} else {
+				assert.Equal(t, tt.wantRequested, details["hnsw_filter_strategy_requested"])
+			}
+			if tt.wantEffective == "" {
+				assert.NotContains(t, details, "hnsw_filter_strategy_effective")
+			} else {
+				assert.Equal(t, tt.wantEffective, details["hnsw_filter_strategy_effective"])
+			}
+			// the override is per request: the collection config is untouched
+			assert.Equal(t, tt.configured, FilterStrategy(index.configuredFilterStrategy.Load()))
+		})
+	}
+}

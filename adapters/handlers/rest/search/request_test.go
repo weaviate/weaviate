@@ -377,6 +377,128 @@ func TestTargetVectors(t *testing.T) {
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
+
+	t.Run("targetVectors keeps the request order", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, namedVectorsClass("title_vec", "plot_vec"),
+			`{"query":["space"],"targetVectors":["plot_vec","title_vec"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"plot_vec", "title_vec"}, nearTextFromParams(t, searcher).TargetVectors)
+		assert.Equal(t, &dto.TargetCombination{Type: dto.Minimum}, searcher.lastParams.TargetVectorCombination)
+	})
+
+	t.Run("empty targetVectors behaves as omitted", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, namedVectorsClass("title_vec"), `{"query":["space"],"targetVectors":[]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, nearTextFromParams(t, searcher).TargetVectors)
+		assert.Nil(t, searcher.lastParams.TargetVectorCombination)
+	})
+
+	for _, tt := range targetVectorListErrorCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildParams(t, namedVectorsClass("title_vec", "plot_vec"), `{"query":["space"],`+tt.fields+`}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
+// targetVectorListErrorCases are the target-list rejections shared by every
+// vector-capable search type, over a class with title_vec and plot_vec.
+func targetVectorListErrorCases() []struct {
+	name, fields, want string
+	status             int
+} {
+	return []struct {
+		name, fields, want string
+		status             int
+	}{
+		{
+			name: "targetVector and targetVectors are mutually exclusive", fields: `"targetVector":"title_vec","targetVectors":["plot_vec"]`,
+			want: "targetVector and targetVectors are mutually exclusive", status: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "duplicate in targetVectors", fields: `"targetVectors":["title_vec","title_vec"]`,
+			want: `targetVectors: "title_vec" is listed more than once`, status: http.StatusBadRequest,
+		},
+		{
+			name: "empty entry in targetVectors", fields: `"targetVectors":["title_vec",""]`,
+			want: "targetVectors entries must not be empty", status: http.StatusBadRequest,
+		},
+		{
+			name: "unknown entry in targetVectors", fields: `"targetVectors":["title_vec","nope"]`,
+			want: "does not have named vector nope configured", status: http.StatusBadRequest,
+		},
+		{
+			name: "weights without a weighted method", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"sum","weights":{"title_vec":1}}`,
+			want: "targetCombination: weights are only allowed with manualWeights or relativeScore", status: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "missing weight", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"manualWeights","weights":{"title_vec":1}}`,
+			want: `targetCombination: weight for target "plot_vec" not provided`, status: http.StatusUnprocessableEntity,
+		},
+	}
+}
+
+// TestTargetCombination pins the targetCombination mapping on near-text; the
+// other search types share resolveSearchTargets (see their target tests).
+func TestTargetCombination(t *testing.T) {
+	class := func() *models.Class { return namedVectorsClass("title_vec", "plot_vec") }
+	tests := []struct {
+		name   string
+		fields string
+		want   *dto.TargetCombination
+		status int
+		errMsg string
+	}{
+		{name: "one target, no method", fields: `"targetVector":"title_vec"`, want: nil},
+		{name: "one target in a list, no method", fields: `"targetVectors":["title_vec"]`, want: nil},
+		{name: "two targets default to minimum", fields: `"targetVectors":["title_vec","plot_vec"]`, want: &dto.TargetCombination{Type: dto.Minimum}},
+		{name: "empty combination object defaults", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{}`, want: &dto.TargetCombination{Type: dto.Minimum}},
+		{name: "sum", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"sum"}`, want: &dto.TargetCombination{Type: dto.Sum}},
+		{name: "average", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"average"}`, want: &dto.TargetCombination{Type: dto.Average}},
+		{name: "minimum", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"minimum"}`, want: &dto.TargetCombination{Type: dto.Minimum}},
+		{
+			name:   "manualWeights are positional in targetVectors order",
+			fields: `"targetVectors":["plot_vec","title_vec"],"targetCombination":{"method":"manualWeights","weights":{"title_vec":0.25,"plot_vec":0.75}}`,
+			want:   &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.75, 0.25}},
+		},
+		{
+			name:   "relativeScore",
+			fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"relativeScore","weights":{"title_vec":1,"plot_vec":2}}`,
+			want:   &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{1, 2}},
+		},
+		{
+			name: "relativeScore without weights", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"relativeScore"}`,
+			status: http.StatusUnprocessableEntity, errMsg: `targetCombination: weight for target "title_vec" not provided`,
+		},
+		{
+			name:   "weight for a vector that is not a target",
+			fields: `"targetVectors":["title_vec"],"targetCombination":{"method":"manualWeights","weights":{"title_vec":1,"plot_vec":2}}`,
+			status: http.StatusUnprocessableEntity, errMsg: `targetCombination: weight given for "plot_vec", which is not a target vector of this search`,
+		},
+		{
+			name: "weights without a method", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"weights":{"title_vec":1}}`,
+			status: http.StatusUnprocessableEntity, errMsg: "targetCombination: weights are only allowed with manualWeights or relativeScore",
+		},
+		{
+			name: "unknown method (direct-call path)", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"max"}`,
+			status: http.StatusUnprocessableEntity, errMsg: `targetCombination: unknown target combination method "max"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+tt.fields+`}`)
+			if tt.status != 0 {
+				require.NotNil(t, apiErr)
+				assert.Equal(t, tt.status, apiErr.Status)
+				assert.Contains(t, apiErr.Err.Error(), tt.errMsg)
+				return
+			}
+			require.Nil(t, apiErr)
+			assert.Equal(t, tt.want, searcher.lastParams.TargetVectorCombination)
+		})
+	}
 }
 
 func TestNoVectorizerIsA422(t *testing.T) {
@@ -1226,6 +1348,24 @@ func TestNearObjectTargetVectors(t *testing.T) {
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
+
+	t.Run("targetVectors with a combination", func(t *testing.T) {
+		searcher, apiErr := buildNearObject(t, namedVectorsClass("title_vec", "plot_vec"),
+			fmt.Sprintf(`{"id":%q,"targetVectors":["plot_vec","title_vec"],"targetCombination":{"method":"average"}}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"plot_vec", "title_vec"}, searcher.lastParams.NearObject.TargetVectors)
+		assert.Equal(t, &dto.TargetCombination{Type: dto.Average}, searcher.lastParams.TargetVectorCombination)
+	})
+
+	for _, tt := range targetVectorListErrorCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildNearObject(t, namedVectorsClass("title_vec", "plot_vec"),
+				fmt.Sprintf(`{"id":%q,%s}`, nearObjectSourceID, tt.fields))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
 }
 
 func TestNearObjectReturnMetadata(t *testing.T) {
@@ -1316,9 +1456,9 @@ func TestNearVectorParams(t *testing.T) {
 }
 
 // TestNearVectorShape: the spec leaves `vector` untyped (a vector and a
-// multi-vector share the field), so the handler checks the shape. swagger's
-// required validation rejects an absent or null vector with 422 live; the
-// handler's 400 covers the direct-call path.
+// multi-vector share the field), so the handler checks the shape. `vector` is
+// not required by the spec (vectorPerTarget is its alternative), so an absent
+// or null vector is the handler's 400, live too.
 func TestNearVectorShape(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1326,8 +1466,8 @@ func TestNearVectorShape(t *testing.T) {
 		wantStatus int
 		want       string
 	}{
-		{"missing", `{}`, http.StatusBadRequest, errVectorNotNumbers},
-		{"null", `{"vector":null}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"missing", `{}`, http.StatusBadRequest, errVectorXorVectorPerTarget},
+		{"null", `{"vector":null}`, http.StatusBadRequest, errVectorXorVectorPerTarget},
 		{"empty array", `{"vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
 		{"string entry", `{"vector":["0.1"]}`, http.StatusBadRequest, errVectorNotNumbers},
 		{"null entry", `{"vector":[0.1,null]}`, http.StatusBadRequest, errVectorNotNumbers},
@@ -1441,6 +1581,113 @@ func TestNearVectorTargetVectors(t *testing.T) {
 			`{"vector":[0.1,0.2],"targetVector":"title_vec"}`)
 		require.Nil(t, apiErr)
 		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+
+	t.Run("multi-vector index in targetVectors is a 422", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+			`{"vector":[0.1,0.2],"targetVectors":["title_vec","colbert_vec"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), `target vector "colbert_vec" is a multi-vector index`)
+	})
+
+	for _, tt := range targetVectorListErrorCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildNearVector(t, namedVectorsClass("title_vec", "plot_vec"), `{"vector":[0.1,0.2],`+tt.fields+`}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
+func TestNearVectorPerTarget(t *testing.T) {
+	class := func() *models.Class { return namedVectorsClass("title_vec", "plot_vec") }
+
+	t.Run("one vector per target, in targetVectors order", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, class(),
+			`{"vectorPerTarget":{"title_vec":[0.1,0.2],"plot_vec":[0.3,0.4,0.5]},"targetVectors":["plot_vec","title_vec"]}`)
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		assert.Equal(t, []string{"plot_vec", "title_vec"}, nearVector.TargetVectors)
+		assert.Equal(t, []models.Vector{[]float32{0.3, 0.4, 0.5}, []float32{0.1, 0.2}}, nearVector.Vectors)
+		assert.Equal(t, &dto.TargetCombination{Type: dto.Minimum}, searcher.lastParams.TargetVectorCombination)
+	})
+
+	t.Run("single target via targetVector", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, class(), `{"vectorPerTarget":{"title_vec":[0.1,0.2]},"targetVector":"title_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []models.Vector{[]float32{0.1, 0.2}}, searcher.lastParams.NearVector.Vectors)
+		assert.Nil(t, searcher.lastParams.TargetVectorCombination)
+	})
+
+	t.Run("single vector fans out to every target", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, class(), `{"vector":[0.1,0.2],"targetVectors":["title_vec","plot_vec"]}`)
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		assert.Equal(t, []string{"title_vec", "plot_vec"}, nearVector.TargetVectors)
+		assert.Equal(t, []models.Vector{[]float32{0.1, 0.2}, []float32{0.1, 0.2}}, nearVector.Vectors)
+	})
+
+	tests := []struct {
+		name   string
+		body   string
+		status int
+		want   string
+	}{
+		{
+			name: "both vector and vectorPerTarget", body: `{"vector":[0.1],"vectorPerTarget":{"title_vec":[0.1]},"targetVector":"title_vec"}`,
+			status: http.StatusBadRequest, want: errVectorXorVectorPerTarget,
+		},
+		{
+			name: "missing target", body: `{"vectorPerTarget":{"title_vec":[0.1]},"targetVectors":["title_vec","plot_vec"]}`,
+			status: http.StatusUnprocessableEntity, want: `vector for target "plot_vec" is required`,
+		},
+		{
+			name: "extra key", body: `{"vectorPerTarget":{"title_vec":[0.1],"plot_vec":[0.2]},"targetVector":"title_vec"}`,
+			status: http.StatusUnprocessableEntity, want: "vectorPerTarget[plot_vec]: not a target vector of this request",
+		},
+		{
+			name: "empty object", body: `{"vectorPerTarget":{},"targetVector":"title_vec"}`,
+			status: http.StatusBadRequest, want: "vectorPerTarget must be a non-empty object",
+		},
+		{
+			name: "not an object", body: `{"vectorPerTarget":[0.1],"targetVector":"title_vec"}`,
+			status: http.StatusBadRequest, want: "vectorPerTarget must be a non-empty object",
+		},
+		{
+			name: "bad vector value names the target", body: `{"vectorPerTarget":{"title_vec":["x"]},"targetVector":"title_vec"}`,
+			status: http.StatusBadRequest, want: "vectorPerTarget[title_vec]: " + errVectorNotNumbers,
+		},
+		{
+			name: "multi-vector value", body: `{"vectorPerTarget":{"title_vec":[[0.1],[0.2]]},"targetVector":"title_vec"}`,
+			status: http.StatusUnprocessableEntity, want: "multi-vector search is not yet supported",
+		},
+		{
+			name: "no target resolved: several named vectors", body: `{"vectorPerTarget":{"title_vec":[0.1]}}`,
+			status: http.StatusUnprocessableEntity, want: "multiple vectors, but no target vectors were provided",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildNearVector(t, class(), tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+
+	t.Run("legacy collection rejects vectorPerTarget", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, movieClass(), `{"vectorPerTarget":{"title_vec":[0.1]}}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "vectorPerTarget requires named target vectors")
+	})
+
+	t.Run("sole named vector selected implicitly", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, namedVectorsClass("title_vec"), `{"vectorPerTarget":{"title_vec":[0.1]}}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []models.Vector{[]float32{0.1}}, searcher.lastParams.NearVector.Vectors)
 	})
 }
 
@@ -1842,6 +2089,37 @@ func TestHybridTargetVectors(t *testing.T) {
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
+
+	// the hybrid engine fans HybridSearch.Vector out to every target itself
+	// (explorer_hybrid.go), so the single vector stays as is
+	t.Run("targetVectors with a vector and a combination", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "plot_vec"),
+			`{"query":"space","vector":[0.1,0.2],"targetVectors":["plot_vec","title_vec"],`+
+				`"targetCombination":{"method":"relativeScore","weights":{"title_vec":0.3,"plot_vec":0.7}}}`)
+		require.Nil(t, apiErr)
+		hybrid := searcher.lastParams.HybridSearch
+		assert.Equal(t, []string{"plot_vec", "title_vec"}, hybrid.TargetVectors)
+		assert.Equal(t, []float32{0.1, 0.2}, hybrid.Vector)
+		assert.Equal(t, &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{0.7, 0.3}},
+			searcher.lastParams.TargetVectorCombination)
+	})
+
+	t.Run("targetVectors without a vector default to minimum", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "plot_vec"),
+			`{"query":"space","targetVectors":["title_vec","plot_vec"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec", "plot_vec"}, searcher.lastParams.HybridSearch.TargetVectors)
+		assert.Equal(t, &dto.TargetCombination{Type: dto.Minimum}, searcher.lastParams.TargetVectorCombination)
+	})
+
+	for _, tt := range targetVectorListErrorCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "plot_vec"), `{"query":"space",`+tt.fields+`}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
 }
 
 func TestHybridReturnMetadata(t *testing.T) {
@@ -1911,36 +2189,70 @@ func TestParseConsistencyLevel(t *testing.T) {
 func ptrInt64(v int64) *int64 { return &v }
 
 func TestParseVectorSearchParams(t *testing.T) {
-	h := &Handler{maxSearchEF: 10000}
+	h := &Handler{maxSearchEF: 10000, maxSearchProbe: 500}
+	type vsp = searchparams.VectorSearchParams
 	tests := []struct {
 		name     string
 		in       *models.SearchVectorSearchParams
-		expected *searchparams.VectorSearchParams
+		expected vsp
 		status   int // 0 = ok
 		errMsg   string
 	}{
-		{"absent", nil, nil, 0, ""},
-		{"ef nil", &models.SearchVectorSearchParams{}, nil, 0, ""},
-		{"ef zero", &models.SearchVectorSearchParams{Ef: ptrInt64(0)}, nil, 0, ""},
-		{"ef 800", &models.SearchVectorSearchParams{Ef: ptrInt64(800)}, &searchparams.VectorSearchParams{EF: 800}, 0, ""},
-		{"ef equals cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10000)}, &searchparams.VectorSearchParams{EF: 10000}, 0, ""},
+		{"absent", nil, vsp{}, 0, ""},
+		{"empty object", &models.SearchVectorSearchParams{}, vsp{}, 0, ""},
+		{"ef zero", &models.SearchVectorSearchParams{Ef: ptrInt64(0)}, vsp{}, 0, ""},
+		{"ef 800", &models.SearchVectorSearchParams{Ef: ptrInt64(800)}, vsp{EF: 800}, 0, ""},
+		{"ef equals cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10000)}, vsp{EF: 10000}, 0, ""},
 		{
-			"ef above cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10001)}, nil, http.StatusUnprocessableEntity,
+			"ef above cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10001)},
+			vsp{},
+			http.StatusUnprocessableEntity,
 			"vectorSearchParams.ef must not exceed HNSW_MAX_SEARCH_EF (10000), got 10001",
 		},
 		{
-			"ef negative", &models.SearchVectorSearchParams{Ef: ptrInt64(-1)}, nil, http.StatusUnprocessableEntity,
+			"ef negative", &models.SearchVectorSearchParams{Ef: ptrInt64(-1)},
+			vsp{},
+			http.StatusUnprocessableEntity,
 			"vectorSearchParams.ef must not be negative, got -1",
+		},
+		{"searchProbe zero", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(0)}, vsp{}, 0, ""},
+		{"searchProbe 64", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(64)}, vsp{SearchProbe: 64}, 0, ""},
+		{"searchProbe equals cap", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(500)}, vsp{SearchProbe: 500}, 0, ""},
+		{
+			"searchProbe above cap", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(501)},
+			vsp{},
+			http.StatusUnprocessableEntity,
+			"vectorSearchParams.searchProbe must not exceed HFRESH_MAX_SEARCH_PROBE (500), got 501",
+		},
+		{
+			"searchProbe negative", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(-3)},
+			vsp{},
+			http.StatusUnprocessableEntity,
+			"vectorSearchParams.searchProbe must not be negative, got -3",
+		},
+		{"filterStrategy sweeping", &models.SearchVectorSearchParams{FilterStrategy: "sweeping"}, vsp{FilterStrategy: "sweeping"}, 0, ""},
+		{"filterStrategy acorn", &models.SearchVectorSearchParams{FilterStrategy: "acorn"}, vsp{FilterStrategy: "acorn"}, 0, ""},
+		{"filterStrategy pathseer", &models.SearchVectorSearchParams{FilterStrategy: "pathseer"}, vsp{FilterStrategy: "pathseer"}, 0, ""},
+		{
+			"filterStrategy unknown", &models.SearchVectorSearchParams{FilterStrategy: "ACORN"},
+			vsp{},
+			http.StatusUnprocessableEntity,
+			`vectorSearchParams.filterStrategy must be one of sweeping, acorn, pathseer, got "ACORN"`,
+		},
+		{
+			"all fields", &models.SearchVectorSearchParams{Ef: ptrInt64(64), SearchProbe: ptrInt64(32), FilterStrategy: "acorn"},
+			vsp{EF: 64, SearchProbe: 32, FilterStrategy: "acorn"},
+			0, "",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, apiErr := h.parseVectorSearchParams(&models.SearchCommon{VectorSearchParams: tt.in})
+			got, apiErr := h.parseVectorSearchParamsEntry(tt.in, "vectorSearchParams.")
 			if tt.status != 0 {
 				require.NotNil(t, apiErr)
 				assert.Equal(t, tt.status, apiErr.Status)
 				assert.Equal(t, tt.errMsg, apiErr.Err.Error())
-				assert.Nil(t, got)
+				assert.True(t, got.IsZero())
 				return
 			}
 			require.Nil(t, apiErr)
@@ -1950,21 +2262,172 @@ func TestParseVectorSearchParams(t *testing.T) {
 }
 
 func TestBm25RejectsVectorSearchParams(t *testing.T) {
-	for name, body := range map[string]string{
-		"with ef":      `{"query":"space","vectorSearchParams":{"ef":10}}`,
-		"empty object": `{"query":"space","vectorSearchParams":{}}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, apiErr := buildBm25(t, movieClass(), body)
+	tests := []struct {
+		name, body, want string
+	}{
+		{"with ef", `{"query":"space","vectorSearchParams":{"ef":10}}`, "vectorSearchParams is not applicable to bm25 search"},
+		{"with searchProbe", `{"query":"space","vectorSearchParams":{"searchProbe":10}}`, "vectorSearchParams is not applicable to bm25 search"},
+		{"empty object", `{"query":"space","vectorSearchParams":{}}`, "vectorSearchParams is not applicable to bm25 search"},
+		{
+			"targetVectorSearchParams", `{"query":"space","targetVectorSearchParams":{"title_vec":{"ef":10}}}`,
+			"targetVectorSearchParams is not applicable to bm25 search",
+		},
+		{"empty targetVectorSearchParams", `{"query":"space","targetVectorSearchParams":{}}`, "targetVectorSearchParams is not applicable to bm25 search"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildBm25(t, movieClass(), tt.body)
 			require.NotNil(t, apiErr)
 			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-			assert.Contains(t, apiErr.Err.Error(), "vectorSearchParams is not applicable to bm25 search")
+			assert.Equal(t, tt.want, apiErr.Err.Error())
 		})
 	}
 }
 
 func TestBaseParamsMapsVectorSearchParams(t *testing.T) {
-	searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"vectorSearchParams":{"ef":42}}`)
-	require.Nil(t, apiErr)
-	assert.Equal(t, &searchparams.VectorSearchParams{EF: 42}, searcher.lastParams.VectorSearchParams)
+	tests := []struct {
+		name string
+		vsp  string
+		want *searchparams.VectorSearchParams
+	}{
+		{"ef", `{"ef":42}`, &searchparams.VectorSearchParams{EF: 42}},
+		{"searchProbe only", `{"searchProbe":7}`, &searchparams.VectorSearchParams{SearchProbe: 7}},
+		{"filterStrategy only", `{"filterStrategy":"pathseer"}`, &searchparams.VectorSearchParams{FilterStrategy: "pathseer"}},
+		{
+			"all fields", `{"ef":42,"searchProbe":7,"filterStrategy":"sweeping"}`,
+			&searchparams.VectorSearchParams{EF: 42, SearchProbe: 7, FilterStrategy: "sweeping"},
+		},
+		{"ef zero alone is nil", `{"ef":0}`, nil},
+		{"all zero is nil", `{"ef":0,"searchProbe":0}`, nil},
+		{"empty object is nil", `{}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"vectorSearchParams":`+tt.vsp+`}`)
+			require.Nil(t, apiErr)
+			assert.Equal(t, tt.want, searcher.lastParams.VectorSearchParams)
+		})
+	}
+}
+
+func TestTargetVectorSearchParams(t *testing.T) {
+	class := func() *models.Class { return namedVectorsClass("title_vec", "plot_vec") }
+	twoTargets := `"targetVectors":["title_vec","plot_vec"]`
+
+	t.Run("entries on two targets beside request-wide values", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,`+
+			`"vectorSearchParams":{"ef":100},`+
+			`"targetVectorSearchParams":{"title_vec":{"ef":300},"plot_vec":{"searchProbe":20,"filterStrategy":"acorn"}}}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, &searchparams.VectorSearchParams{
+			EF: 100,
+			PerTarget: map[string]searchparams.VectorSearchParams{
+				"title_vec": {EF: 300},
+				"plot_vec":  {SearchProbe: 20, FilterStrategy: "acorn"},
+			},
+		}, searcher.lastParams.VectorSearchParams)
+	})
+
+	t.Run("per-target only allocates the params", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,"targetVectorSearchParams":{"plot_vec":{"ef":50}}}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, &searchparams.VectorSearchParams{
+			PerTarget: map[string]searchparams.VectorSearchParams{"plot_vec": {EF: 50}},
+		}, searcher.lastParams.VectorSearchParams)
+	})
+
+	t.Run("single targetVector takes an entry", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],"targetVector":"plot_vec","targetVectorSearchParams":{"plot_vec":{"ef":50}}}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, map[string]searchparams.VectorSearchParams{"plot_vec": {EF: 50}}, searcher.lastParams.VectorSearchParams.PerTarget)
+	})
+
+	t.Run("all-zero entries leave the params nil", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,"targetVectorSearchParams":{"plot_vec":{"ef":0},"title_vec":{}}}`)
+		require.Nil(t, apiErr)
+		assert.Nil(t, searcher.lastParams.VectorSearchParams)
+	})
+
+	tests := []struct {
+		name   string
+		class  *models.Class
+		fields string
+		want   string
+	}{
+		{
+			name: "key that is not a target of the request", class: class(),
+			fields: `"targetVector":"title_vec","targetVectorSearchParams":{"plot_vec":{"ef":10}}`,
+			want:   "targetVectorSearchParams[plot_vec]: not a target vector of this request",
+		},
+		{
+			name: "key that is not a named vector", class: class(),
+			fields: twoTargets + `,"targetVectorSearchParams":{"nope":{"ef":10}}`,
+			want:   "targetVectorSearchParams[nope]: not a target vector of this request",
+		},
+		{
+			name: "negative ef", class: class(),
+			fields: twoTargets + `,"targetVectorSearchParams":{"plot_vec":{"ef":-1}}`,
+			want:   "targetVectorSearchParams[plot_vec].ef must not be negative, got -1",
+		},
+		{
+			name: "ef above cap", class: class(),
+			fields: twoTargets + `,"targetVectorSearchParams":{"plot_vec":{"ef":10001}}`,
+			want:   "targetVectorSearchParams[plot_vec].ef must not exceed HNSW_MAX_SEARCH_EF (10000), got 10001",
+		},
+		{
+			name: "negative searchProbe", class: class(),
+			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"searchProbe":-2}}`,
+			want:   "targetVectorSearchParams[title_vec].searchProbe must not be negative, got -2",
+		},
+		{
+			name: "searchProbe above cap", class: class(),
+			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"searchProbe":10001}}`,
+			want:   "targetVectorSearchParams[title_vec].searchProbe must not exceed HFRESH_MAX_SEARCH_PROBE (10000), got 10001",
+		},
+		{
+			name: "unknown filterStrategy", class: class(),
+			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"filterStrategy":"flat"}}`,
+			want:   `targetVectorSearchParams[title_vec].filterStrategy must be one of sweeping, acorn, pathseer, got "flat"`,
+		},
+		{
+			name: "legacy collection", class: movieClass(),
+			fields: `"targetVectorSearchParams":{"default":{"ef":10}}`,
+			want:   "targetVectorSearchParams requires named target vectors",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildParams(t, tt.class, `{"query":["space"],`+tt.fields+`}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Err.Error(), tt.want)
+		})
+	}
+
+	t.Run("applied on every vector search type", func(t *testing.T) {
+		const tvsp = `"targetVectorSearchParams":{"plot_vec":{"ef":77}}`
+		want := map[string]searchparams.VectorSearchParams{"plot_vec": {EF: 77}}
+		builders := []struct {
+			name  string
+			build func(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError)
+			body  string
+		}{
+			{"near-text", buildParams, `{"query":["space"],` + twoTargets + `,` + tvsp + `}`},
+			{"near-object", buildNearObject, fmt.Sprintf(`{"id":%q,%s,%s}`, nearObjectSourceID, twoTargets, tvsp)},
+			{"near-vector", buildNearVector, `{"vector":[0.1,0.2],` + twoTargets + `,` + tvsp + `}`},
+			{"hybrid", buildHybrid, `{"query":"space",` + twoTargets + `,` + tvsp + `}`},
+		}
+		for _, b := range builders {
+			t.Run(b.name, func(t *testing.T) {
+				searcher, apiErr := b.build(t, class(), b.body)
+				require.Nil(t, apiErr)
+				require.NotNil(t, searcher.lastParams.VectorSearchParams)
+				assert.Equal(t, want, searcher.lastParams.VectorSearchParams.PerTarget)
+
+				_, apiErr = b.build(t, class(), strings.Replace(b.body, `"plot_vec":{"ef":77}`, `"other":{"ef":77}`, 1))
+				require.NotNil(t, apiErr)
+				assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			})
+		}
+	})
 }

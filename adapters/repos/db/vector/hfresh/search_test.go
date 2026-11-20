@@ -525,7 +525,7 @@ func TestConfigUpdateDoesNotRaceSearch(t *testing.T) {
 	for i := 0; i < rounds; i++ {
 		_, _, err := tf.Index.SearchByVector(t.Context(), probe, 10, nil, nil)
 		require.NoError(t, err)
-		_, _ = tf.Index.muveraSearchBudgets(10)
+		_, _ = tf.Index.muveraSearchBudgets(10, nil)
 	}
 	<-done
 }

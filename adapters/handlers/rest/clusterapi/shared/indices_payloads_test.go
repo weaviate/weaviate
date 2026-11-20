@@ -277,6 +277,44 @@ func Test_searchParametersPayload_VectorSearchParams(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, got)
 	})
+	t.Run("all fields round-trip", func(t *testing.T) {
+		in := &searchparams.VectorSearchParams{
+			EF: 64, SearchProbe: 16, FilterStrategy: "acorn",
+			PerTarget: map[string]searchparams.VectorSearchParams{
+				"title": {EF: 128, FilterStrategy: "sweeping"},
+				"body":  {SearchProbe: 32},
+			},
+		}
+		b, err := p.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, in)
+		require.NoError(t, err)
+		_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(b)
+		require.NoError(t, err)
+		assert.Equal(t, in, got)
+	})
+	t.Run("payload from an old node carrying only ef decodes with zero new fields", func(t *testing.T) {
+		old := []byte(`{"searchVectors":[[1,2,3]],"TargetVectors":["t"],"limit":10,"vectorSearchParams":{"ef":64}}`)
+		_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(old)
+		require.NoError(t, err)
+		assert.Equal(t, &searchparams.VectorSearchParams{EF: 64}, got)
+	})
+	t.Run("old node decoding a new payload keeps ef and drops the rest", func(t *testing.T) {
+		in := &searchparams.VectorSearchParams{
+			EF: 64, SearchProbe: 16, FilterStrategy: "acorn",
+			PerTarget: map[string]searchparams.VectorSearchParams{"title": {EF: 128}},
+		}
+		b, err := p.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, in)
+		require.NoError(t, err)
+
+		// mirrors the pre-upgrade shape, where only ef existed
+		var oldShape struct {
+			VectorSearchParams *struct {
+				EF int `json:"ef,omitempty"`
+			} `json:"vectorSearchParams,omitempty"`
+		}
+		require.NoError(t, json.Unmarshal(b, &oldShape))
+		require.NotNil(t, oldShape.VectorSearchParams)
+		assert.Equal(t, 64, oldShape.VectorSearchParams.EF)
+	})
 }
 
 func Test_searchParametersPayload_Unmarshal(t *testing.T) {

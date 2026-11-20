@@ -49,8 +49,14 @@ type SearchHybridRequest struct {
 	// The properties the keyword part of the search scores against, each optionally weighted with a `^boost` suffix (e.g. `title^2`). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.
 	QueryProperties []string `json:"queryProperties"`
 
-	// The named vector to search. Required when the collection has more than one named vector.
+	// How the per-target results of a multi-target search are combined. Only meaningful with several `targetVectors`; omitted defaults to `minimum`.
+	TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
+	// The named vector to search. Required when the collection has more than one named vector, unless `targetVectors` is set.
 	TargetVector string `json:"targetVector,omitempty"`
+
+	// The named vectors to search, for a multi-target search. Mutually exclusive with `targetVector`. The per-target results are merged as `targetCombination` specifies.
+	TargetVectors []string `json:"targetVectors"`
 
 	// The query vector for the vector part of the search, used instead of vectorizing `query`. A non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires `alpha` > 0.
 	Vector interface{} `json:"vector,omitempty"`
@@ -77,7 +83,11 @@ func (m *SearchHybridRequest) UnmarshalJSON(raw []byte) error {
 
 		QueryProperties []string `json:"queryProperties"`
 
+		TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
 		TargetVector string `json:"targetVector,omitempty"`
+
+		TargetVectors []string `json:"targetVectors"`
 
 		Vector interface{} `json:"vector,omitempty"`
 	}
@@ -95,7 +105,11 @@ func (m *SearchHybridRequest) UnmarshalJSON(raw []byte) error {
 
 	m.QueryProperties = dataAO1.QueryProperties
 
+	m.TargetCombination = dataAO1.TargetCombination
+
 	m.TargetVector = dataAO1.TargetVector
+
+	m.TargetVectors = dataAO1.TargetVectors
 
 	m.Vector = dataAO1.Vector
 
@@ -122,7 +136,11 @@ func (m SearchHybridRequest) MarshalJSON() ([]byte, error) {
 
 		QueryProperties []string `json:"queryProperties"`
 
+		TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
 		TargetVector string `json:"targetVector,omitempty"`
+
+		TargetVectors []string `json:"targetVectors"`
 
 		Vector interface{} `json:"vector,omitempty"`
 	}
@@ -137,7 +155,11 @@ func (m SearchHybridRequest) MarshalJSON() ([]byte, error) {
 
 	dataAO1.QueryProperties = m.QueryProperties
 
+	dataAO1.TargetCombination = m.TargetCombination
+
 	dataAO1.TargetVector = m.TargetVector
+
+	dataAO1.TargetVectors = m.TargetVectors
 
 	dataAO1.Vector = m.Vector
 
@@ -163,6 +185,10 @@ func (m *SearchHybridRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateQuery(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTargetCombination(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -215,6 +241,26 @@ func (m *SearchHybridRequest) validateQuery(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SearchHybridRequest) validateTargetCombination(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.TargetCombination) { // not required
+		return nil
+	}
+
+	if m.TargetCombination != nil {
+		if err := m.TargetCombination.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetCombination")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("targetCombination")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this search hybrid request based on the context it is used
 func (m *SearchHybridRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -224,9 +270,29 @@ func (m *SearchHybridRequest) ContextValidate(ctx context.Context, formats strfm
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTargetCombination(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SearchHybridRequest) contextValidateTargetCombination(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TargetCombination != nil {
+		if err := m.TargetCombination.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetCombination")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("targetCombination")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
