@@ -192,6 +192,11 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 // entries; every run then re-inserts the rest one by one and deletes posting
 // 1, so a run cut short starts over.
 func (h *HFresh) splitSinglePosting(ctx context.Context) error {
+	if h.holdFirstSplit.Load() {
+		h.taskQueue.SplitDone(singlePostingID)
+		return nil
+	}
+
 	start := time.Now()
 	defer h.metrics.SplitDuration(start)
 
@@ -224,9 +229,7 @@ func (h *HFresh) switchToGraph(ctx context.Context) (Posting, map[uint64]struct{
 		return p, nil, nil
 	}
 
-	h.firstSplitMu.Lock()
-	defer h.firstSplitMu.Unlock()
-	if h.holdFirstSplit.Load() || !h.Centroids.Exists(singlePostingID) {
+	if !h.Centroids.Exists(singlePostingID) {
 		return nil, nil, nil
 	}
 

@@ -90,10 +90,9 @@ type HFresh struct {
 	quantizer *compressionhelpers.BinaryRotationalQuantizer
 
 	// holdFirstSplit is set while a backup halts the shard: the graph the
-	// first split creates would miss the backup's commit log capture
+	// first split creates, and the centroids its drain adds, would miss the
+	// backup's commit log capture
 	holdFirstSplit atomic.Bool
-	// firstSplitMu is held while the first split creates the graph
-	firstSplitMu sync.Mutex
 	// singlePostingDraining is set from the first split until posting 1, left
 	// outside the graph, has been re-inserted into it and deleted
 	singlePostingDraining atomic.Bool
@@ -397,13 +396,15 @@ func (h *HFresh) Flush() error {
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
-	// taking the lock waits for a first split already creating its graph,
-	// which must finish before the centroids are prepared
-	h.firstSplitMu.Lock()
+	// a first split already running must finish before the centroids are
+	// prepared; pausing the split queue below would wait for it anyway
 	h.holdFirstSplit.Store(true)
-	h.firstSplitMu.Unlock()
+	err := h.taskQueue.splitQueue.Wait(ctx)
+	if err != nil {
+		return err
+	}
 
-	err := h.Centroids.PrepareForBackup(ctx)
+	err = h.Centroids.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}
