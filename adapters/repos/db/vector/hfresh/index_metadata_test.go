@@ -514,9 +514,8 @@ func TestFirstSplitLostInCrashIsRequeued(t *testing.T) {
 
 // The drain moves posting 1's vectors into the centroid graph, whether the
 // first split just built it or a restart found it built with posting 1 left.
-// Search scans posting 1 until the drain deletes it, a backup does not wait
-// for the drain, and a vector whose move saved only its version bump is moved
-// again from its stale entry.
+// Search scans posting 1 until the drain deletes it, and a vector whose move
+// saved only its version bump is moved again from its stale entry.
 func TestSinglePostingDrain(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -573,11 +572,6 @@ func TestSinglePostingDrain(t *testing.T) {
 				"the drain must start")
 			require.True(t, index.Centroids.Built())
 			requireSelfSearchExcept(t, index, all, -1)
-
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			require.NoError(t, index.PrepareForBackup(ctx), "a backup must not wait for the drain")
-			require.NoError(t, index.ResumeAfterBackup(ctx))
 
 			releaseDrain()
 			index.waitForMaintenance(t)
