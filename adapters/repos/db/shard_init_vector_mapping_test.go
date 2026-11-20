@@ -1695,6 +1695,31 @@ func plantVectorIndexFiles(t *testing.T, s *Shard, physicalID string) {
 	}
 }
 
+// plantedOrBuiltFiles lists the file names an index at physicalID can own
+// that are on disk.
+func plantedOrBuiltFiles(t *testing.T, s *Shard, physicalID string) []string {
+	t.Helper()
+	artifacts := helpers.VectorIndexArtifactsForID(vectorIndexStorageID(physicalID), nil)
+	var found []string
+	for _, path := range append(
+		prefixed(s.pathLSM(), artifacts.LSMBuckets), prefixed(s.path(), artifacts.ShardDirs)...,
+	) {
+		_, err := os.Stat(path)
+		if err == nil {
+			found = append(found, path)
+		}
+	}
+	return found
+}
+
+func prefixed(dir string, names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, filepath.Join(dir, name))
+	}
+	return out
+}
+
 func fooRebuildTask(sourceType, candidateType string) vectorIndexTask {
 	return vectorIndexTask{
 		TaskID: "task-1", TaskVersion: 1,
@@ -1827,9 +1852,8 @@ func TestInitShardVectors_RecoveryWithoutALiveIndex(t *testing.T) {
 				})
 			})
 
-			assert.Empty(t, entriesWithID(t, shard, testCandidateID))
-			assert.Empty(t, entriesWithID(t, shard, "vectors_foo."), "the source's files")
-			assert.NoDirExists(t, filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo")))
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, testCandidateID))
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
 			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
 			_, ok, err := shard.mapping.Get("foo")
 			require.NoError(t, err)
