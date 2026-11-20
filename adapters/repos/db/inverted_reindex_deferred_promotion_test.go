@@ -108,14 +108,17 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 			unmirrored bool
 			// With its task gone, only the record shows the swap; a stamp would block its promotion, so the load holds.
 			armFailsTaskGone bool
+			// A finished task leaves the flip to the schema, so the load holds the promotion back.
+			taskFinished bool
 		}{
 			{name: "flip after the load"},
 			{name: "flip during the load", flipDuringLoad: true},
 			{name: "unmirrored record", unmirrored: true},
 			{name: "mirror fails to arm after the task is gone", armFailsTaskGone: true},
+			{name: "the load holds the promotion back", taskFinished: true},
 		} {
-			// The arm-failure path has no per-strategy branch, so one strategy covers it.
-			if sc.armFailsTaskGone && i > 0 {
+			// Neither the arm-failure path nor a held-back promotion has a per-strategy branch, so one strategy covers each.
+			if (sc.armFailsTaskGone || sc.taskFinished) && i > 0 {
 				continue
 			}
 			t.Run(tc.name+"/"+sc.name, func(t *testing.T) {
@@ -145,6 +148,15 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 
 				name, lsm := shard.Name(), shard.pathLSM()
 				require.NoError(t, shard.Shutdown(ctx))
+				if sc.taskFinished {
+					simulateProcessRestartBucketCleanup(t, lsm)
+					idx.db.indices[indexID(idx.Config.ClassName)] = idx
+					installTestMigrationTaskSources(ctx, idx.db, nil, &distributedtask.Task{
+						Namespace:      ReindexNamespace,
+						TaskDescriptor: distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
+						Status:         distributedtask.TaskStatusFinished,
+					})
+				}
 				if sc.armFailsTaskGone {
 					idx.db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
 					corrupt := filepath.Join(lsm, task.ingestBucketName(propName), "segment-1.db")
@@ -172,8 +184,12 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 				}
 				require.Len(t, p.cachedReindexTasks(distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
 					task.unitID), 1, "the load must recover the migration")
-				require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
-					"a decided swap promotes at load, while the schema has not flipped yet")
+				if sc.taskFinished {
+					require.Equal(t, []string{propName}, shard.migrationRecords.DeferredPromotions(task.migrationRecordKey()))
+				} else {
+					require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
+						"a decided swap promotes at load, while the schema has not flipped yet")
+				}
 
 				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, lateToken)))
 
@@ -195,8 +211,13 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 
 				shard = reloadShardFromDisk(t, ctx, idx, shard, class)
 				defer shard.Shutdown(context.Background())
-				require.Empty(t, migrationRecordStates(t, lsm),
-					"the next load retires the record once the schema shows its effect")
+				if sc.taskFinished {
+					require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
+						"the next load runs the promotion the first one held back")
+				} else {
+					require.Empty(t, migrationRecordStates(t, lsm),
+						"the next load retires the record once the schema shows its effect")
+				}
 				assertServed(shard, "after the next load")
 			})
 		}
