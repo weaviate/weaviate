@@ -3159,6 +3159,37 @@ func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
 	})
 }
 
+// RewindDir is Rewind on a queue not initialized yet, with no queue built:
+// the kept chunks are served again once a queue opens the folder.
+func TestRewindDir_ServesKeptChunksOnceAQueueOpens(t *testing.T) {
+	s := startedScheduler(t)
+	dir := t.TempDir()
+	q := sealedQueue(t, s, dir)
+	require.NoError(t, q.Retain())
+	processNext(t, q)
+	require.NoError(t, q.Close(t.Context()))
+
+	require.NoError(t, RewindDir(dir))
+	require.NoError(t, RewindDir(dir), "a crash before the queue opens repeats it")
+
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:          fmt.Sprintf("test_queue_%d", queueIDCounter.Add(1)),
+		Scheduler:   s,
+		Logger:      newTestLogger(),
+		Dir:         dir,
+		TaskDecoder: discardExecutor(),
+		ChunkSize:   50,
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+	assert.EqualValues(t, 9, q.Size())
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 3}, taskIDs(t, batch))
+
+	require.NoError(t, RewindDir(filepath.Join(t.TempDir(), "absent")), "no folder, nothing to rewind")
+}
+
 // A running queue only rewinds what a retention kept: the tombstones of a
 // backup are not its to take.
 func TestRewind_RefusesAQueueNotRetained(t *testing.T) {
