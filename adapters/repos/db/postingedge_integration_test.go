@@ -178,7 +178,9 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 		total = 3200
 		k     = 10
 	)
-	ctx := testCtx()
+	// Not the context of the other tests of the package, which ends after
+	// thirty seconds: under the race detector the whole of this takes longer.
+	ctx := context.Background()
 	corpus := newPostingEdgeCorpus(total, dims, 2)
 	class := postingEdgeTestClassOf(t, map[string]interface{}{
 		"distance":         "cosine",
@@ -447,4 +449,151 @@ func TestPostingEdge_ClassConfig(t *testing.T) {
 			require.ErrorIs(t, err, postingedge.ErrNotSupported, provider.Type())
 		}
 	})
+}
+
+// Two named vectors of a class, each with a posting-edge index of its own in
+// the same shard: their buckets and their directories carry the id of their
+// index, so neither answers with the vectors of the other, before a restart
+// or after it.
+func TestPostingEdge_NamedVectors(t *testing.T) {
+	const (
+		dims  = 64
+		base  = 800
+		total = 2000
+		k     = 10
+	)
+	// Not the context of the other tests of the package, which ends after
+	// thirty seconds: under the race detector the whole of this takes longer.
+	ctx := context.Background()
+	names := []string{"title", "body"}
+	// The same objects have a vector in each, drawn apart.
+	corpora := map[string]*postingEdgeCorpus{
+		"title": newPostingEdgeCorpus(total, dims, 11),
+		"body":  newPostingEdgeCorpus(total, dims, 12),
+	}
+	ids := corpora["title"].ids
+	corpora["body"].ids = ids
+
+	parsed, err := vectorindex.ParseAndValidateConfig(map[string]interface{}{
+		"ef": float64(64), "maxPostingSizeKB": float64(8), "rq": map[string]interface{}{"rescoreLimit": float64(100)},
+	}, vectorindex.VectorIndexTypePostingEdge, false)
+	require.NoError(t, err)
+	vectorConfig := map[string]models.VectorConfig{}
+	for _, name := range names {
+		vectorConfig[name] = models.VectorConfig{
+			Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			VectorIndexType:   vectorindex.VectorIndexTypePostingEdge,
+			VectorIndexConfig: parsed,
+		}
+	}
+	class := &models.Class{
+		Class:               postingEdgeTestClass,
+		InvertedIndexConfig: invertedConfig(),
+		VectorConfig:        vectorConfig,
+		Properties: []*models.Property{{
+			Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWord,
+		}},
+	}
+	dir, shardState := t.TempDir(), singleShardState()
+	open := func() *DB {
+		return openTestDatabase(t, dir, shardState, monitoring.GetMetrics(), func(config *Config) {
+			config.EnableLazyLoadShards = boolPtr(false)
+			config.PostingEdgeBaseSize = base
+		}, nil, class)
+	}
+	repo := open()
+	closed := false
+	defer func() {
+		if !closed {
+			require.NoError(t, repo.Shutdown(context.Background()))
+		}
+	}()
+
+	deleted := map[int]bool{}
+	answers := func(t *testing.T, repo *DB, name string) ([][]strfmt.UUID, float64) {
+		t.Helper()
+		corpus := corpora[name]
+		out := make([][]strfmt.UUID, len(corpus.queries))
+		hits, wanted := 0, 0
+		for q, query := range corpus.queries {
+			res, err := repo.VectorSearch(ctx, dto.GetParams{
+				ClassName:  postingEdgeTestClass,
+				Pagination: &filters.Pagination{Limit: k},
+			}, []string{name}, []models.Vector{query})
+			require.NoError(t, err)
+			for _, r := range res {
+				at := slices.Index(ids, r.ID)
+				require.GreaterOrEqual(t, at, 0)
+				require.False(t, deleted[at], "%s: object %d was returned after it was deleted", name, at)
+				out[q] = append(out[q], r.ID)
+			}
+			want := corpus.nearest(t, query, k, func(i int) bool { return !deleted[i] })
+			for _, id := range want {
+				if slices.Contains(out[q], id) {
+					hits++
+				}
+			}
+			wanted += len(want)
+		}
+		return out, float64(hits) / float64(wanted)
+	}
+
+	const batchSize = 100
+	for start := 0; start < total; start += batchSize {
+		batch := make(objects.BatchObjects, 0, batchSize)
+		for i := start; i < start+batchSize; i++ {
+			batch = append(batch, objects.BatchObject{
+				OriginalIndex: i - start,
+				Object: &models.Object{
+					Class:      postingEdgeTestClass,
+					ID:         ids[i],
+					Properties: map[string]interface{}{"name": fmt.Sprintf("object %d", i)},
+					Vectors: models.Vectors{
+						"title": corpora["title"].vectors[i],
+						"body":  corpora["body"].vectors[i],
+					},
+				},
+				UUID: ids[i],
+			})
+		}
+		res, err := repo.BatchPutObjects(ctx, batch, nil, 0)
+		require.NoError(t, err)
+		for _, object := range res {
+			require.NoError(t, object.Err, "object %d", start+object.OriginalIndex)
+		}
+	}
+	for i := 0; i < total; i += 5 {
+		require.NoError(t, repo.DeleteObject(ctx, postingEdgeTestClass, ids[i], time.Time{}, nil, "", 0))
+		deleted[i] = true
+	}
+
+	// Each index has its own directory and its own buckets in the store.
+	shardPath := postingEdgeTestShard(t, repo).path()
+	for _, name := range names {
+		id := helpers.VectorIndexIDForTarget(name)
+		_, err := os.Stat(filepath.Join(shardPath, helpers.PostingEdgeDirName(id), "meta.json"))
+		require.NoError(t, err, "the index of %q has built its postings", name)
+		for _, bucket := range helpers.PostingEdgeBucketNames(id) {
+			_, err := os.Stat(filepath.Join(shardPath, "lsm", bucket))
+			require.NoError(t, err, "bucket %s", bucket)
+		}
+	}
+
+	before := map[string][][]strfmt.UUID{}
+	for _, name := range names {
+		got, recall := answers(t, repo, name)
+		t.Logf("%s: recall@%d %.4f", name, k, recall)
+		assert.Greater(t, recall, 0.9, name)
+		before[name] = got
+	}
+
+	require.NoError(t, repo.Shutdown(context.Background()))
+	closed = true
+	repo = open()
+	closed = false
+	for _, name := range names {
+		got, recall := answers(t, repo, name)
+		require.Equal(t, before[name], got, "%s: the same answers after a restart", name)
+		assert.Greater(t, recall, 0.9, name)
+	}
 }
