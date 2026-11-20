@@ -891,6 +891,9 @@ type fakeMetrics struct {
 func (f *fakeMetrics) BatchInc() {
 }
 
+func (f *fakeMetrics) MultiTargetRefWithoutClassInc() {
+}
+
 func (f *fakeMetrics) BatchDec() {
 }
 

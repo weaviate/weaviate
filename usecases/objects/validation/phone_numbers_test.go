@@ -161,7 +161,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := &config.WeaviateConfig{}
-			validator := New(fakeExists, config, nil, nil, namespacing.Disabled)
+			validator := New(fakeExists, config, nil, nil, namespacing.Disabled, nil)
 
 			obj := &models.Object{
 				Class: "Person",

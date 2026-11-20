@@ -1410,7 +1410,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager,
+		objects.NewMetrics(appState.Metrics, appState.Logger), appState.MemWatch, appState.AutoSchemaManager,
 		appState.NamespaceQualifier)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
