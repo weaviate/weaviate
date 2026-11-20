@@ -2114,6 +2114,30 @@ Los miembros con cambios esperando y los bytes de sus listas y de sus distancias
 - **Lo que cuenta el store, antes de reorganizar:** v5.1 pide menos lecturas por carga que v5.0, unas 3.0 frente a 3.9, y menos bytes, unos 67 KB frente a 72. La cuenta del store no va a explicar el frío.
 - **Lo que explica el frío, si la contabilidad del sistema lo deja ver:** que v5.1 trae del disco tantos bytes o más que v5.0 en más sitios, tres por carga donde v5.0 toca dos, porque sus dos filas van seguidas en cada segmento. No sé si se verá.
 
+### Control combinado, paso 1: el código y sus tests (10:16 del 20)
+
+Código en `45e586c572`, después del pre-registro (`3f2824cb6a`). Escrito mientras corre v6.2, que cuenta y no cronometra.
+
+- **La reorganización acepta un índice con las aristas consolidadas.** La fila de aristas de cada posting vivo se escribe en un bucket nuevo que se vuelca una vez, con sus listas en el orden de los miembros del posting. Si quedan cambios esperando en memoria, da error: hay que escribirlos antes.
+  - **`TestGrowReorganized`** corre ahora con los dos formatos: la celda devuelve lo mismo que el gemelo en memoria en todas las queries, sus dos buckets quedan en un segmento, y cada fila lleva a los miembros de su posting en su orden.
+- **El conteo fila a fila.** Con `growRowCount`, un fetch lee las filas de sus postings una detrás de otra en vez de todas a la vez, y suma por fila lo que se mueve un contador: el del store, o el del sistema. Leer de una en una es lo que separa las dos filas, porque los contadores son del proceso entero.
+  - **`TestGrowRowCount`,** con los dos formatos: contar no cambia ninguna respuesta; el store lee lo mismo que con las filas pedidas a la vez; y lo contado por fila suma lo del store, se lea primero la fila que se lea.
+- **Lo que el sistema lee del disco sí se puede contar sin root.** macOS lleva de cada proceso sus page-ins y los bytes que lee del disco (`proc_pid_rusage`). Comprobado sobre un fichero frío del volumen, antes de usarlo:
+
+  | prueba | page-ins | bytes leídos del disco |
+  |---|---|---|
+  | una lectura posicional de 1 048 576 B | 0 | 1 089 536 |
+  | 64 accesos por un mapping, a 4 MiB uno de otro | 64 | 4 751 360 |
+  | las dos, otra vez, ya en caché | 0 | 0 |
+
+  - **Cuadra con una lectura de tamaño conocido,** que era la condición del pre-registro: 1 MiB leído son 1.04 MiB contados.
+  - **Un fallo de página en frío trae 72.5 KiB del disco,** no una página de 16: el sistema lee por delante. Es lo que hace plausible la primera hipótesis: dos filas seguidas en el mismo segmento se traen juntas.
+- **Dos órdenes de lectura** (*mío*, antes de ningún dato): la cuenta del disco se toma dos veces, con la fila de miembros leída primero y con la de aristas primero. Donde las dos filas de un posting van seguidas en disco, la que se lee primero trae parte de la otra, y la diferencia entre los dos órdenes lo enseña.
+- **Se cuenta también en las dos celdas reorganizadas** (*mío*): la celda 2 de v5.0 y la nueva. El encargo pide los dos índices antes de reorganizar; las otras dos cuestan diez minutos cada una y dicen qué lee el formato candidato.
+- **La sesión:** `testdata/bench/v5.1/scripts/run_v51_combined.sh`, con sus tablas en `combined_verdict.py`. La puerta de la etapa cronometrada espera además a que no haya nada compilando en la máquina, porque hay otra sesión de trabajo en otro worktree.
+
+Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el linter de goroutines pasan. Los tests del paquete entero pasan (135 s).
+
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
 **Estado: medido.** La validación a 1M pasa sus dos stops. Los criterios 1 y 2 no se cumplen con el índice tal como crece, el primero por medio punto, y los dos por el almacenamiento más que por el algoritmo: abajo, «Paso 3» y «Paso 4». El control de reorganización del 19, «Paso 5», deja el mismo índice a 1.07 veces del lote en frío, con su bucket en un segmento y sus vectores en orden de posting, y con el bucket en un segmento cumple el criterio 1. **El pre-registro** se escribió el 18 a las 14:00, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el camino de escritura, la validación, las medidas y el pre-registro son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. La propuesta de almacenamiento es mía: el usuario la pidió.
