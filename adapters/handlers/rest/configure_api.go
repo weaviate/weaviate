@@ -34,6 +34,7 @@ import (
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
+	"github.com/dustin/go-humanize"
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -1133,9 +1134,13 @@ func shardReindexActivityBuilder(ctx context.Context,
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
+	// debug.SetMemoryLimit(-1) reads the limit limitResources sets, so this must run after it.
+	budget, source := config.QueryBitmapBufsIdleBudget(
+		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory, debug.SetMemoryLimit(-1))
+	appState.Logger.WithFields(logrus.Fields{"budget": humanize.IBytes(uint64(budget)), "source": source}).
+		Info("bitmap buffer pool idle budget")
 	return roaringset.NewBitmapBufPoolDefault(appState.Logger, appState.Metrics,
-		appState.ServerConfig.Config.QueryBitmapBufsMaxBufSize,
-		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
+		appState.ServerConfig.Config.QueryBitmapBufsMaxBufSize, budget)
 }
 
 // initReindexAndDistributedTasks registers the reindex and drop-vector-index

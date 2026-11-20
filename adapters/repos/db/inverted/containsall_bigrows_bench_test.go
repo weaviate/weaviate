@@ -105,7 +105,7 @@ func newRoaringRowsFixture(tb testing.TB, rows [][]uint64, docIDCount uint64) *r
 	// the production pooled buffer pool, so allocation numbers reflect pooled
 	// reads rather than the noop pool's per-read allocations
 	bufPool, closePool := roaringset.NewBitmapBufPoolDefault(logger, nil,
-		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
+		config.DefaultQueryBitmapBufsMaxBufSize, config.QueryBitmapBufsMaxMemoryFloor)
 	tb.Cleanup(closePool)
 
 	store, err := lsmkv.New(dir, dir, logger, nil, nil,
