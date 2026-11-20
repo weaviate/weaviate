@@ -153,19 +153,6 @@ func (r *fakeRegistry) Loaded() int64 {
 
 func (r *fakeRegistry) Unloading() int64 { return 0 }
 
-func (r *fakeRegistry) NamespaceCounts(dst map[string]int) map[string]int {
-	if dst == nil {
-		dst = map[string]int{}
-	}
-	clear(dst)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, s := range r.shards {
-		dst[s.namespace]++
-	}
-	return dst
-}
-
 func (r *fakeRegistry) AppendChunk(dst []*fakeShard, from, limit int) ([]*fakeShard, int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -225,10 +212,6 @@ type harness struct {
 
 type harnessOpt func(*harness, *policyDeps)
 
-func withNamespaces() harnessOpt {
-	return func(_ *harness, d *policyDeps) { d.namespaces = true }
-}
-
 func newHarness(t testing.TB, configure func(*testKnobs), opts ...harnessOpt) *harness {
 	t.Helper()
 	k := newTestKnobs()
@@ -256,7 +239,7 @@ func newHarnessWithKnobs(t testing.TB, knobs Knobs, opts ...harnessOpt) *harness
 	for _, opt := range opts {
 		opt(h, &deps)
 	}
-	deps.metrics = newMetrics(h.prom, deps.namespaces, logger)
+	deps.metrics = newMetrics(h.prom, logger)
 	h.p = newPolicy[*fakeShard](h.reg, knobs, deps)
 	t.Cleanup(func() { require.NoError(t, h.p.close(context.Background())) })
 	return h

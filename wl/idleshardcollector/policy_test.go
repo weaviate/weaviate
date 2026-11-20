@@ -13,6 +13,7 @@ package idleshardcollector
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 	"testing/synctest"
@@ -23,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func cold(h *harness, namespace string) *fakeShard {
@@ -392,7 +392,7 @@ func TestCloseStopsEveryGoroutineAndReleasesQueuedShards(t *testing.T) {
 
 func TestIdleSweepSkipsInactiveNamespaces(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, idleKnobs, withNamespaces())
+		h := newHarness(t, idleKnobs)
 		h.active.Store("parked", false)
 		live := h.loadN(3, "live")
 		parked := h.loadN(3, "parked")
@@ -401,9 +401,8 @@ func TestIdleSweepSkipsInactiveNamespaces(t *testing.T) {
 
 		require.Zero(t, h.loadedCount(live))
 		require.Equal(t, 3, h.loadedCount(parked), "an inactive namespace never gives up shards")
-		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded.WithLabelValues("parked")))
 		tickOnce(time.Second)
-		require.Equal(t, 1, testutil.CollectAndCount(h.p.metrics.loaded), "an emptied namespace drops its gauge")
+		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded))
 	})
 }
 
@@ -431,12 +430,12 @@ func histogramCount(t *testing.T, h *harness, name string) int {
 	return 0
 }
 
-func TestGaugesWithoutNamespaces(t *testing.T) {
+func TestGauges(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.loadN(3, "")
 		tickOnce(time.Second)
-		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded.WithLabelValues()))
+		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded))
 		require.Zero(t, testutil.ToFloat64(h.p.metrics.unloading))
 	})
 }
@@ -444,10 +443,9 @@ func TestGaugesWithoutNamespaces(t *testing.T) {
 func TestMetricsRegisterTwiceOnOneRegistry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, nil)
-		again := newMetrics(h.prom, false, h.p.logger)
+		again := newMetrics(h.prom, h.p.logger)
 		require.Same(t, h.p.metrics.unloading, again.unloading)
-		mismatched := newMetrics(h.prom, true, h.p.logger)
-		require.NotNil(t, mismatched.unloads)
+		require.Same(t, h.p.metrics.loaded, again.loaded)
 	})
 }
 
@@ -472,65 +470,33 @@ func BenchmarkBeforeLoad(b *testing.B) {
 	}
 }
 
-func TestRemovedNamespaceLosesItsSeries(t *testing.T) {
+func TestSeriesStayBoundedAcrossNamespaces(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, idleKnobs, withNamespaces())
-		for _, ns := range []string{"gone", "kept"} {
+		h := newHarness(t, idleKnobs)
+		for i := range 50 {
+			ns := fmt.Sprintf("ns%d", i)
 			h.loadN(1, ns)[0].inUse.Store(true)
+			h.loadN(1, ns)
 		}
-		h.loadN(1, "idle")
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
+		tickOnce(time.Second)
+		require.Equal(t, 50.0, testutil.ToFloat64(h.p.metrics.loaded))
 		require.Positive(t, testutil.CollectAndCount(h.p.metrics.unloads))
-		require.Empty(t, familyLabelValues(t, h, "weaviate_idle_shard_collector_unloads_total", "namespace"))
 
-		monitoring.GetMetrics().DeleteNamespace("gone")
-
-		for _, ns := range []string{"gone", "kept"} {
-			found := false
-			for _, n := range seriesNamespaces(t, h) {
-				found = found || n == ns
+		families, err := h.prom.Gather()
+		require.NoError(t, err)
+		series := 0
+		for _, f := range families {
+			for _, m := range f.GetMetric() {
+				series++
+				for _, l := range m.GetLabel() {
+					require.NotEqual(t, "namespace", l.GetName(), "%s carries a namespace label", f.GetName())
+				}
 			}
-			require.Equal(t, ns == "kept", found, "namespace %q", ns)
 		}
+		require.LessOrEqual(t, series, 6, "series must not grow with the namespace count")
 	})
-}
-
-func familyLabelValues(t *testing.T, h *harness, family, label string) []string {
-	t.Helper()
-	families, err := h.prom.Gather()
-	require.NoError(t, err)
-	var out []string
-	for _, f := range families {
-		if f.GetName() != family {
-			continue
-		}
-		for _, m := range f.GetMetric() {
-			for _, l := range m.GetLabel() {
-				if l.GetName() == label {
-					out = append(out, l.GetValue())
-				}
-			}
-		}
-	}
-	return out
-}
-
-func seriesNamespaces(t *testing.T, h *harness) []string {
-	t.Helper()
-	families, err := h.prom.Gather()
-	require.NoError(t, err)
-	var out []string
-	for _, f := range families {
-		for _, m := range f.GetMetric() {
-			for _, l := range m.GetLabel() {
-				if l.GetName() == "namespace" {
-					out = append(out, l.GetValue())
-				}
-			}
-		}
-	}
-	return out
 }
 
 func TestCloseTimingOutStillReleasesQueuedShards(t *testing.T) {
@@ -556,8 +522,8 @@ func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
 		idleKnobs(k)
 		reg := newFakeRegistry()
 		p := newPolicy[*fakeShard](reg, k.knobs(), policyDeps{
-			logger: logger, clock: reg.clock, namespaces: true,
-			metrics: newMetrics(nil, true, logger),
+			logger: logger, clock: reg.clock,
+			metrics: newMetrics(nil, logger),
 		})
 		for range 4 {
 			reg.load("s", "ns")

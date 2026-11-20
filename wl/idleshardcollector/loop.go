@@ -61,21 +61,7 @@ func (p *policy[S]) tick() *snapshot {
 }
 
 func (p *policy[S]) publishGauges() {
-	if p.namespaces {
-		p.nsCounts = p.reg.NamespaceCounts(p.nsCounts)
-		for ns := range p.nsGauges {
-			if _, ok := p.nsCounts[ns]; !ok {
-				p.metrics.loaded.DeleteLabelValues(ns)
-				delete(p.nsGauges, ns)
-			}
-		}
-		for ns, n := range p.nsCounts {
-			p.metrics.loaded.WithLabelValues(ns).Set(float64(n))
-			p.nsGauges[ns] = struct{}{}
-		}
-	} else {
-		p.metrics.loaded.WithLabelValues().Set(float64(p.reg.Loaded()))
-	}
+	p.metrics.loaded.Set(float64(p.reg.Loaded()))
 	p.metrics.unloading.Set(float64(p.reg.Unloading()))
 }
 

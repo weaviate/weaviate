@@ -22,7 +22,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // shard is what the policy needs of a lazy shard wrapper; *db.LazyLoadShard in production.
@@ -41,7 +40,6 @@ type shard interface {
 type registry[S shard] interface {
 	Loaded() int64
 	Unloading() int64
-	NamespaceCounts(dst map[string]int) map[string]int
 	AppendChunk(dst []S, from, limit int) ([]S, int)
 }
 
@@ -53,12 +51,11 @@ type item[S shard] struct {
 }
 
 type policyDeps struct {
-	logger     logrus.FieldLogger
-	metrics    *metrics
-	clock      func() uint32
-	nsActive   func(namespace string) bool
-	namespaces bool
-	queueCap   int
+	logger   logrus.FieldLogger
+	metrics  *metrics
+	clock    func() uint32
+	nsActive func(namespace string) bool
+	queueCap int
 }
 
 // policy is the unloading policy over any shard type, so tests can drive it with fakes.
@@ -91,11 +88,7 @@ type policy[S shard] struct {
 
 	loopBuf       []S
 	ranked        []ranked[S]
-	nsCounts      map[string]int
 	nsActiveCache map[string]bool
-	nsGauges      map[string]struct{}
-
-	unregisterNamespaceSeries func()
 }
 
 type ranked[S shard] struct {
@@ -116,13 +109,7 @@ func newPolicy[S shard](reg registry[S], knobs Knobs, deps policyDeps) *policy[S
 		wake:          make(chan struct{}, 1),
 		ctx:           ctx,
 		cancel:        cancel,
-		nsCounts:      map[string]int{},
 		nsActiveCache: map[string]bool{},
-		nsGauges:      map[string]struct{}{},
-	}
-	p.unregisterNamespaceSeries = func() {}
-	if deps.namespaces {
-		p.unregisterNamespaceSeries = monitoring.RegisterNamespaceSeriesDeleter(p.deleteNamespaceSeries)
 	}
 	s := p.refresh()
 	p.adjustWorkers(s.workers)
@@ -196,17 +183,10 @@ func (p *policy[S]) enqueue(ch chan item[S], it item[S]) bool {
 	}
 }
 
-// deleteNamespaceSeries drops a removed namespace's series; it runs on the RAFT
-// apply and touches only the collectors, never loop-owned state.
-func (p *policy[S]) deleteNamespaceSeries(namespace string) {
-	p.metrics.loaded.DeleteLabelValues(namespace)
-}
-
 // close stops the loop and the workers. Queued handoffs are released before it
 // waits, so a close that times out on an unload in flight strands no claim.
 func (p *policy[S]) close(ctx context.Context) error {
 	p.closeOnce.Do(func() {
-		p.unregisterNamespaceSeries()
 		p.closed.Store(true)
 		p.cancel()
 		p.workersMu.Lock()
