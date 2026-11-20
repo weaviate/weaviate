@@ -177,7 +177,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo y sus tests a pequeña escala están escritos (Paso 1, primera parte); falta el driver de la corrida. La corrida no cabe entera antes de las 22:50, así que corre mañana de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+**Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo, el driver y sus tests están escritos (Paso 1, en dos partes). La corrida a 1M va el 20 de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -342,6 +342,37 @@ Código en `2baaa76204` y en el commit de esta nota, después del pre-registro (
 - **Una arista muerta puede salir de una lista sin contar como pérdida.** En la fase 1, un vector reparado que entra en la lista de un vecino echa a su peor arista, que puede ser una muerta. Es lo que dice el pre-registro: una arista que sale porque un vecino nuevo ocupa su sitio no es una pérdida. Me lo enseñó un test que esperaba lo contrario.
 
 Lint, con la etiqueta del banco y sin ella, y el linter de goroutines pasan. Los tests del paquete entero pasan (120 s).
+
+### Paso 1, segunda parte: el driver de la corrida (10:01 del 20)
+
+Escrito el 20 por la mañana, con la cola de la noche ya parada, antes de la corrida y de ningún dato suyo. El borrador se redactó de madrugada fuera del worktree, sin compilar, y se aplicó y compiló a las 09:56.
+
+**Qué es.** Dos etapas nuevas de `TestStreamDeletes`, `memory30` y `memorychurn`, que corren la pasada de cada celda con `deleteIndex.pass`, el mismo código que prueban los tests. El script es `testdata/bench/v6.2/scripts/run_v62.sh` y las tablas las saca `memory_verdict.py`.
+
+**Lo que el pre-registro dejaba abierto y fijo ahora** (*mío*, antes de ningún dato):
+
+- **Los grupos del recall de arista** se excluyen en este orden: insertado en el churn; si no, con algún sustituto en su lista al final; si no, reparado por búsqueda; y el resto. La «lista intacta» del pre-registro es ese resto: ni reparada ni con sustituto. Puede haber perdido aristas.
+- **Un sustituto es arista verdadera** si sigue en la lista, está entre los 16 vecinos vivos más cercanos de su vector y fuera de su posting al final.
+- **La muestra** son 2 000 vectores vivos al final de la etapa, sacados con semilla fija. Sus 16 vecinos verdaderos se calculan una vez por etapa y valen para todas sus celdas, su referencia y sus referencias de llenado.
+- **Distancias exactas:** los candidatos que las búsquedas de las reparaciones comparan a precisión completa, más las de sus aristas inversas. Se dan juntas y las segundas aparte.
+- **Postings de la fase 2:** los que tienen un borrado o una arista hacia un borrado justo antes de la fase 2, con la fase 1 ya hecha. Las fusiones van aparte.
+- **Aristas quitadas sin sustituto:** las que llegan muertas a la fase 2 y salen sin nada en su lugar. Las muertas que una reparación quita de la lista que reconstruye no son ni quitadas ni sustituidas.
+- **La celda de v6.1 lleva también el contador,** que en ella no decide nada, para dar sus pérdidas.
+- **En el churn cada celda construye su base,** como el churn de v6.1, en vez de copiar una: el build es determinista, y así el grafo de centroides es el del lote y no uno nuevo. La referencia y las de llenado se construyen una vez, detrás de las cuatro celdas.
+- **Con el 30 % de una vez la referencia va detrás de las tres celdas,** que es el orden pre-registrado. v6.1 la construía antes. No cambia ningún número.
+
+**Los tests,** en `delete_pass_test.go`:
+
+- **`TestDeletePassByCell`,** las cuatro celdas sobre cuatro rondas. A quién repara la fase 1 de cada una se calcula aparte, y lo que la pasada reporta se cuadra con lo que el índice cuenta: reparadas, sustituidas, quitadas, fusiones, ensayo y memoria.
+- **`TestDeleteEdgesOfSample`:** el recall de arista de la muestra es el de v2.x, vector a vector, en un índice con deletes e inserts y en uno en lote; los grupos parten la muestra; y un sustituto que acaba en el posting de su vector deja de contar como arista verdadera.
+
+**Ocho fallos provocados a mano, y cazados los ocho:** el ensayo de C ignorado, la celda de v6.1 con el contador, las aristas sin sustituto fuera de las quitadas, la fase 2 de B sin sustitución, los postings de la fase 2 contados después de ella, la muestra sin ordenar, un sustituto del mismo posting contado como arista verdadera, y el grupo de los reparados por delante del de los sustitutos. Los dos últimos no los cazaba la primera versión de los tests: añadí sus dos casos.
+
+**Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** las siete celdas pasan sus stops, las referencias salen con su recall de arista y el script saca sus tablas.
+
+**Lo que sigue sin escribir:** el respaldo para códigos recortados en el sidecar. La corrida va con los códigos completos.
+
+Lint, con la etiqueta del banco y sin ella, `go vet` y el linter de goroutines pasan. Los tests del paquete entero pasan.
 
 ## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
 
