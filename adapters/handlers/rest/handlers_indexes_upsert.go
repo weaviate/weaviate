@@ -956,7 +956,9 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"index_type":     it,
 		})
 		if errors.Is(err, db.ErrCleanupSweepTruncated) {
-			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
+			outcome, failure := db.ClassifyCleanupSweep(err)
+			logStaleSweepFailures(entry, sweepPhaseSubmit,
+				[]staleSweepFailure{{indexType: it, outcome: outcome, err: failure}})
 			continue
 		}
 		entry.Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
