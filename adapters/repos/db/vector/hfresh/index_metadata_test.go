@@ -13,12 +13,9 @@ package hfresh
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -509,117 +506,6 @@ func TestFirstSplitLostInCrashIsRequeued(t *testing.T) {
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	index.waitForMaintenance(t)
 	require.True(t, index.Centroids.Built())
-	requireSelfSearchExcept(t, index, all, -1)
-}
-
-// The drain moves posting 1's vectors into the centroid graph, whether the
-// first split just built it or a restart found it built with posting 1 left.
-// Search scans posting 1 until the drain deletes it, and a vector whose move
-// saved only its version bump is moved again from its stale entry.
-func TestSinglePostingDrain(t *testing.T) {
-	tests := []struct {
-		name  string
-		limit uint32
-		count int
-		// start returns the index whose drain is due
-		start func(t *testing.T, store *lsmkv.Store, cfg *Config, uc ent.UserConfig, index *HFresh) *HFresh
-	}{
-		{"after the first split", 200, 600, func(t *testing.T, _ *lsmkv.Store, _ *Config, _ ent.UserConfig, index *HFresh) *HFresh {
-			index.taskQueue.splitQueue.Resume()
-			return index
-		}},
-		{"after a restart", singlePostingThreshold, 300, func(t *testing.T, store *lsmkv.Store, cfg *Config, uc ent.UserConfig, index *HFresh) *HFresh {
-			require.NoError(t, index.Shutdown(t.Context()))
-			index.taskQueue.splitQueue.Resume()
-			// a first split cut short after creating the graph
-			hnswCfg := cfg.Centroids.HNSWConfig
-			require.NoError(t, os.MkdirAll(filepath.Join(hnswCfg.RootPath, hnswCfg.ID+".hnsw.commitlog.d"), os.ModePerm))
-			return makeHFreshWithConfig(t, store, cfg, uc)
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := testinghelpers.NewDummyStore(t)
-			cfg, uc, vectors := singlePostingRestartConfig(t, tt.limit)
-
-			// the drain waits on its first full-precision read until released
-			var reads atomic.Int32
-			release := make(chan struct{})
-			releaseDrain := sync.OnceFunc(func() { close(release) })
-			cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
-				reads.Add(1)
-				select {
-				case <-release:
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
-				return vectors.get(ctx, id)
-			}
-
-			index := makeHFreshWithConfig(t, store, cfg, uc)
-			t.Cleanup(releaseDrain)
-			require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
-			all := addRestartVectors(t, index, vectors, 0, tt.count)
-			version, err := index.VersionMap.Get(t.Context(), 5)
-			require.NoError(t, err)
-			_, err = index.VersionMap.Increment(t.Context(), 5, version)
-			require.NoError(t, err)
-			require.Zero(t, reads.Load())
-
-			index = tt.start(t, store, cfg, uc, index)
-			t.Cleanup(releaseDrain)
-			require.Eventually(t, func() bool { return reads.Load() > 0 }, 10*time.Second, 10*time.Millisecond,
-				"the drain must start")
-			require.True(t, index.Centroids.Built())
-			requireSelfSearchExcept(t, index, all, -1)
-
-			releaseDrain()
-			index.waitForMaintenance(t)
-			requireSelfSearchExcept(t, index, all, -1)
-			size, err := index.PostingSizes.Get(t.Context(), 1)
-			require.NoError(t, err)
-			require.Zero(t, size, "the drain deletes posting 1")
-		})
-	}
-}
-
-// A drain that fails to move a vector keeps posting 1 for the next attempt,
-// and one due during a backup waits for its end.
-func TestSinglePostingDrainRetries(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
-	// past the entries the seed split places
-	const unavailable = 899
-	var failing atomic.Bool
-	failing.Store(true)
-	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
-		if id == unavailable && failing.Load() {
-			return nil, errors.New("vector unavailable")
-		}
-		return vectors.get(ctx, id)
-	}
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
-	all := addRestartVectors(t, index, vectors, 0, unavailable+1)
-	index.taskQueue.splitQueue.Resume()
-	index.waitForMaintenance(t)
-	require.True(t, index.Centroids.Built())
-	require.True(t, index.singlePostingDraining.Load(), "posting 1 keeps the vector the drain failed to move")
-	requireSelfSearchExcept(t, index, all, -1)
-
-	require.NoError(t, index.PrepareForBackup(t.Context()))
-	failing.Store(false)
-	require.NoError(t, index.taskQueue.EnqueueSplit(1))
-	index.waitForMaintenance(t)
-	require.True(t, index.singlePostingDraining.Load(), "the drain must wait for the backup")
-
-	require.NoError(t, index.ResumeAfterBackup(t.Context()))
-	index.waitForMaintenance(t)
-	require.False(t, index.singlePostingDraining.Load())
-	size, err := index.PostingSizes.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.Zero(t, size)
 	requireSelfSearchExcept(t, index, all, -1)
 }
 

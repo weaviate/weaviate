@@ -248,7 +248,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	// reassigned vectors count toward the single posting's limit like inserts
 	if single {
-		if h.singlePostingFull(count) {
+		if count > h.splitLimit() {
 			err = h.taskQueue.EnqueueSplit(centroidID)
 			if err != nil {
 				return false, err
@@ -302,11 +302,13 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	return true, nil
 }
 
-// singlePostingFull reports whether the single posting is due for its first
-// split, which builds the centroid graph. A posting below the max posting
-// size cannot split, so it stays single until it grows.
-func (h *HFresh) singlePostingFull(count uint32) bool {
-	return count > max(h.bootstrapThreshold, h.maxPostingSize)
+// splitLimit is the size above which a posting is split. The single posting
+// has its own limit, and its split creates the centroid graph.
+func (h *HFresh) splitLimit() uint32 {
+	if h.Centroids.Built() {
+		return h.maxPostingSize
+	}
+	return max(h.bootstrapThreshold, h.maxPostingSize)
 }
 
 func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {

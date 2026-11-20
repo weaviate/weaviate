@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"slices"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -292,11 +293,7 @@ func (h *HFresh) centroidCommitLogExists() bool {
 // append tells whether posting 1 exists.
 func (h *HFresh) restoreCentroids() error {
 	if h.centroidCommitLogExists() {
-		err := h.Centroids.Build()
-		if err != nil {
-			return err
-		}
-		return h.restoreDrain()
+		return h.Centroids.Build()
 	}
 
 	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
@@ -305,24 +302,6 @@ func (h *HFresh) restoreCentroids() error {
 	}
 	if size > 0 {
 		h.Centroids.restoreSingle()
-	}
-	return nil
-}
-
-// restoreDrain resumes the drain of a single posting cut short: posting 1 is
-// left outside the graph with its size and, unlike an orphan, no map entry or
-// the empty one of an earlier drain.
-func (h *HFresh) restoreDrain() error {
-	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
-	if err != nil || size == 0 || h.Centroids.Exists(singlePostingID) {
-		return err
-	}
-	metadata, err := h.PostingMap.Get(h.ctx, singlePostingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return err
-	}
-	if err != nil || metadata.Count() == 0 {
-		h.singlePostingDraining.Store(true)
 	}
 	return nil
 }
@@ -515,6 +494,11 @@ func (h *HFresh) repairOrphanPostings() {
 		if !h.Centroids.Exists(postingID) || h.Centroids.VectorMissing(postingID) {
 			orphans = append(orphans, postingID)
 		}
+	}
+	// a first split cut short after the graph existed leaves posting 1 full,
+	// outside the graph and without a persisted map entry
+	if h.Centroids.Built() && !h.Centroids.Exists(singlePostingID) && !slices.Contains(orphans, singlePostingID) {
+		orphans = append(orphans, singlePostingID)
 	}
 
 	for _, postingID := range orphans {

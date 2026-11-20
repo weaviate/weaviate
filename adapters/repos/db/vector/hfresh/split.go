@@ -27,10 +27,6 @@ import (
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
 func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) error {
-	if postingID == singlePostingID && (!h.Centroids.Built() || h.singlePostingDraining.Load()) {
-		return h.splitSinglePosting(ctx)
-	}
-
 	start := time.Now()
 	defer h.metrics.SplitDuration(start)
 
@@ -57,6 +53,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			Trace("centroid not found, skipping split operation")
 		return nil
 	}
+	// the single posting has no centroid: its split creates the graph
+	firstSplit := !h.Centroids.Built()
 
 	// load the posting from disk
 	p, err := h.PostingStore.Get(ctx, postingID)
@@ -97,7 +95,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		}
 
 		// skip if the filtered posting is now too small
-		if lf := len(filtered); lf < int(h.maxPostingSize) {
+		if lf := len(filtered); lf < int(h.splitLimit()) {
 			if lf == lp {
 				// no changes, just return
 				return nil
@@ -137,9 +135,32 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return nil
 	}
 
-	newPostingIDs, err := h.addSplitPostings(ctx, result)
-	if err != nil {
-		return err
+	newPostingIDs := make([]uint64, 2)
+	for i := range 2 {
+		newPostingID, err := h.IDs.Next()
+		if err != nil {
+			return errors.Wrap(err, "failed to allocate new posting ID during split operation")
+		}
+		newPostingIDs[i] = newPostingID
+		err = h.PostingStore.Put(ctx, newPostingID, result[i].Posting)
+		if err != nil {
+			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
+		}
+		// allocate and set posting size after successful persist
+		err = h.setPostingVectorIDs(ctx, newPostingID, result[i].Posting)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
+		}
+
+		// add the new centroid to the SPTAG index
+		err = h.Centroids.Insert(newPostingID, &Centroid{
+			Uncompressed: result[i].Uncompressed,
+			Compressed:   result[i].Centroid,
+			Deleted:      false,
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
+		}
 	}
 
 	// delete the old centroid
@@ -175,7 +196,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		}
 	}
 
-	if !reassign {
+	// the first split has no old centroid to compare the vectors against
+	if !reassign || firstSplit {
 		return nil
 	}
 
@@ -185,195 +207,6 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 
 	return nil
-}
-
-// splitSinglePosting moves the single posting into the centroid graph. The
-// first run creates the graph and seeds it with a split of the posting's first
-// entries; every run then re-inserts the rest one by one and deletes posting
-// 1, so a run cut short starts over.
-func (h *HFresh) splitSinglePosting(ctx context.Context) error {
-	if h.holdFirstSplit.Load() {
-		h.taskQueue.SplitDone(singlePostingID)
-		return nil
-	}
-
-	start := time.Now()
-	defer h.metrics.SplitDuration(start)
-
-	h.postingLocks.Lock(singlePostingID)
-	p, seeded, err := h.switchToGraph(ctx)
-	if err != nil || !h.singlePostingDraining.Load() {
-		// before the unlock, as in doSplit: an append waiting on the lock
-		// must be able to queue the split again
-		h.taskQueue.SplitDone(singlePostingID)
-		h.postingLocks.Unlock(singlePostingID)
-		return err
-	}
-	// nothing appends to posting 1 once the graph exists
-	h.postingLocks.Unlock(singlePostingID)
-	defer h.taskQueue.SplitDone(singlePostingID)
-
-	return h.drainSinglePosting(ctx, p, seeded)
-}
-
-// switchToGraph creates the centroid graph once the single posting is full,
-// and returns the posting to drain with the vectors the seed split placed. The
-// caller holds the posting lock, so no append lands after the posting is read.
-func (h *HFresh) switchToGraph(ctx context.Context) (Posting, map[uint64]struct{}, error) {
-	if h.Centroids.Built() {
-		// a drain cut short left posting 1
-		p, err := h.PostingStore.Get(ctx, singlePostingID)
-		if err != nil && !errors.Is(err, ErrPostingNotFound) {
-			return nil, nil, errors.Wrap(err, "failed to get posting 1 to drain")
-		}
-		return p, nil, nil
-	}
-
-	if !h.Centroids.Exists(singlePostingID) {
-		return nil, nil, nil
-	}
-
-	p, err := h.PostingStore.Get(ctx, singlePostingID)
-	if errors.Is(err, ErrPostingNotFound) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to get posting 1 for its first split")
-	}
-	live, err := p.GarbageCollect(h.VersionMap)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to garbage collect posting 1")
-	}
-	if !h.singlePostingFull(uint32(len(live))) {
-		// the deleted entries took the posting back under its limit
-		if len(live) == len(p) {
-			return nil, nil, nil
-		}
-		err = h.PostingStore.Put(ctx, singlePostingID, live)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to put garbage collected posting 1")
-		}
-		return nil, nil, h.setPostingVectorIDs(ctx, singlePostingID, live)
-	}
-
-	// set first: a search that sees the graph must also scan posting 1
-	h.singlePostingDraining.Store(true)
-	err = h.Centroids.Build()
-	if err != nil {
-		h.singlePostingDraining.Store(false)
-		return nil, nil, errors.Wrap(err, "failed to create the centroid graph")
-	}
-
-	return p, h.seedGraph(ctx, live), nil
-}
-
-// seedGraph splits the first entries of the single posting into the empty
-// graph, as many as one posting split takes. It returns the vectors placed.
-func (h *HFresh) seedGraph(ctx context.Context, live Posting) map[uint64]struct{} {
-	seed := live[:min(len(live), 2*int(h.maxPostingSize))]
-	result, err := h.splitPosting(ctx, seed)
-	if err == nil && (len(result[0].Posting) == 0 || len(result[1].Posting) == 0) {
-		err = errors.New("split resulted in an empty posting")
-	}
-	if err == nil {
-		_, err = h.addSplitPostings(ctx, result)
-	}
-	if err != nil {
-		// the drain re-inserts every vector instead
-		h.logger.Warnf("failed to seed the centroid graph from posting 1: %v", err)
-		return make(map[uint64]struct{})
-	}
-
-	seeded := make(map[uint64]struct{}, len(live))
-	for _, v := range seed {
-		seeded[v.ID()] = struct{}{}
-	}
-	return seeded
-}
-
-// drainSinglePosting re-inserts the vectors of posting 1 through the graph,
-// then deletes it. Stale entries are re-inserted too: a move cut short can
-// keep the version bump and lose the new copy.
-func (h *HFresh) drainSinglePosting(ctx context.Context, p Posting, done map[uint64]struct{}) error {
-	if done == nil {
-		done = make(map[uint64]struct{}, len(p))
-	}
-
-	var failed int
-	for _, v := range p {
-		id := v.ID()
-		if _, ok := done[id]; ok {
-			continue
-		}
-		done[id] = struct{}{}
-
-		err := ctx.Err()
-		if err != nil {
-			return err
-		}
-		_, err = h.reassign(ctx, reassignOperation{PostingID: singlePostingID, VectorID: id})
-		if err != nil {
-			failed++
-			h.logger.WithField("vectorID", id).
-				Errorf("failed to move vector out of posting 1: %v", err)
-		}
-	}
-	if failed > 0 {
-		// posting 1 stays searchable and the next startup drains it again
-		return errors.Errorf("failed to move %d vectors out of posting 1", failed)
-	}
-
-	// a vector queued for another reassign must not be lost with posting 1
-	err := h.taskQueue.Flush()
-	if err != nil {
-		return errors.Wrap(err, "failed to flush the task queues before deleting posting 1")
-	}
-	// the size last: while it is set, a restart drains posting 1 again
-	err = h.PostingStore.Put(ctx, singlePostingID, Posting{})
-	if err != nil {
-		return errors.Wrap(err, "failed to delete posting 1 after its drain")
-	}
-	err = h.setPostingVectorIDs(ctx, singlePostingID, Posting{})
-	if err != nil {
-		return errors.Wrap(err, "failed to set the size of posting 1 after its drain")
-	}
-	h.singlePostingDraining.Store(false)
-
-	h.logger.WithField("vectors", len(done)).
-		Info("moved the single posting into the centroid graph")
-	return nil
-}
-
-// addSplitPostings persists the postings of a split and adds their centroids.
-func (h *HFresh) addSplitPostings(ctx context.Context, result []SplitResult) ([]uint64, error) {
-	newPostingIDs := make([]uint64, len(result))
-	for i := range result {
-		newPostingID, err := h.IDs.Next()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to allocate new posting ID during split operation")
-		}
-		newPostingIDs[i] = newPostingID
-		err = h.PostingStore.Put(ctx, newPostingID, result[i].Posting)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
-		}
-		// allocate and set posting size after successful persist
-		err = h.setPostingVectorIDs(ctx, newPostingID, result[i].Posting)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
-		}
-
-		// add the new centroid to the SPTAG index
-		err = h.Centroids.Insert(newPostingID, &Centroid{
-			Uncompressed: result[i].Uncompressed,
-			Compressed:   result[i].Centroid,
-			Deleted:      false,
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
-		}
-	}
-	return newPostingIDs, nil
 }
 
 // splitPosting takes a posting and returns two groups.

@@ -29,23 +29,20 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	start := time.Now()
 	defer h.metrics.ReassignDuration(start)
 
-	requeued, err := h.reassign(ctx, op)
-	if !requeued {
-		h.taskQueue.ReassignDone(op.VectorID)
-	}
-	return err
-}
+	var markedAsDone bool
+	defer func() {
+		if !markedAsDone {
+			h.taskQueue.ReassignDone(op.VectorID)
+		}
+	}()
 
-// reassign moves the vector to its nearest postings under a new version. It
-// reports whether the vector was queued for another reassign.
-func (h *HFresh) reassign(ctx context.Context, op reassignOperation) (bool, error) {
 	// check if the vector is still valid
 	version, err := h.VersionMap.Get(ctx, op.VectorID)
 	if err != nil {
-		return false, errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
+		return errors.Wrapf(err, "failed to get version for vector %d", op.VectorID)
 	}
 	if version.Deleted() {
-		return false, nil
+		return nil
 	}
 
 	var q []float32
@@ -55,23 +52,23 @@ func (h *HFresh) reassign(ctx context.Context, op reassignOperation) (bool, erro
 		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
 	}
 	if err != nil {
-		return false, errors.Wrap(err, "failed to get vector by index ID")
+		return errors.Wrap(err, "failed to get vector by index ID")
 	}
 	q = h.normalizeVec(q)
 
 	replicas, needsReassign, err := h.RNGSelect(q, op.PostingID)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to select replicas")
+		return errors.Wrap(err, "failed to select replicas")
 	}
 	if !needsReassign {
-		return false, nil
+		return nil
 	}
 	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(q))
 	// with no centroid left, appending nowhere would drop the vector
 	if replicas.Len() == 0 {
 		replicas, err = h.ensureInitialPosting(q, compressed)
 		if err != nil {
-			return false, errors.Wrap(err, "failed to create initial posting")
+			return errors.Wrap(err, "failed to create initial posting")
 		}
 	}
 
@@ -81,17 +78,25 @@ func (h *HFresh) reassign(ctx context.Context, op reassignOperation) (bool, erro
 	if errors.Is(err, ErrVersionIncrementFailed) {
 		h.logger.WithField("vectorID", op.VectorID).
 			Debug("version changed concurrently, skipping reassign operation")
-		return false, nil
+		return nil
 	}
 	if err != nil {
-		return false, errors.Wrapf(err, "failed to increment version map for vector %d", op.VectorID)
+		return errors.Wrapf(err, "failed to increment version map for vector %d", op.VectorID)
 	}
 
 	// create a new vector with the updated version
 	newVector := NewVector(op.VectorID, version, compressed)
 
 	// append the vector to each replica
-	return h.appendReassignReplicas(ctx, newVector, replicas)
+	requeued, err := h.appendReassignReplicas(ctx, newVector, replicas)
+	if err != nil {
+		return err
+	}
+	if requeued {
+		markedAsDone = true
+	}
+
+	return nil
 }
 
 func (h *HFresh) appendReassignReplicas(ctx context.Context, newVector Vector, replicas *ResultSet) (bool, error) {

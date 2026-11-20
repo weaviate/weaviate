@@ -77,7 +77,10 @@ type HNSWIndex struct {
 	// nil in single-posting mode
 	hnsw atomic.Pointer[hnsw.HNSW]
 	// single reports whether posting 1 exists, while there is no graph
-	single  atomic.Bool
+	single atomic.Bool
+	// pending receives the children of the first split, and becomes the
+	// graph when the split deletes posting 1
+	pending *hnsw.HNSW
 	buildMu sync.Mutex
 }
 
@@ -106,6 +109,22 @@ func (i *HNSWIndex) Build() error {
 		return nil
 	}
 
+	h, err := i.pendingGraph()
+	if err != nil {
+		return err
+	}
+	i.publish(h)
+
+	return nil
+}
+
+// pendingGraph returns the graph searches do not see yet, creating it on first
+// use. The caller holds buildMu.
+func (i *HNSWIndex) pendingGraph() (*hnsw.HNSW, error) {
+	if i.pending != nil {
+		return i.pending, nil
+	}
+
 	var userConfig ent.UserConfig
 	userConfig.SetDefaults()
 	userConfig.EF = 64
@@ -117,14 +136,20 @@ func (i *HNSWIndex) Build() error {
 
 	h, err := hnsw.New(*i.cfg.Centroids.HNSWConfig, userConfig, i.cfg.TombstoneCallbacks, i.store)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	h.PostStartup(context.Background())
+	i.pending = h
 
+	return h, nil
+}
+
+// publish makes the pending graph the one every call uses. The caller holds
+// buildMu.
+func (i *HNSWIndex) publish(h *hnsw.HNSW) {
 	i.hnsw.Store(h)
+	i.pending = nil
 	i.single.Store(false)
-
-	return nil
 }
 
 // Built reports whether the centroid graph exists.
@@ -170,12 +195,23 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 
 	g := i.hnsw.Load()
 	if g == nil {
-		if id != singlePostingID {
+		if id == singlePostingID {
+			i.single.Store(true)
+			i.counter.Add(1)
+			return nil
+		}
+		if !i.single.Load() {
 			return errors.Errorf("centroid graph not built: cannot add posting %d", id)
 		}
-		i.single.Store(true)
-		i.counter.Add(1)
-		return nil
+
+		// a child of the first split
+		var err error
+		i.buildMu.Lock()
+		g, err = i.pendingGraph()
+		i.buildMu.Unlock()
+		if err != nil {
+			return errors.Wrap(err, "create the centroid graph")
+		}
 	}
 
 	err := g.Add(context.Background(), id, centroid.Uncompressed)
@@ -195,6 +231,13 @@ func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 
 	g := i.hnsw.Load()
 	if g == nil {
+		// the first split deletes posting 1 once its children are in the
+		// pending graph
+		i.buildMu.Lock()
+		defer i.buildMu.Unlock()
+		if i.pending != nil {
+			i.publish(i.pending)
+		}
 		i.single.Store(false)
 		return nil
 	}
@@ -282,6 +325,12 @@ func (i *HNSWIndex) GetMaxID() uint64 {
 
 func (i *HNSWIndex) Shutdown(ctx context.Context) error {
 	g := i.hnsw.Load()
+	if g == nil {
+		// a first split that failed halfway leaves its graph pending
+		i.buildMu.Lock()
+		g = i.pending
+		i.buildMu.Unlock()
+	}
 	if g == nil {
 		return nil
 	}

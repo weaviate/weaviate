@@ -495,7 +495,6 @@ func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
 func (h *HFresh) readPostings(ctx context.Context, query []float32, probe int, allowList helpers.AllowList) ([]uint64, []Posting, int, error) {
 	for {
 		built := h.Centroids.Built()
-		draining := built && h.singlePostingDraining.Load()
 
 		beforeCentroids := time.Now()
 		centroids, err := h.Centroids.Search(query, probe, allowList)
@@ -515,10 +514,6 @@ func (h *HFresh) readPostings(ctx context.Context, query []float32, probe int, a
 		if built {
 			mergeable = len(selected)
 		}
-		// posting 1 is outside the graph until its drain deletes it
-		if draining {
-			selected = append(selected, singlePostingID)
-		}
 		if len(selected) == 0 {
 			return nil, nil, 0, nil
 		}
@@ -530,8 +525,8 @@ func (h *HFresh) readPostings(ctx context.Context, query []float32, probe int, a
 			return nil, nil, 0, err
 		}
 
-		// a drain started and finished after the search picked the single
-		// posting would leave it empty; the graph then holds its vectors
+		// a first split that ran after the search picked the single posting
+		// left it empty; the graph then holds its vectors
 		if built || !h.Centroids.Built() {
 			return selected, postings, mergeable, nil
 		}
