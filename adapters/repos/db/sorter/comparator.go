@@ -31,5 +31,17 @@ func (c *comparator) compare(a, b *comparable) int {
 			return res
 		}
 	}
+	// Tie-breaker: use document ID for deterministic ordering, consistent with the
+	// other cross-shard merges (see sortByDistances, sortByScores, sortByID). Without
+	// it, objects that tie on every sort key but live on different shards get a
+	// nondeterministic order in the cross-shard merge (an unstable sort over results
+	// appended in goroutine-completion order), so a boundary object can be dropped from
+	// or duplicated across paginated (offset/limit) requests.
+	if a.docID != b.docID {
+		if a.docID < b.docID {
+			return -1
+		}
+		return 1
+	}
 	return 0
 }
