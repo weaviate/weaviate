@@ -40,6 +40,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	postingedgeent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -225,6 +226,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				return m.db.config.HNSWWaitForCachePrefill
 			}(),
 			HNSWFlatSearchConcurrency:    m.db.config.HNSWFlatSearchConcurrency,
+			PostingEdgeBaseSize:          m.db.config.PostingEdgeBaseSize,
 			HNSWAcornFilterRatio:         m.db.config.HNSWAcornFilterRatio,
 			BM25FilterTombMergeGateRatio: m.db.config.BM25FilterTombMergeGateRatio,
 			VisitedListPoolMaxSize:       m.db.config.VisitedListPoolMaxSize,
@@ -920,6 +922,8 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeHFresh:
 		return hfresh.ValidateUserConfigUpdate(old, updated)
+	case vectorindex.VectorIndexTypePostingEdge:
+		return postingedgeent.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }

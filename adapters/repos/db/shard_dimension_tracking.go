@@ -28,6 +28,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	postingedgeent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -197,6 +198,9 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bo
 	case dynamicent.UserConfig:
 		return getDynamicCompression(config, dynamicUpgraded)
 	case hfreshent.UserConfig:
+		return DimensionInfo{category: DimensionCategoryAuto}
+	case postingedgeent.UserConfig:
+		// As hfresh: its codes are fixed, 1-bit RQ.
 		return DimensionInfo{category: DimensionCategoryAuto}
 	default:
 		return DimensionInfo{category: DimensionCategoryStandard}

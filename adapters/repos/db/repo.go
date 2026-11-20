@@ -510,10 +510,15 @@ type Config struct {
 	// caller sets it explicitly.
 	RuntimeReindexDisabled bool
 
-	HNSWMaxLogSize               int64
-	HNSWWaitForCachePrefill      bool
-	HNSWFlatSearchConcurrency    int
-	HNSWAcornFilterRatio         float64
+	HNSWMaxLogSize            int64
+	HNSWWaitForCachePrefill   bool
+	HNSWFlatSearchConcurrency int
+	HNSWAcornFilterRatio      float64
+	// PostingEdgeBaseSize is how many vectors a posting-edge index gathers,
+	// searched exactly, before it builds its first postings. 0 leaves it its
+	// default. Nothing sets it outside the tests yet: no environment variable
+	// reaches it.
+	PostingEdgeBaseSize          int
 	HNSWGeoIndexEF               int
 	VisitedListPoolMaxSize       int
 	BM25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]

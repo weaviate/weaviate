@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -39,6 +40,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	postingedgeent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 )
 
 // vectorFromObjectForTarget reads targetVector's vector straight out of an
@@ -353,9 +355,36 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: hfresh index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypePostingEdge:
+		userConfig, ok := vectorIndexUserConfig.(postingedgeent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("postingedge vector index: config is not postingedge.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+
+		// The index keeps its files in a directory of its own under the
+		// shard, and its buckets in the store of the shard, which flushes
+		// and compacts them with the cycles of the node. It runs nothing in
+		// the background yet, so it takes neither the scheduler nor the
+		// cycles of the commit logs.
+		vi, err := postingedge.Open(postingedge.PersistentConfig{
+			ID:                physicalID,
+			ShardName:         s.name,
+			ClassName:         s.index.Config.ClassName.String(),
+			RootPath:          s.path(),
+			Logger:            logger,
+			DistanceProvider:  distProv,
+			AllocChecker:      s.index.allocChecker,
+			MakeBucketOptions: makeBucketOptions,
+			BaseSize:          s.index.Config.PostingEdgeBaseSize,
+		}, userConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: postingedge index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeHFresh)
+		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeHFresh, vectorindex.VectorIndexTypePostingEdge)
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil

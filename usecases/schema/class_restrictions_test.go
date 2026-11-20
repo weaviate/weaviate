@@ -61,6 +61,23 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 			indexType: vectorindex.VectorIndexTypeHNSW,
 		},
 		{
+			name:      "no allow-list: postingedge OK",
+			indexType: vectorindex.VectorIndexTypePostingEdge,
+		},
+		{
+			name:      "postingedge allowed",
+			allow:     []string{"postingedge", "hnsw"},
+			indexType: vectorindex.VectorIndexTypePostingEdge,
+		},
+		{
+			name:        "an allow-list without postingedge rejects it",
+			allow:       []string{"hfresh", "hnsw"},
+			indexType:   vectorindex.VectorIndexTypePostingEdge,
+			wantErr:     true,
+			wantViolate: true,
+			wantValue:   "postingedge",
+		},
+		{
 			name:        "multi-allow rejects non-member",
 			allow:       []string{"hfresh", "hnsw"},
 			indexType:   vectorindex.VectorIndexTypeFLAT,
@@ -487,6 +504,12 @@ func TestValidateAllowedCompression(t *testing.T) {
 			name:      "hfresh skipped even with allow-list",
 			allow:     []string{"rq-8"},
 			indexType: vectorindex.VectorIndexTypeHFresh,
+			cfg:       hnsw.UserConfig{}, // shape doesn't matter; skip on type
+		},
+		{
+			name:      "postingedge skipped even with allow-list: its compression is fixed too",
+			allow:     []string{"rq-8"},
+			indexType: vectorindex.VectorIndexTypePostingEdge,
 			cfg:       hnsw.UserConfig{}, // shape doesn't matter; skip on type
 		},
 		{

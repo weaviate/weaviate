@@ -44,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -781,8 +782,8 @@ func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
 
 // A vector payload whose shape does not match the target's index must be
 // refused before anything is written, never panic or fail later in indexing.
-// Flat, dynamic and hfresh never take multi-vectors; hnsw only takes the kind
-// its multivector setting selects.
+// Flat, dynamic, hfresh and postingedge never take multi-vectors; hnsw only
+// takes the kind its multivector setting selects.
 func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 	singleVector := []float32{0.1, 0.2, 0.3, 0.4}
 	multiVector := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}}
@@ -797,6 +798,7 @@ func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 		{name: "flat", cfg: flat.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
 		{name: "dynamic", cfg: dynamic.NewDefaultUserConfig(), async: []bool{true}, payload: multiVector},
 		{name: "hfresh", cfg: hfresh.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "postingedge", cfg: postingedge.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
 		{name: "hnsw", cfg: hnsw.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
 		{name: "hnsw multivector", cfg: hnsw.NewDefaultMultiVectorUserConfig(), async: []bool{false, true}, payload: singleVector},
 	}

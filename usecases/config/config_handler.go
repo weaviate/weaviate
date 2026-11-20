@@ -302,7 +302,7 @@ type Config struct {
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
 	// New classes will be created with this vector index type instead of HNSW.
-	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
+	// Valid values: "hnsw", "flat", "dynamic", "hfresh", "postingedge".
 	DefaultVectorIndexType *runtime.DynamicValue[string] `json:"default_vector_index" yaml:"default_vector_index"`
 
 	// New classes will be created with this shard count instead of the cluster node count.
@@ -539,11 +539,11 @@ func (c *Config) validateReplicationFactorBounds() error {
 
 // Mirrors entities/vectorindex/config.go; duplicated as plain strings to
 // avoid an import cycle. VectorIndexTypeNone is an internal sentinel.
-var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
+var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh", "postingedge"}
 
 // Matches DEFAULT_QUANTIZATION values so operators can copy them across.
 // "none" means "uncompressed"; omitting it from the allow-list makes
-// every non-hfresh class require a compression.
+// every class but those of hfresh and postingedge require a compression.
 var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-4", "rq-8", "bq"}
 
 func IsValidRestrictionVectorIndexType(v string) bool {
@@ -624,6 +624,9 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
 		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
 	}
+	if len(allowVector) == 1 && allowVector[0] == "postingedge" && len(allowCompression) > 0 {
+		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'postingedge': postingedge has no compression configuration")
+	}
 
 	problems = append(problems, runtimeMismatchProblems(
 		allowVector, c.DefaultVectorIndexType,
@@ -669,6 +672,9 @@ func (c *Config) validateRestrictions() error {
 
 	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
 		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+	if len(allowVector) == 1 && allowVector[0] == "postingedge" && len(allowCompression) > 0 {
+		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'postingedge': postingedge has no compression configuration")
 	}
 
 	if err := reconcileAllowListWithDefault(
