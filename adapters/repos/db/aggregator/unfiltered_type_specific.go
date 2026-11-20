@@ -44,7 +44,7 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 			return ua.parseAndAddBoolRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(ctx context.Context) Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -52,7 +52,7 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 			return ua.parseAndAddBoolRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(context.Context) Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -62,32 +62,21 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	return &out, nil
 }
 
-func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
-	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type: aggregation.PropertyTypeBoolean,
-	}
-
-	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
-	}
-
+func (ua unfilteredAggregator) boolArrayScan(prop aggregation.ParamProperty) objectScan {
 	agg := newBoolAggregator()
 
-	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		return ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
+	return objectScan{
+		name: prop.Name,
+		add: func(v []byte) error {
+			return ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
+		},
+		result: func() aggregation.Property {
+			return aggregation.Property{
+				Type:               aggregation.PropertyTypeBoolean,
+				BooleanAggregation: agg.Res(),
+			}
+		},
 	}
-
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
-	if err != nil {
-		return nil, err
-	}
-
-	out.BooleanAggregation = agg.Res()
-
-	return &out, nil
 }
 
 func (ua unfilteredAggregator) parseAndAddBoolRowSet(agg *boolAggregator, k []byte, v [][]byte) error {
@@ -160,7 +149,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 			return ua.parseAndAddFloatRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(ctx context.Context) Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -168,7 +157,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 			return ua.parseAndAddFloatRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(context.Context) Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -199,7 +188,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 			return ua.parseAndAddIntRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(ctx context.Context) Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -207,7 +196,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 			return ua.parseAndAddIntRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(context.Context) Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -238,7 +227,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 			return ua.parseAndAddDateRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(ctx context.Context) Cursor { return RoaringCursor{b.CursorRoaringSetCtx(ctx)} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -246,7 +235,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 			return ua.parseAndAddDateRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func(context.Context) Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -288,33 +277,23 @@ func (ua unfilteredAggregator) parseAndAddDateRowRoaringSet(agg *dateAggregator,
 	return nil
 }
 
-func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
-	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type:             aggregation.PropertyTypeDate,
-		DateAggregations: map[string]interface{}{},
-	}
-
-	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
-	}
-
+func (ua unfilteredAggregator) dateArrayScan(prop aggregation.ParamProperty) objectScan {
 	agg := newDateAggregator()
 
-	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
+	return objectScan{
+		name: prop.Name,
+		add: func(v []byte) error {
+			return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
+		},
+		result: func() aggregation.Property {
+			out := aggregation.Property{
+				Type:             aggregation.PropertyTypeDate,
+				DateAggregations: map[string]interface{}{},
+			}
+			addDateAggregations(&out, prop.Aggregators, agg)
+			return out
+		},
 	}
-
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
-	if err != nil {
-		return nil, err
-	}
-
-	addDateAggregations(&out, prop.Aggregators, agg)
-
-	return &out, nil
 }
 
 func (ua unfilteredAggregator) parseAndAddDateArrayRow(agg *dateAggregator,
@@ -428,64 +407,38 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 	return nil
 }
 
-func (ua unfilteredAggregator) textProperty(ctx context.Context,
-	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type:            aggregation.PropertyTypeText,
-		TextAggregation: aggregation.Text{},
+func (ua unfilteredAggregator) textScan(prop aggregation.ParamProperty) objectScan {
+	agg := newTextAggregator(prop.Aggregators)
+
+	return objectScan{
+		name: prop.Name,
+		add: func(v []byte) error {
+			return ua.parseAndAddTextRow(agg, v, prop.Name)
+		},
+		result: func() aggregation.Property {
+			return aggregation.Property{
+				Type:            aggregation.PropertyTypeText,
+				TextAggregation: agg.Res(),
+			}
+		},
 	}
-
-	limit := extractLimitFromTopOccs(prop.Aggregators)
-
-	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
-	}
-
-	agg := newTextAggregator(limit)
-
-	// we're looking at the whole object, so this is neither a Set, nor a Map, but
-	// a Replace strategy
-	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		return ua.parseAndAddTextRow(agg, v, prop.Name)
-	}
-
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
-	if err != nil {
-		return nil, err
-	}
-
-	out.TextAggregation = agg.Res()
-
-	return &out, nil
 }
 
-func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
-	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type:                  aggregation.PropertyTypeNumerical,
-		NumericalAggregations: map[string]interface{}{},
-	}
-
-	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
-	}
-
+func (ua unfilteredAggregator) numberArrayScan(prop aggregation.ParamProperty) objectScan {
 	agg := newNumericalAggregator()
 
-	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)
+	return objectScan{
+		name: prop.Name,
+		add: func(v []byte) error {
+			return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)
+		},
+		result: func() aggregation.Property {
+			out := aggregation.Property{
+				Type:                  aggregation.PropertyTypeNumerical,
+				NumericalAggregations: map[string]interface{}{},
+			}
+			addNumericalAggregations(&out, prop.Aggregators, agg)
+			return out
+		},
 	}
-
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
-	if err != nil {
-		return nil, err
-	}
-
-	addNumericalAggregations(&out, prop.Aggregators, agg)
-
-	return &out, nil
 }

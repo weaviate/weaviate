@@ -57,9 +57,7 @@ type Manager struct {
 	readOnlyClass     func(collection string) *models.Class
 	readShardingState func(collection string, read func(*sharding.State)) (bool, error)
 
-	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
-	// not collection-scoped and survives DeleteTasksForCollection.
-	collectionExtractors   map[string]CollectionExtractor
+	headerDecoders         map[string]HeaderDecoder
 	targetVectorExtractors map[string]TargetVectorExtractor
 
 	logger logrus.FieldLogger
@@ -75,12 +73,7 @@ type Manager struct {
 	notifier SchedulerNotifier
 }
 
-// CheckPropertyUpdate consults every registered
-// [SchemaMutationDetector] against the current FSM-stored task list
-// and returns the first conflict reported. Called by the schema FSM's
-// UpdateProperty apply path BEFORE the merge is applied; returning a
-// non-nil error causes the apply to reject with that error.
-//
+// CheckPropertyUpdate returns the first conflict a detector reports for this update, before the FSM applies it.
 // RAFT-deterministic by construction: under m.mu (write lock to match
 // the apply paths that mutate m.tasks), every node sees the same task
 // list at the same applyIndex, and each detector is contractually a
@@ -91,7 +84,7 @@ type Manager struct {
 // namespace flags the update. Empty fast-path keeps the schema apply
 // path free of allocations in the common case.
 func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckPropertyUpdate(className, propertyName, existing)
 	})
 }
@@ -117,7 +110,7 @@ func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, r
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckClassMutation(className string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckClassMutation(className, existing)
 	})
 }
@@ -129,7 +122,7 @@ func (m *Manager) CheckClassMutation(className string) error {
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckTenantMutation(className string, tenants []string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
 		return d.CheckTenantMutation(className, tenants, existing)
 	})
 }
@@ -151,6 +144,9 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
+			if t.OnKnownOtherCollection(className) {
+				continue
+			}
 			existing = append(existing, t)
 		}
 		if err := gate.CheckVectorConfigRemoval(className, removedVectors, shards, existing); err != nil {
@@ -185,11 +181,7 @@ func (m *Manager) CheckVectorConfigRemovalAtPropose(className string, removedVec
 	return nil
 }
 
-// dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
-// CheckClassMutation / CheckTenantMutation. Walks every registered
-// [SchemaMutationDetector], hands it the namespace-scoped task list,
-// returns the first conflict the call closure reports.
-func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetector, []*Task) error) error {
+func (m *Manager) dispatchSchemaMutation(className string, callDetector func(SchemaMutationDetector, []*Task) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.schemaMutationDetectors) == 0 {
@@ -201,6 +193,9 @@ func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetecto
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
+			if t.OnKnownOtherCollection(className) {
+				continue
+			}
 			existing = append(existing, t)
 		}
 		if err := callDetector(detector, existing); err != nil {
@@ -249,9 +244,20 @@ type ManagerParameters struct {
 }
 
 func NewManager(params ManagerParameters) *Manager {
+	headerDecoders := map[string]HeaderDecoder{}
+	for namespace, detector := range params.ConflictDetectors {
+		if decoder, ok := detector.(HeaderDecoder); ok {
+			headerDecoders[namespace] = decoder
+		}
+	}
+	for namespace, detector := range params.SchemaMutationDetectors {
+		if decoder, ok := detector.(HeaderDecoder); ok {
+			headerDecoders[namespace] = decoder
+		}
+	}
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
-		collectionExtractors:   make(map[string]CollectionExtractor),
+		headerDecoders:         headerDecoders,
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
 		conflictDetectors:       params.ConflictDetectors,
@@ -263,30 +269,21 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
-// RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
-// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
-// write wins per namespace; nil / empty arguments are silently dropped.
-// It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
-func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
-	if namespace == "" || extractor == nil {
-		return
+func (m *Manager) headerFor(namespace string, payload []byte) TaskHeader {
+	decoder := m.headerDecoders[namespace]
+	if decoder == nil {
+		return nil
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.collectionExtractors[namespace] = extractor
+	header, err := decoder.DecodeHeader(payload)
+	if err != nil {
+		reason := err.Error()
+		reason = reason[:min(len(reason), 200)]
+		m.logger.WithField("namespace", namespace).Warnf("task payload has no readable header, so checks treat it as unparseable: %s", reason)
+		return nil
+	}
+	return header
 }
 
-// cacheCollectionWithLock runs once per add or restore, since HasActiveTaskForCollection runs on every replica copy.
-func (m *Manager) cacheCollectionWithLock(task *Task) {
-	if extractor := m.collectionExtractors[task.Namespace]; extractor != nil {
-		if c, ok := extractor(task.Payload); ok {
-			task.collection = c
-		}
-	}
-}
-
-// RegisterTargetVectorExtractor opts a task namespace into
-// PurgeTasksForCollectionTargetVectors. Same contract as RegisterCollectionExtractor.
 func (m *Manager) RegisterTargetVectorExtractor(namespace string, extractor TargetVectorExtractor) {
 	if namespace == "" || extractor == nil {
 		return
@@ -345,6 +342,9 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 			continue
 		}
 		for taskID, task := range tasksByID {
+			if task.OnKnownOtherCollection(collection) {
+				continue
+			}
 			c, taskTargetVectors, ok := extractor(task.Payload)
 			// EqualFold: collection names are case-insensitive identifiers, and a
 			// byte-exact purge would be strictly weaker than the EqualFold
@@ -377,11 +377,7 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 	return removed, nil
 }
 
-// DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
-// from the schema FSM on DELETE_CLASS so a drop+recreate of the same class name
-// starts with a clean task slate. Empty `collection` is rejected (an extractor
-// emitting ("", true) on stray bytes would otherwise wipe the cluster).
-// See weaviate/0-weaviate-issues#231.
+// DeleteTasksForCollection drops every task bound to collection, so a dropped and recreated class starts with no tasks.
 func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	if collection == "" {
 		return nil
@@ -391,18 +387,13 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	defer m.mu.Unlock()
 
 	var removed []TaskDescriptor
-	for namespace, tasksByID := range m.tasks {
-		extractor, ok := m.collectionExtractors[namespace]
-		if !ok || extractor == nil {
-			continue
-		}
+	for _, tasksByID := range m.tasks {
 		for taskID, task := range tasksByID {
-			c, ok := extractor(task.Payload)
 			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
 			// identifiers, and a byte-exact cascade would leak a case-twin
 			// record past DELETE_CLASS.
-			if !ok || !strings.EqualFold(c, collection) {
+			if !strings.EqualFold(task.collection(), collection) {
 				continue
 			}
 			delete(tasksByID, taskID)
@@ -416,10 +407,10 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for namespace := range m.collectionExtractors {
+	for namespace := range m.headerDecoders {
 		for _, task := range m.tasks[namespace] {
 			if task.Status.IsActive() || !task.NeedsPreparationBarrier ||
-				!strings.EqualFold(task.collection, collection) {
+				!strings.EqualFold(task.collection(), collection) {
 				continue
 			}
 			task.forgetGroups(groups)
@@ -428,27 +419,19 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 }
 
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
-	extractor := m.collectionExtractor(namespace)
-	if extractor == nil {
-		return ""
+	if header := m.headerFor(namespace, payload); header != nil {
+		return header.Collection()
 	}
-	collection, _ := extractor(payload)
-	return collection
-}
-
-func (m *Manager) collectionExtractor(namespace string) CollectionExtractor {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.collectionExtractors[namespace]
+	return ""
 }
 
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for ns := range m.collectionExtractors {
+	for ns := range m.headerDecoders {
 		for _, task := range m.tasks[ns] {
-			if task.Status.IsActive() && strings.EqualFold(task.collection, collection) {
+			if task.Status.IsActive() && strings.EqualFold(task.collection(), collection) {
 				return true
 			}
 		}
@@ -531,7 +514,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 	newTask.IndexGroups()
 
-	m.cacheCollectionWithLock(newTask)
+	newTask.header = m.headerFor(newTask.Namespace, newTask.Payload)
 	if r.AddMissingGroups {
 		if err := m.addMissingGroupsWithLock(newTask, r.PaidByVersions); err != nil {
 			return err
@@ -549,22 +532,23 @@ func (m *Manager) addMissingGroupsWithLock(task *Task, paidBy []uint64) error {
 		return fmt.Errorf("task %s/%s asks to add its missing groups, which namespace %q cannot do: %w",
 			task.Namespace, task.ID, task.Namespace, ErrMissingGroupsUnsupported)
 	}
+	collection := task.collection()
 	var collectionTasks []*Task
 	for _, t := range m.tasks[task.Namespace] {
-		if strings.EqualFold(t.collection, task.collection) {
+		if strings.EqualFold(t.collection(), collection) {
 			collectionTasks = append(collectionTasks, t)
 		}
 	}
 	var added []*Unit
 	var addErr error
-	found, err := m.readShardingState(task.collection, func(state *sharding.State) {
+	found, err := m.readShardingState(collection, func(state *sharding.State) {
 		added, addErr = adder.AddMissingGroups(task, paidBy, collectionTasks, state)
 	})
 	switch {
 	case err != nil:
-		return fmt.Errorf("read sharding state of collection %q: %w", task.collection, err)
+		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
 	case !found:
-		return NewReplicasChangedError(task.collection)
+		return NewReplicasChangedError(collection)
 	case addErr != nil:
 		return addErr
 	}
@@ -1285,7 +1269,7 @@ func (m *Manager) Restore(bytes []byte) error {
 			}
 
 			task.IndexGroups()
-			m.cacheCollectionWithLock(task)
+			task.header = m.headerFor(task.Namespace, task.Payload)
 			m.tasks[namespace][task.ID] = task
 		}
 	}

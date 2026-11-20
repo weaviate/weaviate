@@ -15,6 +15,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -39,19 +40,23 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
-// CollectionExtractor returns the schema-collection a task's payload is
-// bound to ("", false for non-scoped / unparseable). Register via
-// [Manager.RegisterCollectionExtractor] to opt a namespace into
-// [Manager.DeleteTasksForCollection] — closes
-// weaviate/0-weaviate-issues#231.
+// CollectionExtractor feeds only the task-list REST handler until the task header replaces it there too.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
+
+type TaskHeader interface {
+	Collection() string
+}
+
+// HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
+type HeaderDecoder interface {
+	DecodeHeader(payload []byte) (TaskHeader, error)
+}
 
 // ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
 type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
-// Same determinism contract as [CollectionExtractor].
 type TargetVectorExtractor func(payload []byte) (collection string, targets []string, ok bool)
 
 // CompletedTaskRetainer is an optional interface a [Provider] implements to
@@ -227,11 +232,7 @@ type MissingGroupAdder interface {
 // existingTasks) — no clocks, network, schema, or RNG — so every node
 // applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
-	// CheckPropertyUpdate is called under [Manager.mu] from the
-	// schema FSM's UpdateProperty apply path. existingTasks is the
-	// full namespace-scoped task list at apply time. Return a
-	// non-nil error to reject the property update; the error
-	// propagates back to the UpdateProperty caller.
+	// Every method's existingTasks is pre-filtered to className: tasks on a known other collection are dropped.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 
 	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
@@ -240,14 +241,6 @@ type SchemaMutationDetector interface {
 	// because dropping the class wipes every in-flight migration's working dirs.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
-	// CheckTenantMutation is called under [Manager.mu] from the
-	// schema FSM's DeleteTenants / UpdateTenants apply paths when a
-	// transition would make one or more tenants' shards locally
-	// unavailable (DeleteTenants, or UpdateTenants toward OFFLOADED
-	// / FROZEN / OFFLOADING / FREEZING). existingTasks is the full
-	// namespace-scoped task list at apply time. Return a non-nil
-	// error to reject the mutation.
-	//
 	// Today's reindex tasks are class-scoped (their payload names a
 	// collection but not a specific tenant — they apply to whatever
 	// shards exist), so the conservative implementation is "block
@@ -274,10 +267,6 @@ type CutoverOutcome interface {
 // registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
 // function of its arguments.
 type VectorConfigRemovalGate interface {
-	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
-	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
-	// from the FSM state being applied; existingTasks is the namespace-scoped
-	// list at apply time.
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 
@@ -602,7 +591,7 @@ type Task struct {
 
 	groupCount int
 
-	collection string
+	header TaskHeader
 
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 
@@ -786,6 +775,23 @@ func (t *Task) AnyUnitFailed() bool {
 		}
 	}
 	return false
+}
+
+// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.
+func (t *Task) Header() TaskHeader {
+	return t.header
+}
+
+func (t *Task) collection() string {
+	if t.header == nil {
+		return ""
+	}
+	return t.header.Collection()
+}
+
+func (t *Task) OnKnownOtherCollection(collection string) bool {
+	own := t.collection()
+	return own != "" && !strings.EqualFold(own, collection)
 }
 
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).

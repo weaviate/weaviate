@@ -13,7 +13,6 @@ package cluster
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -130,12 +129,6 @@ func TestRestartReplaysAddMissingGroupsWithTheSameUnits(t *testing.T) {
 	const ns = "ns"
 	srv, restart := newRestartableStore(t, func(cfg *Config) {
 		cfg.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{ns: &addEveryMissingGroup{}}
-		cfg.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			ns: func(payload []byte) (string, bool) {
-				var p struct{ Collection string }
-				return p.Collection, json.Unmarshal(payload, &p) == nil
-			},
-		}
 	})
 	_, err := srv.AddClass(ctx, &models.Class{
 		Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},

@@ -34,6 +34,14 @@ type addEveryMissingGroup struct {
 
 func (*addEveryMissingGroup) CheckConflict([]byte, []*distributedtask.Task) error { return nil }
 
+func (*addEveryMissingGroup) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
+	var p struct{ Collection string }
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	return collectionHeader(p.Collection), nil
+}
+
 func (c *addEveryMissingGroup) AddMissingGroups(task *distributedtask.Task, paidBy []uint64,
 	collectionTasks []*distributedtask.Task, state *sharding.State,
 ) ([]*distributedtask.Unit, error) {
@@ -56,12 +64,6 @@ func TestTaskAddAddsMissingGroupsFromTheSchemaAtItsIndex(t *testing.T) {
 	adder := &addEveryMissingGroup{}
 	srv, _ := newBarrierTestStore(t, func(cfg *Config) {
 		cfg.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{ns: adder}
-		cfg.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			ns: func(payload []byte) (string, bool) {
-				var p struct{ Collection string }
-				return p.Collection, json.Unmarshal(payload, &p) == nil
-			},
-		}
 	})
 	ctx := context.Background()
 	// The submitter read "a" and "c" and skipped "c" as already migrated. "b" was created after that read.

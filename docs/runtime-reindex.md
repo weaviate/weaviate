@@ -907,7 +907,7 @@ submit, so it has no cutover to coordinate.
 
 ### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
 
-Two primitives carry the load:
+Three primitives carry the load:
 
 **`Store.SwapBucketPointer(ctx, targetName, sourceName)`.** Atomic in-memory
 pointer flip — all future `Store.Bucket(targetName)` calls return the
@@ -923,6 +923,15 @@ process work: a second migration's ingest bucket can claim the same
 canonical path after the on-disk dir has been cleaned by
 `cleanStaleSidecarDirs`. Without the release, the second cycle aborts
 at `OnAfterLsmInit` with "bucket already registered".
+
+**`Store.InstallOrSwapBucketPointer(ctx, targetName, sourceName)`.** The
+same flip, except that a missing target is installed instead of refused.
+Migrations that add an index (enable-filterable, enable-searchable,
+enable-rangeable) swap through it, because no bucket is registered under
+the live name before the swap; registering an empty one at the start of the
+run made sort and unfiltered aggregates read it as a complete index. Every
+other migration type keeps `SwapBucketPointer`, which fails on a missing
+live bucket.
 
 **`Store.FinalizeBucketSwap(ctx, bucketName, canonicalDir, currentDir, backupDir)`.**
 The deferred-finalize counterpart: flush memtable, remove backup dir,

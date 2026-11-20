@@ -102,13 +102,7 @@ func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.
 		return fuc
 	}
 	hnswWith := func(mutate func(*hnswent.UserConfig)) hnswent.UserConfig {
-		hnswuc := hnswent.UserConfig{
-			MaxConnections:        30,
-			EFConstruction:        64,
-			EF:                    32,
-			VectorCacheMaxObjects: 1_000_000,
-		}
-		hnswuc.SetDefaults()
+		hnswuc := smallHNSWUserConfig()
 		mutate(&hnswuc)
 		return hnswuc
 	}
@@ -334,10 +328,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
 
-	hnswuc := hnswent.UserConfig{
-		MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000,
-	}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	uc := ent.UserConfig{Threshold: uint64(vectorsSize), Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
@@ -539,8 +530,7 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 	fuc.SetDefaults()
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
-	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	config := Config{
@@ -664,8 +654,7 @@ func TestUpgrade_FailedRebuildKeepsMarker(t *testing.T) {
 	fuc.SetDefaults()
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
-	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	config := Config{
@@ -734,8 +723,7 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	fuc.SetDefaults()
 	fuc.RQ.Enabled = true
 	fuc.RQ.Bits = 8
-	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 	hnswuc.BQ.Enabled = true
 
 	config := Config{

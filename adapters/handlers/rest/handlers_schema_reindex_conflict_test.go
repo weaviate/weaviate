@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,27 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
+
+// loadReindexTasks hands back tasks the way the RAFT apply sees them: restored into a Manager, which caches their headers.
+func loadReindexTasks(t *testing.T, tasks ...*distributedtask.Task) []*distributedtask.Task {
+	t.Helper()
+	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: tasks}})
+	require.NoError(t, err)
+	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Logger:            logrus.New(),
+		ConflictDetectors: map[string]distributedtask.ConflictDetector{db.ReindexNamespace: db.ReindexDetector{}},
+	})
+	require.NoError(t, mgr.Restore(snapshot))
+	byID := map[string]*distributedtask.Task{}
+	for _, task := range mgr.LocalDistributedTasks()[db.ReindexNamespace] {
+		byID[task.ID] = task
+	}
+	loaded := make([]*distributedtask.Task, len(tasks))
+	for i, task := range tasks {
+		loaded[i] = byID[task.ID]
+	}
+	return loaded
+}
 
 // gateWithTasks builds the schema handler with just enough wiring for
 // checkReindexConflictForPropertyMutation, the REST pre-flight for the
@@ -93,7 +115,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 		return gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true),
 			db.ReindexDetector{}.
-				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
+				CheckPropertyUpdate("C", "title", loadReindexTasks(t, task))
 	}
 
 	// The remedy for the cancellable statuses; elsewhere it must be gone,
@@ -142,7 +164,7 @@ func remedyOf(t *testing.T, refusal string) string {
 	return refusal[i:]
 }
 
-// Pins: the pre-flight and the FSM guard reach the same verdict for
+// The pre-flight and the reindex detector reach the same verdict for
 // every structural payload class. The two arms that never look at the
 // mutated collection — a payload that does not decode, and one that
 // decodes without a Collection — are the ones this side used to skip,
@@ -186,8 +208,8 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 		{
 			// Decodes cleanly and names another collection, so every
 			// later arm would wave it through — but half a payload is
-			// not enough to prove the task is unrelated, so both guards
-			// refuse on every collection.
+			// not enough to prove the task is unrelated, so the pre-flight
+			// and the detector refuse on every collection.
 			name:        "decodes without a migration type, names another collection",
 			raw:         `{"collection":"Other","properties":["title"]}`,
 			wantBlocked: true,
@@ -203,8 +225,14 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 
 			restReason := gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
-			fsmErr := db.ReindexDetector{}.
-				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: {task}}})
+			require.NoError(t, err)
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:                  logrus.New(),
+				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}},
+			})
+			require.NoError(t, mgr.Restore(snapshot))
+			fsmErr := mgr.CheckPropertyUpdate("C", "title")
 
 			require.Equal(t, tc.wantBlocked, restReason != "",
 				"REST pre-flight verdict (reason=%q)", restReason)
@@ -345,7 +373,7 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, true)
 			withoutCounts := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, false)
-			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, tc.tasks)
+			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, loadReindexTasks(t, tc.tasks...))
 			if tc.resubmit == "" {
 				require.Empty(t, preflight)
 				require.NoError(t, applied)

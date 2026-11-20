@@ -97,9 +97,12 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 		if !task.Status.IsActive() {
 			continue
 		}
+		if task.OnKnownOtherCollection(newP.Collection) {
+			continue
+		}
 
-		var existP ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+		existP, ok := reindexHeaderOf(task)
+		if !ok {
 			// Existing task has an unparseable payload. We can't prove
 			// non-conflict, so reject — the alternative (silently
 			// allow) would let two real migrations race on shared
@@ -108,15 +111,11 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 				"in-flight reindex task %q has unparseable payload; cannot verify conflict",
 				task.ID)
 		}
-		if existP.Collection == "" || existP.MigrationType == "" {
+		if existP.Class == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
 				"in-flight reindex task %q has empty Collection or MigrationType",
 				task.ID)
 		}
-		if !strings.EqualFold(existP.Collection, newP.Collection) {
-			continue
-		}
-
 		if reason := typesConflictReason(newP.MigrationType, newP.Properties,
 			existP.MigrationType, existP.Properties); reason != "" {
 			return fmt.Errorf("reindex task %q conflicts: %s", task.ID, reason)
@@ -285,15 +284,15 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 			continue
 		}
 
-		var existP ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+		existP, ok := reindexHeaderOf(task)
+		if !ok {
 			return fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
-					"conflict: %w",
-				task.ID, className, propertyName, err)
+					"conflict",
+				task.ID, className, propertyName)
 		}
-		if existP.Collection == "" || existP.MigrationType == "" {
+		if existP.Class == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
 				"in-flight reindex task %q has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
@@ -301,7 +300,7 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 					"on %s.%s would conflict",
 				task.ID, className, propertyName)
 		}
-		if !strings.EqualFold(existP.Collection, className) {
+		if !strings.EqualFold(existP.Class, className) {
 			continue
 		}
 		if !ReindexPropsOverlap(existP.Properties, []string{propertyName}) {
@@ -312,11 +311,11 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 				"schema mutations on this property are blocked until the "+
 				"reindex completes or is cancelled — %s",
 			task.ID, existP.MigrationType,
-			existP.Collection, propertyName, task.Status,
+			existP.Class, propertyName, task.Status,
 			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, false); msg != "" {
+	if msg := reindexPartialRunConflict(existingTasks, reindexHeaderRuns, className, propertyName, nil, false); msg != "" {
 		return fmt.Errorf("%s", msg)
 	}
 	return nil
@@ -344,15 +343,15 @@ func (ReindexDetector) CheckClassMutation(className string, existingTasks []*dis
 			continue
 		}
 
-		var existP ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+		existP, ok := reindexHeaderOf(task)
+		if !ok {
 			return fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether DeleteClass on %s would "+
-					"conflict: %w",
-				task.ID, className, err)
+					"conflict",
+				task.ID, className)
 		}
-		if existP.Collection == "" || existP.MigrationType == "" {
+		if existP.Class == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
 				"in-flight reindex task %q has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
@@ -360,7 +359,7 @@ func (ReindexDetector) CheckClassMutation(className string, existingTasks []*dis
 					"%s would conflict",
 				task.ID, className)
 		}
-		if !strings.EqualFold(existP.Collection, className) {
+		if !strings.EqualFold(existP.Class, className) {
 			continue
 		}
 		return fmt.Errorf(
@@ -368,7 +367,7 @@ func (ReindexDetector) CheckClassMutation(className string, existingTasks []*dis
 				"deleting this class would destroy the migration's "+
 				"working state and produce a bucket↔schema inversion "+
 				"on every replica — %s",
-			task.ID, existP.MigrationType, existP.Collection, task.Status,
+			task.ID, existP.MigrationType, existP.Class, task.Status,
 			MutationRemedy(task.Status,
 				"cancel the reindex via the REST API before deleting the class"))
 	}
@@ -399,15 +398,15 @@ func (ReindexDetector) CheckTenantMutation(className string, tenants []string, e
 			continue
 		}
 
-		var existP ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+		existP, ok := reindexHeaderOf(task)
+		if !ok {
 			return fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether tenant mutation on %s/%v "+
-					"would conflict: %w",
-				task.ID, className, tenants, err)
+					"would conflict",
+				task.ID, className, tenants)
 		}
-		if existP.Collection == "" || existP.MigrationType == "" {
+		if existP.Class == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
 				"in-flight reindex task %q has empty Collection or "+
 					"MigrationType (payload may have been written by an "+
@@ -415,14 +414,14 @@ func (ReindexDetector) CheckTenantMutation(className string, tenants []string, e
 					"mutation on %s/%v would conflict",
 				task.ID, className, tenants)
 		}
-		if !strings.EqualFold(existP.Collection, className) {
+		if !strings.EqualFold(existP.Class, className) {
 			continue
 		}
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
 				"unavailable and produce a bucket↔schema inversion — %s",
-			task.ID, existP.MigrationType, existP.Collection,
+			task.ID, existP.MigrationType, existP.Class,
 			task.Status, tenants,
 			MutationRemedy(task.Status,
 				"cancel the reindex via the REST API before mutating these tenants"))

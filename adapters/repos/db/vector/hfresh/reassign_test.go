@@ -20,21 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func TestReassignWithoutDestinationsPreservesVector(t *testing.T) {
-	tf := createHFreshIndex(t)
-	postingID, posting := createPostingWithVectors(t, &tf, [][]float32{{1, 0, 0, 0}}, 100)
-
-	err := tf.Index.doReassign(t.Context(), reassignOperation{PostingID: postingID, VectorID: 100})
-	require.ErrorContains(t, err, "no destination postings")
-
-	version, err := tf.Index.VersionMap.Get(t.Context(), 100)
-	require.NoError(t, err)
-	require.Equal(t, VectorVersion(1), version)
-	retained, err := posting.GarbageCollect(tf.Index.VersionMap)
-	require.NoError(t, err)
-	require.Len(t, retained, 1, "failed reassignment must not invalidate the surviving copy")
-}
-
 // Reassign a vector that has been deleted
 func TestReassignDeletedVector(t *testing.T) {
 	tf := createHFreshIndex(t)
@@ -82,6 +67,29 @@ func TestReassignVectorNotFound(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get vector by index ID")
 	require.True(t, tf.Index.taskQueue.reassignList.TryAdd(op.VectorID))
+}
+
+// A crash can leave a posting whose vectors survived while the centroid graph
+// is empty; reassigning them must create a posting instead of dropping them.
+func TestReassignIntoEmptyCentroidGraph(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	vectors := [][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}}
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 100)
+	require.NoError(t, tf.Index.PostingStore.Put(t.Context(), postingID, posting))
+	require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), postingID, posting))
+
+	for i := range vectors {
+		op := reassignOperation{PostingID: postingID, VectorID: 100 + uint64(i)}
+		require.True(t, tf.Index.taskQueue.reassignList.TryAdd(op.VectorID))
+		require.NoError(t, tf.Index.doReassign(t.Context(), op))
+	}
+
+	for i, vec := range vectors {
+		ids, _, err := tf.Index.SearchByVector(t.Context(), vec, 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{100 + uint64(i)}, ids)
+	}
 }
 
 // Basic in-memory deduplicator functionality
