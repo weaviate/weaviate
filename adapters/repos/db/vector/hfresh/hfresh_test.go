@@ -435,7 +435,8 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
 		defer tf.Index.taskQueue.splitQueue.Resume()
 
-		vectors := insert(t, &tf, 5*int(tf.Index.maxPostingSize)+1)
+		vectors := insert(t, &tf, 1600)
+		require.Greater(t, uint32(1600), 5*tf.Index.maxPostingSize)
 		require.True(t, tf.Index.Centroids.Built(), "the insert splits the posting when its queued split is that late")
 		assertSelfSearch(t, &tf, vectors)
 	})
