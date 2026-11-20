@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
@@ -98,28 +99,54 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	if err != nil {
 		return err
 	}
-	var artifacts helpers.VectorIndexArtifacts
-	var id string
+	// a rebuild task names two more indexes the vector owns
+	var tasks map[string]vectorIndexTask
+	if initialized {
+		tasks, err = readVectorIndexTasksOffline(shardDir, append([]string{targetVector}, otherTargetVectors...))
+		if shardmeta.IsLocked(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	task, rebuilding := tasks[targetVector]
+
+	var ids []string
+	var dirs []string
+	addArtifacts := func(artifacts helpers.VectorIndexArtifacts) {
+		for _, bucket := range artifacts.LSMBuckets {
+			dirs = append(dirs, filepath.Join(lsmDir, bucket))
+		}
+		for _, dir := range artifacts.ShardDirs {
+			dirs = append(dirs, filepath.Join(shardDir, dir))
+		}
+	}
 	switch {
 	case !initialized:
-		id = helpers.VectorIndexIDForTarget(targetVector)
-		artifacts = helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
-	case !recorded:
+		ids = []string{helpers.VectorIndexIDForTarget(targetVector)}
+		addArtifacts(helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors))
+	case !recorded && !rebuilding:
 		return nil // nothing recorded, nothing owned
 	default:
-		id = rec.storageID()
-		records := map[string]vectorIndexRecord{targetVector: rec}
+		records := map[string]vectorIndexRecord{}
+		if recorded {
+			records[targetVector] = rec
+			ids = append(ids, rec.storageID())
+		}
 		var otherIDs []string
 		for _, other := range otherTargetVectors {
 			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
 			if err != nil {
 				return err
 			}
-			if !ok {
-				continue
+			if ok {
+				records[other] = otherRec
+				otherIDs = append(otherIDs, otherRec.storageID())
 			}
-			records[other] = otherRec
-			otherIDs = append(otherIDs, otherRec.storageID())
+			if otherTask, ok := tasks[other]; ok {
+				otherIDs = append(otherIDs, otherTask.Source.storageID(), otherTask.Candidate.storageID())
+			}
 		}
 		// a sibling sharing a queue or files would lose them; a load refuses the pair
 		err := refuseSharedVectorIndexQueues(records)
@@ -130,16 +157,17 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 		if err != nil {
 			return err
 		}
-		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
-		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
-	}
-
-	var dirs []string
-	for _, bucket := range artifacts.LSMBuckets {
-		dirs = append(dirs, filepath.Join(lsmDir, bucket))
-	}
-	for _, dir := range artifacts.ShardDirs {
-		dirs = append(dirs, filepath.Join(shardDir, dir))
+		if rebuilding {
+			ids = append(ids, task.Source.storageID(), task.Candidate.storageID())
+		}
+		slices.Sort(ids)
+		ids = slices.Compact(ids)
+		for _, id := range ids {
+			addArtifacts(helpers.VectorIndexArtifactsForID(id, otherIDs))
+		}
+		if recorded {
+			dirs = append(dirs, filepath.Join(shardDir, helpers.QueueDirName(rec.queueIDOrDefault())))
+		}
 	}
 
 	for _, dir := range dirs {
@@ -155,12 +183,20 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	// Unconditional because nothing here can tell a dynamic vector from any
 	// other — the drop rewrote this entry's VectorIndexType to "none" and
 	// discarded the original type along with its config.
-	if err := dynamic.RemoveStateKeyForID(shardDir, id); err != nil {
-		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
+	for _, id := range ids {
+		if err := dynamic.RemoveStateKeyForID(shardDir, id); err != nil {
+			return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
+		}
 	}
 
-	// the record goes last, so a failed sweep keeps it for the retry
+	// the task, then the record, go last, so a failed sweep keeps them for
+	// the retry
 	key := []byte(vectorIndexMappingKey(targetVector))
+	if rebuilding {
+		if err := shardmeta.DeleteOffline(shardDir, vectorIndexTasksNamespace, key); err != nil {
+			return fmt.Errorf("remove rebuild task for %q: %w", targetVector, err)
+		}
+	}
 	if err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, key); err != nil {
 		return fmt.Errorf("remove mapping record for %q: %w", targetVector, err)
 	}

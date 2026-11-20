@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -479,12 +480,16 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 }
 
 // removeVectorIndexArtifacts deletes every file name's index owns at
-// rec's physical ID, the queue at its queue ID, its dynamic state key and
-// last its record. Siblings protect what their records map them to; a
-// sibling without a record owns nothing.
+// rec's physical ID, and at both IDs of a rebuild task, the queue at its
+// queue ID, their dynamic state keys and last its record and task. Siblings
+// protect what their records and tasks map them to; a sibling without
+// either owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
 func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec vectorIndexRecord) error {
-	physicalID := rec.storageID()
+	task, rebuilding, err := s.tasks.Get(name)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
+	}
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
 	for _, other := range others {
@@ -495,10 +500,24 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec
 		if ok {
 			otherIDs = append(otherIDs, rec.storageID())
 		}
+		task, ok, err := s.tasks.Get(other)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", other, err)
+		}
+		if ok {
+			otherIDs = append(otherIDs, task.Source.storageID(), task.Candidate.storageID())
+		}
 	}
-	err := s.removeVectorIndexStorage(ctx, physicalID, otherIDs)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
+	ids := []string{rec.storageID()}
+	if rebuilding {
+		ids = append(ids, task.Source.storageID(), task.Candidate.storageID())
+	}
+	slices.Sort(ids)
+	for _, id := range slices.Compact(ids) {
+		err := s.removeVectorIndexStorage(ctx, id, otherIDs)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", name, err)
+		}
 	}
 	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
 	err = removeDirIfExists(s.path(), queueDir)
@@ -506,11 +525,27 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec
 		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
 	}
 	// the record goes last, so a failed drop keeps it for the retry
-	err = s.mapping.Delete(name)
+	if rebuilding {
+		err = s.deleteVectorIndexRecordAndTask(name)
+	} else {
+		err = s.mapping.Delete(name)
+	}
 	if err != nil {
 		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
 	}
 	return nil
+}
+
+// deleteVectorIndexRecordAndTask removes name's record and task together.
+func (s *Shard) deleteVectorIndexRecordAndTask(name string) error {
+	key := []byte(vectorIndexMappingKey(name))
+	return shardmeta.Update([]*shardmeta.Namespace{s.mapping.ns, s.tasks.ns}, func(b []*shardmeta.Batch) error {
+		err := b[0].Delete(key)
+		if err != nil {
+			return err
+		}
+		return b[1].Delete(key)
+	})
 }
 
 // removeVectorIndexStorage deletes the files an index at id owns and its
