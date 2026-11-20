@@ -233,60 +233,27 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, 7)
 }
 
-// persistedPostingEntry reports whether the posting's map entry reached the
-// store.
-func persistedPostingEntry(t *testing.T, index *HFresh, id uint64) bool {
-	t.Helper()
-	_, err := index.PostingMap.bucket.Get(t.Context(), id)
-	if err == nil {
-		return true
-	}
-	require.ErrorIs(t, err, ErrPostingNotFound)
-	return false
-}
-
-// requireSinglePostingSize checks that posting 1 has no map entry and that
-// its size reached the store.
+// requireSinglePostingSize checks posting 1's map entry and size, which stay
+// in memory until its first split.
 func requireSinglePostingSize(t *testing.T, index *HFresh, size uint32) {
 	t.Helper()
-	_, err := index.PostingMap.Get(t.Context(), 1)
-	require.ErrorIs(t, err, ErrPostingNotFound)
-	require.False(t, persistedPostingEntry(t, index, 1))
+	metadata, err := index.PostingMap.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, size, metadata.Count())
 
 	inMemory, err := index.PostingSizes.Get(t.Context(), 1)
 	require.NoError(t, err)
 	require.Equal(t, size, inMemory)
-	persisted, err := index.PostingSizes.store.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.Equal(t, size, persisted)
 }
 
-// The single posting's size is persisted on each append, without a shutdown,
-// and a restart finds the posting by it.
-func TestSinglePostingPersistsOnlyItsSize(t *testing.T) {
+// A merge rewrites the single posting and persists its map entry and size,
+// which later appends leave stale: a restart must read the posting instead.
+func TestSinglePostingRestartAfterMerge(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 300)
-	requireSinglePostingSize(t, index, 300)
-	require.NoError(t, index.Shutdown(t.Context()))
-
-	index = makeHFreshWithConfig(t, store, cfg, uc)
-	require.False(t, index.Centroids.Built())
-	require.True(t, index.Centroids.Exists(1))
-	requireSinglePostingSize(t, index, 300)
-	requireSelfSearchExcept(t, index, all, -1)
-}
-
-// A merge rewrites the single posting without its deleted entries, and must
-// not give it a map entry that later appends would leave stale.
-func TestSinglePostingMergeKeepsNoMapEntry(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 0, 300)
+	addRestartVectors(t, index, vectors, 0, 300)
 	for id := range uint64(10) {
 		require.NoError(t, index.Delete(id))
 		vectors.remove(id)
@@ -294,7 +261,14 @@ func TestSinglePostingMergeKeepsNoMapEntry(t *testing.T) {
 	require.NoError(t, index.doMerge(t.Context(), 1))
 	requireSinglePostingSize(t, index, 290)
 
-	for i := 10; i < 300; i++ {
+	all := addRestartVectors(t, index, vectors, 300, 400)
+	requireSinglePostingSize(t, index, 390)
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	requireSinglePostingSize(t, index, 390)
+	for i := 10; i < 400; i++ {
 		ids, _, err := index.SearchByVector(t.Context(), all[i], 1, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
