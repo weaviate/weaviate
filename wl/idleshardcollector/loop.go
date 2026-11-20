@@ -72,7 +72,6 @@ func (p *policy[S]) sweepIdle(s *snapshot) {
 	if s.idleTTL <= 0 || budget <= 0 {
 		return
 	}
-	clear(p.nsActiveCache)
 	p.enqueueRanked(p.rank(s), budget)
 }
 
@@ -86,7 +85,7 @@ func (p *policy[S]) rank(s *snapshot) []ranked[S] {
 	idleSeconds := accessClockTicks(s.idleTTL)
 	p.ranked = p.ranked[:0]
 	for _, c := range p.loopBuf {
-		if !c.UnloadCandidate() || !p.loopNamespaceActive(c.Namespace()) {
+		if !c.UnloadCandidate() {
 			continue
 		}
 		at := c.LastAccess()
@@ -100,18 +99,6 @@ func (p *policy[S]) rank(s *snapshot) []ranked[S] {
 	p.loopBuf = p.loopBuf[:0]
 	slices.SortFunc(p.ranked, func(a, b ranked[S]) int { return cmp.Compare(a.access, b.access) })
 	return p.ranked
-}
-
-func (p *policy[S]) loopNamespaceActive(namespace string) bool {
-	if namespace == "" || p.nsActive == nil {
-		return true
-	}
-	active, ok := p.nsActiveCache[namespace]
-	if !ok {
-		active = p.nsActive(namespace)
-		p.nsActiveCache[namespace] = active
-	}
-	return active
 }
 
 func (p *policy[S]) enqueueRanked(eligible []ranked[S], n int) int {

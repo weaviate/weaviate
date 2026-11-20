@@ -37,9 +37,6 @@ type Config struct {
 	// Registerer receives the metrics; nil keeps them unregistered.
 	Registerer prometheus.Registerer
 	Knobs      Knobs
-	// NamespaceActive reports whether a namespace is active; only active
-	// namespaces give up shards. nil treats every namespace as active.
-	NamespaceActive func(namespace string) bool
 }
 
 // Collector is the licensed [db.ShardUnloader]. Its goroutines start in New and
@@ -59,10 +56,9 @@ func New(cfg Config) *Collector {
 	return &Collector{
 		registry: registry,
 		p: newPolicy[*db.LazyLoadShard](registry, cfg.Knobs, policyDeps{
-			logger:   logger,
-			metrics:  newMetrics(cfg.Registerer, logger),
-			clock:    db.AccessClockNow,
-			nsActive: cfg.NamespaceActive,
+			logger:  logger,
+			metrics: newMetrics(cfg.Registerer, logger),
+			clock:   db.AccessClockNow,
 		}),
 	}
 }

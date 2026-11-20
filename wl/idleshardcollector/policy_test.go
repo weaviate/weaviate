@@ -13,7 +13,6 @@ package idleshardcollector
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"testing"
 	"testing/synctest"
@@ -26,8 +25,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-func cold(h *harness, namespace string) *fakeShard {
-	return &fakeShard{name: "loading", namespace: namespace, reg: h.reg}
+func cold(h *harness) *fakeShard {
+	return &fakeShard{name: "loading", reg: h.reg}
 }
 
 func tickOnce(interval time.Duration) {
@@ -45,8 +44,8 @@ func TestPausedNeverUnloads(t *testing.T) {
 			idleKnobs(k)
 			set(t, k.paused, true)
 		})
-		shards := h.loadN(3, "")
-		h.p.beforeLoad(cold(h, ""))
+		shards := h.loadN(3)
+		h.p.beforeLoad(cold(h))
 		time.Sleep(time.Minute)
 		synctest.Wait()
 
@@ -62,7 +61,7 @@ func TestIdleSweepRetriesARefusedShard(t *testing.T) {
 		h := newHarness(t, func(k *testKnobs) {
 			set(t, k.idleTTL, 40*time.Second)
 		})
-		busy := h.loadN(1, "")[0]
+		busy := h.loadN(1)[0]
 		busy.refuse.Store(true)
 		time.Sleep(time.Minute)
 		synctest.Wait()
@@ -86,7 +85,7 @@ func TestIdleSweepWalksTheRegistryInChunks(t *testing.T) {
 		})
 		shards := make([]*fakeShard, idleSweepChunk+3)
 		for i := range shards {
-			shards[i] = h.reg.load(strconv.Itoa(i), "")
+			shards[i] = h.reg.load(strconv.Itoa(i))
 		}
 		busy, idle := shards[:idleSweepChunk], shards[idleSweepChunk:]
 		for range 12 {
@@ -108,8 +107,8 @@ func TestIdleTTLUnloadsIdleShardsAndStopsAtZero(t *testing.T) {
 		h := newHarness(t, func(k *testKnobs) {
 			set(t, k.idleTTL, 10*time.Second)
 		})
-		busy := h.reg.load("busy", "")
-		idle := h.reg.load("idle", "")
+		busy := h.reg.load("busy")
+		idle := h.reg.load("idle")
 		for range 12 {
 			busy.touch()
 			tickOnce(time.Second)
@@ -144,7 +143,7 @@ func TestFractionalIdleTTLWaitsUntilTheShardIsIdle(t *testing.T) {
 				h := newHarness(t, func(k *testKnobs) {
 					set(t, k.idleTTL, tt.idleTTL)
 				})
-				shard := h.reg.load("idle", "")
+				shard := h.reg.load("idle")
 
 				time.Sleep(tt.wait)
 				synctest.Wait()
@@ -164,7 +163,7 @@ func TestIdleShardIsNeverUnloadedBeforeIdleTTL(t *testing.T) {
 					set(t, k.idleTTL, idleTTL)
 					set(t, k.checkInterval, 50*time.Millisecond)
 				})
-				shard := h.reg.load("idle", "")
+				shard := h.reg.load("idle")
 				time.Sleep(950 * time.Millisecond)
 				shard.touch()
 				touched := time.Now()
@@ -188,7 +187,7 @@ func TestIdleSweepRunsEveryCheckIntervalAndResumesWhenCutShort(t *testing.T) {
 			set(t, k.checkInterval, time.Hour)
 			set(t, k.rate, 2)
 		})
-		shards := h.loadN(5, "")
+		shards := h.loadN(5)
 		time.Sleep(20 * time.Second)
 		synctest.Wait()
 		set(t, h.knobs.idleTTL, 10*time.Second)
@@ -200,7 +199,7 @@ func TestIdleSweepRunsEveryCheckIntervalAndResumesWhenCutShort(t *testing.T) {
 			require.Equal(t, want, h.loadedCount(shards), "a sweep cut short by unload_rate resumes on the next check")
 		}
 
-		late := h.loadN(1, "")[0]
+		late := h.loadN(1)[0]
 		time.Sleep(30 * time.Minute)
 		synctest.Wait()
 		require.True(t, late.loaded(), "the next sweep waits for check_interval")
@@ -240,7 +239,7 @@ func TestKnobChangesTakeEffectWithinOneTick(t *testing.T) {
 						tt.before(k)
 					}
 				})
-				shards := h.loadN(6, "")
+				shards := h.loadN(6)
 				time.Sleep(time.Minute)
 				synctest.Wait()
 				require.Equal(t, 6, h.loadedCount(shards))
@@ -258,7 +257,7 @@ func TestRefreshConfigAppliesKnobsWithoutWaitingForTheTick(t *testing.T) {
 		h := newHarness(t, func(k *testKnobs) {
 			set(t, k.checkInterval, time.Hour)
 		})
-		shards := h.loadN(4, "")
+		shards := h.loadN(4)
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
 		set(t, h.knobs.idleTTL, 2*time.Second)
@@ -293,7 +292,7 @@ func TestRetiredWorkerStartsNoQueuedUnload(t *testing.T) {
 		first, queued := make(chan struct{}), make(chan struct{})
 		shards := make([]*fakeShard, 2*workers)
 		for i := range shards {
-			shards[i] = h.reg.load(strconv.Itoa(i), "")
+			shards[i] = h.reg.load(strconv.Itoa(i))
 			shards[i].block.Store(&first)
 		}
 		time.Sleep(10 * time.Second)
@@ -337,7 +336,7 @@ func TestRetiredWorkerStartsNoQueuedUnload(t *testing.T) {
 func TestUnloadPanicKeepsTheWorker(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, idleKnobs)
-		shards := h.loadN(2, "")
+		shards := h.loadN(2)
 		shards[0].panics.Store(true)
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
@@ -355,10 +354,10 @@ func blockedSweep(t *testing.T) (*harness, []*fakeShard, chan struct{}) {
 		set(t, k.workers, 1)
 	})
 	gate := make(chan struct{})
-	first := h.reg.load("blocked", "")
+	first := h.reg.load("blocked")
 	first.block.Store(&gate)
 	time.Sleep(time.Second)
-	shards := append([]*fakeShard{first}, h.loadN(2, "")...)
+	shards := append([]*fakeShard{first}, h.loadN(2)...)
 	time.Sleep(5 * time.Second)
 	synctest.Wait()
 	require.Len(t, shards[0].requests(), 1)
@@ -381,7 +380,7 @@ func TestCloseStopsEveryGoroutineAndReleasesQueuedShards(t *testing.T) {
 		require.True(t, shards[1].loaded())
 		require.Zero(t, h.p.pending.Load())
 
-		h.p.beforeLoad(cold(h, ""))
+		h.p.beforeLoad(cold(h))
 		h.p.refreshConfig()
 		time.Sleep(time.Minute)
 		synctest.Wait()
@@ -390,26 +389,10 @@ func TestCloseStopsEveryGoroutineAndReleasesQueuedShards(t *testing.T) {
 	})
 }
 
-func TestIdleSweepSkipsInactiveNamespaces(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, idleKnobs)
-		h.active.Store("parked", false)
-		live := h.loadN(3, "live")
-		parked := h.loadN(3, "parked")
-		time.Sleep(10 * time.Second)
-		synctest.Wait()
-
-		require.Zero(t, h.loadedCount(live))
-		require.Equal(t, 3, h.loadedCount(parked), "an inactive namespace never gives up shards")
-		tickOnce(time.Second)
-		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded))
-	})
-}
-
 func TestReloadAfterUnloadIsObserved(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, nil)
-		s := cold(h, "")
+		s := cold(h)
 		h.p.beforeLoad(s)
 		s.unloadedAt.Store(time.Now().UnixNano())
 		time.Sleep(5 * time.Second)
@@ -433,7 +416,7 @@ func histogramCount(t *testing.T, h *harness, name string) int {
 func TestGauges(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, nil)
-		h.loadN(3, "")
+		h.loadN(3)
 		tickOnce(time.Second)
 		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded))
 		require.Zero(t, testutil.ToFloat64(h.p.metrics.unloading))
@@ -451,7 +434,7 @@ func TestMetricsRegisterTwiceOnOneRegistry(t *testing.T) {
 
 func newAllocHarness(tb testing.TB) (*harness, *fakeShard) {
 	h := newHarness(tb, func(k *testKnobs) { set(tb, k.checkInterval, time.Hour) })
-	loading := cold(h, "")
+	loading := cold(h)
 	loading.unloadedAt.Store(time.Now().UnixNano())
 	return h, loading
 }
@@ -470,13 +453,12 @@ func BenchmarkBeforeLoad(b *testing.B) {
 	}
 }
 
-func TestSeriesStayBoundedAcrossNamespaces(t *testing.T) {
+func TestSeriesStayBounded(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, idleKnobs)
-		for i := range 50 {
-			ns := fmt.Sprintf("ns%d", i)
-			h.loadN(1, ns)[0].inUse.Store(true)
-			h.loadN(1, ns)
+		for range 50 {
+			h.loadN(1)[0].inUse.Store(true)
+			h.loadN(1)
 		}
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
@@ -495,7 +477,7 @@ func TestSeriesStayBoundedAcrossNamespaces(t *testing.T) {
 				}
 			}
 		}
-		require.LessOrEqual(t, series, 6, "series must not grow with the namespace count")
+		require.LessOrEqual(t, series, 6, "series must not grow with the shard count")
 	})
 }
 
@@ -526,7 +508,7 @@ func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
 			metrics: newMetrics(nil, logger),
 		})
 		for range 4 {
-			reg.load("s", "ns")
+			reg.load("s")
 		}
 		tickOnce(5 * time.Second)
 		p.beforeLoad(&fakeShard{name: "loading", reg: reg})

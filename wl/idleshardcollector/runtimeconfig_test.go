@@ -47,7 +47,7 @@ idle_shard_collector_check_interval: 1s
 idle_shard_collector_unload_workers: 3
 `))
 		require.NoError(t, err)
-		shards := h.loadN(5, "")
+		shards := h.loadN(5)
 		require.NoError(t, config.UpdateRuntimeConfig(log, registered, parsed, nil, nil))
 		h.p.refreshConfig()
 		time.Sleep(10 * time.Second)

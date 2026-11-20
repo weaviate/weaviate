@@ -29,7 +29,6 @@ type shard interface {
 	comparable
 	LastAccess() uint32
 	UnloadedAt() time.Time
-	Namespace() string
 	UnloadCandidate() bool
 	TryMarkUnloadPending() bool
 	ClearUnloadPending()
@@ -54,7 +53,6 @@ type policyDeps struct {
 	logger   logrus.FieldLogger
 	metrics  *metrics
 	clock    func() uint32
-	nsActive func(namespace string) bool
 	queueCap int
 }
 
@@ -86,9 +84,8 @@ type policy[S shard] struct {
 	workersClosed  bool
 	workersRunning atomic.Int64
 
-	loopBuf       []S
-	ranked        []ranked[S]
-	nsActiveCache map[string]bool
+	loopBuf []S
+	ranked  []ranked[S]
 }
 
 type ranked[S shard] struct {
@@ -102,14 +99,13 @@ func newPolicy[S shard](reg registry[S], knobs Knobs, deps policyDeps) *policy[S
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &policy[S]{
-		policyDeps:    deps,
-		reg:           reg,
-		knobs:         knobs.withDefaults(),
-		backgroundCh:  make(chan item[S], deps.queueCap),
-		wake:          make(chan struct{}, 1),
-		ctx:           ctx,
-		cancel:        cancel,
-		nsActiveCache: map[string]bool{},
+		policyDeps:   deps,
+		reg:          reg,
+		knobs:        knobs.withDefaults(),
+		backgroundCh: make(chan item[S], deps.queueCap),
+		wake:         make(chan struct{}, 1),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	s := p.refresh()
 	p.adjustWorkers(s.workers)
@@ -157,10 +153,6 @@ func (p *policy[S]) beforeLoad(loading S) {
 	if at := loading.UnloadedAt(); !at.IsZero() {
 		p.metrics.reloadAfterUnload.Observe(time.Since(at).Seconds())
 	}
-}
-
-func (p *policy[S]) namespaceActive(namespace string) bool {
-	return namespace == "" || p.nsActive == nil || p.nsActive(namespace)
 }
 
 // enqueue hands a claimed shard to the workers without blocking; on failure,
