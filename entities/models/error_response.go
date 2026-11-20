@@ -133,6 +133,9 @@ type ErrorResponseErrorItems0 struct {
 
 	// message
 	Message string `json:"message,omitempty"`
+
+	// Stable numeric status for this error, matching the HTTP status of the response when one is known. Omitted when the server has no stable code for the error. Clients should branch on this value rather than the message text.
+	Code int64 `json:"code,omitempty"`
 }
 
 // Validate validates this error response error items0

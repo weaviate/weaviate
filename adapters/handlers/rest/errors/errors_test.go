@@ -18,9 +18,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -84,10 +86,67 @@ func TestErrPayloadFromSingleErr(t *testing.T) {
 			got := ErrPayloadFromSingleErr(tt.principal, tt.err)
 			require.Len(t, got.Error, 1)
 			require.Equal(t, tt.want, got.Error[0].Message)
+			// A declared status (a license refusal is 403) is copied onto the
+			// item. Errors without one keep the field omitted.
+			if code, ok := enterrors.StatusCode(tt.err); ok {
+				require.Equal(t, int64(code), got.Error[0].Code)
+			} else {
+				require.Zero(t, got.Error[0].Code)
+			}
 
 			violation := ErrRestrictionViolation(tt.principal, tt.err)
 			require.Len(t, violation.Error, 1)
 			require.Equal(t, tt.want, violation.Error[0].Message)
+			require.Equal(t, int64(http.StatusUnprocessableEntity), violation.Error[0].Code)
+		})
+	}
+}
+
+func TestErrPayloadFromSingleErrStatusCode(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int64
+	}{
+		{
+			name:     "rate limit is 429",
+			err:      fmt.Errorf("search: %w", enterrors.NewErrRateLimit()),
+			wantCode: http.StatusTooManyRequests,
+		},
+		{
+			name:     "forbidden is 403",
+			err:      authzerrors.NewForbidden(&models.Principal{Username: "u"}, "read", "collections"),
+			wantCode: http.StatusForbidden,
+		},
+		{
+			name:     "plain error omits the code",
+			err:      errors.New("boom"),
+			wantCode: 0,
+		},
+		{
+			// objectHandlers.addObject answers 500 for a forwarded write.
+			// The inner 401 belongs to the cluster hop, not the public body.
+			name: "wrapped internal HTTP 401 does not contribute a code",
+			err: fmt.Errorf("replicate object: %w", &clients.HTTPError{
+				Code: http.StatusUnauthorized,
+				Body: []byte("unauthorized"),
+			}),
+			wantCode: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ErrPayloadFromSingleErr(nil, tt.err)
+			require.Len(t, got.Error, 1)
+			require.Equal(t, tt.wantCode, got.Error[0].Code)
+
+			encoded, err := got.MarshalBinary()
+			require.NoError(t, err)
+			if tt.wantCode == 0 {
+				require.NotContains(t, string(encoded), `"code"`)
+			} else {
+				require.Contains(t, string(encoded), fmt.Sprintf(`"code":%d`, tt.wantCode))
+			}
 		})
 	}
 }

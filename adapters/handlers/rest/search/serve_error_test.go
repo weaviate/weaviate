@@ -37,6 +37,7 @@ func TestServeErrorReshapesBindErrors(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Len(t, payload.Error, 1)
 	assert.Equal(t, "query in body is required", payload.Error[0].Message)
+	assert.Equal(t, int64(http.StatusUnprocessableEntity), payload.Error[0].Code)
 }
 
 func TestServeErrorKeepsStatusAndHeaders(t *testing.T) {
@@ -51,6 +52,7 @@ func TestServeErrorKeepsStatusAndHeaders(t *testing.T) {
 	var payload models.ErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Len(t, payload.Error, 1)
+	assert.Equal(t, int64(http.StatusMethodNotAllowed), payload.Error[0].Code)
 }
 
 func TestServeErrorSingleContentType(t *testing.T) {
@@ -114,6 +116,7 @@ func TestServeErrorRewritesBindMessages(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 			require.Len(t, payload.Error, 1)
 			assert.Equal(t, tt.want, payload.Error[0].Message)
+			assert.Equal(t, int64(tt.wantStatus), payload.Error[0].Code)
 		})
 	}
 }
@@ -135,4 +138,5 @@ func TestServeErrorCompositeValidation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Len(t, payload.Error, 1)
 	assert.Contains(t, payload.Error[0].Message, "query in body is required")
+	assert.Equal(t, int64(http.StatusUnprocessableEntity), payload.Error[0].Code)
 }

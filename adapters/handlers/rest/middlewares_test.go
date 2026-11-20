@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,8 @@ import (
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -277,6 +280,21 @@ func TestConsistencyLevelMetric(t *testing.T) {
 			assert.Equal(t, totalBefore+1, consistencyLevelRequestsTotal(t))
 		})
 	}
+}
+
+func TestWriteOperationalModeErrorResponseCarriesCode(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeOperationalModeErrorResponse(rec, config.ErrReadOnlyModeEnabled)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var body models.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Error, 1)
+	assert.Equal(t, int64(http.StatusServiceUnavailable), body.Error[0].Code)
+	assert.Contains(t, body.Error[0].Message, "read-only mode")
+	assert.NotContains(t, rec.Body.String(), `"code":0`)
 }
 
 func consistencyLevelRequests(t *testing.T, operation, level string) float64 {
