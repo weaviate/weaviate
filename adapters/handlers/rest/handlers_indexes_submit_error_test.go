@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // TestMapSubmitTaskError pins that an FSM conflict rejection maps to 409 (not
@@ -70,6 +71,27 @@ func TestMapSubmitTaskError(t *testing.T) {
 		require.Len(t, body.Error, 1)
 		assert.Contains(t, body.Error[0].Message, "set them to HOT")
 	})
+
+	// A leader's refusal reaches a follower wrapped in gRPC text.
+	forwarded := func(err error) error {
+		return fmt.Errorf("executing command: rpc error: code = FailedPrecondition desc = %w\npermanent FSM rejection", err)
+	}
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{"suspended namespace", namespaces.ErrNamespaceSuspended, http.StatusUnprocessableEntity},
+		{"resuming namespace", namespaces.ErrNamespaceResuming, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name+" -> status of its sentinel", func(t *testing.T) {
+			resp := h.mapSubmitTaskError(nil, "customer1:Movies", "", forwarded(tc.err))
+			code, body := statusOf(t, resp)
+			require.Equal(t, tc.wantStatus, code)
+			require.Len(t, body.Error, 1)
+			assert.Contains(t, body.Error[0].Message, tc.err.Error())
+		})
+	}
 
 	t.Run("generic infra error -> 500", func(t *testing.T) {
 		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa",

@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -173,6 +174,9 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 		return err
 	}
 	if err := st.admitReplicaMovement(req); err != nil {
+		return err
+	}
+	if err := st.admitTaskAdd(task, collection); err != nil {
 		return err
 	}
 	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
@@ -325,6 +329,13 @@ func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
 		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
 	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
+}
+
+func (st *Store) admitTaskAdd(task *api.AddDistributedTaskRequest, collection string) error {
+	if task == nil || task.Namespace != db.ReindexNamespace {
+		return nil
+	}
+	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(collection))
 }
 
 // admitCreateLike refuses a create-like, property or class update command

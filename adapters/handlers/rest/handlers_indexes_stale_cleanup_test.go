@@ -21,10 +21,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -32,12 +34,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -248,39 +252,9 @@ func TestHandlersScopeStaleSweepToRequestTenants(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			nodeSelector := cluster.NewMockNodeSelector(t)
-			nodeSelector.EXPECT().LocalName().Return(node).Maybe()
-			nodeSelector.EXPECT().NodeHostname(mock.Anything).Return(node, true).Maybe()
-			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
-			fsmReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-			schemaReader := local.NewMockSchemaReader(t)
-			schemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-				func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
-					return fn(class, shardingState)
-				}).Maybe()
-			schemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{node}, nil).Maybe()
-			schemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{requested, other}, nil).Maybe()
-			schemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(2, nil).Maybe()
-			schemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-			schemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
-			schemaGetter := schemaUC.NewMockSchemaGetter(t)
-			schemaGetter.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
-			schemaGetter.EXPECT().ReadOnlyClass(collection).Return(class).Maybe()
-
 			logger := logrus.New()
 			logger.SetOutput(io.Discard)
-			root := t.TempDir()
-			repo, err := db.New(logger, node, db.Config{RootPath: root, MaxImportGoroutinesFactor: 1},
-				&db.FakeRemoteClient{}, nodeSelector, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{},
-				nil, memwatch.NewDummyMonitor(), nodeSelector, schemaReader, fsmReader, nil)
-			require.NoError(t, err)
-			repo.SetSchemaGetter(schemaGetter)
-			require.NoError(t, repo.WaitForStartup(context.Background()))
-			t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
-			migrator := db.NewMigrator(repo, logger, node)
-			for _, tenant := range []string{requested, other} {
-				require.NoError(t, migrator.LoadShardForMovement(context.Background(), collection, tenant))
-			}
+			repo, root := newStaleSweepRepo(t, node, class, shardingState, nil)
 
 			// Failing the requested tenant's sweep (an unreadable record set) stops
 			// submit before it needs a real cluster service.
@@ -297,4 +271,98 @@ func TestHandlersScopeStaleSweepToRequestTenants(t *testing.T) {
 			require.DirExists(t, otherSidecar, "a tenant outside the request must keep its state")
 		})
 	}
+}
+
+// A submit into a namespace that is not active proceeds to the leader, which
+// refuses it, so the sweep's namespace refusal is logged as routine, not as a
+// sweep that missed shards.
+func TestCleanStalePartialStateOrFailLogsNamespaceRefusalAtInfo(t *testing.T) {
+	const (
+		node       = "node-1"
+		collection = "alpha:Books"
+		tenant     = "t1"
+	)
+	class := &models.Class{
+		Class:              collection,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
+		VectorIndexType:    "hnsw",
+		VectorIndexConfig:  enthnsw.UserConfig{Skip: true},
+	}
+	shardingState := &sharding.State{
+		PartitioningEnabled: true,
+		Physical: map[string]sharding.Physical{
+			tenant: {Name: tenant, BelongsToNodes: []string{node}, Status: models.TenantActivityStatusHOT},
+		},
+	}
+	shardingState.SetLocalName(node)
+	var nsState atomic.Value
+	nsState.Store(api.NamespaceStateActive)
+	exister := namespaces.NewMockExister(t)
+	exister.EXPECT().GetNamespace("alpha").RunAndReturn(func(string) (api.Namespace, bool) {
+		return api.Namespace{Name: "alpha", State: nsState.Load().(api.NamespaceState)}, true
+	}).Maybe()
+	repo, _ := newStaleSweepRepo(t, node, class, shardingState, exister)
+	nsState.Store(api.NamespaceStateSuspended)
+
+	logger, hook := logrustest.NewNullLogger()
+	h := &indexesHandlers{appState: &state.State{Logger: logger}}
+	resp := h.cleanStalePartialStateOrFail(context.Background(), nil, repo, nil,
+		collection, "p", nil, db.ReindexTypeChangeTokenization, nil)
+
+	require.Nil(t, resp)
+	require.Len(t, hook.AllEntries(), 2, "one line per index type")
+	summary, _ := db.CleanupSweepSummary(sweepPhaseSubmit, db.CleanupSweepNamespaceClosed)
+	for _, entry := range hook.AllEntries() {
+		require.Equal(t, logrus.InfoLevel, entry.Level, entry.Message)
+		require.True(t, strings.HasPrefix(entry.Message, summary), entry.Message)
+		require.Contains(t, entry.Message, sweepConsequence(sweepPhaseSubmit, db.CleanupSweepNamespaceClosed),
+			"the namespace may resume before the leader checks it, so the line must say the submit proceeds")
+	}
+}
+
+// newStaleSweepRepo opens a real DB holding class with every shard of
+// shardingState loaded, so a sweep runs against real shards.
+func newStaleSweepRepo(t *testing.T, node string, class *models.Class, shardingState *sharding.State,
+	exister namespaces.Exister,
+) (*db.DB, string) {
+	t.Helper()
+	var shards []string
+	for name := range shardingState.Physical {
+		shards = append(shards, name)
+	}
+	nodeSelector := cluster.NewMockNodeSelector(t)
+	nodeSelector.EXPECT().LocalName().Return(node).Maybe()
+	nodeSelector.EXPECT().NodeHostname(mock.Anything).Return(node, true).Maybe()
+	fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+	fsmReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	schemaReader := local.NewMockSchemaReader(t)
+	schemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			return fn(class, shardingState)
+		}).Maybe()
+	schemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{node}, nil).Maybe()
+	schemaReader.EXPECT().LocalShards(mock.Anything).Return(shards, nil).Maybe()
+	schemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(len(shards), nil).Maybe()
+	schemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	schemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
+	schemaGetter := schemaUC.NewMockSchemaGetter(t)
+	schemaGetter.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
+	schemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
+
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	root := t.TempDir()
+	repo, err := db.New(logger, node, db.Config{RootPath: root, MaxImportGoroutinesFactor: 1},
+		&db.FakeRemoteClient{}, nodeSelector, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{},
+		nil, memwatch.NewDummyMonitor(), nodeSelector, schemaReader, fsmReader, exister)
+	require.NoError(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.NoError(t, repo.WaitForStartup(context.Background()))
+	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+	migrator := db.NewMigrator(repo, logger, node)
+	for _, shard := range shards {
+		require.NoError(t, migrator.LoadShardForMovement(context.Background(), class.Class, shard))
+	}
+	return repo, root
 }
