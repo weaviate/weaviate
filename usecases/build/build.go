@@ -49,6 +49,13 @@ const (
 	AppName = "weaviate"
 )
 
+func VersionOrDev() string {
+	if Version != "" {
+		return Version
+	}
+	return "dev"
+}
+
 func SetPrometheusBuildInfo() {
 	version.Version = Version
 	version.Revision = Revision
