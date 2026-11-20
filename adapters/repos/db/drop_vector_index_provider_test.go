@@ -1675,6 +1675,13 @@ func TestCheckConflict(t *testing.T) {
 		done.Status = distributedtask.TaskStatusFinished
 		require.NoError(t, p.CheckConflict(newPayload, []*distributedtask.Task{done}))
 	})
+	t.Run("a task known to be on another collection is not decoded", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		other := loadTasks(t, DropVectorIndexNamespace, activeDropTask("t1", "Other", "v1"))
+		other[0].Payload = []byte("garbage")
+		require.NoError(t, NewDropVectorIndexDetector(logger).CheckConflict(newPayload, other))
+		require.Empty(t, hook.AllEntries(), "decoding it warns about an unparseable payload")
+	})
 }
 
 // TestEpochCoveredShards_SingleTaskEqualsItsCoveredShards pins the layering

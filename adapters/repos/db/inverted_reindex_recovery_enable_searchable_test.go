@@ -27,11 +27,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// EnableSearchable backfills a from-scratch searchable bucket that
-// PreReindexHook creates as StrategyInverted, via forced tokenization.
+// EnableSearchable backfills a from-scratch StrategyInverted searchable
+// bucket, via forced tokenization, that the swap installs.
 
 // newEnableSearchableTestClass builds a class with IndexSearchable=false
-// (so PreReindexHook actually creates the bucket).
+// (so the swap actually installs the bucket).
 // newTestClassWithProps can't be reused — it leaves IndexSearchable=nil
 // which defaults to true, and the bucket gets created at shard init.
 func newEnableSearchableTestClass(className string, propNames []string) *models.Class {
@@ -154,8 +154,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 	// Precondition: searchable bucket does NOT exist (IndexSearchable=false
 	// on the prop → shard init skipped the bucket creation in
-	// shard_init_properties.go:493). EnableSearchable.PreReindexHook is
-	// what creates it.
+	// shard_init_properties.go:493). The swap is what installs it.
 	require.Nil(t, shard.store.Bucket(searchBucketName),
 		"pre-migration searchable bucket must NOT exist (IndexSearchable=false)")
 
@@ -169,7 +168,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 
 	postBucket := shard.store.Bucket(searchBucketName)
 	require.NotNil(t, postBucket,
-		"post-migration searchable bucket must exist (created by PreReindexHook)")
+		"post-migration searchable bucket must exist (installed by the swap)")
 	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy(),
 		"post-migration searchable bucket must be StrategyInverted (blockmax)")
 
