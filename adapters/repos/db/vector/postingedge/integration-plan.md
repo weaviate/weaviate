@@ -550,7 +550,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
   - **Una colección de menos de 10 000 vectores se queda en búsqueda exacta,** leyendo sus vectores del bucket en cada query.
 - **Los vectores exactos viven en un fichero propio,** por doc id, como en v5.0 (*mío*). Con la celda 1b el split necesita el vector de un miembro borrado, que el bucket de objetos ya no tiene.
   - **Lo que cuesta en disco:** 4 B por dimensión y por doc id, 6 144 B a 1536d, que son 6.1 GB por cada millón de vectores. Es una segunda copia: el bucket de objetos guarda la suya con cada objeto.
-  - **Crece con los doc ids emitidos, no con los vivos.** El vector de doc id d está en la posición d, así que un borrado deja su hueco, y un update, que gasta un doc id nuevo, también. Nada lo recupera en este hito.- **El insert son dos pasos** (del usuario, 20): `plan`, que solo lee, y `apply`, que escribe en orden. En el hito corren en serie, un insert cada vez.
+  - **Crece con los doc ids emitidos, no con los vivos.** El vector de doc id d está en la posición d, así que un borrado deja su hueco, y un update, que gasta un doc id nuevo, también. Nada lo recupera en este hito.
+- **El insert son dos pasos** (del usuario, 20): `plan`, que solo lee, y `apply`, que escribe en orden. En el hito corren en serie, un insert cada vez.
 - **Concurrencia** (*mío*): un cerrojo de lectura y escritura. Las búsquedas y el paso de cálculo de un insert corren a la vez. El aplicador, un delete y la construcción de la base excluyen a las búsquedas mientras duran. Sin medir.
 - **Las aristas van detrás de una interfaz** (`growEdges`, en `grow_edges.go`). La implementación del índice es la de v5.0, un valor por lista. La consolidada de v5.1 y v5.3 se queda en test (`grow_rows_test.go`) y los arneses la siguen usando.
 - **La configuración pública es nueva y vive en `entities/vectorindex/postingedge`.** El `UserConfig` del paquete del índice no se movió: se queda como configuración interna, con los ajustes de los experimentos.
@@ -561,6 +562,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El rescore salta un candidato cuyo vector no se encuentra,** como HNSW y HFresh. Cualquier otro fallo de lectura sigue fallando la búsqueda.
 - **Sin flag propio** (*mío*): el tipo se limita con `ALLOWED_VECTOR_INDEX_TYPES`, como HFresh. Sin esa variable, el tipo se puede usar.
 - **Los buckets están en el store del shard,** con el id del índice en el nombre: `postingedge_{postings,map,routing,edgedists,deleted,staging}_<id>`. El shard los vuelca y los compacta con los ciclos del nodo.
+  - **El de `staging` solo existe mientras no hay base.** Al construirla sale del store y del disco: borrados uno a uno, los vectores apartados se quedaban en sus segmentos bajo sus lápidas, 573 MB con una base de 99 000 a 1536d (`a5a487d98f`).
 - **Una escritura que falla a medias deja el índice parado** (*mío*): lo dice en cada llamada hasta que el shard se reinicia, en vez de servir algo que no sabe si es un índice.
 - **`PostingEdgeBaseSize`** es un ajuste interno de la base de datos, para tests: ninguna variable de entorno lo fija.
 
@@ -591,4 +593,65 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Verificado, en la máquina de los experimentos:** los tests del paquete, con los de equivalencia entre disco y memoria tal como estaban; los del índice del shard con `-race`; el de punta a punta por un shard (`adapters/repos/db/postingedge_integration_test.go`); `go vet` con y sin `postingedgebench`; `golangci-lint` sobre el repo; el linter de goroutines.
 
-**Sin verificar:** nada a escala. Los tests usan unos miles de vectores sintéticos de 64 dimensiones, donde el recall sale 1.0: comprueban el cableado, no la calidad. Los arneses con el tag compilan, y no se ha corrido ninguno sobre el código movido. Tampoco hay ninguna medida de latencia ni de inserts por segundo a través del shard.
+**Los tests usan unos miles de vectores sintéticos de 64 dimensiones,** donde el recall sale 1.0: comprueban el cableado, no la calidad. La calidad la mide la verificación a 1M de abajo. De los arneses con el tag solo se ha corrido ese sobre el código movido; los demás compilan.
+
+### Verificación a 1M, corrida A: la base forzada a 99 000
+
+*20 de noviembre, de 17:01 a 19:09. En conteos, sin cronometrar. Resultado en `testdata/bench/integration-m1/dbpedia-1m-base99000.json`, con su log al lado.*
+
+- **Qué es:** `TestIntegrationScale` (`bench_integration_test.go`), el índice que abre el shard sobre un store propio, sin el shard alrededor. dbpedia-openai, 990 000 vectores de 1536 dimensiones, 5 000 queries, k = 10.
+- **Cómo entra:** por `AddBatch`, de 100 en 100 y en el orden de v5.0, con todos los parámetros de la clase por defecto y un `Flush` tras cada lote.
+- **Frente a qué:** los dos índices que v5.0 creció por el mismo camino, el validado contra el gemelo y el cronometrado. Entre ellos solo cambian los niveles que sortea el grafo de centroides.
+- **Una diferencia de procedimiento:** el índice integrado construye su base con los vectores en orden de doc id, y v5.0 en orden de llegada. La base es otra, con los mismos 420 postings.
+
+| | v5.0, validado | v5.0, cronometrado | integrado, corrida A |
+|---|---|---|---|
+| postings repartidos | 7 746 | 7 788 | 7 766 |
+| splits | 3 663 | 3 684 | 3 673 |
+| cobertura | completa | completa | completa |
+| ef 21: recall | 0.9504 | 0.9509 | **0.9523** |
+| ef 21: cargas por query | 19.63 | 19.54 | 19.63 |
+| ef 21: rondas | 4.66 | 4.64 | 4.66 |
+| ef 158: recall | 0.9900 | 0.9901 | 0.9902 |
+| ef 158: cargas por query | 72.09 | 71.91 | 71.64 |
+| ef 158: rondas | 17.77 | 17.73 | 17.66 |
+| por insert: cargas | 63.1 | | 62.7 |
+| por insert: aristas inversas | 4.60 | | 4.58 |
+
+- **Coincide dentro del ruido en todo menos en el recall a ef 21,** que queda 0.0018 y 0.0014 por encima de los dos de v5.0. Entre sí, esos dos difieren en 0.0004, y el margen que se daba por ruido es 0.001.
+- **En lo demás:** a ef 158 el recall queda a 0.0002 o menos, y las cargas a menos de un 0.7 % en los dos puntos.
+- **Por qué sube a ef 21 no está comprobado.** La búsqueda es la misma función con los mismos parámetros: ef del grafo de centroides 8, rescore de 64, ef de inserción 160. Queda la base distinta. Saberlo pide otra corrida de dos horas.
+
+**Tras borrar el 30 % al azar,** 297 000 de 990 000, por `Delete` como los borra un shard:
+
+| ef | antes: recall | cargas | después: recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 20 | 0.9504 | 19.08 | 0.9554 | 23.55 | +0.0051 | +23.4 % |
+| 21 | 0.9523 | 19.63 | 0.9572 | 24.27 | +0.0049 | +23.6 % |
+| 40 | 0.9713 | 28.97 | 0.9752 | 36.38 | +0.0039 | +25.6 % |
+| 80 | 0.9841 | 45.33 | 0.9866 | 57.46 | +0.0025 | +26.8 % |
+| 158 | 0.9902 | 71.64 | 0.9922 | 91.54 | +0.0021 | +27.8 % |
+| 160 | 0.9903 | 72.29 | 0.9923 | 92.36 | +0.0020 | +27.8 % |
+
+- **Ningún vector borrado devuelto** en las 30 000 búsquedas, y cobertura completa.
+- **El recall a igual ef no baja:** sube entre 0.0020 y 0.0051 sobre el del índice antes de borrar, cada uno contra su verdad. La de los que quedan sale de la verdad del dataset, sin ninguna query por fuerza bruta.
+- **El coste está en las cargas:** entre un 23 % y un 28 % más a igual ef. En la celda 1b de v6.0, contra el lote de los que quedan, eran entre un 22 % y un 32 % más a igual ef (12.15 frente a 9.92 en ef 20, 45.10 frente a 34.10 en ef 160).
+- **No es la misma comparación que la de v6.0.** Allí la referencia es un lote construido solo con los que quedan, y el índice es el de lote en memoria, que rutea con el código completo: en ef 20 carga 9.9 postings donde este carga 19.1. Aquí la referencia es el mismo índice antes de borrar. Un lote de los 693 000 que quedan, por el camino integrado, no se ha construido.
+- **Frente a la curva de la celda 1b, con esa salvedad:** en ef 20, 40, 80 y 160 este índice da 0.9554, 0.9752, 0.9866 y 0.9923, y la celda 1b dio 0.9580, 0.9731, 0.9830 y 0.9891.
+- **Las cargas a 0.95 tras borrar no están medidas:** el índice ya da 0.9554 en ef 20, el menor de la malla.
+
+**Lo demás que dejó la corrida:**
+
+- **La base de 99 000 se construyó en 1 min 19 s,** dentro del insert que la completó.
+- **Inserts:** 120 por segundo desde la base, sin cronometrar y con otras corridas en la máquina. No se compara con los 179 de v5.0, medidos con la máquina sola.
+- **Disco, con los 990 000 dentro, según `du`:**
+  - `vectors.f32`: 6.1 GB. Su tamaño aparente son 7.6 GB, por los doc ids reservados por delante; lo de más son huecos sin escribir.
+  - Los buckets del índice: 0.73 GB, como los dejan los ciclos. Postings 297 MB, distancias de aristas 188, códigos de ruteo 130, mapa 98 y marcas de borrado 17. v5.0 dejaba 818 MB al 100 %.
+  - Los vectores de centroide: 48 MB.
+  - El binario de la corrida era anterior a `a5a487d98f`: su store llevaba además los 573 MB de los vectores apartados.
+
+**Sin verificar a escala:**
+
+- **Reabrir el índice de 1M.** El índice de la corrida A se borró sin reabrirlo: una sesión cronometrada no dejaba compilar el modo de reapertura. Irá como una etapa más de la corrida B.
+- **La corrida B,** con la base por defecto de 10 000: cuánto deriva el índice al crecer cien veces sin refresco.
+- **Nada a 1M a través del shard,** ni latencia, ni inserts por segundo con la máquina sola.
