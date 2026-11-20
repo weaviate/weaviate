@@ -819,12 +819,42 @@ func (q *DiskQueue) Rewind() error {
 		return errors.New("queue in maintenance mode")
 	}
 
-	entries, err := os.ReadDir(q.dir)
+	var refFor func(path string) (chunkRef, bool, error)
+	if live {
+		refFor = q.keptChunkRef
+	}
+	refs, err := rewindDir(q.dir, refFor)
+
+	if live {
+		added := q.r.rewind(refs)
+		q.m.Lock()
+		for _, ref := range added {
+			q.recordCount += ref.count
+			q.diskUsage += int64(ref.size)
+		}
+		q.metrics.DiskUsage(q.diskUsage)
+		q.metrics.Size(q.recordCount)
+		q.m.Unlock()
+	}
+	return err
+}
+
+// RewindDir is Rewind for the queue folder dir before any queue opens it:
+// the kept chunks become ordinary ones, which Init would delete otherwise.
+func RewindDir(dir string) error {
+	_, err := rewindDir(dir, nil)
+	return err
+}
+
+// rewindDir removes dir's tombstones, durably. With refFor, it also returns
+// what each kept chunk that still holds tasks counts for.
+func rewindDir(dir string, refFor func(path string) (chunkRef, bool, error)) ([]chunkRef, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return errors.Wrap(err, "failed to read directory during rewind")
+		return nil, errors.Wrap(err, "failed to read directory during rewind")
 	}
 
 	var refs []chunkRef
@@ -833,7 +863,7 @@ func (q *DiskQueue) Rewind() error {
 		if !processedChunkFilePattern.MatchString(entry.Name()) {
 			continue
 		}
-		tombstonePath := filepath.Join(q.dir, entry.Name())
+		tombstonePath := filepath.Join(dir, entry.Name())
 		path := strings.TrimSuffix(tombstonePath, ".processed")
 		// a hard link from quarantineKeptChunk would make the rename of the
 		// chunk's next quarantine a no-op, leaving it to break a later Init
@@ -847,8 +877,8 @@ func (q *DiskQueue) Rewind() error {
 		}
 		var ref chunkRef
 		var ok bool
-		if live {
-			ref, ok, err = q.keptChunkRef(path)
+		if refFor != nil {
+			ref, ok, err = refFor(path)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -864,23 +894,11 @@ func (q *DiskQueue) Rewind() error {
 		}
 	}
 	// a tombstone back after a crash would delete a chunk not replayed yet
-	err = diskio.Fsync(q.dir)
+	err = diskio.Fsync(dir)
 	if err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to sync directory"))
 	}
-
-	if live {
-		added := q.r.rewind(refs)
-		q.m.Lock()
-		for _, ref := range added {
-			q.recordCount += ref.count
-			q.diskUsage += int64(ref.size)
-		}
-		q.metrics.DiskUsage(q.diskUsage)
-		q.metrics.Size(q.recordCount)
-		q.m.Unlock()
-	}
-	return stderrors.Join(errs...)
+	return refs, stderrors.Join(errs...)
 }
 
 // keptChunkRef reads what a kept chunk counts for. ok is false when it holds
