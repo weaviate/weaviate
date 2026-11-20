@@ -13,9 +13,6 @@ package config
 
 import (
 	"errors"
-	"fmt"
-	"net/url"
-	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -38,76 +35,18 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if err := cs.CheckSettings(); err != nil {
-		return err
-	}
-	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
-}
-
-// CheckSettings fails when a stored model or baseURL is not a non-empty
-// string, or the baseURL is not an absolute http or https URL. The getters
-// return the default for a value of another type, so a query must check the
-// stored value first.
-func (cs *classSettings) CheckSettings() error {
 	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-
-	settings := cs.rawSettings()
-	for _, name := range []string{"model", "baseURL"} {
-		v, ok := settings[name]
-		if !ok || v == nil {
-			continue
-		}
-		s, ok := v.(string)
-		if !ok {
-			return fmt.Errorf("%s must be a string, got %T", name, v)
-		}
-		if s == "" {
-			return fmt.Errorf("%s must be a non-empty string", name)
-		}
-		if name == "baseURL" {
-			if _, err := NormalizeBaseURL(s); err != nil {
-				return fmt.Errorf("baseURL %w", err)
-			}
-		}
+	if cs.Model() == "" {
+		return errors.New("no model provided")
 	}
-	return nil
+	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
 }
 
-// NormalizeBaseURL fails unless raw is an absolute http or https URL that
-// names a host. A URL with a port and no host, such as https://:443, dials the
-// local host. It drops a trailing slash and a trailing /v1, which SDKs write
-// into the base URL; the client appends /v1 itself.
-func NormalizeBaseURL(raw string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return "", fmt.Errorf("must be an absolute http or https URL, got %q", raw)
-	}
-	p := strings.TrimSuffix(strings.TrimSuffix(u.EscapedPath(), "/"), "/v1")
-	u.RawPath = p
-	u.Path, _ = url.PathUnescape(p)
-	return u.String(), nil
-}
-
-// rawSettings mirrors the lookup of the property helper's getters, which the
-// PropertyValuesHelper interface does not expose.
-func (cs *classSettings) rawSettings() map[string]any {
-	if settings := cs.cfg.ClassByModuleName(ModuleName); len(settings) > 0 {
-		return settings
-	}
-	return cs.cfg.Class()
-}
-
-// A value that does not normalize is returned unchanged; Validate rejects it
-// at class create and CheckSettings at query time.
 func (cs *classSettings) BaseURL() string {
-	raw := cs.getStringProperty("baseURL", DefaultBaseURL)
-	if normalized, err := NormalizeBaseURL(raw); err == nil {
-		return normalized
-	}
-	return raw
+	return cs.getStringProperty("baseURL", DefaultBaseURL)
 }
 
 func (cs *classSettings) Model() string {

@@ -51,7 +51,7 @@ func (m *ReRankerTypeSafeAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	apiKey := os.Getenv("TYPESAFEAI_APIKEY")
-	client := clients.New(apiKey, params.GetConfig().ModuleHttpClientTimeout, clients.MaxConcurrentRequests, params.GetLogger())
+	client := clients.New(apiKey, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger())
 	m.reranker = client
 	m.additionalPropertiesProvider = rerankeradditional.NewPropertyRankerProvider(client)
 	return nil

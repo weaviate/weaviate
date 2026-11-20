@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,7 +26,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
-	"testing/synctest"
 	"time"
 	"unicode/utf8"
 
@@ -205,18 +203,14 @@ func TestRankHalvesARequestTheAPIRejectsForItsSize(t *testing.T) {
 		f.tooLarge = func(documents int) bool { return documents > 2 }
 		documents := []string{noRefund, chargedTwice, changeEmail, "Cancel my plan today.", "Thanks, all good now."}
 		f.probabilities = distinctProbabilities(documents)
-		logger, hook := test.NewNullLogger()
-		logger.SetLevel(logrus.DebugLevel)
-		c := New(defaultFakeKey, testTimeout, MaxConcurrentRequests, logger)
 
-		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
+		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+			documentsOf(documents...), classConfig(f.url(), nil))
 
 		require.NoError(t, err)
 		assert.Equal(t, expectedScores(documents, f.probabilities), res.DocumentScores)
 		// 5 is rejected, then 2 and 3; 3 is rejected, then 1 and 2.
 		assert.Equal(t, []int{1, 2, 2, 3, 5}, sizes(f.received()))
-		assert.Equal(t, logrus.Fields{"documents": 5, "judged": 5, "requests": int64(5), "input_tokens": int64(300)},
-			rankLogFields(t, hook))
 	})
 
 	rejectedAtEverySize := []struct {
@@ -435,18 +429,23 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	}
 }
 
+// 850 documents are 17 requests, one more than a query sends at once. The
+// fake answers 429 once the first 16 have arrived, and the first failure
+// cancels the query before it frees a slot, so the 17th is never sent.
 func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 	f := newFake(t)
-	f.replies = map[int]fakeReply{0: {status: http.StatusTooManyRequests, body: `{"error":"rate limited"}`}}
-	// 120 documents are three requests, and one slot sends them in turn.
-	c := New(defaultFakeKey, testTimeout, 1, nullLogger())
+	f.together = maxConcurrentRequests
+	f.replies = map[int]fakeReply{}
+	for i := range 17 {
+		f.replies[i] = fakeReply{status: http.StatusTooManyRequests, body: `{"error":"rate limited"}`}
+	}
 
-	res, err := c.RankProperty(context.Background(), churn, "text",
-		documentsOf(numbered("ticket %d", 120)...), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(numbered("ticket %d", 850)...), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, `connection to TypeSafe AI API failed with status 429: {"error":"rate limited"}`)
 	assert.Nil(t, res)
-	assert.Len(t, f.received(), 1)
+	assert.Len(t, f.received(), maxConcurrentRequests)
 }
 
 // A redirect could send the request, and with a 307 or 308 its key, to a host
@@ -602,87 +601,25 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
-// A header base URL that normalizes to the class base URL names the host of
-// the class, so the request is handled as one without that header.
-func TestRankHandlesAHeaderBaseURLEqualToTheClassBaseURLAsAbsent(t *testing.T) {
-	const needsKey = "X-Typesafeai-Baseurl needs X-Typesafeai-Api-Key: the server's key is not sent to a host named by the request"
-	tests := []struct {
-		name string
-		// classPath and headerPath follow the URL of the fake.
-		classPath  string
-		headerPath string
-		headerKey  string
-		reply      *fakeReply
-		wantErr    string
-		wantAuth   string
-	}{
-		{name: "the same URL", wantAuth: "Bearer env"},
-		{name: "a trailing slash", headerPath: "/", wantAuth: "Bearer env"},
-		{name: "a /v1 suffix", headerPath: "/v1", wantAuth: "Bearer env"},
-		{name: "a /v1/ suffix", headerPath: "/v1/", wantAuth: "Bearer env"},
-		{name: "a /v1 suffix on the class base URL only", classPath: "/v1", wantAuth: "Bearer env"},
-		{name: "the same path", classPath: "/proxy", headerPath: "/proxy/v1", wantAuth: "Bearer env"},
-		{name: "the same URL and a header key", headerKey: "headerKey", wantAuth: "Bearer headerKey"},
-		{
-			name:    "the body of an error is quoted",
-			reply:   &fakeReply{status: http.StatusBadRequest, body: `{"error":"unknown model"}`},
-			wantErr: `connection to TypeSafe AI API failed with status 400: {"error":"unknown model"}`,
-		},
-		{name: "another path", headerPath: "/proxy", wantErr: needsKey},
-		{name: "another path under /v1", headerPath: "/v1/proxy", wantErr: needsKey},
-		{name: "a path the class base URL extends", classPath: "/proxy", wantErr: needsKey},
-		{name: "a query", headerPath: "?x=1", wantErr: needsKey},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-			if tt.reply != nil {
-				f.replies = map[int]fakeReply{0: *tt.reply}
-			}
-			c := New("env", testTimeout, 1, nullLogger())
-			// A request to a host the header named would wait for this slot.
-			c.inFlightHeaderHost <- struct{}{}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{f.url() + tt.headerPath})
-			if tt.headerKey != "" {
-				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{tt.headerKey})
-			}
+// A header base URL is a host the request names, even when it equals the class
+// base URL: it needs a key header and its error bodies are not quoted.
+func TestRankHandlesAHeaderBaseURLAsNamedByTheRequest(t *testing.T) {
+	t.Run("without a key header", func(t *testing.T) {
+		f := newFake(t)
+		ctx := context.WithValue(context.Background(), "X-Typesafeai-Baseurl", []string{f.url()})
 
-			res, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(f.url()+tt.classPath, nil))
+		res, err := New("env", testTimeout, nullLogger()).RankProperty(ctx, churn, "text",
+			documentsOf(noRefund), classConfig(f.url(), nil))
 
-			if tt.wantErr == needsKey {
-				require.EqualError(t, err, tt.wantErr)
-				assert.Nil(t, res)
-				assert.Empty(t, f.received())
-				return
-			}
-			if tt.wantErr != "" {
-				require.EqualError(t, err, tt.wantErr)
-				assert.Nil(t, res)
-			} else {
-				require.NoError(t, err)
-				assert.Len(t, res.DocumentScores, 1)
-			}
-			requests := f.received()
-			require.Len(t, requests, 1)
-			if tt.wantAuth != "" {
-				assert.Equal(t, tt.wantAuth, requests[0].authorization)
-			}
-			assert.Zero(t, len(c.inFlight), "the slot of the class host is released")
-		})
-	}
-}
+		require.EqualError(t, err, "X-Typesafeai-Baseurl needs X-Typesafeai-Api-Key: "+
+			"the server's key is not sent to a host named by the request")
+		assert.Nil(t, res)
+		assert.Empty(t, f.received())
+	})
 
-// With a key header, a header base URL that differs from the class base URL
-// is a host the request names: its requests take the slots of such hosts and
-// its error bodies are not quoted.
-func TestRankHandlesAHeaderBaseURLThatDiffersFromTheClassBaseURLAsNamedByTheRequest(t *testing.T) {
 	f := newFake(t)
 	f.replies = map[int]fakeReply{0: {status: http.StatusBadRequest, body: `{"error":"unknown model"}`}}
-	c := New("env", testTimeout, 1, nullLogger())
-	// A request to the class host would wait for this slot.
-	c.inFlight <- struct{}{}
+	c := New("env", testTimeout, nullLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{f.url() + "/proxy"})
@@ -698,36 +635,18 @@ func TestRankHandlesAHeaderBaseURLThatDiffersFromTheClassBaseURLAsNamedByTheRequ
 	assert.Equal(t, "Bearer headerKey", requests[0].authorization)
 }
 
-func TestRankRejectsABaseURLHeaderThatIsNotAnAbsoluteURL(t *testing.T) {
-	tests := []struct {
-		name    string
-		baseURL string
-		wantErr string
-	}{
-		{
-			name:    "no scheme",
-			baseURL: "api.typesafe.ai",
-			wantErr: `X-Typesafeai-Baseurl header must be an absolute http or https URL, got "api.typesafe.ai"`,
-		},
-		{
-			name:    "a port without a host",
-			baseURL: "https://:443",
-			wantErr: `X-Typesafeai-Baseurl header must be an absolute http or https URL, got "https://:443"`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-			ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
-			ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{tt.baseURL})
+// A base URL header without a scheme fails before anything is sent. The error
+// is the fixed one of a host the request names.
+func TestRankSendsNothingForABaseURLHeaderWithoutAScheme(t *testing.T) {
+	f := newFake(t)
+	ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
+	ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{"api.typesafe.ai"})
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+	_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+		documentsOf(noRefund), classConfig(f.url(), nil))
 
-			require.EqualError(t, err, tt.wantErr)
-			assert.Empty(t, f.received())
-		})
-	}
+	require.EqualError(t, err, "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl")
+	assert.Empty(t, f.received())
 }
 
 func TestRankValidatesABaseURLHeaderWhileBaseURLValidationIsOn(t *testing.T) {
@@ -761,35 +680,11 @@ func TestRankValidatesABaseURLHeaderWhileBaseURLValidationIsOn(t *testing.T) {
 	}
 }
 
-// Core skips module validation for a class with vectorizer "none" and no named
-// vectors, so an invalid class baseURL can reach the client.
-func TestRankRejectsAClassBaseURLThatIsNotAnAbsoluteURL(t *testing.T) {
-	f := newFake(t)
-	tests := []struct {
-		name    string
-		baseURL string
-		wantErr string
-	}{
-		{
-			name:    "no scheme",
-			baseURL: "api.typesafe.ai",
-			wantErr: `baseURL must be an absolute http or https URL, got "api.typesafe.ai"`,
-		},
-		{
-			name:    "the fake's port without a host",
-			baseURL: "http://:" + f.port(),
-			wantErr: `baseURL must be an absolute http or https URL, got "http://:` + f.port() + `"`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(tt.baseURL, nil))
+func TestRankSendsNothingForAClassBaseURLWithoutAScheme(t *testing.T) {
+	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(noRefund), classConfig("api.typesafe.ai", nil))
 
-			require.EqualError(t, err, tt.wantErr)
-			assert.Empty(t, f.received())
-		})
-	}
+	require.EqualError(t, err, `send TypeSafe AI request: Post "api.typesafe.ai/v1/systemone": unsupported protocol scheme ""`)
 }
 
 // unexpectedHeaderHostReply is the error of a 200 reply the client cannot use
@@ -1169,21 +1064,19 @@ func TestRankKeepsTheContextErrorOfAHostTheRequestNames(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("RankProperty did not return after the cancel")
 		}
-		assert.Zero(t, len(c.inFlightHeaderHost), "every in-flight slot is released")
 	})
 
 	t.Run("the client timeout", func(t *testing.T) {
 		hung, release := newBlockingFake(t)
 		defer release()
 		classServer := newFake(t)
-		c := New(defaultFakeKey, 50*time.Millisecond, 2, nullLogger())
+		c := New(defaultFakeKey, 50*time.Millisecond, nullLogger())
 
 		_, err := c.RankProperty(headerContext(hung.url()), churn, "text", documentsOf(noRefund),
 			classConfig(classServer.url(), nil))
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.EqualError(t, err, "send TypeSafe AI request: context deadline exceeded")
-		assert.Zero(t, len(c.inFlightHeaderHost), "every in-flight slot is released")
 	})
 }
 
@@ -1237,118 +1130,60 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	assert.Equal(t, "/typesafe/v1/systemone", requests[0].path)
 }
 
-// SDKs write the base URL with a /v1 suffix, which the client adds itself.
-func TestRankNormalizesTheBaseURL(t *testing.T) {
+// A query sends at most 16 requests at once, and 4 when they carry images.
+// The fake answers the requests in groups of the cap, so the cap is reached.
+func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
+	// Two of these do not fit in a request, so each is a request of its own.
+	texts := numbered("%02d "+strings.Repeat("a", 60_000), 2*maxConcurrentRequests)
+	images := make([]string, 2*maxConcurrentImageRequests*maxBatchImages)
+	for i := range images {
+		images[i] = encodedImage(t, "png", 300+i, 300)
+	}
 	tests := []struct {
-		name       string
-		path       string
-		fromHeader bool
-		wantPath   string
+		name      string
+		property  string
+		documents []string
+		wantCap   int
 	}{
-		{name: "class base URL without a path", path: "", wantPath: "/v1/systemone"},
-		{name: "class base URL ending in /v1", path: "/v1", wantPath: "/v1/systemone"},
-		{name: "class base URL ending in /v1/", path: "/v1/", wantPath: "/v1/systemone"},
-		{name: "class base URL with a gateway path ending in /v1", path: "/gateway/v1", wantPath: "/gateway/v1/systemone"},
-		{name: "class base URL ending in /v1/v1", path: "/v1/v1", wantPath: "/v1/v1/systemone"},
-		{name: "header base URL ending in /v1", path: "/v1", fromHeader: true, wantPath: "/v1/systemone"},
-		{name: "header base URL with a gateway path ending in /v1/", path: "/gateway/v1/", fromHeader: true, wantPath: "/gateway/v1/systemone"},
+		{name: "text", property: "text", documents: texts, wantCap: maxConcurrentRequests},
+		{name: "images", property: "photo", documents: images, wantCap: maxConcurrentImageRequests},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			classBaseURL := classServer.url() + tt.path
-			used, unused := classServer, headerServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				classBaseURL = classServer.url()
-				used, unused = headerServer, classServer
-				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url() + tt.path})
-			}
+			f := newFake(t)
+			f.together = tt.wantCap
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
-				documentsOf(noRefund), classConfig(classBaseURL, nil))
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, tt.property,
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
 			require.NoError(t, err)
-			assert.Empty(t, unused.received())
-			requests := used.received()
-			require.Len(t, requests, 1)
-			assert.Equal(t, tt.wantPath, requests[0].path)
+			assert.Len(t, f.received(), 2*tt.wantCap)
+			assert.Equal(t, tt.wantCap, f.maxInFlight())
 		})
 	}
-}
-
-func TestRankCapsRequestsInFlight(t *testing.T) {
-	f := newFake(t)
-	f.delay = 20 * time.Millisecond
-	c := New(defaultFakeKey, testTimeout, 2, nullLogger())
-	// 32 documents of 3,000 characters and their questions fit in a request,
-	// so 200 are 7 requests.
-	queries := [][]string{
-		numbered("first %03d "+strings.Repeat("x", 2_990), 200),
-		numbered("second %03d "+strings.Repeat("x", 2_989), 200),
-	}
-
-	var wg sync.WaitGroup
-	errs := make([]error, len(queries))
-	for i, documents := range queries {
-		require.Equal(t, 3_000, len(documents[0]))
-		wg.Go(func() {
-			_, errs[i] = c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
-		})
-	}
-	wg.Wait()
-
-	require.NoError(t, errs[0])
-	require.NoError(t, errs[1])
-	assert.Len(t, f.received(), 14)
-	assert.Equal(t, 2, f.maxInFlight())
 }
 
 func TestRankStopsOnContextCancel(t *testing.T) {
-	const inFlight = 4
-	// 500 short documents are ten requests.
-	documents := numbered("ticket %d", 500)
+	// 1,000 short documents are 20 requests, more than a query sends at once.
+	documents := numbered("ticket %d", 1000)
+	f, release := newBlockingFake(t)
+	defer release()
+	c := newTestClient(defaultFakeKey)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	t.Run("with requests in flight", func(t *testing.T) {
-		f, release := newBlockingFake(t)
-		defer release()
-		c := New(defaultFakeKey, testTimeout, inFlight, nullLogger())
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+	result := rankInBackground(t, ctx, c, f, documents)
+	require.Eventually(t, func() bool { return len(f.received()) == maxConcurrentRequests }, 5*time.Second, time.Millisecond)
 
-		result := rankInBackground(t, ctx, c, f, documents)
-		require.Eventually(t, func() bool { return len(f.received()) == inFlight }, 5*time.Second, time.Millisecond)
+	cancel()
+	requireCanceledWithinASecond(t, result)
 
-		cancel()
-		requireCanceledWithinASecond(t, result)
-		assert.Zero(t, len(c.inFlight), "every in-flight slot is released")
-
-		release()
-		waitFor(t, &f.handlers)
-		assert.Len(t, f.received(), inFlight, "the requests waiting for a slot are not sent")
-		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
-		require.NoError(t, err)
-		assert.Len(t, res.DocumentScores, 1)
-	})
-
-	t.Run("when cancelled before it asks for a slot another query holds", func(t *testing.T) {
-		f, release := newBlockingFake(t)
-		defer release()
-		c := New(defaultFakeKey, testTimeout, inFlight, nullLogger())
-		other := rankInBackground(t, context.Background(), c, f, documents)
-		require.Eventually(t, func() bool { return len(f.received()) == inFlight }, 5*time.Second, time.Millisecond)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		result := rankInBackground(t, ctx, c, f, []string{noRefund})
-		cancel()
-		requireCanceledWithinASecond(t, result)
-
-		release()
-		require.NoError(t, <-other)
-		assert.Len(t, f.received(), 10, "the cancelled query sent nothing")
-	})
+	release()
+	waitFor(t, &f.handlers)
+	assert.Len(t, f.received(), maxConcurrentRequests, "the requests waiting for a slot are not sent")
+	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+	require.NoError(t, err)
+	assert.Len(t, res.DocumentScores, 1)
 }
 
 // newBlockingFake returns a fake whose handlers wait for release. Defer
@@ -1377,60 +1212,6 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
 		t.Fatal("RankProperty did not return within a second of the cancel")
-	}
-}
-
-// The client keeps one idle connection per slot, so the second query opens
-// none. A transport with the default of two idle connections per host would
-// open most of them again.
-func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
-	f := newFake(t)
-	// The fake answers the ten requests of a query only once all ten have
-	// arrived, so a query holds ten connections at once whatever the timing.
-	f.together = 10
-	documents := make([]string, 20)
-	for i := range documents {
-		// Two of these fill a request, so the page needs ten at once.
-		documents[i] = fmt.Sprintf("%d %s", i, strings.Repeat("a", 40_000))
-	}
-	c := newTestClient(defaultFakeKey)
-	rank := func() {
-		_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
-		require.NoError(t, err)
-	}
-
-	rank()
-	opened := f.opened.Load()
-	require.Equal(t, int64(10), opened, "the first query must send its ten requests at once")
-	rank()
-
-	assert.Equal(t, opened, f.opened.Load(), "the second query opened new connections")
-}
-
-func TestNewRaisesACapBelowOneToOne(t *testing.T) {
-	tests := []struct {
-		name                  string
-		maxConcurrentRequests int
-		wantCap               int
-	}{
-		{name: "zero", maxConcurrentRequests: 0, wantCap: 1},
-		{name: "negative", maxConcurrentRequests: -3, wantCap: 1},
-		{name: "one", maxConcurrentRequests: 1, wantCap: 1},
-		{name: "the default", maxConcurrentRequests: MaxConcurrentRequests, wantCap: 16},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-
-			c := New(defaultFakeKey, testTimeout, tt.maxConcurrentRequests, nullLogger())
-
-			require.Equal(t, tt.wantCap, cap(c.inFlight))
-			require.Equal(t, tt.wantCap, cap(c.inFlightHeaderHost))
-			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund, chargedTwice),
-				classConfig(f.url(), nil))
-			require.NoError(t, err)
-			assert.Len(t, res.DocumentScores, 2)
-		})
 	}
 }
 
@@ -1551,12 +1332,11 @@ func TestRankChecksTheAnswers(t *testing.T) {
 func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 	const answers = `"answers":{"q":{"type":"noul","noul":0.7}}`
 	tests := []struct {
-		name            string
-		body            string
-		wantInputTokens int64
+		name string
+		body string
 	}{
-		{name: "a whole number", body: `{` + answers + `,"usage":{"input_tokens":120}}`, wantInputTokens: 120},
-		{name: "a fraction", body: `{` + answers + `,"usage":{"input_tokens":1.5}}`, wantInputTokens: 1},
+		{name: "a whole number", body: `{` + answers + `,"usage":{"input_tokens":120}}`},
+		{name: "a fraction", body: `{` + answers + `,"usage":{"input_tokens":1.5}}`},
 		{name: "a string", body: `{` + answers + `,"usage":{"input_tokens":"many"}}`},
 		{name: "a usage that is not an object", body: `{` + answers + `,"usage":"n/a"}`},
 		{name: "no usage", body: `{` + answers + `}`},
@@ -1565,15 +1345,12 @@ func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
-			logger, hook := test.NewNullLogger()
-			logger.SetLevel(logrus.DebugLevel)
-			c := New(defaultFakeKey, testTimeout, MaxConcurrentRequests, logger)
 
-			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			assert.Equal(t, []ent.DocumentScore{{Document: noRefund, Score: 0.7}}, res.DocumentScores)
-			assert.Equal(t, tt.wantInputTokens, rankLogFields(t, hook)["input_tokens"])
 		})
 	}
 }
@@ -1705,7 +1482,7 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func newTestClient(apiKey string) *client {
-	return New(apiKey, testTimeout, MaxConcurrentRequests, nullLogger())
+	return New(apiKey, testTimeout, nullLogger())
 }
 
 // documentsOf gives the value at position i the ID
@@ -1751,18 +1528,6 @@ func sizes(requests []fakeRequest) []int {
 	}
 	slices.Sort(out)
 	return out
-}
-
-func rankLogFields(t *testing.T, hook *test.Hook) logrus.Fields {
-	t.Helper()
-	var found []logrus.Fields
-	for _, entry := range hook.AllEntries() {
-		if _, ok := entry.Data["judged"]; ok {
-			found = append(found, entry.Data)
-		}
-	}
-	require.Len(t, found, 1, "one log line per call")
-	return found[0]
 }
 
 func waitFor(t *testing.T, wg *sync.WaitGroup) {
@@ -1872,11 +1637,6 @@ func newFake(t *testing.T) *fakeTypeSafeAI {
 
 func (f *fakeTypeSafeAI) url() string {
 	return f.server.URL
-}
-
-func (f *fakeTypeSafeAI) port() string {
-	_, port, _ := strings.Cut(strings.TrimPrefix(f.server.URL, "http://"), ":")
-	return port
 }
 
 func (f *fakeTypeSafeAI) received() []fakeRequest {
@@ -2023,126 +1783,6 @@ func (f fakeClassConfig) TargetVector() string           { return "" }
 func (f fakeClassConfig) Property(string) map[string]any { return nil }
 func (f fakeClassConfig) Config() *config.Config         { return nil }
 
-// countingTransport fails every request, so a stored baseURL that fell back to
-// the default host is seen without reaching it.
-type countingTransport struct{ count atomic.Int64 }
-
-func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	c.count.Add(1)
-	return nil, errors.New("unexpected request")
-}
-
-func TestRankChecksTheStoredSettingsBeforeSending(t *testing.T) {
-	tests := []struct {
-		name     string
-		settings map[string]any
-		wantErr  string
-	}{
-		{name: "baseURL of a number", settings: map[string]any{"baseURL": 42}, wantErr: "baseURL must be a string, got int"},
-		{name: "baseURL of a list", settings: map[string]any{"baseURL": []any{"http://a"}}, wantErr: "baseURL must be a string, got []interface {}"},
-		{name: "empty baseURL", settings: map[string]any{"baseURL": ""}, wantErr: "baseURL must be a non-empty string"},
-		{name: "model of a number", settings: map[string]any{"model": 7}, wantErr: "model must be a string, got int"},
-		{name: "model of a bool", settings: map[string]any{"model": true}, wantErr: "model must be a string, got bool"},
-		{name: "empty model", settings: map[string]any{"model": ""}, wantErr: "model must be a non-empty string"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			transport := &countingTransport{}
-			c := newTestClient(defaultFakeKey)
-			c.httpClient.Transport = transport
-
-			_, err := c.RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig("http://class.invalid", tt.settings))
-
-			require.EqualError(t, err, tt.wantErr)
-			assert.Zero(t, transport.count.Load(), "no request is sent")
-		})
-	}
-}
-
-func TestRankHostsNamedByTheHeaderDoNotHoldTheSlotsOfOtherHosts(t *testing.T) {
-	const inFlight = 4
-	var calls sync.WaitGroup
-	defer calls.Wait()
-	hung, release := newBlockingFake(t)
-	defer release()
-	classServer := newFake(t)
-	c := New(defaultFakeKey, testTimeout, inFlight, nullLogger())
-
-	ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
-	ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{hung.url()})
-	cancelled, cancel := context.WithCancel(ctx)
-	defer cancel()
-	calls.Go(func() {
-		// 500 short documents are ten requests, more than the cap.
-		c.RankProperty(cancelled, churn, "text", documentsOf(numbered("ticket %d", 500)...), classConfig(classServer.url(), nil))
-	})
-	require.Eventually(t, func() bool { return len(hung.received()) == inFlight }, 5*time.Second, time.Millisecond)
-
-	answered := make(chan error, 1)
-	calls.Go(func() {
-		_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(classServer.url(), nil))
-		answered <- err
-	})
-	select {
-	case err := <-answered:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("a query to the class host waits behind requests to a host the header named")
-	}
-	assert.Len(t, classServer.received(), 1)
-
-	release()
-	cancel()
-}
-
-func TestPostWaitingForASlotStopsOnCancel(t *testing.T) {
-	for _, fromHeader := range []bool{false, true} {
-		t.Run(fmt.Sprintf("hostFromHeader=%t", fromHeader), func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				c := New(defaultFakeKey, testTimeout, 2, nullLogger())
-				pool := c.inFlight
-				if fromHeader {
-					pool = c.inFlightHeaderHost
-				}
-				for range cap(pool) {
-					pool <- struct{}{}
-				}
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				result := make(chan error, 1)
-				var call sync.WaitGroup
-				call.Go(func() {
-					_, _, err := c.post(ctx, judgeRequest{url: "http://unused.invalid/v1/systemone", apiKey: "key", query: churn, hostFromHeader: fromHeader},
-						documentsOf(noRefund))
-					result <- err
-				})
-				synctest.Wait()
-				select {
-				case err := <-result:
-					t.Fatalf("post returned before the cancel: %v", err)
-				default:
-				}
-
-				cancel()
-				synctest.Wait()
-
-				select {
-				case err := <-result:
-					require.ErrorIs(t, err, context.Canceled)
-				default:
-					t.Fatal("post still waits for a slot after the cancel")
-				}
-				require.Len(t, pool, cap(pool))
-				for range cap(pool) {
-					<-pool
-				}
-				call.Wait()
-			})
-		})
-	}
-}
-
 func TestRankCutsTheDecodeErrorOfALongNumber(t *testing.T) {
 	body := `{"answers":{"q":{"type":"noul","noul":` + strings.Repeat("1", 100_000) + `}}}`
 	for _, fromHeader := range []bool{false, true} {
@@ -2174,7 +1814,7 @@ func TestRankCutsTheDecodeErrorOfALongNumber(t *testing.T) {
 func TestRankReturnsADeadlineErrorWhenTheProviderDoesNotAnswer(t *testing.T) {
 	f, release := newBlockingFake(t)
 	defer release()
-	c := New(defaultFakeKey, 50*time.Millisecond, 2, nullLogger())
+	c := New(defaultFakeKey, 50*time.Millisecond, nullLogger())
 
 	// The context deadline only stops a client without a timeout; the
 	// assertion on the elapsed time then fails.
@@ -2186,8 +1826,6 @@ func TestRankReturnsADeadlineErrorWhenTheProviderDoesNotAnswer(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(start), 2*time.Second)
-	assert.Zero(t, len(c.inFlight), "every in-flight slot is released")
-	assert.Zero(t, len(c.inFlightHeaderHost), "every in-flight slot is released")
 }
 
 func TestRankReadsTheHeadersFromGRPCMetadata(t *testing.T) {

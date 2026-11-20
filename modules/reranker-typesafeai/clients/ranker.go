@@ -35,11 +35,12 @@ import (
 )
 
 const (
-	// MaxConcurrentRequests is 16: the size of each of the two pools of the
-	// client, so a process has up to 32 requests in flight. A request with
-	// images holds two to four times their base64 while it holds a slot, up to
-	// 24 MiB of base64 per request.
-	MaxConcurrentRequests = 16
+	// maxConcurrentRequests is 16 requests in flight per query.
+	maxConcurrentRequests = 16
+	// maxConcurrentImageRequests is 4 requests in flight per query when the
+	// documents are images: a request holds two to four copies of up to 24 MiB
+	// of base64 while it is in flight.
+	maxConcurrentImageRequests = 4
 
 	// The API does not publish its request size limit: 141,000 characters
 	// were accepted and 149,000 rejected. A batch closes before the bytes of
@@ -74,34 +75,14 @@ const (
 type client struct {
 	apiKey     string
 	httpClient *http.Client
-	// inFlight holds a slot per request to a class or default host being
-	// built or sent. Every call and every such host share it, so it bounds
-	// the load on the API and the request bodies in memory however many
-	// queries run. A class baseURL host that never answers holds its slots
-	// until the client timeout, and the queries of every other collection
-	// wait for them.
-	inFlight chan struct{}
-	// inFlightHeaderHost is the pool of requests to a host the request header
-	// named. It has the size of inFlight and every such host shares it. A
-	// caller can name a host that never answers, and that must not hold the
-	// slots of requests to a class or default host.
-	inFlightHeaderHost chan struct{}
-	logger             logrus.FieldLogger
+	logger     logrus.FieldLogger
 }
 
-// New returns a client with two pools of maxConcurrentRequests slots: one
-// for the requests to class and default hosts, one for the requests to hosts
-// the request header names. Up to twice maxConcurrentRequests requests are in
-// flight at once.
-func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
-	slots := max(maxConcurrentRequests, 1)
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
-		apiKey: apiKey,
-		// Each slot keeps its connection between queries.
-		httpClient:         modulecomponents.NewBaseHttpClientWithIdleConns(timeout, slots),
-		inFlight:           make(chan struct{}, slots),
-		inFlightHeaderHost: make(chan struct{}, slots),
-		logger:             logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 
@@ -141,9 +122,6 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
-	if err := settings.CheckSettings(); err != nil {
-		return nil, err
-	}
 	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
@@ -167,9 +145,9 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		}
 	}
 
-	maxDocuments, maxCharacters := maxBatchDocuments, maxBatchCharacters
+	maxDocuments, maxCharacters, maxInFlight := maxBatchDocuments, maxBatchCharacters, maxConcurrentRequests
 	if image {
-		maxDocuments, maxCharacters = maxBatchImages, maxBatchImageChars
+		maxDocuments, maxCharacters, maxInFlight = maxBatchImages, maxBatchImageChars, maxConcurrentImageRequests
 	}
 	request := judgeRequest{
 		url: endpointURL, apiKey: apiKey, hostFromHeader: hostFromHeader,
@@ -177,40 +155,32 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	}
 	requestBatches := c.batches(pending, documents, maxDocuments, maxCharacters, c.questionBytes(query))
 	scores := make([]float64, len(documents))
-	usages := make([]typesafeaiUsage, len(requestBatches))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(cap(c.slots(hostFromHeader)))
-	for b, batch := range requestBatches {
+	eg.SetLimit(maxInFlight)
+	for _, batch := range requestBatches {
 		eg.Go(func() error {
+			// After a failed batch, the rest would still build their bodies, up
+			// to 24 MiB of base64 each for images.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			batchDocuments := make([]ent.Document, len(batch))
 			for j, index := range batch {
 				batchDocuments[j] = documents[index]
 			}
-			probabilities, usage, err := c.judge(ctx, request, batchDocuments, false)
+			probabilities, err := c.judge(ctx, request, batchDocuments, false)
 			if err != nil {
 				return err
 			}
 			for j, index := range batch {
 				scores[index] = probabilities[j]
 			}
-			usages[b] = usage
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
-
-	var total typesafeaiUsage
-	for _, usage := range usages {
-		total = total.add(usage)
-	}
-	c.logger.WithFields(logrus.Fields{
-		"documents":    len(documents),
-		"judged":       len(pending),
-		"requests":     total.requests,
-		"input_tokens": total.InputTokens,
-	}).Debug("TypeSafe AI rerank finished")
 
 	documentScores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
@@ -282,58 +252,36 @@ type judgeRequest struct {
 // document is too large or a split isolated the document; any other 400 to a
 // page of one document can be about the request, such as an unknown model.
 func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Document, split bool,
-) ([]float64, typesafeaiUsage, error) {
+) ([]float64, error) {
 	response, tooLarge, err := c.post(ctx, r, documents)
 	if tooLarge && len(documents) > 1 {
 		half := len(documents) / 2
-		first, firstUsage, err := c.judge(ctx, r, documents[:half], true)
+		first, err := c.judge(ctx, r, documents[:half], true)
 		if err != nil {
-			return nil, typesafeaiUsage{}, err
+			return nil, err
 		}
-		second, secondUsage, err := c.judge(ctx, r, documents[half:], true)
+		second, err := c.judge(ctx, r, documents[half:], true)
 		if err != nil {
-			return nil, typesafeaiUsage{}, err
+			return nil, err
 		}
-		return append(first, second...), typesafeaiUsage{requests: 1}.add(firstUsage).add(secondUsage), nil
+		return append(first, second...), nil
 	}
 	if err != nil {
 		var rejected apiError
 		if len(documents) == 1 && (tooLarge || split) && errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
-			return nil, typesafeaiUsage{}, fmt.Errorf("object %s: %w", documents[0].ID, err)
+			return nil, fmt.Errorf("object %s: %w", documents[0].ID, err)
 		}
-		return nil, typesafeaiUsage{}, err
+		return nil, err
 	}
 	values, err := response.values(len(documents))
 	if err != nil {
-		return nil, typesafeaiUsage{}, c.replyError(err, nil, r.hostFromHeader)
+		return nil, c.replyError(err, nil, r.hostFromHeader)
 	}
-	return values, typesafeaiUsage{InputTokens: response.inputTokens(), requests: 1}, nil
+	return values, nil
 }
 
-// slots returns the pool a request to the host takes its slot from.
-func (c *client) slots(hostFromHeader bool) chan struct{} {
-	if hostFromHeader {
-		return c.inFlightHeaderHost
-	}
-	return c.inFlight
-}
-
-// post builds and sends the request of one batch while it holds an in-flight
-// slot, so that the slots also bound the request bodies in memory.
+// post builds and sends the request of one batch.
 func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Document) (typesafeaiResponse, bool, error) {
-	// select picks at random among ready cases, so a free slot could win over
-	// a cancellation.
-	if err := ctx.Err(); err != nil {
-		return typesafeaiResponse{}, false, err
-	}
-	slots := c.slots(r.hostFromHeader)
-	select {
-	case slots <- struct{}{}:
-		defer func() { <-slots }()
-	case <-ctx.Done():
-		return typesafeaiResponse{}, false, ctx.Err()
-	}
-
 	request, err := r.request(documents)
 	if err != nil {
 		return typesafeaiResponse{}, false, err
@@ -465,29 +413,20 @@ func (e apiError) Error() string {
 // endpoint returns the URL and the key of the requests, and whether the
 // request header named the host. A base URL from the request header is used
 // only with a key from the request header, so the server's key never goes to
-// a host the request names. A header base URL whose normalized form equals
-// classBaseURL names the host of the class, so the request is handled as one
-// without that header.
+// a host the request names.
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
-		normalized, normalizeErr := config.NormalizeBaseURL(headerBaseURL)
-		if normalizeErr != nil || normalized != classBaseURL {
-			if apiKey == "" {
-				return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-					baseURLHeader, apiKeyHeader)
-			}
-			if normalizeErr != nil {
-				return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, normalizeErr)
-			}
-			if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
-				return "", "", false, err
-			}
-			baseURL = normalized
-			hostFromHeader = true
+		if apiKey == "" {
+			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+				baseURLHeader, apiKeyHeader)
 		}
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", "", false, err
+		}
+		baseURL, hostFromHeader = headerBaseURL, true
 	}
 	if apiKey == "" {
 		apiKey = c.apiKey
@@ -558,42 +497,11 @@ func documentKey(i int) string {
 
 type typesafeaiResponse struct {
 	Answers map[string]typesafeaiAnswer `json:"answers"`
-	// Usage is decoded apart, so that a usage of another shape does not fail
-	// the answers.
-	Usage json.RawMessage `json:"usage"`
 }
 
 type typesafeaiAnswer struct {
 	Type string   `json:"type"`
 	Noul *float64 `json:"noul"`
-}
-
-// typesafeaiUsage is what one or more requests cost: the input tokens the
-// API reports, and the requests sent, including those rejected for their
-// size.
-type typesafeaiUsage struct {
-	InputTokens int64
-	requests    int64
-}
-
-// inputTokens returns the input tokens of a usage, truncated to a whole
-// number, or 0 when the usage holds no number of them.
-func (r typesafeaiResponse) inputTokens() int64 {
-	var u struct {
-		InputTokens json.Number `json:"input_tokens"`
-	}
-	if json.Unmarshal(r.Usage, &u) != nil {
-		return 0
-	}
-	tokens, err := u.InputTokens.Float64()
-	if err != nil {
-		return 0
-	}
-	return int64(tokens)
-}
-
-func (u typesafeaiUsage) add(other typesafeaiUsage) typesafeaiUsage {
-	return typesafeaiUsage{InputTokens: u.InputTokens + other.InputTokens, requests: u.requests + other.requests}
 }
 
 // values returns the probabilities of a request of n documents, in order.

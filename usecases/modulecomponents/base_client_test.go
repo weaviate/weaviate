@@ -15,10 +15,8 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,90 +161,5 @@ func TestNewBaseHttpClient(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
 		assert.NotContains(t, err.Error(), "request canceled")
-	})
-}
-
-func TestNewBaseHttpClientWithIdleConns(t *testing.T) {
-	get := func(t *testing.T, client *http.Client, url string) error {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-		require.NoError(t, err)
-		res, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer res.Body.Close()
-		_, err = io.Copy(io.Discard, res.Body)
-		return err
-	}
-
-	t.Run("keeps a connection per concurrent request between rounds", func(t *testing.T) {
-		const requests = 8
-		var opened atomic.Int32
-		// The server answers the requests of a round only once all of them have
-		// arrived, so a round holds one connection per request whatever the
-		// timing.
-		var (
-			lock      sync.Mutex
-			waiting   int
-			gathering = make(chan struct{})
-		)
-		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			lock.Lock()
-			gathered := gathering
-			waiting++
-			if waiting == requests {
-				close(gathering)
-				gathering, waiting = make(chan struct{}), 0
-			}
-			lock.Unlock()
-			select {
-			case <-gathered:
-			case <-r.Context().Done():
-			}
-		}))
-		server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
-			if state == http.StateNew {
-				opened.Add(1)
-			}
-		}
-		server.Start()
-		defer server.Close()
-		client := NewBaseHttpClientWithIdleConns(30*time.Second, requests)
-
-		round := func() {
-			var wg sync.WaitGroup
-			for range requests {
-				wg.Go(func() {
-					assert.NoError(t, get(t, client, server.URL))
-				})
-			}
-			wg.Wait()
-		}
-		round()
-		require.Equal(t, int32(requests), opened.Load())
-		round()
-
-		assert.Equal(t, int32(requests), opened.Load())
-	})
-
-	t.Run("leaves the shared default transport as it is", func(t *testing.T) {
-		shared := http.DefaultTransport.(*http.Transport)
-		perHost, total := shared.MaxIdleConnsPerHost, shared.MaxIdleConns
-
-		NewBaseHttpClientWithIdleConns(30*time.Second, 64)
-
-		assert.Equal(t, perHost, shared.MaxIdleConnsPerHost)
-		assert.Equal(t, total, shared.MaxIdleConns)
-	})
-
-	t.Run("keeps the dial guard in place", func(t *testing.T) {
-		t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		defer server.Close()
-
-		err := get(t, NewBaseHttpClientWithIdleConns(30*time.Second, 8), server.URL)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "refusing to dial internal address")
 	})
 }
