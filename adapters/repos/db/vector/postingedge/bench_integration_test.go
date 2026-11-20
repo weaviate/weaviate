@@ -1,0 +1,364 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench
+
+package postingedge
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+)
+
+// The integrated index at scale (integration-plan.md, section 6): the index a
+// shard opens, Persistent, grown from empty to the whole train set through
+// its own AddBatch, with the defaults of a class, and then with a share of it
+// deleted. It counts and times nothing that is to be compared: recall at
+// equal ef, loads a query and coverage, next to the index v5.0 grew
+// (testdata/bench/v5.0/dbpedia-1m-grow-manifest.json) and to the cell 1b of
+// v6.0. The vectors go in in the order of v5.0, so that with a base of the
+// first tenth the two runs differ in what a run cannot repeat, the levels the
+// centroid graph draws, and in the order the base is built from.
+//
+// The index is opened over a store of its own that stands for the one of a
+// shard, with its flush and compaction cycles called every growCycleEvery
+// inserts, as v5.0 calls those of its store.
+var (
+	benchIntegrationDir = flag.String("bench.integrationdir", "", "the integrated index at scale "+
+		"(TestIntegrationScale): the directory the index and its store are written to, which must be empty")
+	benchIntegrationBase = flag.Int("bench.integrationbase", 0, "with TestIntegrationScale: the vectors the index "+
+		"gathers before it builds its first postings, 0 for its default")
+	benchIntegrationOut = flag.String("bench.integrationout", "", "with TestIntegrationScale: the JSON file its "+
+		"result is written to, after every stage")
+	benchIntegrationDelete = flag.Int("bench.integrationdelete", 30, "with TestIntegrationScale: the share of the "+
+		"vectors, in percent, deleted at random once the index is grown and measured, 0 for none")
+	benchIntegrationEFs = flag.String("bench.integrationefs", "21,158,20,40,80,160", "with TestIntegrationScale: the "+
+		"ef the index is measured at, separated by commas: by default the two operating points of v5.0 and the "+
+		"grid of v6.0 around them")
+	benchIntegrationUntil = flag.String("bench.integrationuntil", "", "with TestIntegrationScale: the time of day, "+
+		"HH:MM, past which the run stops inserting, closes the index and fails, so that nothing of it is alive later")
+)
+
+type integrationPoint struct {
+	EF     int     `json:"ef"`
+	Recall float64 `json:"recall"`
+	Loads  float64 `json:"loads"`
+	Rounds float64 `json:"rounds"`
+}
+
+type integrationStage struct {
+	Name     string             `json:"name"`
+	Held     int                `json:"held"`
+	Deleted  int                `json:"deleted"`
+	Postings int                `json:"postingsGivenOut"`
+	Splits   int                `json:"splits"`
+	Coverage string             `json:"coverage"`
+	Points   []integrationPoint `json:"points"`
+}
+
+type integrationStretch struct {
+	Inserted  int     `json:"inserted"`
+	Seconds   float64 `json:"seconds"`
+	PerSecond float64 `json:"perSecond"`
+	Postings  int     `json:"postingsGivenOut"`
+}
+
+type integrationResult struct {
+	Dataset      string               `json:"dataset"`
+	Vectors      int                  `json:"vectors"`
+	Queries      int                  `json:"queries"`
+	K            int                  `json:"k"`
+	Base         int                  `json:"base"`
+	UserConfig   ent.UserConfig       `json:"userConfig"`
+	Meta         growMeta             `json:"meta"`
+	Procs        int                  `json:"gomaxprocs"`
+	BaseSeconds  float64              `json:"baseSeconds"`
+	InsertsAfter int                  `json:"insertsAfterTheBase"`
+	Seconds      float64              `json:"insertSeconds"`
+	PerSecond    float64              `json:"insertsPerSecond"`
+	Stretches    []integrationStretch `json:"stretches"`
+	Stats        growStats            `json:"stats"`
+	DirBytes     int64                `json:"dirBytes"`
+	Stages       []integrationStage   `json:"stages"`
+}
+
+func TestIntegrationScale(t *testing.T) {
+	if *benchDatasetDir == "" || *benchIntegrationDir == "" || *benchIntegrationOut == "" {
+		t.Skip("no -bench.dataset, -bench.integrationdir and -bench.integrationout given")
+	}
+	ctx := context.Background()
+	data := loadBenchData(t, *benchDatasetDir, *benchLimit, *benchQueries, *benchK, false)
+	if *benchLimit > 0 {
+		data.neighbors = bruteNeighbors(data, streamTruthDepth)
+	}
+	require.NotNil(t, data.neighbors, "the ground truth is drawn from the shipped one")
+	n, k := len(data.train), *benchK
+	// The order of v5.0: its base is the first tenth of it.
+	order := make([]uint64, n)
+	for i := range order {
+		order[i] = uint64(i)
+	}
+	rand.New(rand.NewPCG(1, 1)).Shuffle(n, func(i, j int) { order[i], order[j] = order[j], order[i] })
+
+	var until time.Time
+	if *benchIntegrationUntil != "" {
+		clock, err := time.ParseInLocation("15:04", *benchIntegrationUntil, time.Local)
+		require.NoError(t, err, "-bench.integrationuntil")
+		now := time.Now()
+		until = time.Date(now.Year(), now.Month(), now.Day(), clock.Hour(), clock.Minute(), 0, 0, time.Local)
+		require.True(t, until.After(now), "-bench.integrationuntil %s is past already", *benchIntegrationUntil)
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	dir := *benchIntegrationDir
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "%s is not empty", dir)
+
+	flush := cyclemanager.NewCallbackGroup("flush", logger, 1)
+	compaction := cyclemanager.NewCallbackGroup("compaction", logger, 1)
+	store, err := lsmkv.New(filepath.Join(dir, "lsm"), dir, logger, nil, nil, compaction,
+		cyclemanager.NewCallbackGroupNoop(), flush)
+	require.NoError(t, err)
+	cycle := func() {
+		never := func() bool { return false }
+		flush.CycleCallback(never)
+		compaction.CycleCallback(never)
+	}
+	uc := ent.NewDefaultUserConfig()
+	p, err := Open(PersistentConfig{
+		ID:               "main",
+		ShardName:        "integration",
+		ClassName:        "Integration",
+		RootPath:         dir,
+		Logger:           logger,
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		BaseSize:         *benchIntegrationBase,
+		Seed:             1,
+	}, uc, store)
+	require.NoError(t, err)
+	closed := false
+	shut := func() {
+		if closed {
+			return
+		}
+		closed = true
+		require.NoError(t, p.Flush())
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, store.Shutdown(ctx))
+	}
+	defer shut()
+
+	result := &integrationResult{
+		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Base: p.cfg.BaseSize, UserConfig: uc,
+		Procs: runtime.GOMAXPROCS(0),
+	}
+	write := func() {
+		raw, err := json.MarshalIndent(result, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(*benchIntegrationOut, raw, 0o644))
+	}
+
+	// The inserts, through the index a shard opens: batches of a request,
+	// flushed as a shard flushes its indexes after a request that writes.
+	const batch = 100
+	inserted, afterBase := 0, 0
+	begin := time.Now()
+	var insertTime time.Duration
+	lastLog, lastInserted := time.Now(), 0
+	vectors := make([][]float32, 0, batch)
+	for inserted < n {
+		if !until.IsZero() && time.Now().After(until) {
+			shut()
+			t.Fatalf("STOP: it is past %s with %d of %d vectors in: the run ends here, with nothing of it alive",
+				*benchIntegrationUntil, inserted, n)
+		}
+		to := min(inserted+batch, n)
+		vectors = vectors[:0]
+		for _, id := range order[inserted:to] {
+			vectors = append(vectors, data.train[id])
+		}
+		wasBuilt := p.g != nil
+		clock := time.Now()
+		if err := p.AddBatch(ctx, order[inserted:to], vectors); err != nil {
+			t.Fatalf("inserts %d to %d: %v", inserted, to, err)
+		}
+		require.NoError(t, p.Flush())
+		took := time.Since(clock)
+		switch {
+		case !wasBuilt && p.g != nil:
+			// The batch that completed the base built it.
+			result.BaseSeconds = took.Seconds()
+			result.Base = p.g.meta.Live
+			t.Logf("the base: %d vectors in %d postings, built in %s inside the insert that completed it", p.g.meta.Live,
+				p.g.meta.Postings, took.Round(time.Second))
+			lastLog, lastInserted = time.Now(), to
+		case wasBuilt:
+			insertTime += took
+			afterBase += to - inserted
+		}
+		inserted = to
+		if inserted%growCycleEvery == 0 {
+			cycle()
+		}
+		if p.g != nil && (time.Since(lastLog) > 5*time.Minute || inserted == n) {
+			stretch := integrationStretch{
+				Inserted: inserted, Seconds: time.Since(begin).Seconds(), Postings: p.g.meta.Postings,
+				PerSecond: float64(inserted-lastInserted) / time.Since(lastLog).Seconds(),
+			}
+			result.Stretches = append(result.Stretches, stretch)
+			result.InsertsAfter, result.Seconds = afterBase, insertTime.Seconds()
+			if insertTime > 0 {
+				result.PerSecond = float64(afterBase) / insertTime.Seconds()
+			}
+			result.Meta, result.Stats = p.g.meta, p.g.stats
+			write()
+			t.Logf("%d of %d in (%.1f %%): %.0f inserts a second in this stretch, %.0f since the base | %d postings "+
+				"given out, %d splits", inserted, n, 100*float64(inserted)/float64(n), stretch.PerSecond, result.PerSecond,
+				p.g.meta.Postings, p.g.meta.Splits)
+			lastLog, lastInserted = time.Now(), inserted
+		}
+	}
+	require.NotNil(t, p.g, "the train set is smaller than the base: nothing was built")
+	g := p.g
+	cycle()
+
+	var efs []int
+	for _, field := range strings.Split(*benchIntegrationEFs, ",") {
+		ef, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err, "-bench.integrationefs")
+		efs = append(efs, ef)
+	}
+	// measure takes the recall of the index at every ef, through the search
+	// of a shard, and what a query loads, from the search under it.
+	// No answer may hold a vector that live leaves out: nil is all of them.
+	measure := func(name string, truth [][]uint64, live []bool, deleted int) {
+		stage := integrationStage{
+			Name: name, Held: g.meta.Live - g.deletedCount, Deleted: deleted, Postings: g.meta.Postings,
+			Splits: g.meta.Splits, Coverage: "complete",
+		}
+		require.NoError(t, g.cleanCentroidGraph())
+		if err := g.checkCoverage(); err != nil {
+			stage.Coverage = err.Error()
+		}
+		t.Logf("%s: coverage %s", name, stage.Coverage)
+		for _, ef := range efs {
+			searchUC := uc
+			searchUC.EF = ef
+			require.NoError(t, p.UpdateUserConfig(searchUC, func() {}))
+			var hits, loads, rounds, next, returned atomic.Int64
+			eg := enterrors.NewErrorGroupWrapper(logger)
+			for range 8 {
+				eg.Go(func() error {
+					for {
+						q := int(next.Add(1)) - 1
+						if q >= len(data.queries) {
+							return nil
+						}
+						ids, _, err := p.SearchByVector(ctx, data.queries[q], k, nil)
+						if err != nil {
+							return err
+						}
+						found := 0
+						for _, want := range truth[q] {
+							if slices.Contains(ids, want) {
+								found++
+							}
+						}
+						hits.Add(int64(found))
+						for _, id := range ids {
+							if live != nil && !live[id] {
+								returned.Add(1)
+							}
+						}
+						stats := &diskSearchStats{}
+						if _, _, err := g.search(ctx, data.queries[q], k, stats); err != nil {
+							return err
+						}
+						loads.Add(int64(stats.Postings))
+						rounds.Add(int64(stats.Rounds))
+					}
+				})
+			}
+			require.NoError(t, eg.Wait())
+			require.Zero(t, returned.Load(), "STOP: %s, ef %d: deleted vectors were returned", name, ef)
+			queries := float64(len(data.queries))
+			point := integrationPoint{
+				EF: ef, Recall: float64(hits.Load()) / (queries * float64(k)),
+				Loads: float64(loads.Load()) / queries, Rounds: float64(rounds.Load()) / queries,
+			}
+			stage.Points = append(stage.Points, point)
+			t.Logf("%s, ef %d: recall %.4f, %.2f loads a query in %.2f rounds", name, ef, point.Recall, point.Loads,
+				point.Rounds)
+		}
+		require.NoError(t, p.UpdateUserConfig(uc, func() {}))
+		result.Stages = append(result.Stages, stage)
+		result.Meta, result.Stats = g.meta, g.stats
+		write()
+		require.Equal(t, "complete", stage.Coverage, "STOP: the coverage of the index, %s", name)
+	}
+	require.NoError(t, p.Flush())
+	result.DirBytes, err = sizeOnDisk(dir)
+	require.NoError(t, err)
+	t.Logf("grown: %d vectors, %d postings given out, %d splits, %.1f GB under %s", g.meta.Live, g.meta.Postings,
+		g.meta.Splits, float64(result.DirBytes)/1e9, dir)
+	measure("grown", liveTruth(t, data, nil, k), nil, 0)
+
+	if *benchIntegrationDelete > 0 {
+		// A share of the vectors, at random, deleted as a shard deletes them.
+		live := make([]bool, n)
+		for i := range live {
+			live[i] = true
+		}
+		victims := rand.New(rand.NewPCG(6, 0)).Perm(n)[:n**benchIntegrationDelete/100]
+		begin := time.Now()
+		for from := 0; from < len(victims); from += batch {
+			ids := make([]uint64, 0, batch)
+			for _, id := range victims[from:min(from+batch, len(victims))] {
+				ids = append(ids, uint64(id))
+				live[id] = false
+			}
+			require.NoError(t, p.Delete(ids...))
+		}
+		require.NoError(t, p.Flush())
+		cycle()
+		t.Logf("deleted %d vectors, %d %% of them, in %s", len(victims), *benchIntegrationDelete,
+			time.Since(begin).Round(time.Second))
+		for _, id := range victims[:1000] {
+			require.False(t, p.ContainsDoc(uint64(id)), "doc %d was deleted", id)
+		}
+		truth, fallbacks := liveTruthOf(t, data, live, k)
+		t.Logf("the ground truth of the vectors that are left: %d queries by brute force", fallbacks)
+		measure("deleted", truth, live, len(victims))
+	}
+}
