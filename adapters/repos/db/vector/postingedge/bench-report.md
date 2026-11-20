@@ -1050,7 +1050,7 @@ Binario de `936a323672`. Datos en `testdata/bench/v6.0/r2/dbpedia-1m-deletes.jso
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
-**Estado: cerrado. No sirve, por la regla como está escrita: N = 8 da 3.76 veces los inserts por segundo de N = 1, donde hacían falta 4. Abajo, «Paso 2» y «Veredicto de v5.2».** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
+**Estado: cerrado. No sirve, por la regla como está escrita: N = 8 da 3.76 veces los inserts por segundo de N = 1, donde hacían falta 4. Abajo, «Paso 2» y «Veredicto de v5.2». Las tres celdas de N = 1, 4 y 8 se repiten la noche del 20, sin actividad, para tener el número limpio: «Enmienda 3».** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
 
 ### El encargo (del usuario)
 
@@ -1296,6 +1296,20 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
   - las tandas pequeñas pierden por espera, no por calidad.
 - **Junto a HFresh:** 634 inserts por segundo con 8 buscadores, donde HFresh hace 2 089 con un escritor y sus 9 workers de fondo. Queda a 3.3 veces.
 - **Lo que no mide:** una cadena continua en vez de tandas; búsquedas de usuario mientras se inserta; y varios índices compartiendo buscadores.
+
+### Enmienda 3 (10:25 del 20, del usuario): N = 1, 4 y 8 otra vez, de noche y sin actividad
+
+**Motivo.** Tres de las cuatro corridas del paso 2 llevan teclado o trackpad, entre ellas las dos del criterio, y N = 1 salió un 6 % por debajo de lo que v5.0 dio de noche. El usuario pide, a las 10:20: *«repite de noche, sin actividad, la medida de N = 1, 4 y 8 para tener el número limpio»*. El veredicto de v5.2 no se toca: es el de la regla como está escrita, con las corridas del paso 2.
+
+*Mío, para aplicarlo:*
+
+- **Las tres celdas, como en el paso 2:** N = 1; N = 4 con tandas de 32; y N = 8 con tandas de 32. La de tandas de 8 no se repite: no la pide el encargo.
+- **El mismo binario,** el de `4ff2563947`, y el mismo protocolo: del 10 al 100 %, la cobertura en cada checkpoint con el reloj parado, y la calidad del índice que deja cada celda.
+- **Cuándo:** la noche del 20, detrás de las repeticiones de las curvas marcadas, con 15 minutos sin teclado ni trackpad antes de cada celda. Una corrida por celda.
+- **Dónde:** índices nuevos en el volumen, y sus datos en `testdata/bench/v5.2/night/`. Los del paso 2 no se tocan.
+- **Qué se reporta:** los inserts por segundo de las tres y sus dos razones contra N = 1, junto a los del paso 2; la actividad de cada corrida; y las cargas a 0.95 y a 0.99, que dan además una segunda medida del ruido entre corridas.
+- **Si alguna corrida coincide con actividad,** se dice y no se repite otra vez sin que el usuario lo pida.
+- **Lo que espero** (*mío*, antes de ningún dato): N = 1 entre 172 y 182 por segundo, como la noche de v5.0. N = 8 entre 3.5 y 3.8 veces: el límite es que las búsquedas se estorban, y eso no depende de la hora. No espero que llegue a 4.
 
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 

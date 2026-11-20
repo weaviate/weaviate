@@ -469,6 +469,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Paso 3. El camino de escritura, al paquete.** Necesita el paso 2.
 
 - El insert de `grow_test.go`: buscar, aplicar, aristas inversas y split.
+  - **Con la forma de v5.2, desde el hito 1** (*decisión del usuario del 20*): un paso de cálculo, que busca las aristas del vector nuevo y no escribe nada (`plan`), y un aplicador que escribe los resultados en orden (`apply`). En el hito 1 corren en serie, uno detrás de otro por cada insert.
+  - **El paso de cálculo es el que se llevará a los workers compartidos del nodo** (paso 5). Es el 92 % del tiempo de un insert y solo lee, así que es lo que se puede repartir. El aplicador se queda como único escritor: aplicar un insert son 0.30 ms.
 - Empezar vacío: el primer posting y el entrenamiento del cuantizador.
 - La durabilidad: qué está escrito cuando `Add` devuelve.
 - `Flush`, `Shutdown` y `Drop` de verdad.
@@ -481,6 +483,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Paso 5. Los recursos compartidos.** Necesita los pasos 3 y 4.
 
 - El split, el refresco, la limpieza y la reorganización, como tareas de una cola del scheduler del nodo.
+- **El paso de cálculo de los inserts, en esos mismos workers** (`queue.Scheduler`, `GOMAXPROCS − 1` para todos los índices del nodo). El insert ya está partido en cálculo y aplicador desde el hito 1, así que este paso cambia quién ejecuta el cálculo y no su forma.
+  - **Lo medido es el mejor caso:** con 4 y con 8 buscadores propios de un solo índice, 3.0 y 3.76 veces los inserts por segundo de uno, en tandas de 32. Ocho búsquedas a la vez tardan un 54 % más cada una. Con los workers repartidos entre índices le tocan menos a cada uno. *La medida limpia de N = 1, 4 y 8, de noche y sin actividad, está en cola para la noche del 20.*
 - La limpieza medida es la pasada de v6.1: reparar y después eliminar. Cumple en una pasada sobre el 30 % borrado, y con pasadas pequeñas y frecuentes todavía no.
 - Las cargas de una ronda, dentro del presupuesto de la query.
 - **Antes de este paso, ninguna medida vale como medida de un nodo.**
