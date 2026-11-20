@@ -1704,9 +1704,9 @@ func TestPreApplyFilter_TenantNodesAreHomeNodes(t *testing.T) {
 	}
 }
 
-// TestSchemaManager_TenantNodesCoverFactor pins apply's refusal of a tenant add or
-// unfreeze whose list is shorter than the namespaced class's factor of 2. It also
-// pins AddTenants cutting a longer add list to the factor.
+// TestSchemaManager_TenantNodesCoverFactor pins the leader's and apply's refusal of
+// a tenant add or unfreeze whose list is shorter than the namespaced class's factor
+// of 2. It also pins AddTenants cutting a longer add list to the factor.
 func TestSchemaManager_TenantNodesCoverFactor(t *testing.T) {
 	const (
 		hot         = models.TenantActivityStatusHOT
@@ -1725,11 +1725,12 @@ func TestSchemaManager_TenantNodesCoverFactor(t *testing.T) {
 		requested string
 		coldFirst bool // a HOT t0 moving to COLD goes ahead of t1 in the update
 		sent      []string
-		wantErr   string // the refusal's text; admitted when empty
+		leaderErr string // the leader's refusal before the append; admitted when empty
+		wantErr   string // apply's refusal; admitted when empty
 		wantIs    error  // ErrBadRequest when nil
 		wantNodes map[string][]string
 	}{
-		{name: "add: a list shorter than the factor is refused", add: true, sent: []string{"n1"}, wantErr: staleFactor},
+		{name: "add: a list shorter than the factor is refused", add: true, sent: []string{"n1"}, leaderErr: staleFactor, wantErr: staleFactor},
 		{
 			name: "add: a list longer than the factor is cut to it", add: true,
 			tenants: []string{"t1", "t2", "t3"}, sent: []string{"n1", "n2", "n3"},
@@ -1740,13 +1741,16 @@ func TestSchemaManager_TenantNodesCoverFactor(t *testing.T) {
 			tenants: []string{"t1", "t2"}, sent: []string{"n4", "n5"},
 			wantNodes: map[string][]string{"t1": {"n4"}, "t2": {"n5"}},
 		},
-		{name: "unfreeze: a list shorter than the factor is refused", held: frozen, requested: hot, sent: []string{"n2"}, wantErr: staleFactor},
 		{
-			name: "unfreeze: a short list is refused before another tenant in the update changes",
-			held: frozen, requested: hot, coldFirst: true, sent: []string{"n2"}, wantErr: staleFactor,
+			name: "unfreeze: a list shorter than the factor is refused", held: frozen, requested: hot,
+			sent: []string{"n2"}, leaderErr: staleFactor, wantErr: staleFactor,
 		},
 		{
-			name: "unfreeze: a FREEZING tenant with a short list is refused for its status",
+			name: "unfreeze: a short list is refused before another tenant in the update changes",
+			held: frozen, requested: hot, coldFirst: true, sent: []string{"n2"}, leaderErr: staleFactor, wantErr: staleFactor,
+		},
+		{
+			name: "unfreeze: a FREEZING tenant with a short list is left to apply, which refuses it for its status",
 			held: freezing, requested: hot, sent: []string{"n2"}, wantErr: beingFrozen, wantIs: ErrTenantTransitionalState,
 		},
 	}
@@ -1789,6 +1793,13 @@ func TestSchemaManager_TenantNodesCoverFactor(t *testing.T) {
 			}, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{}}, 1))
 			before, _ := sm.schema.TenantsShardsStatus(class, names...)
 
+			if err := sm.PreApplyFilter(req); tt.leaderErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrBadRequest)
+				assert.ErrorContains(t, err, tt.leaderErr)
+			}
+
 			var err error
 			if tt.add {
 				err = sm.AddTenants(req, true)
@@ -1809,7 +1820,6 @@ func TestSchemaManager_TenantNodesCoverFactor(t *testing.T) {
 			assert.NotContains(t, err.Error(), "retry")
 			after, _ := sm.schema.TenantsShardsStatus(class, names...)
 			assert.Equal(t, before, after, "a refused request must change no tenant")
-			require.NoError(t, sm.PreApplyFilter(req), "the leader must not judge a list against the factor before the append")
 		})
 	}
 }

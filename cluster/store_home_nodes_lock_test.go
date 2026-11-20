@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,7 +29,8 @@ import (
 // TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands shrinks acme to n2
 // and sends a class command at factor 3 or a tenant add or unfreeze on n1. Blocker's AddClass
 // blocks every later apply, so the first of the two is appended but unapplied when the second
-// arrives. The second must see the first's outcome.
+// arrives. The second must see the first's outcome, unless it is an implicit activation or a
+// tenant update with no ClusterNodes.
 func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *testing.T) {
 	const (
 		createRefused = "replication factor 3 exceeds the 1 home node(s) of the namespace"
@@ -77,10 +79,12 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 	tests := []struct {
 		name       string
 		typ        command.ApplyRequest_Type
-		held       bool // acme:Books exists at factor 1 before the shrink
-		frozenT1   bool // t1 exists FROZEN on n1 before the shrink
-		classFirst bool // the class command is appended first, the shrink otherwise
-		wantErr    string
+		update     *command.UpdateTenantsRequest // sent for acme:Books in place of typ's command when set
+		held       bool                          // acme:Books exists at factor 1 before the shrink
+		heldT1     string                        // t1's status on n1 before the shrink; t1 does not exist when empty
+		classFirst bool                          // the class command is appended first, the shrink otherwise
+		unlocked   bool                          // the second command is appended before the first applies
+		wantErr    string                        // the second command's refusal; admitted when empty
 	}{
 		{name: "a create behind a shrink is refused", typ: command.ApplyRequest_TYPE_ADD_CLASS, wantErr: createRefused},
 		{name: "a shrink behind a create is refused", typ: command.ApplyRequest_TYPE_ADD_CLASS, classFirst: true, wantErr: shrinkRefused},
@@ -89,7 +93,23 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 		{name: "a tenant add behind a shrink is refused", typ: command.ApplyRequest_TYPE_ADD_TENANT, held: true, wantErr: tenantRefused},
 		{
 			name: "an unfreeze behind a shrink is refused", typ: command.ApplyRequest_TYPE_UPDATE_TENANT,
-			held: true, frozenT1: true, wantErr: tenantRefused,
+			held: true, heldT1: models.TenantActivityStatusFROZEN, wantErr: tenantRefused,
+		},
+		{
+			name: "an implicit activation does not wait for a shrink", held: true, heldT1: models.TenantActivityStatusCOLD,
+			update: &command.UpdateTenantsRequest{
+				ImplicitUpdateRequest: true,
+				ClusterNodes:          []string{"n1", "n2", "n3"},
+				Tenants:               []*command.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			},
+			unlocked: true,
+		},
+		{
+			name: "an update without nodes does not wait for a shrink", held: true, heldT1: models.TenantActivityStatusCOLD,
+			update: &command.UpdateTenantsRequest{
+				Tenants: []*command.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			},
+			unlocked: true,
 		},
 	}
 	for _, tt := range tests {
@@ -100,6 +120,9 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 				command.Namespace{Name: "acme", HomeNodes: []string{"n1", "n2", "n3"}}, 1))
 
 			entered, release := make(chan struct{}), make(chan struct{})
+			releaseOnce := sync.OnceFunc(func() { close(release) })
+			// A failed assertion skips the release below, and srv.Close waits on the blocked apply.
+			t.Cleanup(releaseOnce)
 			m.indexer.ExpectedCalls = nil
 			m.indexer.On("Close", mock.Anything).Return(nil)
 			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -120,8 +143,8 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 				_, err := st.Execute(books(t, command.ApplyRequest_TYPE_ADD_CLASS, 1))
 				require.NoError(t, err)
 			}
-			if tt.frozenT1 {
-				_, err := st.Execute(tenantT1(t, command.ApplyRequest_TYPE_ADD_TENANT, models.TenantActivityStatusFROZEN))
+			if tt.heldT1 != "" {
+				_, err := st.Execute(tenantT1(t, command.ApplyRequest_TYPE_ADD_TENANT, tt.heldT1))
 				require.NoError(t, err)
 			}
 
@@ -133,6 +156,11 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 			}
 
 			first, second := setHomeNodes(t, "n2"), books(t, tt.typ, 3)
+			if tt.update != nil {
+				raw, err := proto.Marshal(tt.update)
+				require.NoError(t, err)
+				second = &command.ApplyRequest{Type: command.ApplyRequest_TYPE_UPDATE_TENANT, Class: "acme:Books", SubCommand: raw}
+			}
 			if tt.classFirst {
 				first, second = second, first
 			}
@@ -140,11 +168,17 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 			firstDone := executeAsync(st, first)
 			require.Eventually(t, func() bool { return st.raft.Load().LastIndex() > appended },
 				10*time.Second, 10*time.Millisecond, "the first command was never appended")
+			appended = st.raft.Load().LastIndex()
 			secondDone := executeAsync(st, second)
-			// Time for the second command to be judged and appended, unless it
-			// waits for the first to apply.
-			time.Sleep(300 * time.Millisecond)
-			close(release)
+			if tt.unlocked {
+				require.Eventually(t, func() bool { return st.raft.Load().LastIndex() > appended },
+					10*time.Second, 10*time.Millisecond, "the second command waited for the first to apply")
+			} else {
+				// Time for the second command to be judged and appended, unless it
+				// waits for the first to apply.
+				time.Sleep(300 * time.Millisecond)
+			}
+			releaseOnce()
 
 			for _, done := range []<-chan error{blocker, firstDone} {
 				select {
@@ -156,7 +190,11 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 			}
 			select {
 			case err := <-secondDone:
-				require.ErrorContains(t, err, tt.wantErr)
+				if tt.wantErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, tt.wantErr)
+				}
 			case <-time.After(10 * time.Second):
 				t.Fatal("the second command never returned after the release")
 			}

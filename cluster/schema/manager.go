@@ -479,6 +479,9 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		if err := s.checkTenantNodesAreHomeNodes(req); err != nil {
 			return err
 		}
+		if err := s.checkTenantNodesCoverFactor(req); err != nil {
+			return err
+		}
 	}
 
 	switch req.Type {
@@ -586,10 +589,12 @@ func replicationFactor(class *models.Class) int64 {
 }
 
 // checkTenantNodesCoverFactor refuses a namespaced tenant add or explicit unfreeze
-// whose non-empty ClusterNodes are shorter than the class's factor. Apply runs it
-// against the factor as of the entry, which the node that built the list can lag.
-// TODO(v1.43): it and AddTenants' cut to the factor change what apply writes, so
-// keep both while any node can replay an entry that carries ClusterNodes.
+// whose non-empty ClusterNodes are shorter than the class's factor. Apply runs it again
+// for a factor raise, class create or completed freeze the leader had not applied.
+// TODO(v1.43): keep it and AddTenants' cut while any node can replay an entry with
+// ClusterNodes. The cut decides placement. For an add this check changes only the
+// error. For an unfreeze it keeps metaClass.UpdateTenants from changing the tenants
+// the update lists ahead of the one it unfreezes.
 func (s *SchemaManager) checkTenantNodesCoverFactor(req *command.ApplyRequest) error {
 	if _, ok := s.classNamespace(req.Class); !ok {
 		return nil

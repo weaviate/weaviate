@@ -131,9 +131,9 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
-// lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter checks req
-// against and returns the unlock. An UPDATE_NAMESPACE takes it exclusively.
-// Class creates, restores and updates share it, and so do tenant adds and updates.
+// lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter checks req against
+// and returns the unlock. An UPDATE_NAMESPACE takes it exclusively. Class creates, restores
+// and updates share it, as do tenant adds and the updates explicitUpdateCarriesNodes reports.
 func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
@@ -149,11 +149,31 @@ func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 		if ns == "" {
 			return func() {}, nil
 		}
+		if req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT {
+			carries, err := explicitUpdateCarriesNodes(req)
+			if err != nil {
+				return nil, err
+			}
+			if !carries {
+				return func() {}, nil
+			}
+		}
 		st.homeNodesLocks.RLock(ns)
 		return func() { st.homeNodesLocks.RUnlock(ns) }, nil
 	default:
 		return func() {}, nil
 	}
+}
+
+// explicitUpdateCarriesNodes reports whether a tenant update is explicit and carries
+// ClusterNodes. PreApplyFilter reads no list from any other update, so an
+// implicit activation or a change without a list waits on no home-node update.
+func explicitUpdateCarriesNodes(req *api.ApplyRequest) (bool, error) {
+	sub := &api.UpdateTenantsRequest{}
+	if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+		return false, fmt.Errorf("%w: unmarshal update-tenants subcommand: %w", schema.ErrBadRequest, err)
+	}
+	return !sub.ImplicitUpdateRequest && len(sub.ClusterNodes) > 0, nil
 }
 
 // updatedNamespace returns the name of the namespace an UPDATE_NAMESPACE changes.
@@ -185,8 +205,8 @@ func refuseUnknownFields(req *api.ApplyRequest) error {
 // rolling update and again on every replay of that entry. Refusing before the
 // append means no node ever sees a committed entry it has to reject, so the set
 // of commands checked here can grow without becoming a compatibility event.
-// SchemaManager.AddTenants and UpdateTenants check a tenant node list against
-// the class's factor at apply.
+// SchemaManager.PreApplyFilter checks a tenant node list against the class's
+// factor, and AddTenants and UpdateTenants check it again at apply.
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
