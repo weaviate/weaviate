@@ -26,94 +26,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// createRole's checks live in adapters/handlers/rest/authz, which imports rbac,
-// so the mirrors below repeat them and storeAs runs them in createRole's order.
-var mirrorBraceRe = regexp.MustCompile(`\{[^/]+\}`)
-
-func mirrorRegexTarget(v string) error {
-	if len(v) > 256 || strings.Contains(v, "/") {
-		return errors.New("length or slash")
-	}
-	_, err := regexp.Compile(mirrorBraceRe.ReplaceAllString(strings.ReplaceAll(v, "*", ".*"), "[^/]+"))
-	return err
-}
-
-func mirrorClassName(name string) error {
-	if ns, cls, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
-		if err := schema.ValidateNamespaceNameSyntax(ns); err != nil {
-			return err
-		}
-		name = cls
-	}
-	_, err := schema.ValidateClassNameIncludesRegex(name)
-	return err
-}
-
-func mirrorValidatePermission(p *models.Permission) error {
-	var errs []error
-	class := func(n *string) {
-		if n != nil {
-			u := schema.UppercaseClassName(*n)
-			errs = append(errs, mirrorClassName(u), mirrorRegexTarget(u))
-		}
-	}
-	tenant := func(n *string) {
-		if n != nil {
-			errs = append(errs, schema.ValidateTenantNameIncludesRegex(*n), mirrorRegexTarget(*n))
-		}
-	}
-	target := func(n *string) {
-		if n != nil {
-			errs = append(errs, mirrorRegexTarget(*n))
-		}
-	}
-	if c := p.Collections; c != nil {
-		class(c.Collection)
-	}
-	if c := p.Tenants; c != nil {
-		class(c.Collection)
-		tenant(c.Tenant)
-	}
-	if c := p.Data; c != nil {
-		class(c.Collection)
-		tenant(c.Tenant)
-	}
-	if c := p.Backups; c != nil {
-		class(c.Collection)
-	}
-	if c := p.Nodes; c != nil {
-		class(c.Collection)
-	}
-	if c := p.Replicate; c != nil {
-		class(c.Collection)
-		target(c.Shard)
-	}
-	if c := p.Users; c != nil {
-		target(c.Users)
-	}
-	if c := p.Groups; c != nil {
-		target(c.Group)
-	}
-	if c := p.Roles; c != nil {
-		target(c.Role)
-	}
-	if c := p.Aliases; c != nil {
-		class(c.Collection)
-		target(c.Alias)
-		if c.Alias != nil {
-			errs = append(errs, mirrorClassName(schema.UppercaseClassName(*c.Alias)))
-		}
-	}
-	if c := p.Namespaces; c != nil {
-		target(c.Namespace)
-	}
-	return errors.Join(errs...)
-}
-
 // storeAs returns the policies createRole would store for perm when submitted
-// by a caller confined to ns ("" = global operator), or an error if refused.
+// by a caller confined to ns ("" = global operator), or an error if refused. It
+// runs createRole's permission checks in order except authorizeRoleScopes, so
+// it assumes the caller already holds every permission perm grants.
 func storeAs(ns string, perm *models.Permission) ([]authorization.Policy, error) {
-	if err := mirrorValidatePermission(perm); err != nil {
+	if err := conv.ValidatePermissions(true, conv.CheckCreate, perm); err != nil {
 		return nil, err
 	}
 	name := "r"
@@ -122,32 +40,27 @@ func storeAs(ns string, perm *models.Permission) ([]authorization.Policy, error)
 		return nil, err
 	}
 	policies := byRole[name]
-	for _, p := range policies {
-		if err := conv.ValidateStorableCharacters(p.Resource); err != nil {
-			return nil, err
-		}
-		if _, err := regexp.Compile(keyMatch5Pattern(p.Resource)); err != nil {
-			return nil, err
-		}
-		if conv.ContainsNamespaceSeparator(p.Resource) && (ns != "" || !conv.IsOpaqueIDResource(p.Resource)) {
-			return nil, errors.New("qualified resource path")
-		}
+	if err := conv.ValidateStorablePolicies(policies); err != nil {
+		return nil, err
 	}
 	principal := &models.Principal{Namespace: ns, IsGlobalOperator: ns == ""}
+	if err := conv.ValidateNoQualifiedNamespaceInPolicies(true, principal, policies, false); err != nil {
+		return nil, err
+	}
 	if err := namespacing.QualifyRolePoliciesForCreate(principal, true, policies); err != nil {
 		return nil, err
 	}
-	for _, p := range policies {
-		if strings.HasPrefix(p.Resource, "roles/") && strings.HasSuffix(p.Verb, "_"+authorization.ROLE_SCOPE_ALL) {
-			return nil, errors.New("all-scoped roles")
-		}
+	if conv.HasAllScopedRolePermission(policies) {
+		return nil, errors.New("role grants cluster-wide role management")
 	}
 	return policies, nil
 }
 
+var keyMatch5BraceRe = regexp.MustCompile(`\{[^/]+\}`)
+
 // keyMatch5Pattern is the regex casbin's KeyMatch5 compiles for a policy.
 func keyMatch5Pattern(pol string) string {
-	return "^" + mirrorBraceRe.ReplaceAllString(strings.ReplaceAll(pol, "/*", "/.*"), "[^/]+") + "$"
+	return "^" + keyMatch5BraceRe.ReplaceAllString(strings.ReplaceAll(pol, "/*", "/.*"), "[^/]+") + "$"
 }
 
 // confinedTo reports whether a caller confined to ns may be granted req. That
