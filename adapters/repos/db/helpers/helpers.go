@@ -131,6 +131,51 @@ func HFreshDirName(indexID string) string {
 	return fmt.Sprintf("%s.hfresh.d", indexID)
 }
 
+// PostingEdgeDirName is the posting-edge index's own directory under the
+// shard: its meta, the mean of its quantizer, its centroids with their graph,
+// and the exact vectors it rescores with.
+func PostingEdgeDirName(indexID string) string {
+	return fmt.Sprintf("%s.postingedge.d", indexID)
+}
+
+// PostingEdgeBuildDirName is where a posting-edge index builds its first
+// postings, in memory, before it writes them. It is removed when the build
+// ends, and what a crash leaves of it is of no use.
+func PostingEdgeBuildDirName(indexID string) string {
+	return fmt.Sprintf("%s.postingedge.build", indexID)
+}
+
+// The LSM buckets a posting-edge index keeps in the store of its shard, by
+// what each holds.
+const (
+	PostingEdgeBucketPostings  = "postings"
+	PostingEdgeBucketMap       = "map"
+	PostingEdgeBucketRouting   = "routing"
+	PostingEdgeBucketEdgeDists = "edgedists"
+	PostingEdgeBucketDeleted   = "deleted"
+	PostingEdgeBucketStaging   = "staging"
+)
+
+// PostingEdgeBucketName is the name of one of the LSM buckets of a
+// posting-edge index. A shard has an index per named vector, so the name
+// carries the id of the index.
+func PostingEdgeBucketName(bucket, indexID string) string {
+	return fmt.Sprintf("postingedge_%s_%s", bucket, indexID)
+}
+
+// PostingEdgeBucketNames lists the LSM buckets of a posting-edge index.
+func PostingEdgeBucketNames(indexID string) []string {
+	kinds := []string{
+		PostingEdgeBucketPostings, PostingEdgeBucketMap, PostingEdgeBucketRouting,
+		PostingEdgeBucketEdgeDists, PostingEdgeBucketDeleted, PostingEdgeBucketStaging,
+	}
+	names := make([]string, len(kinds))
+	for i, kind := range kinds {
+		names[i] = PostingEdgeBucketName(kind, indexID)
+	}
+	return names
+}
+
 // HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.
 func HFreshPostingsBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_postings_%s", indexID)
@@ -178,7 +223,7 @@ func (a VectorIndexArtifacts) All() []string {
 func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	indexID := GetVectorsBucketName(targetVector)
 	return VectorIndexArtifacts{
-		LSMBuckets: []string{
+		LSMBuckets: append([]string{
 			indexID,                               // raw vectors
 			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
 			MuveraBucketName(indexID),             // multivector + muvera
@@ -192,11 +237,15 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			// do NOT need listing — they live inside the .hfresh.d directory
 			// below, which goes wholesale.
 			GetCompressedBucketName(targetVector + "_centroids"),
-		},
+		}, PostingEdgeBucketNames(indexID)...), // postingedge
 		ShardDirs: []string{
 			GetHNSWCommitLogDirName(targetVector),
 			GetHNSWSnapshotDirName(targetVector),
 			HFreshDirName(indexID),
+			// postingedge: its own directory, with its centroid graph in
+			// it, and the one of a first build that did not end.
+			PostingEdgeDirName(indexID),
+			PostingEdgeBuildDirName(indexID),
 			// The async-indexing queue. The live drop closes it via queue.Drop,
 			// but every files-only path (cold lazy shard, inactive tenant, crash
 			// before the live drop) leaves it — and DiskQueue.Init replays stale
@@ -217,7 +266,7 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 // write (the name-based list keys off "vectors").
 func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 	return VectorIndexArtifacts{
-		LSMBuckets: []string{
+		LSMBuckets: append([]string{
 			VectorsBucketNameForID(physicalID),
 			CompressedBucketNameForID(physicalID),
 			MuveraBucketName(physicalID),
@@ -225,11 +274,13 @@ func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 			HFreshPostingsBucketName(physicalID),
 			HFreshSharedBucketName(physicalID),
 			CompressedBucketNameForID(CentroidsID(physicalID)),
-		},
+		}, PostingEdgeBucketNames(physicalID)...),
 		ShardDirs: []string{
 			HNSWCommitLogDirNameForID(physicalID),
 			physicalID + ".hnsw.snapshot.d",
 			HFreshDirName(physicalID),
+			PostingEdgeDirName(physicalID),
+			PostingEdgeBuildDirName(physicalID),
 			FlatMetadataFileNameForID(physicalID),
 		},
 	}
