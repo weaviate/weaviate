@@ -70,6 +70,14 @@ func newGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, thre
 // consolidate is positive: the changes a row of edges is written after.
 func newGrowFixtureWith(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int) *growFixture {
 	t.Helper()
+	return newGrowFixtureRows(t, total, base, dims, cosine, bits, threshold, consolidate, false)
+}
+
+// newGrowFixtureRows is newGrowFixtureWith, with the rows of edges in the
+// bucket of postings, next to the members, when withMembers is set (v5.3).
+func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int, withMembers bool,
+) *growFixture {
+	t.Helper()
 	ctx := context.Background()
 	f := &growFixture{
 		all:      clusteredVectors(total, dims, 12, 4107),
@@ -102,7 +110,9 @@ func newGrowFixtureWith(t *testing.T, total, base, dims int, cosine bool, bits, 
 	}
 
 	f.dir = t.TempDir()
-	cfg := growConfig{keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7, consolidate: consolidate}
+	cfg := growConfig{
+		keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7, consolidate: consolidate, rowsWithMembers: withMembers,
+	}
 	require.NoError(t, writeGrowIndex(ctx, testLogger(), f.dir, st, cfg, f.provider, vectorOf))
 	f.twin, err = newStreamIndex(index, total, streamConfig{threshold: threshold, inverse: true, seed: 7, followGraph: true}, vectorOf)
 	require.NoError(t, err)
@@ -501,19 +511,21 @@ func TestGrowReorganized(t *testing.T) {
 	tests := []struct {
 		name        string
 		consolidate int
+		withMembers bool
 	}{
 		{name: "a value per list of edges"},
 		{name: "the rows of edges consolidated", consolidate: 8},
+		{name: "the rows of edges next to the members", consolidate: 8, withMembers: true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) { growReorganizedCase(t, tt.consolidate) })
+		t.Run(tt.name, func(t *testing.T) { growReorganizedCase(t, tt.consolidate, tt.withMembers) })
 	}
 }
 
-func growReorganizedCase(t *testing.T, consolidate int) {
+func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
 	ctx := context.Background()
 	const total, base, dims = 2000, 1000, 64
-	f := newGrowFixtureWith(t, total, base, dims, false, 64, 60, consolidate)
+	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, consolidate, withMembers)
 	for f.inserted < total {
 		difference, err := f.insert(ctx)
 		require.NoError(t, err)
@@ -560,21 +572,28 @@ func growReorganizedCase(t *testing.T, consolidate int) {
 			require.Greater(t, len(before), len(entries), "the index it comes from had more")
 			if consolidate > 0 {
 				// The rows of edges are one segment too, each the row of its
-				// posting with its lists in the order of the members.
-				require.NotNil(t, cell.edges)
-				rows := 0
-				entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketEdges))
-				require.NoError(t, err)
-				for _, entry := range entries {
-					if filepath.Ext(entry.Name()) == ".db" {
-						rows++
+				// posting with its lists in the order of the members: in
+				// their own bucket, or in that of the postings.
+				require.Equal(t, withMembers, cell.meta.RowsWithMembers)
+				if withMembers {
+					require.Nil(t, cell.edges)
+					require.NoDirExists(t, filepath.Join(dir, diskStoreDir, growBucketEdges))
+				} else {
+					require.NotNil(t, cell.edges)
+					rows := 0
+					entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketEdges))
+					require.NoError(t, err)
+					for _, entry := range entries {
+						if filepath.Ext(entry.Name()) == ".db" {
+							rows++
+						}
 					}
+					require.Equal(t, 1, rows, "the bucket of rows of edges is one segment")
 				}
-				require.Equal(t, 1, rows, "the bucket of rows of edges is one segment")
 				var dp diskPosting
 				var row growBlock
 				for p := range uint32(cell.meta.Postings) {
-					block, err := cell.edges.Get(growPostingKey(p))
+					block, err := cell.getRow(p)
 					require.NoError(t, err)
 					if cell.retired[p] {
 						require.Nil(t, block, "posting %d is retired", p)
@@ -634,8 +653,20 @@ func growReorganizedCase(t *testing.T, consolidate int) {
 // v2.x at every insert, with the changes to its edges waiting in memory, and
 // with everything written it is the same index in its store: the rows of
 // edges are written whole after so many changes, when a posting splits and
-// when the index closes, and nothing else writes an edge.
+// when the index closes, and nothing else writes an edge. With the rows in a
+// bucket of their own (v5.1) and with them in the bucket of postings, next
+// to the members (v5.3), where writing a row again takes the old one out.
 func TestGrowConsolidatedEqualsMemory(t *testing.T) {
+	for _, withMembers := range []bool{false, true} {
+		name := "rows in a bucket of their own"
+		if withMembers {
+			name = "rows next to the members"
+		}
+		t.Run(name, func(t *testing.T) { growConsolidatedCases(t, withMembers) })
+	}
+}
+
+func growConsolidatedCases(t *testing.T, withMembers bool) {
 	ctx := context.Background()
 	tests := []struct {
 		name string
@@ -662,12 +693,13 @@ func TestGrowConsolidatedEqualsMemory(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const total, base, dims = 2200, 1000, 64
-			f := newGrowFixtureWith(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, tt.k)
+			f := newGrowFixtureRows(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, tt.k, withMembers)
 			if tt.leveled {
 				f.leveled = true
 				f.reopen(t)
 			}
-			require.NotNil(t, f.g.edges)
+			require.Equal(t, !withMembers, f.g.edges != nil, "the bucket of rows of edges")
+			require.True(t, f.g.consolidated())
 			f.same(t, "the base")
 			var rows, atClose int
 			for f.inserted < total {
@@ -697,6 +729,11 @@ func TestGrowConsolidatedEqualsMemory(t *testing.T) {
 			if tt.k < 100 {
 				assert.Positive(t, f.g.stats.RowWritesFull, "rows are written after %d changes", tt.k)
 				assert.Positive(t, f.g.stats.PendingPeak)
+				if withMembers {
+					assert.Positive(t, f.g.stats.RowTombstones.N, "a row written again takes the old one out")
+				} else {
+					assert.Zero(t, f.g.stats.RowTombstones.N)
+				}
 			} else {
 				assert.Zero(t, f.g.stats.RowWritesFull, "no posting gets to %d changes", tt.k)
 				assert.NotEmpty(t, f.g.pending, "the changes since the last split wait")
@@ -729,10 +766,20 @@ func TestGrowConsolidatedEqualsMemory(t *testing.T) {
 			if tt.k > 1 {
 				assert.Positive(t, atClose+rows, "rows are written")
 			}
-			// No list lives in the bucket of postings.
+			// No list lives in the bucket of postings. With the rows of
+			// edges next to the members, the key of the lists of a live
+			// posting holds its row, one value. A retired one holds
+			// nothing after the compaction, which skips its keys.
 			for p := range uint32(f.g.meta.Postings) {
 				lists, err := f.g.postings.SetList(diskKey(p, diskBlockEdges))
 				require.NoError(t, err)
+				if withMembers && !f.g.retired[p] {
+					require.Len(t, lists, 1, "posting %d", p)
+					var row growBlock
+					require.NoError(t, row.decode(lists[0]), "posting %d", p)
+					require.Len(t, row.ids, int(f.g.size[p]), "posting %d", p)
+					continue
+				}
 				require.Empty(t, lists, "posting %d", p)
 			}
 		})
@@ -813,14 +860,16 @@ func TestGrowRowCount(t *testing.T) {
 	tests := []struct {
 		name        string
 		consolidate int
+		withMembers bool
 	}{
 		{name: "a value per list of edges"},
 		{name: "the rows of edges consolidated", consolidate: 8},
+		{name: "the rows of edges next to the members", consolidate: 8, withMembers: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const total, base, dims, k = 1600, 1000, 64, 10
-			f := newGrowFixtureWith(t, total, base, dims, false, 64, 60, tt.consolidate)
+			f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, tt.consolidate, tt.withMembers)
 			for f.inserted < total {
 				difference, err := f.insert(ctx)
 				require.NoError(t, err)
@@ -897,4 +946,61 @@ func TestGrowRowCount(t *testing.T) {
 			require.ErrorContains(t, err, "no counter")
 		})
 	}
+}
+
+// With the rows of edges next to the members (v5.3) the key of the row of a
+// posting holds one value. A store that holds two stops whatever reads the
+// row: a search that loads the posting, and the write of its row. And the
+// format is told apart when the index is written: it needs consolidated
+// edges.
+func TestGrowRowsNextToMembersStop(t *testing.T) {
+	ctx := context.Background()
+	const total, base, dims = 1100, 1000, 64
+	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, 4, true)
+	g := f.g
+	require.Nil(t, g.edges)
+	require.True(t, g.meta.RowsWithMembers)
+	require.NoDirExists(t, filepath.Join(f.dir, diskStoreDir, growBucketEdges))
+
+	// A row written again leaves one row, and the count of what it took out.
+	p := uint32(0)
+	old, err := g.getRow(p)
+	require.NoError(t, err)
+	require.NotNil(t, old)
+	var row growBlock
+	require.NoError(t, row.decode(old))
+	require.NoError(t, g.putRow(p, old, old), "the same row written again writes nothing")
+	require.Zero(t, g.stats.RowTombstones.N)
+	changed := slices.Clone(old)
+	changed[len(changed)-1] ^= 1
+	require.NoError(t, g.putRow(p, old, changed))
+	require.Equal(t, int64(1), g.stats.RowTombstones.N)
+	require.Equal(t, int64(len(old)), g.stats.RowTombstones.Bytes)
+	got, err := g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, changed, got)
+	require.NoError(t, g.putRow(p, changed, old))
+	got, err = g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, old, got)
+	f.same(t, "with the row of a posting written three times")
+
+	// A second value under the key of the row: the store holds two.
+	require.NoError(t, g.postings.SetAdd(diskKey(p, diskBlockEdges), [][]byte{changed}))
+	_, err = g.getRow(p)
+	require.ErrorContains(t, err, "STOP: the store holds 2 rows of edges for posting 0")
+	var dp diskPosting
+	require.ErrorContains(t, g.fetchLists(p, &dp), "STOP: the store holds 2 rows")
+	require.NoError(t, g.postings.SetDeleteSingle(diskKey(p, diskBlockEdges), changed))
+	got, err = g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, old, got)
+
+	// The rows next to the members are rows: without consolidated edges
+	// there is none.
+	st := f.index.state.Load()
+	err = writeGrowIndex(ctx, testLogger(), t.TempDir(), st, growConfig{
+		keys: total, neighbors: f.uc.Edges, threshold: 60, seed: 7, rowsWithMembers: true,
+	}, f.provider, func(id uint64) []float32 { return f.all[id] })
+	require.ErrorContains(t, err, "only with consolidated edges")
 }

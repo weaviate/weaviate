@@ -12,6 +12,7 @@
 package postingedge
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -121,6 +122,13 @@ type growMeta struct {
 	// the posting splits and when the index closes. With 0 every change is
 	// a value of its own in the bucket of postings, as in v5.0.
 	Consolidate int `json:"consolidate,omitempty"`
+	// RowsWithMembers, with Consolidate, has the row of edges of a posting
+	// in the bucket of postings, as the one value of the key next to that
+	// of its members, instead of in a bucket of its own (v5.3,
+	// bench-report.md, "v5.3: la fila de aristas en un valor, junto a la de
+	// miembros"). A Set cannot replace a value: writing the row again takes
+	// the old one out, with a tombstone that carries it, and adds the new.
+	RowsWithMembers bool `json:"rowsWithMembers,omitempty"`
 }
 
 // growIO counts reads or writes: how many, and their bytes.
@@ -185,11 +193,15 @@ type growStats struct {
 	// With consolidated edges: the rows of edges written whole, by what had
 	// them written, the rows read to be written again, the distances written
 	// with them, and what waited in memory at its most.
-	RowWrites        growIO `json:"rowWrites"`
-	RowWritesFull    int    `json:"rowWritesFull"`
-	RowWritesSplit   int    `json:"rowWritesSplit"`
-	RowWritesClose   int    `json:"rowWritesClose"`
-	RowReads         growIO `json:"rowReads"`
+	RowWrites      growIO `json:"rowWrites"`
+	RowWritesFull  int    `json:"rowWritesFull"`
+	RowWritesSplit int    `json:"rowWritesSplit"`
+	RowWritesClose int    `json:"rowWritesClose"`
+	RowReads       growIO `json:"rowReads"`
+	// RowTombstones counts the rows taken out of the bucket of postings to
+	// be written again or because their posting was retired, where the rows
+	// of edges live next to the members: each is a tombstone with the row.
+	RowTombstones    growIO `json:"rowTombstones"`
 	RowDists         growIO `json:"rowDistWrites"`
 	RowDeletes       int    `json:"rowDeletes"`
 	StoreRows        growIO `json:"storeRowReads"`
@@ -530,6 +542,9 @@ type growConfig struct {
 	// consolidate, when positive, has the edges consolidated: the changes
 	// a row of edges is written after (growMeta.Consolidate).
 	consolidate int
+	// rowsWithMembers has those rows in the bucket of postings, next to the
+	// members (growMeta.RowsWithMembers).
+	rowsWithMembers bool
 }
 
 // writeGrowIndex writes an index built in batch to dir, which must exist and
@@ -539,6 +554,9 @@ type growConfig struct {
 func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, st *state, cfg growConfig,
 	provider distancer.Provider, vectorOf func(docID uint64) []float32,
 ) (err error) {
+	if cfg.rowsWithMembers && cfg.consolidate <= 0 {
+		return errors.New("the rows of edges go next to the members only with consolidated edges")
+	}
 	if st == nil {
 		return ErrNotBuilt
 	}
@@ -577,7 +595,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		Version: growFormatVersion, Distance: provider.Type(), Dims: st.dims, Keys: cfg.keys,
 		ScanCodeWords: store.codeWords, RoutingBits: routingBits, RoutingCodeWords: st.side.codeWords,
 		Neighbors: cfg.neighbors, Threshold: cfg.threshold, Seed: cfg.seed, Postings: postings, Live: n,
-		Consolidate: cfg.consolidate,
+		Consolidate: cfg.consolidate, RowsWithMembers: cfg.rowsWithMembers,
 	}
 	path := func(name string) string { return filepath.Join(dir, name) }
 	if err := writeArray(path(diskMeanFile), 4, putFloat32, quantizer.Data().Mean); err != nil {
@@ -656,7 +674,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 			if err != nil {
 				return err
 			}
-			if err := g.edges.Put(growPostingKey(uint32(p)), block); err != nil {
+			if err := g.putRow(uint32(p), nil, block); err != nil {
 				return errors.Wrapf(err, "write the row of edges of posting %d", p)
 			}
 		} else if err := g.postings.SetAdd(diskKey(uint32(p), diskBlockEdges), lists); err != nil {
@@ -721,7 +739,7 @@ func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 		return errors.Wrap(err, "open the bucket of postings")
 	}
 	replace := []string{growBucketMap, growBucketRouting, growBucketDists}
-	if g.meta.Consolidate > 0 {
+	if g.meta.Consolidate > 0 && !g.meta.RowsWithMembers {
 		replace = append(replace, growBucketEdges)
 	}
 	for _, name := range replace {
@@ -734,7 +752,9 @@ func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 	g.postings, g.posts = store.Bucket(growBucketPostings), store.Bucket(growBucketMap)
 	g.routing, g.dists = store.Bucket(growBucketRouting), store.Bucket(growBucketDists)
 	if g.meta.Consolidate > 0 {
-		g.edges = store.Bucket(growBucketEdges)
+		if !g.meta.RowsWithMembers {
+			g.edges = store.Bucket(growBucketEdges)
+		}
 		g.pending = make(map[uint32]*growPending)
 	}
 	return nil
@@ -746,6 +766,64 @@ func (g *growIndex) buckets() []*lsmkv.Bucket {
 		buckets = append(buckets, g.edges)
 	}
 	return buckets
+}
+
+// consolidated tells whether the edges of a posting are one row, written
+// whole (v5.1 and v5.3).
+func (g *growIndex) consolidated() bool { return g.meta.Consolidate > 0 }
+
+// getRow reads the row of edges of posting p of an index with consolidated
+// edges: nil if it has none. Next to the members it is the one value of its
+// key, and the store holding more than one stops whatever asked.
+func (g *growIndex) getRow(p uint32) ([]byte, error) {
+	if !g.meta.RowsWithMembers {
+		return g.edges.Get(growPostingKey(p))
+	}
+	values, err := g.postings.SetList(diskKey(p, diskBlockEdges))
+	if err != nil {
+		return nil, err
+	}
+	switch len(values) {
+	case 0:
+		return nil, nil
+	case 1:
+		return values[0], nil
+	}
+	return nil, errors.Errorf("STOP: the store holds %d rows of edges for posting %d, not one", len(values), p)
+}
+
+// putRow writes the row of edges of posting p, whose row so far is old, nil
+// if it has none. In a bucket of its own the new row replaces it. Next to the
+// members there is no replacing: the old row is taken out, with a tombstone
+// that carries it, and the new one is added.
+func (g *growIndex) putRow(p uint32, old, block []byte) error {
+	if !g.meta.RowsWithMembers {
+		return g.edges.Put(growPostingKey(p), block)
+	}
+	if old != nil {
+		if bytes.Equal(old, block) {
+			return nil
+		}
+		if err := g.postings.SetDeleteSingle(diskKey(p, diskBlockEdges), slices.Clone(old)); err != nil {
+			return err
+		}
+		g.stats.RowTombstones.add(1, len(old))
+	}
+	return g.postings.SetAdd(diskKey(p, diskBlockEdges), [][]byte{block})
+}
+
+// dropRow takes out the row of edges of posting p, which is retired. Next to
+// the members there is nothing to write: the keys of a retired posting are
+// the ones the store is told to skip (skipKey), its row of edges with its
+// row of members, as in v5.0. A tombstone for it would be skipped too, when
+// its memtable is flushed, and the row it takes out may be in an older
+// segment: until a compaction gets to it the store still holds that row,
+// which nothing reads, because the posting is never loaded again.
+func (g *growIndex) dropRow(p uint32) error {
+	if !g.meta.RowsWithMembers {
+		return g.edges.Delete(growPostingKey(p))
+	}
+	return nil
 }
 
 // flushAll writes every memtable to a segment.
@@ -1089,9 +1167,9 @@ func (g *growIndex) fetchMembers(p uint32, dp *diskPosting) error {
 }
 
 func (g *growIndex) fetchLists(p uint32, dp *diskPosting) error {
-	if g.edges != nil {
+	if g.consolidated() {
 		// One value with the whole row, the last one written.
-		block, err := g.edges.Get(growPostingKey(p))
+		block, err := g.getRow(p)
 		if err != nil {
 			return errors.Wrapf(err, "read the row of edges of posting %d", p)
 		}
@@ -1538,7 +1616,7 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 		return errors.Wrap(err, "write a routing code")
 	}
 	g.touched = g.touched[:0]
-	if g.edges != nil {
+	if g.consolidated() {
 		// Its list and its distances wait with the other changes of its
 		// posting.
 		g.setPending(p, docID, edges, edgeDists)
@@ -1562,7 +1640,7 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 	g.stats.MemberMap.add(1, 4)
 	g.stats.MemberRouting.add(1, len(routingValue))
 	g.stats.MemberVector.add(1, len(raw))
-	if g.edges == nil {
+	if !g.consolidated() {
 		g.stats.OwnEdges.add(1, len(list))
 		g.stats.OwnDists.add(1, len(distsValue))
 	}
@@ -1602,7 +1680,7 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 		g.stats.SplitTime += time.Since(clock)
 	}
 
-	if g.edges != nil {
+	if g.consolidated() {
 		// The rows of edges of the postings this insert changed, once they
 		// have their share of changes. A posting that split has none left.
 		clock = time.Now()
@@ -1785,7 +1863,7 @@ func (g *growIndex) enterNeighbors(docID uint64, vector []float32, p uint32, nei
 		if err != nil {
 			return err
 		}
-		if read > 0 || g.edges == nil {
+		if read > 0 || !g.consolidated() {
 			g.stats.InverseDists.add(1, read)
 		}
 		if len(edgeDists) != len(edges) {
@@ -1816,7 +1894,7 @@ func (g *growIndex) enterNeighbors(docID uint64, vector []float32, p uint32, nei
 
 		// The list of the neighbor changes without its row being read or
 		// written again: the new list goes in, and a tombstone of the old one.
-		if g.edges != nil {
+		if g.consolidated() {
 			// With consolidated edges the new list waits in memory, with its
 			// distances, until the row of its posting is written.
 			g.setPending(q, u, updated, updatedDists)
@@ -1923,13 +2001,13 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	for i, docID := range dp.docIDs {
 		c := sideOf[i]
 		rows[c][0] = append(rows[c][0], growMemberValue(docID, dp.codes[i*words:(i+1)*words]))
-		if g.edges != nil {
+		if g.consolidated() {
 			halfIDs[c], halfLists[c] = append(halfIDs[c], docID), append(halfLists[c], slices.Clone(dp.edgesOfMember(i)))
 			continue
 		}
 		rows[c][1] = append(rows[c][1], growEdgesValue(docID, dp.edgesOfMember(i)))
 	}
-	if g.edges != nil {
+	if g.consolidated() {
 		// The rows of edges of the halves are written whole, with what
 		// waited of the posting in them, and the distances that waited go
 		// to their bucket. The row of the posting itself is deleted.
@@ -1938,7 +2016,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 			if err != nil {
 				return err
 			}
-			if err := g.edges.Put(growPostingKey(first+c), block); err != nil {
+			if err := g.putRow(first+c, nil, block); err != nil {
 				return errors.Wrapf(err, "write the row of edges of posting %d", first+c)
 			}
 			g.stats.RowWrites.add(1, len(block))
@@ -1947,7 +2025,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 		if err := g.dropPending(p, true); err != nil {
 			return err
 		}
-		if err := g.edges.Delete(growPostingKey(p)); err != nil {
+		if err := g.dropRow(p); err != nil {
 			return errors.Wrapf(err, "delete the row of edges of posting %d", p)
 		}
 		g.stats.RowDeletes++
@@ -2021,7 +2099,7 @@ func (dp *diskPosting) edgesOfMember(i int) []uint32 {
 // of its members: from its lists, one value each, or, with consolidated
 // edges, from its row with what waits in memory over it.
 func (g *growIndex) joinLists(p uint32, dp *diskPosting) error {
-	if g.edges == nil {
+	if !g.consolidated() {
 		return dp.joinEdges(p)
 	}
 	row := &dp.row
@@ -2151,7 +2229,7 @@ func (g *growIndex) writeRow(p uint32, why *int) error {
 	if pend == nil {
 		return nil
 	}
-	old, err := g.edges.Get(growPostingKey(p))
+	old, err := g.getRow(p)
 	if err != nil {
 		return errors.Wrapf(err, "read the row of edges of posting %d", p)
 	}
@@ -2183,7 +2261,7 @@ func (g *growIndex) writeRow(p uint32, why *int) error {
 	if err != nil {
 		return err
 	}
-	if err := g.edges.Put(growPostingKey(p), block); err != nil {
+	if err := g.putRow(p, old, block); err != nil {
 		return errors.Wrapf(err, "write the row of edges of posting %d", p)
 	}
 	g.stats.RowWrites.add(1, len(block))
@@ -2194,7 +2272,7 @@ func (g *growIndex) writeRow(p uint32, why *int) error {
 // flushPending writes the row of edges of every posting that has changes
 // waiting. After it nothing waits: what the index is, is in its store.
 func (g *growIndex) flushPending() error {
-	if g.edges == nil {
+	if !g.consolidated() {
 		return nil
 	}
 	postings := make([]uint32, 0, len(g.pending))
@@ -2290,11 +2368,16 @@ func (g *growIndex) checkCoverage() error {
 			if st.centroids.graph.ContainsDoc(uint64(p)) {
 				return errors.Errorf("retired posting %d is still in the centroid graph", p)
 			}
-			if g.edges != nil {
+			if g.consolidated() {
 				// Its row of edges went with it, and nothing of it waits.
-				row, err := g.edges.Get(growPostingKey(p))
-				if err != nil {
-					return errors.Wrapf(err, "read the row of edges of posting %d", p)
+				// Next to the members the store may still hold the row,
+				// with the members, until a compaction skips its keys.
+				var row []byte
+				if !g.meta.RowsWithMembers {
+					var err error
+					if row, err = g.getRow(p); err != nil {
+						return errors.Wrapf(err, "read the row of edges of posting %d", p)
+					}
 				}
 				if row != nil || g.pending[p] != nil {
 					return errors.Errorf("retired posting %d still has a row of edges, or changes waiting", p)
@@ -2317,7 +2400,7 @@ func (g *growIndex) checkCoverage() error {
 		if len(dp.docIDs) == 0 {
 			return errors.Errorf("live posting %d is empty", p)
 		}
-		if g.edges != nil {
+		if g.consolidated() {
 			// Its row of edges and what waits hold a list for its members
 			// and for nobody else: joinLists found one for each.
 			lists := len(dp.row.ids)
@@ -2527,14 +2610,14 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 		members, lists := make([][]byte, n), make([][]byte, n)
 		// With consolidated edges, the lists of the row, by member.
 		var rowLists [][]uint32
-		if src.edges != nil {
+		if src.consolidated() {
 			rowLists = make([][]uint32, n)
 		}
 		batch = batch[:0]
 		first := slot
 		for i, docID := range dp.docIDs {
 			members[i] = growMemberValue(docID, dp.codes[i*words:(i+1)*words])
-			if src.edges != nil {
+			if src.consolidated() {
 				rowLists[i] = dp.edgesOfMember(i)
 			} else {
 				lists[i] = growEdgesValue(docID, dp.edgesOfMember(i))
@@ -2551,12 +2634,12 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 		if err := dst.postings.SetAdd(diskKey(p, diskBlockMembers), members); err != nil {
 			return errors.Wrapf(err, "write the members of posting %d", p)
 		}
-		if src.edges != nil {
+		if src.consolidated() {
 			block, err := growEdgesBlock(dp.docIDs, rowLists)
 			if err != nil {
 				return errors.Wrapf(err, "the row of edges of posting %d", p)
 			}
-			if err := dst.edges.Put(growPostingKey(p), block); err != nil {
+			if err := dst.putRow(p, nil, block); err != nil {
 				return errors.Wrapf(err, "write the row of edges of posting %d", p)
 			}
 		} else if err := dst.postings.SetAdd(diskKey(p, diskBlockEdges), lists); err != nil {
