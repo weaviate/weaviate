@@ -140,32 +140,9 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return nil
 	}
 
-	newPostingIDs := make([]uint64, 2)
-	for i := range 2 {
-		newPostingID, err := h.IDs.Next()
-		if err != nil {
-			return errors.Wrap(err, "failed to allocate new posting ID during split operation")
-		}
-		newPostingIDs[i] = newPostingID
-		err = h.PostingStore.Put(ctx, newPostingID, result[i].Posting)
-		if err != nil {
-			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
-		}
-		// allocate and set posting size after successful persist
-		err = h.setPostingVectorIDs(ctx, newPostingID, result[i].Posting)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
-		}
-
-		// add the new centroid to the SPTAG index
-		err = h.Centroids.Insert(newPostingID, &Centroid{
-			Uncompressed: result[i].Uncompressed,
-			Compressed:   result[i].Centroid,
-			Deleted:      false,
-		})
-		if err != nil {
-			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
-		}
+	newPostingIDs, err := h.addSplitPostings(ctx, result)
+	if err != nil {
+		return err
 	}
 
 	// delete the old centroid
@@ -212,6 +189,38 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 
 	return nil
+}
+
+// addSplitPostings persists the postings of a split and adds their centroids.
+func (h *HFresh) addSplitPostings(ctx context.Context, result []SplitResult) ([]uint64, error) {
+	newPostingIDs := make([]uint64, len(result))
+	for i := range result {
+		newPostingID, err := h.IDs.Next()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to allocate new posting ID during split operation")
+		}
+		newPostingIDs[i] = newPostingID
+		err = h.PostingStore.Put(ctx, newPostingID, result[i].Posting)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
+		}
+		// allocate and set posting size after successful persist
+		err = h.setPostingVectorIDs(ctx, newPostingID, result[i].Posting)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
+		}
+
+		// add the new centroid to the SPTAG index
+		err = h.Centroids.Insert(newPostingID, &Centroid{
+			Uncompressed: result[i].Uncompressed,
+			Compressed:   result[i].Centroid,
+			Deleted:      false,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
+		}
+	}
+	return newPostingIDs, nil
 }
 
 // splitPosting takes a posting and returns two groups.
