@@ -474,10 +474,10 @@ func TestFirstSplitSurvivesLostCommitLogDirectory(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
-// A backup captures the centroid graph's commit log before the queues, which
-// keep running: the first split must wait for the backup to end, or the
-// backup holds its children without the graph.
-func TestFirstSplitWaitsForBackup(t *testing.T) {
+// The queues keep running during a backup, and so does the first split: a
+// backup that misses the new graph restores the single posting or is repaired
+// at startup.
+func TestFirstSplitRunsDuringBackup(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
 
@@ -485,12 +485,11 @@ func TestFirstSplitWaitsForBackup(t *testing.T) {
 	require.NoError(t, index.PrepareForBackup(t.Context()))
 	all := addRestartVectors(t, index, vectors, 0, 600)
 	index.waitForMaintenance(t)
-	require.False(t, index.Centroids.Built(), "the first split must wait for the backup")
-	requireSinglePostingSize(t, index, 600)
+	require.True(t, index.Centroids.Built())
+	requireSelfSearchExcept(t, index, all, -1)
 
 	require.NoError(t, index.ResumeAfterBackup(t.Context()))
 	index.waitForMaintenance(t)
-	require.True(t, index.Centroids.Built())
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
