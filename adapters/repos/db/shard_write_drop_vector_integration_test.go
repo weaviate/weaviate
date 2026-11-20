@@ -762,3 +762,46 @@ func TestMergeObject_FailsOnAMissingIndexOfACarriedOverVector(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.Vectors)
 }
+
+// A drop during a rebuild frees both indexes the task names, whichever one
+// the mapping names, and removes the task with the record.
+func TestDropVectorIndex_RemovesBothIndexesOfARebuild(t *testing.T) {
+	tests := []struct {
+		name    string
+		mapping string
+	}{
+		{name: "the mapping names the source", mapping: "vectors_foo"},
+		{name: "the mapping names the candidate", mapping: testCandidateID},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			if tt.mapping != "vectors_foo" {
+				shard = reloadAfter(t, ctx, shard, class, func() {
+					withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+						require.NoError(t, m.Put("foo", recorded(shard, "foo", tt.mapping, "ready")))
+					})
+				})
+				require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "two", true)))
+			}
+			plantVectorIndexFiles(t, shard, testCandidateID)
+			require.NotEmpty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			require.NoError(t, shard.tasks.Put("foo", fooRebuildTask("hnsw", "hnsw")))
+
+			markDropped(class, "foo")
+			require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, testCandidateID))
+			_, ok, err := shard.mapping.Get("foo")
+			require.NoError(t, err)
+			assert.False(t, ok)
+			_, ok, err = shard.tasks.Get("foo")
+			require.NoError(t, err)
+			assert.False(t, ok)
+			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+		})
+	}
+}

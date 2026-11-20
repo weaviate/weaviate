@@ -1173,6 +1173,51 @@ func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
 	assert.NoError(t, err, "nothing deleted on a refused record")
 }
 
+// The cold sweep of a vector being rebuilt deletes both indexes the task
+// names, then the task, then the record; with no record left, both indexes
+// still go.
+func TestRemoveVectorIndexFiles_RemovesBothIndexesOfARebuild(t *testing.T) {
+	tests := []struct {
+		name     string
+		recorded bool
+	}{
+		{name: "with the record", recorded: true},
+		{name: "after the record went", recorded: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			require.NoError(t, shard.Shutdown(ctx))
+			plantVectorIndexFiles(t, shard, testCandidateID)
+			require.NotEmpty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			withOfflineTasks(t, shard.path(), func(tasks *vectorIndexTasks) {
+				require.NoError(t, tasks.Put("foo", fooRebuildTask("hnsw", "hfresh")))
+			})
+			if !tt.recorded {
+				withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+					require.NoError(t, m.Delete("foo"))
+				})
+			}
+
+			markDropped(class, "foo")
+			h := newVectorDropIndexHelper()
+			require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "foo", otherTargetVectors(class, "foo")))
+
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, testCandidateID))
+			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+			tasks, err := readVectorIndexTasksOffline(shard.path(), []string{"foo"})
+			require.NoError(t, err)
+			assert.Empty(t, tasks)
+			_, ok, _, err := readVectorIndexRecordOffline(shard.path(), "foo")
+			require.NoError(t, err)
+			assert.False(t, ok)
+		})
+	}
+}
+
 // A drop that failed part-way leaves a dropping record and files, here an
 // upgraded dynamic index whose state key is gone and whose commit log
 // survives. When the schema has the name again, the load finishes the drop
