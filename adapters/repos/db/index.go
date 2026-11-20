@@ -4848,9 +4848,13 @@ func (i *Index) shardForStatusRead(shardName string) (shard ShardLike, cold bool
 
 	shard = i.shards.Load(shardName)
 	if lazy, ok := shard.(*LazyLoadShard); ok {
-		loaded := lazy.currentShard()
 		// TryUnload releases the create lock once the shard is shut, so its teardown reads as cold.
-		if loaded == nil || lazy.unloadPhase.Load() == unloadPhaseTearing {
+		// Phase first: a teardown ending between the two reads leaves nil, never its shut shard.
+		if lazy.unloadPhase.Load() == unloadPhaseTearing {
+			return nil, true, func() {}, nil
+		}
+		loaded := lazy.currentShard()
+		if loaded == nil {
 			return nil, true, func() {}, nil
 		}
 		shard = loaded // a vector-index drop holds the lazy mutex for the whole drop
