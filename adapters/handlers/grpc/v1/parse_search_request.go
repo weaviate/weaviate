@@ -400,10 +400,14 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Rerank != nil {
+		rerank := extractRerank(req)
+		if err := rerank.Validate(class); err != nil {
+			return dto.GetParams{}, err
+		}
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
+		out.AdditionalProperties.ModuleParams["rerank"] = rerank
 	}
 
 	if req.Boost != nil {

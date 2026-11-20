@@ -29,7 +29,7 @@ func New(logger logrus.FieldLogger) *client {
 	}
 }
 
-func (c *client) Rank(ctx context.Context, query string, documents []string,
+func (c *client) Rank(ctx context.Context, query, property string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	documentScores := make([]ent.DocumentScore, 0, len(documents))
