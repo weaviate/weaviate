@@ -83,7 +83,7 @@ var (
 		"compacts by levels, its default, and what was replaced piles up between compactions")
 	benchGrowOne = flag.String("bench.growone", "", "with TestGrowReorganize: the directory of the first cell of the "+
 		"control, the index of -bench.growdir with its bucket of postings written again as one segment. It must not "+
-		"exist, or be empty")
+		"exist, or be empty. Without it that cell is left out")
 	benchGrowOrdered = flag.String("bench.growordered", "", "with TestGrowReorganize: the directory of the second "+
 		"cell, the first one with its exact vectors in posting order besides")
 	benchGrowK = flag.Int("bench.growk", 0, "with TestGrowValidate and TestGrowTimedInserts: consolidated edges (v5.1), "+
@@ -1207,8 +1207,8 @@ type growReorgResult struct {
 // for every query at both operating points: if not, it stops. With the store
 // counting, it leaves what a load reads in each layout.
 func TestGrowReorganize(t *testing.T) {
-	if *benchDatasetDir == "" || *benchGrowDir == "" || *benchGrowManifest == "" || *benchGrowOne == "" || *benchGrowOrdered == "" {
-		t.Skip("no -bench.dataset, -bench.growdir, -bench.growmanifest, -bench.growone and -bench.growordered given")
+	if *benchDatasetDir == "" || *benchGrowDir == "" || *benchGrowManifest == "" || *benchGrowOrdered == "" {
+		t.Skip("no -bench.dataset, -bench.growdir, -bench.growmanifest and -bench.growordered given")
 	}
 	require.NotEmpty(t, *benchOut, "TestGrowReorganize writes its result to -bench.out")
 	ctx := context.Background()
@@ -1340,6 +1340,11 @@ func TestGrowReorganize(t *testing.T) {
 		{name: "one segment, vectors in posting order", dir: *benchGrowOrdered, order: true},
 	}
 	for _, cell := range cells {
+		if cell.dir == "" {
+			// Without -bench.growone the first cell is left out: the
+			// combined control of v5.1 only wants the second.
+			continue
+		}
 		require.NoError(t, os.MkdirAll(cell.dir, 0o755))
 		begin := time.Now()
 		require.NoError(t, reorganizeGrowIndex(ctx, logger, src, cell.dir, cell.order))
@@ -1353,5 +1358,8 @@ func TestGrowReorganize(t *testing.T) {
 		write()
 		require.Equal(t, "the same as the index as it is", state.Equal, "STOP: the cell %q against the index as it is", cell.name)
 		require.Equal(t, 1, state.Segments[growBucketPostings], "the bucket of postings of the cell %q is one segment", cell.name)
+		if g.meta.Consolidate > 0 {
+			require.Equal(t, 1, state.Segments[growBucketEdges], "the bucket of rows of edges of the cell %q is one segment", cell.name)
+		}
 	}
 }

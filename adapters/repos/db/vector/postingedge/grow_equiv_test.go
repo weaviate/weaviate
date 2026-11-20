@@ -495,10 +495,25 @@ func TestGrowIndexErrors(t *testing.T) {
 
 // An index laid out again is the same index: every posting in one segment of
 // a bucket written anew, and with that the exact vectors in posting order.
+// With a value per list of edges, as v5.0 stores them, and with the rows of
+// edges consolidated, as v5.1 does: the combined control lays that one out.
 func TestGrowReorganized(t *testing.T) {
+	tests := []struct {
+		name        string
+		consolidate int
+	}{
+		{name: "a value per list of edges"},
+		{name: "the rows of edges consolidated", consolidate: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { growReorganizedCase(t, tt.consolidate) })
+	}
+}
+
+func growReorganizedCase(t *testing.T, consolidate int) {
 	ctx := context.Background()
 	const total, base, dims = 2000, 1000, 64
-	f := newGrowFixture(t, total, base, dims, false, 64, 60)
+	f := newGrowFixtureWith(t, total, base, dims, false, 64, 60, consolidate)
 	for f.inserted < total {
 		difference, err := f.insert(ctx)
 		require.NoError(t, err)
@@ -506,6 +521,13 @@ func TestGrowReorganized(t *testing.T) {
 		if f.inserted%47 == 0 {
 			require.NoError(t, f.g.flushAll())
 		}
+	}
+	if consolidate > 0 {
+		// What waits in memory is not on disk yet: it is written first.
+		require.NotEmpty(t, f.g.pending)
+		require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, t.TempDir(), false), "waiting in memory")
+		require.NoError(t, f.g.flushPending())
+		require.Empty(t, f.g.pending)
 	}
 	f.same(t, "grown")
 	before, err := os.ReadDir(filepath.Join(f.dir, diskStoreDir, growBucketPostings))
@@ -536,6 +558,38 @@ func TestGrowReorganized(t *testing.T) {
 			}
 			require.Equal(t, 1, segments, "the bucket of postings is one segment")
 			require.Greater(t, len(before), len(entries), "the index it comes from had more")
+			if consolidate > 0 {
+				// The rows of edges are one segment too, each the row of its
+				// posting with its lists in the order of the members.
+				require.NotNil(t, cell.edges)
+				rows := 0
+				entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketEdges))
+				require.NoError(t, err)
+				for _, entry := range entries {
+					if filepath.Ext(entry.Name()) == ".db" {
+						rows++
+					}
+				}
+				require.Equal(t, 1, rows, "the bucket of rows of edges is one segment")
+				var dp diskPosting
+				var row growBlock
+				for p := range uint32(cell.meta.Postings) {
+					block, err := cell.edges.Get(growPostingKey(p))
+					require.NoError(t, err)
+					if cell.retired[p] {
+						require.Nil(t, block, "posting %d is retired", p)
+						continue
+					}
+					require.NoError(t, cell.fetchMembers(p, &dp))
+					require.NoError(t, row.decode(block))
+					require.Len(t, row.ids, len(dp.docIDs))
+					for i, docID := range dp.docIDs {
+						require.Equal(t, docID, uint64(row.ids[i]), "member %d of posting %d", i, p)
+					}
+				}
+			} else {
+				require.Nil(t, cell.edges)
+			}
 
 			require.NoError(t, cell.cleanCentroidGraph())
 			require.NoError(t, cell.checkCoverage())
@@ -746,6 +800,101 @@ func TestGrowSearchTimesItsRows(t *testing.T) {
 				require.Positive(t, stats.EdgeTime, "query %d", i)
 				require.Zero(t, stats.HaloTime, "query %d", i)
 			}
+		})
+	}
+}
+
+// Counting what a fetch reads row by row changes nothing of a search, and
+// what it counts by row adds up to what the store counted for the search:
+// the reads are those of a fetch that asks for its rows all at once, whatever
+// row goes first.
+func TestGrowRowCount(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		consolidate int
+	}{
+		{name: "a value per list of edges"},
+		{name: "the rows of edges consolidated", consolidate: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const total, base, dims, k = 1600, 1000, 64, 10
+			f := newGrowFixtureWith(t, total, base, dims, false, 64, 60, tt.consolidate)
+			for f.inserted < total {
+				difference, err := f.insert(ctx)
+				require.NoError(t, err)
+				require.Empty(t, difference)
+				if f.inserted%47 == 0 {
+					require.NoError(t, f.g.flushAll())
+				}
+			}
+			// Everything in segments: what is read from a memtable is not
+			// counted.
+			require.NoError(t, f.g.flushPending())
+			require.NoError(t, f.g.flushAll())
+			require.NoError(t, f.g.close(ctx))
+			metrics, err := diskStoreMetrics()
+			require.NoError(t, err)
+			g, err := openGrowIndex(ctx, testLogger(), f.dir, f.provider, f.uc, growOpen{metrics: metrics, pread: true})
+			require.NoError(t, err)
+			// The fixture closes the index it holds.
+			f.g = g
+
+			type answer struct {
+				ids   []uint64
+				dists []float32
+			}
+			// run searches every query and returns what came back, the
+			// postings loaded and what the store counted meanwhile.
+			run := func() ([]answer, int, uint64, uint64) {
+				reads, bytes, err := diskStoreReads()
+				require.NoError(t, err)
+				answers, loads := make([]answer, len(f.queries)), 0
+				for i, query := range f.queries {
+					stats := &diskSearchStats{Work: &SearchStats{}}
+					ids, dists, err := g.search(ctx, query, k, stats)
+					require.NoError(t, err)
+					answers[i] = answer{ids: ids, dists: dists}
+					loads += stats.Postings
+				}
+				readsAfter, bytesAfter, err := diskStoreReads()
+				require.NoError(t, err)
+				return answers, loads, readsAfter - reads, bytesAfter - bytes
+			}
+			plain, loads, reads, bytes := run()
+			require.Positive(t, loads)
+			require.Positive(t, reads)
+
+			for _, edgesFirst := range []bool{false, true} {
+				count := &growRowCount{edgesFirst: edgesFirst, read: func() ([growCounters]uint64, error) {
+					reads, bytes, err := diskStoreReads()
+					return [growCounters]uint64{reads, bytes}, err
+				}}
+				g.rowCount = count
+				counted, countedLoads, countedReads, countedBytes := run()
+				g.rowCount = nil
+				require.Equal(t, plain, counted, "the answers, with the rows counted")
+				require.Equal(t, loads, countedLoads)
+				require.Equal(t, loads, count.loads)
+				require.Equal(t, reads, countedReads, "the store reads the same, one row at a time")
+				require.Equal(t, bytes, countedBytes)
+				members, edges := count.rows[diskBlockMembers], count.rows[diskBlockEdges]
+				require.Equal(t, countedReads, members[0]+edges[0], "the reads of the two rows are those of the search")
+				require.Equal(t, countedBytes, members[1]+edges[1])
+				require.GreaterOrEqual(t, members[0], uint64(loads), "a load reads its row of members")
+				require.GreaterOrEqual(t, edges[0], uint64(loads), "a load reads its row of edges")
+				require.Positive(t, members[1])
+				require.Positive(t, edges[1])
+			}
+
+			// A counter that fails stops the search.
+			g.rowCount = &growRowCount{read: func() ([growCounters]uint64, error) {
+				return [growCounters]uint64{}, errors.New("no counter")
+			}}
+			_, _, err = g.search(ctx, f.queries[0], k, &diskSearchStats{Work: &SearchStats{}})
+			g.rowCount = nil
+			require.ErrorContains(t, err, "no counter")
 		})
 	}
 }

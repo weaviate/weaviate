@@ -292,6 +292,9 @@ type growIndex struct {
 	// storeReads, when set, returns what the store has counted as read so
 	// far. An insert then tells what each of its steps read.
 	storeReads func() (reads, bytes uint64, err error)
+	// rowCount, when set, has a fetch read the rows of its postings one
+	// after another and count what each moved (growRowCount).
+	rowCount *growRowCount
 	// work, when set, takes the work of the search of every insert.
 	work *SearchStats
 	// lastPosting and lastEdges are the posting and the edges the last
@@ -1178,6 +1181,64 @@ func (dp *diskPosting) joinEdges(p uint32) error {
 	return nil
 }
 
+// growCounters is how many counters a growRowCount follows.
+const growCounters = 2
+
+// growRowCount has the fetches of a growing index read the rows of their
+// postings one after another, not all at once, and adds up by row what each
+// read moved some counters of the caller's: what the store counts as read,
+// or what the system read from disk for the process. Reading one row at a
+// time is what tells the two rows of a posting apart: the counters are of
+// the whole process. It is for one search at a time, and times nothing.
+type growRowCount struct {
+	// edgesFirst reads the row of edges of a posting before its members.
+	// Where the two rows lie together on disk, the first one read brings
+	// part of the other.
+	edgesFirst bool
+	// read returns the counters, which only grow.
+	read func() ([growCounters]uint64, error)
+	// rows adds up what the counters moved by, by row (diskBlockMembers and
+	// diskBlockEdges), and loads counts the postings fetched.
+	rows  [3][growCounters]uint64
+	loads int
+}
+
+// fetchCounting is fetch with the rows read one after another, each counted.
+func (g *growIndex) fetchCounting(round *diskRound, picks []scored) error {
+	c := g.rowCount
+	order := [2]byte{diskBlockMembers, diskBlockEdges}
+	if c.edgesFirst {
+		order = [2]byte{diskBlockEdges, diskBlockMembers}
+	}
+	for i, pick := range picks {
+		p, dp := uint32(pick.id), &round.postings[i]
+		dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
+		for _, block := range order {
+			before, err := c.read()
+			if err != nil {
+				return err
+			}
+			if block == diskBlockMembers {
+				err = g.fetchMembers(p, dp)
+			} else {
+				err = g.fetchLists(p, dp)
+			}
+			if err != nil {
+				return err
+			}
+			after, err := c.read()
+			if err != nil {
+				return err
+			}
+			for at := range after {
+				c.rows[block][at] += after[at] - before[at]
+			}
+		}
+		c.loads++
+	}
+	return nil
+}
+
 // fetch reads the two rows of every posting given, all at once, and leaves
 // each posting ready to be visited.
 func (g *growIndex) fetch(round *diskRound, picks []scored) error {
@@ -1185,19 +1246,25 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 		round.postings = append(round.postings[:cap(round.postings)], make([]diskPosting, len(picks)-cap(round.postings))...)
 	}
 	round.postings = round.postings[:len(picks)]
-	eg := enterrors.NewErrorGroupWrapper(g.logger)
-	for i, pick := range picks {
-		p, dp := uint32(pick.id), &round.postings[i]
-		dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
-		eg.Go(func() error {
-			return timedRead(&dp.took[diskBlockMembers], func() error { return g.fetchMembers(p, dp) })
-		})
-		eg.Go(func() error {
-			return timedRead(&dp.took[diskBlockEdges], func() error { return g.fetchLists(p, dp) })
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		return err
+	if g.rowCount != nil {
+		if err := g.fetchCounting(round, picks); err != nil {
+			return err
+		}
+	} else {
+		eg := enterrors.NewErrorGroupWrapper(g.logger)
+		for i, pick := range picks {
+			p, dp := uint32(pick.id), &round.postings[i]
+			dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
+			eg.Go(func() error {
+				return timedRead(&dp.took[diskBlockMembers], func() error { return g.fetchMembers(p, dp) })
+			})
+			eg.Go(func() error {
+				return timedRead(&dp.took[diskBlockEdges], func() error { return g.fetchLists(p, dp) })
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return err
+		}
 	}
 	for i, pick := range picks {
 		dp := &round.postings[i]
@@ -2363,6 +2430,12 @@ func (g *growIndex) sameAs(s *streamIndex) error {
 // format of the rows is the same. The other buckets are written again entry
 // by entry, and the centroids and their graph are copied.
 //
+// With consolidated edges (the combined control of v5.1) the row of edges of
+// every live posting, which is one value already, is written to a new bucket
+// of rows that is flushed once too, with its lists in the order of the
+// members of the posting. Nothing may be waiting in memory: what waits is
+// written first (flushPending).
+//
 // With orderVectors the exact vectors are written again too, those of every
 // posting in a row, in the order of its members, and the index gets the
 // table that tells where the vector of every doc id is. Without it the
@@ -2377,8 +2450,8 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 	if src.slotOf != nil {
 		return errors.New("the index was laid out again already")
 	}
-	if src.edges != nil {
-		return errors.New("the index has its edges consolidated: the control lays out one with a value per list")
+	if len(src.pending) > 0 {
+		return errors.Errorf("%d postings have changes to their edges waiting in memory: they are written first", len(src.pending))
 	}
 	if err := src.sync(); err != nil {
 		return err
@@ -2452,11 +2525,20 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 		}
 		n := len(dp.docIDs)
 		members, lists := make([][]byte, n), make([][]byte, n)
+		// With consolidated edges, the lists of the row, by member.
+		var rowLists [][]uint32
+		if src.edges != nil {
+			rowLists = make([][]uint32, n)
+		}
 		batch = batch[:0]
 		first := slot
 		for i, docID := range dp.docIDs {
 			members[i] = growMemberValue(docID, dp.codes[i*words:(i+1)*words])
-			lists[i] = growEdgesValue(docID, dp.edgesOfMember(i))
+			if src.edges != nil {
+				rowLists[i] = dp.edgesOfMember(i)
+			} else {
+				lists[i] = growEdgesValue(docID, dp.edgesOfMember(i))
+			}
 			if orderVectors {
 				if raw, _, err = src.exact(docID, raw, nil); err != nil {
 					return err
@@ -2469,7 +2551,15 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 		if err := dst.postings.SetAdd(diskKey(p, diskBlockMembers), members); err != nil {
 			return errors.Wrapf(err, "write the members of posting %d", p)
 		}
-		if err := dst.postings.SetAdd(diskKey(p, diskBlockEdges), lists); err != nil {
+		if src.edges != nil {
+			block, err := growEdgesBlock(dp.docIDs, rowLists)
+			if err != nil {
+				return errors.Wrapf(err, "the row of edges of posting %d", p)
+			}
+			if err := dst.edges.Put(growPostingKey(p), block); err != nil {
+				return errors.Wrapf(err, "write the row of edges of posting %d", p)
+			}
+		} else if err := dst.postings.SetAdd(diskKey(p, diskBlockEdges), lists); err != nil {
 			return errors.Wrapf(err, "write the edges of posting %d", p)
 		}
 		if orderVectors {
