@@ -1224,11 +1224,7 @@ func (m *Manager) Restore(bytes []byte) error {
 	// (e.g. records purged on a drop-vector marker introduction), and this
 	// node alone would then refuse applies its peers accept.
 	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
-	// A snapshot can hold many tasks whose payload this build cannot read, so
-	// they are logged as one line instead of one warning each.
-	unreadable := 0
-	var sampleIDs []string
-	var firstErr error
+	var unreadable UnreadablePayloads
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
@@ -1245,22 +1241,13 @@ func (m *Manager) Restore(bytes []byte) error {
 			task.IndexGroups()
 			header, err := m.decodeHeader(task.Namespace, task.Payload)
 			if err != nil {
-				unreadable++
-				if len(sampleIDs) < 5 {
-					sampleIDs = append(sampleIDs, capWidth(namespace+"/"+task.ID))
-				}
-				if firstErr == nil {
-					firstErr = err
-				}
+				unreadable.Add(namespace+"/"+task.ID, err)
 			}
 			task.header = header
 			m.tasks[namespace][task.ID] = task
 		}
 	}
-	if unreadable > 0 {
-		m.logger.Warnf("%d restored task payload(s) have no readable header, so checks treat them as unparseable; e.g. %s: %s",
-			unreadable, strings.Join(sampleIDs, ", "), capWidth(firstErr.Error()))
-	}
+	unreadable.Log(m.logger, "restored task payload(s) have no readable header, so checks treat them as unparseable")
 
 	return nil
 }

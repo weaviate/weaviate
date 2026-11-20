@@ -1023,5 +1023,5 @@ func TestFindCancelTarget_LogsUndecodablePayload(t *testing.T) {
 
 	require.Nil(t, target)
 	require.Len(t, hook.AllEntries(), 1)
-	require.Equal(t, "T_bad", hook.AllEntries()[0].Data["task_id"])
+	require.Contains(t, hook.AllEntries()[0].Message, "T_bad")
 }

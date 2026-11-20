@@ -299,7 +299,9 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	var (
 		refusable        *distributedtask.Task
 		refusablePayload db.ReindexTaskPayload
+		unreadable       distributedtask.UnreadablePayloads
 	)
+	defer unreadable.Log(logger, "cancel: skipping in-flight reindex task(s) with an undecodable payload")
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
 			continue
@@ -308,8 +310,7 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			// Undecodable in-flight task: it may be the very one the
 			// operator is trying to cancel, and they get a NO_OP instead.
-			logger.WithField("task_id", task.ID).
-				Warnf("cancel: skipping in-flight reindex task with an undecodable payload: %v", err)
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(payload.Collection, collection) {
@@ -337,11 +338,12 @@ func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection
 	logger logrus.FieldLogger,
 ) []distributedtask.TaskDescriptor {
 	var out []distributedtask.TaskDescriptor
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "skipping reindex task(s) with an undecodable payload")
 	for _, task := range tasks {
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			logger.WithField("task_id", task.ID).
-				Warnf("skipping reindex task with an undecodable payload: %v", err)
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(payload.Collection, collection) {

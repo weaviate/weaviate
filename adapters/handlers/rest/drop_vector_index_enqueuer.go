@@ -88,16 +88,6 @@ func (e *dropVectorIndexEnqueuer) logInfo(collection, msg string) {
 	}
 }
 
-// warnSkippedPayload surfaces an undecodable active-task payload instead of
-// silently skipping it (the skip itself is deliberate fail-open behavior).
-// Package-level so no skip site can silently re-inline a divergent copy.
-func warnSkippedPayload(logger logrus.FieldLogger, where, taskID string, err error) {
-	if logger != nil {
-		logger.WithField("task", taskID).
-			Warnf("drop-vector %s: skipping active task with unparseable payload: %v", where, err)
-	}
-}
-
 // ListDistributedTasks exposes the cluster task list for the reconcile loop
 // (one fetch per round) and its startup readiness probe.
 func (e *dropVectorIndexEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
@@ -448,10 +438,12 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 	}
 	live := map[string]struct{}{}
 	classes := map[string]classLookup{}
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(e.logger, "drop-vector live-op-ids: skipping task(s) with unparseable payload")
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
-			warnSkippedPayload(e.logger, "live-op-ids", task.ID, err)
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if e.opStillNeeded(task, p, classes) {
