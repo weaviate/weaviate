@@ -115,6 +115,13 @@ func (s *Shard) GetStatusReason() string {
 	return s.status.Reason
 }
 
+// manuallyReadOnly reports a READONLY a user set, which nothing re-derives at load.
+func (s *Shard) manuallyReadOnly() bool {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	return s.status.Status == storagestate.StatusReadOnly && s.status.Reason == statusReasonManualUpdate
+}
+
 // isReadOnly returns an error if shard is readOnly and nil otherwise
 func (s *Shard) isReadOnly() error {
 	s.statusLock.Lock()

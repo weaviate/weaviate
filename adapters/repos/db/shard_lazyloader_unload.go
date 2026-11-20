@@ -173,7 +173,10 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 		defer registry.unloading.Add(-1)
 	}
 
+	var manualReadOnly bool
 	unloaded, err := shard.tryShutdownIdle(ctx, func() {
+		// Past the in-use check under shutdownLock, so no pin can change the status anymore.
+		manualReadOnly = shard.manuallyReadOnly()
 		l.unloadPhase.Store(unloadPhaseTearing)
 		releaseCreateLock()
 		releaseRead()
@@ -183,6 +186,7 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	})
 	switch {
 	case unloaded:
+		l.manualReadOnly = manualReadOnly
 		l.shard.Store(nil)
 		l.markUnloaded()
 		l.unloadedAt.Store(time.Now().UnixNano())
