@@ -3108,3 +3108,110 @@ func TestFromEnv_QueryBatchedContainsEnabled(t *testing.T) {
 		})
 	}
 }
+
+// TestEnvironmentIndexFilterableKeyDocColumn pins the INDEX_FILTERABLE_KEY_DOC_COLUMN shapes FromEnv accepts and refuses.
+func TestEnvironmentIndexFilterableKeyDocColumn(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      string
+		expected map[string][]string
+		errMsg   string
+	}{
+		{
+			name: "unset leaves nothing configured",
+		},
+		{
+			name:     "one property",
+			env:      "Foo:prop1",
+			expected: map[string][]string{"Foo": {"prop1"}},
+		},
+		{
+			// nobody writes this meaning nothing, and reading it as "*" would cost resident memory unasked
+			name:   "a collection with no properties is refused",
+			env:    "Foo",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a tenant is refused, not ignored",
+			env:    "Foo:prop1:tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "an unparseable value fails",
+			env:    "foo:prop1",
+			errMsg: "INDEX_FILTERABLE_KEY_DOC_COLUMN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if tt.env != "" {
+				// spelled out, not [KeyDocColumnEnv], so changing the variable's name breaks this test as it would break deployments
+				t.Setenv("INDEX_FILTERABLE_KEY_DOC_COLUMN", tt.env)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, conf.Persistence.IndexFilterableKeyDocColumn)
+		})
+	}
+}
+
+// TestPersistenceValidateKeyDocColumn pins Persistence.Validate refusing the shapes FromEnv refuses, for the config file.
+func TestPersistenceValidateKeyDocColumn(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured map[string][]string
+		errMsg     string
+	}{
+		{name: "nothing configured"},
+		{
+			name:       "a collection and its properties",
+			configured: map[string][]string{"Article": {"title", "sku"}},
+		},
+		{
+			name:       "every property of a collection",
+			configured: map[string][]string{"Article": {AllProperties}},
+		},
+		{
+			name:       "a collection with no properties",
+			configured: map[string][]string{"Article": {}},
+			errMsg: `INDEX_FILTERABLE_KEY_DOC_COLUMN (persistence.indexFilterableKeyDocColumn) ` +
+				`names "Article" with no properties: list them, or write "*" for every property it has`,
+		},
+		{
+			name:       "a namespace-qualified collection",
+			configured: map[string][]string{"acme:Article": {"title"}},
+			errMsg: `INDEX_FILTERABLE_KEY_DOC_COLUMN (persistence.indexFilterableKeyDocColumn) ` +
+				`names "acme:Article": a namespace-qualified collection cannot be named here, ` +
+				`because ":" separates a collection from its properties`,
+		},
+		{
+			name:       "something that is not a collection name",
+			configured: map[string][]string{"article": {"title"}},
+			errMsg: `INDEX_FILTERABLE_KEY_DOC_COLUMN (persistence.indexFilterableKeyDocColumn) ` +
+				`names "article": 'article' is not a valid class name`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := Persistence{
+				DataPath:                    "/tmp/weaviate",
+				IndexFilterableKeyDocColumn: tt.configured,
+			}
+			err := p.Validate()
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

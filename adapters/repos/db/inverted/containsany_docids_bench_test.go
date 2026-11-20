@@ -63,9 +63,28 @@ type containsFixture struct {
 	searcher *Searcher
 	store    *lsmkv.Store
 	numDocs  int
+	bucket   *lsmkv.Bucket
+	bufPool  roaringset.BitmapBufPool
+}
+
+// writeUniqueTextCorpus writes value val_%08d under docID i alone, unflushed, for this fixture and the wiring tests.
+func writeUniqueTextCorpus(tb testing.TB, bucket *lsmkv.Bucket, numDocs int) {
+	tb.Helper()
+	for i := 0; i < numDocs; i++ {
+		require.NoError(tb, bucket.RoaringSetAddList([]byte(benchValue(i)), []uint64{uint64(i)}))
+	}
 }
 
 func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
+	return newContainsFixtureOpt(tb, numDocs, false)
+}
+
+// newContainsFixtureWithColumn is newContainsFixture with a key/doc column on the value bucket.
+func newContainsFixtureWithColumn(tb testing.TB, numDocs int) *containsFixture {
+	return newContainsFixtureOpt(tb, numDocs, true)
+}
+
+func newContainsFixtureOpt(tb testing.TB, numDocs int, withIndex bool) *containsFixture {
 	tb.Helper()
 	dir := tb.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -93,10 +112,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	))
 	bucket := store.Bucket(bucketName)
 
-	// value i ("val_%08d") maps to exactly docID i: strictly unique, 1:1.
-	for i := 0; i < numDocs; i++ {
-		require.NoError(tb, bucket.RoaringSetAddList([]byte(benchValue(i)), []uint64{uint64(i)}))
-	}
+	writeUniqueTextCorpus(tb, bucket, numDocs)
 	// A few multi-doc values on top of the unique corpus: each shared value
 	// is held by the same two docs, so ContainsAll over them is non-empty;
 	// the padded value is stored trimmed, as the FIELD write path would
@@ -211,7 +227,29 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 		func(string) bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
-	return &containsFixture{searcher: searcher, store: store, numDocs: numDocs}
+	f := &containsFixture{
+		searcher: searcher, store: store, numDocs: numDocs,
+		bucket: bucket, bufPool: bufPool,
+	}
+	if withIndex {
+		// reopen, so the column is built over the segments as on a restart
+		f.reopenBucket(tb)
+	}
+	return f
+}
+
+// reopenBucket reopens the value bucket with a key/doc column, which is built when it opens.
+func (f *containsFixture) reopenBucket(tb testing.TB) {
+	tb.Helper()
+	ctx := context.Background()
+	name := helpers.BucketFromPropNameLSM(benchPropName)
+
+	require.NoError(tb, f.store.ShutdownBucket(ctx, name))
+	require.NoError(tb, f.store.CreateOrLoadBucket(ctx, name,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(f.bufPool),
+		lsmkv.WithKeyDocColumn(tb.Name(), newFakeMaxIDGetter(uint64(f.numDocs+1)))))
+	f.bucket = f.store.Bucket(name)
 }
 
 func benchValue(i int) string { return fmt.Sprintf("val_%08d", i) }
@@ -388,9 +426,8 @@ func (f *containsFixture) resolveDocIDsBatched(t *testing.T, ctx context.Context
 	return got
 }
 
-// containsFoldRan reports whether a batched fold recorded its plan in ctx. Only
-// the batched path writes fold_workers, so an absent annotation and an absent
-// fold are distinguishable.
+// containsFoldRan reports whether a fold recorded its plan in ctx; only a batched
+// fold writes fold_workers.
 func containsFoldRan(t *testing.T, ctx context.Context) bool {
 	t.Helper()
 	summary, ok := helpers.ExtractSlowQueryDetails(ctx)[docBitmapSlowLogKey].(helpers.SlowestEntries)

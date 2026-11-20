@@ -95,7 +95,7 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 		MigrationType: migration,
 		Collection:    class.Class,
 		Properties:    []string{propName},
-	}, "unit-1", shard.Name(), shard, []*ShardReindexTaskGeneric{task}, logger)
+	}, "unit-1", shard.Name(), shard, []*ShardReindexTaskGeneric{task}, &keyDocColumnDrops{}, logger)
 	if failAfterFlip {
 		require.NotEmpty(t, res.Errs, "the swap has to fail, or this row proves nothing")
 	} else {
@@ -439,7 +439,7 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 	err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc}, payload,
 		[]string{unitID}, idx, logger, "swap-requested", "starting", true,
 		func(unitID string, _ ShardLike, unitTasks []*ShardReindexTaskGeneric, _ bool) phaseResult {
-			return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, logger)
+			return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, &keyDocColumnDrops{}, logger)
 		})
 
 	require.ErrorContains(t, err, "overlay wiring",
@@ -482,7 +482,7 @@ func TestSwapPhaseRunsWhenThereIsNoOverlayToWire(t *testing.T) {
 		Collection:    className,
 		Properties:    []string{propName},
 	}, "unit-1", shard.Name(), lazy,
-		[]*ShardReindexTaskGeneric{newTestTask(idx.logger, &MapToBlockmaxStrategy{}, shard.migrationUnit())}, logger)
+		[]*ShardReindexTaskGeneric{newTestTask(idx.logger, &MapToBlockmaxStrategy{}, shard.migrationUnit())}, &keyDocColumnDrops{}, logger)
 
 	require.NoError(t, res.OverlayUnwrapErr,
 		"a unit with no overlay to wire must not report a wiring failure")
