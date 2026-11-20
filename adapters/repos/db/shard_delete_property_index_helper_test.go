@@ -162,7 +162,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, geoBucket))

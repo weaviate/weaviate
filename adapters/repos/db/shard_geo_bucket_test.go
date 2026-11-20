@@ -420,9 +420,7 @@ func TestShardListBackupFilesCoversGeoBucket(t *testing.T) {
 		require.NoError(t, s.PutObject(ctx, obj))
 	}
 
-	// 0 timeout disables the inactivity auto-resume, so a slow test body
-	// cannot resume the shard before the files are listed.
-	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, false))
 	files, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
 	require.NoError(t, err)
 
