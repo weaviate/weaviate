@@ -1,0 +1,1046 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package postingedge
+
+import (
+	"context"
+	"encoding/binary"
+	"math"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storobj"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+)
+
+// Persistent is the index as a shard runs it: the index that grows on disk
+// (grow.go) behind the interface a shard drives every vector index through,
+// with what a shard asks for and the experiments never had. It starts empty,
+// takes vectors under doc ids that have no bound, deletes, is searched while
+// it is written to, and comes back as it was when it is closed and opened
+// again.
+//
+// An empty index cannot be the index that grows: its codes need the mean of
+// the vectors, and its first postings and their edges a batch to be built
+// from. So the first vectors are kept aside, in a bucket of their own, and
+// searched exactly. Once there are BaseSize of them they are built into the
+// base in batch, the build the experiments grew every index from, and from
+// then on every vector goes in by the incremental path: the search for its
+// edges, which only reads (growIndex.plan), and then its writes, in order
+// (growIndex.apply).
+//
+// A deleted vector is marked and nothing else: it keeps its place in its
+// posting and goes on routing, and no search returns it (growIndex.remove).
+// Nothing takes it out, so the space and the work of a deleted vector stay.
+//
+// Nothing runs in the background. The first build, the search of an insert
+// for its edges, a split: all of it runs inside the insert that needs it.
+//
+// What it does not do says so with an error: a filtered search, a search by
+// distance, a backup. Multi-vectors and distances other than cosine are
+// refused before an index exists, where a class is parsed.
+type Persistent struct {
+	cfg      PersistentConfig
+	logger   logrus.FieldLogger
+	provider distancer.Provider
+	// dir holds the files of the index, and buildDir those of the batch
+	// build of the base while it runs.
+	dir, buildDir string
+	store         *lsmkv.Store
+	// staging holds the vectors that came before the base was built: doc id
+	// -> the vector as the index stores it.
+	staging *lsmkv.Bucket
+
+	dims atomic.Int32
+
+	// writeMu lets one writer in at a time: an insert, a delete, a flush, a
+	// change of config, the teardown. An insert is its search and then its
+	// writes, so nothing changes between the two.
+	writeMu sync.Mutex
+	// mu guards what a search reads. The searches hold it for reading, and
+	// so does the search of an insert. Whatever changes what they read holds
+	// it for writing: the writes of an insert, a delete, the build of the
+	// base, the teardown.
+	mu sync.RWMutex
+	uc ent.UserConfig
+	// g is the index once its base is built, nil before.
+	g *growIndex
+	// staged has the doc ids of the vectors kept aside, while there is no
+	// base.
+	staged map[uint64]struct{}
+	// dirty tells that something changed since the last flush.
+	dirty  bool
+	closed bool
+	// failed is the error of a write that stopped halfway. What it left in
+	// the store is not known to be an index, so nothing reads it or adds to
+	// it after that.
+	failed error
+}
+
+const (
+	// DefaultBaseSize is how many vectors an empty index gathers before it
+	// builds its first postings. It is what the mean of the quantizer is
+	// taken over: the training limit of centered RQ.
+	DefaultBaseSize = DefaultTrainingLimit
+	// DefaultRoutingBits is the width of the code the postings are ranked
+	// by, the one kept in memory (rq.cacheMode "routing"). Vectors whose
+	// full code is no wider are ranked by the full code.
+	DefaultRoutingBits = 512
+	// DefaultSplitThreshold is the size past which a posting splits when
+	// maxPostingSizeKB is automatic, and DefaultMeanPostingSize the mean it
+	// leaves, which is the one the base is built with: every measurement of
+	// the index has it.
+	DefaultSplitThreshold  = 360
+	DefaultMeanPostingSize = 236
+	// minSplitThreshold is the floor of an explicit maxPostingSizeKB, in
+	// vectors: the one HFresh has.
+	minSplitThreshold = 192
+	// The automatic rescore limit never goes under what was measured at
+	// 1536 bits nor over what the rule gives at 384, the narrowest code
+	// there is a figure for.
+	minAutoRescoreLimit = 64
+	maxAutoRescoreLimit = 1600
+	// keysStep is what the room for doc ids grows by, at least.
+	keysStep = 1 << 12
+
+	growBucketPrefix = "postingedge_grow_"
+)
+
+// PersistentConfig is what the owner of a Persistent index derives.
+type PersistentConfig struct {
+	ID        string
+	ShardName string
+	ClassName string
+	// RootPath is the directory of the shard. The index keeps its files in a
+	// directory of its own under it (helpers.PostingEdgeDirName).
+	RootPath         string
+	Logger           logrus.FieldLogger
+	DistanceProvider distancer.Provider
+	AllocChecker     memwatch.AllocChecker
+	// MakeBucketOptions gives the options of the buckets the index keeps in
+	// the store of the shard.
+	MakeBucketOptions lsmkv.MakeBucketOptions
+	// BaseSize is how many vectors the index gathers before it builds its
+	// first postings, DefaultBaseSize when 0.
+	BaseSize int
+	// Seed makes the base and the splits reproducible.
+	Seed uint64
+}
+
+func (c *PersistentConfig) validate() error {
+	switch {
+	case c.ID == "":
+		return errors.New("id cannot be empty")
+	case c.RootPath == "":
+		return errors.New("rootPath cannot be empty")
+	case c.DistanceProvider == nil:
+		return errors.New("distanceProvider cannot be nil")
+	case c.BaseSize < 0:
+		return errors.Errorf("baseSize must not be negative, got %d", c.BaseSize)
+	}
+	// The public config refuses every other distance where a class is
+	// parsed. This is for whoever gets here another way.
+	if c.DistanceProvider.Type() != "cosine-dot" {
+		return errors.Wrapf(ErrNotSupported, "distance %q: the index only supports cosine in this version",
+			c.DistanceProvider.Type())
+	}
+	c.Logger = common.LoggerOrDiscard(c.Logger)
+	if c.AllocChecker == nil {
+		c.AllocChecker = memwatch.NewDummyMonitor()
+	}
+	if c.MakeBucketOptions == nil {
+		c.MakeBucketOptions = lsmkv.MakeRegularBucketOptions
+	}
+	if c.BaseSize == 0 {
+		c.BaseSize = DefaultBaseSize
+	}
+	return nil
+}
+
+// Open opens the index of the given id under the root path, with its buckets
+// in the given store: the one that was there, or an empty one.
+func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persistent, err error) {
+	if err := cfg.validate(); err != nil {
+		return nil, errors.Wrap(err, "invalid config")
+	}
+	if err := uc.Validate(); err != nil {
+		return nil, errors.Wrap(err, "invalid user config")
+	}
+	if store == nil {
+		return nil, errors.New("invalid config: store cannot be nil")
+	}
+	p := &Persistent{
+		cfg: cfg,
+		// Whoever opens the index gives it a logger that says which index it
+		// is already.
+		logger:   cfg.Logger,
+		provider: cfg.DistanceProvider,
+		dir:      filepath.Join(cfg.RootPath, helpers.PostingEdgeDirName(cfg.ID)),
+		buildDir: filepath.Join(cfg.RootPath, helpers.PostingEdgeBuildDirName(cfg.ID)),
+		store:    store,
+		uc:       uc,
+		staged:   map[uint64]struct{}{},
+	}
+	ctx := context.Background()
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return nil, errors.Wrap(err, "create the directory of the index")
+	}
+	// Whatever a build of the base left when it did not end.
+	if err := os.RemoveAll(p.buildDir); err != nil {
+		return nil, errors.Wrap(err, "remove what a build left")
+	}
+
+	_, statErr := os.Stat(filepath.Join(p.dir, diskMetaFile))
+	switch {
+	case statErr == nil:
+		if err := p.openStaging(ctx); err != nil {
+			return nil, err
+		}
+		if err := p.openGrown(ctx); err != nil {
+			_ = p.closeStaging(ctx)
+			return nil, errors.Wrap(err, "open the index")
+		}
+		// The base is written before the vectors it was built from are let
+		// go: whatever is still kept aside is in the index already.
+		if err := p.clearStaging(); err != nil {
+			_ = p.g.close(ctx)
+			_ = p.closeStaging(ctx)
+			return nil, err
+		}
+	case os.IsNotExist(statErr):
+		// Without a meta there is no base: what there is of one is of a
+		// build that did not end, and the vectors it was built from are
+		// still kept aside.
+		if err := p.discardBase(ctx); err != nil {
+			return nil, err
+		}
+		if err := p.openStaging(ctx); err != nil {
+			return nil, err
+		}
+		if err := p.loadStaged(); err != nil {
+			_ = p.closeStaging(ctx)
+			return nil, err
+		}
+	default:
+		return nil, errors.Wrap(statErr, "look for the meta of the index")
+	}
+	return p, nil
+}
+
+// bucketName is the name in the store of the shard of a bucket of the index
+// that grows.
+func (p *Persistent) bucketName(bucket string) string {
+	return helpers.PostingEdgeBucketName(strings.TrimPrefix(bucket, growBucketPrefix), p.cfg.ID)
+}
+
+func (p *Persistent) stagingName() string {
+	return helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketStaging, p.cfg.ID)
+}
+
+func (p *Persistent) growOpen() growOpen {
+	return growOpen{store: p.store, makeOptions: p.cfg.MakeBucketOptions, names: p.bucketName, deletes: true}
+}
+
+func (p *Persistent) openStaging(ctx context.Context) error {
+	name := p.stagingName()
+	err := p.store.CreateOrLoadBucket(ctx, name, p.cfg.MakeBucketOptions(lsmkv.StrategyReplace)...)
+	if err != nil {
+		return errors.Wrapf(err, "open the bucket %s", name)
+	}
+	p.staging = p.store.Bucket(name)
+	return nil
+}
+
+func (p *Persistent) closeStaging(ctx context.Context) error {
+	if p.staging == nil {
+		return nil
+	}
+	p.staging = nil
+	return shutdownBucket(ctx, p.store, p.stagingName())
+}
+
+// loadStaged reads which vectors are kept aside, and their dimensions.
+func (p *Persistent) loadStaged() error {
+	err := growScan(p.staging, func(key, value []byte) error {
+		if len(key) != 4 || len(value) == 0 || len(value)%4 != 0 {
+			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d", len(key), len(value))
+		}
+		dims := len(value) / 4
+		if held := int(p.dims.Load()); held != 0 && held != dims {
+			return errors.Errorf("vectors of %d and of %d dimensions kept aside", held, dims)
+		}
+		p.dims.Store(int32(dims))
+		p.staged[uint64(binary.BigEndian.Uint32(key))] = struct{}{}
+		return nil
+	})
+	return errors.Wrap(err, "read the vectors kept aside")
+}
+
+// clearStaging lets go of every vector kept aside.
+func (p *Persistent) clearStaging() error {
+	var keys [][]byte
+	err := growScan(p.staging, func(key, _ []byte) error {
+		keys = append(keys, slices.Clone(key))
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "read the vectors kept aside")
+	}
+	for _, key := range keys {
+		if err := p.staging.Delete(key); err != nil {
+			return errors.Wrap(err, "release a vector kept aside")
+		}
+	}
+	clear(p.staged)
+	return nil
+}
+
+// discardBase removes what there is of a base without a meta, in the
+// directory of the index and in the store: the buckets of the index, which
+// must not be open, with everything in them.
+func (p *Persistent) discardBase(ctx context.Context) error {
+	entries, err := os.ReadDir(p.dir)
+	if err != nil {
+		return errors.Wrap(err, "read the directory of the index")
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(p.dir, entry.Name())); err != nil {
+			return errors.Wrap(err, "remove what a build left")
+		}
+	}
+	for _, name := range helpers.PostingEdgeBucketNames(p.cfg.ID) {
+		if name == p.stagingName() {
+			continue
+		}
+		if err := shutdownBucket(ctx, p.store, name); err != nil {
+			return errors.Wrapf(err, "close the bucket %s", name)
+		}
+		if err := os.RemoveAll(filepath.Join(p.store.GetDir(), name)); err != nil {
+			return errors.Wrapf(err, "remove the bucket %s", name)
+		}
+	}
+	return nil
+}
+
+// searchConfig is the config of the search of the index: what a class
+// configures, and the defaults of everything it does not. scanBits is the
+// width of the code a posting is scanned by, 0 while there is none.
+func searchConfig(uc ent.UserConfig, scanBits int) UserConfig {
+	in := NewDefaultUserConfig()
+	in.Distance = uc.Distance
+	in.EF = uc.EF
+	in.RescoreLimit = uc.RQ.RescoreLimit
+	if in.RescoreLimit == ent.RescoreLimitAuto {
+		in.RescoreLimit = autoRescoreLimit(scanBits)
+	}
+	return in
+}
+
+// autoRescoreLimit is the rescore limit of an index that was given none, by
+// the width of the code its postings are scanned by: the larger of 64 and
+// 200 x (768 / bits)^3, which is what leaves a recall of 0.99 within reach of
+// ef alone on the two datasets there are curves for (integration-plan.md, "El
+// valor automático de rq.rescoreLimit"). The rule is a proposal: its anchor,
+// 200 at 768 bits, falls between two measured points. Under 384 bits there is
+// no measurement at all and the rule grows without bound, so it stops there.
+func autoRescoreLimit(scanBits int) int {
+	if scanBits <= 0 {
+		return minAutoRescoreLimit
+	}
+	ratio := 768 / float64(scanBits)
+	limit := math.Ceil(200 * ratio * ratio * ratio)
+	return int(min(max(limit, minAutoRescoreLimit), maxAutoRescoreLimit))
+}
+
+// splitThreshold is the size past which a posting splits, in vectors. The
+// automatic one is the same at every dimension. An explicit size in KiB is
+// converted as HFresh converts its own, so that the same figure means the
+// same threshold in the two indexes: an entry is its code of a bit per
+// dimension and 25 bytes more, and no threshold goes under 192 vectors.
+func splitThreshold(maxPostingSizeKB, dims int) int {
+	if maxPostingSizeKB == ent.MaxPostingSizeAuto {
+		return DefaultSplitThreshold
+	}
+	entry := float64(dims)/8 + 8 + 1 + compressionhelpers.RQMetadataSize
+	return max(int(math.Ceil(float64(maxPostingSizeKB)*1024/entry)), minSplitThreshold)
+}
+
+// keysFor is the room for doc ids an index gets to hold the given one: past
+// it by a quarter, and by keysStep at least, so that the tables by doc id are
+// not copied for every vector.
+func keysFor(docID uint64) int {
+	keys := docID + 1 + max(docID/4, keysStep)
+	return int(min(keys, maxVectors))
+}
+
+// openGrown opens the index from its directory and its buckets.
+func (p *Persistent) openGrown(ctx context.Context) error {
+	g, err := openGrowIndex(ctx, p.logger, p.dir, p.provider, searchConfig(p.uc, 0), p.growOpen())
+	if err != nil {
+		return err
+	}
+	g.ix.storeSearchConfig(searchConfig(p.uc, scanBitsOf(&g.meta)))
+	g.insertEF = p.uc.EFConstruction
+	p.dims.Store(int32(g.meta.Dims))
+	p.g = g
+	return nil
+}
+
+// scanBitsOf is the width of the code the members of a posting carry: a code
+// is a header word and its sign bits.
+func scanBitsOf(meta *growMeta) int {
+	return (meta.ScanCodeWords - 1) * 64
+}
+
+func (p *Persistent) Type() common.IndexType {
+	return common.IndexTypePostingEdge
+}
+
+// usable tells why the index takes no call, if it does not.
+func (p *Persistent) usable() error {
+	if p.closed {
+		return errors.New("posting-edge index is shut down")
+	}
+	if p.failed != nil {
+		return errors.Wrap(p.failed, "posting-edge index stopped: a write to it failed halfway, "+
+			"and what it left is not known to be an index")
+	}
+	return nil
+}
+
+func (p *Persistent) Add(ctx context.Context, id uint64, vector []float32) error {
+	return p.AddBatch(ctx, []uint64{id}, [][]float32{vector})
+}
+
+// AddBatch adds the vectors one after another. A doc id the index holds
+// already is refused, with the whole batch: that would be an update, and the
+// index has none. A shard gives a vector that changes a new doc id, and
+// deletes the old one.
+func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(ids) != len(vectors) {
+		return errors.Errorf("ids and vectors sizes does not match")
+	}
+	if len(ids) == 0 {
+		return errors.Errorf("addBatch called with empty lists")
+	}
+
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	if err := p.usable(); err != nil {
+		return err
+	}
+
+	dims := int(p.dims.Load())
+	if dims == 0 {
+		dims = len(vectors[0])
+	}
+	if dims == 0 {
+		return errors.New("cannot add a vector without dimensions")
+	}
+	batch := make(map[uint64]struct{}, len(ids))
+	for i, vec := range vectors {
+		id := ids[i]
+		if id >= maxVectors {
+			return errors.Errorf("doc id %d: the index addresses doc ids up to %d", id, uint64(maxVectors-1))
+		}
+		if len(vec) != dims {
+			return errors.Wrapf(common.ErrWrongDimensions,
+				"vector of id %d has length %d, the index holds vectors of length %d", id, len(vec), dims)
+		}
+		if err := checkValues(vec); err != nil {
+			return errors.Wrapf(err, "vector of id %d", id)
+		}
+		_, repeated := batch[id]
+		if repeated || p.placed(id) {
+			return errors.Wrapf(ErrNotSupported, "id %d was already added, updating a vector", id)
+		}
+		batch[id] = struct{}{}
+	}
+	p.dims.Store(int32(dims))
+
+	for i, vec := range vectors {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := p.add(ctx, ids[i], distancer.Normalize(vec)); err != nil {
+			return errors.Wrapf(err, "add vector of id %d", ids[i])
+		}
+	}
+	return nil
+}
+
+// placed tells whether a doc id is taken: kept aside, or in a posting, where
+// a deleted vector still is. The caller holds writeMu.
+func (p *Persistent) placed(id uint64) bool {
+	if p.g == nil {
+		_, staged := p.staged[id]
+		return staged
+	}
+	return id < uint64(len(p.g.live)) && p.g.live[id]
+}
+
+// add takes one vector, normalized. The caller holds writeMu.
+func (p *Persistent) add(ctx context.Context, id uint64, vector []float32) error {
+	g := p.g
+	if g == nil {
+		return p.stage(ctx, id, vector)
+	}
+	if id >= uint64(g.meta.Keys) {
+		p.mu.Lock()
+		err := g.extend(keysFor(id))
+		p.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	if err := g.insertable(id, vector); err != nil {
+		return err
+	}
+
+	// The search for its edges, which reads and writes nothing: it runs next
+	// to the queries. This is the step that goes to the shared workers of
+	// the node, several at once.
+	plan := g.own
+	plan.work = nil
+	p.mu.RLock()
+	err := g.plan(ctx, plan, id, vector)
+	p.mu.RUnlock()
+	if err != nil {
+		return err
+	}
+
+	// Its writes, in order. No search runs next to them, and they are not
+	// left halfway because whoever asked stopped waiting.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := g.apply(context.WithoutCancel(ctx), plan); err != nil {
+		p.failed = err
+		return err
+	}
+	p.dirty = true
+	return nil
+}
+
+// stage keeps a vector aside while there is no base, and builds the base
+// once there are enough.
+func (p *Persistent) stage(ctx context.Context, id uint64, vector []float32) error {
+	raw := make([]byte, 4*len(vector))
+	for i, x := range vector {
+		putFloat32(raw[4*i:], x)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.staging.Put(growDocKey(id), raw); err != nil {
+		return errors.Wrap(err, "keep the vector aside")
+	}
+	p.staged[id] = struct{}{}
+	p.dirty = true
+	if len(p.staged) < p.cfg.BaseSize {
+		return nil
+	}
+	return errors.Wrap(p.buildBase(context.WithoutCancel(ctx)), "build the first postings")
+}
+
+// readStaged reads the vectors kept aside, in the order of their doc ids.
+func (p *Persistent) readStaged() (ids []uint64, vectors [][]float32, err error) {
+	dims := int(p.dims.Load())
+	err = growScan(p.staging, func(key, value []byte) error {
+		if len(key) != 4 || len(value) != 4*dims {
+			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d, for %d dimensions",
+				len(key), len(value), dims)
+		}
+		vector := make([]float32, dims)
+		for i := range vector {
+			vector[i] = getFloat32(value[4*i:])
+		}
+		ids, vectors = append(ids, uint64(binary.BigEndian.Uint32(key))), append(vectors, vector)
+		return nil
+	})
+	return ids, vectors, errors.Wrap(err, "read the vectors kept aside")
+}
+
+// buildBase builds the vectors kept aside into the base of the index, in
+// batch, writes it and opens it. The base has a meta only once it is whole:
+// if anything fails before, what was written is removed, the vectors stay
+// aside, and the next vector tries again. The caller holds mu for writing.
+func (p *Persistent) buildBase(ctx context.Context) (err error) {
+	ids, vectors, err := p.readStaged()
+	if err != nil {
+		return err
+	}
+	if len(ids) != len(p.staged) {
+		return errors.Errorf("%d vectors kept aside in the store, %d counted", len(ids), len(p.staged))
+	}
+	dims := int(p.dims.Load())
+	threshold := splitThreshold(p.uc.MaxPostingSizeKB, dims)
+	buildConfig := NewDefaultUserConfig()
+	buildConfig.Distance = p.uc.Distance
+	buildConfig.TargetPostingSize = max(1, threshold*DefaultMeanPostingSize/DefaultSplitThreshold)
+
+	batch, err := New(Config{
+		ID:               p.cfg.ID,
+		ShardName:        p.cfg.ShardName,
+		ClassName:        p.cfg.ClassName,
+		RootPath:         p.buildDir,
+		Logger:           p.cfg.Logger,
+		DistanceProvider: p.provider,
+		AllocChecker:     p.cfg.AllocChecker,
+		// The build reads the vectors it was given, and nothing searches
+		// what it builds.
+		TempVectorForIDWithViewThunk: func(_ context.Context, id uint64, _ *common.VectorSlice, _ common.BucketView,
+		) ([]float32, error) {
+			return nil, storobj.NewErrNotFoundf(id, "the build of the base reads no vector by id")
+		},
+		GetViewThunk: func() common.BucketView { return noopBucketView{} },
+		Seed:         p.cfg.Seed,
+	}, buildConfig)
+	if err != nil {
+		return errors.Wrap(err, "configure the build")
+	}
+	defer func() {
+		if dropped := batch.Drop(ctx, false); err == nil && dropped != nil {
+			p.logger.Warnf("drop the build of the base: %v", dropped)
+		}
+		if removed := os.RemoveAll(p.buildDir); err == nil && removed != nil {
+			p.logger.Warnf("remove the directory of the build of the base: %v", removed)
+		}
+	}()
+	if err := batch.AddBatch(ctx, ids, vectors); err != nil {
+		return err
+	}
+	if err := batch.Build(ctx); err != nil {
+		return err
+	}
+	st := batch.state.Load()
+	// The base is written with the vectors as they were kept aside,
+	// normalized once, which is how every later insert writes its own. The
+	// build normalized its copies again, as it does with whatever it is
+	// given: its codes are of vectors that may differ from these in the last
+	// bit, as they do wherever the experiments write a base.
+	byID := make(map[uint64][]float32, len(ids))
+	for i, id := range ids {
+		byID[id] = vectors[i]
+	}
+	vectorOf := func(id uint64) []float32 { return byID[id] }
+
+	// The code the postings are ranked by, which is the one that stays in
+	// memory, where the full code is wider than it.
+	if fullBits := (st.postings.codeWords - 1) * 64; fullBits > DefaultRoutingBits {
+		routing, err := st.quantizer.withBits(DefaultRoutingBits)
+		if err != nil {
+			return errors.Wrap(err, "routing code")
+		}
+		if st, err = haloState(ctx, p.logger, st, routing, vectorOf); err != nil {
+			return err
+		}
+	}
+
+	cfg := growConfig{
+		keys: keysFor(slices.Max(ids)), neighbors: buildConfig.Edges, threshold: threshold, seed: p.cfg.Seed,
+		open: p.growOpen(),
+	}
+	if err := writeGrowIndex(ctx, p.logger, p.dir, st, cfg, p.provider, vectorOf); err != nil {
+		if discarded := p.discardBase(ctx); discarded != nil {
+			p.logger.Errorf("remove a base that was not written whole: %v", discarded)
+		}
+		return errors.Wrap(err, "write the base")
+	}
+	if err := p.openGrown(ctx); err != nil {
+		// The base is whole on disk, and it is what the index is from here
+		// on: it opens when the shard does.
+		p.failed = err
+		return errors.Wrap(err, "open the base")
+	}
+	if err := p.clearStaging(); err != nil {
+		p.failed = err
+		return err
+	}
+	p.logger.WithFields(logrus.Fields{
+		"action":   "postingedge_build_base",
+		"vectors":  len(ids),
+		"postings": p.g.meta.Postings,
+	}).Info("built the first postings of the index")
+	return nil
+}
+
+// Delete marks the vectors deleted. A doc id the index never held, or one
+// that is deleted already, is not an error: a shard deletes from every index
+// it has, and more than once.
+func (p *Persistent) Delete(ids ...uint64) error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	if err := p.usable(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, id := range ids {
+		if p.g == nil {
+			if _, staged := p.staged[id]; !staged {
+				continue
+			}
+			// Nothing leads to a vector that is kept aside: it goes for good.
+			if err := p.staging.Delete(growDocKey(id)); err != nil {
+				return errors.Wrapf(err, "delete doc %d", id)
+			}
+			delete(p.staged, id)
+			p.dirty = true
+			continue
+		}
+		marked, err := p.g.remove(id)
+		if err != nil {
+			return errors.Wrapf(err, "delete doc %d", id)
+		}
+		p.dirty = p.dirty || marked
+	}
+	return nil
+}
+
+// SearchByVector returns the k nearest vectors to the query, nearest first.
+// An index without vectors returns none.
+func (p *Persistent) SearchByVector(ctx context.Context, vector []float32, k int,
+	allow helpers.AllowList,
+) ([]uint64, []float32, error) {
+	// A filter that is dropped would return what the filter leaves out, and
+	// nothing above the index checks.
+	if allow != nil {
+		return nil, nil, errors.Wrap(ErrNotSupported, "filtered search")
+	}
+	if k < 1 {
+		return nil, nil, errors.Errorf("k must be positive, got %d", k)
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if err := p.usable(); err != nil {
+		return nil, nil, err
+	}
+	dims := int(p.dims.Load())
+	if dims == 0 {
+		return nil, nil, nil
+	}
+	if p.g != nil {
+		return p.g.searcher().run(ctx, vector, k, nil, nil)
+	}
+	if len(vector) != dims {
+		return nil, nil, errors.Wrapf(common.ErrWrongDimensions,
+			"query has length %d, the index holds vectors of length %d", len(vector), dims)
+	}
+	if err := checkValues(vector); err != nil {
+		return nil, nil, errors.Wrap(err, "query")
+	}
+	return p.searchStaged(ctx, distancer.Normalize(vector), k)
+}
+
+// searchStaged is the search while there is no base: the exact distance to
+// every vector kept aside, read from its bucket.
+func (p *Persistent) searchStaged(ctx context.Context, query []float32, k int) ([]uint64, []float32, error) {
+	var best topK
+	best.reset(k)
+	vector := make([]float32, len(query))
+	seen := 0
+	err := growScan(p.staging, func(key, value []byte) error {
+		if seen++; seen%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		if len(key) != 4 || len(value) != 4*len(query) {
+			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d", len(key), len(value))
+		}
+		for i := range vector {
+			vector[i] = getFloat32(value[4*i:])
+		}
+		dist, err := p.provider.SingleDist(query, vector)
+		if err != nil {
+			return err
+		}
+		best.push(uint64(binary.BigEndian.Uint32(key)), dist)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "search the vectors kept aside")
+	}
+	return topResults(best.sorted(), k)
+}
+
+// SearchByVectorDistance is not supported yet.
+func (p *Persistent) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
+	maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return nil, nil, errors.Wrap(ErrNotSupported, "search by distance")
+}
+
+// UpdateUserConfig applies a new config. What a search reads on every query
+// can change at any time. What shaped what is on disk cannot.
+func (p *Persistent) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+	defer callback()
+
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	if err := ent.ValidateUserConfigUpdate(p.uc, updated); err != nil {
+		return err
+	}
+	parsed := updated.(ent.UserConfig)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.uc = parsed
+	if p.g != nil {
+		p.g.ix.storeSearchConfig(searchConfig(parsed, scanBitsOf(&p.g.meta)))
+	}
+	return nil
+}
+
+func (p *Persistent) ValidateBeforeInsert(vector []float32) error {
+	dims := int(p.dims.Load())
+	if dims != 0 && dims != len(vector) {
+		return errors.Wrapf(common.ErrWrongDimensions,
+			"new vector has length %d, the index holds vectors of length %d", len(vector), dims)
+	}
+	return checkValues(vector)
+}
+
+// ContainsDoc tells whether the index holds a vector under the doc id. A
+// deleted one is not held.
+func (p *Persistent) ContainsDoc(docID uint64) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.g == nil {
+		_, staged := p.staged[docID]
+		return staged
+	}
+	return p.g.holds(docID)
+}
+
+func (p *Persistent) Iterate(fn func(docID uint64) bool) {
+	p.mu.RLock()
+	var ids []uint64
+	if p.g == nil {
+		ids = make([]uint64, 0, len(p.staged))
+		for id := range p.staged {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+	} else {
+		for id := range p.g.live {
+			if p.g.holds(uint64(id)) {
+				ids = append(ids, uint64(id))
+			}
+		}
+	}
+	p.mu.RUnlock()
+
+	for _, id := range ids {
+		if !fn(id) {
+			return
+		}
+	}
+}
+
+func (p *Persistent) Compressed() bool {
+	return true
+}
+
+func (p *Persistent) Multivector() bool {
+	return false
+}
+
+func (p *Persistent) CompressionStats() compressionhelpers.CompressionStats {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.g == nil {
+		return compressionhelpers.UncompressedStats{}
+	}
+	if scan := p.g.st.scanQuantizer; scan != nil {
+		return scan.Stats()
+	}
+	return p.g.st.quantizer.Stats()
+}
+
+// QueryVectorDistancer returns the exact distance from the query to a doc,
+// read from where the index keeps its vectors.
+func (p *Persistent) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	query := distancer.Normalize(queryVector)
+	return common.QueryVectorDistancer{
+		DistanceFunc: func(docID uint64) (float32, error) {
+			p.mu.RLock()
+			defer p.mu.RUnlock()
+			if err := p.usable(); err != nil {
+				return 0, err
+			}
+			vector, err := p.vectorOf(docID)
+			if err != nil {
+				return 0, err
+			}
+			if len(vector) != len(query) {
+				return 0, errors.Wrapf(common.ErrWrongDimensions,
+					"query has length %d, the index holds vectors of length %d", len(query), len(vector))
+			}
+			return p.provider.SingleDist(query, vector)
+		},
+	}
+}
+
+// vectorOf reads the vector the index holds under a doc id, as it stores it.
+// The caller holds mu.
+func (p *Persistent) vectorOf(docID uint64) ([]float32, error) {
+	if p.g != nil {
+		if !p.g.holds(docID) {
+			return nil, storobj.NewErrNotFoundf(docID, "the index does not hold it")
+		}
+		_, vector, err := p.g.exact(docID, nil, nil)
+		return vector, err
+	}
+	if _, staged := p.staged[docID]; !staged {
+		return nil, storobj.NewErrNotFoundf(docID, "the index does not hold it")
+	}
+	raw, err := p.staging.Get(growDocKey(docID))
+	if err != nil {
+		return nil, errors.Wrapf(err, "read the vector of doc %d", docID)
+	}
+	if len(raw) == 0 || len(raw)%4 != 0 {
+		return nil, errors.Errorf("the vector of doc %d takes %d bytes", docID, len(raw))
+	}
+	vector := make([]float32, len(raw)/4)
+	for i := range vector {
+		vector[i] = getFloat32(raw[4*i:])
+	}
+	return vector, nil
+}
+
+// Preload has nothing to warm: the index keeps no vector in memory.
+func (p *Persistent) Preload(id uint64, vector []float32) {}
+
+// PostStartup has nothing left to restore: Open reads what the index keeps in
+// memory.
+func (p *Persistent) PostStartup(ctx context.Context) {}
+
+// Flush hands to the system what the index has written since the last one:
+// the logs of its buckets, the log of the centroid graph and its meta. It
+// does not wait for any of it to reach the disk.
+func (p *Persistent) Flush() error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	if p.closed || p.failed != nil || !p.dirty {
+		return nil
+	}
+	if p.staging != nil {
+		if err := p.staging.WriteWAL(); err != nil {
+			return errors.Wrap(err, "write the log of the vectors kept aside")
+		}
+	}
+	if p.g != nil {
+		if err := p.g.sync(); err != nil {
+			return err
+		}
+	}
+	p.dirty = false
+	return nil
+}
+
+// ListFiles is of a backup, which the index does not take part in.
+func (p *Persistent) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return nil, errors.Wrap(ErrNotSupported, "backup")
+}
+
+// PrepareForBackup fails rather than let a backup complete without the files
+// of the index in it.
+func (p *Persistent) PrepareForBackup(ctx context.Context) error {
+	return errors.Wrap(ErrNotSupported, "backup")
+}
+
+// ResumeAfterBackup has nothing to resume, PrepareForBackup never succeeds.
+func (p *Persistent) ResumeAfterBackup(ctx context.Context) error {
+	return nil
+}
+
+// SnapshotMutableFiles fails for the same reason PrepareForBackup does.
+func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	return nil, errors.Wrap(ErrNotSupported, "backup")
+}
+
+// Shutdown writes what the index has not written yet and releases it. Its
+// buckets leave the store: the index that opens them next gives them to it
+// again.
+func (p *Persistent) Shutdown(ctx context.Context) error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.teardown(ctx)
+}
+
+// Drop releases the index and, unless keepFiles is set, removes its directory
+// and its buckets.
+func (p *Persistent) Drop(ctx context.Context, keepFiles bool) error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.teardown(ctx); err != nil || keepFiles {
+		return err
+	}
+	if err := os.RemoveAll(p.dir); err != nil {
+		return errors.Wrap(err, "remove the directory of the index")
+	}
+	for _, name := range helpers.PostingEdgeBucketNames(p.cfg.ID) {
+		if err := os.RemoveAll(filepath.Join(p.store.GetDir(), name)); err != nil {
+			return errors.Wrapf(err, "remove the bucket %s", name)
+		}
+	}
+	return nil
+}
+
+// teardown closes the index. The caller holds writeMu and mu.
+func (p *Persistent) teardown(ctx context.Context) error {
+	if p.closed {
+		return nil
+	}
+	p.closed = true
+	var first error
+	keep := func(err error) {
+		if first == nil {
+			first = err
+		}
+	}
+	if p.g != nil {
+		if p.failed != nil {
+			// What a write left halfway is not written down as the index:
+			// the meta stays as the last flush left it.
+			keep(p.g.release(ctx))
+		} else {
+			keep(p.g.close(ctx))
+		}
+		p.g = nil
+	}
+	keep(p.closeStaging(ctx))
+	return first
+}

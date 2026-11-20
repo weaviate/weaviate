@@ -67,17 +67,31 @@
 //   - RescoreLimit 200, or 400 where the target is a recall of 0.99. With the
 //     default of 64 the recall tops out at 0.975.
 //
-// # Scope of this version
+// # Two indexes
 //
-// This is the in-memory version: it is built once from the vectors added
-// through AddBatch (see Index.Build) and then serves concurrent searches.
-// Persistence and restore, deletes, updates, incremental inserts, filtered
-// search and multi-vectors are not implemented; the affected methods return an
-// error rather than silently doing nothing. The posting store and the sidecar
-// are separate types over one shared code array so that a disk-resident
-// version can keep the postings on disk and only the sidecar in memory.
+// Index is the in-memory version: it is built once from the vectors added
+// through AddBatch (see Index.Build) and then serves concurrent searches. It
+// is what the experiments build, and what builds the first postings of the
+// other one. Persistence and restore, deletes, updates, incremental inserts,
+// filtered search and multi-vectors are not implemented in it; the affected
+// methods return an error rather than silently doing nothing. The posting
+// store and the sidecar are separate types over one shared code array.
 // UserConfig.ScanCodeBits splits that array in two, a short code in the
-// postings for the scan and the code of CodeBits in the sidecar: the layout
-// such a version would have, here at the price of two codes per vector in
-// memory.
+// postings for the scan and the code of CodeBits in the sidecar, at the price
+// of two codes per vector in memory.
+//
+// Persistent is the index a shard opens (persistent.go), under the index type
+// "postingedge": the postings in the LSM store of the shard, the routing
+// codes in memory, the exact vectors in a file of its own. It starts empty,
+// takes vectors one by one, marks the ones that are deleted, and comes back
+// as it was after a restart. It is the index that grows on disk of the
+// experiments (grow.go, over disk.go) behind the interface of a shard. What
+// it leaves out it refuses with an error: filtered search, search by
+// distance, backups, multi-vectors, and every distance but cosine. Nothing
+// takes a deleted vector out of it yet, and nothing of it runs in the
+// background.
+//
+// The configuration of a class is in entities/vectorindex/postingedge. The
+// UserConfig of this package is the internal one, with the knobs of the
+// experiments.
 package postingedge

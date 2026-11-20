@@ -16,6 +16,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge"
 )
 
-// The index is not wired into the shard yet, so nothing else checks that it
-// satisfies the interface the shard drives every vector index through.
-var _ db.VectorIndex = (*postingedge.Index)(nil)
+// The interface the shard drives every vector index through. The index a shard
+// opens is Persistent. Nothing wires the one in memory into a shard, so nothing
+// else checks that it satisfies it.
+var (
+	_ db.VectorIndex = (*postingedge.Persistent)(nil)
+	_ db.VectorIndex = (*postingedge.Index)(nil)
+)
