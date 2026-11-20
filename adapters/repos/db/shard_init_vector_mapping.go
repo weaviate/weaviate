@@ -118,11 +118,8 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 }
 
 // recoverVectorIndexTasks finishes the rebuilds a restart interrupted, before
-// any index or queue opens. The mapping decides: the index it names stays,
-// the other index the task names is deleted, then the task. When it names
-// the candidate, the writes the queue kept during the rebuild are served
-// again. A vector without a live index loses both. Every task is checked
-// before anything is deleted.
+// any queue opens and deletes the chunks a rebuild kept. The index the
+// mapping names stays; a vector without a live index loses both.
 func (s *Shard) recoverVectorIndexTasks(ctx context.Context, records map[string]vectorIndexRecord,
 	initialized bool, inSchema func(name string) bool,
 ) error {
