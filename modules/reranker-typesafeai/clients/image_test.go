@@ -79,7 +79,7 @@ func TestCheckImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkImage(tt.encoded)
+			err := (&client{}).checkImage(tt.encoded)
 
 			if tt.wantErr == "" {
 				require.NoError(t, err)
@@ -90,10 +90,10 @@ func TestCheckImage(t *testing.T) {
 	}
 }
 
-func TestAssetsOfNamesTheObjectOfAnImageItCannotRead(t *testing.T) {
-	_, _, err := judgeRequest{}.assets(documentsOf(encodedImage(t, "png", 300, 300), "!!!!"))
+func TestAssetsRejectsAnImageItCannotRead(t *testing.T) {
+	_, _, err := judgeRequest{}.assets([]string{encodedImage(t, "png", 300, 300), "!!!!"})
 
-	require.EqualError(t, err, "object 00000000-0000-0000-0000-000000000001: image: not base64")
+	require.EqualError(t, err, "image: not base64")
 }
 
 func encodedImage(t *testing.T, format string, width, height int) string {

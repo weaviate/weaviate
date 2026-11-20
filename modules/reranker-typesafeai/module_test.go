@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -80,8 +79,8 @@ func TestInitGivesTheClientTheHTTPTimeout(t *testing.T) {
 
 	result := make(chan error, 1)
 	call.Go(func() {
-		_, err := m.reranker.RankProperty(context.Background(), "q", "text",
-			[]ent.Document{{ID: "1", Value: "a document"}}, cfg)
+		_, err := m.reranker.Rank(context.Background(), "q", "text",
+			[]string{"a document"}, cfg)
 		result <- err
 	})
 

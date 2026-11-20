@@ -230,7 +230,7 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 				photos:       smallPhotos,
 				property:     "photo",
 				query:        new(churn),
-				wantErr:      []string{changeEmailID, "280 to 1568 pixels per side"},
+				wantErr:      []string{"image: 100x100 pixels", "280 to 1568 pixels per side"},
 				wantRequests: 0,
 			},
 		}

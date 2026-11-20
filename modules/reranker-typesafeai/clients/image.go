@@ -18,8 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 // Image input is an experimental feature of the API, switched on per request
@@ -90,9 +88,9 @@ func imageFormat(encoded string) (string, error) {
 
 // checkImage fails where the API would reject the image, before anything is
 // sent and billed.
-func checkImage(encoded string) error {
+func (c *client) checkImage(encoded string) error {
 	if len(encoded) > maxImageChars {
-		return imageSizeError(len(encoded) / 4 * 3)
+		return c.imageSizeError(len(encoded) / 4 * 3)
 	}
 	format, err := imageFormat(encoded)
 	if err != nil {
@@ -104,13 +102,13 @@ func checkImage(encoded string) error {
 	}
 	// maxImageChars also admits the two bytes that round up to its last quad.
 	if len(decoded) > maxImageBytes {
-		return imageSizeError(len(decoded))
+		return c.imageSizeError(len(decoded))
 	}
 	var width, height int
 	if format == formatPNG {
-		width, height, err = pngSize(decoded)
+		width, height, err = c.pngSize(decoded)
 	} else {
-		width, height, err = jpegSize(decoded)
+		width, height, err = c.jpegSize(decoded)
 	}
 	if err != nil {
 		return err
@@ -121,13 +119,13 @@ func checkImage(encoded string) error {
 	return nil
 }
 
-func imageSizeError(size int) error {
+func (c *client) imageSizeError(size int) error {
 	return fmt.Errorf("%d bytes exceed the limit of %d MiB per image", size, maxImageBytes>>20)
 }
 
 // pngSize reads the IHDR chunk. An animated PNG carries an acTL chunk before
 // its image data.
-func pngSize(data []byte) (width, height int, err error) {
+func (c *client) pngSize(data []byte) (width, height int, err error) {
 	if len(data) < pngHeaderBytes || string(data[12:16]) != "IHDR" {
 		return 0, 0, errors.New("PNG without an IHDR chunk")
 	}
@@ -147,7 +145,7 @@ func pngSize(data []byte) (width, height int, err error) {
 }
 
 // jpegSize reads the first frame header (SOF segment).
-func jpegSize(data []byte) (width, height int, err error) {
+func (c *client) jpegSize(data []byte) (width, height int, err error) {
 	for offset := 2; offset+4 <= len(data); {
 		if data[offset] != 0xff {
 			break
@@ -179,10 +177,10 @@ func jpegSize(data []byte) (width, height int, err error) {
 	return 0, 0, errors.New("JPEG without a frame header")
 }
 
-func (c *client) checkImages(documents []ent.Document, positions []int) error {
+func (c *client) checkImages(documents []string, positions []int) error {
 	for _, position := range positions {
-		if err := checkImage(documents[position].Value); err != nil {
-			return fmt.Errorf("object %s: image: %w", documents[position].ID, err)
+		if err := c.checkImage(documents[position]); err != nil {
+			return fmt.Errorf("image: %w", err)
 		}
 	}
 	return nil
@@ -190,16 +188,16 @@ func (c *client) checkImages(documents []ent.Document, positions []int) error {
 
 // assets returns the documents of a request as assets and the references
 // the state holds, image_i for the i-th document.
-func (r judgeRequest) assets(documents []ent.Document) (map[string]imageAsset, []string, error) {
+func (r judgeRequest) assets(documents []string) (map[string]imageAsset, []string, error) {
 	assets := make(map[string]imageAsset, len(documents))
 	references := make([]string, len(documents))
 	for i, document := range documents {
-		format, err := imageFormat(document.Value)
+		format, err := imageFormat(document)
 		if err != nil {
-			return nil, nil, fmt.Errorf("object %s: image: %w", document.ID, err)
+			return nil, nil, fmt.Errorf("image: %w", err)
 		}
 		reference := "image_" + strconv.Itoa(i)
-		assets[reference] = imageAsset{Type: assetTypeImage, DataBase64: document.Value, Format: format}
+		assets[reference] = imageAsset{Type: assetTypeImage, DataBase64: document, Format: format}
 		references[i] = reference
 	}
 	return assets, references, nil

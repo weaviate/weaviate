@@ -108,10 +108,10 @@ func (c *client) questionBytes(query string) int {
 	return len("In "+documentKey(maxBatchDocuments-1)+": ") + len(query)
 }
 
-// RankProperty returns, per document, the probability that the query holds
-// for it. Documents that share a request influence each other's probability
-// a little.
-func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
+// Rank returns, per document, the probability that the query holds for it.
+// Documents that share a request influence each other's probability a
+// little.
+func (c *client) Rank(ctx context.Context, query, property string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	if err := c.validateQuery(query); err != nil {
@@ -130,13 +130,13 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	owner := make(map[string]int, len(documents))
 	var pending []int
 	for i, document := range documents {
-		if strings.TrimSpace(document.Value) == "" {
+		if strings.TrimSpace(document) == "" {
 			continue
 		}
-		if _, ok := owner[document.Value]; ok {
+		if _, ok := owner[document]; ok {
 			continue
 		}
-		owner[document.Value] = i
+		owner[document] = i
 		pending = append(pending, i)
 	}
 	if image {
@@ -164,11 +164,11 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			batchDocuments := make([]ent.Document, len(batch))
+			batchDocuments := make([]string, len(batch))
 			for j, index := range batch {
 				batchDocuments[j] = documents[index]
 			}
-			probabilities, err := c.judge(ctx, request, batchDocuments, false)
+			probabilities, err := c.judge(ctx, request, batchDocuments)
 			if err != nil {
 				return err
 			}
@@ -185,10 +185,10 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	documentScores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
 		score := 0.0
-		if position, ok := owner[document.Value]; ok {
+		if position, ok := owner[document]; ok {
 			score = scores[position]
 		}
-		documentScores[i] = ent.DocumentScore{Document: document.Value, Score: score}
+		documentScores[i] = ent.DocumentScore{Document: document, Score: score}
 	}
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
@@ -215,12 +215,12 @@ func (c *client) propertyInput(cfg moduletools.ClassConfig, property string) (im
 // maxDocuments documents and maxCharacters bytes, in order. A document costs
 // its bytes plus questionBytes. A document that costs more than maxCharacters
 // goes alone.
-func (c *client) batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacters, questionBytes int) [][]int {
+func (c *client) batches(indexes []int, documents []string, maxDocuments, maxCharacters, questionBytes int) [][]int {
 	var out [][]int
 	var batch []int
 	characters := 0
 	for _, index := range indexes {
-		length := len(documents[index].Value) + questionBytes
+		length := len(documents[index]) + questionBytes
 		if len(batch) > 0 && (len(batch) == maxDocuments || characters+length > maxCharacters) {
 			out = append(out, batch)
 			batch, characters = nil, 0
@@ -248,29 +248,21 @@ type judgeRequest struct {
 
 // judge returns the probability of every document, in order. A request the
 // API rejects for its size is sent again as two halves, down to one document.
-// A 400 to a request of one document names its object when the 400 says the
-// document is too large or a split isolated the document; any other 400 to a
-// page of one document can be about the request, such as an unknown model.
-func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Document, split bool,
-) ([]float64, error) {
+func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) ([]float64, error) {
 	response, tooLarge, err := c.post(ctx, r, documents)
 	if tooLarge && len(documents) > 1 {
 		half := len(documents) / 2
-		first, err := c.judge(ctx, r, documents[:half], true)
+		first, err := c.judge(ctx, r, documents[:half])
 		if err != nil {
 			return nil, err
 		}
-		second, err := c.judge(ctx, r, documents[half:], true)
+		second, err := c.judge(ctx, r, documents[half:])
 		if err != nil {
 			return nil, err
 		}
 		return append(first, second...), nil
 	}
 	if err != nil {
-		var rejected apiError
-		if len(documents) == 1 && (tooLarge || split) && errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
-			return nil, fmt.Errorf("object %s: %w", documents[0].ID, err)
-		}
 		return nil, err
 	}
 	values, err := response.values(len(documents))
@@ -281,7 +273,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 }
 
 // post builds and sends the request of one batch.
-func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Document) (typesafeaiResponse, bool, error) {
+func (c *client) post(ctx context.Context, r judgeRequest, documents []string) (typesafeaiResponse, bool, error) {
 	request, err := r.request(documents)
 	if err != nil {
 		return typesafeaiResponse{}, false, err
@@ -458,19 +450,14 @@ type typesafeaiQuestion struct {
 // documents become a map with one question per document, which names the
 // document it is about. An image is an asset and the state holds its
 // reference.
-func (r judgeRequest) request(documents []ent.Document) (typesafeaiRequest, error) {
-	var values []string
+func (r judgeRequest) request(documents []string) (typesafeaiRequest, error) {
+	values := documents
 	var assets map[string]imageAsset
 	if r.image {
 		var err error
 		assets, values, err = r.assets(documents)
 		if err != nil {
 			return typesafeaiRequest{}, err
-		}
-	} else {
-		values = make([]string, len(documents))
-		for i, document := range documents {
-			values[i] = document.Value
 		}
 	}
 	if len(documents) == 1 {
