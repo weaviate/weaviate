@@ -37,21 +37,22 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 		shardName  string
 	}
 	live := make(map[shardKey]bool)
+	var unreadable distributedtask.UnreadablePayloads
 	for _, task := range tasks {
 		if !IsLiveReindexTaskStatus(task.Status) {
 			continue
 		}
 		var payload ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			logger.WithField("action", "backup_reindex_gate").
-				WithField("task_id", task.ID).
-				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		for _, shardName := range payload.UnitToShard {
 			live[shardKey{payload.Collection, shardName}] = true
 		}
 	}
+	unreadable.Log(logger.WithField("action", "backup_reindex_gate"),
+		"backup-reindex gate: task payload(s) cannot be decoded; skipping them")
 	return func(collection, shardName string) bool {
 		return live[shardKey{collection, shardName}]
 	}

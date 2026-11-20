@@ -290,14 +290,15 @@ func (p *DropVectorIndexDetector) eachDropCovering(className, targetVector strin
 	existingTasks []*distributedtask.Task, statusMatch func(distributedtask.TaskStatus) bool,
 	fn func(*distributedtask.Task, *DropVectorIndexTaskPayload) bool,
 ) {
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(p.logger, "drop-vector: skipping task(s) with unparseable payload in removal gate")
 	for _, task := range existingTasks {
 		if !statusMatch(task.Status) {
 			continue
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			p.logger.WithField("task", task.ID).
-				Warnf("drop-vector: skipping task with unparseable payload in removal gate: %v", err)
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(existP.Collection, className) {

@@ -222,16 +222,15 @@ func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTas
 func FirstActiveOverlappingDrop(tasks []*distributedtask.Task, excludeTaskID, collection string, targets []string,
 	logger logrus.FieldLogger,
 ) (*distributedtask.Task, *DropVectorIndexTaskPayload, []string) {
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "drop-vector: skipping active task(s) with unparseable payload in overlap check")
 	for _, task := range tasks {
 		if task.ID == excludeTaskID || !task.Status.IsActive() {
 			continue
 		}
 		p, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector: skipping active task with unparseable payload in overlap check: %v", err)
-			}
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -249,16 +248,15 @@ func FirstActiveOverlappingDrop(tasks []*distributedtask.Task, excludeTaskID, co
 // predicate for "is this drop still running" across the REST enqueuer and the
 // reconcile loop; unparseable payloads are skipped fail-open with a warning.
 func ActiveDropCovers(tasks []*distributedtask.Task, collection, targetVector string, logger logrus.FieldLogger) bool {
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "drop-vector has-active-drop: skipping active task(s) with unparseable payload")
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
 			continue
 		}
 		p, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector has-active-drop: skipping active task with unparseable payload: %v", err)
-			}
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -405,13 +403,12 @@ func newestDropEpoch(tasks []*distributedtask.Task, collection string, targets [
 ) (epoch string, ok bool) {
 	var newest *DropVectorIndexTaskPayload
 	var newestVersion uint64
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "drop-vector: coverage-inheritance: skipping task(s) with unparseable payload")
 	for _, task := range tasks {
 		p, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
-			}
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !SameDrop(p, collection, targets) {
