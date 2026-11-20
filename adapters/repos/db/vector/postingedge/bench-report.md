@@ -269,6 +269,18 @@ Código en `fca75d8472`, después del pre-registro (`7b538deef7`). **`lsmkv` lo 
 
 Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el linter de goroutines pasan. Los tests del paquete entero pasan (158 s).
 
+### Enmienda 1 (11:24 del 20, antes de ningún dato): dos crecimientos, como en v5.1
+
+**Motivo.** El pre-registro dice «un índice, crecido una vez, con su gemelo en memoria al lado y la compactación forzada». Al escribir el script vi que no sale con lo que hay: el test que crece junto al gemelo no deja el manifiesto que piden las curvas, con sus puntos de operación y su verdad; y el que lo deja no lleva gemelo. v5.1 corrió los dos, y hago lo mismo en vez de juntarlos en código nuevo de banco.
+
+- **La validación:** el índice crece junto a su gemelo, con el store en modo pread y la compactación por niveles, como la de v5.1. Es el stop de corrección, en cada insert y en cada checkpoint.
+- **El índice de las curvas:** un segundo crecimiento, por el camino de la corrida cronometrada de v5.1, con la compactación forzada de HFresh y sin gemelo, con su cobertura comprobada al acabar. Así sale por el mismo camino que el índice de K = 64 con el que se compara tal cual.
+  - **Aquí corre de día y sin puerta:** sus inserts por segundo no son una medida y no se reportan.
+- **El índice de las curvas no es bit a bit el validado:** la misma secuencia de inserts, con otro grafo de centroides. Como en v5.0 y v5.1.
+- **Lo demás no cambia.**
+
+**Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** la validación pasa en cada checkpoint, el índice reorganizado devuelve lo mismo que el índice tal cual, y el script saca sus tablas con las cuatro filas del control al lado. Script en `testdata/bench/v5.3/scripts/run_v53.sh`, tablas en `rows_verdict.py`.
+
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
 **Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo, el driver y sus tests están escritos (Paso 1, en dos partes). La corrida a 1M va el 20 de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
