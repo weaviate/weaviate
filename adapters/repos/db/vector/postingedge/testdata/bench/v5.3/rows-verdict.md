@@ -87,6 +87,119 @@ Las 500 primeras queries, de una en una, con las filas de cada carga leídas una
 - **El resto de la query** es su rescore, que lee los vectores con lecturas posicionales y no con page-ins.
 - **Con las filas leídas a la vez,** como en las curvas, las dos lecturas de una carga se solapan: lo que se cuenta aquí es cuánto disco toca cada fila, no cuánto espera la ronda.
 
-### La sesión cronometrada
+### La lectura
 
-Sin cronometrar todavía.
+Es el formato candidato si, reorganizado, a 0.95 y con 1 thread, queda a 1.20 veces o menos del lote en frío y a 1.25 o menos en caliente. Por el p50 de la primera ronda, sobre el del lote de la misma sesión. Sin reorganizar se dan las mismas dos razones, sin umbral.
+
+| ronda | | v5.3, reorganizado, ms | el lote | entre el lote | entra | v5.3, tal cual | entre el lote | la celda 2 de v5.0 | entre el lote | K = 64 de v5.1, reorganizado | entre el lote |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| r1 | en frío | 4.06 | 3.69 | 1.10x | **sí** | 4.46 | 1.21x | 4.00 | 1.08x | 4.37 | 1.18x |
+| r1 | en caliente | 1.12 | 0.92 | 1.21x | **sí** | 1.12 | 1.21x | 1.25 | 1.35x | 1.11 | 1.20x |
+| r2 | en frío | 4.02 | 3.64 | 1.10x | **sí** | 4.32 | 1.19x | 3.97 | 1.09x | 4.25 | 1.17x |
+| r2 | en caliente | 1.11 | 0.92 | 1.20x | **sí** | 1.12 | 1.22x | 1.25 | 1.35x | 1.11 | 1.20x |
+
+- **Reorganizado, frente a la celda 2 de v5.0, en frío:** 1.02 veces, +1.6 %: un empate.
+- **Reorganizado, frente a la celda 2 de v5.0, en caliente:** 0.89 veces, −10.6 %.
+- **Reorganizado, frente a K = 64 de v5.1, reorganizado, en frío:** 0.93 veces, −7.0 %: un empate.
+- **Reorganizado, frente a K = 64 de v5.1, reorganizado, en caliente:** 1.01 veces, +1.2 %: un empate.
+
+**Es el formato candidato: cumple las dos mitades en la primera ronda.**
+
+### Latencia, primera ronda
+
+**Recall 0.95, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.3, tal cual | ef 21 | 4.46 | 10.64 | 16.01 | 192 | 15.76 | 29.68 | 39.50 | 405 |
+| v5.3, reorganizado | ef 21 | 4.06 | 10.18 | 15.63 | 206 | 11.99 | 24.73 | 34.37 | 500 |
+| la celda 2 de v5.0 | ef 21 | 4.00 | 9.61 | 15.33 | 209 | 12.06 | 25.14 | 34.03 | 490 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 3.69 | 8.39 | 13.64 | 229 | 11.77 | 24.56 | 33.03 | 520 |
+| K = 64 de v5.1, reorganizado (mía) | ef 21 | 4.37 | 11.63 | 18.39 | 188 | 14.24 | 28.41 | 39.39 | 429 |
+
+**Recall 0.95, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.3, tal cual | ef 21 | 1.12 | 3.87 | 5.96 | 661 | 1.52 | 5.09 | 8.02 | 3 891 |
+| v5.3, reorganizado | ef 21 | 1.12 | 3.87 | 5.87 | 661 | 1.53 | 5.11 | 7.73 | 3 916 |
+| la celda 2 de v5.0 | ef 21 | 1.25 | 4.24 | 6.53 | 597 | 1.90 | 6.39 | 10.02 | 3 119 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 0.92 | 3.01 | 4.47 | 819 | 1.29 | 4.13 | 6.25 | 4 696 |
+| K = 64 de v5.1, reorganizado (mía) | ef 21 | 1.11 | 3.84 | 5.73 | 662 | 1.51 | 5.11 | 7.60 | 3 954 |
+
+**Recall 0.99, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.3, tal cual | ef 151 | 9.71 | 29.46 | 41.18 | 81 | 26.34 | 63.82 | 76.55 | 211 |
+| v5.3, reorganizado | ef 151 | 9.42 | 29.20 | 41.57 | 83 | 24.27 | 58.75 | 70.68 | 230 |
+| la celda 2 de v5.0 | ef 158 | 9.74 | 30.62 | 45.19 | 79 | 25.64 | 62.75 | 77.38 | 217 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 9.01 | 27.91 | 39.99 | 86 | 22.56 | 56.39 | 69.83 | 240 |
+| K = 64 de v5.1, reorganizado (mía) | ef 166 | 10.81 | 34.77 | 48.41 | 71 | 28.50 | 69.25 | 85.50 | 197 |
+
+**Recall 0.99, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.3, tal cual | ef 151 | 3.58 | 12.36 | 18.12 | 209 | 4.72 | 16.47 | 24.33 | 1 260 |
+| v5.3, reorganizado | ef 151 | 3.58 | 12.29 | 17.80 | 209 | 4.85 | 16.81 | 24.45 | 1 234 |
+| la celda 2 de v5.0 | ef 158 | 4.31 | 14.61 | 21.18 | 177 | 6.47 | 21.62 | 31.04 | 950 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 3.24 | 10.97 | 15.94 | 233 | 4.28 | 14.47 | 21.16 | 1 414 |
+| K = 64 de v5.1, reorganizado (mía) | ef 166 | 3.81 | 12.85 | 18.90 | 198 | 4.97 | 16.91 | 24.68 | 1 218 |
+
+**Cada índice entre la celda en lote,** por el p50:
+
+| índice | estado | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|---|
+| v5.3, tal cual | en frío | 1.21x | 1.34x | 1.08x | 1.17x |
+| v5.3, tal cual | en caliente | 1.21x | 1.18x | 1.11x | 1.10x |
+| v5.3, reorganizado | en frío | 1.10x | 1.02x | 1.05x | 1.08x |
+| v5.3, reorganizado | en caliente | 1.21x | 1.18x | 1.10x | 1.13x |
+| la celda 2 de v5.0 | en frío | 1.08x | 1.02x | 1.08x | 1.14x |
+| la celda 2 de v5.0 | en caliente | 1.35x | 1.48x | 1.33x | 1.51x |
+| K = 64 de v5.1, reorganizado (mía) | en frío | 1.18x | 1.21x | 1.20x | 1.26x |
+| K = 64 de v5.1, reorganizado (mía) | en caliente | 1.20x | 1.17x | 1.18x | 1.16x |
+
+**De la latencia media a 0.95 con 1 thread, en frío,** y lo que cuesta traer cada fila, por carga:
+
+| índice | media, ms | traer los bloques | scan y ruteo | rescore | cargas | fila de miembros, µs | fila de aristas, µs |
+|---|---|---|---|---|---|---|---|
+| v5.3, tal cual | 5.22 | 2.28 | 0.80 | 1.98 | 18.73 | 284.0 | 240.0 |
+| v5.3, reorganizado | 4.85 | 2.30 | 0.80 | 1.60 | 18.73 | 286.5 | 242.3 |
+| la celda 2 de v5.0 | 4.77 | 2.27 | 0.81 | 1.56 | 18.58 | 285.0 | 273.8 |
+| escrito en lote (v4.0, 512 bits en RAM) | 4.37 | 1.96 | 0.66 | 1.62 | 17.83 | 262.3 | 218.3 |
+| K = 64 de v5.1, reorganizado (mía) | 5.32 | 2.81 | 0.79 | 1.57 | 18.77 | 358.9 | 199.6 |
+
+**De la latencia media a 0.95 con 1 thread, en caliente,** y lo que cuesta traer cada fila, por carga:
+
+| índice | media, ms | traer los bloques | scan y ruteo | rescore | cargas | fila de miembros, µs | fila de aristas, µs |
+|---|---|---|---|---|---|---|---|
+| v5.3, tal cual | 1.51 | 0.43 | 0.83 | 0.14 | 19.50 | 15.6 | 10.6 |
+| v5.3, reorganizado | 1.51 | 0.43 | 0.83 | 0.14 | 19.50 | 15.6 | 10.6 |
+| la celda 2 de v5.0 | 1.68 | 0.57 | 0.85 | 0.14 | 19.54 | 16.3 | 34.7 |
+| escrito en lote (v4.0, 512 bits en RAM) | 1.22 | 0.30 | 0.68 | 0.13 | 18.59 | 14.2 | 7.1 |
+| K = 64 de v5.1, reorganizado (mía) | 1.51 | 0.42 | 0.84 | 0.14 | 19.56 | 15.9 | 9.6 |
+
+### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| v5.3, tal cual | 19:15 a 19:21 | 19:45 a 19:51 | no | +3.8 % (0.99, 8 threads, en caliente: 4.72 y 4.90 ms) | — |
+| v5.3, reorganizado | 19:21 a 19:27 | 19:51 a 19:57 | no | +1.8 % (0.95, 8 threads, en frío: 11.99 y 12.20 ms) | — |
+| la celda 2 de v5.0 | 19:27 a 19:34 | 19:57 a 20:03 | no | +2.9 % (0.95, 8 threads, en frío: 12.06 y 12.40 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 19:34 a 19:39 | 20:03 a 20:08 | no | −1.5 % (0.95, 1 thread, en frío: 3.69 y 3.64 ms) | — |
+| K = 64 de v5.1, reorganizado (mía) | 19:39 a 19:45 | 20:08 a 20:14 | no | +2.7 % (0.99, 8 threads, en frío: 28.50 y 29.28 ms) | — |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+### RAM residente al buscar
+
+| índice | heap en uso tras abrir | huella del proceso |
+|---|---|---|
+| v5.3, tal cual | 175.51 MB | 372.11 MB |
+| v5.3, reorganizado | 179.31 MB | 380.19 MB |
+| la celda 2 de v5.0 | 180.03 MB | 380.76 MB |
+| escrito en lote (v4.0, 512 bits en RAM) | 146.10 MB | 288.74 MB |
+| K = 64 de v5.1, reorganizado (mía) | 179.28 MB | 379.04 MB |
+
