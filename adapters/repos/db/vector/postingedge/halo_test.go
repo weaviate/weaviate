@@ -17,11 +17,9 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 // The halo of v3.0 (bench-report.md, "v3.0: punto de operación del halo"). A
@@ -37,58 +35,6 @@ import (
 // postings keep the full codes for the scan: the search then does what it
 // would do with a halo, and what it would read is counted from the postings
 // it loads.
-
-// haloState returns the state of an index built in batch with the endpoints
-// of its edges ranked by another codec over the same quantizer. The
-// postings, with the codes the scan reads, the edges, the centroid graph and
-// the posting map are those of the index. The sidecar is a new one, with the
-// code of every vector under routing. vectorOf gives the vector of a doc id
-// as the index stores it.
-func haloState(ctx context.Context, logger logrus.FieldLogger, st *state, routing codec,
-	vectorOf func(docID uint64) []float32,
-) (*state, error) {
-	switch {
-	case st == nil:
-		return nil, ErrNotBuilt
-	case st.postings.lists != nil:
-		return nil, errors.New("the index is keyed by doc id: a halo is laid over an index built in batch")
-	case st.scanQuantizer != nil:
-		return nil, errors.New("the postings have codes of their own already")
-	}
-	store := st.postings
-	n := store.vectors()
-	if n == 0 {
-		return nil, errors.New("no vector to encode")
-	}
-	words := len(routing.Encode(vectorOf(store.docIDs[0])))
-	codes := make([]uint64, n*words)
-	err := parallelChunks(ctx, logger, n, 1024, func(_, start, end int) error {
-		for slot := start; slot < end; slot++ {
-			code := routing.Encode(vectorOf(store.docIDs[slot]))
-			if len(code) != words {
-				return errors.Errorf("code of slot %d has %d words, expected %d", slot, len(code), words)
-			}
-			copy(codes[slot*words:], code)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "encode the endpoints")
-	}
-	halo := &state{
-		dims:          st.dims,
-		quantizer:     routing,
-		scanQuantizer: st.quantizer,
-		centroids:     st.centroids,
-		postings:      store,
-		side:          &sidecar{codeWords: words, codes: codes, postingOf: st.side.postingOf},
-		visited:       visited.NewPool(n),
-		build:         st.build,
-	}
-	postings := store.postings()
-	halo.scratch.New = func() any { return newSearchScratch(postings) }
-	return halo, nil
-}
 
 // haloPosting is what one posting holds, in the units its blocks on disk are
 // made of: members, edges, and the distinct endpoints of those edges, which

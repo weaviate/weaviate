@@ -52,9 +52,6 @@ import (
 // and map written, before any search can see the vector. checkCoverage
 // checks that every vector is where the map says, and only there.
 
-// unplaced is the posting of a doc id that is in no posting.
-const unplaced = math.MaxUint32
-
 type streamConfig struct {
 	// threshold is the size past which a posting splits.
 	threshold int
