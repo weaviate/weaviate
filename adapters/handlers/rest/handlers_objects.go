@@ -20,6 +20,7 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -42,6 +43,8 @@ type objectHandlers struct {
 	config              config.Config
 	modulesProvider     ModulesProvider
 	metricRequestsTotal restApiRequestsTotal
+	// metricListWithoutClass is nil when monitoring is disabled.
+	metricListWithoutClass prometheus.Counter
 }
 
 type ModulesProvider interface {
@@ -238,6 +241,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	if params.Class != nil && *params.Class != "" {
 		return h.query(params, principal)
 	}
+	h.logListWithoutClass()
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -655,7 +659,18 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 	manager *uco.Manager, config config.Config, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics,
 ) {
-	h := &objectHandlers{manager, logger, config, modulesProvider, newObjectsRequestsTotal(metrics, logger)}
+	listWithoutClass, err := newObjectsListWithoutClassCounter(metrics)
+	if err != nil {
+		logger.Errorf("register objects_list_without_class_requests_total metric: %v", err)
+	}
+	h := &objectHandlers{
+		manager:                manager,
+		logger:                 logger,
+		config:                 config,
+		modulesProvider:        modulesProvider,
+		metricRequestsTotal:    newObjectsRequestsTotal(metrics, logger),
+		metricListWithoutClass: listWithoutClass,
+	}
 	api.ObjectsObjectsCreateHandler = objects.
 		ObjectsCreateHandlerFunc(h.addObject)
 	api.ObjectsObjectsValidateHandler = objects.
@@ -899,6 +914,28 @@ type objectsRequestsTotal struct {
 func newObjectsRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) restApiRequestsTotal {
 	return &objectsRequestsTotal{
 		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{newRequestsTotalMetric(metrics, "rest"), "rest", "objects", logger},
+	}
+}
+
+func newObjectsListWithoutClassCounter(metrics *monitoring.PrometheusMetrics) (prometheus.Counter, error) {
+	if metrics == nil || metrics.Registerer == nil {
+		return nil, nil
+	}
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "objects_list_without_class_requests_total",
+		Help: "Number of GET /v1/objects requests without a class, which list objects across all collections. " +
+			"Listing without a class is deprecated. Rejected requests count too, such as the 410 answered while namespaces are enabled.",
+	})
+	registered, _, err := monitoring.EnsureRegisteredMetric(metrics.Registerer, counter)
+	if err != nil {
+		return nil, err
+	}
+	return registered, nil
+}
+
+func (h *objectHandlers) logListWithoutClass() {
+	if h.metricListWithoutClass != nil {
+		h.metricListWithoutClass.Inc()
 	}
 }
 

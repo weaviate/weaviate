@@ -20,12 +20,15 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 
@@ -1084,6 +1087,61 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 }
 
+func TestObjectsListWithoutClassCounter(t *testing.T) {
+	empty, set, badInclude := "", "MyClass", "unknown"
+	tests := []struct {
+		name      string
+		class     *string
+		include   *string
+		listErr   error
+		wantResp  middleware.Responder
+		wantCount float64
+	}{
+		{name: "class omitted", wantResp: &objects.ObjectsListOK{}, wantCount: 1},
+		{name: "class empty", class: &empty, wantResp: &objects.ObjectsListOK{}, wantCount: 1},
+		{name: "class set", class: &set, wantResp: &objects.ObjectsListOK{}, wantCount: 0},
+		{
+			name: "rejected for a bad include", include: &badInclude,
+			wantResp: &objects.ObjectsListBadRequest{}, wantCount: 1,
+		},
+		{
+			name: "rejected while namespaces are enabled", listErr: uco.NewErrEndpointGone("gone"),
+			wantResp: &objects.ObjectsListGone{}, wantCount: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter, err := newObjectsListWithoutClassCounter(
+				&monitoring.PrometheusMetrics{Registerer: prometheus.NewPedanticRegistry()})
+			require.NoError(t, err)
+			h := &objectHandlers{
+				manager:                &fakeManager{getObjectsErr: tt.listErr},
+				logger:                 &logrus.Logger{},
+				metricRequestsTotal:    &fakeMetricRequestsTotal{},
+				metricListWithoutClass: counter,
+			}
+
+			res := h.getObjects(objects.ObjectsListParams{
+				HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil),
+				Class:       tt.class,
+				Include:     tt.include,
+			}, nil)
+
+			require.IsType(t, tt.wantResp, res)
+			require.Equal(t, tt.wantCount, testutil.ToFloat64(counter))
+		})
+	}
+
+	t.Run("monitoring disabled", func(t *testing.T) {
+		counter, err := newObjectsListWithoutClassCounter(nil)
+		require.NoError(t, err)
+		require.Nil(t, counter)
+		h := &objectHandlers{manager: &fakeManager{}, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+		require.IsType(t, &objects.ObjectsListOK{}, res)
+	})
+}
+
 // A stray qualified class on a beacon never leaks into the Href URL.
 func TestExtendReferenceWithAPILink_StripsQualifiedClass(t *testing.T) {
 	cases := []struct {
@@ -1173,6 +1231,7 @@ type fakeManager struct {
 	addObjectReturn    *models.Object
 	addObjectErr       error
 	queryResult        []*models.Object
+	getObjectsErr      error
 	queryErr           *uco.Error
 	updateObjectReturn *models.Object
 	updateObjectErr    error
@@ -1239,7 +1298,7 @@ func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *mod
 }
 
 func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error) {
-	return f.queryResult, nil
+	return f.queryResult, f.getObjectsErr
 }
 
 func (f *fakeManager) Query(_ context.Context,
