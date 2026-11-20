@@ -1,0 +1,233 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "queries": 5000,
+  "k": 10,
+  "budget": 8,
+  "gomaxprocs": 10,
+  "access": "mmap",
+  "drop": "ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' \u003e /dev/null 2\u003e\u00261 \u0026\u0026 ok=1 \u0026\u0026 break; sleep 2; done; [ $ok = 1 ] \u0026\u0026 diskutil mount 'disk3s7' \u003e /dev/null",
+  "readers": 1,
+  "heapBytes": 115580928,
+  "footprintBytes": 289980416,
+  "files": {
+    "bucket hfresh_postings_hfresh": 1135224034,
+    "bucket hfresh_shared_hfresh": 67891178,
+    "bucket objects": 6221751504,
+    "bucket vectors_compressed": 94907436,
+    "centroids": 10531644
+  },
+  "segments": {
+    "bucket hfresh_postings_hfresh": 2,
+    "bucket hfresh_shared_hfresh": 17,
+    "bucket objects": 34,
+    "bucket vectors_compressed": 3
+  },
+  "points": [
+    {
+      "name": "r100@0.95",
+      "target": 0.95,
+      "searchProbe": 214,
+      "rescoreLimit": 100,
+      "threads": 1,
+      "recall": 0.95002,
+      "granted": 20,
+      "warm": [
+        {
+          "queries": 5000,
+          "p50ms": 3.409167,
+          "p95ms": 4.568166,
+          "p99ms": 4.982208,
+          "meanms": 3.512876193199998,
+          "qps": 284.6288069983506,
+          "centroidms": 0.28808243879999934,
+          "readms": 1.3656562862000066,
+          "scanms": 1.5092385596000009,
+          "rescorems": 0.2801628481999999
+        },
+        {
+          "queries": 5000,
+          "p50ms": 3.400791,
+          "p95ms": 4.537542,
+          "p99ms": 4.923458,
+          "meanms": 3.498208437599995,
+          "qps": 285.82302095783007,
+          "centroidms": 0.28714697419999896,
+          "readms": 1.3610557378000012,
+          "scanms": 1.5031875172000004,
+          "rescorems": 0.2777516183999995
+        },
+        {
+          "queries": 5000,
+          "p50ms": 3.408959,
+          "p95ms": 4.602958,
+          "p99ms": 5.004083,
+          "meanms": 3.5250954336000095,
+          "qps": 283.63898837999136,
+          "centroidms": 0.28825262200000074,
+          "readms": 1.369606723399998,
+          "scanms": 1.516867012199998,
+          "rescorems": 0.2799615714000001
+        }
+      ],
+      "cold": {
+        "queries": 500,
+        "p50ms": 52.09825,
+        "p95ms": 62.374333,
+        "p99ms": 64.239208,
+        "meanms": 51.584507192000004,
+        "qps": 19.384882964592958,
+        "centroidms": 0.3446921439999997,
+        "readms": 46.184258137999976,
+        "scanms": 1.5454839180000006,
+        "rescorems": 3.429702841999995
+      },
+      "coldHalves": [
+        {
+          "queries": 250,
+          "p50ms": 52.047417,
+          "p95ms": 62.306375,
+          "p99ms": 63.293334,
+          "meanms": 51.848410707999996,
+          "qps": 19.28622690232913,
+          "centroidms": 0.3506290080000001,
+          "readms": 46.437448976,
+          "scanms": 1.5607065279999994,
+          "rescorems": 3.41931616
+        },
+        {
+          "queries": 250,
+          "p50ms": 52.211167,
+          "p95ms": 62.627,
+          "p99ms": 65.743625,
+          "meanms": 51.32060367599999,
+          "qps": 19.484553539710188,
+          "centroidms": 0.33875527999999994,
+          "readms": 45.931067299999995,
+          "scanms": 1.5302613080000007,
+          "rescorems": 3.440089523999998
+        }
+      ],
+      "coldFirst": {
+        "queries": 50,
+        "p50ms": 62.350042,
+        "p95ms": 65.743625,
+        "p99ms": 67.133083,
+        "meanms": 62.09789916000001,
+        "qps": 16.103604365478184,
+        "centroidms": 0.38279166000000003,
+        "readms": 56.01690904,
+        "scanms": 1.6730100000000003,
+        "rescorems": 3.9086049600000004
+      },
+      "coldRest": {
+        "queries": 450,
+        "p50ms": 51.864084,
+        "p95ms": 56.799875,
+        "p99ms": 58.14825,
+        "meanms": 50.416352528888865,
+        "qps": 19.834834331321247,
+        "centroidms": 0.34045886444444423,
+        "readms": 45.09174137111114,
+        "scanms": 1.5313143533333344,
+        "rescorems": 3.3764914955555536
+      },
+      "coldBatches": 50,
+      "coldBatch": 10,
+      "coldRecall": 0.9538,
+      "reopenms": 512.57225594,
+      "indexBytes": 134121687,
+      "coldRescored": 100
+    },
+    {
+      "name": "r100@0.95",
+      "target": 0.95,
+      "searchProbe": 214,
+      "rescoreLimit": 100,
+      "threads": 8,
+      "recall": 0.95002,
+      "granted": 14.382066666666667,
+      "warm": [
+        {
+          "queries": 5000,
+          "p50ms": 9.917791,
+          "p95ms": 13.087833,
+          "p99ms": 14.707125,
+          "meanms": 10.014819970599934,
+          "qps": 798.3184646482038,
+          "centroidms": 0.3847164149999988,
+          "readms": 4.316923620400006,
+          "scanms": 4.427788245200005,
+          "rescorems": 0.7956656811999997
+        },
+        {
+          "queries": 5000,
+          "p50ms": 10.008125,
+          "p95ms": 13.139208,
+          "p99ms": 14.853041,
+          "meanms": 10.069826132800038,
+          "qps": 793.9804530746237,
+          "centroidms": 0.38296704420000094,
+          "readms": 4.363605857000016,
+          "scanms": 4.436337504000003,
+          "rescorems": 0.7965093579999984
+        },
+        {
+          "queries": 5000,
+          "p50ms": 9.972708,
+          "p95ms": 13.050917,
+          "p99ms": 14.684875,
+          "meanms": 10.00489381659998,
+          "qps": 799.139050293205,
+          "centroidms": 0.39739898900000126,
+          "readms": 4.226424338200004,
+          "scanms": 4.476468575,
+          "rescorems": 0.807785988800002
+        }
+      ],
+      "cold": {
+        "queries": 500,
+        "p50ms": 84.775458,
+        "p95ms": 106.91275,
+        "p99ms": 109.171041,
+        "meanms": 86.85348849000006,
+        "qps": 86.53913473304749,
+        "centroidms": 0.3579885840000004,
+        "readms": 68.49169140800004,
+        "scanms": 2.9841696399999975,
+        "rescorems": 14.913787939999988
+      },
+      "coldHalves": [
+        {
+          "queries": 256,
+          "p50ms": 83.937084,
+          "p95ms": 106.91275,
+          "p99ms": 108.40475,
+          "meanms": 86.70366504687505,
+          "qps": 87.30531918174677,
+          "centroidms": 0.3615395351562502,
+          "readms": 68.68508496484372,
+          "scanms": 2.929226015625002,
+          "rescorems": 14.622666874999991
+        },
+        {
+          "queries": 244,
+          "p50ms": 85.9305,
+          "p95ms": 107.02075,
+          "p99ms": 109.313375,
+          "meanms": 87.01068029918035,
+          "qps": 85.74959346082598,
+          "centroidms": 0.35426299590163957,
+          "readms": 68.28878669262296,
+          "scanms": 3.0418154098360657,
+          "rescorems": 15.219226434426222
+        }
+      ],
+      "coldBatches": 32,
+      "coldBatch": 16,
+      "coldRecall": 0.9538,
+      "reopenms": 511.74619403125,
+      "indexBytes": 134121734,
+      "coldRescored": 100
+    }
+  ]
+}

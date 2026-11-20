@@ -1,0 +1,196 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "config": {
+    "maxPostingSizeKB": 48,
+    "replicas": 4,
+    "searchProbe": 256,
+    "distance": "cosine",
+    "rq": {
+      "enabled": true,
+      "bits": 1,
+      "rescoreLimit": 350,
+      "centering": false,
+      "trainingLimit": 0
+    },
+    "multivector": {
+      "enabled": false,
+      "muvera": {
+        "enabled": false,
+        "ksim": 4,
+        "dprojections": 16,
+        "repetitions": 10
+      },
+      "aggregation": ""
+    }
+  },
+  "writers": 1,
+  "gomaxprocs": 10,
+  "backgroundWorkers": 9,
+  "objectsSeconds": 17.422432167,
+  "stretches": [
+    {
+      "percent": 10,
+      "inserts": 99000,
+      "seconds": 35.769697208,
+      "perSecond": 2767.705843980652,
+      "pending": {
+        "analyze": 1296,
+        "merge": 0,
+        "reassign": 0,
+        "split": 1218
+      }
+    },
+    {
+      "percent": 20,
+      "inserts": 99000,
+      "seconds": 46.762789959,
+      "perSecond": 2117.067867139659,
+      "pending": {
+        "analyze": 3716,
+        "merge": 0,
+        "reassign": 0,
+        "split": 969
+      }
+    },
+    {
+      "percent": 30,
+      "inserts": 99000,
+      "seconds": 50.218573291,
+      "perSecond": 1971.3821702247053,
+      "pending": {
+        "analyze": 8443,
+        "merge": 0,
+        "reassign": 8,
+        "split": 857
+      }
+    },
+    {
+      "percent": 40,
+      "inserts": 99000,
+      "seconds": 51.989550375,
+      "perSecond": 1904.2288168663547,
+      "pending": {
+        "analyze": 1113,
+        "merge": 0,
+        "reassign": 0,
+        "split": 1172
+      }
+    },
+    {
+      "percent": 50,
+      "inserts": 99000,
+      "seconds": 54.7937,
+      "perSecond": 1806.7770564864209,
+      "pending": {
+        "analyze": 12625,
+        "merge": 0,
+        "reassign": 23211,
+        "split": 429
+      }
+    },
+    {
+      "percent": 60,
+      "inserts": 99000,
+      "seconds": 53.0585325,
+      "perSecond": 1865.8638928620953,
+      "pending": {
+        "analyze": 15947,
+        "merge": 0,
+        "reassign": 0,
+        "split": 1055
+      }
+    },
+    {
+      "percent": 70,
+      "inserts": 99000,
+      "seconds": 43.819066917,
+      "perSecond": 2259.2904633848343,
+      "pending": {
+        "analyze": 15822,
+        "merge": 0,
+        "reassign": 14415,
+        "split": 388
+      }
+    },
+    {
+      "percent": 80,
+      "inserts": 99000,
+      "seconds": 44.179192958,
+      "perSecond": 2240.87389043337,
+      "pending": {
+        "analyze": 7730,
+        "merge": 0,
+        "reassign": 0,
+        "split": 1332
+      }
+    },
+    {
+      "percent": 90,
+      "inserts": 99000,
+      "seconds": 45.735698084,
+      "perSecond": 2164.611105709432,
+      "pending": {
+        "analyze": 1172,
+        "merge": 0,
+        "reassign": 0,
+        "split": 881
+      }
+    },
+    {
+      "percent": 100,
+      "inserts": 99000,
+      "seconds": 47.476824916,
+      "perSecond": 2085.227901721717,
+      "pending": {
+        "analyze": 16637,
+        "merge": 0,
+        "reassign": 39073,
+        "split": 352
+      }
+    }
+  ],
+  "insertSeconds": 473.803628708,
+  "insertsPerSecond": 2089.4732332455947,
+  "queueSeconds": 476.906879625,
+  "queuePerSecond": 2075.87695270501,
+  "pendingAtLastInsert": {
+    "analyze": 16637,
+    "merge": 0,
+    "reassign": 39073,
+    "split": 352
+  },
+  "cleanup": true,
+  "graphAtLastInsert": {
+    "nodes": 40067,
+    "tombstones": 11990,
+    "postings": 28077
+  },
+  "graphAtEmpty": {
+    "nodes": 40347,
+    "tombstones": 12130,
+    "postings": 28217
+  },
+  "postings": 28217,
+  "entries": 4888203,
+  "replication": 4.937578787878788,
+  "queries": 5000,
+  "k": 10,
+  "searchProbe": 256,
+  "rescoreLimit": 350,
+  "recall": 0.96356,
+  "files": {
+    "bucket hfresh_postings_hfresh": 4095241336,
+    "bucket hfresh_shared_hfresh": 68285949,
+    "bucket objects": 6221751696,
+    "bucket vectors_compressed": 65652469,
+    "centroids": 9204374
+  },
+  "segments": {
+    "bucket hfresh_postings_hfresh": 468,
+    "bucket hfresh_shared_hfresh": 1,
+    "bucket objects": 37,
+    "bucket vectors_compressed": 2
+  }
+}

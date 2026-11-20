@@ -1,0 +1,14 @@
+== inserts, n1: from 2026-11-20 06:39:41, 5408 s
+-- log: 2026-11-20 06:39:50 +0100 Notification        	Display is turned off                                                      	          
+-- log: 2026-11-20 06:46:05 +0100 Assertions          	PID 462(WindowServer) Created UserIsActive "com.apple.iohideventsystem.queue.tickle serviceID:1000006fb
+-- log: 2026-11-20 06:46:05 +0100 Notification        	Display is turned on                                                       	          
+-- log: 2026-11-20 06:56:10 +0100 Notification        	Display is turned off                                                      	          
+-- log: 2026-11-20 07:10:40 +0100 Assertions          	PID 462(WindowServer) TimedOut UserIsActive "com.apple.iohideventsystem.queue.tickle serviceID:100000bd
+== inserts, n4: from 2026-11-20 08:09:50, 1907 s
+== inserts, n8: from 2026-11-20 08:41:38, 1558 s
+-- log: 2026-11-20 08:55:51 +0100 Assertions          	PID 462(WindowServer) Created UserIsActive "com.apple.iohideventsystem.queue.tickle serviceID:100b57d3c
+-- log: 2026-11-20 08:55:52 +0100 Notification        	Display is turned on                                                       	          
+-- log: 2026-11-20 09:03:54 +0100 Notification        	Display is turned off                                                      	          
+== inserts, n8w8: from 2026-11-20 09:18:39, 1965 s
+-- log: 2026-11-20 09:45:05 +0100 Assertions          	PID 462(WindowServer) Created UserIsActive "com.apple.iohideventsystem.queue.tickle serviceID:100000bd4
+-- log: 2026-11-20 09:45:05 +0100 Notification        	Display is turned on                                                       	          

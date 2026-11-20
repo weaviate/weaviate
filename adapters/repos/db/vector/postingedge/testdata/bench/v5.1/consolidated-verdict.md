@@ -124,17 +124,214 @@ Los miembros con cambios esperando y los bytes de sus listas y de sus distancias
 | K | corrida | pico: miembros | bytes | en postings | bytes por posting con algo pendiente | por posting vivo |
 |---|---|---|---|---|---|---|
 | 16 | validación | 29 730 | 2.39 MB | 3 779 | 0.63 KB | 0.58 KB |
+| 16 | cronometrada | 29 364 | 2.36 MB | 3 746 | 0.63 KB | 0.58 KB |
 | 64 | validación | 115 105 | 9.14 MB | 4 022 | 2.27 KB | 2.22 KB |
+| 64 | cronometrada | 113 817 | 8.96 MB | 3 979 | 2.25 KB | 2.20 KB |
 
 - **En la validación** cada checkpoint lo vacía: su pico es el de un tramo. **En la cronometrada** solo se vacía al cerrar.
 
+**En la corrida cronometrada, al acabar cada tramo:**
+
+| K | | miembros esperando | bytes | en postings | heap en uso del proceso, tras recolectar |
+|---|---|---|---|---|---|
+| 16 | al 20 % | 5 943 | 0.44 MB | 761 | 6 423.20 MB |
+| 16 | al 40 % | 11 911 | 0.91 MB | 1 515 | 6 524.55 MB |
+| 16 | al 60 % | 17 702 | 1.37 MB | 2 294 | 6 580.49 MB |
+| 16 | al 80 % | 23 021 | 1.81 MB | 2 963 | 6 674.70 MB |
+| 16 | al 100 % | 29 169 | 2.32 MB | 3 767 | 6 750.49 MB |
+| 64 | al 20 % | 23 245 | 1.69 MB | 813 | 6 439.99 MB |
+| 64 | al 40 % | 46 340 | 3.51 MB | 1 615 | 6 541.21 MB |
+| 64 | al 60 % | 70 159 | 5.38 MB | 2 405 | 6 613.43 MB |
+| 64 | al 80 % | 90 831 | 7.06 MB | 3 192 | 6 724.34 MB |
+| 64 | al 100 % | 113 674 | 8.95 MB | 3 993 | 6 783.33 MB |
+
+- **El heap del proceso** tiene además los códigos de ruteo, el mapa, los centroides y su grafo.
+
 ### Inserts por segundo
 
-Sin cronometrar todavía.
+Un escritor, del 10 % al 100 %, con el store leyendo por su mapping, sus ciclos dentro del tiempo y la compactación forzada. La de v5.0 es su corrida de la noche del 18 al 19: otra sesión.
+
+| tramo | v5.0, un valor por cambio: inserts por segundo | K = 16: inserts por segundo | K = 64: inserts por segundo |
+|---|---|---|---|
+| del 10 al 20 % | 213 | 285 | 238 |
+| del 20 al 40 % | 195 | 216 | 204 |
+| del 40 al 60 % | 176 | 190 | 184 |
+| del 60 al 80 % | 171 | 181 | 175 |
+| del 80 al 100 % | 163 | 176 | 171 |
+| **todo** | **179** | **197** | **187** |
+
+- **v5.0, un valor por cambio:** un insert son 5.59 ms de media, repartidos así: la búsqueda de aristas 93.3 %, escribir el miembro 2.1 %, las aristas inversas 1.1 %, los splits 1.2 %, los ciclos del store 0.4 %, el grafo de centroides 1.9 %.
+  - El store escribió 9 430.90 MB, 16.61 veces lo que ocupa al final (567.68 MB), con su compactación final.
+  - Su punto de 0.95: ef 21, recall 0.9509.
+  - Su punto de 0.99: ef 158, recall 0.9901.
+- **K = 16:** un insert son 5.07 ms de media, repartidos así: la búsqueda de aristas 91.5 %, escribir el miembro 2.7 %, las aristas inversas 0.9 %, los splits 1.7 %, las filas de aristas 0.6 %, los ciclos del store 0.6 %, el grafo de centroides 2.0 %.
+  - Al cerrar se escribieron las 3 767 filas que esperaban, en 0.2 s, que van en el tiempo.
+  - El tramo: de 00:34 a 01:51, con la base y lo de después dentro. Teclado o trackpad durante el tramo: no.
+  - Cobertura del índice que deja: completa.
+  - El store escribió 14 462.39 MB, 26.01 veces lo que ocupa al final (555.95 MB), con su compactación final.
+  - Su punto de 0.95: ef 21, recall 0.9508.
+  - Su punto de 0.99: ef 166, recall 0.9900.
+- **K = 64:** un insert son 5.34 ms de media, repartidos así: la búsqueda de aristas 92.2 %, escribir el miembro 2.5 %, las aristas inversas 0.9 %, los splits 1.9 %, las filas de aristas 0.3 %, los ciclos del store 0.3 %, el grafo de centroides 1.9 %.
+  - Al cerrar se escribieron las 3 993 filas que esperaban, en 0.3 s, que van en el tiempo.
+  - El tramo: de 01:51 a 03:12, con la base y lo de después dentro. Teclado o trackpad durante el tramo: no.
+  - Cobertura del índice que deja: completa.
+  - El store escribió 7 738.50 MB, 13.97 veces lo que ocupa al final (553.94 MB), con su compactación final.
+  - Su punto de 0.95: ef 21, recall 0.9513.
+  - Su punto de 0.99: ef 166, recall 0.9900.
+- **Sin umbral.** Los inserts por segundo de v5.0 y de v5.1 no son de la misma sesión.
 
 ### Latencia de búsqueda: frente al crecido de v5.0 y a la celda en lote
 
-Sin cronometrar todavía.
+Primera ronda. En caliente: la pasada de QPS mediano de las cronometradas. En frío: cada tanda, tras tirar la caché y reabrir el índice.
+
+- **Cómo se tira la caché:** `ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' > /dev/null 2>&1 && ok=1 && break; sleep 2; done; [ $ok = 1 ] && diskutil mount 'disk3s7' > /dev/null`
+
+**Recall 0.95, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| K = 16 | ef 21 | 1.10 | 3.85 | 5.76 | 668 | 1.56 | 5.18 | 7.77 | 3 875 |
+| K = 64 | ef 21 | 1.12 | 3.85 | 5.75 | 660 | 1.55 | 5.14 | 7.63 | 3 855 |
+| crecido de v5.0 | ef 21 | 1.33 | 4.44 | 6.78 | 566 | 2.05 | 6.98 | 10.72 | 2 903 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 0.91 | 2.97 | 4.48 | 829 | 1.30 | 4.15 | 6.31 | 4 684 |
+
+**Recall 0.99, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| K = 16 | ef 166 | 3.82 | 12.77 | 18.57 | 199 | 5.21 | 17.59 | 26.16 | 1 166 |
+| K = 64 | ef 166 | 3.82 | 12.92 | 18.59 | 198 | 5.13 | 17.33 | 25.60 | 1 180 |
+| crecido de v5.0 | ef 158 | 4.53 | 15.31 | 22.22 | 168 | 7.09 | 23.18 | 33.90 | 875 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 3.20 | 10.74 | 15.50 | 236 | 4.24 | 14.49 | 20.88 | 1 422 |
+
+**Recall 0.95, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| K = 16 | ef 21 | 5.48 | 13.65 | 22.25 | 152 | 18.58 | 35.57 | 49.45 | 336 |
+| K = 64 | ef 21 | 5.25 | 13.93 | 21.11 | 155 | 18.79 | 36.66 | 49.24 | 334 |
+| crecido de v5.0 | ef 21 | 4.86 | 11.22 | 18.64 | 172 | 17.19 | 33.16 | 47.84 | 360 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 3.72 | 8.32 | 13.48 | 230 | 12.00 | 23.32 | 31.88 | 524 |
+
+**Recall 0.99, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| K = 16 | ef 166 | 12.15 | 37.60 | 56.62 | 64 | 33.40 | 76.57 | 91.27 | 177 |
+| K = 64 | ef 166 | 12.15 | 38.13 | 53.46 | 64 | 32.94 | 78.33 | 92.87 | 175 |
+| crecido de v5.0 | ef 158 | 11.20 | 35.64 | 47.87 | 69 | 31.12 | 75.68 | 90.08 | 185 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 9.07 | 27.46 | 40.12 | 86 | 23.06 | 56.77 | 70.93 | 239 |
+
+**Cada índice entre la celda en lote,** por el p50:
+
+| índice | estado | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|---|
+| K = 16 | en caliente | 1.21x | 1.20x | 1.19x | 1.23x |
+| K = 16 | en frío | 1.47x | 1.55x | 1.34x | 1.45x |
+| K = 64 | en caliente | 1.22x | 1.19x | 1.19x | 1.21x |
+| K = 64 | en frío | 1.41x | 1.57x | 1.34x | 1.43x |
+| crecido de v5.0 | en caliente | 1.45x | 1.58x | 1.42x | 1.67x |
+| crecido de v5.0 | en frío | 1.31x | 1.43x | 1.24x | 1.35x |
+
+**Cada índice entre el crecido de v5.0,** por el p50:
+
+| índice | estado | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|---|
+| K = 16 | en caliente | 0.83x | 0.76x | 0.84x | 0.74x |
+| K = 16 | en frío | 1.13x | 1.08x | 1.08x | 1.07x |
+| K = 64 | en caliente | 0.84x | 0.75x | 0.84x | 0.72x |
+| K = 64 | en frío | 1.08x | 1.09x | 1.08x | 1.06x |
+| escrito en lote (v4.0, 512 bits en RAM) | en caliente | 0.69x | 0.63x | 0.71x | 0.60x |
+| escrito en lote (v4.0, 512 bits en RAM) | en frío | 0.76x | 0.70x | 0.81x | 0.74x |
+
+**Lo que cuesta traer cada fila (enmienda 1).** Por carga, en microsegundos, en la primera ronda: cada lectura de fila desde que se pide al store hasta que queda decodificada en el posting. En el índice que crece, la de aristas lleva además el juntar sus listas por miembro.
+
+*En caliente, 1 thread:*
+
+| recall | índice | cargas | traer los bloques, de pared, por carga | fila de miembros | entre la del lote | fila de aristas | entre la del lote | las dos filas | entre las del lote |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.95 | K = 16 | 19.52 | 22.0 | 18.0 | 1.26x | 9.7 | 1.37x | 27.7 | 1.30x |
+| 0.95 | K = 64 | 19.56 | 22.8 | 18.1 | 1.27x | 9.5 | 1.34x | 27.6 | 1.30x |
+| 0.95 | crecido de v5.0 | 19.54 | 34.8 | 18.7 | 1.31x | 39.2 | 5.54x | 57.9 | 2.72x |
+| 0.95 | escrito en lote (v4.0, 512 bits en RAM) | 18.59 | 16.3 | 14.2 |  | 7.1 |  | 21.3 |  |
+| 0.99 | K = 16 | 74.11 | 21.8 | 17.4 | 1.25x | 9.1 | 1.36x | 26.5 | 1.28x |
+| 0.99 | K = 64 | 73.93 | 22.0 | 17.7 | 1.26x | 9.2 | 1.37x | 26.8 | 1.30x |
+| 0.99 | crecido de v5.0 | 71.91 | 33.6 | 18.8 | 1.34x | 39.4 | 5.89x | 58.2 | 2.81x |
+| 0.99 | escrito en lote (v4.0, 512 bits en RAM) | 76.30 | 15.7 | 14.0 |  | 6.7 |  | 20.7 |  |
+
+*En caliente, 8 threads:*
+
+| recall | índice | cargas | traer los bloques, de pared, por carga | fila de miembros | entre la del lote | fila de aristas | entre la del lote | las dos filas | entre las del lote |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.95 | K = 16 | 19.52 | 35.8 | 27.2 | 1.43x | 11.8 | 1.36x | 39.0 | 1.41x |
+| 0.95 | K = 64 | 19.56 | 36.6 | 27.6 | 1.45x | 12.1 | 1.40x | 39.7 | 1.44x |
+| 0.95 | crecido de v5.0 | 19.54 | 66.3 | 28.1 | 1.48x | 51.3 | 5.93x | 79.5 | 2.87x |
+| 0.95 | escrito en lote (v4.0, 512 bits en RAM) | 18.59 | 25.2 | 19.0 |  | 8.7 |  | 27.7 |  |
+| 0.99 | K = 16 | 74.11 | 35.4 | 28.0 | 1.38x | 12.5 | 1.39x | 40.5 | 1.39x |
+| 0.99 | K = 64 | 73.93 | 34.7 | 28.0 | 1.39x | 12.2 | 1.35x | 40.2 | 1.37x |
+| 0.99 | crecido de v5.0 | 71.91 | 65.9 | 28.9 | 1.43x | 52.2 | 5.80x | 81.2 | 2.78x |
+| 0.99 | escrito en lote (v4.0, 512 bits en RAM) | 76.30 | 24.7 | 20.2 |  | 9.0 |  | 29.2 |  |
+
+*En frío, 1 thread:*
+
+| recall | índice | cargas | traer los bloques, de pared, por carga | fila de miembros | entre la del lote | fila de aristas | entre la del lote | las dos filas | entre las del lote |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.95 | K = 16 | 18.71 | 182.6 | 443.4 | 1.70x | 198.9 | 0.92x | 642.3 | 1.35x |
+| 0.95 | K = 64 | 18.77 | 183.0 | 444.2 | 1.71x | 198.9 | 0.92x | 643.1 | 1.35x |
+| 0.95 | crecido de v5.0 | 18.58 | 160.7 | 372.3 | 1.43x | 391.4 | 1.80x | 763.7 | 1.60x |
+| 0.95 | escrito en lote (v4.0, 512 bits en RAM) | 17.83 | 109.4 | 260.2 |  | 217.2 |  | 477.4 |  |
+| 0.99 | K = 16 | 73.70 | 140.6 | 333.3 | 1.52x | 136.6 | 0.78x | 469.9 | 1.19x |
+| 0.99 | K = 64 | 73.49 | 141.0 | 335.8 | 1.53x | 137.5 | 0.78x | 473.3 | 1.20x |
+| 0.99 | crecido de v5.0 | 71.31 | 130.8 | 296.5 | 1.35x | 300.8 | 1.71x | 597.3 | 1.51x |
+| 0.99 | escrito en lote (v4.0, 512 bits en RAM) | 75.86 | 93.1 | 219.6 |  | 176.0 |  | 395.6 |  |
+
+- **No son partes del tiempo de pared:** las filas de una ronda se piden a la vez. Lo que la ronda espera lo marca su fila más lenta.
+- **Con 8 threads las lecturas compiten por CPU** y sus tiempos se inflan: la lectura es con 1 thread.
+- **En frío** el tiempo de una fila es sobre todo esperar al disco.
+
+**Segunda mitad del criterio: la latencia en frío a 0.95, a 1.20 veces o menos del lote.**
+
+| índice | p50 en frío, 1 thread, a 0.95, ms | entre el lote | a 1.20 o menos | de su media en frío: bloques | scan y ruteo | rescore |
+|---|---|---|---|---|---|---|
+| K = 16 | 5.48 | 1.47x | **no** | 3.42 | 0.77 | 2.27 |
+| K = 64 | 5.25 | 1.41x | **no** | 3.43 | 0.77 | 2.08 |
+| crecido de v5.0 | 4.86 | 1.31x | no | 2.99 | 0.79 | 1.88 |
+| escrito en lote (v4.0, 512 bits en RAM) | 3.72 |  |  | 1.95 | 0.64 | 1.62 |
+
+- **Los puntos no son el mismo ef:** cada índice va en el suyo, el menor que llega al recall.
+- **Por debajo de un 10 % entre dos índices, es empate.**
+
+### Veredicto del pre-registro
+
+| K | lecturas por carga a la mitad o menos | latencia en frío a 1.20 o menos | sirve |
+|---|---|---|---|
+| 16 | no | no | **no** |
+| 64 | no | no | **no** |
+
+**No sirve, tal como se pre-registró:** ninguna K cumple las dos cosas.
+
+### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| K = 16 | 03:12 a 03:18 | 03:37 a 03:43 | no | −3.6 % (0.95, 1 thread, en frío: 5.48 y 5.28 ms) | — |
+| K = 64 | 03:18 a 03:25 | 03:43 a 03:50 | no | +8.3 % (0.95, 8 threads, en caliente: 1.55 y 1.68 ms) | — |
+| crecido de v5.0 | 03:25 a 03:31 | 03:50 a 03:57 | no | +6.2 % (0.99, 8 threads, en frío: 31.12 y 33.04 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 03:31 a 03:37 | 03:57 a 04:02 | no | −1.8 % (0.95, 1 thread, en frío: 3.72 y 3.65 ms) | — |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+### RAM residente al buscar
+
+| índice | heap en uso tras abrir | huella del proceso |
+|---|---|---|
+| K = 16 | 175.73 MB | 371.31 MB |
+| K = 64 | 175.09 MB | 370.69 MB |
+| crecido de v5.0 | 175.48 MB | 371.25 MB |
+| escrito en lote (v4.0, 512 bits en RAM) | 145.71 MB | 288.16 MB |
+
+- **Tras abrir no espera nada:** lo pendiente solo existe mientras se insertan vectores.
 
 ### Lo que vale y lo que no
 

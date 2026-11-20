@@ -4,7 +4,7 @@
 - **Celdas de posting-edge:** código completo en RAM, 512 bits en RAM, 384 bits en RAM, halo de 512 bits, halo de 512 bits, podado.
 - **Cronometradas en la ronda 1:** full, r512, r384, halo512, halo512p, hfresh-best95, hfresh-best99, hfresh-default, de 2026-11-18 10:50 a 11:34.
 - **Cronometradas en la ronda 2:** full, r512, r384, halo512, halo512p, hfresh-best95, hfresh-best99, hfresh-default, de 2026-11-18 11:34 a 12:21.
-- **Cronometradas en la repetición de noche:** full, r512, halo512, halo512p, hfresh-default, de 2026-11-18 23:00 a 23:27.
+- **Cronometradas en la repetición de noche:** full, r512, halo512, halo512p, hfresh-best99, hfresh-default, de 2026-11-18 23:00 a 00:27.
 - **HFresh:** construido, cronometrado.
 - **Acceso del store:** mmap. **Presupuesto de concurrencia por query:** 8. **GOMAXPROCS:** 10.
 - **Cómo se tira la caché antes de cada tanda en frío:** `ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' > /dev/null 2>&1 && ok=1 && break; sleep 2; done; [ $ok = 1 ] && diskutil mount 'disk3s7' > /dev/null`
@@ -101,7 +101,7 @@ Una curva es un índice cronometrado en un proceso propio. La medida es la prime
 | halo de 512 bits | 11:04 a 11:10 | 11:50 a 11:56 | no | −13.1 % (0.99, 8 threads, en caliente: 9.33 y 8.11 ms) | **deriva** | 23:10 a 23:16 |
 | halo de 512 bits, podado | 11:10 a 11:16 | 11:56 a 12:02 | sí, en la ronda 1 | −14.9 % (0.95, 8 threads, en caliente: 2.43 y 2.07 ms) | **deriva y actividad** | 23:16 a 23:22 |
 | HFresh, la mejor a 0.95 | 11:21 a 11:24 | 12:07 a 12:11 | no | −1.6 % (recall 0.9500, 1 thread, en caliente: 3.47 y 3.41 ms) | — | — |
-| HFresh, la mejor a 0.99 | 11:24 a 11:34 | 12:11 a 12:21 | no | +3.2 % (recall 0.9900, 8 threads, en frío: 234.85 y 242.48 ms) | — | — |
+| HFresh, la mejor a 0.99 | 11:24 a 11:34 | 12:11 a 12:21 | no | +3.2 % (recall 0.9900, 8 threads, en frío: 234.85 y 242.48 ms) | — | 00:17 a 00:27 |
 | HFresh por defecto | 11:16 a 11:21 | 12:02 a 12:07 | sí, en la ronda 1 | −9.1 % (recall 0.9674, 1 thread, en caliente: 5.51 y 5.01 ms) | **actividad** | 23:22 a 23:27 |
 
 - **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
@@ -157,10 +157,10 @@ Una curva es un índice cronometrado en un proceso propio. La medida es la prime
 | HFresh, la mejor a 0.95 | recall 0.9500 | 1 | frío | 46.81 | 46.16 | −1.4 % | — |
 | HFresh, la mejor a 0.95 | recall 0.9500 | 8 | caliente | 9.16 | 9.04 | −1.3 % | — |
 | HFresh, la mejor a 0.95 | recall 0.9500 | 8 | frío | 76.34 | 77.01 | +0.9 % | — |
-| HFresh, la mejor a 0.99 | recall 0.9900 | 1 | caliente | 16.33 | 16.09 | −1.4 % | — |
-| HFresh, la mejor a 0.99 | recall 0.9900 | 1 | frío | 178.98 | 180.68 | +1.0 % | — |
-| HFresh, la mejor a 0.99 | recall 0.9900 | 8 | caliente | 41.84 | 41.75 | −0.2 % | — |
-| HFresh, la mejor a 0.99 | recall 0.9900 | 8 | frío | 234.85 | 242.48 | +3.2 % | — |
+| HFresh, la mejor a 0.99 | recall 0.9900 | 1 | caliente | 16.33 | 16.09 | −1.4 % | 16.06 |
+| HFresh, la mejor a 0.99 | recall 0.9900 | 1 | frío | 178.98 | 180.68 | +1.0 % | 178.61 |
+| HFresh, la mejor a 0.99 | recall 0.9900 | 8 | caliente | 41.84 | 41.75 | −0.2 % | 41.29 |
+| HFresh, la mejor a 0.99 | recall 0.9900 | 8 | frío | 234.85 | 242.48 | +3.2 % | 243.36 |
 | HFresh por defecto | recall 0.9674 | 1 | caliente | 5.51 | 5.01 | −9.1 % | 4.98 |
 | HFresh por defecto | recall 0.9674 | 1 | frío | 69.52 | 67.91 | −2.3 % | 70.33 |
 | HFresh por defecto | recall 0.9674 | 8 | caliente | 14.09 | 13.91 | −1.3 % | 13.95 |
@@ -203,7 +203,7 @@ Tras una pasada sin cronometrar. La pasada de QPS mediano de las cronometradas.
 | 384 bits en RAM | ef 164 | 3.34 | 12.15 | 18.17 | 218 | bloques 1.36, scan y ruteo 2.91, rescore 0.14, centroides 0.07 |
 | halo de 512 bits (repetida de noche) | ef 187 | 4.87 | 17.56 | 25.23 | 150 | bloques 2.07, scan y ruteo 4.24, rescore 0.15, centroides 0.08 |
 | halo de 512 bits, podado (repetida de noche) | ef 239 | 5.57 | 18.89 | 27.11 | 137 | bloques 2.01, scan y ruteo 4.94, rescore 0.15, centroides 0.08 |
-| HFresh, la mejor a 0.99 | searchProbe 928, rescoreLimit 350 | 16.33 | 18.47 | 19.34 | 61 | postings 6.07, scan 6.36, rescore 0.72, centroides 3.15 |
+| HFresh, la mejor a 0.99 (repetida de noche) | searchProbe 928, rescoreLimit 350 | 16.06 | 18.17 | 19.07 | 62 | postings 5.97, scan 6.28, rescore 0.68, centroides 3.09 |
 | HFresh por defecto, recall 0.9674 (repetida de noche) | searchProbe 256, rescoreLimit 350 | 4.98 | 6.29 | 6.91 | 197 | postings 1.60, scan 1.82, rescore 0.63, centroides 0.91 |
 
 **Recall 0.99, 8 threads:**
@@ -215,18 +215,18 @@ Tras una pasada sin cronometrar. La pasada de QPS mediano de las cronometradas.
 | 384 bits en RAM | ef 164 | 4.71 | 17.23 | 25.34 | 1235 | bloques 2.45, scan y ruteo 3.54, rescore 0.25, centroides 0.09 |
 | halo de 512 bits (repetida de noche) | ef 187 | 8.21 | 28.99 | 42.11 | 729 | bloques 5.12, scan y ruteo 5.31, rescore 0.29, centroides 0.10 |
 | halo de 512 bits, podado (repetida de noche) | ef 239 | 8.61 | 28.45 | 40.66 | 720 | bloques 4.45, scan y ruteo 6.11, rescore 0.28, centroides 0.09 |
-| HFresh, la mejor a 0.99 | searchProbe 928, rescoreLimit 350 | 41.84 | 54.34 | 62.10 | 191 | postings 16.67, scan 18.79, rescore 2.26, centroides 4.05 |
+| HFresh, la mejor a 0.99 (repetida de noche) | searchProbe 928, rescoreLimit 350 | 41.29 | 53.22 | 60.27 | 193 | postings 16.39, scan 18.60, rescore 2.27, centroides 4.06 |
 | HFresh por defecto, recall 0.9674 (repetida de noche) | searchProbe 256, rescoreLimit 350 | 13.95 | 18.41 | 21.13 | 572 | postings 5.20, scan 5.13, rescore 2.26, centroides 1.22 |
 
 **Cada celda frente a la mejor configuración de HFresh para ese recall, en caliente:** su p50 entre el de HFresh. Menos de un 10 % de diferencia es un empate.
 
 | celda | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
 |---|---|---|---|---|
-| código completo en RAM (repetida de noche) | 0.21x, menos | 0.12x, menos | 0.18x, menos | 0.09x, menos |
+| código completo en RAM (repetida de noche) | 0.21x, menos | 0.12x, menos | 0.18x, menos | 0.10x, menos |
 | 512 bits en RAM (repetida de noche) | 0.26x, menos | 0.14x, menos | 0.20x, menos | 0.10x, menos |
-| 384 bits en RAM | 0.29x, menos | 0.16x, menos | 0.20x, menos | 0.11x, menos |
+| 384 bits en RAM | 0.29x, menos | 0.16x, menos | 0.21x, menos | 0.11x, menos |
 | halo de 512 bits (repetida de noche) | 0.37x, menos | 0.23x, menos | 0.30x, menos | 0.20x, menos |
-| halo de 512 bits, podado (repetida de noche) | 0.39x, menos | 0.23x, menos | 0.34x, menos | 0.21x, menos |
+| halo de 512 bits, podado (repetida de noche) | 0.39x, menos | 0.23x, menos | 0.35x, menos | 0.21x, menos |
 
 ### Latencia y QPS, en frío
 
@@ -265,7 +265,7 @@ Cada tanda, tras tirar la caché y reabrir el índice, con el índice de los seg
 | 384 bits en RAM | ef 164 | 9.91 | 32.04 | 49.22 | 77 | bloques 8.30, scan y ruteo 2.85, rescore 1.59, centroides 0.09 |
 | halo de 512 bits (repetida de noche) | ef 187 | 14.16 | 50.10 | 79.42 | 51 | bloques 13.58, scan y ruteo 4.11, rescore 1.56, centroides 0.09 |
 | halo de 512 bits, podado (repetida de noche) | ef 239 | 14.83 | 46.63 | 67.00 | 53 | bloques 12.11, scan y ruteo 4.91, rescore 1.59, centroides 0.09 |
-| HFresh, la mejor a 0.99 | searchProbe 928, rescoreLimit 350 | 178.98 | 251.76 | 259.49 | 6 | postings 153.89, scan 7.23, rescore 10.82, centroides 3.51 |
+| HFresh, la mejor a 0.99 (repetida de noche) | searchProbe 928, rescoreLimit 350 | 178.61 | 252.28 | 263.33 | 6 | postings 154.26, scan 7.04, rescore 10.87, centroides 3.39 |
 | HFresh por defecto, recall 0.9674 (repetida de noche) | searchProbe 256, rescoreLimit 350 | 70.33 | 83.82 | 86.08 | 14 | postings 55.04, scan 1.92, rescore 10.88, centroides 1.10 |
 
 **Recall 0.99, 8 threads:**
@@ -277,18 +277,18 @@ Cada tanda, tras tirar la caché y reabrir el índice, con el índice de los seg
 | 384 bits en RAM | ef 164 | 25.19 | 63.56 | 81.35 | 213 | bloques 20.99, scan y ruteo 3.33, rescore 4.66, centroides 0.10 |
 | halo de 512 bits (repetida de noche) | ef 187 | 40.31 | 110.07 | 136.05 | 131 | bloques 37.23, scan y ruteo 4.94, rescore 4.68, centroides 0.11 |
 | halo de 512 bits, podado (repetida de noche) | ef 239 | 37.39 | 96.87 | 120.15 | 145 | bloques 32.52, scan y ruteo 5.76, rescore 4.57, centroides 0.11 |
-| HFresh, la mejor a 0.99 | searchProbe 928, rescoreLimit 350 | 234.85 | 347.37 | 355.92 | 31 | postings 182.15, scan 11.17, rescore 42.21, centroides 4.16 |
+| HFresh, la mejor a 0.99 (repetida de noche) | searchProbe 928, rescoreLimit 350 | 243.36 | 357.17 | 377.37 | 30 | postings 188.86, scan 10.43, rescore 42.83, centroides 4.19 |
 | HFresh por defecto, recall 0.9674 (repetida de noche) | searchProbe 256, rescoreLimit 350 | 134.40 | 177.37 | 182.12 | 54 | postings 79.95, scan 3.29, rescore 53.66, centroides 1.30 |
 
 **Cada celda frente a la mejor configuración de HFresh para ese recall, en frío:** su p50 entre el de HFresh. Menos de un 10 % de diferencia es un empate.
 
 | celda | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
 |---|---|---|---|---|
-| código completo en RAM (repetida de noche) | 0.07x, menos | 0.13x, menos | 0.04x, menos | 0.09x, menos |
+| código completo en RAM (repetida de noche) | 0.07x, menos | 0.13x, menos | 0.04x, menos | 0.08x, menos |
 | 512 bits en RAM (repetida de noche) | 0.08x, menos | 0.16x, menos | 0.05x, menos | 0.09x, menos |
-| 384 bits en RAM | 0.08x, menos | 0.17x, menos | 0.06x, menos | 0.11x, menos |
+| 384 bits en RAM | 0.08x, menos | 0.17x, menos | 0.06x, menos | 0.10x, menos |
 | halo de 512 bits (repetida de noche) | 0.10x, menos | 0.21x, menos | 0.08x, menos | 0.17x, menos |
-| halo de 512 bits, podado (repetida de noche) | 0.10x, menos | 0.20x, menos | 0.08x, menos | 0.16x, menos |
+| halo de 512 bits, podado (repetida de noche) | 0.10x, menos | 0.20x, menos | 0.08x, menos | 0.15x, menos |
 
 **Las tandas en frío:**
 
@@ -316,8 +316,8 @@ Cada tanda, tras tirar la caché y reabrir el índice, con el índice de los seg
 | halo de 512 bits, podado | 0.99 | 8 | 32 | 16 | 17 % | 36.68 y 38.32 | 60 |
 | HFresh, la mejor a 0.95 | 0.9500 | 1 | 50 | 10 | — | 46.72 y 46.96 | 421 |
 | HFresh, la mejor a 0.95 | 0.9500 | 8 | 32 | 16 | — | 75.49 y 76.99 | 423 |
-| HFresh, la mejor a 0.99 | 0.9900 | 1 | 50 | 10 | — | 178.28 y 179.10 | 423 |
-| HFresh, la mejor a 0.99 | 0.9900 | 8 | 32 | 16 | — | 236.83 y 232.03 | 420 |
+| HFresh, la mejor a 0.99 | 0.9900 | 1 | 50 | 10 | — | 178.61 y 177.66 | 481 |
+| HFresh, la mejor a 0.99 | 0.9900 | 8 | 32 | 16 | — | 243.36 y 238.28 | 483 |
 | HFresh por defecto | 0.9674 | 1 | 50 | 10 | — | 70.02 y 70.58 | 436 |
 | HFresh por defecto | 0.9674 | 8 | 32 | 16 | — | 132.88 y 135.70 | 438 |
 
@@ -336,7 +336,7 @@ Cada tanda, tras tirar la caché y reabrir el índice, con el índice de los seg
 | halo de 512 bits, podado | 0.95 | 5.93 | 7.55 | 4.59 | 5.84 | 1.58 | 1.60 |
 | halo de 512 bits, podado | 0.99 | 21.70 | 25.53 | 13.81 | 18.10 | 1.61 | 1.59 |
 | HFresh, la mejor a 0.95 | 0.9500 | 55.61 | 55.52 | 46.48 | 45.32 | 4.22 | 3.71 |
-| HFresh, la mejor a 0.99 | 0.9900 | 250.82 | 251.36 | 169.95 | 167.20 | 13.12 | 10.56 |
+| HFresh, la mejor a 0.99 | 0.9900 | 251.66 | 251.27 | 170.09 | 167.33 | 13.15 | 10.61 |
 | HFresh por defecto | 0.9674 | 83.78 | 83.67 | 69.54 | 67.46 | 13.26 | 10.62 |
 
 ### Criterios 2 y 3: en frío, frente a HFresh, a 0.95
