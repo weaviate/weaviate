@@ -34,11 +34,12 @@ import (
 )
 
 const (
-	// MaxConcurrentRequests is 32: the size of each of the two pools of the
-	// client, so a process has up to 64 requests in flight. A request for an
-	// image holds about three copies of its base64 while it holds a slot
-	// (80 MiB for a 20 MiB image).
-	MaxConcurrentRequests = 32
+	// maxConcurrentRequests is 32 requests in flight per query.
+	maxConcurrentRequests = 32
+	// maxConcurrentImageRequests is 4 requests in flight per query when the
+	// documents are images: a request holds about three copies of its base64
+	// while it is in flight (80 MiB for a 20 MiB image).
+	maxConcurrentImageRequests = 4
 	// MaxDocumentsPerQuery is 1,000 documents. A query sends one billed
 	// request per object.
 	MaxDocumentsPerQuery = 1000
@@ -66,32 +67,17 @@ type client struct {
 	apiKey       string
 	organization string
 	httpClient   *http.Client
-	// inFlight bounds the requests to the class or default host, however many
-	// queries run.
-	inFlight chan struct{}
-	// inFlightHeaderHost bounds the requests to all hosts that request headers
-	// named, in one pool. A caller can name a host that never answers. Its
-	// requests can then hold every slot of this pool until the client timeout,
-	// and other queries with X-Openai-Baseurl wait. They hold no slot of
-	// inFlight.
-	inFlightHeaderHost chan struct{}
 	// maxDocumentsPerQuery counts the documents that are sent: blank and
 	// duplicate documents are not.
 	maxDocumentsPerQuery int
 	logger               logrus.FieldLogger
 }
 
-func New(apiKey, organization string, timeout time.Duration, maxConcurrentRequests, maxDocumentsPerQuery int,
-	logger logrus.FieldLogger,
-) *client {
-	slots := max(maxConcurrentRequests, 1)
+func New(apiKey, organization string, timeout time.Duration, maxDocumentsPerQuery int, logger logrus.FieldLogger) *client {
 	return &client{
-		apiKey:       apiKey,
-		organization: organization,
-		// Each slot keeps its connection between queries.
-		httpClient:           modulecomponents.NewBaseHttpClientWithIdleConns(timeout, slots),
-		inFlight:             make(chan struct{}, slots),
-		inFlightHeaderHost:   make(chan struct{}, slots),
+		apiKey:               apiKey,
+		organization:         organization,
+		httpClient:           modulecomponents.NewBaseHttpClient(timeout),
 		maxDocumentsPerQuery: max(maxDocumentsPerQuery, 1),
 		logger:               logger,
 	}
@@ -130,9 +116,6 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
-	if err := settings.CheckSettings(); err != nil {
-		return nil, err
-	}
 	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
@@ -165,34 +148,31 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		endpointURL: endpointURL, apiKey: apiKey, organization: c.organizationFor(ctx, hostFromHeader),
 		hostFromHeader: hostFromHeader, model: settings.Model(), query: query, image: image,
 	}
+	maxInFlight := maxConcurrentRequests
+	if image {
+		maxInFlight = maxConcurrentImageRequests
+	}
 	scores := make([]float64, len(documents))
-	tokensPerRequest := make([]int64, len(pending))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(cap(c.slotsFor(hostFromHeader)))
-	for p, index := range pending {
+	eg.SetLimit(maxInFlight)
+	for _, index := range pending {
 		eg.Go(func() error {
-			score, tokens, err := c.judge(ctx, request, documents[index])
+			// After a failed request, the rest would still build their bodies,
+			// up to 20 MiB of base64 each for images.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			score, err := c.judge(ctx, request, documents[index])
 			if err != nil {
 				return err
 			}
 			scores[index] = score
-			tokensPerRequest[p] = tokens
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
-
-	var totalInputTokens int64
-	for _, tokens := range tokensPerRequest {
-		totalInputTokens += tokens
-	}
-	c.logger.WithFields(logrus.Fields{
-		"documents":    len(documents),
-		"judged":       len(pending),
-		"input_tokens": totalInputTokens,
-	}).Debug("OpenAI rerank finished")
 
 	documentScores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
@@ -237,48 +217,26 @@ type judgeRequest struct {
 // judge names the document's object in a 400 about the document and in a
 // rejected answer. It names no object for a host the request header named:
 // which errors carry the name would tell what that host replied.
-func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, int64, error) {
+func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, error) {
 	response, err := c.send(ctx, r, document.Value)
 	if err != nil {
 		var rejected rejectedError
 		if errors.As(err, &rejected) && rejected.aboutDocument {
-			return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
+			return 0, fmt.Errorf("object %s: %w", document.ID, err)
 		}
-		return 0, 0, err
+		return 0, err
 	}
 	score, err := response.score(questionName)
 	if err != nil {
 		if r.hostFromHeader {
-			return 0, 0, c.replyError(err, true)
+			return 0, c.replyError(err, true)
 		}
-		return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
+		return 0, fmt.Errorf("object %s: %w", document.ID, err)
 	}
-	return score, response.inputTokens(), nil
+	return score, nil
 }
 
-func (c *client) slotsFor(hostFromHeader bool) chan struct{} {
-	if hostFromHeader {
-		return c.inFlightHeaderHost
-	}
-	return c.inFlight
-}
-
-// send builds the input inside the in-flight slot, so the slots also bound the
-// image copies in memory.
 func (c *client) send(ctx context.Context, r judgeRequest, document string) (decisionResponse, error) {
-	// select picks randomly among ready cases, so a free slot could win over a
-	// cancellation.
-	if err := ctx.Err(); err != nil {
-		return decisionResponse{}, err
-	}
-	slots := c.slotsFor(r.hostFromHeader)
-	select {
-	case slots <- struct{}{}:
-		defer func() { <-slots }()
-	case <-ctx.Done():
-		return decisionResponse{}, ctx.Err()
-	}
-
 	input, err := r.input(document)
 	if err != nil {
 		return decisionResponse{}, fmt.Errorf("image: %w", err)
@@ -489,36 +447,22 @@ func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) strin
 	return c.organization
 }
 
-// endpoint picks the base URL and the key of a query.
-//
-// A header base URL that is equal, once normalized, to the base URL of the
-// class or the default counts as absent: the request names no host the operator
-// did not name. The comparison is string equality, so a URL that differs only
-// in letter case or by a default port counts as another host.
-//
-// Any other header base URL makes the host one the request named. It is used
-// only with a key from the request header, so the server's key never goes to
-// that host.
+// endpoint picks the base URL and the key of a query. A base URL from the
+// request header is used only with a key from the request header, so the
+// server's key never goes to a host the request names.
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
-		normalized, normalizeErr := config.NormalizeBaseURL(headerBaseURL)
-		hostFromHeader = normalizeErr != nil || normalized != classBaseURL
-		if hostFromHeader {
-			if apiKey == "" {
-				return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-					baseURLHeader, apiKeyHeader)
-			}
-			if normalizeErr != nil {
-				return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, normalizeErr)
-			}
-			if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
-				return "", "", false, err
-			}
-			baseURL = normalized
+		if apiKey == "" {
+			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+				baseURLHeader, apiKeyHeader)
 		}
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", "", false, err
+		}
+		baseURL, hostFromHeader = headerBaseURL, true
 	}
 	if apiKey == "" {
 		apiKey = c.apiKey
@@ -549,10 +493,7 @@ type decisionQuestion struct {
 
 type decisionResponse struct {
 	Answers []decisionAnswer `json:"answers"`
-	// Usage is decoded apart, so that a usage of another shape does not fail
-	// the answers.
-	Usage json.RawMessage `json:"usage"`
-	Error *apiError       `json:"error"`
+	Error   *apiError        `json:"error"`
 }
 
 // Probability is a pointer so that a missing value does not read as 0.
@@ -560,20 +501,6 @@ type decisionAnswer struct {
 	Type        string   `json:"type"`
 	Name        string   `json:"name"`
 	Probability *float64 `json:"probability"`
-}
-
-func (r decisionResponse) inputTokens() int64 {
-	var u struct {
-		InputTokens json.Number `json:"input_tokens"`
-	}
-	if json.Unmarshal(r.Usage, &u) != nil {
-		return 0
-	}
-	tokens, err := u.InputTokens.Float64()
-	if err != nil {
-		return 0
-	}
-	return int64(tokens)
 }
 
 func (r decisionResponse) score(name string) (float64, error) {

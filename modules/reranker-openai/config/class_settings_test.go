@@ -38,100 +38,16 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "custom model and base URL",
 			cfg: fakeClassConfig{classConfig: map[string]any{
-				"model":   "custom-model",
+				"model":   "gpt-6-custom",
 				"baseURL": "http://base-url.com",
 			}},
-			wantModel:   "custom-model",
+			wantModel:   "gpt-6-custom",
 			wantBaseURL: "http://base-url.com",
 		},
 		{
 			name:    "empty model",
 			cfg:     fakeClassConfig{classConfig: map[string]any{"model": ""}},
-			wantErr: errors.New("model must be a non-empty string"),
-		},
-		{
-			name:    "model of another type",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"model": 42}},
-			wantErr: errors.New("model must be a string, got int"),
-		},
-		{
-			name:    "empty base URL",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": ""}},
-			wantErr: errors.New("baseURL must be a non-empty string"),
-		},
-		{
-			name:    "relative base URL",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": "api.openai.com"}},
-			wantErr: errors.New(`baseURL must be an absolute http or https URL, got "api.openai.com"`),
-		},
-		{
-			name:    "ftp base URL",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": "ftp://api.openai.com"}},
-			wantErr: errors.New(`baseURL must be an absolute http or https URL, got "ftp://api.openai.com"`),
-		},
-		{
-			name:    "base URL with a port and no host",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": "https://:443"}},
-			wantErr: errors.New(`baseURL must be an absolute http or https URL, got "https://:443"`),
-		},
-		{
-			name:        "base URL with a path",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/openai"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://gateway.example/openai",
-		},
-		{
-			name:        "base URL with /v1",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://api.openai.com/v1"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://api.openai.com",
-		},
-		{
-			name:        "base URL with /v1/",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://api.openai.com/v1/"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://api.openai.com",
-		},
-		{
-			name:        "base URL with a path ending in /v1",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/openai/v1"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://gateway.example/openai",
-		},
-		{
-			name:        "base URL with /v1 inside the path",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/v1/openai"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://gateway.example/v1/openai",
-		},
-		{
-			name:        "base URL with an encoded slash before /v1",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/a%2Fb/v1"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://gateway.example/a%2Fb",
-		},
-		{
-			name:        "base URL with an encoded slash as the last /v1",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/a%2Fv1"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://gateway.example/a%2Fv1",
-		},
-		{
-			name:        "base URL whose host is v1",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://v1"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://v1",
-		},
-		{
-			name:        "base URL with /v1 and a query",
-			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/proxy/v1?x=1"}},
-			wantModel:   "gpt-6-luna",
-			wantBaseURL: "https://gateway.example/proxy?x=1",
-		},
-		{
-			name:    "base URL of another type",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": 42}},
-			wantErr: errors.New("baseURL must be a string, got int"),
+			wantErr: errors.New("no model provided"),
 		},
 		{
 			name:    "nil config",

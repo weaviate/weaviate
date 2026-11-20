@@ -34,18 +34,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-func TestValidateClassRejectsAWrongSetting(t *testing.T) {
+func TestValidateClassRejectsAnEmptyModel(t *testing.T) {
 	class := &models.Class{
 		Class: "Doc",
 		ModuleConfig: map[string]any{
-			Name: map[string]any{"model": 42},
+			Name: map[string]any{"model": ""},
 		},
 	}
 	cfg := modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{})
 
 	err := New().ValidateClass(context.Background(), class, cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "model")
+	require.EqualError(t, err, "no model provided")
 }
 
 func TestInitPassesTheDocumentsPerQueryCap(t *testing.T) {

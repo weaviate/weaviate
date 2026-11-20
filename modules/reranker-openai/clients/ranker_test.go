@@ -15,13 +15,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"runtime"
 	"slices"
 	"strings"
@@ -132,34 +130,6 @@ func TestRankScoresARefusedDocumentZero(t *testing.T) {
 	}
 }
 
-// The second query must open no connection. The 20 requests of a query are in
-// flight together, each on its own connection, and the client keeps one idle
-// connection per slot. The default transport keeps two idle connections per
-// host, so with it the second query opens the other connections again.
-func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
-	f := newFake(t)
-	// The fake answers the twenty requests of a query only once all twenty
-	// have arrived, so a query holds twenty connections at once whatever the
-	// timing.
-	f.together = 20
-	documents := make([]string, 20)
-	for i := range documents {
-		documents[i] = fmt.Sprintf("ticket %d", i)
-	}
-	c := newTestClient(defaultFakeKey)
-	rank := func() {
-		_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
-		require.NoError(t, err)
-	}
-
-	rank()
-	opened := f.opened.Load()
-	require.Equal(t, int64(20), opened, "the first query must send its twenty requests at once")
-	rank()
-
-	assert.Equal(t, opened, f.opened.Load(), "the second query opened new connections")
-}
-
 // The first query leaves one connection in the pool. The transport sends a
 // request again only when its connection came from the pool.
 func TestRankSendsARequestAgainWhenAPooledConnectionBreaks(t *testing.T) {
@@ -240,10 +210,9 @@ func TestRankSendsARequestOnce(t *testing.T) {
 func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
-	logger, hook := debugLogger()
-	c := New(defaultFakeKey, "", testTimeout, MaxConcurrentRequests, MaxDocumentsPerQuery, logger)
 
-	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf("", "a", "a", "b"), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf("", "a", "a", "b"), classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{
@@ -253,7 +222,6 @@ func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 		{Document: "b", Score: 0.2},
 	}, res.DocumentScores)
 	assert.ElementsMatch(t, []string{"a", "b"}, inputs(f.received()))
-	assert.Equal(t, logrus.Fields{"documents": 4, "judged": 2, "input_tokens": int64(200)}, rankLogFields(t, hook))
 }
 
 func TestRankScoresAWhitespaceOnlyDocumentZeroWithoutSendingIt(t *testing.T) {
@@ -392,7 +360,7 @@ func TestRankCapsTheDocumentsOfAQuery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
-			c := New(defaultFakeKey, "", testTimeout, MaxConcurrentRequests, tt.cap, nullLogger())
+			c := New(defaultFakeKey, "", testTimeout, tt.cap, nullLogger())
 
 			res, err := c.RankProperty(context.Background(), churn, tt.property, documentsOf(tt.documents...),
 				classConfig(f.url(), nil))
@@ -407,44 +375,6 @@ func TestRankCapsTheDocumentsOfAQuery(t *testing.T) {
 			assert.Len(t, res.DocumentScores, len(tt.documents))
 		})
 	}
-}
-
-func TestRankChecksTheStoredSettings(t *testing.T) {
-	tests := []struct {
-		name     string
-		settings map[string]any
-		wantErr  string
-	}{
-		{name: "a baseURL that is a number", settings: map[string]any{"baseURL": 42}, wantErr: "baseURL must be a string, got int"},
-		{name: "a baseURL that is a list", settings: map[string]any{"baseURL": []any{"a"}}, wantErr: "baseURL must be a string, got []interface {}"},
-		{name: "an empty baseURL", settings: map[string]any{"baseURL": ""}, wantErr: "baseURL must be a non-empty string"},
-		{name: "a model that is a number", settings: map[string]any{"model": 7}, wantErr: "model must be a string, got int"},
-		{name: "a model that is a bool", settings: map[string]any{"model": true}, wantErr: "model must be a string, got bool"},
-		{name: "an empty model", settings: map[string]any{"model": ""}, wantErr: "model must be a non-empty string"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-			c := newTestClient(defaultFakeKey)
-			sent := &countingTransport{}
-			c.httpClient.Transport = sent
-
-			_, err := c.RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), tt.settings))
-
-			require.EqualError(t, err, tt.wantErr)
-			assert.Zero(t, sent.count.Load(), "no request left the client")
-		})
-	}
-}
-
-// countingTransport fails every request, so a stored baseURL that fell back to
-// the default host is seen without reaching it.
-type countingTransport struct{ count atomic.Int64 }
-
-func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	c.count.Add(1)
-	return nil, errors.New("unexpected request")
 }
 
 func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
@@ -701,51 +631,30 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	}
 }
 
+// 33 documents are 33 requests, one more than a query sends at once. The fake
+// answers 429 once the first 32 have arrived, and the first failure cancels
+// the query before it frees a slot, so the 33rd is never sent.
 func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 	f := newFake(t)
-	f.replies = map[int]fakeReply{0: {status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`}}
+	f.together = maxConcurrentRequests
+	f.replies = map[int]fakeReply{}
+	for i := range maxConcurrentRequests + 1 {
+		f.replies[i] = fakeReply{status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`}
+	}
 
-	res, err := New(defaultFakeKey, "", testTimeout, 1, MaxDocumentsPerQuery, nullLogger()).RankProperty(context.Background(), churn, "text",
-		documentsOf("first", "second", "third"), classConfig(f.url(), nil))
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(numbered("ticket %d", maxConcurrentRequests+1)...), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, "connection to OpenAI API failed with status 429: slow down")
 	assert.Nil(t, res)
-	assert.Len(t, f.received(), 1)
+	assert.Len(t, f.received(), maxConcurrentRequests)
 }
 
-func TestRankRejectsAClassBaseURLBeforeSending(t *testing.T) {
-	tests := []struct {
-		name    string
-		baseURL string
-		wantErr string
-	}{
-		{
-			name:    "no scheme",
-			baseURL: "api.openai.com",
-			wantErr: `baseURL must be an absolute http or https URL, got "api.openai.com"`,
-		},
-		{
-			// <port> stands for the fake's port.
-			name:    "the fake's port without a host",
-			baseURL: "http://:<port>",
-			wantErr: `baseURL must be an absolute http or https URL, got "http://:<port>"`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-			fakeURL, err := url.Parse(f.url())
-			require.NoError(t, err)
-			baseURL := strings.ReplaceAll(tt.baseURL, "<port>", fakeURL.Port())
-			wantErr := strings.ReplaceAll(tt.wantErr, "<port>", fakeURL.Port())
+func TestRankSendsNothingForAClassBaseURLWithoutAScheme(t *testing.T) {
+	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(noRefund), classConfig("api.openai.com", nil))
 
-			_, err = newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(baseURL, nil))
-
-			require.EqualError(t, err, wantErr)
-			assert.Empty(t, f.received())
-		})
-	}
+	require.EqualError(t, err, `send OpenAI request: Post "api.openai.com/v1/decisions": unsupported protocol scheme ""`)
 }
 
 func TestRankReportsA401AndA403WithoutTheBody(t *testing.T) {
@@ -779,7 +688,7 @@ func TestRankReportsA401AndA403WithoutTheBody(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: tt.status, body: tt.body}}
 			logger, hook := debugLogger()
-			c := New(secret, "", testTimeout, MaxConcurrentRequests, MaxDocumentsPerQuery, logger)
+			c := New(secret, "", testTimeout, MaxDocumentsPerQuery, logger)
 
 			_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
 
@@ -952,7 +861,7 @@ func TestRankHeaders(t *testing.T) {
 			if tt.headerBaseURL {
 				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
 			}
-			c := New(tt.serverKey, tt.serverOrganization, testTimeout, MaxConcurrentRequests, MaxDocumentsPerQuery, nullLogger())
+			c := New(tt.serverKey, tt.serverOrganization, testTimeout, MaxDocumentsPerQuery, nullLogger())
 
 			_, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(classServer.url(), nil))
 
@@ -976,50 +885,15 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
-// The class config holds the fake's URL, so the header names no other host.
-func TestRankTakesAHeaderBaseURLEqualToTheClassBaseURLAsAbsent(t *testing.T) {
-	tests := []struct {
-		name   string
-		suffix string
-	}{
-		{name: "the same URL"},
-		{name: "a trailing slash", suffix: "/"},
-		{name: "a /v1 suffix", suffix: "/v1"},
-		{name: "a /v1/ suffix", suffix: "/v1/"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f, release := newBlockingFake(t)
-			defer release()
-			f.replies = map[int]fakeReply{1: {status: http.StatusInternalServerError, body: `{"error":{"message":"The server had an error"}}`}}
-			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{f.url() + tt.suffix})
-			c := New("env", "org-env", testTimeout, 3, MaxDocumentsPerQuery, nullLogger())
-
-			result := rankInBackground(t, ctx, c, f, []string{noRefund})
-			require.Eventually(t, func() bool { return len(f.received()) == 1 }, 5*time.Second, time.Millisecond)
-			assert.Len(t, c.inFlight, 1)
-			assert.Empty(t, c.inFlightHeaderHost)
-			release()
-			require.NoError(t, <-result)
-
-			requests := f.received()
-			require.Len(t, requests, 1)
-			assert.Equal(t, "/v1/decisions", requests[0].path)
-			assert.Equal(t, "Bearer env", requests[0].authorization)
-			assert.Equal(t, []string{"org-env"}, requests[0].organization)
-
-			_, err := c.RankProperty(ctx, churn, "text", documentsOf(chargedTwice), classConfig(f.url(), nil))
-			require.EqualError(t, err, "connection to OpenAI API failed with status 500: The server had an error")
-		})
-	}
-}
-
-func TestRankTakesAnotherHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
+// A header base URL is a host the request names, even when it equals the class
+// base URL, so it needs a key header.
+func TestRankTakesAHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
 	tests := []struct {
 		name string
 		// <class> stands for the URL in the class config.
 		headerBaseURL string
 	}{
+		{name: "the class base URL", headerBaseURL: "<class>"},
 		{name: "a path under the class base URL", headerBaseURL: "<class>/proxy"},
 		{name: "another name of the class host", headerBaseURL: "http://localhost:<port>"},
 	}
@@ -1031,7 +905,7 @@ func TestRankTakesAnotherHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
 			headerBaseURL := strings.NewReplacer("<class>", f.url(), "<port>", port).Replace(tt.headerBaseURL)
 			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{headerBaseURL})
 
-			_, err = New("env", "org-env", testTimeout, 3, MaxDocumentsPerQuery, nullLogger()).RankProperty(ctx, churn, "text",
+			_, err = New("env", "org-env", testTimeout, MaxDocumentsPerQuery, nullLogger()).RankProperty(ctx, churn, "text",
 				documentsOf(noRefund), classConfig(f.url(), nil))
 
 			require.EqualError(t, err, "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request")
@@ -1051,12 +925,7 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 		{
 			name:    "no scheme",
 			baseURL: "api.openai.com",
-			wantErr: `X-Openai-Baseurl header must be an absolute http or https URL, got "api.openai.com"`,
-		},
-		{
-			name:    "a port without a host",
-			baseURL: "https://:443",
-			wantErr: `X-Openai-Baseurl header must be an absolute http or https URL, got "https://:443"`,
+			wantErr: "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
 		},
 		{
 			name:     "http while MODULES_VALIDATE_BASE_URL is on",
@@ -1070,7 +939,6 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 			if tt.validate {
 				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
 			}
-			// A header base URL equal to the class base URL counts as absent.
 			f, classHost := newFake(t), newFake(t)
 			ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
 			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{strings.ReplaceAll(tt.baseURL, "<fake>", f.url())})
@@ -1085,8 +953,7 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 	}
 }
 
-// The OpenAI SDKs write the base URL with a /v1 suffix.
-func TestRankNormalizesTheBaseURL(t *testing.T) {
+func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
@@ -1094,14 +961,8 @@ func TestRankNormalizesTheBaseURL(t *testing.T) {
 		wantPath   string
 	}{
 		{name: "class base URL without a path", path: "", wantPath: "/v1/decisions"},
-		{name: "class base URL ending in /v1", path: "/v1", wantPath: "/v1/decisions"},
-		{name: "class base URL ending in /v1/", path: "/v1/", wantPath: "/v1/decisions"},
 		{name: "class base URL with a gateway path", path: "/gateway", wantPath: "/gateway/v1/decisions"},
-		{name: "class base URL with a gateway path ending in /v1", path: "/gateway/v1", wantPath: "/gateway/v1/decisions"},
-		{name: "class base URL ending in /v1/v1", path: "/v1/v1", wantPath: "/v1/v1/decisions"},
-		{name: "header base URL ending in /v1/v1", path: "/v1/v1", fromHeader: true, wantPath: "/v1/v1/decisions"},
-		{name: "header base URL ending in /v1/", path: "/v1/", fromHeader: true, wantPath: "/v1/decisions"},
-		{name: "header base URL with a gateway path ending in /v1", path: "/gateway/v1", fromHeader: true, wantPath: "/gateway/v1/decisions"},
+		{name: "header base URL with a gateway path", path: "/gateway", fromHeader: true, wantPath: "/gateway/v1/decisions"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1437,7 +1298,7 @@ func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
 			defer cancel()
 			ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
 			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerHost.url()})
-			c := New(defaultFakeKey, "", tt.timeout, 2, MaxDocumentsPerQuery, nullLogger())
+			c := New(defaultFakeKey, "", tt.timeout, MaxDocumentsPerQuery, nullLogger())
 			headers := &headersSeen{base: c.httpClient.Transport, seen: make(chan struct{})}
 			c.httpClient.Transport = headers
 
@@ -1575,10 +1436,10 @@ func TestRankCutsLongErrorText(t *testing.T) {
 	}
 }
 
-func TestRankReturnsADeadlineErrorAndFreesTheSlots(t *testing.T) {
+func TestRankReturnsADeadlineError(t *testing.T) {
 	f, release := newBlockingFake(t)
 	defer release()
-	c := New(defaultFakeKey, "", 50*time.Millisecond, 2, MaxDocumentsPerQuery, nullLogger())
+	c := New(defaultFakeKey, "", 50*time.Millisecond, MaxDocumentsPerQuery, nullLogger())
 
 	result := rankInBackground(t, context.Background(), c, f, []string{noRefund, chargedTwice, changeEmail})
 
@@ -1588,8 +1449,6 @@ func TestRankReturnsADeadlineErrorAndFreesTheSlots(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("RankProperty did not fail with the client timeout within 5 seconds")
 	}
-	assert.Zero(t, len(c.inFlight))
-	assert.Zero(t, len(c.inFlightHeaderHost))
 }
 
 func TestRankReadsHeadersFromGRPCMetadata(t *testing.T) {
@@ -1667,37 +1526,53 @@ func TestRankKeepsTheNumberLiteralOutOfTheDecodeError(t *testing.T) {
 	}
 }
 
-func TestRankCapsRequestsInFlight(t *testing.T) {
-	f := newFake(t)
-	f.delay = 20 * time.Millisecond
-	c := New(defaultFakeKey, "", testTimeout, 3, MaxDocumentsPerQuery, nullLogger())
-	queries := [][]string{numbered("first %d", 30), numbered("second %d", 30)}
+// A query sends at most 32 requests at once, and 4 when they carry images.
+// The fake holds every request, so a query without the limit would send them
+// all.
+func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
+	images := make([]string, 2*maxConcurrentImageRequests)
+	for i := range images {
+		images[i] = pngOfSize(100 + i)
+	}
+	tests := []struct {
+		name      string
+		property  string
+		documents []string
+		wantCap   int
+	}{
+		{name: "text", property: "text", documents: numbered("ticket %d", 2*maxConcurrentRequests), wantCap: maxConcurrentRequests},
+		{name: "images", property: "photo", documents: images, wantCap: maxConcurrentImageRequests},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, release := newBlockingFake(t)
+			defer release()
+			result := make(chan error, 1)
+			var call sync.WaitGroup
+			defer call.Wait()
+			call.Go(func() {
+				_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, tt.property,
+					documentsOf(tt.documents...), classConfig(f.url(), nil))
+				result <- err
+			})
 
-	var wg sync.WaitGroup
-	results := make([]*ent.RankResult, len(queries))
-	errs := make([]error, len(queries))
-	for i, documents := range queries {
-		wg.Go(func() {
-			results[i], errs[i] = c.RankProperty(context.Background(), churn, "text", documentsOf(documents...),
-				classConfig(f.url(), nil))
+			require.Eventually(t, func() bool { return len(f.received()) == tt.wantCap }, 5*time.Second, time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
+			assert.Len(t, f.received(), tt.wantCap, "no request beyond the limit is sent while the others wait")
+
+			release()
+			require.NoError(t, <-result)
+			assert.Len(t, f.received(), 2*tt.wantCap)
 		})
 	}
-	wg.Wait()
-
-	for i, documents := range queries {
-		require.NoError(t, errs[i])
-		assert.Equal(t, expectedScores(documents, nil), results[i].DocumentScores)
-	}
-	assert.Len(t, f.received(), 60)
-	assert.Equal(t, 3, f.maxInFlight())
 }
 
 // Without the limit of the error group a query starts one goroutine per
-// document, and all but three of them wait for a slot.
-func TestRankStartsNoMoreGoroutinesThanSlots(t *testing.T) {
-	const slots, documents = 3, 200
+// document.
+func TestRankStartsNoMoreGoroutinesThanTheLimit(t *testing.T) {
+	const slots, documents = maxConcurrentRequests, 200
 	synctest.Test(t, func(t *testing.T) {
-		c := New(defaultFakeKey, "", testTimeout, slots, MaxDocumentsPerQuery, nullLogger())
+		c := newTestClient(defaultFakeKey)
 		transport := &holdingTransport{release: make(chan struct{})}
 		c.httpClient.Transport = transport
 		var calls sync.WaitGroup
@@ -1751,130 +1626,26 @@ func goroutinesIn(function string) int {
 }
 
 func TestRankStopsOnContextCancel(t *testing.T) {
-	const inFlight = 4
-	documents := numbered("ticket %d", 40)
-
-	t.Run("with requests in flight", func(t *testing.T) {
-		f, release := newBlockingFake(t)
-		defer release()
-		c := New(defaultFakeKey, "", testTimeout, inFlight, MaxDocumentsPerQuery, nullLogger())
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		result := rankInBackground(t, ctx, c, f, documents)
-		require.Eventually(t, func() bool { return len(f.received()) == inFlight }, 5*time.Second, time.Millisecond)
-
-		cancel()
-		requireCanceledWithinASecond(t, result)
-		assert.Zero(t, len(c.inFlight), "every in-flight slot is released")
-
-		release()
-		waitFor(t, &f.handlers)
-		assert.Len(t, f.received(), inFlight, "the requests waiting for a slot are not sent")
-		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
-		require.NoError(t, err)
-		assert.Len(t, res.DocumentScores, 1)
-	})
-
-	t.Run("when cancelled before it asks for a slot another query holds", func(t *testing.T) {
-		f, release := newBlockingFake(t)
-		defer release()
-		c := New(defaultFakeKey, "", testTimeout, inFlight, MaxDocumentsPerQuery, nullLogger())
-		other := rankInBackground(t, context.Background(), c, f, documents)
-		require.Eventually(t, func() bool { return len(f.received()) == inFlight }, 5*time.Second, time.Millisecond)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		result := rankInBackground(t, ctx, c, f, []string{noRefund})
-		cancel()
-		requireCanceledWithinASecond(t, result)
-
-		release()
-		require.NoError(t, <-other)
-		assert.Len(t, f.received(), len(documents), "the cancelled query sent nothing")
-	})
-}
-
-func TestRankWaitsForASlotUntilTheContextEnds(t *testing.T) {
-	tests := []struct {
-		name           string
-		hostFromHeader bool
-	}{
-		{name: "the pool of the class and default host", hostFromHeader: false},
-		{name: "the pool of a host named by the request header", hostFromHeader: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// synctest.Wait returns only once send is parked on the slot, so
-			// the cancel has to wake it.
-			synctest.Test(t, func(t *testing.T) {
-				c := New(defaultFakeKey, "", testTimeout, 2, MaxDocumentsPerQuery, nullLogger())
-				pool := c.slotsFor(tt.hostFromHeader)
-				for range cap(pool) {
-					pool <- struct{}{}
-				}
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				result := make(chan error, 1)
-				var calls sync.WaitGroup
-				calls.Go(func() {
-					_, err := c.send(ctx, judgeRequest{
-						endpointURL: "http://unused.invalid/v1/decisions", apiKey: defaultFakeKey,
-						hostFromHeader: tt.hostFromHeader, query: churn,
-					}, noRefund)
-					result <- err
-				})
-				synctest.Wait()
-				select {
-				case err := <-result:
-					t.Fatalf("send returned before the cancel: %v", err)
-				default:
-				}
-
-				cancel()
-				synctest.Wait()
-				select {
-				case err := <-result:
-					require.ErrorIs(t, err, context.Canceled)
-				default:
-					t.Fatal("send still waits for a slot after the cancel")
-				}
-				calls.Wait()
-				assert.Len(t, pool, cap(pool), "the cancelled call took no slot")
-				for range cap(pool) {
-					<-pool
-				}
-			})
-		})
-	}
-}
-
-func TestRankHeaderHostRequestsDoNotHoldTheClassHostSlots(t *testing.T) {
-	const slots = 3
-	headerHost, release := newBlockingFake(t)
+	// More documents than a query sends at once.
+	documents := numbered("ticket %d", 2*maxConcurrentRequests)
+	f, release := newBlockingFake(t)
 	defer release()
-	classHost := newFake(t)
-	c := New(defaultFakeKey, "", testTimeout, slots, MaxDocumentsPerQuery, nullLogger())
-	headerCtx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
-	headerCtx = context.WithValue(headerCtx, "X-Openai-Baseurl", []string{headerHost.url()})
+	c := newTestClient(defaultFakeKey)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	blocked := rankInBackground(t, headerCtx, c, classHost, numbered("ticket %d", 2*slots))
-	require.Eventually(t, func() bool { return len(headerHost.received()) == slots }, 5*time.Second, time.Millisecond)
-	require.Len(t, c.inFlightHeaderHost, slots)
+	result := rankInBackground(t, ctx, c, f, documents)
+	require.Eventually(t, func() bool { return len(f.received()) == maxConcurrentRequests }, 5*time.Second, time.Millisecond)
 
-	classResult := rankInBackground(t, context.Background(), c, classHost, []string{noRefund})
-	select {
-	case err := <-classResult:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the query to the class host did not complete within 5 seconds while the header-host pool was full")
-	}
-	assert.Len(t, classHost.received(), 1)
-	assert.Len(t, headerHost.received(), slots, "the query to the class host did not reach the header host")
+	cancel()
+	requireCanceledWithinASecond(t, result)
 
 	release()
-	require.NoError(t, <-blocked)
-	assert.Len(t, headerHost.received(), 2*slots)
+	waitFor(t, &f.handlers)
+	assert.Len(t, f.received(), maxConcurrentRequests, "the requests waiting for a slot are not sent")
+	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+	require.NoError(t, err)
+	assert.Len(t, res.DocumentScores, 1)
 }
 
 // Defer release: the calls' cleanups wait for the handlers.
@@ -1902,33 +1673,6 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
 		t.Fatal("RankProperty did not return within a second of the cancel")
-	}
-}
-
-func TestNewRaisesACapBelowOneToOne(t *testing.T) {
-	tests := []struct {
-		name                  string
-		maxConcurrentRequests int
-		wantCap               int
-	}{
-		{name: "zero", maxConcurrentRequests: 0, wantCap: 1},
-		{name: "negative", maxConcurrentRequests: -3, wantCap: 1},
-		{name: "one", maxConcurrentRequests: 1, wantCap: 1},
-		{name: "the default", maxConcurrentRequests: MaxConcurrentRequests, wantCap: 32},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-
-			c := New(defaultFakeKey, "", testTimeout, tt.maxConcurrentRequests, MaxDocumentsPerQuery, nullLogger())
-
-			require.Equal(t, tt.wantCap, cap(c.inFlight))
-			require.Equal(t, tt.wantCap, cap(c.inFlightHeaderHost))
-			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund, chargedTwice),
-				classConfig(f.url(), nil))
-			require.NoError(t, err)
-			assert.Len(t, res.DocumentScores, 2)
-		})
 	}
 }
 
@@ -2056,12 +1800,11 @@ func TestRankChecksTheAnswers(t *testing.T) {
 func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 	const answers = `"answers":[{"type":"predicate","name":"condition","probability":0.7}]`
 	tests := []struct {
-		name            string
-		body            string
-		wantInputTokens int64
+		name string
+		body string
 	}{
-		{name: "a whole number", body: `{` + answers + `,"usage":{"input_tokens":120,"output_tokens":0}}`, wantInputTokens: 120},
-		{name: "a fraction", body: `{` + answers + `,"usage":{"input_tokens":1.5}}`, wantInputTokens: 1},
+		{name: "a whole number", body: `{` + answers + `,"usage":{"input_tokens":120,"output_tokens":0}}`},
+		{name: "a fraction", body: `{` + answers + `,"usage":{"input_tokens":1.5}}`},
 		{name: "a string", body: `{` + answers + `,"usage":{"input_tokens":"many"}}`},
 		{name: "a usage that is not an object", body: `{` + answers + `,"usage":"n/a"}`},
 		{name: "no usage", body: `{` + answers + `}`},
@@ -2070,14 +1813,12 @@ func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
-			logger, hook := debugLogger()
-			c := New(defaultFakeKey, "", testTimeout, MaxConcurrentRequests, MaxDocumentsPerQuery, logger)
 
-			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			assert.Equal(t, []ent.DocumentScore{{Document: noRefund, Score: 0.7}}, res.DocumentScores)
-			assert.Equal(t, tt.wantInputTokens, rankLogFields(t, hook)["input_tokens"])
 		})
 	}
 }
@@ -2094,7 +1835,7 @@ func debugLogger() (logrus.FieldLogger, *test.Hook) {
 }
 
 func newTestClient(apiKey string) *client {
-	return New(apiKey, "", testTimeout, MaxConcurrentRequests, MaxDocumentsPerQuery, nullLogger())
+	return New(apiKey, "", testTimeout, MaxDocumentsPerQuery, nullLogger())
 }
 
 // IDs are 00000000-0000-0000-0000-<i in 12 digits>.
@@ -2110,19 +1851,6 @@ func numbered(format string, n int) []string {
 	out := make([]string, n)
 	for i := range out {
 		out[i] = fmt.Sprintf(format, i)
-	}
-	return out
-}
-
-// A document missing from probabilities gets the fake's default, 0.5.
-func expectedScores(documents []string, probabilities map[string]float64) []ent.DocumentScore {
-	out := make([]ent.DocumentScore, len(documents))
-	for i, document := range documents {
-		probability, ok := probabilities[document]
-		if !ok {
-			probability = 0.5
-		}
-		out[i] = ent.DocumentScore{Document: document, Score: probability}
 	}
 	return out
 }
@@ -2146,18 +1874,6 @@ func inputs(requests []fakeRequest) []string {
 		out[i] = r.input()
 	}
 	return out
-}
-
-func rankLogFields(t *testing.T, hook *test.Hook) logrus.Fields {
-	t.Helper()
-	var found []logrus.Fields
-	for _, entry := range hook.AllEntries() {
-		if _, ok := entry.Data["judged"]; ok {
-			found = append(found, entry.Data)
-		}
-	}
-	require.Len(t, found, 1, "one log line per call")
-	return found[0]
 }
 
 func waitFor(t *testing.T, wg *sync.WaitGroup) {
@@ -2256,8 +1972,6 @@ type fakeOpenAI struct {
 
 	lock     sync.Mutex
 	requests []fakeRequest
-	inFlight int
-	maxSeen  int
 	// gathering closes when together requests have arrived; waiting counts
 	// the requests that wait for it.
 	gathering chan struct{}
@@ -2288,12 +2002,6 @@ func (f *fakeOpenAI) received() []fakeRequest {
 	return slices.Clone(f.requests)
 }
 
-func (f *fakeOpenAI) maxInFlight() int {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-	return f.maxSeen
-}
-
 func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.handlers.Add(1)
 	defer f.handlers.Done()
@@ -2321,8 +2029,6 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.lock.Lock()
 	reply, replied := f.replies[len(f.requests)]
 	f.requests = append(f.requests, received)
-	f.inFlight++
-	f.maxSeen = max(f.maxSeen, f.inFlight)
 	var gathered chan struct{}
 	if f.together > 0 {
 		if f.gathering == nil {
@@ -2336,11 +2042,6 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	f.lock.Unlock()
-	defer func() {
-		f.lock.Lock()
-		f.inFlight--
-		f.lock.Unlock()
-	}()
 
 	time.Sleep(f.delay)
 	if gathered != nil {

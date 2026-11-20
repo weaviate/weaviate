@@ -52,8 +52,8 @@ func (m *ReRankerOpenAIModule) Init(ctx context.Context,
 ) error {
 	apiKey := os.Getenv("OPENAI_APIKEY")
 	organization := os.Getenv("OPENAI_ORGANIZATION")
-	client := clients.New(apiKey, organization, params.GetConfig().ModuleHttpClientTimeout, clients.MaxConcurrentRequests,
-		clients.MaxDocumentsPerQuery, params.GetLogger())
+	client := clients.New(apiKey, organization, params.GetConfig().ModuleHttpClientTimeout, clients.MaxDocumentsPerQuery,
+		params.GetLogger())
 	m.reranker = client
 	m.additionalPropertiesProvider = rerankeradditional.NewPropertyRankerProvider(client)
 	return nil
