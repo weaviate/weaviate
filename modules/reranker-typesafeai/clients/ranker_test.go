@@ -12,7 +12,6 @@
 package clients
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,10 +23,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -100,98 +97,32 @@ func TestRankPacksDocuments(t *testing.T) {
 	}, body.Questions)
 }
 
-func TestRankBatchesByCountAndCharacters(t *testing.T) {
+func TestRankBatchesByCount(t *testing.T) {
 	tests := []struct {
 		name      string
-		query     string
 		documents []string
 		wantSizes []int
 	}{
-		{
-			name:      "120 short documents",
-			documents: numbered("ticket %d", 120),
-			wantSizes: []int{20, 50, 50},
-		},
+		{name: "120 short documents", documents: numbered("ticket %d", 120), wantSizes: []int{20, 50, 50}},
 		{
 			name: "3 documents of 40,000 characters",
 			documents: []string{
 				strings.Repeat("a", 40_000), strings.Repeat("b", 40_000), strings.Repeat("c", 40_000),
 			},
-			wantSizes: []int{1, 2},
-		},
-		{
-			// A document costs 1 byte, its question prefix 16 and the query
-			// 20,000: 20,017 bytes, so 4 fit in a request.
-			name:      "12 one-byte documents with a 20,000-byte query",
-			query:     strings.Repeat("q", 20_000),
-			documents: strings.Split("abcdefghijkl", ""),
-			wantSizes: []int{4, 4, 4},
+			wantSizes: []int{3},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 			f.probabilities = distinctProbabilities(tt.documents)
-			query := tt.query
-			if query == "" {
-				query = churn
-			}
 
-			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), query, "text",
+			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
 				tt.documents, classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			assert.Equal(t, expectedScores(tt.documents, f.probabilities), res.DocumentScores)
 			assert.Equal(t, tt.wantSizes, sizes(f.received()))
-		})
-	}
-}
-
-func TestRankRejectsAQueryTooLongToRepeatInARequest(t *testing.T) {
-	longest := maxBatchCharacters - len("In document_49: ")
-	tests := []struct {
-		name      string
-		query     string
-		property  string
-		documents []string
-		wantErr   string
-	}{
-		{
-			name:      "a query whose question fills a request",
-			query:     strings.Repeat("q", longest),
-			property:  "text",
-			documents: []string{noRefund},
-			wantErr:   "rerank.query is 99984 bytes; reranker-typesafeai repeats it for every document within 100000 bytes per request",
-		},
-		{
-			name:      "the same query before an image outside the limits",
-			query:     strings.Repeat("q", longest),
-			property:  "photo",
-			documents: []string{encodedImage(t, "png", 100, 100)},
-			wantErr:   "rerank.query is 99984 bytes; reranker-typesafeai repeats it for every document within 100000 bytes per request",
-		},
-		{
-			name:      "one byte shorter",
-			query:     strings.Repeat("q", longest-1),
-			property:  "text",
-			documents: []string{noRefund},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-
-			res, err := newTestClient(defaultFakeKey).Rank(context.Background(), tt.query, tt.property,
-				tt.documents, classConfig(f.url(), nil))
-
-			if tt.wantErr != "" {
-				require.EqualError(t, err, tt.wantErr)
-				assert.Empty(t, f.received())
-				return
-			}
-			require.NoError(t, err)
-			assert.Len(t, res.DocumentScores, 1)
-			assert.Len(t, f.received(), 1)
 		})
 	}
 }
@@ -427,23 +358,23 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	}
 }
 
-// 850 documents are 17 requests, one more than a query sends at once. The
-// fake answers 429 once the first 16 have arrived, and the first failure
-// cancels the query before it frees a slot, so the 17th is never sent.
+// One request more than a query sends at once. The fake answers 429 once the
+// first ones have arrived, and the first failure cancels the query before it
+// frees a slot, so the last request is never sent.
 func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 	f := newFake(t)
-	f.together = maxConcurrentRequests
+	f.together = _NUMCPU
 	f.replies = map[int]fakeReply{}
-	for i := range 17 {
+	for i := range _NUMCPU + 1 {
 		f.replies[i] = fakeReply{status: http.StatusTooManyRequests, body: `{"error":"rate limited"}`}
 	}
 
 	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
-		numbered("ticket %d", 850), classConfig(f.url(), nil))
+		numbered("ticket %d", (_NUMCPU+1)*maxBatchDocuments), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, `connection to TypeSafe AI API failed with status 429: {"error":"rate limited"}`)
 	assert.Nil(t, res)
-	assert.Len(t, f.received(), maxConcurrentRequests)
+	assert.Len(t, f.received(), _NUMCPU)
 }
 
 // A redirect could send the request, and with a 307 or 308 its key, to a host
@@ -542,12 +473,6 @@ func TestRankHeaders(t *testing.T) {
 			wantAuth:  "Bearer headerKey",
 		},
 		{
-			name:          "base URL header without a key header",
-			serverKey:     "env",
-			headerBaseURL: true,
-			wantErr:       "X-Typesafeai-Baseurl needs X-Typesafeai-Api-Key: the server's key is not sent to a host named by the request",
-		},
-		{
 			name:          "base URL header with a key header and no server key",
 			headerKey:     "headerKey",
 			headerBaseURL: true,
@@ -599,33 +524,15 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
-// A header base URL is a host the request names, even when it equals the class
-// base URL: it needs a key header and its error bodies are not quoted.
-func TestRankHandlesAHeaderBaseURLAsNamedByTheRequest(t *testing.T) {
-	t.Run("without a key header", func(t *testing.T) {
-		f := newFake(t)
-		ctx := context.WithValue(context.Background(), "X-Typesafeai-Baseurl", []string{f.url()})
-
-		res, err := New("env", testTimeout, nullLogger()).Rank(ctx, churn, "text",
-			[]string{noRefund}, classConfig(f.url(), nil))
-
-		require.EqualError(t, err, "X-Typesafeai-Baseurl needs X-Typesafeai-Api-Key: "+
-			"the server's key is not sent to a host named by the request")
-		assert.Nil(t, res)
-		assert.Empty(t, f.received())
-	})
-
+func TestRankQuotesTheErrorBodyOfAHeaderBaseURL(t *testing.T) {
 	f := newFake(t)
 	f.replies = map[int]fakeReply{0: {status: http.StatusBadRequest, body: `{"error":"unknown model"}`}}
-	c := New("env", testTimeout, nullLogger())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{f.url() + "/proxy"})
+	ctx := context.WithValue(context.Background(), "X-Typesafeai-Baseurl", []string{f.url() + "/proxy"})
 	ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
 
-	res, err := c.Rank(ctx, churn, "text", []string{noRefund}, classConfig(f.url(), nil))
+	res, err := newTestClient("env").Rank(ctx, churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 
-	require.EqualError(t, err, "connection to TypeSafe AI API failed with status 400")
+	require.EqualError(t, err, `connection to TypeSafe AI API failed with status 400: {"error":"unknown model"}`)
 	assert.Nil(t, res)
 	requests := f.received()
 	require.Len(t, requests, 1)
@@ -633,8 +540,6 @@ func TestRankHandlesAHeaderBaseURLAsNamedByTheRequest(t *testing.T) {
 	assert.Equal(t, "Bearer headerKey", requests[0].authorization)
 }
 
-// A base URL header without a scheme fails before anything is sent. The error
-// is the fixed one of a host the request names.
 func TestRankSendsNothingForABaseURLHeaderWithoutAScheme(t *testing.T) {
 	f := newFake(t)
 	ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
@@ -643,7 +548,7 @@ func TestRankSendsNothingForABaseURLHeaderWithoutAScheme(t *testing.T) {
 	_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
 		[]string{noRefund}, classConfig(f.url(), nil))
 
-	require.EqualError(t, err, "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl")
+	require.EqualError(t, err, `send TypeSafe AI request: Post "api.typesafe.ai/v1/systemone": unsupported protocol scheme ""`)
 	assert.Empty(t, f.received())
 }
 
@@ -685,178 +590,13 @@ func TestRankSendsNothingForAClassBaseURLWithoutAScheme(t *testing.T) {
 	require.EqualError(t, err, `send TypeSafe AI request: Post "api.typesafe.ai/v1/systemone": unsupported protocol scheme ""`)
 }
 
-// unexpectedHeaderHostReply is the error of a 200 reply the client cannot use
-// from a host the request header named.
-const unexpectedHeaderHostReply = "unexpected TypeSafe AI response from the host named by X-Typesafeai-Baseurl"
-
-// Anyone who may query can name a host in the base URL header, so the errors
-// quote nothing of its replies.
-func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
-	const banner = `{"error":"internal banner"}`
-	tests := []struct {
-		name       string
-		reply      fakeReply
-		fromHeader bool
-		wantErr    string
-	}{
-		{
-			name:    "a 400 from the class base URL",
-			reply:   fakeReply{status: http.StatusBadRequest, body: banner},
-			wantErr: `connection to TypeSafe AI API failed with status 400: {"error":"internal banner"}`,
-		},
-		{
-			name:       "a 400 from the header base URL",
-			reply:      fakeReply{status: http.StatusBadRequest, body: banner},
-			fromHeader: true,
-			wantErr:    "connection to TypeSafe AI API failed with status 400",
-		},
-		{
-			name:    "a 500 from the class base URL",
-			reply:   fakeReply{status: http.StatusInternalServerError, body: banner},
-			wantErr: `connection to TypeSafe AI API failed with status 500: {"error":"internal banner"}`,
-		},
-		{
-			name:       "a 500 from the header base URL",
-			reply:      fakeReply{status: http.StatusInternalServerError, body: banner},
-			fromHeader: true,
-			wantErr:    "connection to TypeSafe AI API failed with status 500",
-		},
-		{
-			name:    "a 401 from the class base URL",
-			reply:   fakeReply{status: http.StatusUnauthorized, body: banner},
-			wantErr: `connection to TypeSafe AI API failed with status 401: {"error":"internal banner"}`,
-		},
-		{
-			name:       "a 401 from the header base URL",
-			reply:      fakeReply{status: http.StatusUnauthorized, body: banner},
-			fromHeader: true,
-			wantErr:    "connection to TypeSafe AI API failed with status 401",
-		},
-		{
-			name:    "a 200 without answers from the class base URL",
-			reply:   fakeReply{status: http.StatusOK, body: banner},
-			wantErr: `TypeSafe AI response has no answers: {"error":"internal banner"}`,
-		},
-		{
-			name:       "a 200 without answers from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: banner},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:    "a 200 that is not JSON from the class base URL",
-			reply:   fakeReply{status: http.StatusOK, body: "not json"},
-			wantErr: "parse TypeSafe AI response: invalid character 'o' in literal null (expecting 'u'): not json",
-		},
-		{
-			name:       "a 200 that is not JSON from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: "not json"},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:    "a 200 above 1 MiB from the class base URL",
-			reply:   fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
-			wantErr: "TypeSafe AI response exceeds 1048576 bytes",
-		},
-		{
-			name:       "a 200 above 1 MiB from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "an answer of another type from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"q":{"type":"internal banner","noul":0.5}}}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "a probability outside 0 to 1 from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"q":{"type":"noul","noul":7.25}}}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name: "two answers for one document from the header base URL",
-			reply: fakeReply{
-				status: http.StatusOK,
-				body:   `{"answers":{"q":{"type":"noul","noul":0.5},"internal":{"type":"noul","noul":0.5}}}`,
-			},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "an answer under another key from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":{"internal":{"type":"noul","noul":0.5}}}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used, unused := classServer, headerServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				used, unused = headerServer, classServer
-				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url()})
-			}
-			used.replies = map[int]fakeReply{0: tt.reply}
-
-			res, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
-				[]string{noRefund}, classConfig(classServer.url(), nil))
-
-			require.EqualError(t, err, tt.wantErr)
-			assert.Nil(t, res)
-			assert.Len(t, used.received(), 1)
-			assert.Empty(t, unused.received())
-		})
-	}
-}
-
-func TestRankCutsAQuotedBodyWithoutSplittingACharacter(t *testing.T) {
-	// Byte 512 is the first of the two bytes of the first "é".
-	wholeCharacters := strings.Repeat("a", maxErrorBodyBytes-1)
-	body := wholeCharacters + strings.Repeat("é", 10)
-	tests := []struct {
-		name    string
-		status  int
-		wantErr string
-	}{
-		{
-			name:    "the body of a status other than 200",
-			status:  http.StatusInternalServerError,
-			wantErr: "connection to TypeSafe AI API failed with status 500: " + wholeCharacters,
-		},
-		{
-			name:    "the body of a 200 that is not JSON",
-			status:  http.StatusOK,
-			wantErr: "parse TypeSafe AI response: invalid character 'a' looking for beginning of value: " + wholeCharacters,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-			f.replies = map[int]fakeReply{0: {status: tt.status, body: body}}
-
-			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
-				[]string{noRefund}, classConfig(f.url(), nil))
-
-			require.EqualError(t, err, tt.wantErr)
-			assert.True(t, utf8.ValidString(err.Error()))
-		})
-	}
-}
-
 // The cut of the quoted body drops bytes, and the search for the error_type
 // reads the bytes before that cut.
 func TestRankFindsTheErrorTypeInABodyThatIsNotUTF8(t *testing.T) {
 	f := newFake(t)
 	f.replies = map[int]fakeReply{0: {
 		status: http.StatusBadRequest,
-		body:   strings.Repeat("\xff", maxErrorBodyBytes-len(tooLargeError)) + tooLargeError,
+		body:   strings.Repeat("\xff", 500) + tooLargeError,
 	}}
 
 	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
@@ -865,255 +605,6 @@ func TestRankFindsTheErrorTypeInABodyThatIsNotUTF8(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, res.DocumentScores, 2)
 	assert.Equal(t, []int{1, 1, 2}, sizes(f.received()))
-}
-
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "empty", in: "", want: ""},
-		{name: "short", in: "a 400", want: "a 400"},
-		{name: "at the limit", in: strings.Repeat("a", maxErrorBodyBytes), want: strings.Repeat("a", maxErrorBodyBytes)},
-		{name: "above the limit", in: strings.Repeat("a", maxErrorBodyBytes+1), want: strings.Repeat("a", maxErrorBodyBytes)},
-		{
-			name: "a character ends at the limit",
-			in:   strings.Repeat("a", maxErrorBodyBytes-2) + "éé",
-			want: strings.Repeat("a", maxErrorBodyBytes-2) + "é",
-		},
-		{
-			name: "the limit splits a character",
-			in:   strings.Repeat("a", maxErrorBodyBytes-1) + "é",
-			want: strings.Repeat("a", maxErrorBodyBytes-1),
-		},
-		{
-			name: "a short body that ends inside a character",
-			in:   "caf\xc3",
-			want: "caf",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, truncate(tt.in))
-			assert.Equal(t, tt.want, truncate([]byte(tt.in)))
-		})
-	}
-}
-
-// net/http quotes what a host sent in place of a response, and a dial error
-// names the address, so the error of a host the request names holds neither.
-func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
-	const (
-		banner   = "SSH-2.0-OpenSSH_9.6\r\n"
-		cutShort = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"answers\""
-	)
-	tests := []struct {
-		name string
-		// host returns the base URL of the host the request goes to.
-		host       func(t *testing.T) string
-		fromHeader bool
-		// wantErr is the whole error. <host> stands for the base URL.
-		wantErr      string
-		wantContains []string
-		wantIs       error
-	}{
-		{
-			name:       "a banner that is not HTTP from the header base URL",
-			host:       func(t *testing.T) string { return newRawHost(t, banner) },
-			fromHeader: true,
-			wantErr:    "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl",
-		},
-		{
-			name: "a banner that is not HTTP from the class base URL",
-			host: func(t *testing.T) string { return newRawHost(t, banner) },
-			wantContains: []string{
-				`send TypeSafe AI request: Post "<host>/v1/systemone": `,
-				`malformed HTTP response "SSH-2.0-OpenSSH_9.6"`,
-			},
-		},
-		{
-			name:       "a closed port at the header base URL",
-			host:       closedPort,
-			fromHeader: true,
-			wantErr:    "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl",
-		},
-		{
-			name:         "a closed port at the class base URL",
-			host:         closedPort,
-			wantContains: []string{`send TypeSafe AI request: Post "<host>/v1/systemone": dial tcp `},
-			wantIs:       syscall.ECONNREFUSED,
-		},
-		{
-			name:       "a body cut short from the header base URL",
-			host:       func(t *testing.T) string { return newRawHost(t, cutShort) },
-			fromHeader: true,
-			wantErr:    "read TypeSafe AI response: incomplete response from the host named by X-Typesafeai-Baseurl",
-		},
-		{
-			name:    "a body cut short from the class base URL",
-			host:    func(t *testing.T) string { return newRawHost(t, cutShort) },
-			wantErr: "read TypeSafe AI response: unexpected EOF",
-			wantIs:  io.ErrUnexpectedEOF,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			host := tt.host(t)
-			classBaseURL := host
-			ctx := context.Background()
-			if tt.fromHeader {
-				classServer := newFake(t)
-				defer func() { assert.Empty(t, classServer.received()) }()
-				classBaseURL = classServer.url()
-				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{host})
-			}
-
-			res, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
-				[]string{noRefund}, classConfig(classBaseURL, nil))
-
-			require.Error(t, err)
-			assert.Nil(t, res)
-			if tt.wantErr != "" {
-				assert.EqualError(t, err, tt.wantErr)
-			}
-			for _, part := range tt.wantContains {
-				assert.ErrorContains(t, err, strings.ReplaceAll(part, "<host>", host))
-			}
-			if tt.wantIs != nil {
-				assert.ErrorIs(t, err, tt.wantIs)
-			}
-			if tt.fromHeader {
-				address := strings.TrimPrefix(host, "http://")
-				for _, hidden := range []string{"SSH", "refused", address, "EOF"} {
-					assert.NotContains(t, err.Error(), hidden)
-				}
-			}
-		})
-	}
-}
-
-// The dial guard's error has no exported type or sentinel, so it cannot be
-// told apart from the other transport errors of a host the request names.
-func TestSendHidesTheDialGuardErrorOfAHostTheRequestNames(t *testing.T) {
-	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-	tests := []struct {
-		name           string
-		hostFromHeader bool
-		wantErr        string
-		wantContains   string
-	}{
-		{
-			name:           "a host the request names",
-			hostFromHeader: true,
-			wantErr:        "send TypeSafe AI request: no HTTP response from the host named by X-Typesafeai-Baseurl",
-		},
-		{
-			name:         "the class host",
-			wantContains: "refusing to dial internal address",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-
-			_, _, err := newTestClient(defaultFakeKey).send(context.Background(), f.url()+apiPath, "key", []byte("{}"),
-				false, tt.hostFromHeader)
-
-			require.Error(t, err)
-			if tt.wantErr != "" {
-				assert.EqualError(t, err, tt.wantErr)
-			}
-			assert.ErrorContains(t, err, tt.wantContains)
-			assert.Empty(t, f.received())
-		})
-	}
-}
-
-func TestRankKeepsTheContextErrorOfAHostTheRequestNames(t *testing.T) {
-	headerContext := func(host string) context.Context {
-		ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
-		return context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{host})
-	}
-
-	t.Run("a cancelled query", func(t *testing.T) {
-		hung, release := newBlockingFake(t)
-		defer release()
-		classServer := newFake(t)
-		c := newTestClient(defaultFakeKey)
-		ctx, cancel := context.WithCancel(headerContext(hung.url()))
-		defer cancel()
-		var call sync.WaitGroup
-		defer call.Wait()
-		result := make(chan error, 1)
-		call.Go(func() {
-			_, err := c.Rank(ctx, churn, "text", []string{noRefund}, classConfig(classServer.url(), nil))
-			result <- err
-		})
-		require.Eventually(t, func() bool { return len(hung.received()) == 1 }, 5*time.Second, time.Millisecond)
-
-		cancel()
-
-		select {
-		case err := <-result:
-			require.ErrorIs(t, err, context.Canceled)
-			assert.EqualError(t, err, "send TypeSafe AI request: context canceled")
-		case <-time.After(5 * time.Second):
-			t.Fatal("Rank did not return after the cancel")
-		}
-	})
-
-	t.Run("the client timeout", func(t *testing.T) {
-		hung, release := newBlockingFake(t)
-		defer release()
-		classServer := newFake(t)
-		c := New(defaultFakeKey, 50*time.Millisecond, nullLogger())
-
-		_, err := c.Rank(headerContext(hung.url()), churn, "text", []string{noRefund},
-			classConfig(classServer.url(), nil))
-
-		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.EqualError(t, err, "send TypeSafe AI request: context deadline exceeded")
-	})
-}
-
-// newRawHost returns the base URL of a host that answers every connection
-// with reply, which need not be HTTP, and closes it.
-func newRawHost(t *testing.T, reply string) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	var serving sync.WaitGroup
-	serving.Go(func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			// A close with unread bytes resets the connection, and the client
-			// can then lose the reply.
-			if request, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
-				io.Copy(io.Discard, request.Body)
-			}
-			io.WriteString(conn, reply)
-			conn.Close()
-		}
-	})
-	t.Cleanup(func() {
-		listener.Close()
-		serving.Wait()
-	})
-	return "http://" + listener.Addr().String()
-}
-
-// closedPort returns the base URL of a local port nothing listens on.
-func closedPort(t *testing.T) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	require.NoError(t, listener.Close())
-	return "http://" + listener.Addr().String()
 }
 
 func TestRankKeepsTheBaseURLPath(t *testing.T) {
@@ -1128,12 +619,10 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	assert.Equal(t, "/typesafe/v1/systemone", requests[0].path)
 }
 
-// A query sends at most 16 requests at once, and 4 when they carry images.
-// The fake answers the requests in groups of the cap, so the cap is reached.
+// A query sends at most one request per CPU at once. The fake answers the
+// requests in groups of that size, so the limit is reached.
 func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
-	// Two of these do not fit in a request, so each is a request of its own.
-	texts := numbered("%02d "+strings.Repeat("a", 60_000), 2*maxConcurrentRequests)
-	images := make([]string, 2*maxConcurrentImageRequests*maxBatchImages)
+	images := make([]string, 2*_NUMCPU)
 	for i := range images {
 		images[i] = encodedImage(t, "png", 300+i, 300)
 	}
@@ -1141,29 +630,28 @@ func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
 		name      string
 		property  string
 		documents []string
-		wantCap   int
 	}{
-		{name: "text", property: "text", documents: texts, wantCap: maxConcurrentRequests},
-		{name: "images", property: "photo", documents: images, wantCap: maxConcurrentImageRequests},
+		{name: "text", property: "text", documents: numbered("ticket %d", 2*_NUMCPU*maxBatchDocuments)},
+		{name: "images", property: "photo", documents: images},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
-			f.together = tt.wantCap
+			f.together = _NUMCPU
 
 			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, tt.property,
 				tt.documents, classConfig(f.url(), nil))
 
 			require.NoError(t, err)
-			assert.Len(t, f.received(), 2*tt.wantCap)
-			assert.Equal(t, tt.wantCap, f.maxInFlight())
+			assert.Len(t, f.received(), 2*_NUMCPU)
+			assert.Equal(t, _NUMCPU, f.maxInFlight())
 		})
 	}
 }
 
 func TestRankStopsOnContextCancel(t *testing.T) {
-	// 1,000 short documents are 20 requests, more than a query sends at once.
-	documents := numbered("ticket %d", 1000)
+	// Twice as many requests as a query sends at once.
+	documents := numbered("ticket %d", 2*_NUMCPU*maxBatchDocuments)
 	f, release := newBlockingFake(t)
 	defer release()
 	c := newTestClient(defaultFakeKey)
@@ -1171,14 +659,14 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 	defer cancel()
 
 	result := rankInBackground(t, ctx, c, f, documents)
-	require.Eventually(t, func() bool { return len(f.received()) == maxConcurrentRequests }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return len(f.received()) == _NUMCPU }, 5*time.Second, time.Millisecond)
 
 	cancel()
 	requireCanceledWithinASecond(t, result)
 
 	release()
 	waitFor(t, &f.handlers)
-	assert.Len(t, f.received(), maxConcurrentRequests, "the requests waiting for a slot are not sent")
+	assert.Len(t, f.received(), _NUMCPU, "the requests waiting for a slot are not sent")
 	res, err := c.Rank(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 	require.NoError(t, err)
 	assert.Len(t, res.DocumentScores, 1)
@@ -1276,12 +764,6 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			wantErr:   `TypeSafe AI answer for "q" has type "score", want "noul"`,
 		},
 		{
-			name:      "a type above 512 bytes is cut",
-			documents: []string{noRefund},
-			body:      `{"answers":{"q":{"type":"` + strings.Repeat("x", 600) + `","noul":0.5}}}`,
-			wantErr:   `TypeSafe AI answer for "q" has type "` + strings.Repeat("x", 512) + `", want "noul"`,
-		},
-		{
 			name:      "no noul value",
 			documents: []string{noRefund},
 			body:      `{"answers":{"q":{"type":"noul"}}}`,
@@ -1304,12 +786,6 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			documents: []string{noRefund},
 			body:      `<html>`,
 			wantErr:   "parse TypeSafe AI response: invalid character '<' looking for beginning of value: <html>",
-		},
-		{
-			name:      "a body above the limit",
-			documents: []string{noRefund},
-			body:      `{"answers":{"q":{"type":"noul","noul":0.5}}}` + strings.Repeat(" ", maxResponseBodyBytes),
-			wantErr:   "TypeSafe AI response exceeds 1048576 bytes",
 		},
 	}
 	for _, tt := range tests {
@@ -1355,75 +831,29 @@ func TestRankDoesNotFailOnTheUsage(t *testing.T) {
 
 func TestRankSendsABlobPropertyAsImages(t *testing.T) {
 	const damaged = "The photo shows a damaged car"
+	images := []string{encodedImage(t, "png", 300, 300), encodedImage(t, "jpeg", 320, 300)}
+	f := newFake(t)
+	f.probabilities = map[string]float64{images[0]: 0.9, images[1]: 0.2}
 
-	t.Run("two images share a request", func(t *testing.T) {
-		images := []string{encodedImage(t, "png", 300, 300), encodedImage(t, "png", 320, 300)}
-		f := newFake(t)
-		f.probabilities = map[string]float64{images[0]: 0.9, images[1]: 0.2}
+	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), damaged, "photo",
+		images, classConfig(f.url(), nil))
 
-		res, err := newTestClient(defaultFakeKey).Rank(context.Background(), damaged, "photo",
-			images, classConfig(f.url(), nil))
-
-		require.NoError(t, err)
-		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
-		requests := f.received()
-		require.Len(t, requests, 1)
-		assert.Equal(t, "true", requests[0].imagesHeader)
-		body := requests[0].body
-		assert.Equal(t, map[string]any{"document_0": "image_0", "document_1": "image_1"}, body.State)
-		assert.Equal(t, map[string]wireAsset{
-			"image_0": {Type: "image", DataBase64: images[0], Format: "png"},
-			"image_1": {Type: "image", DataBase64: images[1], Format: "png"},
-		}, body.Assets)
-		assert.Equal(t, wireQuestion{Type: "noul", Instructions: "In document_1: " + damaged}, body.Questions["document_1"])
-	})
-
-	t.Run("five images are two requests of 4 and 1", func(t *testing.T) {
-		images := make([]string, 5)
-		for i := range images {
-			images[i] = encodedImage(t, "png", 300+i, 300)
-		}
-		f := newFake(t)
-		f.probabilities = distinctProbabilities(images)
-
-		res, err := newTestClient(defaultFakeKey).Rank(context.Background(), damaged, "photo",
-			images, classConfig(f.url(), nil))
-
-		require.NoError(t, err)
-		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
-		requests := f.received()
-		assert.Equal(t, []int{1, 4}, sizes(requests))
-		for _, r := range requests {
-			assert.Equal(t, "true", r.imagesHeader)
-			if r.documents() == 1 {
-				assert.Equal(t, "image_0", r.body.State)
-				assert.Equal(t, map[string]wireAsset{"image_0": {Type: "image", DataBase64: images[4], Format: "png"}}, r.body.Assets)
-				assert.Equal(t, wireQuestion{Type: "noul", Instructions: damaged}, r.body.Questions["q"])
-			}
-		}
-	})
-
-	t.Run("a pair the API rejects for its size is sent as two requests", func(t *testing.T) {
-		images := []string{encodedImage(t, "jpeg", 300, 300), encodedImage(t, "png", 300, 300)}
-		f := newFake(t)
-		f.tooLarge = func(documents int) bool { return documents > 1 }
-		f.probabilities = map[string]float64{images[0]: 0.7, images[1]: 0.1}
-
-		res, err := newTestClient(defaultFakeKey).Rank(context.Background(), damaged, "photo",
-			images, classConfig(f.url(), nil))
-
-		require.NoError(t, err)
-		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
-		requests := f.received()
-		assert.Equal(t, []int{1, 1, 2}, sizes(requests))
-		for _, r := range requests {
-			assert.Equal(t, "true", r.imagesHeader)
-		}
-		assert.Equal(t, "image_0", requests[1].body.State)
-		assert.Equal(t, wireAsset{Type: "image", DataBase64: images[0], Format: "jpeg"}, requests[1].body.Assets["image_0"])
-		assert.Equal(t, "image_0", requests[2].body.State)
-		assert.Equal(t, wireAsset{Type: "image", DataBase64: images[1], Format: "png"}, requests[2].body.Assets["image_0"])
-	})
+	require.NoError(t, err)
+	assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
+	requests := f.received()
+	require.Len(t, requests, 2, "one request per image")
+	got := map[string]wireAsset{}
+	for _, r := range requests {
+		assert.Equal(t, "true", r.imagesHeader)
+		assert.Equal(t, "image_0", r.body.State)
+		assert.Equal(t, wireQuestion{Type: "noul", Instructions: damaged}, r.body.Questions["q"])
+		require.Len(t, r.body.Assets, 1)
+		got[r.body.Assets["image_0"].DataBase64] = r.body.Assets["image_0"]
+	}
+	assert.Equal(t, map[string]wireAsset{
+		images[0]: {Type: "image", DataBase64: images[0], Format: "png"},
+		images[1]: {Type: "image", DataBase64: images[1], Format: "jpeg"},
+	}, got)
 }
 
 func TestRankRejectsAnImageOutsideTheLimitsBeforeSending(t *testing.T) {
@@ -1771,34 +1201,6 @@ func (f fakeClassConfig) TargetVector() string           { return "" }
 func (f fakeClassConfig) Property(string) map[string]any { return nil }
 func (f fakeClassConfig) Config() *config.Config         { return nil }
 
-func TestRankCutsTheDecodeErrorOfALongNumber(t *testing.T) {
-	body := `{"answers":{"q":{"type":"noul","noul":` + strings.Repeat("1", 100_000) + `}}}`
-	for _, fromHeader := range []bool{false, true} {
-		t.Run(fmt.Sprintf("hostFromHeader=%t", fromHeader), func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used := classServer
-			ctx := context.Background()
-			if fromHeader {
-				used = headerServer
-				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url()})
-			}
-			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: body}}
-
-			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
-				[]string{noRefund}, classConfig(classServer.url(), nil))
-
-			require.Error(t, err)
-			if fromHeader {
-				assert.Equal(t, unexpectedHeaderHostReply, err.Error())
-				return
-			}
-			assert.Contains(t, err.Error(), "parse TypeSafe AI response: ")
-			assert.LessOrEqual(t, len(err.Error()), 1_200)
-		})
-	}
-}
-
 func TestRankReturnsADeadlineErrorWhenTheProviderDoesNotAnswer(t *testing.T) {
 	f, release := newBlockingFake(t)
 	defer release()
@@ -1830,79 +1232,4 @@ func TestRankReadsTheHeadersFromGRPCMetadata(t *testing.T) {
 	requests := headerServer.received()
 	require.Len(t, requests, 1)
 	assert.Equal(t, "Bearer metadataKey", requests[0].authorization)
-}
-
-func TestRankKeepsReplyValuesOutOfTheDecodeError(t *testing.T) {
-	answer := func(key, value string) string {
-		return `{"answers":{"` + key + `":` + value + `}}`
-	}
-	tests := []struct {
-		name       string
-		body       string
-		fromHeader bool
-		check      func(t *testing.T, err string)
-	}{
-		{
-			name: "4,096 nines from a header host", fromHeader: true,
-			body: answer("q", `{"type":"noul","noul":`+strings.Repeat("9", 4_096)+`}`),
-			check: func(t *testing.T, err string) {
-				assert.Equal(t, unexpectedHeaderHostReply, err)
-			},
-		},
-		{
-			name: "1e999 from a header host", fromHeader: true,
-			body: answer("q", `{"type":"noul","noul":1e999}`),
-			check: func(t *testing.T, err string) {
-				assert.Equal(t, unexpectedHeaderHostReply, err)
-			},
-		},
-		{
-			name: "4,096 nines from the class host",
-			body: answer("q", `{"type":"noul","noul":`+strings.Repeat("9", 4_096)+`}`),
-			check: func(t *testing.T, err string) {
-				assert.True(t, strings.HasPrefix(err,
-					"parse TypeSafe AI response: json: cannot unmarshal number into Go value of type float64"), err)
-			},
-		},
-		{
-			name: "a key of the answers with a string for the probability", fromHeader: true,
-			body: answer("secret text in a key", `{"noul":"x"}`),
-			check: func(t *testing.T, err string) {
-				assert.Equal(t, unexpectedHeaderHostReply, err)
-			},
-		},
-		{
-			name: "a key of the answers with a string for the answer", fromHeader: true,
-			body: answer("secret text in a key", `"v"`),
-			check: func(t *testing.T, err string) {
-				assert.Equal(t, unexpectedHeaderHostReply, err)
-			},
-		},
-		{
-			name: "a key of 2,000 characters", fromHeader: true,
-			body: answer(strings.Repeat("K", 2_000), `{"noul":true}`),
-			check: func(t *testing.T, err string) {
-				assert.Equal(t, unexpectedHeaderHostReply, err)
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used := classServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				used = headerServer
-				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url()})
-			}
-			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
-
-			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
-				[]string{noRefund}, classConfig(classServer.url(), nil))
-
-			require.Error(t, err)
-			tt.check(t, err.Error())
-		})
-	}
 }

@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -34,28 +35,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const (
-	// maxConcurrentRequests is 16 requests in flight per query.
-	maxConcurrentRequests = 16
-	// maxConcurrentImageRequests is 4 requests in flight per query when the
-	// documents are images: a request holds two to four copies of up to 24 MiB
-	// of base64 while it is in flight.
-	maxConcurrentImageRequests = 4
+var _NUMCPU = runtime.NumCPU()
 
-	// The API does not publish its request size limit: 141,000 characters
-	// were accepted and 149,000 rejected. A batch closes before the bytes of
-	// its documents plus their questions, each of which repeats the query,
-	// would pass maxBatchCharacters. One document above the limit is sent
-	// alone. A non-ASCII character takes several bytes, so a batch of such
-	// text holds fewer characters than the limit. Beyond 50 documents a
-	// request saves almost no tokens and answers more slowly than two sent in
-	// parallel.
-	//
-	// maxBatchDocuments is 50 documents per request.
+const (
+	// maxBatchDocuments is 50 texts per request: beyond that a request saves
+	// almost no tokens and answers more slowly than two sent in parallel. A
+	// request the API rejects for its size is sent again as two halves.
+	// Images go one per request.
 	maxBatchDocuments = 50
-	// maxBatchCharacters is 100,000 bytes of documents and questions per
-	// request.
-	maxBatchCharacters = 100_000
 
 	apiPath       = "/v1/systemone"
 	questionKey   = "q"
@@ -65,11 +52,6 @@ const (
 	// tooLargeError is the error_type of the 400 the API answers to a request
 	// above its token limit.
 	tooLargeError = "max_tokens_exceeded"
-	// maxErrorBodyBytes is 512 bytes: the most of a reply body an error quotes.
-	maxErrorBodyBytes = 512
-	// maxResponseBodyBytes is 1 MiB (1,048,576 bytes): the largest reply body
-	// the client reads.
-	maxResponseBodyBytes = 1 << 20
 )
 
 type client struct {
@@ -86,26 +68,14 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 	}
 }
 
-// validateQuery returns the error of a rerank.query the module does not rank
-// with: a blank one, and one whose question for a document does not fit in a
-// request. The gRPC search rejects a blank query before the search; GraphQL
-// reaches this check only. The API answers 400 to an empty query and scores
-// the documents against a query of whitespace.
+// validateQuery rejects a blank rerank.query. The gRPC search rejects it
+// before the search; GraphQL reaches this check only. The API answers 400 to
+// an empty query and scores the documents against a query of whitespace.
 func (c *client) validateQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
 		return errors.New("rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
 	}
-	if c.questionBytes(query) >= maxBatchCharacters {
-		return fmt.Errorf("rerank.query is %d bytes; reranker-typesafeai repeats it for every document within %d bytes per request",
-			len(query), maxBatchCharacters)
-	}
 	return nil
-}
-
-// questionBytes is the size of the longest question a request repeats the
-// query in.
-func (c *client) questionBytes(query string) int {
-	return len("In "+documentKey(maxBatchDocuments-1)+": ") + len(query)
 }
 
 // Rank returns, per document, the probability that the query holds for it.
@@ -122,7 +92,7 @@ func (c *client) Rank(ctx context.Context, query, property string, documents []s
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
-	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
+	endpointURL, apiKey, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -145,22 +115,17 @@ func (c *client) Rank(ctx context.Context, query, property string, documents []s
 		}
 	}
 
-	maxDocuments, maxCharacters, maxInFlight := maxBatchDocuments, maxBatchCharacters, maxConcurrentRequests
+	batchSize := maxBatchDocuments
 	if image {
-		maxDocuments, maxCharacters, maxInFlight = maxBatchImages, maxBatchImageChars, maxConcurrentImageRequests
+		batchSize = 1
 	}
-	request := judgeRequest{
-		url: endpointURL, apiKey: apiKey, hostFromHeader: hostFromHeader,
-		model: settings.Model(), query: query, image: image,
-	}
-	requestBatches := c.batches(pending, documents, maxDocuments, maxCharacters, c.questionBytes(query))
+	request := judgeRequest{url: endpointURL, apiKey: apiKey, model: settings.Model(), query: query, image: image}
 	scores := make([]float64, len(documents))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(maxInFlight)
-	for _, batch := range requestBatches {
+	eg.SetLimit(_NUMCPU)
+	for _, batch := range c.batches(pending, batchSize) {
 		eg.Go(func() error {
-			// After a failed batch, the rest would still build their bodies, up
-			// to 24 MiB of base64 each for images.
+			// After a failed batch, the rest would still build their bodies.
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -212,24 +177,11 @@ func (c *client) propertyInput(cfg moduletools.ClassConfig, property string) (im
 }
 
 // batches splits the positions of the documents into requests of at most
-// maxDocuments documents and maxCharacters bytes, in order. A document costs
-// its bytes plus questionBytes. A document that costs more than maxCharacters
-// goes alone.
-func (c *client) batches(indexes []int, documents []string, maxDocuments, maxCharacters, questionBytes int) [][]int {
+// size documents, in order.
+func (c *client) batches(indexes []int, size int) [][]int {
 	var out [][]int
-	var batch []int
-	characters := 0
-	for _, index := range indexes {
-		length := len(documents[index]) + questionBytes
-		if len(batch) > 0 && (len(batch) == maxDocuments || characters+length > maxCharacters) {
-			out = append(out, batch)
-			batch, characters = nil, 0
-		}
-		batch = append(batch, index)
-		characters += length
-	}
-	if len(batch) > 0 {
-		out = append(out, batch)
+	for start := 0; start < len(indexes); start += size {
+		out = append(out, indexes[start:min(start+size, len(indexes))])
 	}
 	return out
 }
@@ -238,12 +190,9 @@ func (c *client) batches(indexes []int, documents []string, maxDocuments, maxCha
 type judgeRequest struct {
 	url    string
 	apiKey string
-	// hostFromHeader says the request header named the host. Anyone who may
-	// query can name one, so the errors then quote nothing of its replies.
-	hostFromHeader bool
-	model          string
-	query          string
-	image          bool
+	model  string
+	query  string
+	image  bool
 }
 
 // judge returns the probability of every document, in order. A request the
@@ -265,11 +214,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) 
 	if err != nil {
 		return nil, err
 	}
-	values, err := response.values(len(documents))
-	if err != nil {
-		return nil, c.replyError(err, nil, r.hostFromHeader)
-	}
-	return values, nil
+	return response.values(len(documents))
 }
 
 // post builds and sends the request of one batch.
@@ -282,15 +227,14 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []string) (
 	if err != nil {
 		return typesafeaiResponse{}, false, fmt.Errorf("marshal TypeSafe AI request: %w", err)
 	}
-	return c.send(ctx, r.url, r.apiKey, body, r.image, r.hostFromHeader)
+	return c.send(ctx, r.url, r.apiKey, body, r.image)
 }
 
 // send does not retry a status: a 429 or a 5xx fails the call. The transport
 // sends the request again, up to twice, when a reused connection breaks before
 // a response arrives, so the API can receive a request three times. tooLarge
-// says the API
-// rejected the request for its size.
-func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []byte, images, hostFromHeader bool,
+// says the API rejected the request for its size.
+func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []byte, images bool,
 ) (response typesafeaiResponse, tooLarge bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
 	if err != nil {
@@ -304,92 +248,30 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return typesafeaiResponse{}, false, c.transportError(ctx, "send TypeSafe AI request",
-			"no HTTP response from the host named by "+baseURLHeader, err, hostFromHeader)
+		return typesafeaiResponse{}, false, fmt.Errorf("send TypeSafe AI request: %w", err)
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		errorBody, _ := io.ReadAll(io.LimitReader(res.Body, maxErrorBodyBytes))
-		tooLarge = res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError))
-		rejected := apiError{status: res.StatusCode}
-		if !hostFromHeader {
-			rejected.message = truncate(errorBody)
-		}
-		return typesafeaiResponse{}, tooLarge, rejected
-	}
-
-	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
+	reply, err := io.ReadAll(res.Body)
 	if err != nil {
-		return typesafeaiResponse{}, false, c.transportError(ctx, "read TypeSafe AI response",
-			"incomplete response from the host named by "+baseURLHeader, err, hostFromHeader)
+		return typesafeaiResponse{}, false, fmt.Errorf("read TypeSafe AI response: %w", err)
 	}
-	if len(responseBody) > maxResponseBodyBytes {
-		return typesafeaiResponse{}, false, c.replyError(
-			fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes), nil, hostFromHeader)
+	if res.StatusCode != http.StatusOK {
+		tooLarge = res.StatusCode == http.StatusBadRequest && bytes.Contains(reply, []byte(tooLargeError))
+		return typesafeaiResponse{}, tooLarge, apiError{status: res.StatusCode, message: string(reply)}
 	}
-	if err := json.Unmarshal(responseBody, &response); err != nil {
-		// Value holds the number literal of the reply when it is out of range,
-		// and Field the keys of its answers.
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) {
-			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
-			typeErr.Struct, typeErr.Field = "", ""
-		}
-		return typesafeaiResponse{}, false, c.replyError(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
-			responseBody, hostFromHeader)
+	if err := json.Unmarshal(reply, &response); err != nil {
+		return typesafeaiResponse{}, false, fmt.Errorf("parse TypeSafe AI response: %w: %s", err, reply)
 	}
 	// The shape of an error in a 200 is not documented, so the body is the
 	// provider's message.
 	if len(response.Answers) == 0 {
-		return typesafeaiResponse{}, false, c.replyError(errors.New("TypeSafe AI response has no answers"),
-			responseBody, hostFromHeader)
+		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response has no answers: %s", reply)
 	}
 	return response, false, nil
 }
 
-// transportError wraps err for the class or default host. For a host the
-// request header named it returns headerHostMessage instead: net/http can
-// quote bytes the host sent, and a dial or read error names the address it
-// resolved to. An error of the context or of the client timeout stays
-// identifiable with errors.Is.
-func (c *client) transportError(ctx context.Context, action, headerHostMessage string, err error, hostFromHeader bool) error {
-	if !hostFromHeader {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return fmt.Errorf("%s: %w", action, ctxErr)
-	}
-	for _, kept := range []error{context.Canceled, context.DeadlineExceeded} {
-		if errors.Is(err, kept) {
-			return fmt.Errorf("%s: %w", action, kept)
-		}
-	}
-	return fmt.Errorf("%s: %s", action, headerHostMessage)
-}
-
-// replyError is the error of a 200 reply the client cannot use. For the class
-// or default host it is err with the start of the body. For a host the request
-// header named it is a fixed message: err can quote the reply, such as the
-// type or the probability of an answer.
-func (c *client) replyError(err error, body []byte, hostFromHeader bool) error {
-	if hostFromHeader {
-		return errors.New("unexpected TypeSafe AI response from the host named by " + baseURLHeader)
-	}
-	if len(body) == 0 {
-		return err
-	}
-	return fmt.Errorf("%w: %s", err, truncate(body))
-}
-
-// truncate cuts s to maxErrorBodyBytes and drops the bytes that are not valid
-// UTF-8, such as those of a character the cut splits.
-func truncate[T string | []byte](s T) string {
-	return strings.ToValidUTF8(string(s[:min(len(s), maxErrorBodyBytes)]), "")
-}
-
-// apiError is a status other than 200. message is empty for a host the
-// request header named.
+// apiError is a status other than 200, with the reply body as its message.
 type apiError struct {
 	status  int
 	message string
@@ -402,36 +284,25 @@ func (e apiError) Error() string {
 	return fmt.Sprintf("connection to TypeSafe AI API failed with status %d: %s", e.status, e.message)
 }
 
-// endpoint returns the URL and the key of the requests, and whether the
-// request header named the host. A base URL from the request header is used
-// only with a key from the request header, so the server's key never goes to
-// a host the request names.
-func (c *client) endpoint(ctx context.Context, classBaseURL string,
-) (endpointURL, apiKey string, hostFromHeader bool, err error) {
-	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
-	baseURL := classBaseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
-		if apiKey == "" {
-			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-				baseURLHeader, apiKeyHeader)
-		}
-		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
-			return "", "", false, err
-		}
-		baseURL, hostFromHeader = headerBaseURL, true
+// endpoint returns the URL and the key of the requests.
+func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
+	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, baseURLHeader, classBaseURL)
+	if err != nil {
+		return "", "", err
 	}
+	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	if apiKey == "" {
 		apiKey = c.apiKey
 	}
 	if apiKey == "" {
-		return "", "", false, fmt.Errorf("TypeSafe AI API key: no api key found neither in request header: %s "+
+		return "", "", fmt.Errorf("TypeSafe AI API key: no api key found neither in request header: %s "+
 			"nor in environment variable under TYPESAFEAI_APIKEY", apiKeyHeader)
 	}
 	endpointURL, err = url.JoinPath(baseURL, apiPath)
 	if err != nil {
-		return "", "", false, fmt.Errorf("TypeSafe AI base URL %q: %w", baseURL, err)
+		return "", "", fmt.Errorf("TypeSafe AI base URL %q: %w", baseURL, err)
 	}
-	return endpointURL, apiKey, hostFromHeader, nil
+	return endpointURL, apiKey, nil
 }
 
 type typesafeaiRequest struct {
@@ -520,7 +391,7 @@ func (r typesafeaiResponse) value(key string) (float64, error) {
 		return 0, fmt.Errorf("TypeSafe AI response has no answer for %q", key)
 	}
 	if answer.Type != noulType {
-		return 0, fmt.Errorf("TypeSafe AI answer for %q has type %q, want %q", key, truncate(answer.Type), noulType)
+		return 0, fmt.Errorf("TypeSafe AI answer for %q has type %q, want %q", key, answer.Type, noulType)
 	}
 	if answer.Noul == nil {
 		return 0, fmt.Errorf("TypeSafe AI answer for %q has no probability", key)

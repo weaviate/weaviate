@@ -21,7 +21,6 @@ import (
 	"image/draw"
 	"image/png"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -181,7 +180,7 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 				query:         new(churn),
 				wantIDs:       []string{noRefundID, chargedTwiceID, changeEmailID},
 				wantScores:    []float64{0.9, 0.5, 0.2},
-				wantRequest:   documentsRequest([]string{changeEmail, noRefund, chargedTwice}, false),
+				wantRequest:   documentsRequest([]string{changeEmail, noRefund, chargedTwice}),
 				wantRequests:  1,
 			},
 			{
@@ -192,9 +191,8 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 				query:            new(churn),
 				wantIDs:          []string{noRefundID, chargedTwiceID, changeEmailID},
 				wantScores:       []float64{0.9, 0.5, 0.2},
-				wantRequest:      documentsRequest(photos, true),
 				wantImagesHeader: "true",
-				wantRequests:     1,
+				wantRequests:     3,
 			},
 			{
 				name:         "a 429 fails the query at once",
@@ -216,13 +214,6 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 				name:         "a missing query fails before any request",
 				property:     "text",
 				wantErr:      []string{"rerank: query is required"},
-				wantRequests: 0,
-			},
-			{
-				name:         "a query too long to repeat in a request fails before any request",
-				property:     "text",
-				query:        new(strings.Repeat("q", 100_000)),
-				wantErr:      []string{"rerank.query is 100000 bytes"},
 				wantRequests: 0,
 			},
 			{
@@ -253,12 +244,13 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 					assert.Equal(t, tt.wantScores, rerankScores(reply.Results))
 				}
 				require.Len(t, requests, tt.wantRequests)
-				if tt.wantRequest != nil {
-					r := requests[0]
+				for _, r := range requests {
 					assert.Equal(t, "/v1/systemone", r.path)
 					assert.Equal(t, "Bearer "+fakeAPIKey, r.authorization)
 					assert.Equal(t, tt.wantImagesHeader, r.imagesHeader)
-					assert.Equal(t, *tt.wantRequest, r.body)
+				}
+				if tt.wantRequest != nil {
+					assert.Equal(t, *tt.wantRequest, requests[0].body)
 				}
 			})
 		}
@@ -320,22 +312,13 @@ func testRerankerTypeSafeAIAgainstAFakeProvider(fake *fakeProvider, restURI, grp
 
 // documentsRequest is the request for the documents of the three tickets in
 // the order of the search: their texts, or the base64 of their photos.
-func documentsRequest(documents []string, images bool) *wireRequest {
+func documentsRequest(documents []string) *wireRequest {
 	r := &wireRequest{Model: "jev-latest", Questions: map[string]wireQuestion{}}
 	state := map[string]any{}
-	if images {
-		r.Assets = map[string]wireAsset{}
-	}
 	for i, document := range documents {
 		key := fmt.Sprintf("document_%d", i)
 		r.Questions[key] = wireQuestion{Type: "noul", Instructions: "In " + key + ": " + churn}
-		if !images {
-			state[key] = document
-			continue
-		}
-		reference := fmt.Sprintf("image_%d", i)
-		state[key] = reference
-		r.Assets[reference] = wireAsset{Type: "image", DataBase64: document, Format: "png"}
+		state[key] = document
 	}
 	r.State = state
 	return r

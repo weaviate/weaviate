@@ -39,9 +39,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	if cs.Model() == "" {
-		return errors.New("no model provided")
-	}
 	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
 }
 

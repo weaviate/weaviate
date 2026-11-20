@@ -144,14 +144,17 @@ func (f *fakeProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// answer gives every question of a request of several documents the
-// probability of its document: the text in the state under the question's
-// key, or the image that text names.
+// answer gives every question the probability of its document: the text in
+// the state under the question's key, or the state itself in a request of one
+// document, or the image that text names.
 func answer(body wireRequest, probabilities map[string]float64) (map[string]any, error) {
-	state, _ := body.State.(map[string]any)
 	answers := make(map[string]any, len(body.Questions))
 	for key := range body.Questions {
-		document, _ := state[key].(string)
+		document, single := body.State.(string)
+		if !single {
+			state, _ := body.State.(map[string]any)
+			document, _ = state[key].(string)
+		}
 		if asset, ok := body.Assets[document]; ok {
 			document = asset.DataBase64
 		}

@@ -45,17 +45,6 @@ const (
 	// minImageSide and maxImageSide are 280 and 1,568 pixels per side.
 	minImageSide = 280
 	maxImageSide = 1568
-
-	// An image costs about one token per 375 pixels plus 270, and the state
-	// of a request counts against the 32k tokens one question may see, so
-	// four of the largest fit. 24 MiB of base64 leaves room for the JSON in
-	// the API's 32 MiB body limit.
-	//
-	// maxBatchImages is 4 images per request.
-	maxBatchImages = 4
-	// maxBatchImageChars is 24 MiB (25,165,824 characters) of base64 per
-	// request.
-	maxBatchImageChars = 24 << 20
 )
 
 type imageAsset struct {
