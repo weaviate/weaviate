@@ -451,7 +451,7 @@ Lo que queda por medir:
 - **Inserts:** 197 por segundo con K = 16 y 187 con K = 64, con 2.4 y 9.0 MB de cambios esperando en su pico. K = 16 escribe 1.5 veces lo que v5.0; K = 64, 0.8.
 - **En marcha (encargado el 20):** el índice de K = 64 reorganizado como la celda 2 del control, para ver si las dos mitades se suman: el frío de la reorganización y el caliente de las filas de aristas.
 
-**El scan con los códigos en RAM (v4.1, cerrado el 20): no es una opción.** Con los códigos de 512 o 768 bits en RAM para ruteo y scan, y en disco solo las aristas y los vectores, la mejor curva queda en frío a 0.95 a 1.49 veces de la celda de ruteo: ahorra una lectura de bloque por carga y paga 136 lecturas de rescore más por query. Con el presupuesto de un nodo, 1.46.
+**El scan con los códigos en RAM (v4.1, cerrado el 20): no es una opción.** Con los códigos de 512 o 768 bits en RAM para ruteo y scan, y en disco solo las aristas y los vectores, la mejor curva queda en frío a 0.95 a 1.49 veces de la celda de ruteo: ahorra una lectura de bloque por carga y paga 136 lecturas de rescore más por query. Con el presupuesto de un nodo, 1.46. Su modo, `scan`, se quitó de `rq.cacheMode` el 20: quedan `routing` y `none`. Sin medir: 768 bits con un rescore por debajo de 200, y 768d.
 
 ## Requisito de integración: los recursos compartidos del nodo (2026-11-19)
 

@@ -15,7 +15,7 @@
 - **Los deletes tienen una celda que cumple con el 30 % borrado, en una pasada de limpieza (v6.1).** Con pasadas pequeñas y frecuentes, en un churn, todavía no.
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
-- **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
+- **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`, que acepta `routing` (por defecto) y `none`; el modo `scan` salió de la lista el 20, descartado por v4.1. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
 - **Pendiente antes de integrar:** medir k = 1 y k = 100, para decidir el `ef` dinámico, y un barrido corto a 768d con rescore 64, 100, 150 y 200, para fijar la regla del `rescoreLimit` automático.
 - **Al leer apareció un bug en flat y en HFresh,** en la búsqueda por distancia. Está arreglado en esta rama con sus tests, y sigue en `main`.
 
@@ -248,13 +248,13 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | `efConstruction` | 160 | El ef de la búsqueda de un insert | 16 o más: el número de aristas |
 | `rq.rescoreLimit` | Automático, por los bits del código de scan: 64 a 1536d y 200 a 768d. Sin acoplar a `ef` en el modo `routing` | `UserConfig.RescoreLimit`. El efectivo nunca baja de k | −1 para el automático, o 0 o más |
 | `maxPostingSizeKB` | `0`: automático, 236 vectores de media | El umbral de split T: 360 vectores en automático. Un valor explícito, con la fórmula de HFresh | 0, o de 8 a 1024 |
-| `rq.cacheMode` | `routing` | Qué códigos quedan en RAM: `routing`, el de ruteo; `none`, ninguno (el halo); `scan`, reservado hasta el veredicto de v4.1 | Uno de los tres valores. `scan` se rechaza mientras esté reservado |
+| `rq.cacheMode` | `routing` | Qué códigos quedan en RAM: `routing`, el de ruteo; `none`, ninguno (el halo) | Uno de los dos valores. Cualquier otro es un valor desconocido, `scan` incluido |
 
 **Todo lo demás, interno.**
 
 ### Diferencias con mi tabla
 
-**Coincide:** `ef`, `efConstruction` con 160, `maxPostingSizeKB` con `0` como automático, y los tres valores del modo de memoria con `routing` por defecto y `scan` sin ofrecer todavía.
+**Coincide:** `ef`, `efConstruction` con 160, `maxPostingSizeKB` con `0` como automático, y el modo de memoria con `routing` por defecto. *Del 20:* los valores son dos, `routing` y `none`; `scan` se quitó.
 
 **Cambia, y queda como lo acordado:**
 
@@ -349,7 +349,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 |---|---|---|---|---|
 | ninguno: el halo | Nada. El sketch de cada endpoint viaja en el posting que lleva a él | 35.0 MB | De 1.3 a 1.6 veces la latencia en frío del modo de ruteo | Medido en v4.0 |
 | el código de ruteo | 72 B: un código de 512 bits, con el que se ordenan los postings. El scan lee los códigos completos del posting | 106.0 MB | La referencia | Medido en v4.0. Es la celda sobre la que se miden los inserts |
-| el código de scan y de ruteo | Un código de 512 o 768 bits que sirve para las dos cosas. En disco quedan las aristas y los vectores | Sin medir. Lo residente en ficheros son 105.7 y 137.4 MB | El store baja de 243.0 a 36.8 MB. Pide más rescore: 200 o 400 | v4.1, cerrado el 20: no es una opción. La mejor curva, 768 bits con rescore 200, queda en frío a 1.49 veces del modo de ruteo, con el límite en 1.20. El modo queda reservado y sin implementar |
+| el código de scan y de ruteo: **descartado** | Un código de 512 o 768 bits que sirve para las dos cosas. En disco quedan las aristas y los vectores | Sin desglosar. En heap en uso, con unos 40 MB del arnés, 153.8 y 185.2 MB, donde el de ruteo son 145.8 | El store baja de 243.0 a 36.8 MB, un 3 % del disco. Pide más rescore: 200 o más | v4.1, cerrado el 20: no es una opción, y no tiene valor en el parámetro. Ver abajo |
 
 **Tres nombres para el parámetro,** como enumerado:
 
@@ -360,6 +360,13 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 *Propuesta mía:* `rq.cache` si se acepta el choque de tipos con flat, y `rq.cacheMode` si no. El default, `routing`. El valor `scan` no debería existir hasta que v4.1 tenga veredicto.
 
 **Acordado: `rq.cacheMode`,** con `routing` por defecto, `none`, y `scan` reservado.
+
+**Cambiado el 20 (del usuario, a las 11:51): `scan` sale de la lista.** `rq.cacheMode` acepta `routing`, que es el valor por defecto, y `none`. Cualquier otro valor es desconocido.
+
+- **Descartado, el modo `scan` (v4.1):** con el código de ruteo usado también para el scan, la mejor curva queda en frío a 0.95 a 1.49 veces del modo `routing`, con el límite en 1.20; usa más RAM y ahorra un 3 % de disco.
+  - **Sin medir:** 768 bits con un rescore por debajo de 200, y 768d.
+- **Por qué quitarlo y no reservarlo** (*mío, y el usuario de acuerdo*): un valor reservado es una promesa en la API. Añadir un valor más adelante es compatible; retirarlo no.
+- **Para el parseo:** `scan` se rechaza como cualquier valor que no existe, con un error que diga los dos que hay. No es un «todavía no disponible».
 
 ### Comprobación 3: el ef dinámico
 
@@ -415,7 +422,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **Cumple «0.99 alcanzable subiendo solo `ef`» en los dos datasets:** con 200 a 768d (0.9904 en ef 160) y con 64 a 1536d.
 - **No gasta lecturas de más a 1536d:** se queda en el 64 de hoy.
 - **El ancla de 200 lleva margen sobre el mínimo interpolado,** de 1.5 a 2 veces. Un techo de 0.99 justo obliga a un ef muy alto: con 512 bits y 400 hace falta ef 1 024.
-- **En `routing` y en `none`,** los bits del scan son los de la dimensión, redondeados a 64. En `scan` serían los del sketch.
+- **En `routing` y en `none`,** los bits del scan son los de la dimensión, redondeados a 64.
 - **Un valor explícito se respeta tal cual,** con k como único suelo.
 
 **Qué puntos faltan para fijarla:**
@@ -435,7 +442,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Dos avisos:**
 
 - **Por debajo de 768 bits el rescore se dispara:** 675 lecturas con 512 bits y 1 600 con 384. *Lectura mía:* ahí un código de 1 bit por dimensión se queda corto, y habría que mirar un código de más bits antes que un rescore tan ancho.
-- **El modo `scan`, reservado, puede necesitar además un suelo que suba con `ef`.** Con un código corto, pasado el techo, subir `ef` baja el recall: con 256 bits y 400, de 0.9516 a 0.9397. Mi propuesta anterior ponía ese suelo en la mitad del `ef`. Sale de dos puntos y no está medido como regla: queda para cuando ese modo tenga veredicto.
+- **El modo `scan`, descartado el 20, habría necesitado además un suelo que suba con `ef`.** Con un código corto, pasado el techo, subir `ef` baja el recall: con 256 bits y 400, de 0.9516 a 0.9397. Mi propuesta anterior ponía ese suelo en la mitad del `ef`. Sale de dos puntos y no está medido como regla: queda para cuando ese modo tenga veredicto.
 
 ## 5. Orden de trabajo propuesto
 
@@ -522,7 +529,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Lo que está en vuelo y puede mover este plan:**
 
-- **v4.1,** el scan con los códigos en RAM, cerrado el 20: el modo `scan` no es una opción a 1M y 1536d. Queda reservado.
+- **v4.1,** el scan con los códigos en RAM, cerrado el 20: el modo `scan` no es una opción a 1M y 1536d. Descartado y fuera de la lista de parámetros.
 - **v5.2,** inserts con búsquedas en paralelo, cerrado el 20: 634 inserts por segundo con 8 buscadores, 3.76 veces los 169 de un escritor en la misma sesión. No llega a las 4 veces de su criterio. HFresh, con un escritor y sus workers de fondo, hace 2 089.
 - **La sesión de la noche del 19,** con HFresh configurado como un nodo, hecha: en frío a 0.95 con 1 thread, 51.96 ms de HFresh frente a 3.54 del modo de ruteo y 4.76 del halo. Son los números de referencia frente a HFresh.
 - **El control combinado,** encargado el 20: el índice de aristas consolidadas con K = 64, reorganizado. Decide el formato de las aristas, que en el hito 1 de la integración va detrás de una interfaz.

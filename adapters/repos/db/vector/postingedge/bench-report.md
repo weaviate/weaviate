@@ -47,6 +47,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **FastScan en memoria:** pediría una segunda copia de los códigos, 992 MB a 10M. Pasa a disco, donde no cuesta.
 - **Cap de grado (v1.5):** empata a 0.95 y pierde un 28 a 32 % a 0.99, porque las aristas que quita llevan recall.
 - **Una arista por posting de destino (v1.6):** gana un 5.4 % a 0.95 con 8 threads, pero pierde un 4.4 % a 0.99, donde el umbral era un 2 %. No pierde destinos, pero los ordena peor: a 0.99 hace falta más ef, con un 28 % más de cargas.
+- **El scan con los sketches en RAM (v4.1), y con él el modo `scan` de `rq.cacheMode`:** cambia una lectura de bloque por carga por 136 lecturas de rescore más por query, y en frío a 0.95 queda a 1.49 veces de la celda de ruteo en su mejor curva, con el límite en 1.20. Sin medir: 768 bits con un rescore por debajo de 200, y 768d.
 
 **Palancas, por lo medido:**
 
@@ -1629,11 +1630,13 @@ Binario de `b098d01b1a`. Tablas en `testdata/bench/v4.1/sketch-verdict.md`, que 
 
 ### Veredicto de v4.1
 
+*Decisión del usuario del 20, a las 11:51: el modo `scan` se quita de la lista de parámetros. `rq.cacheMode` acepta `routing`, por defecto, y `none`; cualquier otro valor es desconocido. Sin medir quedan 768 bits con un rescore por debajo de 200, y 768d.*
+
 **El scan con los sketches en RAM no es una opción, tal como se pre-registró:** ninguna anchura queda a 1.20 veces o menos de la celda actual en frío a 0.95, con ninguno de los tres rescores ni de los dos presupuestos.
 
 - **Lo que más se acerca es 768 bits con rescore 200:** 1.49 veces en frío a 0.95, 1.21 a 0.99, y 1.13 en caliente. Cuesta 39 MB más de heap y ahorra 206 MB de un disco de 6.4 GB.
 - **Por qué no llega:** cambia una lectura de bloque por carga, que en frío es barata, por 136 lecturas de rescore más por query, que no lo es.
-- **Para la integración:** el modo `scan` de `rq.cacheMode` queda reservado y sin implementar. No hay medida que lo recomiende a 1M y 1536d.
+- **Para la integración:** el modo `scan` de `rq.cacheMode` no existe: se quitó de la lista el 20. No hay medida que lo recomiende a 1M y 1536d.
 - **Lo que no dice:** qué pasa con un rescore menor de 200 a 768 bits, que no estaba en el encargo; ni a 768d, donde el vector exacto pesa la mitad.
 
 ## El heap a 1M, por componente (2026-11-19)
