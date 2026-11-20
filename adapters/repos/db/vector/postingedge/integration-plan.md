@@ -12,7 +12,7 @@
 - **Casi todo lo que se ha medido en disco es código de test.** El paquete tiene 3 216 líneas de código y 27 165 de test. La lectura de disco, los inserts y los deletes viven en `disk_test.go`, `grow_test.go`, `stream_test.go` y `delete_test.go`.
 - **Registrar el tipo en Weaviate es mecánico y disperso:** unos quince sitios, sin una lista única. Es lo único que puede empezar ya.
 - **Lo que bloquea de verdad es `Delete`.** El shard lo llama en cada borrado y en cada update que cambia un vector. Sin él, ninguna clase con este índice admite cambios.
-- **Los deletes tienen una celda que cumple con el 30 % borrado, en una pasada de limpieza (v6.1), y otra que cumple en un churn sin búsquedas (v6.2, del 20):** la sustitución local de las aristas muertas.
+- **Los deletes tienen una celda que cumple con el 30 % borrado, en una pasada de limpieza (v6.1), y otra que cumple en un churn sin búsquedas (v6.2 y v6.2b, del 20):** la sustitución local de las aristas muertas. Aguanta treinta rondas del 3 %, con el 90 % de la base renovado, y el 30 % borrado por regiones.
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
 - **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`, que acepta `routing` (por defecto) y `none`; el modo `scan` salió de la lista el 20, descartado por v4.1. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
@@ -145,7 +145,9 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **En el churn esa pasada no cumple:** −0.0071 de recall y +16.9 % de cargas a 0.99, con un 3 % borrado por ronda. El umbral se mide en cada pasada y no acumula lo perdido en las anteriores: las listas pasan de 8.6 a 7.2 aristas por vector.
 - **v6.2 arregla el churn de tres maneras, y la más barata no busca nada.** Al quitar un borrado, cada vector que apuntaba a él recibe como sustituto el vecino más cercano de la lista del borrado, por una distancia entre dos códigos. Cumple en diez rondas del 3 %: −0.0004 de recall, +2.7 % de cargas a 0.95 y +1.8 % a 0.99, con 62.8 distancias entre códigos por borrado y ninguna carga. Las listas se quedan en 8.84 aristas por vector.
   - **Con memoria en el umbral y reparación por búsqueda también cumple,** a 68 cargas por borrado.
-  - **Sin medir:** más rotación que un 30 % de la base, borrados que no son al azar, y cada cuánto pasa la limpieza: cada pasada lee y escribe todos los postings.
+  - **v6.2b, del 20: aguanta treinta rondas y el borrado por regiones.** Sobre una base de 520 000, con el 90 % renovado al final: −0.0011 de recall, +1.6 % de cargas a 0.95 y −1.3 % a 0.99 en la ronda 30, y no empeora de la ronda 10 a la 30. Los sustitutos se frenan en el 23.5 % de las aristas. Con el 30 % borrado por regiones entra, y carga menos que el lote.
+  - **La red de búsqueda no hace falta, por la regla pre-registrada:** la sustitución con red tampoco mejora nada medible, y su coste sube ronda a ronda.
+  - **Sin medir:** lo que cuesta la pasada en disco y cada cuánto pasa: cada pasada lee y escribe todos los postings.
 
 *Lo mínimo para una primera versión, por lo leído:*
 
@@ -153,7 +155,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El rescore salta un vector que falta.**
 - **La fusión que devuelve el llenado, medida en v6.1 dentro de la pasada de dos fases.** Por debajo de 177 vivos, con el vecino más cercano, si la suma no pasa de T: deja la media en 235.1, con la referencia en 236.0.
 - **No está medida sobre la celda 1b sola.** Reescribir un posting sin sus borrados le quita las fuentes, y por eso la pasada repara antes. Sin pasada, una primera versión con la marca sola carga un 19 % más a 0.95 con el 30 % borrado, y cumple con el 10 %.
-- **La pasada para un churn continuo, medida en v6.2 (del 20):** la sustitución local en la fase que quita los borrados, sin fase de reparación. Es del hito 2.
+- **La pasada para un churn continuo, medida en v6.2 y en v6.2b (del 20):** la sustitución local en la fase que quita los borrados, sin fase de reparación y sin red de búsqueda. Es del hito 2.
 
 ### Filtros
 
@@ -495,7 +497,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - El split, el refresco, la limpieza y la reorganización, como tareas de una cola del scheduler del nodo.
 - **El paso de cálculo de los inserts, en esos mismos workers** (`queue.Scheduler`, `GOMAXPROCS − 1` para todos los índices del nodo). El insert ya está partido en cálculo y aplicador desde el hito 1, así que este paso cambia quién ejecuta el cálculo y no su forma.
   - **Lo medido es el mejor caso:** con 4 y con 8 buscadores propios de un solo índice, 3.0 y 3.76 veces los inserts por segundo de uno, en tandas de 32. Ocho búsquedas a la vez tardan un 54 % más cada una. Con los workers repartidos entre índices le tocan menos a cada uno. *La medida limpia de N = 1, 4 y 8, de noche y sin actividad, está en cola para la noche del 20.*
-- La limpieza medida es la de v6.2: quitar los borrados sustituyendo cada arista muerta por un vecino de la lista del borrado, y fusionar por debajo de 177 vivos si la suma no pasa de T. Cumple en un churn de diez rondas del 3 % sin búsquedas. Cada pasada toca todos los postings: falta decidir cada cuánto pasa.
+- La limpieza medida es la de v6.2: quitar los borrados sustituyendo cada arista muerta por un vecino de la lista del borrado, y fusionar por debajo de 177 vivos si la suma no pasa de T. Cumple sin búsquedas en un churn de treinta rondas del 3 % (v6.2b) y con el 30 % borrado por regiones. Cada pasada toca todos los postings: falta medir lo que cuesta en disco y decidir cada cuánto pasa.
 - Las cargas de una ronda, dentro del presupuesto de la query.
 - **Antes de este paso, ninguna medida vale como medida de un nodo.**
 
@@ -528,7 +530,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El `rescoreLimit` con k = 100:** 64 pasa a 100 y no deja margen de reordenación. Sale de la misma medida.
 - **Un barrido corto, sin cronometrar, a 768d, con rescore 64, 100, 150 y 200,** para fijar el ancla del `rescoreLimit` automático. *Propuesta mía, para el mismo barrido:* 16, 32 y 48 a 1536d.
 
-**Medido el 20, en v6.2:** el umbral de reparación acumulado, en el churn, y dos alternativas. Cumplen las tres; la más barata es la sustitución local, sin búsquedas.
+**Medido el 20, en v6.2:** el umbral de reparación acumulado, en el churn, y dos alternativas. Cumplen las tres; la más barata es la sustitución local, sin búsquedas. **Y en v6.2b:** la sustitución local se sostiene en treinta rondas y con el borrado por regiones; la red de búsqueda no pasa a ser obligatoria.
 
 **Lo que está en vuelo y puede mover este plan:**
 

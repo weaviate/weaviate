@@ -557,7 +557,26 @@ Lo comprobado en el código, y qué números del arnés pueden cambiar por ello,
 - **Mantiene las listas llenas,** 8.84 aristas por vector en las diez rondas, y eso es lo que cuenta: un sustituto es una arista verdadera una vez de cada ocho, y el recall de arista de B (0.78) es peor que el de A (0.84) sin que la búsqueda lo note.
 - **Con el 30 % de una vez también entra:** −0.0038, +4.2 % y +4.2 %.
 - **Lo que cuesta en disco, sin medir:** cada pasada lee y escribe todos los postings, porque con borrados al azar todos tienen algún borrado o alguna arista muerta. La lista de un borrado tiene que seguir en su posting hasta que sus vecinos la hayan leído.
-- **Sin medir:** más rotación que un 30 % de la base (los sustitutos son el 15 % de las aristas al final, y siguen subiendo), borrados por regiones, y la calidad ronda a ronda.
+- **Sin medir:** más rotación que un 30 % de la base (los sustitutos son el 15 % de las aristas al final, y siguen subiendo), borrados por regiones, y la calidad ronda a ronda. *Las tres cosas, medidas después en v6.2b, abajo.*
+
+## Churn largo y borrado por regiones (v6.2b, 2026-11-20)
+
+*De `bench-report.md`, «v6.2b: churn largo y borrado por regiones»: las celdas B y C de v6.2 en treinta rondas del 3 % sobre una base de 520 000, medidas en las rondas 10, 20 y 30 contra el lote de los vivos en ese momento, y con el 30 % borrado por regiones a 1M. Una corrida, en conteos y en memoria: nada de esto está en disco.*
+
+- **B, la sustitución local, se sostiene,** por la regla pre-registrada: cumple el criterio en la ronda 30, con el 90 % de la base renovado.
+
+  | ronda | B: peor recall, cargas a 0.95 y a 0.99 | C: peor recall, cargas a 0.95 y a 0.99 | sustitutos entre las aristas de B |
+  |---|---|---|---|
+  | 10 | −0.0024, +3.5 % y +1.0 % | −0.0020, +3.1 % y 0.0 % | 14.7 % |
+  | 20 | −0.0020, +2.4 % y +4.3 % | −0.0021, +2.7 % y +2.4 % | 21.0 % |
+  | 30 | −0.0011, +1.6 % y −1.3 % | −0.0008, +2.1 % y −2.5 % | 23.5 % |
+
+- **No empeora con las rondas,** y la fracción de sustitutos se frena: sube 0.1 puntos en la ronda 30. Las listas se quedan entre 8.61 y 8.65 aristas por vector.
+- **El recall de arista sí sigue bajando,** de 0.78 a 0.70, y la búsqueda no lo sigue.
+- **La red de búsqueda de C no hace falta:** no se separa de B por encima del suelo de ruido, y cuesta de 1.1 a 4.1 cargas por borrado según avanza el churn, sin estabilizarse.
+- **Con el 30 % borrado por regiones las dos entran y cargan menos que el lote:** B, +0.0002 de recall, −19.4 % a 0.95 y −12.8 % a 0.99. Sus postings quedan un 9.7 % más llenos que los del lote y no hay referencia de llenado: parte de esa ventaja es de llenado. B encuentra sustituto para el 82.2 % de las aristas muertas, que son 3.3 por borrado y no 8.3.
+- **Lo que cuesta en disco sigue sin medir:** cada pasada lee y escribe todos los postings.
+- **Sin medir:** más de treinta rondas, las regiones dentro de un churn, y un churn que borre sin insertar.
 
 ## Open for phase 2
 

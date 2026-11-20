@@ -161,7 +161,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - **HFresh, con un escritor y sus 9 workers de fondo (del 20):** 2 089 por segundo, de 10.6 a 11.7 veces.
   - **Con las búsquedas de los inserts en paralelo (v5.2, del 20):** 634 por segundo con 8 buscadores, 3.76 veces el insert de siempre, sin perder calidad a igual ef. Su criterio pedía 4 veces: no sirve como se pre-registró. Ocho búsquedas a la vez tardan un 54 % más cada una.
 - **Aristas consolidadas (v5.1, del 19 y el 20): no sirve, por su criterio.** La fila de aristas de un posting en un solo valor, escrita cada K cambios. En caliente cierra un 55 % de la distancia con el lote, 1.21 veces donde v5.0 queda a 1.45. En frío no mejora a v5.0: 1.41 a 1.47 veces el lote, sin que sepa todavía por qué. El control combinado, del 20, lo explica y lo mide reorganizado: su fila de aristas, sola en su bucket, es una lectura de disco aparte (6.15 page-ins por carga frente a 5.74 de v5.0). Reorganizado cumple en caliente, 1.20 veces el lote, y falla en frío por cuatro milésimas, 1.2045. v5.3, pre-registrado el 20, pone esa fila junto a la de miembros.
-- **Deletes (v6.0, v6.1 y v6.2, del 19 y el 20), en memoria y en conteos.** Con la marca sola el índice aguanta el 10 % borrado. La limpieza en dos fases de v6.1 cumple con el 30 % en una pasada y fallaba en un churn. En v6.2, sustituir cada arista muerta por un vecino de la lista del borrado, elegido con una distancia entre dos códigos, cumple en el churn sin ninguna búsqueda: −0.0004 de recall, +2.7 % de cargas a 0.95 y +1.8 % a 0.99. Sin medir: más rotación que un 30 %, borrados que no son al azar, y todo en disco.
+- **Deletes (v6.0, v6.1, v6.2 y v6.2b, del 19 y el 20), en memoria y en conteos.** Con la marca sola el índice aguanta el 10 % borrado. La limpieza en dos fases de v6.1 cumple con el 30 % en una pasada y fallaba en un churn. En v6.2, sustituir cada arista muerta por un vecino de la lista del borrado, elegido con una distancia entre dos códigos, cumple en el churn sin ninguna búsqueda: −0.0004 de recall, +2.7 % de cargas a 0.95 y +1.8 % a 0.99. En v6.2b aguanta treinta rondas, con el 90 % de la base renovado (−0.0011, +1.6 % y −1.3 % en la ronda 30), y entra con el 30 % borrado por regiones. Sin medir: todo en disco, donde cada pasada reescribe todos los postings.
 - **Antes de compactar, la basura pesa un 34.5 % más de bytes por carga** y 1.75 veces las lecturas, con la política por niveles.
 - **El store escribe de 7 a 17 veces lo que guarda,** con cualquiera de sus dos políticas.
 - **Un bug de `lsmkv` encontrado por el camino:** su compactador de Set devolvía valores borrados. Arreglado aquí y en un PR a main, weaviate/weaviate#13950.
@@ -177,9 +177,9 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
-## v6.2b: churn largo y borrado por regiones (pre-registro, 2026-11-20)
+## v6.2b: churn largo y borrado por regiones (2026-11-20)
 
-**Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo. La etapa del banco está escrita y probada a pequeña escala (abajo, «Paso 1»); la corrida a 1M, lanzada el 20 por la tarde.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
+**Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo. Cerrado el 20 a las 18:33: B se sostiene (abajo, «Paso 2» y «Veredicto de v6.2b»).** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
 
 ### De dónde sale
 
@@ -256,6 +256,165 @@ Código en `346e5c591f` y en el commit de esta nota, después del pre-registro (
 - **Script y tablas:** `testdata/bench/v6.2b/scripts/run_v62b.sh` y `long_verdict.py`.
 
 Lint, con la etiqueta del banco y sin ella, `go vet` y el linter de goroutines pasan.
+
+### Paso 2, cerrado: la corrida a 1M (2026-11-20, de 16:58 a 18:33)
+
+**Estado: hecha, entera, en una corrida de 1 h 35 min. B y C cumplen el criterio en las rondas 10, 20 y 30, y las dos entran con el 30 % borrado por regiones. Ningún stop saltó en ninguna pasada.** En conteos y en memoria: nada se cronometra. El binario es el de `806c4ee848`. Los datos, en `testdata/bench/v6.2b/dbpedia-1m-long.json`, y las tablas completas, en `long-verdict.md`. Corrió junto al crecimiento del índice de v5.3 y a la corrida a 1M de la sesión de integración, las dos sin cronometrar. La sesión cronometrada de v5.3 esperaba y no midió nada mientras tanto.
+
+#### El churn largo: treinta rondas del 3 % sobre una base de 520 000
+
+Cada ronda borra 15 600 vectores de la base e inserta 15 600 nuevos. Al final se han borrado 468 000, y nueve de cada diez vivos entraron por un insert. La referencia de cada ronda medida es el lote de S = 236 de los 520 000 vivos de ese momento, en 2 204 postings.
+
+| ronda | el lote: cargas a 0.95 y a 0.99 | celda | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | las tres |
+|---|---|---|---|---|---|---|
+| 10 | 8.80 y 36.07 | B: sustitución local | −0.0024 en ef 20 | 9.11, +3.5 % | 36.44, +1.0 % | **sí** |
+| | | C: sustitución con red | −0.0020 en ef 20 | 9.07, +3.1 % | 36.07, 0.0 % | **sí** |
+| 20 | 8.79 y 34.69 | B | −0.0020 en ef 20 | 9.01, +2.4 % | 36.19, +4.3 % | **sí** |
+| | | C | −0.0021 en ef 10 | 9.04, +2.7 % | 35.53, +2.4 % | **sí** |
+| 30 | 8.79 y 36.48 | B | −0.0011 en ef 20 | 8.93, +1.6 % | 36.00, −1.3 % | **sí** |
+| | | C | −0.0008 en ef 20 | 8.97, +2.1 % | 35.58, −2.5 % | **sí** |
+
+- **B cumple en las tres rondas, con margen.** En la 30 le quedan 0.0039 de recall hasta el límite, 13 puntos de cargas a 0.95 y 11 a 0.99.
+- **No empeora con las rondas.** Las cargas a 0.95 pasan de +3.5 % a +2.4 % y a +1.6 %, y la peor diferencia de recall, de −0.0024 a −0.0011. Son cambios del tamaño del suelo de ruido o poco más, y van hacia mejor.
+- **A 0.99 la lectura se mueve con la referencia.** Tres lotes del mismo tamaño dan 36.07, 34.69 y 36.48 cargas, un 5 % entre el menor y el mayor. El +4.3 % de B en la ronda 20 es contra el lote que salió más bajo; las cargas de B son 36.44, 36.19 y 36.00.
+- **C no se separa de B en ninguna ronda.** Lo más que las separa es 0.0004 de recall, 0.5 puntos de cargas a 0.95 y 1.9 a 0.99, por debajo del suelo de ruido en las tres cantidades.
+- **Los postings de las celdas quedan un 2 % más llenos que los del lote:** de 239.6 a 240.7 vivos por posting, frente a 236. Esta ronda no lleva referencia de llenado, como dice el pre-registro. Ese 2 % va a favor de las celdas en cargas y no cambia ninguna lectura.
+
+**Coste por vector borrado,** acumulado hasta cada ronda medida:
+
+| ronda | celda | listas reparadas por búsqueda | cargas de búsqueda | postings de la fase 2 | distancias exactas | distancias entre códigos | del ensayo, aparte | aristas muertas con sustituto |
+|---|---|---|---|---|---|---|---|---|
+| 10 | B | 0.00 | 0.0 | 0.14 | 0.0 | 59.6 | 0.0 | 93.8 % |
+| 10 | C | 0.09 | 1.6 | 0.14 | 7.1 | 59.7 | 59.7 | 94.9 % |
+| 20 | B | 0.00 | 0.0 | 0.14 | 0.0 | 63.1 | 0.0 | 93.8 % |
+| 20 | C | 0.12 | 2.1 | 0.14 | 9.2 | 63.2 | 63.2 | 95.1 % |
+| 30 | B | 0.00 | 0.0 | 0.14 | 0.0 | 65.7 | 0.0 | 93.6 % |
+| 30 | C | 0.14 | 2.6 | 0.14 | 11.0 | 66.0 | 66.1 | 95.1 % |
+
+- **B sigue sin buscar nada:** de 59.6 a 65.7 distancias entre dos códigos por borrado, y ninguna carga. Encuentra sustituto para entre el 93.6 y el 93.8 % de las aristas muertas, en las tres rondas medidas.
+- **La red de C cuesta más cuanto más dura el churn, y en treinta rondas no se estabiliza.** Repara 971 listas en la primera ronda y 3 337 en la última, con 17 532 y 64 572 cargas: de 1.1 a 4.1 cargas por borrado de la ronda. En total, 65 865 listas y 2.6 cargas por borrado.
+- **La fase 2 lee y escribe todos los postings en cada pasada, en las dos celdas:** de 2 169 a 2 396 por ronda, que son los que hay.
+
+**Por ronda,** después de la pasada: aristas por vector vivo y la fracción de ellas que son sustitutos.
+
+| ronda | B: aristas por vector | B: sustitutos | C: aristas por vector | C: sustitutos |
+|---|---|---|---|---|
+| 1 | 8.65 | 2.7 % | 8.65 | 2.7 % |
+| 2 | 8.65 | 4.8 % | 8.65 | 4.8 % |
+| 3 | 8.64 | 6.5 % | 8.65 | 6.5 % |
+| 4 | 8.64 | 8.1 % | 8.65 | 8.0 % |
+| 5 | 8.63 | 9.4 % | 8.65 | 9.4 % |
+| 6 | 8.63 | 10.7 % | 8.65 | 10.6 % |
+| 7 | 8.63 | 11.8 % | 8.65 | 11.7 % |
+| 8 | 8.63 | 12.8 % | 8.65 | 12.8 % |
+| 9 | 8.62 | 13.8 % | 8.65 | 13.7 % |
+| 10 | 8.62 | 14.7 % | 8.65 | 14.6 % |
+| 11 | 8.62 | 15.5 % | 8.65 | 15.4 % |
+| 12 | 8.62 | 16.3 % | 8.66 | 16.1 % |
+| 13 | 8.62 | 17.0 % | 8.66 | 16.8 % |
+| 14 | 8.62 | 17.7 % | 8.67 | 17.5 % |
+| 15 | 8.62 | 18.4 % | 8.67 | 18.1 % |
+| 16 | 8.62 | 19.0 % | 8.67 | 18.7 % |
+| 17 | 8.62 | 19.5 % | 8.67 | 19.2 % |
+| 18 | 8.61 | 20.0 % | 8.67 | 19.7 % |
+| 19 | 8.61 | 20.6 % | 8.68 | 20.2 % |
+| 20 | 8.61 | 21.0 % | 8.68 | 20.6 % |
+| 21 | 8.62 | 21.4 % | 8.69 | 21.0 % |
+| 22 | 8.62 | 21.8 % | 8.69 | 21.3 % |
+| 23 | 8.62 | 22.1 % | 8.70 | 21.6 % |
+| 24 | 8.62 | 22.4 % | 8.70 | 21.9 % |
+| 25 | 8.62 | 22.7 % | 8.70 | 22.2 % |
+| 26 | 8.62 | 22.9 % | 8.71 | 22.4 % |
+| 27 | 8.62 | 23.2 % | 8.71 | 22.6 % |
+| 28 | 8.62 | 23.3 % | 8.72 | 22.7 % |
+| 29 | 8.62 | 23.4 % | 8.72 | 22.8 % |
+| 30 | 8.62 | 23.5 % | 8.72 | 22.8 % |
+
+- **La fracción de sustitutos sube y se frena:** 14.7 % en la ronda 10, 21.0 % en la 20 y 23.5 % en la 30. Sube 0.9 puntos por ronda al llegar a la 10, 0.4 al llegar a la 20 y 0.1 en la 30.
+- **Las aristas por vector no bajan.** B se queda entre 8.61 y 8.65 en las treinta rondas. C sube de 8.65 a 8.72, por las listas que la red construye de nuevo.
+- **Lo que sigue subiendo en B:**
+  - **Las aristas muertas por borrado:** de 8.3 en la primera ronda a 10.6 en la última.
+  - **Las que se quitan sin sustituto:** de 8 181 a 11 794 por ronda, del 6.3 al 7.1 % de las muertas.
+  - **Los vivos que han perdido alguna arista sin sustituto:** 103 245 en la ronda 30, uno de cada cinco.
+
+**Recall de arista,** el de v2.x, sobre 2 000 vectores vivos en cada ronda medida. Entre paréntesis, cuántos de los 2 000 caen en cada grupo de B:
+
+| ronda | el lote | B | C | B: insertados en el churn | B: con algún sustituto | B: ni lo uno ni lo otro | sustitutos de B que son aristas verdaderas |
+|---|---|---|---|---|---|---|---|
+| 10 | 0.9706 | 0.7823 | 0.7869 | 0.8669 (589) | 0.7416 (885) | 0.7503 (526) | 11.9 % |
+| 20 | 0.9707 | 0.7273 | 0.7343 | 0.7796 (1 257) | 0.6379 (544) | 0.6488 (199) | 14.9 % |
+| 30 | 0.9739 | 0.7035 | 0.7152 | 0.7226 (1 793) | 0.5401 (159) | 0.5786 (48) | 15.4 % |
+
+- **El recall de arista sigue bajando y la búsqueda no lo sigue.** En B pasa de 0.78 a 0.70, con el lote en 0.97, mientras el recall de la búsqueda y las cargas se quedan donde estaban. Es la lectura de v6.2, con veinte rondas más.
+- **Baja en todos los grupos, también en los insertados:** de 0.87 a 0.72. Un vector insertado pronto lleva en la ronda 30 más de veinte rondas de sustituciones en su lista.
+- **Los vectores de la base que quedan son los peores,** 0.54 con sustitutos y 0.58 sin ellos en la ronda 30. Ya son uno de cada diez.
+- **Un sustituto es una arista verdadera una vez de cada siete:** del 11.9 al 15.4 %.
+
+#### El 30 % borrado por regiones
+
+297 259 vectores borrados en 22 regiones de postings vecinos, 1 380 postings, sobre el lote de 990 000. Contra el lote de S = 236 de los 692 741 vivos, en 2 936 postings: 18.99 cargas a 0.95 y 91.01 a 0.99.
+
+| celda | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | entra | listas reparadas | cargas de búsqueda por borrado | aristas muertas con sustituto | quitadas sin sustituto |
+|---|---|---|---|---|---|---|---|---|
+| B: sustitución local | +0.0002 en ef 1 024 | 15.31, −19.4 % | 79.39, −12.8 % | **sí** | 0 | 0 | 796 948, el 82.2 % | 172 964 |
+| C: sustitución con red | +0.0004 en ef 1 024 | 15.35, −19.2 % | 77.11, −15.3 % | **sí** | 29 917 | 4.5 | 725 386, el 90.7 % | 74 338 |
+
+- **Las dos entran, y cargan menos que el lote.** Es lo que hizo la celda 1b de v6.0 en este mismo punto: −7.6 % y −4.1 %.
+- **De dónde sale ese −19 %:** a igual ef las celdas cargan algo menos que el lote, entre un 1.5 y un 4.8 %, y sacan más recall: 0.9282 frente a 0.9162 en ef 20, y 0.9487 frente a 0.9389 en ef 40. Cruzan 0.95 con un ef más bajo.
+- **No es comparable del todo:** los postings de las celdas quedan con 259.0 vivos, un 9.7 % más llenos que los del lote, y cada carga trae más candidatos. Esta ronda no lleva referencia de llenado. Parte de la ventaja es de llenado, y no la separo.
+- **La referencia de este punto cuesta el doble que la del 30 % al azar:** 18.99 cargas a 0.95, frente a 9.31 en v6.2 con los mismos vivos en número. Las queries no salen de la distribución de los vivos: en 384 de las 5 000, menos de 10 de sus 100 vecinos del dataset siguen vivos.
+- **Hay muchas menos aristas muertas que al azar:** 3.3 por borrado, frente a 8.3 en la primera ronda del churn. Las de dentro de una región se van con sus dueños.
+- **B encuentra sustituto para el 82.2 %,** menos que en el churn (93.6 %) y que con el 30 % al azar de v6.2 (91.4 %). Deja las listas en 8.29 aristas por vector, con el lote en 8.11.
+- **Aquí la red de C sí trabaja:** repara 29 917 listas, el 4.3 % de los vivos, y deja 74 338 aristas quitadas sin sustituto donde B deja 172 964. En la búsqueda no se nota: las dos quedan a 0.2 puntos a 0.95 y a 2.5 a 0.99, por debajo del suelo de ruido.
+- **Recall de arista:** 0.8941 B y 0.9031 C, con el lote en 0.9775. Los 1 155 vectores de la muestra sin ningún sustituto están en 0.98, como el lote, y los 845 con alguno, en 0.80: el daño se queda en el borde de las regiones.
+
+#### Lo esperado y lo medido
+
+| | esperaba | medido | |
+|---|---|---|---|
+| fracción de sustitutos en la ronda 10 | un 15 % | 14.7 % | sí |
+| en la ronda 20 | del 20 al 25 % | 21.0 % | sí |
+| en la ronda 30 | del 23 al 30 % | 23.5 % | sí |
+| aristas por vector en B | de 8.6 a 8.9 | de 8.61 a 8.65 | sí |
+| B se sostiene | | cumple las tres en la ronda 30 | sí |
+| B en la ronda 30: peor recall | de −0.001 a −0.003 | −0.0011 | sí |
+| B en la ronda 30: cargas a 0.95 | de +3 a +7 % | +1.6 % | **no: menos** |
+| B en la ronda 30: cargas a 0.99 | de +3 a +9 % | −1.3 % | **no: menos** |
+| de la ronda 10 a la 30, B empeora | uno o dos puntos de cargas cada diez rondas | no empeora: +3.5, +2.4 y +1.6 % a 0.95 | **no** |
+| C no se separa de B | por debajo del suelo de ruido | como mucho 0.0004, 0.5 puntos y 1.9 puntos | sí |
+| C repara, por ronda | de 1 500 a 3 000 listas | de 971 a 3 337, y sigue subiendo | a medias |
+| recall de arista de B en la ronda 30 | de 0.70 a 0.75 | 0.7035 | sí, por poco |
+| el grupo con peor recall de arista | los que llevan sustitutos | sí, en las tres rondas: 0.74, 0.64 y 0.54 | sí |
+| regiones: aristas muertas | muchas menos que al azar | 3.3 por borrado, frente a 8.3 | sí |
+| regiones: B encuentra sustituto | para el 55 al 75 % | el 82.2 % | **no: más** |
+| regiones: las dos entran | | sí, y cargan menos que el lote | sí |
+| regiones: C repara | del 2 al 6 % de los vivos | el 4.3 % | sí |
+
+- **Me equivoqué con B por el mismo lado que en v6.2, por tercera vez:** esperaba que perdiera uno o dos puntos de cargas cada diez rondas, y no pierde nada.
+- **Por qué no empeora, sin medir:** en la ronda 30 nueve de cada diez vivos entraron por un insert, con una lista que salió de una búsqueda y con aristas inversas. Esta ronda no separa lo que sostienen los inserts de lo que sostienen los sustitutos, como dice el pre-registro.
+
+### Veredicto de v6.2b
+
+**B se sostiene.** La regla es del usuario: B se sostiene si en la ronda 30 sigue dentro del criterio. En la ronda 30 cumple las tres cantidades: −0.0011 de recall en su peor ef, +1.6 % de cargas a 0.95 y −1.3 % a 0.99, sin ninguna búsqueda. C también cumple, así que la segunda mitad de la regla no se aplica: la red de búsqueda no pasa a ser obligatoria.
+
+| | B: sustitución local | C: sustitución con red |
+|---|---|---|
+| ronda 10 | cumple: −0.0024, +3.5 % y +1.0 % | cumple: −0.0020, +3.1 % y 0.0 % |
+| ronda 20 | cumple: −0.0020, +2.4 % y +4.3 % | cumple: −0.0021, +2.7 % y +2.4 % |
+| ronda 30 | cumple: −0.0011, +1.6 % y −1.3 % | cumple: −0.0008, +2.1 % y −2.5 % |
+| el 30 % por regiones | entra: +0.0002, −19.4 % y −12.8 % | entra: +0.0004, −19.2 % y −15.3 % |
+| cargas de búsqueda por borrado, en el churn | 0 | 2.6, y 4.1 en la última ronda |
+
+- **La hipótesis se confirma, antes de proponer nada:** la sustitución local aguanta un churn que renueva el 90 % de la base, y aguanta el borrado por regiones, sin buscar nada.
+- **El margen que le queda y hacia dónde va:** 0.0039 de recall, 13 puntos de cargas a 0.95 y 11 a 0.99, y no se estrecha de la ronda 10 a la 30. La fracción de sustitutos se frena en el 23.5 %.
+- **La red de C sigue sin justificarse con estos datos.** No mejora a B en nada medible en ninguna de las tres rondas ni con las regiones, y su coste sube ronda a ronda sin estabilizarse.
+- **Lo que no dice:**
+  - **Nada en disco.** Cada pasada lee y escribe todos los postings. Es el coste entero de la pasada y sigue sin medir.
+  - **Más allá de la ronda 30.** La fracción de sustitutos está casi plana, pero el recall de arista aún baja, 0.024 en las diez últimas rondas, y las aristas quitadas sin sustituto suben.
+  - **Las regiones dentro de un churn.** El borrado por regiones está medido de una vez, sin inserts después.
+  - **Cuánto de lo que aguanta es de los inserts.** Un churn que borra sin insertar no está medido más allá del 30 % de una vez de v6.2.
+  - **No es una repetición de v6.2.** La base es de 520 000 y no de 760 000: la ronda 10 de aquí es otro índice.
+- **Para la integración:** la limpieza de deletes del hito 2 es B, sin red. Queda lo mismo que quedaba: lo que cuesta la pasada en disco y cada cuánto pasa.
 
 ## v5.3: la fila de aristas en un valor, junto a la de miembros (pre-registro, 2026-11-20)
 
