@@ -24,15 +24,22 @@ import (
 	"github.com/weaviate/sroar"
 )
 
-// InnerReader answers a query from one layer of a bucket, a memtable or a
-// segment. For the two filters, matches go to out, the layer's deletions to
-// deleted, and the bucket subtracts the second from the first once all layers
-// are in. A doc ID is added once and deleted at most once, so the order of the
-// layers does not matter. A nearest search needs the deletions of every layer
-// before it reads a point, so it takes them separately.
+// InnerReader answers a filter from one layer of a bucket, a memtable or a
+// segment: matches go to out, the layer's deletions to deleted, and the bucket
+// subtracts the second from the first once all layers are in. A doc ID is
+// added once and deleted at most once, so the order of the layers does not
+// matter.
 type InnerReader interface {
 	WithinRange(ctx context.Context, c *Circle, out, deleted *sroar.Bitmap) error
 	WithinBox(ctx context.Context, q *BoxQuery, out, deleted *sroar.Bitmap) error
+}
+
+// NearestReader answers a nearest search from one layer of a bucket. The
+// search needs the deletions of every layer before it reads a point, since a
+// deleted point would take the place of a live one, so it asks a layer twice.
+// Both answers must describe the layer at one instant: a segment is immutable,
+// a memtable is read through a MemtableSnapshot.
+type NearestReader interface {
 	CollectDeletions(deleted *sroar.Bitmap) error
 	Nearest(ctx context.Context, n *Nearest) error
 }

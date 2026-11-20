@@ -513,7 +513,7 @@ func parseDecayParams(d *filters.Decay, nowTime time.Time) parsedDecay {
 	origin := d.Origin
 	if d.IsGeo {
 		p.geo = true
-		p.originGeo = d.OriginGeo
+		p.originGeo.Latitude, p.originGeo.Longitude = geopoints.Canonical(d.OriginGeo.Latitude, d.OriginGeo.Longitude)
 	} else if d.IsNumeric {
 		p.originNum = d.OriginNumeric
 		p.originNumValid = true
@@ -560,6 +560,9 @@ func computeDistance(parsed parsedDecay, propValue any) (float64, error) {
 		if !ok {
 			return 0, fmt.Errorf("cannot read %T as geo coordinates", propValue)
 		}
+		// between the canonical points, as the geo filter measures: the
+		// float32 arithmetic of Distance only holds up for those
+		lat, lon = geopoints.Canonical(lat, lon)
 		return float64(geopoints.Distance(parsed.originGeo.Latitude, parsed.originGeo.Longitude, lat, lon)), nil
 	}
 

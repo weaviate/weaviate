@@ -95,6 +95,10 @@ func (m *Memtable) newGeoPointsReader() geopoints.InnerReader {
 	return m.geoPoints
 }
 
+func (m *Memtable) newGeoPointsSnapshot() *geopoints.MemtableSnapshot {
+	return m.geoPoints.Snapshot()
+}
+
 // flushDataGeoPoints writes the tree as the whole data section and leaves the
 // index section empty, like roaringsetrange.
 func (m *Memtable) flushDataGeoPoints(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {

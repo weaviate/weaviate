@@ -69,6 +69,10 @@ func TestComputeDecayForResult_Geo(t *testing.T) {
 			value: map[string]any{"latitude": float64(potsdamLat), "longitude": float64(potsdamLon)}, want: 0.5,
 		},
 		{name: "coordinates by value", decay: geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5), value: *coords(potsdamLat, potsdamLon), want: 0.5},
+		// coordinates are not range-checked on write: these are the origin and
+		// Potsdam by other names
+		{name: "a longitude many turns around", decay: geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5), value: coords(boostBerlinLat, boostBerlinLon+360*40), want: 1},
+		{name: "a latitude over the pole", decay: geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5), value: coords(180-potsdamLat, potsdamLon+180), want: 0.5},
 		{name: "a nil pointer scores nothing", decay: geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5), value: (*models.GeoCoordinates)(nil), want: 0},
 		{name: "a missing latitude scores nothing", decay: geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5), value: &models.GeoCoordinates{Longitude: &potsdamLon}, want: 0},
 		{name: "a map without a longitude scores nothing", decay: geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5), value: map[string]any{"latitude": 52.4}, want: 0},
@@ -82,6 +86,18 @@ func TestComputeDecayForResult_Geo(t *testing.T) {
 			assert.InDelta(t, tt.want, float64(score), 0.001)
 		})
 	}
+
+	t.Run("an origin out of range is the same point", func(t *testing.T) {
+		// (0, 1e10) is (0, -80): 1e10 degrees are 27777777 turns and 280 more
+		decay := geoDecay(1_000, 0, filters.DecayCurveExp, 0.5)
+		decay.OriginGeo = filters.GeoOrigin{Latitude: 0, Longitude: 1e10}
+		parsed := parseDecayParams(decay, time.Now())
+		assert.InDelta(t, 1, float64(computeDecayForResult(decay, parsed, map[string]any{"location": coords(0, -80)})), 0.001)
+
+		decay.OriginGeo = filters.GeoOrigin{Latitude: 0, Longitude: -80}
+		parsed = parseDecayParams(decay, time.Now())
+		assert.InDelta(t, 1, float64(computeDecayForResult(decay, parsed, map[string]any{"location": coords(0, 1e10)})), 0.001)
+	})
 
 	t.Run("a result without the property scores nothing", func(t *testing.T) {
 		decay := geoDecay(potsdam, 0, filters.DecayCurveExp, 0.5)

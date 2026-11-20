@@ -102,7 +102,9 @@ func (b *Bucket) geoPointsMatching(ctx context.Context,
 // GeoPointsNearest returns up to limit points ordered by their distance from
 // (lat, lon), nearest first. allow restricts the candidates; nil allows all.
 // The deletions of every layer are gathered before any point is read, since a
-// point is only out of the result once its deletion is known.
+// point is only out of the result once its deletion is known. The memtables
+// are read from snapshots, so the deletions and the points agree even while
+// updates retire doc IDs and add their replacements.
 func (b *Bucket) GeoPointsNearest(ctx context.Context, lat, lon float32, limit int,
 	allow func(docID uint64) bool,
 ) ([]geopoints.Neighbor, error) {
@@ -113,12 +115,27 @@ func (b *Bucket) GeoPointsNearest(ctx context.Context, lat, lon float32, limit i
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
+	// the memtables first: the search bounds the segments' trees with what it
+	// found in them
+	layers := make([]geopoints.NearestReader, 0, len(view.Disk)+2)
+	layers = append(layers, view.Active.newGeoPointsSnapshot())
+	if view.Flushing != nil {
+		// writers that took it before the switch may still be adding to it
+		layers = append(layers, view.Flushing.newGeoPointsSnapshot())
+	}
+	for _, seg := range view.Disk {
+		reader, err := seg.newGeoPointsReader()
+		if err != nil {
+			return nil, fmt.Errorf("segment %q: %w", seg.getPath(), err)
+		}
+		layers = append(layers, reader)
+	}
+
 	deleted := sroar.NewBitmap()
-	err := geoPointsEachLayerOf(ctx, view, func(layer geopoints.InnerReader) error {
-		return layer.CollectDeletions(deleted)
-	})
-	if err != nil {
-		return nil, err
+	for _, layer := range layers {
+		if err := layer.CollectDeletions(deleted); err != nil {
+			return nil, fmt.Errorf("geo nearest: deletions: %w", err)
+		}
 	}
 
 	keep := allow
@@ -131,35 +148,22 @@ func (b *Bucket) GeoPointsNearest(ctx context.Context, lat, lon float32, limit i
 	if err != nil {
 		return nil, fmt.Errorf("geo nearest: %w", err)
 	}
-	err = geoPointsEachLayerOf(ctx, view, func(layer geopoints.InnerReader) error {
-		return layer.Nearest(ctx, nearest)
-	})
-	if err != nil {
-		return nil, err
+	for _, layer := range layers {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := layer.Nearest(ctx, nearest); err != nil {
+			return nil, fmt.Errorf("geo nearest: %w", err)
+		}
 	}
 	return nearest.Results(), nil
 }
 
+// geoPointsEachLayer visits every layer of the bucket under one view.
 func (b *Bucket) geoPointsEachLayer(ctx context.Context, fn func(layer geopoints.InnerReader) error) error {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	return geoPointsEachLayerOf(ctx, view, fn)
-}
-
-// geoPointsEachLayerOf visits the memtables first: a nearest search bounds the
-// segments' trees with what it found in them.
-func geoPointsEachLayerOf(ctx context.Context, view BucketConsistentView,
-	fn func(layer geopoints.InnerReader) error,
-) error {
-	if err := fn(view.Active.newGeoPointsReader()); err != nil {
-		return fmt.Errorf("active memtable: %w", err)
-	}
-	if view.Flushing != nil {
-		if err := fn(view.Flushing.newGeoPointsReader()); err != nil {
-			return fmt.Errorf("flushing memtable: %w", err)
-		}
-	}
 	for _, seg := range view.Disk {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -171,6 +175,14 @@ func geoPointsEachLayerOf(ctx context.Context, view BucketConsistentView,
 		if err := fn(reader); err != nil {
 			return fmt.Errorf("segment %q: %w", seg.getPath(), err)
 		}
+	}
+	if view.Flushing != nil {
+		if err := fn(view.Flushing.newGeoPointsReader()); err != nil {
+			return fmt.Errorf("flushing memtable: %w", err)
+		}
+	}
+	if err := fn(view.Active.newGeoPointsReader()); err != nil {
+		return fmt.Errorf("active memtable: %w", err)
 	}
 	return nil
 }

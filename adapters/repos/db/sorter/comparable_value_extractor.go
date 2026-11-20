@@ -116,12 +116,17 @@ func (e *comparableValueExtractor) extractDistanceFromObject(object *storobj.Obj
 	return distanceFrom(origin, coordinates)
 }
 
+// distanceFrom measures between the canonical points, as the geo bucket does:
+// coordinates are not range-checked on write, and the float32 arithmetic of
+// Distance only holds up for canonical ones, so on raw coordinates this sort
+// and the bucket's nearest search would disagree.
 func distanceFrom(origin *filters.SortGeoOrigin, coordinates *models.GeoCoordinates) interface{} {
 	if coordinates == nil || coordinates.Latitude == nil || coordinates.Longitude == nil {
 		return nil
 	}
-	d := float64(geopoints.Distance(origin.Latitude, origin.Longitude,
-		*coordinates.Latitude, *coordinates.Longitude))
+	originLat, originLon := geopoints.Canonical(origin.Latitude, origin.Longitude)
+	lat, lon := geopoints.Canonical(*coordinates.Latitude, *coordinates.Longitude)
+	d := float64(geopoints.Distance(originLat, originLon, lat, lon))
 	return &d
 }
 

@@ -279,7 +279,7 @@ func TestNearestMatchesBruteForce(t *testing.T) {
 			for _, p := range original[cutB:] {
 				memtable.Add(p.DocID, p.Lat, p.Lon)
 			}
-			layers := []InnerReader{memtable, segA, segB}
+			layers := []NearestReader{memtable.Snapshot(), segA, segB}
 
 			for q := 0; q < 150; q++ {
 				lat, lon := float32(r.Float64()*180-90), float32(r.Float64()*360-180)
@@ -382,18 +382,58 @@ func TestMemtableBoxAndNearest(t *testing.T) {
 	assert.Equal(t, []uint64{1, 2}, out.ToArray())
 	assert.Equal(t, []uint64{2, 99}, deleted.ToArray())
 
-	collected := sroar.NewBitmap()
-	require.NoError(t, m.CollectDeletions(collected))
-	assert.Equal(t, []uint64{2, 99}, collected.ToArray())
+	search := func(snap *MemtableSnapshot) []uint64 {
+		collected := sroar.NewBitmap()
+		require.NoError(t, snap.CollectDeletions(collected))
+		nearest, err := NewNearest(10, 10, 5, func(id uint64) bool { return !collected.Contains(id) })
+		require.NoError(t, err)
+		require.NoError(t, snap.Nearest(context.Background(), nearest))
+		var ids []uint64
+		for _, n := range nearest.Results() {
+			ids = append(ids, n.DocID)
+		}
+		return ids
+	}
 
-	nearest, err := NewNearest(10, 10, 5, func(id uint64) bool { return !collected.Contains(id) })
+	snap := m.Snapshot()
+	assert.Equal(t, []uint64{1, 3}, search(snap))
+
+	// an update after the snapshot retires doc 1 for doc 4 at the same place,
+	// and enough writes follow to move the points to a new backing array
+	m.Remove(1)
+	m.Add(4, 10, 10)
+	for id := uint64(100); id < 5000; id++ {
+		m.Add(id, 10, 10)
+		m.Remove(id)
+	}
+	assert.Equal(t, []uint64{1, 3}, search(snap), "the snapshot still is the memtable before the update")
+	assert.Equal(t, []uint64{4, 3}, search(m.Snapshot()), "a new one sees the update whole")
+}
+
+// A snapshot of a memtable without removals shares nothing a search could
+// change, and one taken empty stays empty.
+func TestMemtableSnapshotEdges(t *testing.T) {
+	m := NewMemtable()
+	empty := m.Snapshot()
+	m.Add(1, 1, 1)
+
+	nearest, err := NewNearest(1, 1, 3, nil)
 	require.NoError(t, err)
-	require.NoError(t, m.Nearest(context.Background(), nearest))
-	got := nearest.Results()
-	require.Len(t, got, 2)
-	assert.Equal(t, uint64(1), got[0].DocID)
-	assert.Zero(t, got[0].Distance)
-	assert.Equal(t, uint64(3), got[1].DocID)
+	require.NoError(t, empty.Nearest(context.Background(), nearest))
+	assert.Empty(t, nearest.Results())
+
+	deleted := sroar.NewBitmap()
+	require.NoError(t, m.Snapshot().CollectDeletions(deleted))
+	assert.True(t, deleted.IsEmpty())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for id := uint64(2); id < 10_000; id++ {
+		m.Add(id, 1, 1)
+	}
+	nearest, err = NewNearest(1, 1, 3, nil)
+	require.NoError(t, err)
+	require.ErrorIs(t, m.Snapshot().Nearest(ctx, nearest), context.Canceled)
 }
 
 // BenchmarkNearest searches one segment of a million clustered points.

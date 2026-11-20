@@ -101,25 +101,43 @@ func (m *Memtable) WithinBox(ctx context.Context, q *BoxQuery, out, deleted *sro
 	return nil
 }
 
-func (m *Memtable) CollectDeletions(deleted *sroar.Bitmap) error {
+// MemtableSnapshot is a memtable's points and removals as they were at one
+// instant. A nearest search reads a layer twice, its removals and then its
+// points; on the live memtable an update between the two reads would show the
+// point of the doc ID it retires next to the one that replaces it.
+type MemtableSnapshot struct {
+	points  []Point
+	deleted *sroar.Bitmap
+}
+
+// Snapshot does not copy the points: they are only ever appended to, so the
+// ones present now are never written again.
+func (m *Memtable) Snapshot() *MemtableSnapshot {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	deleted.Or(m.deleted)
+	s := &MemtableSnapshot{points: m.points[:len(m.points):len(m.points)]}
+	if m.deletedCount > 0 {
+		s.deleted = m.deleted.Clone()
+	}
+	return s
+}
+
+func (s *MemtableSnapshot) CollectDeletions(deleted *sroar.Bitmap) error {
+	if s.deleted != nil {
+		deleted.Or(s.deleted)
+	}
 	return nil
 }
 
-func (m *Memtable) Nearest(ctx context.Context, n *Nearest) error {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-
-	for i := range m.points {
+func (s *MemtableSnapshot) Nearest(ctx context.Context, n *Nearest) error {
+	for i := range s.points {
 		if i%4096 == 4095 {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 		}
-		p := &m.points[i]
+		p := &s.points[i]
 		n.offer(p.DocID, p.Lat, p.Lon)
 	}
 	return nil

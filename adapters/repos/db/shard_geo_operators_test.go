@@ -198,6 +198,53 @@ func TestGeoFilterValueMismatch(t *testing.T) {
 	}
 }
 
+// Coordinates are not range-checked on write and the bucket stores the
+// canonical point. A sort answered from the bucket and one answered from the
+// objects must order such places the same way, whatever name the origin has.
+func TestGeoSortByDistanceOutOfRangeCoordinates(t *testing.T) {
+	ctx := context.Background()
+	s, idx := testGeoBucketShard(t, ctx)
+	defer removeRootPath(t, idx)
+
+	places := []struct {
+		name     string
+		lat, lon float32
+	}{
+		{"a degree east", 0, -79},
+		{"many turns around", 0, 1e10},       // (0, -80): 27777777 turns and 280 degrees
+		{"over the pole", 100, 100},          // (80, -80)
+		{"a turn and a bit", 0, 360 - 80.01}, // (0, -80.01)
+		{"far", 10, 100},
+	}
+	for _, p := range places {
+		require.NoError(t, s.PutObject(ctx, geoTestObject(map[string]interface{}{"name": p.name, "location": geoAt(p.lat, p.lon)})))
+	}
+	require.NoError(t, s.PutObject(ctx, geoTestObject(map[string]interface{}{"name": "nowhere"})))
+	want := []string{"many turns around", "a turn and a bit", "a degree east", "over the pole", "far"}
+
+	for originName, origin := range map[string]*models.GeoCoordinates{
+		"canonical": geoAt(0, -80), "a turn around": geoAt(0, 280), "many turns": geoAt(0, 1e10),
+	} {
+		t.Run(originName, func(t *testing.T) {
+			list := func(limit int, order string) []string {
+				objs, err := s.ObjectList(ctx, limit, distanceSort("location", origin, order), nil,
+					additional.Properties{}, schema.ClassName(geoBucketClass))
+				require.NoError(t, err)
+				return namesOf(objs)
+			}
+			assert.Equal(t, want[:3], list(3, "asc"), "from the geo bucket")
+			assert.Equal(t, append(append([]string{}, want...), "nowhere"), list(100, "asc"), "from the objects")
+			assert.Equal(t, []string{"far", "over the pole", "a degree east", "a turn and a bit", "many turns around", "nowhere"},
+				list(100, "desc"))
+
+			filtered, _, err := s.ObjectSearch(ctx, 2, geoRangeFilter("location", origin, 200_000), nil,
+				distanceSort("location", origin, "asc"), nil, additional.Properties{}, []string{"name"})
+			require.NoError(t, err)
+			assert.Equal(t, want[:2], namesOf(filtered), "under a range filter around the same origin")
+		})
+	}
+}
+
 // geoSortFixture is a shard of random places, some without coordinates, and
 // what a sort by distance over them must return.
 type geoSortFixture struct {

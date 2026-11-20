@@ -91,6 +91,7 @@ type memtable interface {
 	roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer, budget int) (windowFill, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newGeoPointsReader() geopoints.InnerReader
+	newGeoPointsSnapshot() *geopoints.MemtableSnapshot
 	newMapCursor() innerCursorMap
 
 	roaringSetAddOne(key []byte, value uint64) error

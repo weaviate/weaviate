@@ -18,7 +18,9 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -399,4 +401,76 @@ func mustGeoReader(t *testing.T, seg Segment) *geopoints.SegmentReader {
 	reader, err := seg.newGeoPointsReader()
 	require.NoError(t, err)
 	return reader
+}
+
+// TestGeoPointsNearestUnderUpdates runs nearest searches against objects that
+// are being updated: each update retires the object's doc ID and adds a new
+// one at the same coordinates, as the shard's write path does. A search must
+// see every object at most once. It would see one twice if it took a
+// memtable's deletions and its points at different moments: the retired doc ID
+// read before its removal, the new one after its add.
+func TestGeoPointsNearestUnderUpdates(t *testing.T) {
+	ctx := testCtx()
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyGeoPoints))
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	// doc ID = object + objects*version, so a doc ID names its object
+	const objects = 64
+	coords := func(object uint64) (float32, float32) { return float32(object) * 0.5, float32(object) * 0.25 }
+	for object := uint64(0); object < objects; object++ {
+		lat, lon := coords(object)
+		require.NoError(t, b.GeoPointsAdd(object, lat, lon))
+	}
+	// the first versions in a segment, the updates in the memtable
+	require.NoError(t, b.FlushAndSwitch())
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var writeErr error
+	go func() {
+		defer wg.Done()
+		version := make([]uint64, objects)
+		for i := uint64(0); ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			object := i % objects
+			lat, lon := coords(object)
+			if writeErr = b.GeoPointsRemove(object + objects*version[object]); writeErr != nil {
+				return
+			}
+			version[object]++
+			if writeErr = b.GeoPointsAdd(object+objects*version[object], lat, lon); writeErr != nil {
+				return
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	searches := 0
+	for time.Now().Before(deadline) {
+		neighbors, err := b.GeoPointsNearest(ctx, 0, 0, objects*2, nil)
+		require.NoError(t, err)
+		seen := map[uint64]uint64{}
+		for _, n := range neighbors {
+			object := n.DocID % objects
+			if other, dup := seen[object]; dup {
+				close(stop)
+				wg.Wait()
+				t.Fatalf("search %d returned object %d twice, as doc IDs %d and %d", searches, object, other, n.DocID)
+			}
+			seen[object] = n.DocID
+		}
+		searches++
+	}
+	close(stop)
+	wg.Wait()
+	require.NoError(t, writeErr)
+	require.Greater(t, searches, 100)
 }

@@ -117,6 +117,31 @@ func TestObjectsSorterByDistance(t *testing.T) {
 		assert.Equal(t, []string{"near", "mid", "far", "Nil"}, cityNames(got))
 	})
 
+	// Coordinates are not range-checked on write, and the geo bucket measures
+	// between canonical points; the sort of the objects must agree with it.
+	t.Run("coordinates out of range are the points they name", func(t *testing.T) {
+		at := func(name string, lat, lon float32) *storobj.Object {
+			return &storobj.Object{Object: models.Object{Class: "City", Properties: map[string]interface{}{
+				"name": name, "location": &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+			}}}
+		}
+		objs := func() []*storobj.Object {
+			return []*storobj.Object{
+				at("a degree east", 0, -79),
+				at("many turns around", 0, 1e10),     // (0, -80): 27777777 turns and 280 degrees
+				at("over the pole", 100, 100),        // (80, -80)
+				at("a turn and a bit", 0, 360-80.01), // (0, -80.01)
+			}
+		}
+		want := []string{"many turns around", "a turn and a bit", "a degree east", "over the pole"}
+		for name, origin := range map[string][2]float32{"canonical": {0, -80}, "a turn around": {0, 280}, "many turns": {0, 1e10}} {
+			got, _, err := NewObjectsSorter(sorterCitySchema().GetClass).
+				Sort(objs(), nil, 0, distanceSort("location", "asc", origin[0], origin[1]))
+			require.NoError(t, err)
+			assert.Equal(t, want, cityNames(got), "origin %s", name)
+		}
+	})
+
 	t.Run("a distance sort on another type is an error", func(t *testing.T) {
 		for _, prop := range []string{"name", "population", "phoneNumber", "doesNotExist"} {
 			_, _, err := NewObjectsSorter(sorterCitySchema().GetClass).
