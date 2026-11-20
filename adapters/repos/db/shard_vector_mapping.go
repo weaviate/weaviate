@@ -505,3 +505,234 @@ func (m *vectorIndexMapping) Delete(name string) error {
 	}
 	return nil
 }
+
+// The task section of index.db: one entry per vector whose index is being
+// rebuilt on this shard, keyed like the mapping. Every key and field name is
+// read by later versions; changing one is a format change.
+const (
+	vectorIndexTasksNamespace        = "vector_index_tasks"
+	vectorIndexTasksFormatVersionKey = ".format_version"
+	vectorIndexTasksFormatVersion    = "1"
+)
+
+// vectorIndexTaskIndex is one of the two indexes a task names.
+type vectorIndexTaskIndex struct {
+	PhysicalID string `json:"physical_id"`
+	IndexType  string `json:"index_type"`
+}
+
+// storageID is the ID the index's files are named by, the same rule as a
+// record's.
+func (i vectorIndexTaskIndex) storageID() string {
+	return vectorIndexStorageID(i.PhysicalID)
+}
+
+// recordedID is the physical ID as the task holds it, for messages only.
+func (i vectorIndexTaskIndex) recordedID() string {
+	return i.PhysicalID
+}
+
+func (i vectorIndexTaskIndex) validate() error {
+	if i.PhysicalID == "" {
+		return errors.New("empty physical id")
+	}
+	err := validateVectorIndexID(i.PhysicalID)
+	if err != nil {
+		return fmt.Errorf("physical id: %w", err)
+	}
+	if i.IndexType == "" {
+		return errors.New("empty index type")
+	}
+	return nil
+}
+
+// vectorIndexTask is a rebuild in progress: Candidate is built to replace
+// Source. It is written before any candidate storage exists and removed once
+// the index the mapping does not name is gone.
+type vectorIndexTask struct {
+	TaskID      string               `json:"task_id"`
+	TaskVersion uint64               `json:"task_version"`
+	Source      vectorIndexTaskIndex `json:"source"`
+	Candidate   vectorIndexTaskIndex `json:"candidate"`
+}
+
+func (t vectorIndexTask) validate() error {
+	if t.TaskID == "" {
+		return errors.New("empty task id")
+	}
+	err := t.Source.validate()
+	if err != nil {
+		return fmt.Errorf("source: %w", err)
+	}
+	err = t.Candidate.validate()
+	if err != nil {
+		return fmt.Errorf("candidate: %w", err)
+	}
+	if t.Source.storageID() == t.Candidate.storageID() {
+		return fmt.Errorf("source and candidate are both %q", t.Source.storageID())
+	}
+	return nil
+}
+
+// vectorIndexTasks is the shard's task section in index.db.
+type vectorIndexTasks struct {
+	ns *shardmeta.Namespace
+}
+
+func newVectorIndexTasks(db *shardmeta.DB) *vectorIndexTasks {
+	return &vectorIndexTasks{ns: db.Namespace(vectorIndexTasksNamespace)}
+}
+
+// Load reads every task, keyed by vector name. Anything it cannot account
+// for fails the load, as for the mapping.
+func (t *vectorIndexTasks) Load() (map[string]vectorIndexTask, error) {
+	tasks := map[string]vectorIndexTask{}
+	versioned := false
+	err := t.ns.ForEach(func(key, value []byte) error {
+		k := string(key)
+		if k == vectorIndexTasksFormatVersionKey {
+			err := checkVectorIndexTasksFormatVersion(value)
+			if err != nil {
+				return err
+			}
+			versioned = true
+			return nil
+		}
+		name, ok := vectorIndexMappingName(k)
+		if !ok {
+			return fmt.Errorf("unknown key %q", k)
+		}
+		task, err := decodeVectorIndexTask(name, value)
+		if err != nil {
+			return err
+		}
+		tasks[name] = task
+		return nil
+	})
+	if err == nil && !versioned && len(tasks) > 0 {
+		err = errors.New("tasks without a format version")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load vector index tasks: %w", err)
+	}
+	return tasks, nil
+}
+
+// Get returns name's task, and whether there is one.
+func (t *vectorIndexTasks) Get(name string) (vectorIndexTask, bool, error) {
+	v, err := t.ns.Get([]byte(vectorIndexMappingKey(name)))
+	if err != nil || v == nil {
+		return vectorIndexTask{}, false, err
+	}
+	task, err := decodeVectorIndexTask(name, v)
+	if err != nil {
+		return vectorIndexTask{}, false, err
+	}
+	return task, true, nil
+}
+
+// Put writes or overwrites name's task, and the format version with the
+// first one.
+func (t *vectorIndexTasks) Put(name string, task vectorIndexTask) error {
+	err := t.ns.Update(func(b *shardmeta.Batch) error {
+		return putVectorIndexTask(b, name, task)
+	})
+	if err != nil {
+		return fmt.Errorf("put vector index task %q: %w", name, err)
+	}
+	return nil
+}
+
+// Delete removes name's task. A missing task is already deleted.
+func (t *vectorIndexTasks) Delete(name string) error {
+	err := t.ns.Update(func(b *shardmeta.Batch) error {
+		return b.Delete([]byte(vectorIndexMappingKey(name)))
+	})
+	if err != nil {
+		return fmt.Errorf("delete vector index task %q: %w", name, err)
+	}
+	return nil
+}
+
+// putVectorIndexTask validates and writes one task inside a batch of the
+// task section.
+func putVectorIndexTask(b *shardmeta.Batch, name string, task vectorIndexTask) error {
+	err := task.validate()
+	if err != nil {
+		return fmt.Errorf("task %q: %w", name, err)
+	}
+	value, err := json.Marshal(task)
+	if err != nil {
+		return fmt.Errorf("task %q: %w", name, err)
+	}
+	version, err := b.Get([]byte(vectorIndexTasksFormatVersionKey))
+	if err != nil {
+		return err
+	}
+	if version == nil {
+		err = b.Put([]byte(vectorIndexTasksFormatVersionKey), []byte(vectorIndexTasksFormatVersion))
+		if err != nil {
+			return err
+		}
+	}
+	return b.Put([]byte(vectorIndexMappingKey(name)), value)
+}
+
+func checkVectorIndexTasksFormatVersion(v []byte) error {
+	if string(v) != vectorIndexTasksFormatVersion {
+		return fmt.Errorf("unsupported format version %q, this binary reads %q", v, vectorIndexTasksFormatVersion)
+	}
+	return nil
+}
+
+func decodeVectorIndexTask(name string, value []byte) (vectorIndexTask, error) {
+	var task vectorIndexTask
+	err := json.Unmarshal(value, &task)
+	if err == nil {
+		err = task.validate()
+	}
+	if err != nil {
+		return vectorIndexTask{}, fmt.Errorf("task %q: %w", name, err)
+	}
+	return task, nil
+}
+
+// readVectorIndexTasksOffline reads the tasks of names from a shard that is
+// not loaded, with Load's refusals. A shard without a metadata DB has none.
+func readVectorIndexTasksOffline(shardDir string, names []string) (map[string]vectorIndexTask, error) {
+	keys := make([][]byte, 0, len(names)+1)
+	keys = append(keys, []byte(vectorIndexTasksFormatVersionKey))
+	for _, name := range names {
+		keys = append(keys, []byte(vectorIndexMappingKey(name)))
+	}
+	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexTasksNamespace, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("read vector index tasks: %w", err)
+	}
+	tasks := map[string]vectorIndexTask{}
+	if vals == nil {
+		return tasks, nil
+	}
+	if vals[0] == nil {
+		if slices.ContainsFunc(vals[1:], func(v []byte) bool { return v != nil }) {
+			return nil, errors.New("read vector index tasks: tasks without a format version")
+		}
+		return tasks, nil
+	}
+	err = checkVectorIndexTasksFormatVersion(vals[0])
+	if err != nil {
+		return nil, fmt.Errorf("read vector index tasks: %w", err)
+	}
+	for i, name := range names {
+		v := vals[i+1]
+		if v == nil {
+			continue
+		}
+		task, err := decodeVectorIndexTask(name, v)
+		if err != nil {
+			return nil, fmt.Errorf("read vector index tasks: %w", err)
+		}
+		tasks[name] = task
+	}
+	return tasks, nil
+}
