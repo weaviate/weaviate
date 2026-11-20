@@ -573,8 +573,15 @@ func TestPostingEdge_NamedVectors(t *testing.T) {
 		id := helpers.VectorIndexIDForTarget(name)
 		_, err := os.Stat(filepath.Join(shardPath, helpers.PostingEdgeDirName(id), "meta.json"))
 		require.NoError(t, err, "the index of %q has built its postings", name)
+		staging := helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketStaging, id)
 		for _, bucket := range helpers.PostingEdgeBucketNames(id) {
 			_, err := os.Stat(filepath.Join(shardPath, "lsm", bucket))
+			if bucket == staging {
+				// The vectors it kept aside went with their bucket once the
+				// postings were built.
+				require.True(t, os.IsNotExist(err), "bucket %s", bucket)
+				continue
+			}
 			require.NoError(t, err, "bucket %s", bucket)
 		}
 	}

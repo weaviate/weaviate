@@ -216,19 +216,13 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 	_, statErr := os.Stat(filepath.Join(p.dir, diskMetaFile))
 	switch {
 	case statErr == nil:
-		if err := p.openStaging(ctx); err != nil {
+		// The base is written before the vectors it was built from are let
+		// go: whatever is still kept aside is in the index already.
+		if err := p.dropStaging(ctx); err != nil {
 			return nil, err
 		}
 		if err := p.openGrown(ctx); err != nil {
-			_ = p.closeStaging(ctx)
 			return nil, errors.Wrap(err, "open the index")
-		}
-		// The base is written before the vectors it was built from are let
-		// go: whatever is still kept aside is in the index already.
-		if err := p.clearStaging(); err != nil {
-			_ = p.g.close(ctx)
-			_ = p.closeStaging(ctx)
-			return nil, err
 		}
 	case os.IsNotExist(statErr):
 		// Without a meta there is no base: what there is of one is of a
@@ -299,20 +293,20 @@ func (p *Persistent) loadStaged() error {
 	return errors.Wrap(err, "read the vectors kept aside")
 }
 
-// clearStaging lets go of every vector kept aside.
-func (p *Persistent) clearStaging() error {
-	var keys [][]byte
-	err := growScan(p.staging, func(key, _ []byte) error {
-		keys = append(keys, slices.Clone(key))
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "read the vectors kept aside")
+// dropStaging lets go of every vector kept aside, for good: their bucket
+// leaves the store and its directory is removed. Deleting them one by one
+// would leave their bytes in the segments of the bucket, under their
+// tombstones, for as long as the store did not compact them away: a copy of
+// every vector of the base that nothing reads again. An index with a base
+// keeps nothing aside, so the bucket is not opened again.
+func (p *Persistent) dropStaging(ctx context.Context) error {
+	name := p.stagingName()
+	p.staging = nil
+	if err := shutdownBucket(ctx, p.store, name); err != nil {
+		return errors.Wrapf(err, "close the bucket %s", name)
 	}
-	for _, key := range keys {
-		if err := p.staging.Delete(key); err != nil {
-			return errors.Wrap(err, "release a vector kept aside")
-		}
+	if err := os.RemoveAll(filepath.Join(p.store.GetDir(), name)); err != nil {
+		return errors.Wrapf(err, "remove the bucket %s", name)
 	}
 	clear(p.staged)
 	return nil
@@ -677,7 +671,7 @@ func (p *Persistent) buildBase(ctx context.Context) (err error) {
 		p.failed = err
 		return errors.Wrap(err, "open the base")
 	}
-	if err := p.clearStaging(); err != nil {
+	if err := p.dropStaging(ctx); err != nil {
 		p.failed = err
 		return err
 	}

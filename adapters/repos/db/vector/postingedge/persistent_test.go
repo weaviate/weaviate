@@ -254,9 +254,23 @@ func (f *persistentFixture) recall(t *testing.T, n, k int, held func(id uint64) 
 	return float64(hits) / float64(total)
 }
 
-// keptAside counts the vectors the store holds aside of the base.
+// stagingDir is where the store keeps the vectors the index holds aside of
+// its base.
+func (f *persistentFixture) stagingDir() string {
+	return filepath.Join(f.root, "lsm", helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketStaging, f.cfg.ID))
+}
+
+// keptAside counts the vectors the store holds aside of the base. An index
+// with a base holds none, and nothing of their bucket is left on disk: the
+// bytes of the vectors would stay there under their tombstones.
 func (f *persistentFixture) keptAside(t *testing.T) int {
 	t.Helper()
+	if f.index.g != nil {
+		require.Nil(t, f.index.staging, "an index with a base keeps nothing aside")
+		_, err := os.Stat(f.stagingDir())
+		require.True(t, os.IsNotExist(err), "the bucket of the vectors kept aside is still on disk: %v", err)
+		return 0
+	}
 	count := 0
 	require.NoError(t, growScan(f.index.staging, func(_, _ []byte) error {
 		count++
@@ -318,6 +332,7 @@ func TestPersistentGrowsFromEmpty(t *testing.T) {
 	// Before the base, every answer is exact.
 	f.add(t, 0, half)
 	require.Nil(t, f.index.g, "no base yet")
+	require.Equal(t, half, f.keptAside(t))
 	assert.Equal(t, 1.0, f.recall(t, half, k, nil), "exact while the vectors are kept aside")
 	for id := range uint64(half) {
 		require.True(t, f.index.ContainsDoc(id))
@@ -919,7 +934,13 @@ func TestPersistentBuckets(t *testing.T) {
 	require.NoError(t, f.index.Delete(3))
 	f.cycle()
 
-	listed := helpers.PostingEdgeBucketNames(f.cfg.ID)
+	// Every bucket the index can have is in the list a shard removes by. With
+	// its base built it has them all but the one of the vectors it kept aside
+	// before, which went with them.
+	everyName := helpers.PostingEdgeBucketNames(f.cfg.ID)
+	staging := helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketStaging, f.cfg.ID)
+	require.Contains(t, everyName, staging)
+	listed := slices.DeleteFunc(slices.Clone(everyName), func(name string) bool { return name == staging })
 	inStore := func() []string {
 		entries, err := os.ReadDir(filepath.Join(f.root, "lsm"))
 		require.NoError(t, err)
@@ -1017,16 +1038,20 @@ func TestPersistentInterruptedBase(t *testing.T) {
 		f.add(t, 0, persistentBase)
 		require.NotNil(t, f.index.g)
 		// The build stopped between writing the meta and letting go of the
-		// vectors: they are in the base and kept aside.
+		// vectors: they are in the base and their bucket is still there.
+		name := helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketStaging, f.cfg.ID)
+		require.NoError(t, f.store.CreateOrLoadBucket(context.Background(), name, lsmkv.WithStrategy(lsmkv.StrategyReplace)))
 		for id := range uint64(10) {
 			raw := make([]byte, 4*persistentDims)
 			for i, x := range f.normalized[id] {
 				putFloat32(raw[4*i:], x)
 			}
-			require.NoError(t, f.index.staging.Put(growDocKey(id), raw))
+			require.NoError(t, f.store.Bucket(name).Put(growDocKey(id), raw))
 		}
 		before := f.answers(t, k)
 		f.restart(t)
+		_, err := os.Stat(f.stagingDir())
+		require.True(t, os.IsNotExist(err), "the bucket of the vectors kept aside is removed when the index opens")
 
 		require.NotNil(t, f.index.g)
 		assert.Zero(t, f.keptAside(t))
