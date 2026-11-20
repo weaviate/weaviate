@@ -310,6 +310,81 @@ func TestNamespace_Update(t *testing.T) {
 	assert.Nil(t, v)
 }
 
+func TestUpdate_SeveralNamespaces(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	mapping := db.Namespace("mapping")
+	tasks := db.Namespace("tasks")
+	require.NoError(t, mapping.Put([]byte("title"), []byte{1}))
+	require.NoError(t, tasks.Put([]byte("title"), []byte{2}))
+
+	t.Run("writes to every namespace land together", func(t *testing.T) {
+		err := Update([]*Namespace{mapping, tasks}, func(batches []*Batch) error {
+			if err := batches[0].Put([]byte("body"), []byte{3}); err != nil {
+				return err
+			}
+			return batches[1].Delete([]byte("title"))
+		})
+		require.NoError(t, err)
+		v, err := mapping.Get([]byte("body"))
+		require.NoError(t, err)
+		assert.Equal(t, []byte{3}, v)
+		v, err = tasks.Get([]byte("title"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("each batch reaches its own namespace only", func(t *testing.T) {
+		err := Update([]*Namespace{mapping, tasks}, func(batches []*Batch) error {
+			v, err := batches[1].Get([]byte("body"))
+			if err != nil {
+				return err
+			}
+			assert.Nil(t, v)
+			return batches[1].Put([]byte("only-tasks"), []byte{4})
+		})
+		require.NoError(t, err)
+		v, err := mapping.Get([]byte("only-tasks"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("an error rolls back every namespace", func(t *testing.T) {
+		boom := errors.New("boom")
+		err := Update([]*Namespace{mapping, tasks}, func(batches []*Batch) error {
+			if err := batches[0].Delete([]byte("title")); err != nil {
+				return err
+			}
+			if err := batches[1].Put([]byte("title"), []byte{5}); err != nil {
+				return err
+			}
+			return boom
+		})
+		require.ErrorIs(t, err, boom)
+		v, err := mapping.Get([]byte("title"))
+		require.NoError(t, err)
+		assert.Equal(t, []byte{1}, v)
+		v, err = tasks.Get([]byte("title"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("refuses namespaces of another DB", func(t *testing.T) {
+		other := openTestDB(t, t.TempDir())
+		err := Update([]*Namespace{mapping, other.Namespace("tasks")}, func([]*Batch) error { return nil })
+		require.ErrorContains(t, err, "another shard metadata db")
+	})
+
+	t.Run("refuses a namespace named twice", func(t *testing.T) {
+		err := Update([]*Namespace{mapping, db.Namespace("mapping")}, func([]*Batch) error { return nil })
+		require.ErrorContains(t, err, "twice")
+	})
+
+	t.Run("refuses no namespace", func(t *testing.T) {
+		err := Update(nil, func([]*Batch) error { return nil })
+		require.Error(t, err)
+	})
+}
+
 // TestNamespace_Update_CopiesValues pins that a batch does not keep the
 // caller's buffer: bolt retains a Put value until the transaction commits,
 // and the callback keeps running in between.
