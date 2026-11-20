@@ -230,7 +230,7 @@ func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
 		return err
 	}
 
-	if vals, skip := c.cleanupValues(value); !skip {
+	if vals, skip := c.cleanupValues(c.cancelDeleted(value)); !skip {
 		ki, err := c.writeIndividualNode(f, *offset, key, vals)
 		if err != nil {
 			return errors.Wrap(err, "write individual node")
@@ -239,6 +239,35 @@ func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
 		*kis = append(*kis, ki)
 	}
 	return nil
+}
+
+// cancelDeleted takes out of the values of a single segment those that a
+// later tombstone of the same segment deletes, before the tombstones are
+// cleaned up. A value and its tombstone only cancel out in the decoder:
+// without it, the cleanup drops the tombstone and the deleted value stays,
+// deleted no more.
+//
+// Nothing changes while tombstones are kept, or when there is none: the
+// values go on as they are, and the decoder of a read or of a later
+// compaction cancels them out.
+func (c *compactorSet) cancelDeleted(values []value) []value {
+	if !c.cleanupTombstones {
+		return values
+	}
+	deleted := false
+	for i := range values {
+		if values[i].tombstone {
+			deleted = true
+			break
+		}
+	}
+	if !deleted {
+		return values
+	}
+	// The decoder overwrites entries, and the values are the cursor's to
+	// reuse: it works on a copy of the entries, as it does for a key pair.
+	c.mergedValues = append(c.mergedValues[:0], values...)
+	return c.setDecoder.DoPartial(c.mergedValues)
 }
 
 func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
