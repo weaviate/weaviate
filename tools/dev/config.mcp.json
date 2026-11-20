@@ -26,6 +26,9 @@
         "collection_name": "The name of the collection to upsert objects into.",
         "objects": "An array of objects to upsert. Each must have 'properties' and may optionally include 'uuid' and 'vectors'."
       }
+    },
+    "weaviate-collections-create": {
+      "description": "Creates a new collection in the Weaviate database. Define its properties, named vectors, module, multi-tenancy, inverted index, replication and object TTL settings in one call; nested settings use the same shapes that weaviate-collections-get-config returns. Fails if a collection with the same name already exists."
     }
   }
 }

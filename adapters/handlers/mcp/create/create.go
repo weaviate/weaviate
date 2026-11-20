@@ -13,9 +13,11 @@ package create
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -25,6 +27,7 @@ type WeaviateCreator struct {
 	auth.Auth
 
 	batchManager       batchManager
+	schemaManager      schemaManager
 	logger             logrus.FieldLogger
 	writeAccessEnabled func() bool
 }
@@ -34,12 +37,19 @@ type batchManager interface {
 		objects []*models.Object, fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 
+type schemaManager interface {
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
+}
+
 // NewWeaviateCreator creates a new WeaviateCreator. The writeAccessEnabled
-// callback is checked at every UpsertObject call so the runtime-configurable
+// callback is checked at every write tool call so the runtime-configurable
 // MCP_SERVER_WRITE_ACCESS_ENABLED flag can be honored without a restart.
-func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager, logger logrus.FieldLogger, writeAccessEnabled func() bool) *WeaviateCreator {
+func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager, schemaManager schemaManager,
+	logger logrus.FieldLogger, writeAccessEnabled func() bool,
+) *WeaviateCreator {
 	return &WeaviateCreator{
 		batchManager:       batchManager,
+		schemaManager:      schemaManager,
 		Auth:               *auth,
 		logger:             logger,
 		writeAccessEnabled: writeAccessEnabled,
@@ -53,4 +63,17 @@ func (c *WeaviateCreator) IsWriteAccessEnabled() bool {
 		return false
 	}
 	return c.writeAccessEnabled()
+}
+
+// requireWriteAccess rejects a write tool call while write access is disabled,
+// even though the tool is still registered.
+func (c *WeaviateCreator) requireWriteAccess() error {
+	if c.IsWriteAccessEnabled() {
+		return nil
+	}
+	return fmt.Errorf("%w. Enable it in your cluster configuration: set "+
+		"MCP_SERVER_WRITE_ACCESS_ENABLED=true, set the mcp_server_write_access_enabled "+
+		"runtime override, or turn off the Enable MCP Read-Only switch in the Weaviate "+
+		"Cloud console. See https://docs.weaviate.io/weaviate/configuration/mcp-server",
+		mcpmetrics.ErrWriteDisabled)
 }

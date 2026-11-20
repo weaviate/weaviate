@@ -448,6 +448,54 @@ func TestMCPPermissionSeparation(t *testing.T) {
 	})
 }
 
+// TestMCPCollectionsCreateAuthZ pins that weaviate-collections-create needs
+// both create_mcp and create_collections.
+func TestMCPCollectionsCreateAuthZ(t *testing.T) {
+	adminKey := "admin-key"
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	compose, down := composeUpShared(t)
+	defer down()
+
+	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
+	adminAuth := helper.CreateAuth(adminKey)
+
+	className := "MCPCreateAuthZ"
+	helper.DeleteClassWithAuthz(t, className, adminAuth)
+	defer helper.DeleteClassWithAuthz(t, className, adminAuth)
+
+	mcpRole, collectionsRole := "mcp-create-role", "mcp-create-collections-role"
+	for name, perm := range map[string]*models.Permission{
+		mcpRole:         {Action: &authorization.CreateMcp},
+		collectionsRole: {Action: &authorization.CreateCollections, Collections: &models.PermissionCollections{Collection: &className}},
+	} {
+		helper.DeleteRole(t, adminKey, name)
+		helper.CreateRole(t, adminKey, &models.Role{Name: &name, Permissions: []*models.Permission{perm}})
+	}
+	// Deleting a role also drops its user assignments.
+	defer helper.DeleteRole(t, adminKey, mcpRole)
+	defer helper.DeleteRole(t, adminKey, collectionsRole)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	args := create.CreateCollectionArgs{CollectionName: className}
+	var resp create.CreateCollectionResp
+
+	helper.AssignRoleToUser(t, adminKey, mcpRole, customUser)
+	err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-create", customKey, args, &resp)
+	require.ErrorContains(t, err, "forbidden")
+
+	helper.RevokeRoleFromUser(t, adminKey, mcpRole, customUser)
+	helper.AssignRoleToUser(t, adminKey, collectionsRole, customUser)
+	err = callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-create", customKey, args, &resp)
+	require.ErrorContains(t, err, "forbidden")
+
+	helper.AssignRoleToUser(t, adminKey, mcpRole, customUser)
+	require.NoError(t, callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-create", customKey, args, &resp))
+	require.Equal(t, className, resp.Collection.Class)
+}
+
 // TestMCPTenantsListAuthZ pins down that weaviate-tenants-list only requires
 // read_mcp + read_tenants — not read_data. A pre-fix CollectionsData
 // pre-check would have denied the read_tenants-only role.
