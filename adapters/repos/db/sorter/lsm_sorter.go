@@ -61,6 +61,10 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 }
 
 func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
+	if docIDs, ok, err := s.sortByGeoIndex(ctx, limit, sort, nil); err != nil || ok {
+		return docIDs, err
+	}
+
 	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, nil, limit, sort)
 	if err != nil {
@@ -90,6 +94,10 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 }
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
+	if docIDs, ok, err := s.sortByGeoIndex(ctx, limit, sort, ids); err != nil || ok {
+		return docIDs, err
+	}
+
 	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, ids, limit, sort)
 	if err != nil {
@@ -115,6 +123,85 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 	return helper.getSortedDocIDs(ctx, ids)
 }
 
+// FixedCostGeoPoint is the cost of checking one point of a geo bucket against
+// a nearest search: a distance on 16 bytes read in sequence, a small fraction
+// of an inverted row.
+const FixedCostGeoPoint = 5
+
+// sortByGeoIndex answers a sort by ascending distance from the property's geo
+// bucket, which finds the nearest points without reading an object. ok is
+// false when it does not apply and the caller sorts the objects instead:
+//
+//   - the sort is not a single ascending distance on an indexed property,
+//   - a filter leaves so few objects that reading them is cheaper than walking
+//     the tree past everything the filter excludes,
+//   - the bucket holds fewer than limit candidates, so objects without
+//     coordinates, which only the objects bucket knows, fill the result.
+func (s *lsmSorter) sortByGeoIndex(ctx context.Context, limit int, sort []filters.Sort,
+	ids helpers.AllowList,
+) (docIDs []uint64, ok bool, err error) {
+	// before the planner can hand a number or a date to the inverted sorter,
+	// which would order it by value and never see the origin
+	for _, srt := range sort {
+		if srt.DistanceFrom == nil || len(srt.Path) != 1 {
+			continue
+		}
+		if dt := s.dataTypesHelper.getType(srt.Path[0]); dt != schema.DataTypeGeoCoordinates {
+			return nil, false, fmt.Errorf("sorting by distance needs a geoCoordinates property, %q is of type %q",
+				srt.Path[0], dt)
+		}
+	}
+	if len(sort) != 1 || sort[0].DistanceFrom == nil || sort[0].Order == "desc" ||
+		len(sort[0].Path) != 1 || limit <= 0 {
+		return nil, false, nil
+	}
+	propName := sort[0].Path[0]
+
+	var allow func(docID uint64) bool
+	if ids != nil {
+		matches := ids.Len()
+		if matches <= limit {
+			return nil, false, nil
+		}
+		// the tree passes limit/ratio points before it has limit allowed ones
+		pointsVisited := float64(limit) * float64(s.bucket.CountAsync()) / float64(matches)
+		costGeo := FixedCostGeoPoint * max(pointsVisited, float64(limit))
+		costObjects := float64(FixedCostObjectsBucketRow) * float64(matches)
+		if costGeo > costObjects {
+			helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+				fmt.Sprintf("geo index cost %.2f above objects bucket cost %.2f for %d matches, "+
+					"sorting objects by distance", costGeo, costObjects, matches))
+			return nil, false, nil
+		}
+		allow = ids.Contains
+	}
+
+	// pinned for the search: an unpinned pointer can be shut down under it
+	bucketName := helpers.BucketGeoFromPropNameLSM(propName)
+	bucket, release := s.store.AcquireBucketForRead(bucketName)
+	if bucket == nil {
+		return nil, false, nil // not indexed
+	}
+	defer release()
+
+	origin := sort[0].DistanceFrom
+	neighbors, err := bucket.GeoPointsNearest(ctx, origin.Latitude, origin.Longitude, limit, allow)
+	if err != nil {
+		return nil, false, fmt.Errorf("nearest in geo bucket %q: %w", bucketName, err)
+	}
+	if len(neighbors) < limit {
+		return nil, false, nil
+	}
+
+	docIDs = make([]uint64, len(neighbors))
+	for i := range neighbors {
+		docIDs[i] = neighbors[i].DocID
+	}
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("sorted by distance from the geo index of property '%s'", propName))
+	return docIDs, true, nil
+}
+
 func (s *lsmSorter) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
 	ids []uint64, dists []float32,
 ) ([]uint64, []float32, error) {
@@ -131,8 +218,12 @@ func (s *lsmSorter) createHelper(sort []filters.Sort, limit int) (*lsmSorterHelp
 		return nil, err
 	}
 
-	comparator := newComparator(s.dataTypesHelper, propNames, orders)
-	creator := newComparableCreator(s.valueExtractor, propNames)
+	origins := extractDistanceOrigins(sort)
+	if err := validateDistanceOrigins(s.dataTypesHelper, propNames, origins); err != nil {
+		return nil, err
+	}
+	comparator := newComparator(s.dataTypesHelper, propNames, orders, origins)
+	creator := newComparableCreator(s.valueExtractor, propNames, origins)
 	return newLsmSorterHelper(s.bucket, comparator, creator, limit), nil
 }
 

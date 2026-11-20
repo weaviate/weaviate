@@ -66,12 +66,19 @@ message GroupBy {
 }
 
 message SortBy {
+  message GeoOrigin {
+    float latitude = 1;
+    float longitude = 2;
+  }
   bool ascending = 1;
   // currently only supports one entry (eg just properties, no refs). But the
   // weaviate datastructure already has paths in it and this makes it easily
   // extendable in the future
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated string path = 2;
+  // only for a geoCoordinates property: sort by the distance from this point
+  // instead of by the coordinates. Objects without the property come last.
+  optional GeoOrigin distance_from = 3;
 }
 
 message MetadataRequest {
@@ -247,12 +254,24 @@ message Boost {
     optional DecayCurve curve = 5;
     optional float decay_value = 6;
   }
+  // Scores a geoCoordinates property by its great-circle distance from the
+  // origin; scale and offset are meters.
+  message GeoDecayFunction {
+    string property = 1;
+    float latitude = 2;
+    float longitude = 3;
+    double scale = 4;
+    optional double offset = 5;
+    optional DecayCurve curve = 6;
+    optional float decay_value = 7;
+  }
   message Condition {
     oneof condition {
       Filters filter = 1;
       TimeDecayFunction time_decay = 2;
       PropertyValueFunction property_value = 3;
       NumericDecayFunction numeric_decay = 4;
+      GeoDecayFunction geo_decay = 6;
     }
     optional float weight = 5;
   }

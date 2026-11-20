@@ -13,6 +13,7 @@ package filters
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -58,6 +59,10 @@ func validateSortClause(getClass func(string) *models.Class, className schema.Cl
 		propName := schema.PropertyName(path[0])
 		if IsInternalProperty(propName) {
 			// handle internal properties
+			if sort.DistanceFrom != nil {
+				return errors.Errorf("sorting by distance needs a geoCoordinates property, "+
+					"%q is not one", propName)
+			}
 			return nil
 		}
 
@@ -75,6 +80,17 @@ func validateSortClause(getClass func(string) *models.Class, className schema.Cl
 		if schema.IsRefDataType(prop.DataType) {
 			return errors.Errorf("sorting by reference not supported, "+
 				"property %q is a ref prop to the class %q", propName, prop.DataType[0])
+		}
+		if origin := sort.DistanceFrom; origin != nil {
+			if schema.DataType(prop.DataType[0]) != schema.DataTypeGeoCoordinates {
+				return errors.Errorf("sorting by distance needs a geoCoordinates property, "+
+					"%q is of type %q", propName, prop.DataType[0])
+			}
+			for _, v := range []float32{origin.Latitude, origin.Longitude} {
+				if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+					return errors.Errorf("sorting by distance: the origin's coordinates must be finite numbers")
+				}
+			}
 		}
 		return nil
 	default:

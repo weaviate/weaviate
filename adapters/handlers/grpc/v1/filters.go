@@ -86,6 +86,8 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			returnFilter.Operator = filters.OperatorLessThanEqual
 		case pb.Filters_OPERATOR_WITHIN_GEO_RANGE:
 			returnFilter.Operator = filters.OperatorWithinGeoRange
+		case pb.Filters_OPERATOR_WITHIN_GEO_BOX:
+			returnFilter.Operator = filters.OperatorWithinGeoBox
 		case pb.Filters_OPERATOR_LIKE:
 			returnFilter.Operator = filters.OperatorLike
 		case pb.Filters_OPERATOR_IS_NULL:
@@ -158,6 +160,12 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 					Longitude: &valueFilter.Longitude,
 				},
 				Distance: valueFilter.Distance,
+			}
+		case *pb.Filters_ValueGeoBox:
+			box := filterIn.GetValueGeoBox()
+			val = filters.GeoBox{
+				SouthWest: &models.GeoCoordinates{Latitude: &box.SouthLatitude, Longitude: &box.WestLongitude},
+				NorthEast: &models.GeoCoordinates{Latitude: &box.NorthLatitude, Longitude: &box.EastLongitude},
 			}
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)

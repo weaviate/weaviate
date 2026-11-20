@@ -731,22 +731,39 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 	valueType schema.DataType, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	if valueType != schema.DataTypeGeoCoordinates {
-		return nil, fmt.Errorf("prop %q is of type geoCoordinates, it can only"+
-			"be used with geoRange filters", prop.Name)
+		return nil, fmt.Errorf("prop %q is of type geoCoordinates, it can only "+
+			"be used with geo range and geo box filters", prop.Name)
 	}
 
-	parsed := value.(filters.GeoRange)
-
-	return &propValuePair{
+	pv := &propValuePair{
 		value:              nil, // not going to be served by an inverted index
-		valueGeoRange:      &parsed,
 		prop:               prop.Name,
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
 		hasRangeableIndex:  s.hasUsableRangeableIndex(prop),
 		Class:              class,
-	}, nil
+	}
+
+	// the value arrives from a request: a mismatch is an error, not a panic
+	switch parsed := value.(type) {
+	case filters.GeoRange:
+		if operator != filters.OperatorWithinGeoRange {
+			return nil, fmt.Errorf("prop %q: a geo range value needs operator %s, got %s",
+				prop.Name, filters.OperatorWithinGeoRange.Name(), operator.Name())
+		}
+		pv.valueGeoRange = &parsed
+	case filters.GeoBox:
+		if operator != filters.OperatorWithinGeoBox {
+			return nil, fmt.Errorf("prop %q: a geo box value needs operator %s, got %s",
+				prop.Name, filters.OperatorWithinGeoBox.Name(), operator.Name())
+		}
+		pv.valueGeoBox = &parsed
+	default:
+		return nil, fmt.Errorf("prop %q is of type geoCoordinates, it can only "+
+			"be used with geo range and geo box filters, got a value of type %T", prop.Name, value)
+	}
+	return pv, nil
 }
 
 func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},

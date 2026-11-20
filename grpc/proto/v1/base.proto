@@ -93,6 +93,7 @@ message Filters {
     OPERATOR_CONTAINS_ALL = 13;
     OPERATOR_CONTAINS_NONE = 14;
     OPERATOR_NOT = 15;
+    OPERATOR_WITHIN_GEO_BOX = 16;
   }
 
   Operator operator = 1;
@@ -109,6 +110,7 @@ message Filters {
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
     GeoCoordinatesFilter value_geo = 13;
+    GeoBoundingBoxFilter value_geo_box = 14;
   };
   FilterTarget target = 20; // leave space for more filter values
 }
@@ -141,6 +143,16 @@ message GeoCoordinatesFilter {
   float latitude = 1;
   float longitude = 2;
   float distance = 3;
+}
+
+// A rectangle of coordinates, edges included. It runs east from the west
+// longitude to the east one, so a west longitude greater than the east one
+// spans the antimeridian.
+message GeoBoundingBoxFilter {
+  float south_latitude = 1;
+  float west_longitude = 2;
+  float north_latitude = 3;
+  float east_longitude = 4;
 }
 
 message Vectors {

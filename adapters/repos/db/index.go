@@ -2919,6 +2919,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
+	if len(sort) > 0 && len(readPlan.Shards()) > 1 {
+		properties, addlProps = withSortProperties(properties, addlProps, sort)
+	}
+
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties)
 	if err != nil {
 		return nil, nil, err
@@ -3166,6 +3170,31 @@ func (i *Index) sortKeywordRanking(objects []*storobj.Object,
 	return newScoresSorter().sort(objects, scores)
 }
 
+// withSortProperties adds the properties a sort orders by to those the shards
+// read. Each shard sorts from its own storage, but the merge of several shards
+// sorts the objects they return, which under a filter carry only the selected
+// properties: without its keys the merge keeps the shards' results one after
+// the other and cuts the limit off the first.
+func withSortProperties(properties []string, addlProps additional.Properties,
+	sort []filters.Sort,
+) ([]string, additional.Properties) {
+	out := properties
+	for _, srt := range sort {
+		if len(srt.Path) != 1 || filters.IsInternalProperty(schema.PropertyName(srt.Path[0])) ||
+			slices.Contains(out, srt.Path[0]) {
+			continue
+		}
+		if len(out) == len(properties) {
+			out = slices.Clone(properties) // the caller's slice is not ours to grow
+		}
+		out = append(out, srt.Path[0])
+	}
+	if len(out) > len(properties) {
+		addlProps.NoProps = false
+	}
+	return out, addlProps
+}
+
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
 	sort []filters.Sort, limit int,
 ) ([]*storobj.Object, []float32, error) {
@@ -3311,6 +3340,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 				sort, groupBy, additionalProps, shard, targetCombination, properties)
 		}
+	}
+
+	if len(sort) > 0 && len(readPlan.Shards()) > 1 {
+		properties, additionalProps = withSortProperties(properties, additionalProps, sort)
 	}
 
 	// a limit of -1 is used to signal a search by distance. if that is

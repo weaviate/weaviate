@@ -151,6 +151,26 @@ func (fc *float64Comparator) untypedNil(x interface{}) interface{} {
 	return x
 }
 
+// distanceComparator orders distances like float64Comparator, except that an
+// object without one comes last in either order: it is neither the nearest
+// nor the farthest.
+type distanceComparator struct {
+	fc *float64Comparator
+}
+
+func newDistanceComparator(order string) *distanceComparator {
+	return &distanceComparator{newFloat64Comparator(order)}
+}
+
+func (dc *distanceComparator) compare(a, b interface{}) int {
+	a, b = dc.fc.untypedNil(a), dc.fc.untypedNil(b)
+	if a != nil && b != nil {
+		return dc.fc.compareFloats64(*a.(*float64), *b.(*float64))
+	}
+	// the ascending answer of handleNils, mirrored: nil is the greater
+	return -handleNils(a == nil, b == nil, lessValue("asc"))
+}
+
 type float64ArrayComparator struct {
 	fc *float64Comparator
 	ic *intComparator

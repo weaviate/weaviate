@@ -80,6 +80,51 @@ func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sro
 	return nil
 }
 
+func (m *Memtable) WithinBox(ctx context.Context, q *BoxQuery, out, deleted *sroar.Bitmap) error {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	deleted.Or(m.deleted)
+	var matches []uint64 // in arrival order, which is nearly doc ID order
+	for i := range m.points {
+		if i%4096 == 4095 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		p := &m.points[i]
+		if q.Contains(p.Lat, p.Lon) {
+			matches = append(matches, p.DocID)
+		}
+	}
+	addSorted(out, matches)
+	return nil
+}
+
+func (m *Memtable) CollectDeletions(deleted *sroar.Bitmap) error {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	deleted.Or(m.deleted)
+	return nil
+}
+
+func (m *Memtable) Nearest(ctx context.Context, n *Nearest) error {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	for i := range m.points {
+		if i%4096 == 4095 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		p := &m.points[i]
+		n.offer(p.DocID, p.Lat, p.Lon)
+	}
+	return nil
+}
+
 // Body is the segment content for a flush. A point this memtable also removes
 // is dropped along with the removal, which can refer to nothing else since a
 // doc ID is added once.

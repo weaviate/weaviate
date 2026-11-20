@@ -1581,3 +1581,41 @@ func TestRefTargetCollectionStripping(t *testing.T) {
 		})
 	}
 }
+
+// A property selected only to boost by (extractPropertiesForBoost) is read
+// from storage but must not reach the reply, whatever its type.
+func TestReplyOmitsBoostProperties(t *testing.T) {
+	lat, lon := float32(52.5), float32(13.4)
+	result := map[string]interface{}{
+		"name":     "berlin",
+		"number":   float64(3),
+		"int":      float64(7),
+		"date":     "2026-01-02T03:04:05Z",
+		"location": &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+	}
+	properties := search.SelectProperties{
+		{Name: "name", IsPrimitive: true},
+		{Name: "number"},
+		{Name: "int"},
+		{Name: "date"},
+		{Name: "location"},
+	}
+
+	replier := NewReplier(false, fakeGenerativeParams{}, nil, nil)
+	got, err := replier.extractPropertiesAnswer(newSchemaResolver(getClass), result, properties,
+		boostClass, additional.Properties{})
+	require.NoError(t, err)
+	require.NotNil(t, got.NonRefProps)
+	require.Len(t, got.NonRefProps.Fields, 1)
+	require.Equal(t, "berlin", got.NonRefProps.Fields["name"].GetTextValue())
+	require.Empty(t, got.RefProps)
+	require.False(t, got.RefPropsRequested)
+
+	t.Run("also when the object lacks them", func(t *testing.T) {
+		got, err := replier.extractPropertiesAnswer(newSchemaResolver(getClass),
+			map[string]interface{}{"name": "nowhere"}, properties, boostClass, additional.Properties{})
+		require.NoError(t, err)
+		require.Len(t, got.NonRefProps.Fields, 1)
+		require.Empty(t, got.RefProps)
+	})
+}

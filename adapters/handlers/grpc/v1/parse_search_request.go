@@ -462,7 +462,67 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	if err := p.extractPropertiesForModules(&out); err != nil {
 		return dto.GetParams{}, err
 	}
+	p.extractPropertiesForBoost(&out, class)
 	return out, nil
+}
+
+// extractPropertiesForBoost selects the properties a boost scores by. It reads
+// them from the objects a search returns, which carry only the selected
+// properties: without them a boost on a property the user did not select
+// scores every object 0. They are selected as non-primitive, like the blobs of
+// extractPropertiesForModules, so the reply leaves them out.
+func (p *Parser) extractPropertiesForBoost(params *dto.GetParams, class *models.Class) {
+	if params.Boost == nil {
+		return
+	}
+	var names []string
+	for _, cond := range params.Boost.Conditions {
+		switch {
+		case cond.Decay != nil && cond.Decay.Path != nil:
+			names = append(names, string(cond.Decay.Path.Property))
+		case cond.PropertyValue != nil && cond.PropertyValue.Path != nil:
+			names = append(names, string(cond.PropertyValue.Path.Property))
+		case cond.Filter != nil:
+			names = appendClauseProperties(names, cond.Filter.Root)
+		}
+	}
+
+	selected := params.Properties.Indexed()
+	for _, name := range names {
+		if selected.Find(name) != nil {
+			continue
+		}
+		prop, err := schema.GetPropertyByName(class, name)
+		if err != nil {
+			continue // a boost filter on an internal property such as _creationTimeUnix
+		}
+		// an array would read as references in the reply, and a boost reads
+		// nothing but a primitive
+		dt, ok := schema.AsPrimitive(prop.DataType)
+		if _, isArray := schema.IsArrayType(dt); !ok || isArray {
+			continue
+		}
+		params.Properties = append(params.Properties, search.SelectProperty{Name: name})
+		selected = params.Properties.Indexed()
+	}
+	if len(params.Properties) > 0 {
+		params.AdditionalProperties.NoProps = false
+	}
+}
+
+// appendClauseProperties appends the properties of the class itself that a
+// filter clause tests; a path into a reference is not read from the object.
+func appendClauseProperties(names []string, clause *filters.Clause) []string {
+	if clause == nil {
+		return names
+	}
+	if clause.On != nil && clause.On.Child == nil {
+		names = append(names, string(clause.On.Property))
+	}
+	for i := range clause.Operands {
+		names = appendClauseProperties(names, &clause.Operands[i])
+	}
+	return names
 }
 
 func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
@@ -659,6 +719,12 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 			order = "desc"
 		}
 		sortOut[i] = filters.Sort{Order: order, Path: sortIn[i].Path}
+		if origin := sortIn[i].DistanceFrom; origin != nil {
+			sortOut[i].DistanceFrom = &filters.SortGeoOrigin{
+				Latitude:  origin.GetLatitude(),
+				Longitude: origin.GetLongitude(),
+			}
+		}
 	}
 	return sortOut
 }
@@ -735,6 +801,12 @@ func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tena
 		pc.Decay = decay
 	case *pb.Boost_Condition_NumericDecay:
 		decay, err := p.extractNumericDecayFunction(c.NumericDecay, className, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.Decay = decay
+	case *pb.Boost_Condition_GeoDecay:
+		decay, err := p.extractGeoDecayFunction(c.GeoDecay, className, idx)
 		if err != nil {
 			return filters.BoostCondition{}, err
 		}
@@ -899,6 +971,46 @@ func (p *Parser) extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, c
 		Path:          &filters.Path{Property: schema.PropertyName(prop)},
 		IsNumeric:     true,
 		OriginNumeric: d.GetOrigin(),
+		ScaleNumeric:  d.GetScale(),
+		OffsetNumeric: offset,
+		Curve:         extractDecayCurve(d.GetCurve()),
+		DecayValue:    decayValue,
+	}, nil
+}
+
+func (p *Parser) extractGeoDecayFunction(d *pb.Boost_GeoDecayFunction, className string, condIdx int) (*filters.Decay, error) {
+	if d == nil {
+		return nil, nil
+	}
+
+	prop := d.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] geo_decay: property is required", condIdx)
+	}
+
+	dt, err := p.boostPropertyDataType(className, prop, "geo_decay", condIdx)
+	if err != nil {
+		return nil, err
+	}
+	if dt != schema.DataTypeGeoCoordinates {
+		return nil, fmt.Errorf("boost condition[%d] geo_decay: property %q must be of type geoCoordinates, got %s",
+			condIdx, prop, dt)
+	}
+
+	decayValue := float32(0.5)
+	if d.DecayValue != nil {
+		decayValue = d.GetDecayValue()
+	}
+
+	var offset float64
+	if d.Offset != nil {
+		offset = d.GetOffset()
+	}
+
+	return &filters.Decay{
+		Path:          &filters.Path{Property: schema.PropertyName(prop)},
+		IsGeo:         true,
+		OriginGeo:     filters.GeoOrigin{Latitude: d.GetLatitude(), Longitude: d.GetLongitude()},
 		ScaleNumeric:  d.GetScale(),
 		OffsetNumeric: offset,
 		Curve:         extractDecayCurve(d.GetCurve()),

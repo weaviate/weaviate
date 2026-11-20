@@ -74,7 +74,9 @@ func Canonical(lat, lon float32) (float32, float32) {
 }
 
 // Distance is the haversine distance in meters, with the exact arithmetic of
-// the former geo HNSW distancer so a filter's boundary has not moved.
+// the former geo HNSW distancer so a filter's boundary has not moved. The one
+// departure is for antipodal points, whose haversine term can round to just
+// above 1: there the former distancer returned NaN, this half the circumference.
 func Distance(latA, lonA, latB, lonB float32) float32 {
 	latARadian := float64(latA * math.Pi / 180)
 	latBRadian := float64(latB * math.Pi / 180)
@@ -84,7 +86,7 @@ func Distance(latA, lonA, latB, lonB float32) float32 {
 	a := math.Sin(deltaLatRadian/2)*math.Sin(deltaLatRadian/2) +
 		math.Cos(latARadian)*math.Cos(latBRadian)*math.Sin(deltaLonRadian/2)*math.Sin(deltaLonRadian/2)
 
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(max(1-a, 0)))
 
 	return float32(earthRadiusMeters * c)
 }
@@ -504,5 +506,5 @@ func (c *Circle) haversine(lat, lon float32) float64 {
 }
 
 func (c *Circle) finish(a float64) float32 {
-	return float32(earthRadiusMeters * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a)))
+	return float32(earthRadiusMeters * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(max(1-a, 0))))
 }

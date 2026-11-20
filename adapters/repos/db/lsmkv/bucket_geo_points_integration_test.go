@@ -98,7 +98,81 @@ func (f *geoFixture) check(t *testing.T, b *Bucket, queries int) {
 		got, err := b.GeoPointsWithinRange(context.Background(), lat, lon, dist)
 		require.NoError(t, err)
 		require.Equal(t, want, got.ToArray(), "circle (%v, %v, %v)", lat, lon, dist)
+
+		f.checkBox(t, b, lat, lon)
+		f.checkNearest(t, b, lat, lon)
 	}
+}
+
+// checkBox compares a box around (lat, lon), every third one across the
+// antimeridian, with the points written.
+func (f *geoFixture) checkBox(t *testing.T, b *Bucket, lat, lon float32) {
+	t.Helper()
+	height := float32(math.Exp(f.r.Float64()*8) / 50)
+	width := float32(math.Exp(f.r.Float64()*8) / 50)
+	// the package's own min and max are for ints
+	clamp := func(v, lo, hi float32) float32 {
+		return float32(math.Min(math.Max(float64(v), float64(lo)), float64(hi)))
+	}
+	south, north := clamp(lat-height, -90, 90), clamp(lat+height, -90, 90)
+	west, east := clamp(lon-width, -180, 180), clamp(lon+width, -180, 180)
+	if f.r.Intn(3) == 0 {
+		west, east = 180-width/2, -180+width/2
+		if west <= east {
+			west, east = 170, -170
+		}
+	}
+
+	box, err := geopoints.NewBoxQuery(south, north, west, east)
+	require.NoError(t, err)
+	want := []uint64{}
+	for id, p := range f.live {
+		if box.Contains(geopoints.Canonical(p.Lat, p.Lon)) {
+			want = append(want, id)
+		}
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+
+	got, err := b.GeoPointsWithinBox(context.Background(), south, north, west, east)
+	require.NoError(t, err)
+	require.Equal(t, want, got.ToArray(), "box lat [%v, %v] lon %v east to %v", south, north, west, east)
+}
+
+// checkNearest compares the nearest points to (lat, lon), every other time
+// under a filter, with the points written. A removed point must not come back
+// whichever layer holds its removal.
+func (f *geoFixture) checkNearest(t *testing.T, b *Bucket, lat, lon float32) {
+	t.Helper()
+	limit := []int{1, 10, 300, len(f.live) + 10}[f.r.Intn(4)]
+	var allow func(uint64) bool
+	if f.r.Intn(2) == 0 {
+		mod := uint64(f.r.Intn(5) + 2)
+		allow = func(id uint64) bool { return id%mod == 1 }
+	}
+
+	want := make([]geopoints.Neighbor, 0, len(f.live))
+	for id, p := range f.live {
+		if allow != nil && !allow(id) {
+			continue
+		}
+		pLat, pLon := geopoints.Canonical(p.Lat, p.Lon)
+		want = append(want, geopoints.Neighbor{DocID: id, Distance: geopoints.Distance(lat, lon, pLat, pLon)})
+	}
+	sort.Slice(want, func(i, j int) bool {
+		if want[i].Distance != want[j].Distance {
+			return want[i].Distance < want[j].Distance
+		}
+		return want[i].DocID < want[j].DocID
+	})
+	want = want[:min(limit, len(want))]
+
+	got, err := b.GeoPointsNearest(context.Background(), lat, lon, limit, allow)
+	require.NoError(t, err)
+	if len(want) == 0 {
+		require.Empty(t, got)
+		return
+	}
+	require.Equal(t, want, got, "nearest to (%v, %v) limit %d", lat, lon, limit)
 }
 
 func TestGeoPointsBucket(t *testing.T) {

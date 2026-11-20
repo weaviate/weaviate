@@ -24,13 +24,17 @@ import (
 	"github.com/weaviate/sroar"
 )
 
-// InnerReader answers a circle query from one layer of a bucket, a memtable or
-// a segment: matches go to out, the layer's deletions to deleted, and the
-// bucket subtracts the second from the first once all layers are in. A doc ID
-// is added once and deleted at most once, so the order of the layers does not
-// matter.
+// InnerReader answers a query from one layer of a bucket, a memtable or a
+// segment. For the two filters, matches go to out, the layer's deletions to
+// deleted, and the bucket subtracts the second from the first once all layers
+// are in. A doc ID is added once and deleted at most once, so the order of the
+// layers does not matter. A nearest search needs the deletions of every layer
+// before it reads a point, so it takes them separately.
 type InnerReader interface {
 	WithinRange(ctx context.Context, c *Circle, out, deleted *sroar.Bitmap) error
+	WithinBox(ctx context.Context, q *BoxQuery, out, deleted *sroar.Bitmap) error
+	CollectDeletions(deleted *sroar.Bitmap) error
+	Nearest(ctx context.Context, n *Nearest) error
 }
 
 // source reads a byte range of a segment body: a slice of the mapping, or a
@@ -118,14 +122,80 @@ func (r *SegmentReader) Deletions() (*sroar.Bitmap, error) {
 	return sroar.FromBuffer(buf), nil
 }
 
+// CollectDeletions adds the doc IDs this segment deletes to deleted.
+func (r *SegmentReader) CollectDeletions(deleted *sroar.Bitmap) error {
+	if r.hdr.deletionsLen == 0 {
+		return nil
+	}
+	del, err := r.Deletions()
+	if err != nil {
+		return err
+	}
+	deleted.Or(del)
+	return nil
+}
+
 func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted *sroar.Bitmap) error {
-	if r.hdr.deletionsLen > 0 {
-		del, err := r.Deletions()
+	if err := r.CollectDeletions(deleted); err != nil {
+		return err
+	}
+	matches := collectorPool.Get().(*collector)
+	defer matches.release()
+	err := r.descend(ctx,
+		func(b Box) bool { return !c.IntersectsBox(b) || c.rejectsBox(b) },
+		nil,
+		func(n node) error { return r.collectLeaf(c, n, matches) })
+	if err != nil {
+		return err
+	}
+	matches.flush(out)
+	return nil
+}
+
+func (r *SegmentReader) WithinBox(ctx context.Context, q *BoxQuery, out, deleted *sroar.Bitmap) error {
+	if err := r.CollectDeletions(deleted); err != nil {
+		return err
+	}
+	matches := collectorPool.Get().(*collector)
+	defer matches.release()
+	err := r.descend(ctx,
+		func(b Box) bool { return !q.IntersectsBox(b) },
+		nil,
+		func(n node) error { return r.collectLeafInBox(q, n, matches) })
+	if err != nil {
+		return err
+	}
+	matches.flush(out)
+	return nil
+}
+
+// Nearest offers n the points of this segment that can still enter its result,
+// descending into the nearer child first so the bound tightens early.
+func (r *SegmentReader) Nearest(ctx context.Context, n *Nearest) error {
+	return r.descend(ctx, n.prunes, n.approach, func(leaf node) error {
+		ids, err := r.leafDocIDs(leaf)
 		if err != nil {
 			return err
 		}
-		deleted.Or(del)
-	}
+		lats, lons, err := r.leafCoordinates(leaf)
+		if err != nil {
+			return err
+		}
+		for i := uint64(0); i < uint64(leaf.B); i++ {
+			n.offer(binary.LittleEndian.Uint64(ids[i*8:]),
+				math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:])),
+				math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:])))
+		}
+		return nil
+	})
+}
+
+// descend walks the tree depth-first: prune drops a subtree by its box, leaf
+// handles each leaf that was not dropped. With order, the child whose box it
+// ranks lower is visited first; without, the children are visited as stored.
+func (r *SegmentReader) descend(ctx context.Context, prune func(Box) bool,
+	order func(Box) float32, leaf func(node) error,
+) error {
 	if r.hdr.nodeCount == 0 {
 		return nil
 	}
@@ -153,8 +223,6 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 	stack := make([]uint32, 0, 64)
 	stack = append(stack, 0)
 	visited := uint32(0)
-	matches := collectorPool.Get().(*collector)
-	defer matches.release()
 	for len(stack) > 0 {
 		// a corrupt tree whose children point back up must not loop
 		visited++
@@ -173,30 +241,64 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 		}
 		stack = stack[:len(stack)-1]
 
-		if !c.IntersectsBox(n.Box) || c.rejectsBox(n.Box) {
+		if prune(n.Box) {
 			continue
 		}
-		if n.Kind == nodeKindInner {
-			stack = append(stack, n.A, n.B)
+		if n.Kind != nodeKindInner {
+			if err := leaf(n); err != nil {
+				return err
+			}
 			continue
 		}
-		if err := r.collectLeaf(c, n, matches); err != nil {
-			return err
+		first, second := n.B, n.A // the stack pops B first, as stored
+		if order != nil {
+			a, err := nodeAt(n.A)
+			if err != nil {
+				return err
+			}
+			b, err := nodeAt(n.B)
+			if err != nil {
+				return err
+			}
+			if order(a.Box) < order(b.Box) {
+				first, second = n.A, n.B
+			}
 		}
+		stack = append(stack, second, first)
 	}
-	matches.flush(out)
 	return nil
+}
+
+// leafDocIDs reads the leaf's doc IDs, 8 bytes each.
+func (r *SegmentReader) leafDocIDs(n node) ([]byte, error) {
+	start, count := uint64(n.A), uint64(n.B)
+	if start+count > r.hdr.pointCount {
+		return nil, fmt.Errorf("geopoints: leaf [%d, %d) past %d points", start, start+count, r.hdr.pointCount)
+	}
+	return r.src.read(r.hdr.pointsOffset()+start*8, count*8)
+}
+
+// leafCoordinates reads the leaf's latitudes and longitudes, 4 bytes each. The
+// caller has checked the leaf's range with leafDocIDs.
+func (r *SegmentReader) leafCoordinates(n node) (lats, lons []byte, err error) {
+	start, count := uint64(n.A), uint64(n.B)
+	base := r.hdr.pointsOffset()
+	lats, err = r.src.read(base+r.hdr.pointCount*8+start*4, count*4)
+	if err != nil {
+		return nil, nil, err
+	}
+	lons, err = r.src.read(base+r.hdr.pointCount*12+start*4, count*4)
+	if err != nil {
+		return nil, nil, err
+	}
+	return lats, lons, nil
 }
 
 // collectLeaf adds the leaf's matches to the collector. A leaf's doc IDs are
 // sorted, so they form one sorted run.
 func (r *SegmentReader) collectLeaf(c *Circle, n node, matches *collector) error {
-	start, count := uint64(n.A), uint64(n.B)
-	if start+count > r.hdr.pointCount {
-		return fmt.Errorf("geopoints: leaf [%d, %d) past %d points", start, start+count, r.hdr.pointCount)
-	}
-	base := r.hdr.pointsOffset()
-	ids, err := r.src.read(base+start*8, count*8)
+	count := uint64(n.B)
+	ids, err := r.leafDocIDs(n)
 	if err != nil {
 		return err
 	}
@@ -206,11 +308,7 @@ func (r *SegmentReader) collectLeaf(c *Circle, n node, matches *collector) error
 			matches.add(binary.LittleEndian.Uint64(ids[i*8:]))
 		}
 	} else {
-		lats, err := r.src.read(base+r.hdr.pointCount*8+start*4, count*4)
-		if err != nil {
-			return err
-		}
-		lons, err := r.src.read(base+r.hdr.pointCount*12+start*4, count*4)
+		lats, lons, err := r.leafCoordinates(n)
 		if err != nil {
 			return err
 		}
@@ -218,6 +316,35 @@ func (r *SegmentReader) collectLeaf(c *Circle, n node, matches *collector) error
 			lat := math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:]))
 			lon := math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:]))
 			if c.containsFast(lat, lon) {
+				matches.add(binary.LittleEndian.Uint64(ids[i*8:]))
+			}
+		}
+	}
+	matches.endRun()
+	return nil
+}
+
+// collectLeafInBox is collectLeaf for a box query.
+func (r *SegmentReader) collectLeafInBox(q *BoxQuery, n node, matches *collector) error {
+	count := uint64(n.B)
+	ids, err := r.leafDocIDs(n)
+	if err != nil {
+		return err
+	}
+
+	if q.ContainsBox(n.Box) {
+		for i := uint64(0); i < count; i++ {
+			matches.add(binary.LittleEndian.Uint64(ids[i*8:]))
+		}
+	} else {
+		lats, lons, err := r.leafCoordinates(n)
+		if err != nil {
+			return err
+		}
+		for i := uint64(0); i < count; i++ {
+			lat := math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:]))
+			lon := math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:]))
+			if q.Contains(lat, lon) {
 				matches.add(binary.LittleEndian.Uint64(ids[i*8:]))
 			}
 		}

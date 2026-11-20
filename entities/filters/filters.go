@@ -37,6 +37,7 @@ const (
 	ContainsAll
 	ContainsNone
 	OperatorNot
+	OperatorWithinGeoBox
 )
 
 func (o Operator) OnValue() bool {
@@ -48,6 +49,7 @@ func (o Operator) OnValue() bool {
 		OperatorLessThan,
 		OperatorLessThanEqual,
 		OperatorWithinGeoRange,
+		OperatorWithinGeoBox,
 		OperatorLike,
 		OperatorIsNull,
 		ContainsAny,
@@ -83,6 +85,8 @@ func (o Operator) Name() string {
 		return "Or"
 	case OperatorWithinGeoRange:
 		return "WithinGeoRange"
+	case OperatorWithinGeoBox:
+		return "WithinGeoBox"
 	case OperatorLike:
 		return "Like"
 	case OperatorIsNull:
@@ -142,6 +146,26 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 	}
 
 	if v.Type == schema.DataTypeGeoCoordinates {
+		// a box is told from a range by its corners
+		probe := struct {
+			Value struct {
+				SouthWest *models.GeoCoordinates `json:"southWest"`
+			} `json:"value"`
+		}{}
+		if err := json.Unmarshal(data, &probe); err != nil {
+			return err
+		}
+		if probe.Value.SouthWest != nil {
+			temp := struct {
+				Value GeoBox `json:"value"`
+			}{}
+			if err := json.Unmarshal(data, &temp); err != nil {
+				return err
+			}
+			v.Value = temp.Value
+			return nil
+		}
+
 		temp := struct {
 			Value GeoRange `json:"value"`
 		}{}
@@ -167,4 +191,13 @@ type Clause struct {
 type GeoRange struct {
 	*models.GeoCoordinates
 	Distance float32 `json:"distance"`
+}
+
+// GeoBox to be used with fields of type GeoCoordinates. Identifies the
+// rectangle between two corners, edges included. Its longitudes run east from
+// the south-west corner to the north-east one, so a south-west longitude past
+// the north-east one spans the antimeridian.
+type GeoBox struct {
+	SouthWest *models.GeoCoordinates `json:"southWest"`
+	NorthEast *models.GeoCoordinates `json:"northEast"`
 }

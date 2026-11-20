@@ -47,8 +47,12 @@ func (s objectsSorter) Sort(objects []*storobj.Object,
 	class := s.readOnlyClass(objects[0].Class().String())
 	dataTypesHelper := newDataTypesHelper(class)
 	valueExtractor := newComparableValueExtractor(dataTypesHelper)
-	comparator := newComparator(dataTypesHelper, propNames, orders)
-	creator := newComparableCreator(valueExtractor, propNames)
+	origins := extractDistanceOrigins(sort)
+	if err := validateDistanceOrigins(dataTypesHelper, propNames, origins); err != nil {
+		return nil, nil, err
+	}
+	comparator := newComparator(dataTypesHelper, propNames, orders, origins)
+	creator := newComparableCreator(valueExtractor, propNames, origins)
 
 	return newObjectsSorterHelper(comparator, creator, limit).
 		sort(objects, scores)

@@ -11,14 +11,23 @@
 
 package sorter
 
+import "github.com/weaviate/weaviate/entities/filters"
+
 type comparator struct {
 	comparators []basicComparator
 }
 
-func newComparator(dataTypesHelper *dataTypesHelper, propNames []string, orders []string) *comparator {
+// A level with an origin compares distances from it instead of values.
+func newComparator(dataTypesHelper *dataTypesHelper, propNames []string, orders []string,
+	origins []*filters.SortGeoOrigin,
+) *comparator {
 	provider := &basicComparatorProvider{}
 	comparators := make([]basicComparator, len(propNames))
 	for level, propName := range propNames {
+		if origins[level] != nil {
+			comparators[level] = newDistanceComparator(orders[level])
+			continue
+		}
 		dataType := dataTypesHelper.getType(propName)
 		comparators[level] = provider.provide(dataType, orders[level])
 	}

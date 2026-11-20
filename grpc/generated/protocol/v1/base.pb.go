@@ -90,6 +90,7 @@ const (
 	Filters_OPERATOR_CONTAINS_ALL       Filters_Operator = 13
 	Filters_OPERATOR_CONTAINS_NONE      Filters_Operator = 14
 	Filters_OPERATOR_NOT                Filters_Operator = 15
+	Filters_OPERATOR_WITHIN_GEO_BOX     Filters_Operator = 16
 )
 
 // Enum value maps for Filters_Operator.
@@ -111,6 +112,7 @@ var (
 		13: "OPERATOR_CONTAINS_ALL",
 		14: "OPERATOR_CONTAINS_NONE",
 		15: "OPERATOR_NOT",
+		16: "OPERATOR_WITHIN_GEO_BOX",
 	}
 	Filters_Operator_value = map[string]int32{
 		"OPERATOR_UNSPECIFIED":        0,
@@ -129,6 +131,7 @@ var (
 		"OPERATOR_CONTAINS_ALL":       13,
 		"OPERATOR_CONTAINS_NONE":      14,
 		"OPERATOR_NOT":                15,
+		"OPERATOR_WITHIN_GEO_BOX":     16,
 	}
 )
 
@@ -205,7 +208,7 @@ func (x Vectors_VectorType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Vectors_VectorType.Descriptor instead.
 func (Vectors_VectorType) EnumDescriptor() ([]byte, []int) {
-	return file_v1_base_proto_rawDescGZIP(), []int{17, 0}
+	return file_v1_base_proto_rawDescGZIP(), []int{18, 0}
 }
 
 type NumberArrayProperties struct {
@@ -828,6 +831,7 @@ type Filters struct {
 	//	*Filters_ValueBooleanArray
 	//	*Filters_ValueNumberArray
 	//	*Filters_ValueGeo
+	//	*Filters_ValueGeoBox
 	TestValue     isFilters_TestValue `protobuf_oneof:"test_value"`
 	Target        *FilterTarget       `protobuf:"bytes,20,opt,name=target,proto3" json:"target,omitempty"` // leave space for more filter values
 	unknownFields protoimpl.UnknownFields
@@ -974,6 +978,15 @@ func (x *Filters) GetValueGeo() *GeoCoordinatesFilter {
 	return nil
 }
 
+func (x *Filters) GetValueGeoBox() *GeoBoundingBoxFilter {
+	if x != nil {
+		if x, ok := x.TestValue.(*Filters_ValueGeoBox); ok {
+			return x.ValueGeoBox
+		}
+	}
+	return nil
+}
+
 func (x *Filters) GetTarget() *FilterTarget {
 	if x != nil {
 		return x.Target
@@ -1021,6 +1034,10 @@ type Filters_ValueGeo struct {
 	ValueGeo *GeoCoordinatesFilter `protobuf:"bytes,13,opt,name=value_geo,json=valueGeo,proto3,oneof"`
 }
 
+type Filters_ValueGeoBox struct {
+	ValueGeoBox *GeoBoundingBoxFilter `protobuf:"bytes,14,opt,name=value_geo_box,json=valueGeoBox,proto3,oneof"`
+}
+
 func (*Filters_ValueText) isFilters_TestValue() {}
 
 func (*Filters_ValueInt) isFilters_TestValue() {}
@@ -1038,6 +1055,8 @@ func (*Filters_ValueBooleanArray) isFilters_TestValue() {}
 func (*Filters_ValueNumberArray) isFilters_TestValue() {}
 
 func (*Filters_ValueGeo) isFilters_TestValue() {}
+
+func (*Filters_ValueGeoBox) isFilters_TestValue() {}
 
 type FilterReferenceSingleTarget struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1369,6 +1388,77 @@ func (x *GeoCoordinatesFilter) GetDistance() float32 {
 	return 0
 }
 
+// A rectangle of coordinates, edges included. It runs east from the west
+// longitude to the east one, so a west longitude greater than the east one
+// spans the antimeridian.
+type GeoBoundingBoxFilter struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SouthLatitude float32                `protobuf:"fixed32,1,opt,name=south_latitude,json=southLatitude,proto3" json:"south_latitude,omitempty"`
+	WestLongitude float32                `protobuf:"fixed32,2,opt,name=west_longitude,json=westLongitude,proto3" json:"west_longitude,omitempty"`
+	NorthLatitude float32                `protobuf:"fixed32,3,opt,name=north_latitude,json=northLatitude,proto3" json:"north_latitude,omitempty"`
+	EastLongitude float32                `protobuf:"fixed32,4,opt,name=east_longitude,json=eastLongitude,proto3" json:"east_longitude,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GeoBoundingBoxFilter) Reset() {
+	*x = GeoBoundingBoxFilter{}
+	mi := &file_v1_base_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GeoBoundingBoxFilter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GeoBoundingBoxFilter) ProtoMessage() {}
+
+func (x *GeoBoundingBoxFilter) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_base_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GeoBoundingBoxFilter.ProtoReflect.Descriptor instead.
+func (*GeoBoundingBoxFilter) Descriptor() ([]byte, []int) {
+	return file_v1_base_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GeoBoundingBoxFilter) GetSouthLatitude() float32 {
+	if x != nil {
+		return x.SouthLatitude
+	}
+	return 0
+}
+
+func (x *GeoBoundingBoxFilter) GetWestLongitude() float32 {
+	if x != nil {
+		return x.WestLongitude
+	}
+	return 0
+}
+
+func (x *GeoBoundingBoxFilter) GetNorthLatitude() float32 {
+	if x != nil {
+		return x.NorthLatitude
+	}
+	return 0
+}
+
+func (x *GeoBoundingBoxFilter) GetEastLongitude() float32 {
+	if x != nil {
+		return x.EastLongitude
+	}
+	return 0
+}
+
 type Vectors struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -1382,7 +1472,7 @@ type Vectors struct {
 
 func (x *Vectors) Reset() {
 	*x = Vectors{}
-	mi := &file_v1_base_proto_msgTypes[17]
+	mi := &file_v1_base_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1394,7 +1484,7 @@ func (x *Vectors) String() string {
 func (*Vectors) ProtoMessage() {}
 
 func (x *Vectors) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_proto_msgTypes[17]
+	mi := &file_v1_base_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1407,7 +1497,7 @@ func (x *Vectors) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Vectors.ProtoReflect.Descriptor instead.
 func (*Vectors) Descriptor() ([]byte, []int) {
-	return file_v1_base_proto_rawDescGZIP(), []int{17}
+	return file_v1_base_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Vectors) GetName() string {
@@ -1480,7 +1570,7 @@ const file_v1_base_proto_rawDesc = "" +
 	"\vNumberArray\x12\x16\n" +
 	"\x06values\x18\x01 \x03(\x01R\x06values\"&\n" +
 	"\fBooleanArray\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\bR\x06values\"\xc7\b\n" +
+	"\x06values\x18\x01 \x03(\bR\x06values\"\xad\t\n" +
 	"\aFilters\x129\n" +
 	"\boperator\x18\x01 \x01(\x0e2\x1d.weaviate.v1.Filters.OperatorR\boperator\x12\x12\n" +
 	"\x02on\x18\x02 \x03(\tB\x02\x18\x01R\x02on\x12.\n" +
@@ -1495,8 +1585,9 @@ const file_v1_base_proto_rawDesc = "" +
 	" \x01(\v2\x15.weaviate.v1.IntArrayH\x00R\rvalueIntArray\x12K\n" +
 	"\x13value_boolean_array\x18\v \x01(\v2\x19.weaviate.v1.BooleanArrayH\x00R\x11valueBooleanArray\x12H\n" +
 	"\x12value_number_array\x18\f \x01(\v2\x18.weaviate.v1.NumberArrayH\x00R\x10valueNumberArray\x12@\n" +
-	"\tvalue_geo\x18\r \x01(\v2!.weaviate.v1.GeoCoordinatesFilterH\x00R\bvalueGeo\x121\n" +
-	"\x06target\x18\x14 \x01(\v2\x19.weaviate.v1.FilterTargetR\x06target\"\x91\x03\n" +
+	"\tvalue_geo\x18\r \x01(\v2!.weaviate.v1.GeoCoordinatesFilterH\x00R\bvalueGeo\x12G\n" +
+	"\rvalue_geo_box\x18\x0e \x01(\v2!.weaviate.v1.GeoBoundingBoxFilterH\x00R\vvalueGeoBox\x121\n" +
+	"\x06target\x18\x14 \x01(\v2\x19.weaviate.v1.FilterTargetR\x06target\"\xae\x03\n" +
 	"\bOperator\x12\x18\n" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOPERATOR_EQUAL\x10\x01\x12\x16\n" +
@@ -1514,7 +1605,8 @@ const file_v1_base_proto_rawDesc = "" +
 	"\x15OPERATOR_CONTAINS_ANY\x10\f\x12\x19\n" +
 	"\x15OPERATOR_CONTAINS_ALL\x10\r\x12\x1a\n" +
 	"\x16OPERATOR_CONTAINS_NONE\x10\x0e\x12\x10\n" +
-	"\fOPERATOR_NOT\x10\x0fB\f\n" +
+	"\fOPERATOR_NOT\x10\x0f\x12\x1b\n" +
+	"\x17OPERATOR_WITHIN_GEO_BOX\x10\x10B\f\n" +
 	"\n" +
 	"test_value\"`\n" +
 	"\x1bFilterReferenceSingleTarget\x12\x0e\n" +
@@ -1535,7 +1627,12 @@ const file_v1_base_proto_rawDesc = "" +
 	"\x14GeoCoordinatesFilter\x12\x1a\n" +
 	"\blatitude\x18\x01 \x01(\x02R\blatitude\x12\x1c\n" +
 	"\tlongitude\x18\x02 \x01(\x02R\tlongitude\x12\x1a\n" +
-	"\bdistance\x18\x03 \x01(\x02R\bdistance\"\xf3\x01\n" +
+	"\bdistance\x18\x03 \x01(\x02R\bdistance\"\xb2\x01\n" +
+	"\x14GeoBoundingBoxFilter\x12%\n" +
+	"\x0esouth_latitude\x18\x01 \x01(\x02R\rsouthLatitude\x12%\n" +
+	"\x0ewest_longitude\x18\x02 \x01(\x02R\rwestLongitude\x12%\n" +
+	"\x0enorth_latitude\x18\x03 \x01(\x02R\rnorthLatitude\x12%\n" +
+	"\x0eeast_longitude\x18\x04 \x01(\x02R\reastLongitude\"\xf3\x01\n" +
 	"\aVectors\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\x05index\x18\x02 \x01(\x04B\x02\x18\x01R\x05index\x12!\n" +
@@ -1565,34 +1662,38 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
-var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
-var file_v1_base_proto_goTypes = []any{
-	(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
-	(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
-	(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
-	(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
-	(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
-	(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
-	(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
-	(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
-	(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
-	(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
-	(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
-	(*Filters)(nil),                     // 14: weaviate.v1.Filters
-	(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
-	(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
-	(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
-	(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
-	(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
-	(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
-}
+var (
+	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 19)
+	file_v1_base_proto_goTypes   = []any{
+		(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
+		(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
+		(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
+		(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
+		(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
+		(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
+		(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
+		(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
+		(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
+		(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
+		(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
+		(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
+		(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
+		(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
+		(*Filters)(nil),                     // 14: weaviate.v1.Filters
+		(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
+		(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
+		(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
+		(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
+		(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
+		(*GeoBoundingBoxFilter)(nil),        // 20: weaviate.v1.GeoBoundingBoxFilter
+		(*Vectors)(nil),                     // 21: weaviate.v1.Vectors
+		(*structpb.Struct)(nil),             // 22: google.protobuf.Struct
+	}
+)
+
 var file_v1_base_proto_depIdxs = []int32{
-	21, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
+	22, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	3,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
 	4,  // 2: weaviate.v1.ObjectPropertiesValue.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
 	5,  // 3: weaviate.v1.ObjectPropertiesValue.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
@@ -1608,18 +1709,19 @@ var file_v1_base_proto_depIdxs = []int32{
 	13, // 13: weaviate.v1.Filters.value_boolean_array:type_name -> weaviate.v1.BooleanArray
 	12, // 14: weaviate.v1.Filters.value_number_array:type_name -> weaviate.v1.NumberArray
 	19, // 15: weaviate.v1.Filters.value_geo:type_name -> weaviate.v1.GeoCoordinatesFilter
-	18, // 16: weaviate.v1.Filters.target:type_name -> weaviate.v1.FilterTarget
-	18, // 17: weaviate.v1.FilterReferenceSingleTarget.target:type_name -> weaviate.v1.FilterTarget
-	18, // 18: weaviate.v1.FilterReferenceMultiTarget.target:type_name -> weaviate.v1.FilterTarget
-	15, // 19: weaviate.v1.FilterTarget.single_target:type_name -> weaviate.v1.FilterReferenceSingleTarget
-	16, // 20: weaviate.v1.FilterTarget.multi_target:type_name -> weaviate.v1.FilterReferenceMultiTarget
-	17, // 21: weaviate.v1.FilterTarget.count:type_name -> weaviate.v1.FilterReferenceCount
-	2,  // 22: weaviate.v1.Vectors.type:type_name -> weaviate.v1.Vectors.VectorType
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	20, // 16: weaviate.v1.Filters.value_geo_box:type_name -> weaviate.v1.GeoBoundingBoxFilter
+	18, // 17: weaviate.v1.Filters.target:type_name -> weaviate.v1.FilterTarget
+	18, // 18: weaviate.v1.FilterReferenceSingleTarget.target:type_name -> weaviate.v1.FilterTarget
+	18, // 19: weaviate.v1.FilterReferenceMultiTarget.target:type_name -> weaviate.v1.FilterTarget
+	15, // 20: weaviate.v1.FilterTarget.single_target:type_name -> weaviate.v1.FilterReferenceSingleTarget
+	16, // 21: weaviate.v1.FilterTarget.multi_target:type_name -> weaviate.v1.FilterReferenceMultiTarget
+	17, // 22: weaviate.v1.FilterTarget.count:type_name -> weaviate.v1.FilterReferenceCount
+	2,  // 23: weaviate.v1.Vectors.type:type_name -> weaviate.v1.Vectors.VectorType
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_v1_base_proto_init() }
@@ -1637,6 +1739,7 @@ func file_v1_base_proto_init() {
 		(*Filters_ValueBooleanArray)(nil),
 		(*Filters_ValueNumberArray)(nil),
 		(*Filters_ValueGeo)(nil),
+		(*Filters_ValueGeoBox)(nil),
 	}
 	file_v1_base_proto_msgTypes[15].OneofWrappers = []any{
 		(*FilterTarget_Property)(nil),
@@ -1650,7 +1753,7 @@ func file_v1_base_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_base_proto_rawDesc), len(file_v1_base_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

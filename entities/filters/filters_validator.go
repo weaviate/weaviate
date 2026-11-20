@@ -173,6 +173,38 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 			valueNameFromDataType(schema.DataType(prop.DataType[0])))
 	}
 
+	return validateGeoClause(prop, cw)
+}
+
+// validateGeoClause holds a geoCoordinates property to its two operators,
+// each to its own value, and those operators to geoCoordinates properties. The
+// type check above cannot: the value's type is taken from the property.
+func validateGeoClause(prop *models.Property, cw *clauseWrapper) error {
+	op := cw.getOperator()
+	onGeoProp := schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates
+	if !onGeoProp {
+		if op == OperatorWithinGeoRange || op == OperatorWithinGeoBox {
+			return errors.Errorf("operator %s needs a geoCoordinates property, %q is of type %q",
+				op.Name(), prop.Name, prop.DataType[0])
+		}
+		return nil
+	}
+
+	switch cw.getValue().(type) {
+	case GeoRange:
+		if op != OperatorWithinGeoRange {
+			return errors.Errorf("property %q: a geo range value needs operator %s, got %s",
+				prop.Name, OperatorWithinGeoRange.Name(), op.Name())
+		}
+	case GeoBox:
+		if op != OperatorWithinGeoBox {
+			return errors.Errorf("property %q: a geo box value needs operator %s, got %s",
+				prop.Name, OperatorWithinGeoBox.Name(), op.Name())
+		}
+	default:
+		return errors.Errorf("property %q is of type geoCoordinates, it can only be filtered "+
+			"with a geo range or a geo box", prop.Name)
+	}
 	return nil
 }
 

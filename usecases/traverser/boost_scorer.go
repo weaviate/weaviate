@@ -29,7 +29,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -466,12 +468,16 @@ type parsedDecay struct {
 	originNum       float64
 	originNumValid  bool
 
+	// geo decay: the distance is measured in meters from originGeo
+	geo       bool
+	originGeo filters.GeoOrigin
+
 	valid bool
 }
 
 func parseDecayParams(d *filters.Decay, nowTime time.Time) parsedDecay {
 	var offset, scale float64
-	if d.IsNumeric {
+	if d.IsNumeric || d.IsGeo {
 		offset = d.OffsetNumeric
 		scale = d.ScaleNumeric
 	} else {
@@ -505,7 +511,10 @@ func parseDecayParams(d *filters.Decay, nowTime time.Time) parsedDecay {
 	// Pre-parse origin as time and as number so computeDistance doesn't
 	// repeat the work for every result.
 	origin := d.Origin
-	if d.IsNumeric {
+	if d.IsGeo {
+		p.geo = true
+		p.originGeo = d.OriginGeo
+	} else if d.IsNumeric {
 		p.originNum = d.OriginNumeric
 		p.originNumValid = true
 	} else {
@@ -546,6 +555,14 @@ func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[s
 }
 
 func computeDistance(parsed parsedDecay, propValue any) (float64, error) {
+	if parsed.geo {
+		lat, lon, ok := geoCoordinatesOf(propValue)
+		if !ok {
+			return 0, fmt.Errorf("cannot read %T as geo coordinates", propValue)
+		}
+		return float64(geopoints.Distance(parsed.originGeo.Latitude, parsed.originGeo.Longitude, lat, lon)), nil
+	}
+
 	if dateVal, ok := tryParseDate(propValue); ok {
 		if !parsed.originTimeValid {
 			return 0, fmt.Errorf("no valid time origin for date property")
@@ -563,6 +580,32 @@ func computeDistance(parsed parsedDecay, propValue any) (float64, error) {
 	}
 
 	return math.Abs(numVal - parsed.originNum), nil
+}
+
+// geoCoordinatesOf reads a geoCoordinates property value: the model type of a
+// result read from storage, or the map a merge or a JSON round trip leaves.
+func geoCoordinatesOf(val any) (lat, lon float32, ok bool) {
+	switch v := val.(type) {
+	case *models.GeoCoordinates:
+		if v == nil || v.Latitude == nil || v.Longitude == nil {
+			return 0, 0, false
+		}
+		return *v.Latitude, *v.Longitude, true
+	case models.GeoCoordinates:
+		return geoCoordinatesOf(&v)
+	case map[string]any:
+		la, err := toFloat64(v["latitude"])
+		if err != nil {
+			return 0, 0, false
+		}
+		lo, err := toFloat64(v["longitude"])
+		if err != nil {
+			return 0, 0, false
+		}
+		return float32(la), float32(lo), true
+	default:
+		return 0, 0, false
+	}
 }
 
 func computeDecayFunction(curve filters.DecayCurveType, dist, offset, scale, decayValue float64) float32 {

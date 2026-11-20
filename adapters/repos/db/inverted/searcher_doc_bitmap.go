@@ -194,17 +194,33 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 }
 
 func (s *Searcher) docBitmapGeo(ctx context.Context, b *lsmkv.Bucket, pv *propValuePair) (docBitmap, error) {
-	if pv.operator != filters.OperatorWithinGeoRange || pv.valueGeoRange == nil {
-		return docBitmap{}, fmt.Errorf("operator %s is not supported on geo prop %q", pv.operator.Name(), pv.prop)
-	}
-	if pv.valueGeoRange.GeoCoordinates == nil || pv.valueGeoRange.Latitude == nil || pv.valueGeoRange.Longitude == nil {
-		return docBitmap{}, fmt.Errorf("geo range on prop %q: latitude and longitude must be set", pv.prop)
-	}
+	var res *sroar.Bitmap
+	switch {
+	case pv.operator == filters.OperatorWithinGeoRange && pv.valueGeoRange != nil:
+		if pv.valueGeoRange.GeoCoordinates == nil || pv.valueGeoRange.Latitude == nil || pv.valueGeoRange.Longitude == nil {
+			return docBitmap{}, fmt.Errorf("geo range on prop %q: latitude and longitude must be set", pv.prop)
+		}
 
-	res, err := b.GeoPointsWithinRange(ctx, *pv.valueGeoRange.Latitude, *pv.valueGeoRange.Longitude,
-		pv.valueGeoRange.Distance)
-	if err != nil {
-		return docBitmap{}, fmt.Errorf("geo index range search on prop %q: %w", pv.prop, err)
+		var err error
+		res, err = b.GeoPointsWithinRange(ctx, *pv.valueGeoRange.Latitude, *pv.valueGeoRange.Longitude,
+			pv.valueGeoRange.Distance)
+		if err != nil {
+			return docBitmap{}, fmt.Errorf("geo index range search on prop %q: %w", pv.prop, err)
+		}
+	case pv.operator == filters.OperatorWithinGeoBox && pv.valueGeoBox != nil:
+		sw, ne := pv.valueGeoBox.SouthWest, pv.valueGeoBox.NorthEast
+		if sw == nil || sw.Latitude == nil || sw.Longitude == nil ||
+			ne == nil || ne.Latitude == nil || ne.Longitude == nil {
+			return docBitmap{}, fmt.Errorf("geo box on prop %q: both corners must have a latitude and a longitude", pv.prop)
+		}
+
+		var err error
+		res, err = b.GeoPointsWithinBox(ctx, *sw.Latitude, *ne.Latitude, *sw.Longitude, *ne.Longitude)
+		if err != nil {
+			return docBitmap{}, fmt.Errorf("geo index box search on prop %q: %w", pv.prop, err)
+		}
+	default:
+		return docBitmap{}, fmt.Errorf("operator %s is not supported on geo prop %q", pv.operator.Name(), pv.prop)
 	}
 
 	out := newUninitializedDocBitmap()
