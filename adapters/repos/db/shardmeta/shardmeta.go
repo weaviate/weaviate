@@ -192,6 +192,41 @@ func (n *Namespace) Update(fn func(b *Batch) error) error {
 	return nil
 }
 
+// Update runs fn inside one write transaction spanning namespaces, all of
+// one DB, creating each on first use; batches[i] is namespaces[i]. Every
+// write lands together, or none does when fn returns an error.
+func Update(namespaces []*Namespace, fn func(batches []*Batch) error) error {
+	if len(namespaces) == 0 {
+		return errors.New("update shard metadata: no namespace")
+	}
+	db := namespaces[0].db
+	seen := make(map[string]struct{}, len(namespaces))
+	for _, n := range namespaces {
+		if n.db != db {
+			return fmt.Errorf("update shard metadata: namespace %q belongs to another shard metadata db", n.name)
+		}
+		if _, ok := seen[string(n.name)]; ok {
+			return fmt.Errorf("update shard metadata: namespace %q named twice", n.name)
+		}
+		seen[string(n.name)] = struct{}{}
+	}
+	err := db.Update(func(tx *bbolt.Tx) error {
+		batches := make([]*Batch, len(namespaces))
+		for i, n := range namespaces {
+			bucket, err := tx.CreateBucketIfNotExists(n.name)
+			if err != nil {
+				return err
+			}
+			batches[i] = &Batch{bucket: bucket}
+		}
+		return fn(batches)
+	})
+	if err != nil {
+		return fmt.Errorf("update shard metadata namespaces: %w", err)
+	}
+	return nil
+}
+
 // Batch is the namespace inside one Update transaction. It is only valid
 // until the callback that received it returns.
 type Batch struct {
