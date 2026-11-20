@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -581,6 +582,46 @@ func TestSinglePostingDrain(t *testing.T) {
 			require.Zero(t, size, "the drain deletes posting 1")
 		})
 	}
+}
+
+// A drain that fails to move a vector keeps posting 1 for the next attempt,
+// and one due during a backup waits for its end.
+func TestSinglePostingDrainRetries(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, 200)
+	// past the entries the seed split places
+	const unavailable = 899
+	var failing atomic.Bool
+	failing.Store(true)
+	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if id == unavailable && failing.Load() {
+			return nil, errors.New("vector unavailable")
+		}
+		return vectors.get(ctx, id)
+	}
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	require.NoError(t, index.taskQueue.splitQueue.Pause(t.Context()))
+	all := addRestartVectors(t, index, vectors, 0, unavailable+1)
+	index.taskQueue.splitQueue.Resume()
+	index.waitForMaintenance(t)
+	require.True(t, index.Centroids.Built())
+	require.True(t, index.singlePostingDraining.Load(), "posting 1 keeps the vector the drain failed to move")
+	requireSelfSearchExcept(t, index, all, -1)
+
+	require.NoError(t, index.PrepareForBackup(t.Context()))
+	failing.Store(false)
+	require.NoError(t, index.taskQueue.EnqueueSplit(1))
+	index.waitForMaintenance(t)
+	require.True(t, index.singlePostingDraining.Load(), "the drain must wait for the backup")
+
+	require.NoError(t, index.ResumeAfterBackup(t.Context()))
+	index.waitForMaintenance(t)
+	require.False(t, index.singlePostingDraining.Load())
+	size, err := index.PostingSizes.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Zero(t, size)
+	requireSelfSearchExcept(t, index, all, -1)
 }
 
 func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
