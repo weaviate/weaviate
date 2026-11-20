@@ -2200,7 +2200,7 @@ func init() {
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a ` + "`" + `class` + "`" + `; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -3683,7 +3683,7 @@ func init() {
         "operationId": "objects.create",
         "parameters": [
           {
-            "description": "The object to be created.",
+            "description": "The object to be created. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3753,7 +3753,7 @@ func init() {
         "operationId": "objects.validate",
         "parameters": [
           {
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -8683,16 +8683,16 @@ func init() {
           "default": false
         },
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -14929,7 +14929,7 @@ func init() {
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a ` + "`" + `class` + "`" + `; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -16459,7 +16459,7 @@ func init() {
         "operationId": "objects.create",
         "parameters": [
           {
-            "description": "The object to be created.",
+            "description": "The object to be created. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -16532,7 +16532,7 @@ func init() {
         "operationId": "objects.validate",
         "parameters": [
           {
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -21537,16 +21537,16 @@ func init() {
           "default": false
         },
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -21560,16 +21560,16 @@ func init() {
       }
     },
     "BatchDeleteMatch": {
-      "description": "Outlines how to find the objects to be deleted.",
+      "description": "Outlines how to find the objects to be deleted. Required.",
       "type": "object",
       "properties": {
         "class": {
-          "description": "The name of the collection (class) from which to delete objects.",
+          "description": "The name of the collection (class) from which to delete objects. Required.",
           "type": "string",
           "example": "City"
         },
         "where": {
-          "description": "Filter to limit the objects to be deleted.",
+          "description": "Filter to limit the objects to be deleted. Required.",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         }
