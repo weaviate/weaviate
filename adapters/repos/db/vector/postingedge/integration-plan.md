@@ -12,7 +12,7 @@
 - **Casi todo lo que se ha medido en disco es código de test.** El paquete tiene 3 216 líneas de código y 27 165 de test. La lectura de disco, los inserts y los deletes viven en `disk_test.go`, `grow_test.go`, `stream_test.go` y `delete_test.go`.
 - **Registrar el tipo en Weaviate es mecánico y disperso:** unos quince sitios, sin una lista única. Es lo único que puede empezar ya.
 - **Lo que bloquea de verdad es `Delete`.** El shard lo llama en cada borrado y en cada update que cambia un vector. Sin él, ninguna clase con este índice admite cambios.
-- **Los deletes tienen una celda que cumple con el 30 % borrado, en una pasada de limpieza (v6.1).** Con pasadas pequeñas y frecuentes, en un churn, todavía no.
+- **Los deletes tienen una celda que cumple con el 30 % borrado, en una pasada de limpieza (v6.1), y otra que cumple en un churn sin búsquedas (v6.2, del 20):** la sustitución local de las aristas muertas.
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
 - **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`, que acepta `routing` (por defecto) y `none`; el modo `scan` salió de la lista el 20, descartado por v4.1. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
@@ -135,7 +135,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **Esa red no sirve hoy a este índice.** Su rescore falla la búsqueda entera si no puede leer un vector (`exactDistance`, `search.go:591`), donde HNSW y HFresh saltan el candidato. Hay que cambiarlo antes que nada: sin eso, cualquier borrado rompe las búsquedas que lo encuentren.
 
-**Lo que hay medido:** v6.0 y v6.1, en memoria y en conteos, cerrados el 19. En disco, nada.
+**Lo que hay medido:** v6.0 y v6.1, cerrados el 19, y v6.2, cerrado el 20, en memoria y en conteos. En disco, nada.
 
 - **Por su criterio, los deletes no se sostienen** con ninguna de las cinco celdas, con el 30 % borrado al azar.
 - **La celda 1b es la única que cumple el recall a igual ef:** un borrado se sigue puntuando y sus aristas se siguen, y nunca es candidato. Falla solo en cargas, +19.1 % a 0.95 y +13.7 % a 0.99, y ese fallo es de llenado: se atribuye a la política de fusión, no a las aristas.
@@ -143,6 +143,9 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **v6.1, la limpieza en dos fases, cumple con el 30 % borrado al azar en una pasada.** Primero repara los vectores con el 25 % o más de sus aristas hacia borrados, navegando por ellos. Después los quita y fusiona por debajo de 177 vivos si la suma no pasa de T. Queda en −0.0023 de recall, +2.7 % de cargas a 0.95 y −10.7 % a 0.99.
 - **Cuesta 66 cargas por vector borrado,** casi dos inserts.
 - **En el churn esa pasada no cumple:** −0.0071 de recall y +16.9 % de cargas a 0.99, con un 3 % borrado por ronda. El umbral se mide en cada pasada y no acumula lo perdido en las anteriores: las listas pasan de 8.6 a 7.2 aristas por vector.
+- **v6.2 arregla el churn de tres maneras, y la más barata no busca nada.** Al quitar un borrado, cada vector que apuntaba a él recibe como sustituto el vecino más cercano de la lista del borrado, por una distancia entre dos códigos. Cumple en diez rondas del 3 %: −0.0004 de recall, +2.7 % de cargas a 0.95 y +1.8 % a 0.99, con 62.8 distancias entre códigos por borrado y ninguna carga. Las listas se quedan en 8.84 aristas por vector.
+  - **Con memoria en el umbral y reparación por búsqueda también cumple,** a 68 cargas por borrado.
+  - **Sin medir:** más rotación que un 30 % de la base, borrados que no son al azar, y cada cuánto pasa la limpieza: cada pasada lee y escribe todos los postings.
 
 *Lo mínimo para una primera versión, por lo leído:*
 
@@ -150,7 +153,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El rescore salta un vector que falta.**
 - **La fusión que devuelve el llenado, medida en v6.1 dentro de la pasada de dos fases.** Por debajo de 177 vivos, con el vecino más cercano, si la suma no pasa de T: deja la media en 235.1, con la referencia en 236.0.
 - **No está medida sobre la celda 1b sola.** Reescribir un posting sin sus borrados le quita las fuentes, y por eso la pasada repara antes. Sin pasada, una primera versión con la marca sola carga un 19 % más a 0.95 con el 30 % borrado, y cumple con el 10 %.
-- **La pasada no está lista para un churn continuo.** Le falta que el umbral de reparación cuente lo que una lista ha perdido desde que se construyó. Sin medir.
+- **La pasada para un churn continuo, medida en v6.2 (del 20):** la sustitución local en la fase que quita los borrados, sin fase de reparación. Es del hito 2.
 
 ### Filtros
 
@@ -492,7 +495,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - El split, el refresco, la limpieza y la reorganización, como tareas de una cola del scheduler del nodo.
 - **El paso de cálculo de los inserts, en esos mismos workers** (`queue.Scheduler`, `GOMAXPROCS − 1` para todos los índices del nodo). El insert ya está partido en cálculo y aplicador desde el hito 1, así que este paso cambia quién ejecuta el cálculo y no su forma.
   - **Lo medido es el mejor caso:** con 4 y con 8 buscadores propios de un solo índice, 3.0 y 3.76 veces los inserts por segundo de uno, en tandas de 32. Ocho búsquedas a la vez tardan un 54 % más cada una. Con los workers repartidos entre índices le tocan menos a cada uno. *La medida limpia de N = 1, 4 y 8, de noche y sin actividad, está en cola para la noche del 20.*
-- La limpieza medida es la pasada de v6.1: reparar y después eliminar. Cumple en una pasada sobre el 30 % borrado, y con pasadas pequeñas y frecuentes todavía no.
+- La limpieza medida es la de v6.2: quitar los borrados sustituyendo cada arista muerta por un vecino de la lista del borrado, y fusionar por debajo de 177 vivos si la suma no pasa de T. Cumple en un churn de diez rondas del 3 % sin búsquedas. Cada pasada toca todos los postings: falta decidir cada cuánto pasa.
 - Las cargas de una ronda, dentro del presupuesto de la query.
 - **Antes de este paso, ninguna medida vale como medida de un nodo.**
 
@@ -525,11 +528,12 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El `rescoreLimit` con k = 100:** 64 pasa a 100 y no deja margen de reordenación. Sale de la misma medida.
 - **Un barrido corto, sin cronometrar, a 768d, con rescore 64, 100, 150 y 200,** para fijar el ancla del `rescoreLimit` automático. *Propuesta mía, para el mismo barrido:* 16, 32 y 48 a 1536d.
 
-**Sin medir, de v6.1** (*mío*; no está acordado como pendiente): el umbral de reparación acumulado, en el churn. Es lo que separa la pasada medida de una tarea de mantenimiento continua.
+**Medido el 20, en v6.2:** el umbral de reparación acumulado, en el churn, y dos alternativas. Cumplen las tres; la más barata es la sustitución local, sin búsquedas.
 
 **Lo que está en vuelo y puede mover este plan:**
 
 - **v4.1,** el scan con los códigos en RAM, cerrado el 20: el modo `scan` no es una opción a 1M y 1536d. Descartado y fuera de la lista de parámetros.
 - **v5.2,** inserts con búsquedas en paralelo, cerrado el 20: 634 inserts por segundo con 8 buscadores, 3.76 veces los 169 de un escritor en la misma sesión. No llega a las 4 veces de su criterio. HFresh, con un escritor y sus workers de fondo, hace 2 089.
 - **La sesión de la noche del 19,** con HFresh configurado como un nodo, hecha: en frío a 0.95 con 1 thread, 51.96 ms de HFresh frente a 3.54 del modo de ruteo y 4.76 del halo. Son los números de referencia frente a HFresh.
-- **El control combinado,** encargado el 20: el índice de aristas consolidadas con K = 64, reorganizado. Decide el formato de las aristas, que en el hito 1 de la integración va detrás de una interfaz.
+- **El control combinado,** cerrado el 20: el índice de aristas consolidadas con K = 64, reorganizado, cumple en caliente (1.20 veces el lote) y no en frío (1.2045, con el límite en 1.20). No es el formato candidato. El de v5.0 reorganizado cumple al revés: 1.10 en frío y 1.34 en caliente.
+- **v5.3,** en marcha desde el 20: la fila de aristas en un valor, en el bucket de los miembros y junto a ellos, para tener las dos mitades. Decide el formato de las aristas, que en el hito 1 va detrás de una interfaz.

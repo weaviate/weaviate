@@ -449,7 +449,8 @@ Lo que queda por medir:
 - **En caliente es lo que cierra la distancia con el lote:** 1.21 veces a 0.95 donde v5.0 queda a 1.45. Traer la fila de aristas cuesta 1.37 veces la del lote, donde valor a valor costaba 5.54. La fila de miembros, que sigue valor a valor, 1.26.
 - **En frío no mejora a v5.0:** 1.41 veces el lote con K = 64 y 1.47 con K = 16, con el límite en 1.20 y v5.0 en 1.31 en la misma sesión. Sin explicar todavía.
 - **Inserts:** 197 por segundo con K = 16 y 187 con K = 64, con 2.4 y 9.0 MB de cambios esperando en su pico. K = 16 escribe 1.5 veces lo que v5.0; K = 64, 0.8.
-- **En marcha (encargado el 20):** el índice de K = 64 reorganizado como la celda 2 del control, para ver si las dos mitades se suman: el frío de la reorganización y el caliente de las filas de aristas.
+- **El control combinado (cerrado el 20): las dos mitades no se suman con las filas en su bucket.** El índice de K = 64 reorganizado como la celda 2 del control cumple en caliente, 1.20 veces el lote, y no en frío, 1.2045. La cuenta dice por qué: la fila de aristas, sola en su bucket, es una lectura de disco aparte, 1.44 page-ins y 48 KB por carga, donde en v5.0 viene detrás de los miembros por 0.88 y 15 KB. Un fallo de página en frío trae 72 KiB, así que dos filas seguidas se leen juntas.
+- **En marcha (v5.3, pre-registrado el 20):** la fila de aristas en un valor, en el bucket de los miembros, con clave contigua. `lsmkv` lo admite sin tocarlo, como un Set de un solo valor que se reescribe con su lápida.
 
 **El scan con los códigos en RAM (v4.1, cerrado el 20): no es una opción.** Con los códigos de 512 o 768 bits en RAM para ruteo y scan, y en disco solo las aristas y los vectores, la mejor curva queda en frío a 0.95 a 1.49 veces de la celda de ruteo: ahorra una lectura de bloque por carga y paga 136 lecturas de rescore más por query. Con el presupuesto de un nodo, 1.46. Su modo, `scan`, se quitó de `rq.cacheMode` el 20: quedan `routing` y `none`. Sin medir: 768 bits con un rescore por debajo de 200, y 768d.
 
@@ -538,6 +539,25 @@ Lo comprobado en el código, y qué números del arnés pueden cambiar por ello,
 - **Una lista reparada parece mejor que la del lote.** A 0.99 las celdas reparadas cargan entre un 11 y un 21 % menos que un lote de su mismo llenado. Sin separar.
 
 **Sin medir:** el umbral acumulado en el churn, «una arista o más» en el churn, la pasada cada varias rondas, y todo ello en disco.
+
+## Reparación en el churn (v6.2, 2026-11-20)
+
+*De `bench-report.md`, «v6.2: reparación en el churn»: la pasada de v6.1 con tres reparaciones, en el churn de diez rondas del 3 % y con el 30 % de una vez. Una corrida, en conteos y en memoria: nada de esto está en disco.*
+
+- **Las tres cumplen en el churn,** donde la pasada de v6.1 fallaba:
+
+  | celda | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | cargas de búsqueda por borrado |
+  |---|---|---|---|---|
+  | la de v6.1 | −0.0069 | +12.0 % | +15.8 % | 17.2 |
+  | A: el umbral cuenta lo perdido desde que se construyó la lista | −0.0013 | +3.7 % | −1.3 % | 68.2 |
+  | B: sustitución local, sin búsquedas | −0.0004 | +2.7 % | +1.8 % | 0 |
+  | C: sustitución, y búsqueda si lo no sustituido llega al 25 % | −0.0005 | +2.4 % | +2.9 % | 1.5 |
+
+- **La sustitución local:** al quitar un borrado, cada vector que apuntaba a él recibe el vecino más cercano de la lista del borrado que esté vivo, fuera de su posting y que no tenga ya. La distancia es entre dos códigos del sidecar: 62.8 por borrado, sin leer ningún vector. El 94 % de las aristas muertas recibe sustituto.
+- **Mantiene las listas llenas,** 8.84 aristas por vector en las diez rondas, y eso es lo que cuenta: un sustituto es una arista verdadera una vez de cada ocho, y el recall de arista de B (0.78) es peor que el de A (0.84) sin que la búsqueda lo note.
+- **Con el 30 % de una vez también entra:** −0.0038, +4.2 % y +4.2 %.
+- **Lo que cuesta en disco, sin medir:** cada pasada lee y escribe todos los postings, porque con borrados al azar todos tienen algún borrado o alguna arista muerta. La lista de un borrado tiene que seguir en su posting hasta que sus vecinos la hayan leído.
+- **Sin medir:** más rotación que un 30 % de la base (los sustitutos son el 15 % de las aristas al final, y siguen subiendo), borrados por regiones, y la calidad ronda a ronda.
 
 ## Open for phase 2
 

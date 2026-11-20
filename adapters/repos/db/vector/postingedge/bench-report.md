@@ -160,7 +160,8 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **179 inserts por segundo con un escritor,** el 93 % en la búsqueda de aristas. Un insert entrega 1.35 KB al store, además de su vector.
   - **HFresh, con un escritor y sus 9 workers de fondo (del 20):** 2 089 por segundo, de 10.6 a 11.7 veces.
   - **Con las búsquedas de los inserts en paralelo (v5.2, del 20):** 634 por segundo con 8 buscadores, 3.76 veces el insert de siempre, sin perder calidad a igual ef. Su criterio pedía 4 veces: no sirve como se pre-registró. Ocho búsquedas a la vez tardan un 54 % más cada una.
-- **Aristas consolidadas (v5.1, del 19 y el 20): no sirve, por su criterio.** La fila de aristas de un posting en un solo valor, escrita cada K cambios. En caliente cierra un 55 % de la distancia con el lote, 1.21 veces donde v5.0 queda a 1.45. En frío no mejora a v5.0: 1.41 a 1.47 veces el lote, sin que sepa todavía por qué. Un control combinado, encargado el 20, lo mide reorganizado.
+- **Aristas consolidadas (v5.1, del 19 y el 20): no sirve, por su criterio.** La fila de aristas de un posting en un solo valor, escrita cada K cambios. En caliente cierra un 55 % de la distancia con el lote, 1.21 veces donde v5.0 queda a 1.45. En frío no mejora a v5.0: 1.41 a 1.47 veces el lote, sin que sepa todavía por qué. El control combinado, del 20, lo explica y lo mide reorganizado: su fila de aristas, sola en su bucket, es una lectura de disco aparte (6.15 page-ins por carga frente a 5.74 de v5.0). Reorganizado cumple en caliente, 1.20 veces el lote, y falla en frío por cuatro milésimas, 1.2045. v5.3, pre-registrado el 20, pone esa fila junto a la de miembros.
+- **Deletes (v6.0, v6.1 y v6.2, del 19 y el 20), en memoria y en conteos.** Con la marca sola el índice aguanta el 10 % borrado. La limpieza en dos fases de v6.1 cumple con el 30 % en una pasada y fallaba en un churn. En v6.2, sustituir cada arista muerta por un vecino de la lista del borrado, elegido con una distancia entre dos códigos, cumple en el churn sin ninguna búsqueda: −0.0004 de recall, +2.7 % de cargas a 0.95 y +1.8 % a 0.99. Sin medir: más rotación que un 30 %, borrados que no son al azar, y todo en disco.
 - **Antes de compactar, la basura pesa un 34.5 % más de bytes por carga** y 1.75 veces las lecturas, con la política por niveles.
 - **El store escribe de 7 a 17 veces lo que guarda,** con cualquiera de sus dos políticas.
 - **Un bug de `lsmkv` encontrado por el camino:** su compactador de Set devolvía valores borrados. Arreglado aquí y en un PR a main, weaviate/weaviate#13950.
@@ -284,7 +285,7 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
-**Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo, el driver y sus tests están escritos (Paso 1, en dos partes). La corrida a 1M va el 20 de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
+**Estado: cerrado. Las tres celdas cumplen el criterio en el churn, y la más barata que cumple es B, la sustitución local, que no hace ninguna búsqueda. Abajo, «Paso 2» y «Veredicto de v6.2».** Pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
 
 ### El encargo (del usuario)
 
@@ -480,6 +481,144 @@ Escrito el 20 por la mañana, con la cola de la noche ya parada, antes de la cor
 **Lo que sigue sin escribir:** el respaldo para códigos recortados en el sidecar. La corrida va con los códigos completos.
 
 Lint, con la etiqueta del banco y sin ella, `go vet` y el linter de goroutines pasan. Los tests del paquete entero pasan.
+
+### Paso 2, cerrado: la corrida a 1M (2026-11-20, de 10:03 a 12:29)
+
+**Estado: hecha, entera, en una corrida de 2 h 26 min. Las tres celdas cumplen el criterio en el churn. La más barata que cumple es B, la sustitución local: no hace ninguna búsqueda.** En conteos y en memoria: nada se cronometra. El binario es el de `f288f95372`. Los datos, en `testdata/bench/v6.2/dbpedia-1m-memory.json`, y las tablas, en `memory-verdict.md`. Ninguna celda paró: ningún stop saltó en ninguna pasada.
+
+#### El churn: diez rondas del 3 %
+
+Contra el lote de S = 236 de los 760 000 vectores vivos al final: 3 221 postings, 9.41 cargas a 0.95 y 44.52 a 0.99.
+
+| celda | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | las tres |
+|---|---|---|---|---|
+| la de v6.1, repetida (*mía*) | −0.0069 en ef 20: no | 10.53, +12.0 %: sí | 51.54, +15.8 %: no | no |
+| A: umbral acumulado | −0.0013 en ef 20: sí | 9.75, +3.7 %: sí | 43.96, −1.3 %: sí | **sí** |
+| B: sustitución local | −0.0004 en ef 20: sí | 9.66, +2.7 %: sí | 45.31, +1.8 %: sí | **sí** |
+| C: sustitución con red | −0.0005 en ef 40: sí | 9.64, +2.4 %: sí | 45.79, +2.9 %: sí | **sí** |
+
+- **La celda de v6.1 repite su fallo:** en v6.1 fueron −0.0071, +12.1 % y +16.9 %. La referencia vale, y la diferencia entre las dos corridas a 0.99 es un punto.
+- **Las tres del encargo cumplen con margen en las tres cantidades.** Entre B y C no hay nada que separe por encima del suelo de ruido.
+- **Contra su referencia de llenado** las fusiones dejan postings de 237 a 238 vivos, y las cuatro lecturas son las mismas: la de v6.1 fuera, las otras tres dentro.
+
+**Coste por vector borrado,** sobre los 228 000 borrados:
+
+| celda | listas reparadas por búsqueda | cargas de búsqueda | postings de la fase 2 | distancias exactas | distancias entre códigos | del ensayo, aparte |
+|---|---|---|---|---|---|---|
+| la de v6.1, repetida (*mía*) | 0.63 | 17.2 | 0.14 | 54.2 | 0 | 0 |
+| A: umbral acumulado | 1.87 | 68.2 | 0.14 | 203.6 | 0 | 0 |
+| B: sustitución local | 0 | 0 | 0.14 | 0 | 62.8 | 0 |
+| C: sustitución con red | 0.08 | 1.5 | 0.14 | 6.3 | 62.8 | 62.8 |
+
+- **B no busca nada:** 62.8 distancias entre dos códigos por borrado, en memoria, y ninguna carga.
+- **A repara 425 379 listas,** 1.87 por borrado, tres veces las de la celda de v6.1. Sube ronda a ronda y se estabiliza: en las tres últimas son unas 58 000 listas y 2.2 millones de cargas por ronda, 97 por borrado.
+- **C repara 19 222,** un 4.5 % de las de A, con 1.5 cargas por borrado.
+- **La fase 2 lee y escribe todos los postings en cada pasada, en las cuatro celdas:** de 3 213 a 3 251 por ronda, que son los que hay. Con borrados al azar todos tienen algún borrado o alguna arista muerta. Es el coste de la pasada, y no cambia con la celda.
+
+**Aristas por vector vivo después de la pasada de cada ronda,** y entre paréntesis cuántas son sustitutos:
+
+| ronda | la de v6.1 | A | B | C |
+|---|---|---|---|---|
+| 1 | 8.62 | 8.62 | 8.84 (0.24) | 8.85 (0.24) |
+| 2 | 8.41 | 8.43 | 8.84 (0.43) | 8.84 (0.43) |
+| 3 | 8.21 | 8.29 | 8.84 (0.59) | 8.84 (0.58) |
+| 4 | 8.03 | 8.19 | 8.84 (0.72) | 8.84 (0.72) |
+| 5 | 7.86 | 8.13 | 8.84 (0.84) | 8.85 (0.84) |
+| 6 | 7.70 | 8.10 | 8.84 (0.95) | 8.85 (0.95) |
+| 7 | 7.55 | 8.09 | 8.84 (1.05) | 8.85 (1.05) |
+| 8 | 7.42 | 8.09 | 8.84 (1.15) | 8.85 (1.14) |
+| 9 | 7.29 | 8.10 | 8.84 (1.23) | 8.86 (1.23) |
+| 10 | 7.18 | 8.11 | 8.84 (1.31) | 8.86 (1.31) |
+
+- **B mantiene las listas llenas:** 8.84 aristas por vector en las diez rondas. La celda de v6.1 baja de 8.62 a 7.18.
+- **A deja de caer en la ronda 6,** en 8.1: repara lo que pierde.
+- **Los sustitutos se acumulan:** 1.31 por vector al final, el 15 % de las aristas. Cada ronda añade menos que la anterior, de 0.24 a 0.08, y no se ha parado.
+- **En B, de cada ronda, el 94 % de las aristas muertas recibe sustituto:** unas 190 000 sustituidas y unas 11 500 quitadas sin él. El contador, que en B no decide nada, acaba en 0.13 por vector, donde en la celda de v6.1 acaba en 1.75.
+- **Las tablas por ronda de cada celda,** en `memory-verdict.md`.
+
+**Recall de arista al final,** el de v2.x, sobre 2 000 vectores vivos, los mismos en las cuatro celdas y en el lote:
+
+| | vectores | recall de arista | recall de postings | aristas por vector | sustitutos en la lista | de ellos, aristas verdaderas |
+|---|---|---|---|---|---|---|
+| el lote de S = 236 | 2 000 | 0.9680 | 0.9510 | 8.70 | | |
+| **la de v6.1, repetida** | 2 000 | 0.7500 | 0.7968 | 7.18 | | |
+| insertados en el churn | 609 | 0.8431 | 0.8612 | 8.37 | | |
+| reparados por búsqueda | 220 | 0.8630 | 0.8993 | 5.18 | | |
+| ni reparados ni con sustituto | 1 171 | 0.6895 | 0.7519 | 6.94 | | |
+| **A** | 2 000 | 0.8438 | 0.8739 | 8.08 | | |
+| insertados en el churn | 609 | 0.8794 | 0.8956 | 8.81 | | |
+| reparados por búsqueda | 714 | 0.8966 | 0.9170 | 8.98 | | |
+| ni reparados ni con sustituto | 677 | 0.7411 | 0.7969 | 6.47 | | |
+| **B** | 2 000 | 0.7833 | 0.8358 | 8.81 | 2 491 | 312, un 12.5 % |
+| insertados en el churn | 609 | 0.8594 | 0.8784 | 9.47 | 500 | 37, un 7.4 % |
+| con algún sustituto | 870 | 0.7424 | 0.8139 | 10.44 | 1 991 | 275, un 13.8 % |
+| ni reparados ni con sustituto | 521 | 0.7624 | 0.8235 | 5.33 | | |
+| **C** | 2 000 | 0.7833 | 0.8352 | 8.86 | 2 498 | 302, un 12.1 % |
+| insertados en el churn | 609 | 0.8581 | 0.8772 | 9.53 | 513 | 37, un 7.2 % |
+| con algún sustituto | 864 | 0.7408 | 0.8137 | 10.46 | 1 985 | 265, un 13.4 % |
+| reparados por búsqueda | 27 | 0.9021 | 0.9474 | 4.93 | | |
+| ni reparados ni con sustituto | 500 | 0.7623 | 0.8189 | 5.50 | | |
+
+- **El recall de arista no predice la búsqueda.** B tiene 0.78 y A 0.84, con el lote en 0.97, y B busca igual de bien o mejor: −0.0004 de recall frente a −0.0013, y +2.7 % de cargas a 0.95 frente a +3.7 %.
+- **Un sustituto casi nunca es una arista verdadera:** uno de cada ocho. Es un vecino a dos saltos, cercano, que no está entre los 16 más cercanos.
+- **Lo que separa a las celdas que cumplen de la que no es el largo de la lista, no su recall.** La celda de v6.1 y B tienen recalls de arista parecidos, 0.75 y 0.78, y una falla y la otra cumple: una deja 7.18 aristas por vector y la otra 8.81.
+- **Los insertados en el churn y los reparados por búsqueda tienen el mejor recall de arista en todas las celdas,** de 0.84 a 0.90: su lista salió de una búsqueda sobre el índice ya cambiado.
+
+#### El 30 % de una vez
+
+Contra el lote de S = 236 de los 693 000 vectores vivos: 2 937 postings, 9.31 cargas a 0.95 y 44.47 a 0.99.
+
+| celda | peor recall a igual ef | cargas a 0.95 | cargas a 0.99 | entra | cargas de búsqueda por borrado | distancias entre códigos por borrado |
+|---|---|---|---|---|---|---|
+| la ganadora de v6.1, repetida (*mía*) | −0.0020 en ef 10 | 9.53, +2.3 % | 39.75, −10.6 % | sí | 65.6 | 0 |
+| B: sustitución local | −0.0038 en ef 10 | 9.70, +4.2 % | 46.33, +4.2 % | sí | 0 | 31.2 |
+| C: sustitución con red | −0.0041 en ef 10 | 9.74, +4.6 % | 45.88, +3.2 % | sí | 2.2 | 31.0, y 31.2 del ensayo |
+
+- **Las tres entran.** La ganadora de v6.1 repite lo suyo: eran −0.0023, +2.7 % y −10.7 %.
+- **B y C entran con menos margen en el recall que en el churn:** −0.0038 y −0.0041, con el límite en −0.005. La de C queda a menos del suelo de ruido del límite.
+- **La ganadora de v6.1 carga un 10.6 % menos que el lote a 0.99, y B un 4.2 % más:** reparar por búsqueda 412 369 listas las deja mejores que las del lote, y sustituir no. Es lo que cuestan las 65.6 cargas por borrado.
+- **Con el 30 % de una vez B encuentra sustituto para el 91.4 % de las aristas muertas,** algo menos que en el churn: un tercio de la lista de cada borrado también está borrado.
+- **Recall de arista:** 0.9132 la ganadora de v6.1, 0.7106 B y 0.7210 C, con el lote en 0.9658. Los sustitutos son aristas verdaderas el 14.9 % de las veces.
+
+#### Lo esperado y lo medido
+
+| | esperaba | medido | |
+|---|---|---|---|
+| A repara, en diez rondas | de 400 000 a 550 000 listas, unas dos por borrado | 425 379, 1.87 | sí |
+| A cuesta, por borrado | de 60 a 90 cargas, y sigue subiendo | 68.2; en las últimas rondas, 97 | sí |
+| A en régimen | más de 100 cargas por borrado | se estabiliza en 97 | casi |
+| A cumple, con las aristas por vector al final | de 7.9 a 8.3 | 8.11 | sí |
+| B mantiene las listas | cerca de 8.9 | 8.84 | sí |
+| B encuentra sustituto, en el churn | para ocho o nueve de cada diez | el 94.4 % | algo más |
+| B encuentra menos con el 30 % de una vez | | el 91.4 % | sí |
+| B cumple en el churn, por poco a 0.99 | | +1.8 %, con el límite en +10 % | cumple, y con margen |
+| B queda fuera a 0.99 con el 30 % de una vez | | +4.2 % | **no: entra** |
+| C cumple con una pequeña parte de las cargas de A | | 1.5 frente a 68.2 | sí |
+| la más barata que cumple | B, y si falla, C | B | sí |
+| recall de arista, de mayor a menor | el lote, A, C, B y la celda de v6.1 | el lote, A, B y C iguales, la de v6.1 | sí |
+| los sustitutos son aristas verdaderas | menos de la mitad de las veces | el 12.5 % | sí, y muchas menos |
+
+- **Me equivoqué con B por el mismo lado dos veces:** la creía justa a 0.99 en el churn y fuera con el 30 % de una vez. Escribí que no sabía cuánto vale un vecino a dos saltos elegido con una distancia entre códigos: vale más de lo que creía.
+
+### Veredicto de v6.2
+
+**La celda más barata que cumple es B, la sustitución local.** Cumple el criterio en el churn sin ninguna búsqueda: −0.0004 de recall en su peor ef, +2.7 % de cargas a 0.95 y +1.8 % a 0.99. Con el 30 % de una vez también entra.
+
+| celda | cumple en el churn | entra con el 30 % de una vez | cargas de búsqueda por borrado | distancias exactas por borrado |
+|---|---|---|---|---|
+| A | sí | sí: es la ganadora de v6.1, con los contadores a cero | 68.2 | 203.6 |
+| B | sí | sí | 0 | 0 |
+| C | sí | sí | 1.5 | 6.3 |
+
+- **La hipótesis de v6.1 se confirma, antes de proponer nada:** la pasada fallaba en el churn porque su umbral no tenía memoria. Con el contador, A cumple.
+- **Y no hace falta reparar por búsqueda.** Sustituir cada arista muerta por un vecino de la lista del borrado, elegido con una distancia entre dos códigos, mantiene las listas llenas y la búsqueda dentro del criterio.
+- **La red de C no se justifica con estos datos:** en diez rondas no mejora a B en nada medible, y cuesta un ensayo que dobla las distancias entre códigos.
+- **Lo que no dice:**
+  - **Qué pasa con más rotación.** En diez rondas se renueva el 30 % de la base, y los sustitutos siguen acumulándose: el 15 % de las aristas al final. No está medido si la búsqueda aguanta con el 50 o el 100 %.
+  - **Borrados que no son al azar.** Con postings enteros borrados la sustitución encuentra menos candidatos: a pequeña escala, el 68 %. Ahí la red de C tendría trabajo.
+  - **Nada en disco.** La lista de un borrado está en su posting, y la pasada reescribe todos los postings: en memoria eso no cuesta, y en disco es el coste entero de la pasada.
+  - **La calidad ronda a ronda:** el criterio se lee al final de las diez.
+- **Para la integración:** la limpieza de deletes del hito 2 tiene una celda que cumple en un churn sin búsquedas. Queda por decidir cada cuánto pasa, porque cada pasada toca todos los postings.
 
 ## v6.1: limpieza en dos fases (pre-registro, 2026-11-19)
 
@@ -1744,7 +1883,7 @@ La parte del rescore en la latencia media de una query, medida con el presupuest
 
 ## v5.1: aristas consolidadas (pre-registro, 2026-11-19)
 
-**Estado: cerrado. No sirve, tal como se pre-registró: ninguna K cumple ninguna de las dos mitades del criterio. En caliente cierra más de la mitad de la distancia de v5.0 con el lote; en frío, nada. Abajo, «Paso 2», «Paso 3» y «Veredicto de v5.1». Un control combinado, pre-registrado el 20, mide el índice de K = 64 reorganizado: «Enmienda 2».** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
+**Estado: cerrado. No sirve, tal como se pre-registró: ninguna K cumple ninguna de las dos mitades del criterio. En caliente cierra más de la mitad de la distancia de v5.0 con el lote; en frío, nada. Abajo, «Paso 2», «Paso 3» y «Veredicto de v5.1». Un control combinado, pre-registrado el 20, mide el índice de K = 64 reorganizado: «Enmienda 2». Cerrado el 20: cumple en caliente y no en frío, por cuatro milésimas; no es el formato candidato.** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
@@ -2325,6 +2464,79 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 **Lo que sugiere, sin proponerlo como formato** (*mío*): la fila de aristas en un solo valor es lo que arregla el caliente, y sacarla a otro bucket es lo que le cuesta el frío. Guardada junto a la fila de miembros, en el mismo segmento y con una clave contigua, tendría las dos cosas. No está escrito ni medido.
 
 **Lo que no dice:** cuánto espera una ronda con las filas pedidas a la vez, que es lo que mide la sesión; ni nada del formato en lote, que no se cuenta aquí.
+
+### Control combinado, paso 3: la sesión cronometrada (2026-11-20, de 12:30 a 13:20)
+
+**Estado: hecha, en dos rondas, sin teclado ni trackpad en ningún tramo. No es el formato candidato, tal como se pre-registró: en caliente cumple, 1.20 veces el lote con el límite en 1.25, y en frío se queda en 1.2045, con el límite en 1.20.** Arrancó nada más acabar v6.2: la máquina llevaba quieta más de 15 minutos. El binario es el de `45e586c572`. Los datos, en `testdata/bench/v5.1/dbpedia-1m-comb-r1-*.json` y `-r2-*.json`. Las tablas son las de `combined-verdict.md`.
+
+**La lectura,** por el p50 con 1 thread a 0.95:
+
+| ronda | | K = 64, reorganizado, ms | el lote | entre el lote | entra | la celda 2 de v5.0 | entre el lote | K = 64, tal cual | entre el lote |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | en frío | 4.39 | 3.65 | 1.2045x | **no** | 4.00 | 1.10x | 4.96 | 1.36x |
+| 1 | en caliente | 1.11 | 0.93 | 1.20x | **sí** | 1.25 | 1.34x | 1.13 | 1.22x |
+| 2 | en frío | 4.45 | 3.61 | 1.23x | **no** | 4.03 | 1.12x | 5.01 | 1.39x |
+| 2 | en caliente | 1.11 | 0.92 | 1.20x | **sí** | 1.25 | 1.36x | 1.13 | 1.23x |
+
+- **En frío falla por cuatro milésimas en la primera ronda,** que es la de la lectura, y por tres centésimas en la segunda. Lo aplico como está escrito: no cumple.
+- **Cada formato reorganizado cumple una mitad, y no la misma.** El de v5.1 cumple el caliente y no el frío; el de v5.0 cumple el frío, 1.10, y no el caliente, 1.34.
+- **Frente a la celda 2 de v5.0:** en frío, 1.10 veces, un 9.8 % más, en el borde del empate; en caliente, 0.89 veces, un 10.8 % menos.
+
+**De dónde sale, por la latencia media a 0.95 con 1 thread:**
+
+| | K = 64, reorganizado | la celda 2 de v5.0 | el lote | K = 64, tal cual |
+|---|---|---|---|---|
+| en frío: traer los bloques, ms | 2.86 | 2.28 | 1.93 | 3.38 |
+| en frío: scan y ruteo | 0.82 | 0.84 | 0.66 | 0.82 |
+| en frío: rescore | 1.59 | 1.56 | 1.58 | 1.82 |
+| en frío: fila de miembros, µs por carga | 365.2 | 284.4 | 259.5 | 439.2 |
+| en frío: fila de aristas, µs por carga | 202.8 | 274.3 | 216.2 | 198.9 |
+| en caliente: traer los bloques, ms | 0.42 | 0.58 | 0.31 | 0.45 |
+| en caliente: fila de miembros, µs por carga | 15.8 | 16.2 | 14.2 | 18.0 |
+| en caliente: fila de aristas, µs por carga | 9.3 | 34.3 | 7.0 | 9.5 |
+
+- **Reorganizar deja el rescore como el del lote en los dos formatos:** 1.59 y 1.56 ms frente a 1.58. Es el orden de los vectores.
+- **Lo que le queda al de v5.1 en frío es traer los bloques:** 2.86 ms frente a 2.28 de la celda 2 de v5.0 y 1.93 del lote. Es lo que anunciaba la cuenta del paso 2: un 13 % más de page-ins por carga, porque su fila de aristas es una lectura de disco aparte. La fila de miembros le cuesta además más de pared que a la celda 2, 365 µs frente a 284: en v5.0 una espera sirve a las dos filas.
+- **En caliente la fila de aristas en un valor cuesta 9.3 µs por carga,** donde valor a valor son 34.3 y en el lote 7.0.
+- **A K = 64, reorganizar le cierra el 43 % de su distancia con el lote en frío,** de 4.96 a 4.39 ms, y nada en caliente, de 1.13 a 1.11.
+- **Con 8 threads y a 0.99** sale lo mismo: de 1.15 a 1.24 veces el lote en frío y de 1.16 a 1.20 en caliente.
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| en frío a 0.95, entre el lote | de 1.05 a 1.15; tras la cuenta, en su mitad alta | 1.20 | fuera, por arriba |
+| en empate con la celda 2 de v5.0 en frío | | un 9.8 % más | en el borde |
+| en caliente a 0.95, entre el lote | de 1.12 a 1.22 | 1.20 | sí |
+| cumple las dos mitades | | la de en caliente | no |
+| con 8 threads en caliente, peor que con 1 | de 1.2 a 1.3 | 1.18 | fuera: algo mejor que con 1 |
+
+- **Esperaba el fallo, si lo había, en caliente, y está en frío.** La cuenta del paso 2 ya lo señalaba y no moví el intervalo.
+
+**Las curvas: dos rondas, deriva y actividad.**
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| K = 64, reorganizado | 12:30 a 12:36 | 12:55 a 13:01 | no | −2.2 % (0.99, 1 thread, en frío: 11.10 y 10.85 ms) | — |
+| la celda 2 de v5.0 | 12:36 a 12:43 | 13:01 a 13:08 | no | +3.1 % (0.95, 8 threads, en frío: 12.32 y 12.71 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 12:43 a 12:48 | 13:08 a 13:13 | no | −3.4 % (0.99, 1 thread, en frío: 9.12 y 8.80 ms) | — |
+| K = 64, tal cual (mía) | 12:48 a 12:55 | 13:13 a 13:20 | no | +1.1 % (0.95, 1 thread, en frío: 4.96 y 5.01 ms) | — |
+
+- **Ninguna curva queda marcada.** No hay nada que repetir.
+- **Dos cosas que el registro no ve:**
+  - **Dos lecturas de ficheros mías,** a las 12:29:51 y a las 12:30:37, al leer el final de v6.2. La segunda cayó en los primeros segundos del primer tramo, el de la celda nueva. Después no toqué la máquina hasta las 13:20.
+  - **La sesión de integración escribió código en otro worktree durante la sesión,** sin compilar ni probar: su comprobación la paró desde las 12:30.
+  - **La segunda ronda de la celda nueva da un 1.3 % más en frío que la primera,** 4.45 ms frente a 4.39: nada de eso la movió a favor.
+- **RAM:** 179.1 MB de heap tras abrir la celda nueva, como la celda 2 de v5.0 (179.4), frente a 175.1 de K = 64 tal cual y 145.7 del lote.
+
+### Veredicto del control combinado
+
+**El índice de K = 64 reorganizado no es el formato candidato, tal como se pre-registró:** cumple en caliente, 1.20 veces el lote, y no en frío, 1.2045 con el límite en 1.20.
+
+- **Por qué no, medido dos veces:** su fila de aristas, sola en su bucket, es una lectura de disco aparte. Se ve en la cuenta, 5.51 page-ins por carga frente a 4.86 de la celda 2 de v5.0, y en el reloj, 2.86 ms de traer los bloques frente a 2.28.
+- **Lo que deja claro:** las dos mitades existen por separado. La reorganización arregla el frío y el rescore; la fila de aristas en un valor arregla el caliente. Ningún formato medido tiene las dos.
+- **Lo que sigue:** v5.3, pre-registrado hoy, pone la fila de aristas en un valor junto a la de miembros, que es lo que esta cuenta sugiere.
+- **Lo que no dice:** nada de una reorganización en segundo plano de verdad, ni de K = 16.
 
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
