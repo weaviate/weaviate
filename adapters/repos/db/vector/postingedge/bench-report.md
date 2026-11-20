@@ -175,6 +175,80 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v5.3: la fila de aristas en un valor, junto a la de miembros (pre-registro, 2026-11-20)
+
+**Estado: pre-registrado el 20 a las 10:56, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, la corrección, lo que se mide, la sesión y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás del control combinado de v5.1, cuya sesión cronometrada no ha corrido todavía: lo esperado de abajo no la usa. No corre prisa: en la integración el almacenamiento de aristas queda detrás de una interfaz.
+
+### De dónde sale
+
+El control combinado contó hoy lo que lee una carga en frío (arriba, en v5.1, «Control combinado, paso 2»). Las aristas de un posting en un solo valor arreglan el caliente. Guardadas en otro bucket, como en v5.1, cuestan una lectura de disco propia: 1.44 page-ins y 48.3 KB por carga, donde en v5.0 la fila de aristas viene casi gratis detrás de la de miembros, 0.88 page-ins y 15.1 KB, porque va junto a ella en el mismo segmento. v5.3 mide las dos cosas a la vez: un solo valor, y junto a los miembros.
+
+### El encargo (del usuario)
+
+- **Mecanismo:** aristas consolidadas como en v5.1 con K = 64, pero escritas en el mismo bucket que los miembros, con clave contigua a la de su posting.
+- **Corrección:** idéntico al gemelo en memoria. Es stop.
+- **Sin cronometrar:** lecturas pedidas al store, y page-ins y KB traídos del disco por carga, tal cual y reorganizado, junto a las cuatro filas de la tabla de hoy.
+- **Cronometrado,** en la misma sesión que el lote y la celda 2 de v5.0: frío y caliente a 0.95, tal cual y reorganizado.
+- **Lectura:** es el formato candidato si, reorganizado, queda a 1.20 veces o menos del lote en frío y a 1.25 o menos en caliente. Se reporta cuánto se acerca sin reorganizar.
+- **Si `lsmkv` no admite las dos filas en un bucket con patrones de escritura distintos sin tocarlo, parar y dar las opciones.**
+
+### Si `lsmkv` lo admite sin tocarlo (*mío*, leído en el código antes de escribir nada)
+
+**Lo admite, por su API, con un coste.** El bucket de miembros es un Set: una clave tiene un conjunto de valores, se le añaden (`SetAdd`) y se le quitan de uno en uno (`SetDeleteSingle`). La fila de aristas puede ser ese conjunto con un solo valor, la fila entera:
+
+- **La clave** es la que v5.0 ya usa para la fila de aristas de un posting, contigua a la de sus miembros: las dos van seguidas en cada segmento.
+- **Reescribir la fila** es quitar el valor viejo y añadir el nuevo. No hay un «reemplazar» en un Set.
+- **El coste:** quitar un valor es escribir una lápida que lleva el valor entero. Cada reescritura escribe dos veces lo que pesa la fila, unos 11 KB cada vez, donde v5.1 escribía una. Y hasta que la compactación junta el valor viejo con su lápida, la clave guarda las versiones anteriores, que una lectura trae y descarta.
+- **Leerla** es `SetList`, que resuelve las lápidas y devuelve el único valor vivo.
+- **Los valores de un Set llevan su largo en 8 bytes:** una fila de 11 a 25 KB cabe.
+- **Los postings retirados** se van como en v5.0, con la función que le dice a la compactación qué claves saltar.
+- **El bug del compactador de Set** que devolvía valores borrados (v5.0, enmienda 1) está arreglado en esta rama. Este mecanismo depende de ese arreglo: valor y lápida conviven en un segmento.
+
+**Lo que haría parar, si aparece al escribirlo:** que el store no devuelva siempre un único valor vivo, o que el índice deje de ser idéntico al gemelo por algo del store y no del índice. Entonces paro y doy las opciones. Las que veo hoy, sin escribir ninguna:
+
+1. Un bucket Map en lugar del Set, con los miembros como pares y la fila de aristas como un par más que se reemplaza por su clave. Cambia el formato de la fila de miembros.
+2. Tocar `lsmkv` para que un Set admita reemplazar el contenido de una clave sin lápida por valor.
+3. Dejar las aristas en su bucket, como v5.1, y acercarlas a los miembros al reorganizar, escribiéndolas en un fichero aparte ordenado por posting. No arregla el índice tal cual.
+
+### Cómo lo aplico (*mío*)
+
+- **Lo que cambia frente a v5.1:** dónde se escribe la fila de aristas, y cómo se reescribe. Lo que espera en memoria, cuándo se escribe la fila (cada 64 cambios, en el split y al cerrar) y su formato son los de v5.1. El bucket de filas de aristas de v5.1 no existe aquí.
+- **Un índice, crecido una vez,** del 10 % al 100 % de dbpedia 1M, con un escritor, T = 360 y ef de inserción 160, con su gemelo en memoria al lado y la compactación forzada de HFresh, que es con la que crecieron los índices cronometrados de v5.0 y de v5.1. Sin cronometrar los inserts: el encargo no los pide.
+- **Corrección, que es stop:** en cada insert, el mismo posting, las mismas aristas y las mismas cuentas que el gemelo; en cada checkpoint, del 20 al 100 %, con todo volcado, cobertura completa e índice idéntico; y cerrado y abierto otra vez, lo mismo que el gemelo en las 5 000 queries de sus dos puntos. Como en v5.0 y v5.1.
+  - **Además, en los tests, a pequeña escala:** lo mismo, cruzando splits, volcados, compactaciones y reaperturas, y que cada lectura de la fila devuelve un único valor.
+- **El reorganizado** es una copia del índice crecido, escrita como la celda 2 del control: de cada posting vivo sus dos filas, la de miembros y la de aristas, añadidas a un bucket vacío que se vuelca una vez, y los vectores en orden de posting. Tiene que devolver lo mismo que el índice tal cual en las 5 000 queries de sus dos puntos: es stop.
+- **Sin cronometrar, la tabla de hoy con dos filas más:** v5.3 tal cual y v5.3 reorganizado, con el mismo conteo que las otras cuatro (las 500 queries de la tanda en frío, de una en una, las filas de cada carga leídas una detrás de otra, y la cuenta del disco en los dos órdenes). Las cuatro filas de hoy no se vuelven a medir: son conteos.
+  - **Además** (*mío*): lo que un insert entrega al store y lo que el store acaba escribiendo, junto a v5.0 y a K = 64 de v5.1, porque la lápida es el coste conocido de este mecanismo. Son conteos del mismo crecimiento.
+- **Cronometrado, cinco curvas,** cada una en su proceso, en dos rondas, en caliente y en frío, con 1 y 8 threads, como en el control:
+
+  | curva | de quién |
+  |---|---|
+  | v5.3, tal cual | del usuario |
+  | v5.3, reorganizado | del usuario |
+  | la celda 2 de v5.0 | del usuario |
+  | el lote (v4.0, 512 bits en RAM) | del usuario |
+  | K = 64 de v5.1, reorganizado: la celda del control combinado | **mía** |
+
+  - **La quinta curva** pone los dos formatos candidatos en la misma sesión. Son siete minutos por ronda. Si el usuario no la quiere, se quita antes de la sesión.
+- **La lectura se aplica al p50 con 1 thread a 0.95, en la primera ronda,** de v5.3 reorganizado entre el del lote de la misma sesión: en frío, 1.20 o menos; y en caliente, 1.25 o menos. Es el formato candidato si cumple las dos.
+  - **Cuánto se acerca sin reorganizar:** las mismas dos razones para v5.3 tal cual, sin umbral.
+  - **Por debajo de un 10 % entre dos índices es un empate.**
+  - **A 0.99 y con 8 threads** se reporta sin umbral.
+- **Condiciones de la sesión:** las del control: la máquina despierta, 15 minutos sin teclado ni trackpad antes de arrancar, nada compilando, dos rondas y la actividad de cada tramo. Una curva que derive o coincida con actividad se marca, y se repite en la ventana de la noche.
+- **Lo que no mide:** inserts por segundo; K distinto de 64; una reorganización en segundo plano de verdad; y lo que la clave guarda de más mientras la compactación no pasa, más allá de lo que se ve en el índice tal cual.
+- **Lo que el binario añade:** en ficheros de test, la fila de aristas escrita en el bucket de miembros, como opción del índice que crece, con sus tests de equivalencia; su caso en la reorganización; y sus etapas en un script. Nada en `lsmkv` ni en el índice.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **Reorganizado, lo que cuenta el store:** 2.00 lecturas y unos 67 KB por carga, como el reorganizado de v5.1.
+- **Reorganizado, lo que trae del disco:** como la celda 2 de v5.0, de 4.8 a 5.1 page-ins por carga, y de 105 a 125 KB. La fila de aristas vuelve a venir detrás de los miembros, y en un valor ocupa algo menos.
+- **Tal cual, lo que cuenta el store:** más bytes que v5.1 por las versiones viejas y sus lápidas: la fila de aristas entre 15 y 30 KB por carga donde en v5.1 son 11.6, en 1.5 a 2 lecturas.
+- **Tal cual, lo que trae del disco:** como v5.0 tal cual, de 5.6 a 6.0 page-ins por carga.
+- **Cronometrado, reorganizado:** en frío, de 1.05 a 1.12 veces el lote, en empate con la celda 2 de v5.0. En caliente, de 1.12 a 1.22: la fila de aristas se lee de una pieza, como en v5.1.
+- **Cumple las dos mitades.** De la de en caliente estoy menos seguro: leer un valor de un Set pasa por resolver lápidas, y no sé cuánto cuesta frente al `Get` de un bucket Replace.
+- **Cronometrado, tal cual:** en frío, de 1.25 a 1.35 veces el lote, como v5.0 tal cual y mejor que v5.1 tal cual. En caliente, de 1.22 a 1.35: peor que v5.1 tal cual, por las versiones viejas que cada lectura descarta.
+- **Lo que el store escribe:** más que K = 64 de v5.1, que escribió 7.7 GB, y cerca de v5.0, 9.4 GB.
+
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
 **Estado: pre-registrado el 19 a las 22:20, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo, el driver y sus tests están escritos (Paso 1, en dos partes). La corrida a 1M va el 20 de día, entera, como pide el encargo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra.
