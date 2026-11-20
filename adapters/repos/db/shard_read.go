@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -708,8 +709,26 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorSearchParams *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
+
+	// Only HNSW reports the effective ef; record the request here so flat,
+	// HFresh and dynamic searches leave a trace too. Conditional to keep the
+	// default path allocation-free.
+	//
+	// The per-target map is resolved here (see ForTarget below), so indexes
+	// only ever see the merged, flat parameters for their own target vector.
+	if ef := vectorSearchParams.EFOrZero(); ef > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "vector_search_ef_requested", ef)
+	}
+	if vectorSearchParams != nil && len(vectorSearchParams.PerTarget) > 0 {
+		names := make([]string, 0, len(vectorSearchParams.PerTarget))
+		for name := range vectorSearchParams.PerTarget {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		helpers.AnnotateSlowQueryLog(ctx, "vector_search_params_per_target", names)
+	}
 
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
@@ -775,6 +794,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 			defer release()
 
+			targetParams := vectorSearchParams.ForTarget(targetVector)
+
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
@@ -783,7 +804,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return fmt.Errorf("vector search by distance: %w", err)
 					}
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, targetParams)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -798,7 +819,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return fmt.Errorf("multi vector search by distance: %w", err)
 					}
 					ids, dists, err = multiIndex.SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, targetParams)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -817,7 +838,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("vector search: %w", err)
 					}
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList, targetParams)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -833,7 +854,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					if err != nil {
 						return fmt.Errorf("multi vector search: %w", err)
 					}
-					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList, targetParams)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

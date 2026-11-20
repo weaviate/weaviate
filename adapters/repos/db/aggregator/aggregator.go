@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -36,14 +37,14 @@ type vectorIndex interface {
 	Type() common.IndexType
 	Multivector() bool
 	SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64,
-		allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+		allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
 }
 
 type vectorIndexMulti interface {
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
-		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+		maxLimit int64, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
 }
 
 type Aggregator struct {

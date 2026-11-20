@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,10 +224,10 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("test", func(t *testing.T) {
-			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			require.Nil(t, err)
 
-			vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
+			vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
 			require.Nil(t, err)
 			assert.Equal(t, tt.SearchVectors, vecs)
 			assert.Equal(t, tt.Targets, targets)
@@ -240,7 +241,7 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.SearchVectors[0], vecsOld)
 				assert.Equal(t, tt.Targets[0], targetsOld)
 
-				vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
+				vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
 				require.Nil(t, err)
 				assert.Equal(t, tt.SearchVectors, vecs)
 				assert.Equal(t, tt.Targets, targets)
@@ -248,6 +249,72 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_searchParametersPayload_VectorSearchParams(t *testing.T) {
+	p := searchParamsPayload{}
+	tests := []struct {
+		name   string
+		in     *searchparams.VectorSearchParams
+		hasKey bool
+	}{
+		{"nil omitted", nil, false},
+		{"ef set", &searchparams.VectorSearchParams{EF: 800}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, err := p.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, tt.in)
+			require.NoError(t, err)
+			assert.Equal(t, tt.hasKey, strings.Contains(string(b), `"vectorSearchParams"`))
+			_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(b)
+			require.NoError(t, err)
+			assert.Equal(t, tt.in, got)
+		})
+	}
+	t.Run("absent key from an old node unmarshals to nil", func(t *testing.T) {
+		old := []byte(`{"searchVectors":[[1,2,3]],"TargetVectors":["t"],"limit":10}`)
+		_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(old)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+	t.Run("all fields round-trip", func(t *testing.T) {
+		in := &searchparams.VectorSearchParams{
+			EF: 64, SearchProbe: 16, FilterStrategy: "acorn",
+			PerTarget: map[string]searchparams.VectorSearchParams{
+				"title": {EF: 128, FilterStrategy: "sweeping"},
+				"body":  {SearchProbe: 32},
+			},
+		}
+		b, err := p.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, in)
+		require.NoError(t, err)
+		_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(b)
+		require.NoError(t, err)
+		assert.Equal(t, in, got)
+	})
+	t.Run("payload from an old node carrying only ef decodes with zero new fields", func(t *testing.T) {
+		old := []byte(`{"searchVectors":[[1,2,3]],"TargetVectors":["t"],"limit":10,"vectorSearchParams":{"ef":64}}`)
+		_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(old)
+		require.NoError(t, err)
+		assert.Equal(t, &searchparams.VectorSearchParams{EF: 64}, got)
+	})
+	t.Run("old node decoding a new payload keeps ef and drops the rest", func(t *testing.T) {
+		in := &searchparams.VectorSearchParams{
+			EF: 64, SearchProbe: 16, FilterStrategy: "acorn",
+			PerTarget: map[string]searchparams.VectorSearchParams{"title": {EF: 128}},
+		}
+		b, err := p.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, in)
+		require.NoError(t, err)
+
+		// mirrors the pre-upgrade shape, where only ef existed
+		var oldShape struct {
+			VectorSearchParams *struct {
+				EF int `json:"ef,omitempty"`
+			} `json:"vectorSearchParams,omitempty"`
+		}
+		require.NoError(t, json.Unmarshal(b, &oldShape))
+		require.NotNil(t, oldShape.VectorSearchParams)
+		assert.Equal(t, 64, oldShape.VectorSearchParams.EF)
+	})
 }
 
 func Test_searchParametersPayload_Unmarshal(t *testing.T) {

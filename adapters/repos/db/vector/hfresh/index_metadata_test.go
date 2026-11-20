@@ -75,7 +75,7 @@ func TestSingleCentroidSurvivesCompactionAndRestart(t *testing.T) {
 
 	for round := 0; round < 3; round++ {
 		for _, vector := range vectors {
-			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil)
+			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil, nil)
 			require.NoError(t, err)
 			require.ElementsMatch(t, []uint64{0, 1, 2}, ids, "restart %d", round)
 		}
@@ -387,7 +387,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			requireReachable := func(h *HFresh, ids []uint64) {
 				var missing []uint64
 				for _, id := range ids {
-					found, _, err := h.SearchByVector(t.Context(), vectors[id], 1, nil)
+					found, _, err := h.SearchByVector(t.Context(), vectors[id], 1, nil, nil)
 					require.NoError(t, err)
 					if len(found) == 0 || found[0] != id {
 						missing = append(missing, id)

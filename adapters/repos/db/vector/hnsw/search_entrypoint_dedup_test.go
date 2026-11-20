@@ -85,7 +85,7 @@ func TestSearchEntrypointSeedDuplicate(t *testing.T) {
 	allow := helpers.NewAllowList(ep)
 	defer allow.Close()
 
-	ids, _, err := index.SearchByVector(ctx, query, k, allow)
+	ids, _, err := index.SearchByVector(ctx, query, k, allow, nil)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{ep}, ids,
 		"the doubly-seeded entrypoint must appear exactly once in the results")

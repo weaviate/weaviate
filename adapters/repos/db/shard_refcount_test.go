@@ -308,7 +308,7 @@ func TestShardRefCountArity(t *testing.T) {
 			name: "objectVectorSearch local",
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, _, err := idx.objectVectorSearch(t.Context(), []models.Vector{[]float32{1, 2, 3}},
-					[]string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, "", nil, nil)
+					[]string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, "", nil, nil, nil)
 				return err
 			},
 		},
@@ -316,7 +316,7 @@ func TestShardRefCountArity(t *testing.T) {
 			name: "objectVectorSearch forwarded", remote: true, wantErr: true,
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, _, err := idx.objectVectorSearch(t.Context(), []models.Vector{[]float32{1, 2, 3}},
-					[]string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, "", nil, nil)
+					[]string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, "", nil, nil, nil)
 				return err
 			},
 		},

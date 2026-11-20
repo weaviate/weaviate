@@ -113,7 +113,7 @@ func Test_CompressRQ4RecallAfterCompression(t *testing.T) {
 
 	var relevant, retrieved int
 	for i := range queries {
-		results, _, err := index.SearchByVector(ctx, queries[i], k, nil)
+		results, _, err := index.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		retrieved += k
 		relevant += int(testinghelpers.MatchesInLists(truths[i], results))
@@ -221,7 +221,7 @@ func Test_CompressRQ4CenteredDeferredActivation(t *testing.T) {
 
 	var relevant, retrieved int
 	for i := range queries {
-		results, _, err := index.SearchByVector(ctx, queries[i], k, nil)
+		results, _, err := index.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		retrieved += k
 		relevant += int(testinghelpers.MatchesInLists(truths[i], results))
@@ -324,7 +324,7 @@ func Test_CompressRQ4CenteredSurvivesRestart(t *testing.T) {
 	control := make([][]uint64, queriesSize)
 	var relevant int
 	for i := range queries {
-		control[i], _, err = index.SearchByVector(ctx, queries[i], k, nil)
+		control[i], _, err = index.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 		relevant += int(testinghelpers.MatchesInLists(truths[i], control[i]))
 	}
@@ -351,7 +351,7 @@ func Test_CompressRQ4CenteredSurvivesRestart(t *testing.T) {
 	assert.Equal(t, stats.MetadataSize, restartedStats.MetadataSize)
 
 	for i := range queries {
-		results, _, err := restarted.SearchByVector(ctx, queries[i], k, nil)
+		results, _, err := restarted.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err, "search must work against the restored quantizer")
 		assert.ElementsMatch(t, control[i], results,
 			"restored index must return the same results as before the restart")

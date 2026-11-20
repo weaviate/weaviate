@@ -181,7 +181,7 @@ func TestRescorePerQuantizer(t *testing.T) {
 					updateConfig(t, index, *uc)
 
 					reads.Store(0)
-					ids, _, err := index.SearchByVector(ctx, queries[0], shape.k, nil)
+					ids, _, err := index.SearchByVector(ctx, queries[0], shape.k, nil, nil)
 					require.NoError(t, err)
 					require.Len(t, ids, shape.k)
 
@@ -224,7 +224,7 @@ func TestRescoreConfigUpdateDuringSearch(t *testing.T) {
 				return
 			default:
 			}
-			ids, _, err := index.SearchByVector(ctx, queries[0], 10, nil)
+			ids, _, err := index.SearchByVector(ctx, queries[0], 10, nil, nil)
 			assert.NoError(t, err)
 			assert.Len(t, ids, 10)
 		}

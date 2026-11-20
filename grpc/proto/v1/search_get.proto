@@ -51,9 +51,63 @@ message SearchRequest {
 
   optional Boost boost = 62;
 
+  // Per-request vector search tuning, applied to every vector search the
+  // request performs (all target vectors, the dense leg of a hybrid search).
+  // Requires a near* or hybrid search: rejected (InvalidArgument) on bm25-only
+  // requests and on requests without any search clause.
+  optional VectorSearchParams vector_search_params = 63;
+
+  // Per-target-vector overrides for multi-target searches. Each entry applies
+  // to the named target vector only and overrides just the fields it sets;
+  // unset fields fall back to vector_search_params, then to the collection
+  // config. The target must be one of the request's target vectors (explicit
+  // targets, or the collection's single named vector); an unknown or
+  // duplicated target, or an entry on a legacy single-vector collection, is
+  // rejected with InvalidArgument. Same search-clause requirement as field 63.
+  repeated VectorSearchParamsForTarget vector_search_params_for_targets = 64;
+
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
-  bool uses_127_api = 102; 
+  bool uses_127_api = 102;
+}
+
+// HNSW strategy for a filtered graph walk, per request. UNSPECIFIED keeps the
+// collection's vectorIndexConfig.filterStrategy.
+enum FilterStrategy {
+  FILTER_STRATEGY_UNSPECIFIED = 0;
+  FILTER_STRATEGY_SWEEPING = 1;
+  FILTER_STRATEGY_ACORN = 2;
+  FILTER_STRATEGY_PATHSEER = 3;
+}
+
+// One flat set of knobs for every index type: each index reads the fields it
+// knows and ignores the rest (flat ignores all; the dynamic index forwards
+// the set to whichever stage is active). Nodes that predate a field drop it
+// during a rolling upgrade and answer with the collection default.
+message VectorSearchParams {
+  // HNSW layer-0 beam width, floored at the requested limit; 0/unset =
+  // collection default. Must not exceed the server's HNSW_MAX_SEARCH_EF
+  // (defaults to QUERY_MAXIMUM_RESULTS), otherwise InvalidArgument.
+  optional uint32 ef = 1;
+  // HFresh number of centroid postings visited, floored at the requested
+  // limit; 0/unset = collection default (searchProbe). Must not exceed the
+  // server's HFRESH_MAX_SEARCH_PROBE (defaults to QUERY_MAXIMUM_RESULTS),
+  // otherwise InvalidArgument. Never applied to the HNSW HFresh uses
+  // internally for centroid routing.
+  optional uint32 search_probe = 2;
+  // HNSW strategy for the filtered layer-0 walk of this request. Has no
+  // effect without a filter, or when the allow-list is below
+  // flatSearchCutoff (brute force). ACORN still falls back to the
+  // non-ACORN walk on a dense allow-list, as it does for the collection
+  // setting. Unknown values are rejected with InvalidArgument.
+  optional FilterStrategy filter_strategy = 3;
+}
+
+message VectorSearchParamsForTarget {
+  // Target vector name; must be one of the request's target vectors.
+  string target = 1;
+  // Overrides for that target; only the fields set here take effect.
+  VectorSearchParams params = 2;
 }
 
 message GroupBy {

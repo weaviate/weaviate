@@ -111,7 +111,7 @@ func TestDeleteEntrypoint_CandidatesUnderMaintenance(t *testing.T) {
 	assert.Equal(t, len(vectors)-1, liveNodes,
 		"tombstone cleanup must not remove live nodes")
 
-	ids, _, err := index.SearchByVector(ctx, vectors[1], 3, nil)
+	ids, _, err := index.SearchByVector(ctx, vectors[1], 3, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, ids, "search must still find the live nodes")
 	assert.NotContains(t, ids, oldEP, "results must not contain the deleted node")

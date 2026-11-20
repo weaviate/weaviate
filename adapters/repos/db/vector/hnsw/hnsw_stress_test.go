@@ -117,7 +117,7 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 			go func() {
 				goroutineIndex := k * vectorsPerGoroutineSearch
 				for j := 0; j < vectorsPerGoroutineSearch; j++ {
-					_, _, err := index.SearchByVector(ctx, vectors[goroutineIndex+j], 0, nil)
+					_, _, err := index.SearchByVector(ctx, vectors[goroutineIndex+j], 0, nil, nil)
 					require.Nil(b, err)
 
 				}
@@ -166,7 +166,7 @@ Ex: go test -v -run TestHnswStress . -download
 				go func() {
 					for i := 0; i < vectorsPerGoroutine; i++ {
 						for j := 0; j < 5; j++ { // try a couple of times to delete if found
-							_, dists, err := index.SearchByVector(ctx, vectors[goroutineIndex+i], 0, nil)
+							_, dists, err := index.SearchByVector(ctx, vectors[goroutineIndex+i], 0, nil, nil)
 							require.Nil(t, err)
 
 							if len(dists) > 0 && dists[0] == 0 {
@@ -228,7 +228,7 @@ Ex: go test -v -run TestHnswStress . -download
 				go func() {
 					goroutineIndex := k * vectorsPerGoroutineSearch
 					for j := 0; j < vectorsPerGoroutineSearch; j++ {
-						_, _, err := index.SearchByVector(ctx, vectors[goroutineIndex+j], 0, nil)
+						_, _, err := index.SearchByVector(ctx, vectors[goroutineIndex+j], 0, nil, nil)
 						require.Nil(t, err)
 
 					}
@@ -375,7 +375,7 @@ Ex: go test -v -run TestHnswStress . -download
 
 					id := rand.Intn(len(vectors))
 
-					_, _, err := index.SearchByVector(ctx, vectors[id], 0, nil)
+					_, _, err := index.SearchByVector(ctx, vectors[id], 0, nil, nil)
 					require.Nil(t, err)
 				},
 			}

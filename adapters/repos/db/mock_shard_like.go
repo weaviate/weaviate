@@ -2856,9 +2856,9 @@ func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// ObjectVectorSearch provides a mock function with given fields: ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties
-func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
-	ret := _m.Called(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties)
+// ObjectVectorSearch provides a mock function with given fields: ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams
+func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorSearchParams *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error) {
+	ret := _m.Called(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectVectorSearch")
@@ -2867,27 +2867,27 @@ func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors [
 	var r0 []*storobj.Object
 	var r1 []float32
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string) ([]*storobj.Object, []float32, error)); ok {
-		return rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties)
+	if rf, ok := ret.Get(0).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error)); ok {
+		return rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string) []*storobj.Object); ok {
-		r0 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties)
+	if rf, ok := ret.Get(0).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.VectorSearchParams) []*storobj.Object); ok {
+		r0 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*storobj.Object)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string) []float32); ok {
-		r1 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties)
+	if rf, ok := ret.Get(1).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.VectorSearchParams) []float32); ok {
+		r1 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).([]float32)
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string) error); ok {
-		r2 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties)
+	if rf, ok := ret.Get(2).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.VectorSearchParams) error); ok {
+		r2 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -2912,13 +2912,14 @@ type MockShardLike_ObjectVectorSearch_Call struct {
 //   - _a8 additional.Properties
 //   - targetCombination *dto.TargetCombination
 //   - properties []string
-func (_e *MockShardLike_Expecter) ObjectVectorSearch(ctx interface{}, searchVectors interface{}, targetVectors interface{}, targetDist interface{}, limit interface{}, _a5 interface{}, sort interface{}, groupBy interface{}, _a8 interface{}, targetCombination interface{}, properties interface{}) *MockShardLike_ObjectVectorSearch_Call {
-	return &MockShardLike_ObjectVectorSearch_Call{Call: _e.mock.On("ObjectVectorSearch", ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties)}
+//   - vectorSearchParams *searchparams.VectorSearchParams
+func (_e *MockShardLike_Expecter) ObjectVectorSearch(ctx interface{}, searchVectors interface{}, targetVectors interface{}, targetDist interface{}, limit interface{}, _a5 interface{}, sort interface{}, groupBy interface{}, _a8 interface{}, targetCombination interface{}, properties interface{}, vectorSearchParams interface{}) *MockShardLike_ObjectVectorSearch_Call {
+	return &MockShardLike_ObjectVectorSearch_Call{Call: _e.mock.On("ObjectVectorSearch", ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, vectorSearchParams)}
 }
 
-func (_c *MockShardLike_ObjectVectorSearch_Call) Run(run func(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string)) *MockShardLike_ObjectVectorSearch_Call {
+func (_c *MockShardLike_ObjectVectorSearch_Call) Run(run func(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorSearchParams *searchparams.VectorSearchParams)) *MockShardLike_ObjectVectorSearch_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]models.Vector), args[2].([]string), args[3].(float32), args[4].(int), args[5].(*filters.LocalFilter), args[6].([]filters.Sort), args[7].(*searchparams.GroupBy), args[8].(additional.Properties), args[9].(*dto.TargetCombination), args[10].([]string))
+		run(args[0].(context.Context), args[1].([]models.Vector), args[2].([]string), args[3].(float32), args[4].(int), args[5].(*filters.LocalFilter), args[6].([]filters.Sort), args[7].(*searchparams.GroupBy), args[8].(additional.Properties), args[9].(*dto.TargetCombination), args[10].([]string), args[11].(*searchparams.VectorSearchParams))
 	})
 	return _c
 }
@@ -2928,7 +2929,7 @@ func (_c *MockShardLike_ObjectVectorSearch_Call) Return(_a0 []*storobj.Object, _
 	return _c
 }
 
-func (_c *MockShardLike_ObjectVectorSearch_Call) RunAndReturn(run func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string) ([]*storobj.Object, []float32, error)) *MockShardLike_ObjectVectorSearch_Call {
+func (_c *MockShardLike_ObjectVectorSearch_Call) RunAndReturn(run func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error)) *MockShardLike_ObjectVectorSearch_Call {
 	_c.Call.Return(run)
 	return _c
 }

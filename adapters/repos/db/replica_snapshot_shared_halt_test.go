@@ -419,7 +419,7 @@ func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 			// the upgrade writes its verdict to index.db and removes the flat stage
 			require.Eventually(t, func() bool { return exists(commitLog) && !exists(flatBucket) }, 30*time.Second, 50*time.Millisecond,
 				"the queue upgrades past the threshold")
-			before, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil)
+			before, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, before, 5)
 
@@ -455,7 +455,7 @@ func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 			target := underlyingShard(t, restored)
 
 			assert.True(t, exists(filepath.Join(target.path(), "main.hnsw.commitlog.d")), "the hnsw commit log survived the move")
-			after, _, err := target.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil)
+			after, _, err := target.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, after, 5, "the moved replica serves its vectors")
 		})

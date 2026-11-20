@@ -64,7 +64,7 @@ func TestEntrypoint_DeleteRestartSearch(t *testing.T) {
 
 				f.restart(t)
 				if tc.nodes == 1 {
-					found, _, err := f.index.SearchByVector(f.ctx, f.vectors[ep], 1, nil)
+					found, _, err := f.index.SearchByVector(f.ctx, f.vectors[ep], 1, nil, nil)
 					require.NoError(t, err)
 					require.Empty(t, found, "the reset index must be empty")
 					f.addWithin(t, 1, 10*time.Second)
@@ -81,7 +81,7 @@ func TestEntrypoint_DeleteRestartSearch(t *testing.T) {
 
 				// search right away, before any cleanup
 				for _, id := range live {
-					found, _, err := f.index.SearchByVector(f.ctx, f.vectors[id], tc.nodes, nil)
+					found, _, err := f.index.SearchByVector(f.ctx, f.vectors[id], tc.nodes, nil, nil)
 					require.NoError(t, err)
 					require.Subset(t, found, live, "search from %d", id)
 					if !tc.changeLost {

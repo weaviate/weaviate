@@ -227,7 +227,7 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 		"object vector search": func() error {
 			_, _, err := shard.ObjectVectorSearch(context.Background(),
 				[]models.Vector{[]float32{1, 2, 3, 4}}, []string{""}, 0, 10, nil, nil, nil,
-				additional.Properties{}, nil, nil)
+				additional.Properties{}, nil, nil, nil)
 			return err
 		},
 	}

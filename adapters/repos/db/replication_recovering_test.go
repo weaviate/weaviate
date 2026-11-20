@@ -56,7 +56,7 @@ func TestPeerReadsOfARecoveringShardCarryTheRecoveringCause(t *testing.T) {
 			return err
 		}},
 		{"Search", func(ctx context.Context, idx *Index) error {
-			_, _, _, err := idx.IncomingSearch(ctx, shardName, nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+			_, _, _, err := idx.IncomingSearch(ctx, shardName, nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			return err
 		}},
 		{"Aggregate", func(ctx context.Context, idx *Index) error {

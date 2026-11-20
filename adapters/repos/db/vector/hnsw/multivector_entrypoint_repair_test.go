@@ -128,7 +128,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 
 		searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		ids, _, err := idx.SearchByMultiVector(searchCtx, query, 10, nil)
+		ids, _, err := idx.SearchByMultiVector(searchCtx, query, 10, nil, nil)
 		require.NoError(t, searchCtx.Err(), "search did not terminate — repair loop is stuck")
 		require.NoError(t, err)
 
@@ -240,7 +240,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 
 		searchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		ids, _, err := idx.SearchByMultiVector(searchCtx, query, 10, nil)
+		ids, _, err := idx.SearchByMultiVector(searchCtx, query, 10, nil, nil)
 		require.NoError(t, searchCtx.Err(), "search did not terminate — repair loop is stuck")
 		require.NoError(t, err)
 		require.Empty(t, ids)
