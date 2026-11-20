@@ -11,6 +11,9 @@ inverted_sorter_disabled: false
 # Answer 410 Gone on the /objects/{id} and /objects/{id}/references/{propertyName}
 # endpoints that leave out the class (defaults to the DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS env var).
 # disable_object_id_endpoints_without_class: false
+# Answer 410 Gone on GET /objects without the class parameter
+# (defaults to the DISABLE_OBJECTS_LIST_WITHOUT_CLASS env var).
+# disable_objects_list_without_class: false
 # for usage module if enabled make sure that usage-gcs or usage-s3 module is enabled
 # usage_scrape_interval: 1s
 

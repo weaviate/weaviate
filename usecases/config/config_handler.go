@@ -349,6 +349,10 @@ type Config struct {
 	// class answer 410 Gone, as they do with namespaces on.
 	DisableObjectIDEndpointsWithoutClass *runtime.DynamicValue[bool] `json:"disable_object_id_endpoints_without_class" yaml:"disable_object_id_endpoints_without_class"`
 
+	// DisableObjectsListWithoutClass makes GET /objects without the class
+	// parameter answer 410 Gone, as it does with namespaces on.
+	DisableObjectsListWithoutClass *runtime.DynamicValue[bool] `json:"disable_objects_list_without_class" yaml:"disable_objects_list_without_class"`
+
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 

@@ -218,40 +218,48 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 
 // The env var sets the default, the overrides file changes it through the
 // registered config, and removing the key restores the env value.
-func TestDisableObjectIDEndpointsWithoutClassConfig(t *testing.T) {
+func TestDisableEndpointsWithoutClassConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
 
-	tests := []struct {
-		name string
-		env  string
-		want bool
+	flags := []struct {
+		env   string
+		key   string
+		value func(Config) *runtime.DynamicValue[bool]
 	}{
-		{name: "env unset", want: false},
-		{name: "env set", env: "true", want: true},
+		{
+			env: "DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS", key: "disable_object_id_endpoints_without_class",
+			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableObjectIDEndpointsWithoutClass },
+		},
+		{
+			env: "DISABLE_OBJECTS_LIST_WITHOUT_CLASS", key: "disable_objects_list_without_class",
+			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableObjectsListWithoutClass },
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.env != "" {
-				t.Setenv("DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS", tt.env)
-			}
-			conf := Config{}
-			require.NoError(t, FromEnv(&conf))
-			require.Equal(t, tt.want, conf.DisableObjectIDEndpointsWithoutClass.Get())
+	for _, f := range flags {
+		for _, envSet := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s=%t", f.env, envSet), func(t *testing.T) {
+				if envSet {
+					t.Setenv(f.env, "true")
+				}
+				conf := Config{}
+				require.NoError(t, FromEnv(&conf))
+				require.Equal(t, envSet, f.value(conf).Get())
 
-			registered := BuildRegisteredRuntimeConfig(&conf)
-			apply := func(overrides string) {
-				parsed, err := ParseRuntimeConfig([]byte(overrides))
-				require.NoError(t, err)
-				require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
-			}
+				registered := BuildRegisteredRuntimeConfig(&conf)
+				apply := func(overrides string) {
+					parsed, err := ParseRuntimeConfig([]byte(overrides))
+					require.NoError(t, err)
+					require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
+				}
 
-			apply(fmt.Sprintf("disable_object_id_endpoints_without_class: %t", !tt.want))
-			assert.Equal(t, !tt.want, conf.DisableObjectIDEndpointsWithoutClass.Get())
+				apply(fmt.Sprintf("%s: %t", f.key, !envSet))
+				assert.Equal(t, !envSet, f.value(conf).Get())
 
-			apply("")
-			assert.Equal(t, tt.want, conf.DisableObjectIDEndpointsWithoutClass.Get())
-		})
+				apply("")
+				assert.Equal(t, envSet, f.value(conf).Get())
+			})
+		}
 	}
 }
 
