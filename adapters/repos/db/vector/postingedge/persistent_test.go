@@ -1070,3 +1070,68 @@ func TestPersistentStopsAfterAFailedWrite(t *testing.T) {
 	require.NoError(t, f.store.Shutdown(ctx))
 	f.index, f.store = nil, nil
 }
+
+// crashed opens a copy of the files of the index as they are now, with the
+// index and its store still open: what a process that dies at this point
+// leaves on disk, as far as it has been handed to the system.
+func (f *persistentFixture) crashed(t *testing.T) *persistentFixture {
+	t.Helper()
+	root := t.TempDir()
+	require.NoError(t, os.CopyFS(root, os.DirFS(f.root)))
+	c := &persistentFixture{
+		root: root, cfg: f.cfg, uc: f.uc, vectors: f.vectors, normalized: f.normalized, queries: f.queries,
+		provider: f.provider,
+	}
+	c.cfg.RootPath = root
+	c.open(t)
+	t.Cleanup(func() {
+		if c.index != nil {
+			c.close(t)
+		}
+	})
+	return c
+}
+
+// What a flush hands to the system is what a crash leaves: an index opened
+// from a copy of its files taken right after one, with nothing closed, is
+// the index it was, and goes on. A shard flushes its indexes after every
+// request that writes. This says nothing of a crash in the middle of an
+// insert, nor of a machine that loses what the system had not written yet.
+func TestPersistentOpensWhatAFlushLeft(t *testing.T) {
+	const k = 10
+	tests := []struct {
+		name    string
+		added   int
+		deleted []uint64
+	}{
+		{name: "gathering", added: 300, deleted: []uint64{7, 299}},
+		{name: "the base, just built", added: persistentBase},
+		{name: "grown, with deletes", added: persistentBase + 700, deleted: []uint64{0, 599, 600, 1299}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const total = persistentBase + 900
+			f := newPersistentFixture(t, total)
+			f.add(t, 0, tt.added)
+			require.NoError(t, f.index.Delete(tt.deleted...))
+			require.NoError(t, f.index.Flush())
+			before := f.answers(t, k)
+
+			c := f.crashed(t)
+			require.Equal(t, f.index.g != nil, c.index.g != nil)
+			assert.Equal(t, before, c.answers(t, k), "the same answers")
+			held := func(id uint64) bool { return id < uint64(tt.added) && !slices.Contains(tt.deleted, id) }
+			for id := range uint64(total) {
+				require.Equal(t, held(id), c.index.ContainsDoc(id), "doc %d", id)
+			}
+			if c.index.g != nil {
+				c.covered(t, "opened from what the flush left")
+			}
+
+			c.add(t, tt.added, total)
+			c.covered(t, "grown from there")
+			held = func(id uint64) bool { return !slices.Contains(tt.deleted, id) }
+			assert.Greater(t, c.recall(t, total, k, held), 0.9)
+		})
+	}
+}
