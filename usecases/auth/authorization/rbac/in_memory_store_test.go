@@ -157,6 +157,22 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 		"g, user:alice, role:custom\n"
 	authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}}
 
+	backupGrants, err := conv.PermissionToPolicies(
+		backupsPerm(&models.PermissionBackups{Collection: authorization.String("Books")}),
+		backupsPerm(authorization.AllBackupUsers),
+		backupsPerm(authorization.AllBackupRoles))
+	require.NoError(t, err)
+	books, usersGrant, rolesGrant := *backupGrants[0], *backupGrants[1], *backupGrants[2]
+	csvRow := func(p authorization.Policy) string {
+		return "p, role:operator, " + p.Resource + ", " + p.Verb + ", " + p.Domain + "\n"
+	}
+	requireOperatorRows := func(want ...authorization.Policy) func(t *testing.T, m *Manager) {
+		return func(t *testing.T, m *Manager) {
+			t.Helper()
+			assert.ElementsMatch(t, want, rowsOf(t, m, "operator"))
+		}
+	}
+
 	requireSeeded := func(t *testing.T, m *Manager) {
 		t.Helper()
 		require.NoError(t, m.Authorize(context.Background(), aliceAsUser, authorization.READ, moviesRead.Resource))
@@ -222,6 +238,33 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 			name:      "a missing version file acts as 1.29",
 			policyCSV: rows129,
 			check:     requireUpgraded,
+		},
+		{
+			name:      "a backups collections grant loads without the users and roles wildcards",
+			policyCSV: csvRow(books),
+			version:   "1.39.6",
+			check:     requireOperatorRows(books),
+		},
+		{
+			name:      "a pre-1.30 file upgrades its rows and keeps its backups grant alone",
+			policyCSV: rows129 + csvRow(books),
+			version:   "1.29.4",
+			check: func(t *testing.T, m *Manager) {
+				requireUpgraded(t, m)
+				requireOperatorRows(books)(t, m)
+			},
+		},
+		{
+			name:      "a file already holding the wildcards loads without duplicates",
+			policyCSV: csvRow(books) + csvRow(usersGrant) + csvRow(rolesGrant),
+			version:   "1.39.6",
+			check:     requireOperatorRows(books, usersGrant, rolesGrant),
+		},
+		{
+			name:      "a role without backups grants gains nothing",
+			policyCSV: csvRow(moviesRead),
+			version:   "1.39.6",
+			check:     requireOperatorRows(moviesRead),
 		},
 		{
 			name:      "an unloadable file fails Init",

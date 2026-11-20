@@ -13,6 +13,8 @@ package rest
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -118,6 +120,50 @@ func TestGetOwnInfo(t *testing.T) {
 			require.NotNil(t, parsed.Payload.Roles[0].Permissions[0].Users)
 			require.Equal(t, tt.wantUser, *parsed.Payload.Roles[0].Permissions[0].Users.Users)
 			require.Equal(t, tt.wantExpiresAt, parsed.Payload.ExpiresAt)
+		})
+	}
+}
+
+func TestGetOwnInfoBackupPrincipalsView(t *testing.T) {
+	manage := authorization.ManageBackups
+	collection := &models.Permission{Action: &manage, Backups: &models.PermissionBackups{Collection: strPtr("Movies")}}
+	policyPtrs, err := conv.PermissionToPolicies(collection,
+		&models.Permission{Action: &manage, Backups: authorization.AllBackupUsers},
+		&models.Permission{Action: &manage, Backups: authorization.AllBackupRoles},
+	)
+	require.NoError(t, err)
+	policies := make([]authorization.Policy, len(policyPtrs))
+	for i, p := range policyPtrs {
+		policies[i] = *p
+	}
+	for _, tt := range []struct {
+		name   string
+		header string // empty sends no header
+		want   int
+	}{
+		{name: "no header omits users and roles grants", want: 1},
+		{name: "header false omits users and roles grants", header: "false", want: 1},
+		{name: "header true returns them", header: "true", want: 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{Username: "u", UserType: models.UserTypeInputDb}
+			controller := authorization.NewMockController(t)
+			controller.On("GetRolesForUserOrGroup", principal.Username, mock.Anything, false).
+				Return(map[string][]authorization.Policy{"backup-role": policies}, nil)
+			logger, _ := test.NewNullLogger()
+			h := &authNHandlers{authzController: controller, rbacConfig: rbacconf.Config{Enabled: true}, logger: logger}
+
+			req := httptest.NewRequest(http.MethodGet, "/v1/users/own-info", nil)
+			if tt.header != "" {
+				req.Header.Set(conv.AcceptBackupPrincipalsHeader, tt.header)
+			}
+			res := h.getOwnInfo(users.GetOwnInfoParams{HTTPRequest: req}, principal)
+			parsed, ok := res.(*users.GetOwnInfoOK)
+			require.True(t, ok, "got %T", res)
+			require.Len(t, parsed.Payload.Roles, 1)
+			perms := parsed.Payload.Roles[0].Permissions
+			require.Len(t, perms, tt.want)
+			require.Equal(t, collection, perms[0])
 		})
 	}
 }

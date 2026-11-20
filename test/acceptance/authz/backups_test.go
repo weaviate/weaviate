@@ -119,7 +119,8 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	})
 
 	t.Run("manage backups of clsA.Class collection", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(clsA.Class).Permission())
+		// A legacy add would derive the users and roles wildcards.
+		addPermissionsCapable(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(clsA.Class).Permission())
 	})
 
 	t.Run("successfully create a backup with sufficient permissions", func(t *testing.T) {
@@ -440,6 +441,27 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	_, err = helper.CreateBackupWithBaseAndAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, incrementalBackupID, baseBackupID, helper.CreateAuth(adminKey))
 	require.NoError(t, err)
 	helper.ExpectBackupEventuallyCreated(t, incrementalBackupID, backend, helper.CreateAuth(adminKey))
+
+	// The root user's backups carry the whole user and role stores, so reading
+	// them takes the users and roles backup grants on top of the collection one.
+	t.Run("non-root without the users and roles grants cannot read a whole-store backup", func(t *testing.T) {
+		_, err := helper.CreateBackupStatusWithAuthz(t, backend, incrementalBackupID, "", "", helper.CreateAuth(customKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsCreateStatusForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+
+		resp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(customKey))
+		require.NoError(t, err)
+		require.Nil(t, findBackupListItem(resp.Payload, incrementalBackupID))
+	})
+
+	t.Run("grant manage_backups on every user and role", func(t *testing.T) {
+		helper.AddPermissions(t, adminKey, testRoleName,
+			helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithUser("*").Permission(),
+			helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithRole("*").Permission(),
+		)
+	})
 
 	t.Run("root sees the base backup id in the create-status response", func(t *testing.T) {
 		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, incrementalBackupID, "", "", helper.CreateAuth(adminKey))

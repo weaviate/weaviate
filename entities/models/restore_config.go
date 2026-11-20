@@ -45,11 +45,11 @@ type RestoreConfig struct {
 	// Path within the bucket
 	Path string `json:"Path,omitempty"`
 
-	// How roles should be restored
+	// How roles should be restored. `all` replaces the whole RBAC store with the backup's RBAC snapshot and requires the `backups/roles/*` permission; `noRestore` leaves existing roles untouched.
 	// Enum: [noRestore all]
 	RolesOptions *string `json:"rolesOptions,omitempty"`
 
-	// How users should be restored
+	// How users should be restored. `all` replaces the whole dynamic-user store with the backup's user snapshot and requires the `backups/users/*` permission; `noRestore` leaves existing users untouched.
 	// Enum: [noRestore all]
 	UsersOptions *string `json:"usersOptions,omitempty"`
 }

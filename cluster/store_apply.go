@@ -37,6 +37,26 @@ import (
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
+	// The backup principal migration entry commits before any role write.
+	// So the migration never adds grants to a role written after the upgrade.
+	if st.cfg.RBAC != nil && (req.Type == api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS ||
+		req.Type == api.ApplyRequest_TYPE_REMOVE_PERMISSIONS || req.Type == api.ApplyRequest_TYPE_DELETE_ROLES) {
+		migrated, err := st.cfg.RBAC.BackupPrincipalsMigrated()
+		if err != nil {
+			return 0, err
+		}
+		if !migrated {
+			if _, err := st.migrateBackupPrincipalGrants(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return st.execute(req)
+}
+
+// execute proposes req without the backup principal migration guard.
+// migrateBackupPrincipalGrants commits through it.
+func (st *Store) execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.WithFields(logrus.Fields{
 		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,

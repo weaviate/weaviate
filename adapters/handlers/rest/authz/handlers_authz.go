@@ -351,6 +351,65 @@ func hasAllScopedRolePermission(policies []authorization.Policy) bool {
 	return false
 }
 
+// withBackupPrincipalGrants maintains legacy behaviour with clients on create. In short,
+// it adds the users and roles backup wildcards for each backups collections policy
+// in the input on role insert, ensuring that the role is given the derived backup grants
+// when they don't request them due to their outdated client.
+//
+// TODO: remove the legacy view three releases after the
+// X-Weaviate-Accept-Backup-Principals header was introduced.
+func withBackupPrincipalGrants(policies []authorization.Policy) []authorization.Policy {
+	out := slices.Clone(policies)
+	for _, p := range policies {
+		for _, grant := range conv.BackupPrincipalGrants(p) {
+			if !slices.Contains(out, grant) {
+				out = append(out, grant)
+			}
+		}
+	}
+	return out
+}
+
+// backupPrincipalRemovals maintains legacy behaviour with clients on remove. In short,
+// it returns the users and roles backup wildcards that should also be removed when
+// a backups collections policy is removed, ensuring that the role loses the derived
+// backup grants even if the client does not explicitly request them.
+//
+// TODO: remove the legacy view three releases after the
+// X-Weaviate-Accept-Backup-Principals header was introduced.
+func backupPrincipalRemovals(removed, stored []authorization.Policy) []authorization.Policy {
+	var extras []authorization.Policy
+	for _, p := range removed {
+		grants := conv.BackupPrincipalGrants(p)
+		if grants == nil || !slices.Contains(stored, p) {
+			continue
+		}
+		if slices.ContainsFunc(stored, func(s authorization.Policy) bool {
+			return s.Verb == p.Verb && conv.BackupPrincipalGrants(s) != nil && !slices.Contains(removed, s)
+		}) {
+			continue
+		}
+		for _, grant := range grants {
+			if slices.Contains(stored, grant) && !slices.Contains(removed, grant) && !slices.Contains(extras, grant) {
+				extras = append(extras, grant)
+			}
+		}
+	}
+	return extras
+}
+
+// loggedPermissions appends extras to requested, so a role-change log line
+// names every row the write stores or removes.
+func (h *authZHandlers) loggedPermissions(requested []*models.Permission, extras []authorization.Policy) []*models.Permission {
+	if len(extras) == 0 {
+		return requested
+	}
+	// PoliciesToPermission always returns a nil error. It skips any policy it
+	// cannot convert.
+	perms, _ := conv.PoliciesToPermission(h.logger, true, extras...)
+	return slices.Concat(requested, perms)
+}
+
 // logUnstorableInput names who sent a value the policy file cannot store, since
 // the handlers refuse it before Authorize writes an audit line. It cuts the value
 // to maxTargetLength bytes, so a long request cannot make a long log line.
@@ -422,6 +481,13 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	// Derived rows are authorized below like requested rows. They are appended
+	// after the requested rows.
+	requestedRows := len(rolePolicies)
+	if !conv.AcceptsBackupPrincipals(params.HTTPRequest) {
+		rolePolicies = withBackupPrincipalGrants(rolePolicies)
+	}
+
 	// On NS clusters no role may carry ALL-scoped role management; cluster-wide
 	// role management exists only as root's wildcard.
 	if h.namespacesEnabled && hasAllScopedRolePermission(rolePolicies) {
@@ -452,7 +518,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    roleName,
-		"permissions": params.Body.Permissions,
+		"permissions": h.loggedPermissions(params.Body.Permissions, rolePolicies[requestedRows:]),
 	}).Info("role created")
 
 	return authz.NewCreateRoleCreated()
@@ -489,6 +555,13 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	// A namespaced caller's permission segments are auto-prefixed in place.
 	if err := namespacing.QualifyRolePoliciesForCreate(principal, h.namespacesEnabled, rolePolicies); err != nil {
 		return authz.NewAddPermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// Derived rows are authorized below like requested rows. They are appended
+	// after the requested rows.
+	requestedRows := len(rolePolicies)
+	if !conv.AcceptsBackupPrincipals(params.HTTPRequest) {
+		rolePolicies = withBackupPrincipalGrants(rolePolicies)
 	}
 
 	// On NS clusters no role may carry ALL-scoped role management; cluster-wide
@@ -534,7 +607,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    roleName,
-		"permissions": params.Body.Permissions,
+		"permissions": h.loggedPermissions(params.Body.Permissions, rolePolicies[requestedRows:]),
 	}).Info("permissions added")
 
 	return authz.NewAddPermissionsOK()
@@ -605,6 +678,21 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsNotFound()
 	}
 
+	var extras []authorization.Policy
+	if !conv.AcceptsBackupPrincipals(params.HTTPRequest) {
+		// The extras come from the role as read here. A write that lands between
+		// this read and the remove is not re-checked.
+		extras = backupPrincipalRemovals(policies, role[roleName])
+		if len(extras) > 0 {
+			if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, extras, roleName); err != nil {
+				return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+			}
+			for i := range extras {
+				permissions = append(permissions, &extras[i])
+			}
+		}
+	}
+
 	if err := h.controller.RemovePermissions(roleName, permissions); err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("RemovePermissions: %w", err)))
 	}
@@ -614,7 +702,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    roleName,
-		"permissions": params.Body.Permissions,
+		"permissions": h.loggedPermissions(params.Body.Permissions, extras),
 	}).Info("permissions removed")
 
 	return authz.NewRemovePermissionsOK()
@@ -682,6 +770,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+	capable := conv.AcceptsBackupPrincipals(params.HTTPRequest)
 
 	roles, err := h.controller.GetRoles()
 	if err != nil {
@@ -705,7 +794,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			name = namespacing.StripOwnNamespace(principal, roleName)
 		}
 
-		perms, err := conv.PoliciesToPermission(h.logger, policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, capable, policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
@@ -785,7 +874,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		policies = roles[roleID]
 	}
 
-	perms, err := conv.PoliciesToPermission(h.logger, policies...)
+	perms, err := conv.PoliciesToPermission(h.logger, conv.AcceptsBackupPrincipals(params.HTTPRequest), policies...)
 	if err != nil {
 		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 	}
@@ -808,6 +897,11 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
+	}
+	// Every read hides the migration marker, so a delete of it answers 204,
+	// as for an absent role. Deleting it would rerun the migration.
+	if params.ID == conv.BackupPrincipalsMigratedRole {
+		return authz.NewDeleteRoleNoContent()
 	}
 
 	roleName, err := h.resolveRoleNameForCaller(principal, params.ID)
@@ -1058,7 +1152,7 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 	var authErr error
 	for _, existing := range []map[string][]authorization.Policy{existingRolesDB, existingRolesOIDC} {
 		for roleName, policies := range existing {
-			perms, err := conv.PoliciesToPermission(h.logger, policies...)
+			perms, err := conv.PoliciesToPermission(h.logger, conv.AcceptsBackupPrincipals(params.HTTPRequest), policies...)
 			if err != nil {
 				return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 			}
@@ -1107,7 +1201,7 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 // self-read keeps a reserved role inherited via a group. Roles the caller may not
 // read under a full read are collected into authErrs; a conversion failure returns
 // an error for the caller to map to its own response.
-func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *models.Principal, existingRoles map[string][]authorization.Policy, includeFullRoles, own bool) (roles []*models.Role, authErrs []error, err error) {
+func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *models.Principal, existingRoles map[string][]authorization.Policy, includeFullRoles, own, capable bool) (roles []*models.Role, authErrs []error, err error) {
 	for roleName, policies := range existingRoles {
 		if includeFullRoles {
 			if rolevisibility.RoleHiddenFromCaller(h.namespacesEnabled, principal, roleName) {
@@ -1120,7 +1214,7 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 			continue
 		}
 
-		perms, err := conv.PoliciesToPermission(h.logger, policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, capable, policies...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("PoliciesToPermission: %w", err)
 		}
@@ -1180,7 +1274,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
 
-	roles, authErrs, err := h.visibleRolesForSubject(ctx, principal, existingRoles, includeFullRoles, ownUser)
+	roles, authErrs, err := h.visibleRolesForSubject(ctx, principal, existingRoles, includeFullRoles, ownUser, conv.AcceptsBackupPrincipals(params.HTTPRequest))
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -1590,7 +1684,7 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 		return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
 	}
 
-	roles, authErrs, err := h.visibleRolesForSubject(ctx, principal, existingRoles, includeFullRoles, ownGroup)
+	roles, authErrs, err := h.visibleRolesForSubject(ctx, principal, existingRoles, includeFullRoles, ownGroup, conv.AcceptsBackupPrincipals(params.HTTPRequest))
 	if err != nil {
 		return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}

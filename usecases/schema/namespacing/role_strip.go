@@ -74,7 +74,7 @@ func permissionNamesForeignNamespace(ownNS string, p *models.Permission) bool {
 		names = append(names, p.Tenants.Collection)
 	}
 	if p.Backups != nil {
-		names = append(names, p.Backups.Collection)
+		names = append(names, p.Backups.Collection, p.Backups.User, p.Backups.Role)
 	}
 	if p.Replicate != nil {
 		names = append(names, p.Replicate.Collection)
@@ -111,7 +111,7 @@ func permissionNamesForeignNamespace(ownNS string, p *models.Permission) bool {
 // StripPermissionForCaller returns a permission with its namespace-bearing
 // sub-structs replaced (not mutated) by fresh copies that strip the caller's
 // own namespace prefix. Strip set: collection, alias, user-ref and role-ref
-// names. Group refs are left untouched (groups are globally named), and the
+// names, including the backups user and role targets. Group refs are left untouched (groups are globally named), and the
 // namespace identifier itself is never stripped.
 func StripPermissionForCaller(principal *models.Principal, p *models.Permission) *models.Permission {
 	if p == nil {
@@ -142,11 +142,27 @@ func StripPermissionForCaller(principal *models.Principal, p *models.Permission)
 		fresh.Collection = &stripped
 		out.Tenants = &fresh
 	}
-	if p.Backups != nil && p.Backups.Collection != nil {
-		stripped := StripOwnNamespace(principal, *p.Backups.Collection)
-		fresh := *p.Backups
-		fresh.Collection = &stripped
-		out.Backups = &fresh
+	if p.Backups != nil {
+		backups := *p.Backups
+		changed := false
+		if p.Backups.Collection != nil {
+			stripped := StripOwnNamespace(principal, *p.Backups.Collection)
+			backups.Collection = &stripped
+			changed = true
+		}
+		if p.Backups.User != nil {
+			stripped := StripOwnNamespace(principal, *p.Backups.User)
+			backups.User = &stripped
+			changed = true
+		}
+		if p.Backups.Role != nil {
+			stripped := StripOwnNamespace(principal, *p.Backups.Role)
+			backups.Role = &stripped
+			changed = true
+		}
+		if changed {
+			out.Backups = &backups
+		}
 	}
 	if p.Replicate != nil && p.Replicate.Collection != nil {
 		stripped := StripOwnNamespace(principal, *p.Replicate.Collection)

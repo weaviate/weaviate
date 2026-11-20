@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 func TestDeleteRoleSuccess(t *testing.T) {
@@ -48,6 +49,31 @@ func TestDeleteRoleSuccess(t *testing.T) {
 	parsed, ok := res.(*authz.DeleteRoleNoContent)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
+}
+
+func TestDeleteRoleMarker(t *testing.T) {
+	t.Run("deleting the marker name returns 204 and calls no DeleteRoles", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		controller := NewMockControllerAndGetUsers(t)
+		logger, _ := test.NewNullLogger()
+		// These mocks let a handler without the guard reach DeleteRoles. Such a
+		// handler finds the hidden marker absent, passes authorization, and
+		// deletes it.
+		controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{}, nil).Maybe()
+		authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		controller.On("DeleteRoles", mock.Anything).Return(nil).Maybe()
+		h := &authZHandlers{
+			authorizer: authorizer,
+			controller: controller,
+			logger:     logger,
+		}
+
+		res := h.deleteRole(authz.DeleteRoleParams{ID: conv.BackupPrincipalsMigratedRole, HTTPRequest: req}, &models.Principal{Username: "user1"})
+
+		_, ok := res.(*authz.DeleteRoleNoContent)
+		assert.True(t, ok, "got %T", res)
+		controller.AssertNotCalled(t, "DeleteRoles", mock.Anything)
+	})
 }
 
 func TestDeleteRoleBadRequest(t *testing.T) {

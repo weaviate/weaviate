@@ -44,7 +44,7 @@ func TestGetRoleSuccess(t *testing.T) {
 		},
 	}
 
-	expectedPermissions, err := conv.PoliciesToPermission(logger, policies...)
+	expectedPermissions, err := conv.PoliciesToPermission(logger, false, policies...)
 	assert.Nil(t, err)
 
 	returnedPolices := map[string][]authorization.Policy{

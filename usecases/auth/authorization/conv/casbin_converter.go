@@ -13,6 +13,7 @@ package conv
 
 import (
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -59,7 +60,31 @@ func PathToPermission(verb, path string) (*models.Permission, error) {
 	return permission([]string{"", path, verb, parts[0]}, false)
 }
 
-func PoliciesToPermission(logger logrus.FieldLogger, policies ...authorization.Policy) ([]*models.Permission, error) {
+// AcceptBackupPrincipalsHeader is the request header that picks the view of
+// backups permissions. A request without it, or with any value but true, gets
+// the legacy view, which is to include only collections.
+//
+// That view hides users and roles backups grants on read. On
+// write, it derives them from collections grants. A request with the header
+// set to true reads and writes collections, users and roles backups grants
+// exactly as sent.
+//
+// TODO: remove the legacy view three releases after the
+// X-Weaviate-Accept-Backup-Principals header was introduced.
+const AcceptBackupPrincipalsHeader = "X-Weaviate-Accept-Backup-Principals"
+
+// AcceptsBackupPrincipals reports whether the first value of the
+// AcceptBackupPrincipalsHeader on r equals "true", ignoring case. Any other
+// value, a missing header, or a nil request selects the legacy view.
+func AcceptsBackupPrincipals(r *http.Request) bool {
+	return r != nil && strings.EqualFold(r.Header.Get(AcceptBackupPrincipalsHeader), "true")
+}
+
+// PoliciesToPermission converts policies to API permissions. When
+// includeBackupPrincipals is false, it omits backups permissions on users or
+// roles, because released clients cannot parse them. Every other backups
+// permission has Collection set.
+func PoliciesToPermission(logger logrus.FieldLogger, includeBackupPrincipals bool, policies ...authorization.Policy) ([]*models.Permission, error) {
 	permissions := []*models.Permission{}
 	for idx := range policies {
 		// 1st empty string to replace casbin pattern of having policy name as 1st place
@@ -71,6 +96,11 @@ func PoliciesToPermission(logger logrus.FieldLogger, policies ...authorization.P
 			continue
 		}
 		if perm.Action == nil {
+			continue
+		}
+		// this check skips backups permissions on users and roles when includeBackupPrincipals is false
+		// TODO: remove the legacy view three releases after the X-Weaviate-Accept-Backup-Principals header was introduced.
+		if !includeBackupPrincipals && perm.Backups != nil && (perm.Backups.User != nil || perm.Backups.Role != nil) {
 			continue
 		}
 		permissions = append(permissions, perm)

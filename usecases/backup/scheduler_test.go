@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -359,18 +358,22 @@ func TestValidateBackupRequest(t *testing.T) {
 			wantErr:  "no collections, users, or roles",
 		},
 		{
-			name:    "disabled default backends select nothing",
-			noUsers: true,
-			noRoles: true,
-			wantErr: "no collections, users, or roles",
+			name:         "disabled default backends select nothing",
+			noUsers:      true,
+			noRoles:      true,
+			wantSkipUser: true,
+			wantSkipRole: true,
+			wantErr:      "no collections, users, or roles",
 		},
 		{
-			name:    "default users suffice with roles disabled",
-			noRoles: true,
+			name:         "default users suffice with roles disabled",
+			noRoles:      true,
+			wantSkipRole: true,
 		},
 		{
-			name:    "default roles suffice with users disabled",
-			noUsers: true,
+			name:         "default roles suffice with users disabled",
+			noUsers:      true,
+			wantSkipUser: true,
 		},
 		{
 			name:         "omitted roles include built-in roles",
@@ -395,14 +398,13 @@ func TestValidateBackupRequest(t *testing.T) {
 			wantErr:      "list all roles: role lookup failed",
 		},
 		{
-			name:    "default users avoid unnecessary role lookup",
-			roleErr: errors.New("role lookup failed"),
-		},
-		{
-			name:        "collections avoid default identity lookup",
+			// An omitted includeRoles keeps the whole store only when every role
+			// is checked, so it needs the role list even beside collections.
+			name:        "default roles fail on a role lookup failure beside collections",
 			allClasses:  []string{"Books"},
 			wantClasses: []string{"Books"},
 			roleErr:     errors.New("role lookup failed"),
+			wantErr:     "list all roles: role lookup failed",
 		},
 		{
 			name:         "missed user wildcard keeps default roles",
@@ -426,6 +428,7 @@ func TestValidateBackupRequest(t *testing.T) {
 			exclude:      []string{"Allowed"},
 			includeUsers: []string{"alice"},
 			wantUsers:    []string{"alice"},
+			wantSkipRole: true,
 		},
 		{
 			name:         "wildcard omits forbidden collections but keeps users",
@@ -434,6 +437,7 @@ func TestValidateBackupRequest(t *testing.T) {
 			include:      []string{"Allowed?*"},
 			includeUsers: []string{"alice"},
 			wantUsers:    []string{"alice"},
+			wantSkipRole: true,
 		},
 		{
 			name:         "selected users do not bypass total collection denial",
@@ -661,19 +665,21 @@ func TestValidateBackupRequest(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCarried, fs.roleLister.carried)
 			assert.Equal(t, tt.wantOIDC, fs.roleLister.oidcCarried)
+			blob, err := rbac.MergeSnapshots(got.userBuiltInAssignments, got.oidcBuiltInAssignments)
+			require.NoError(t, err)
 			switch {
 			case tt.wantRows != nil:
 				var carried struct {
 					GroupingPolicy [][]string `json:"grouping_policies"`
 					Namespaces     []string   `json:"namespaces"`
 				}
-				require.NoError(t, json.Unmarshal(got.builtInRoleAssignments, &carried))
+				require.NoError(t, json.Unmarshal(blob, &carried))
 				assert.ElementsMatch(t, tt.wantRows, carried.GroupingPolicy)
 				assert.Equal(t, tt.wantNamespaces, carried.Namespaces)
 			case tt.wantCarried == nil:
-				assert.Nil(t, got.builtInRoleAssignments)
+				assert.Nil(t, blob)
 			default:
-				assert.Equal(t, assignments, got.builtInRoleAssignments)
+				assert.Equal(t, assignments, blob)
 			}
 		})
 	}
@@ -738,10 +744,15 @@ func TestFilterBackupableClasses(t *testing.T) {
 			ID: "explicit-create", Backend: "s3", Include: []string{"Book*"},
 		})
 		require.Error(t, err)
-		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
-		assert.Equal(t, authorization.CREATE, calls[0].Verb)
-		assert.Equal(t, authorization.Backups("Book*"), calls[0].Resources)
+		// The omitted users and roles selectors are checked next: the class-less
+		// check counts only what the caller may back up.
+		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.Backups("Book*"), Method: mocks.MethodAuthorize},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupUsers(), Method: mocks.MethodAuthorizeSilent},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupUsers(), Method: mocks.MethodAuthorize},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupRoles(), Method: mocks.MethodAuthorizeSilent},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupRoles(), Method: mocks.MethodAuthorize},
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 	})
 }
 
@@ -867,8 +878,9 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, backup.Success, got.Status)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 
 	t.Run("RejectSingleNodeMetadata", func(t *testing.T) {
@@ -1004,8 +1016,9 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, backup.Success, got.Status)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 }
 
@@ -1280,8 +1293,8 @@ func TestSchedulerDenialByIDHidesExistence(t *testing.T) {
 	)
 	ctx := context.Background()
 	bob := &models.Principal{Username: "bob"}
-	denyRead := backupsForbidden(bob, authorization.READ).Error() + ": "
-	denyManage := backupsForbidden(bob, authorization.DELETE).Error() + ": "
+	denyRead := backupsForbidden(bob, authorization.READ, authorization.Backups()[0]).Error() + ": "
+	denyManage := backupsForbidden(bob, authorization.DELETE, authorization.Backups()[0]).Error() + ": "
 	salaries := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
 		Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Articles", "Salaries"}}},
 	})
@@ -1508,7 +1521,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		assert.Equal(t, "", fs.backend.glMeta.Error)
 	})
 
-	t.Run("class-less create performs no authorization call", func(t *testing.T) {
+	t.Run("class-less create authorizes the named users and every role", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.userLister.users = []string{"alice"}
 		fs.selector.On("ListClasses", ctx).Return([]string(nil))
@@ -1529,7 +1542,11 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Empty(t, resp.Classes)
-		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/users/alice"}, Method: mocks.MethodAuthorize},
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/roles/*"}, Method: mocks.MethodAuthorizeSilent},
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/roles/*"}, Method: mocks.MethodAuthorize},
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		require.Eventually(t, func() bool { return s.backupper.lastOp.get().Status == "" },
 			10*time.Second, 10*time.Millisecond, "backup did not finish")
 		fs.client.AssertExpectations(t)
@@ -2393,9 +2410,10 @@ func TestValidateRestoreRequest(t *testing.T) {
 		}, false)
 		require.Error(t, err)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.CREATE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Books"), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources, "the class-less wildcard check precedes the include 422")
 	})
 }
 
@@ -2504,7 +2522,7 @@ func TestSchedulerList(t *testing.T) {
 		assert.Empty(t, (*resp)[0].Classes)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
 		require.Len(t, calls, 2)
-		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, listWildcards, calls[0].Resources)
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
@@ -2546,7 +2564,7 @@ func TestSchedulerList(t *testing.T) {
 		require.Len(t, calls, 2, "blanket backup READ covers the listing, so no collection is authorized on its own")
 		for _, call := range calls {
 			assert.Equal(t, authorization.READ, call.Verb)
-			assert.Equal(t, authorization.Backups(), call.Resources)
+			assert.Equal(t, listWildcards, call.Resources)
 		}
 		assert.Equal(t, mocks.MethodAuthorizeSilent, calls[0].Method,
 			"the probe must not log a denial for callers who hold no blanket READ")
@@ -2579,9 +2597,9 @@ func TestSchedulerList(t *testing.T) {
 
 		calls := authorizer.Calls()
 		require.Len(t, calls, 2, "the blanket probe, then one call covering the collections both backups name")
-		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, listWildcards, calls[0].Resources)
 		assert.Equal(t, authorization.READ, calls[1].Verb)
-		assert.ElementsMatch(t, authorization.Backups(cls1, cls2), calls[1].Resources)
+		assert.ElementsMatch(t, append(authorization.Backups(cls1, cls2), wholeStores...), calls[1].Resources)
 	})
 
 	t.Run("AuthorizesEachCollectionOnceForADeniedCaller", func(t *testing.T) {
@@ -2877,10 +2895,13 @@ func TestSchedulerAuditLogOmitsUnrequestedClasses(t *testing.T) {
 		order   = "desc"
 		classes = []string{"Article", hidden}
 	)
+	// The descriptors skip users and roles so visibility here turns on
+	// collections alone; identity visibility is TestSchedulerListPrincipals.
 	backupOf := func(id string, classes ...string) *backup.DistributedBackupDescriptor {
 		return &backup.DistributedBackupDescriptor{
 			ID: id, Version: Version, ServerVersion: "1.23", Status: backup.Failed,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: classes}},
+			Nodes:     map[string]*backup.NodeDescriptor{nodeName: {Classes: classes}},
+			SkipUsers: true, SkipRoles: true,
 		}
 	}
 
@@ -3044,10 +3065,13 @@ func TestSchedulerReadBackupsAction(t *testing.T) {
 		classes = []string{"Article", "Payroll"}
 		all     = "*"
 	)
+	// The descriptors skip users and roles so the subtests turn on the action's
+	// verb alone; identity visibility is TestSchedulerListPrincipals.
 	backupOf := func(id string, classes ...string) *backup.DistributedBackupDescriptor {
 		return &backup.DistributedBackupDescriptor{
 			ID: id, Version: Version, ServerVersion: "1.23", Status: backup.Success,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: classes}},
+			Nodes:     map[string]*backup.NodeDescriptor{nodeName: {Classes: classes}},
+			SkipUsers: true, SkipRoles: true,
 		}
 	}
 
@@ -3207,6 +3231,14 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
 }
+
+var (
+	// wholeStores is what a descriptor that skips neither subsystem and names
+	// no IDs requires: its users and roles snapshots hold the whole stores.
+	wholeStores = []string{"backups/users/*", "backups/roles/*"}
+	// listWildcards is the blanket READ a listing probes for first.
+	listWildcards = []string{"backups/collections/*", "backups/users/*", "backups/roles/*"}
+)
 
 // roleRows decodes an RBAC snapshot blob into its policy and grouping-policy rows.
 func roleRows(t *testing.T, blob []byte) (policies, grouping [][]string) {
@@ -3444,9 +3476,11 @@ func TestCancellingBackup(t *testing.T) {
 		assert.NoError(t, err)
 
 		calls := fakeScheduler.auth.(*mocks.FakeAuthorizer).Calls()
-		assert.Len(t, calls, 1)
+		assert.Len(t, calls, 2)
 		assert.Equal(t, authorization.DELETE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Class1"), calls[0].Resources)
+		assert.Equal(t, authorization.DELETE, calls[1].Verb)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 
@@ -3462,8 +3496,9 @@ func TestCancellingBackup(t *testing.T) {
 		err := fs.scheduler().Cancel(ctx, &models.Principal{Username: "test-user"}, backendName, backupID, "", "")
 		require.NoError(t, err)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 }
 
@@ -3589,8 +3624,9 @@ func TestCancellingRestore(t *testing.T) {
 		err := fs.scheduler().CancelRestore(ctx, &models.Principal{Username: "test-user"}, backendName, backupID, "", "")
 		require.NoError(t, err)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 
 	t.Run("CancellingFinalizing", func(t *testing.T) {
@@ -3732,9 +3768,11 @@ func TestCancellingRestore(t *testing.T) {
 		assert.NoError(t, err)
 
 		calls := fakeScheduler.auth.(*mocks.FakeAuthorizer).Calls()
-		assert.Len(t, calls, 1)
+		assert.Len(t, calls, 2)
 		assert.Equal(t, authorization.DELETE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Class1"), calls[0].Resources)
+		assert.Equal(t, authorization.DELETE, calls[1].Verb)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 }
@@ -3829,28 +3867,31 @@ func TestResolveUsers(t *testing.T) {
 
 	t.Run("absent includeUsers yields no users", func(t *testing.T) {
 		s := &Scheduler{} // no userLister: must not be consulted at all
-		users, err := s.resolveUsers(nil)
+		users, err := s.resolveUsers(context.Background(), nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, users)
 	})
 
 	t.Run("empty includeUsers needs no user backend", func(t *testing.T) {
-		users, err := (&Scheduler{}).resolveUsers([]string{})
+		users, err := (&Scheduler{}).resolveUsers(context.Background(), nil, []string{})
 		require.NoError(t, err)
 		assert.Equal(t, []string{}, users)
 	})
 
 	t.Run("includeUsers without a user lister is rejected", func(t *testing.T) {
-		s := &Scheduler{} // userLister nil => dynamic DB users disabled
-		users, err := s.resolveUsers([]string{"ns1:*"})
+		s := &Scheduler{authorizer: mocks.NewMockAuthorizer()} // userLister nil => dynamic DB users disabled
+		users, err := s.resolveUsers(context.Background(), nil, []string{"ns1:*"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "dynamic DB users are not enabled")
 		assert.Nil(t, users)
 	})
 
 	t.Run("resolves against the user lister", func(t *testing.T) {
-		s := &Scheduler{userLister: &fakeUserLister{users: []string{"ns1:alice", "ns2:bob"}}}
-		users, err := s.resolveUsers([]string{"ns1:*"})
+		s := &Scheduler{
+			userLister: &fakeUserLister{users: []string{"ns1:alice", "ns2:bob"}},
+			authorizer: mocks.NewMockAuthorizer(), schema: &fakeSchemaManger{namespacesEnabled: true},
+		}
+		users, err := s.resolveUsers(context.Background(), nil, []string{"ns1:*"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"ns1:alice"}, users)
 	})
@@ -3958,35 +3999,38 @@ func TestResolveRoles(t *testing.T) {
 
 	t.Run("absent includeRoles yields no roles", func(t *testing.T) {
 		s := &Scheduler{} // no roleLister: must not be consulted at all
-		roles, err := s.resolveRoles(nil)
+		roles, err := s.resolveRoles(context.Background(), nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, roles)
 	})
 
 	t.Run("empty includeRoles needs no role backend", func(t *testing.T) {
-		roles, err := (&Scheduler{}).resolveRoles([]string{})
+		roles, err := (&Scheduler{}).resolveRoles(context.Background(), nil, []string{})
 		require.NoError(t, err)
 		assert.Equal(t, []string{}, roles)
 	})
 
 	t.Run("includeRoles without a role lister is rejected", func(t *testing.T) {
-		s := &Scheduler{} // roleLister nil => RBAC disabled
-		roles, err := s.resolveRoles([]string{"ns1:*"})
+		s := &Scheduler{authorizer: mocks.NewMockAuthorizer()} // roleLister nil => RBAC disabled
+		roles, err := s.resolveRoles(context.Background(), nil, []string{"ns1:*"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "RBAC is not enabled")
 		assert.Nil(t, roles)
 	})
 
 	t.Run("resolves against the role lister", func(t *testing.T) {
-		s := &Scheduler{roleLister: &fakeRoleLister{roles: []string{"ns1:reader", "ns2:writer"}}}
-		roles, err := s.resolveRoles([]string{"ns1:*"})
+		s := &Scheduler{
+			roleLister: &fakeRoleLister{roles: []string{"ns1:reader", "ns2:writer"}},
+			authorizer: mocks.NewMockAuthorizer(), schema: &fakeSchemaManger{namespacesEnabled: true},
+		}
+		roles, err := s.resolveRoles(context.Background(), nil, []string{"ns1:*"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"ns1:reader"}, roles)
 	})
 
 	t.Run("a lister failure fails the resolve", func(t *testing.T) {
 		s := &Scheduler{roleLister: &fakeRoleLister{err: errors.New("boom")}}
-		roles, err := s.resolveRoles([]string{"ns1:reader"})
+		roles, err := s.resolveRoles(context.Background(), nil, []string{"ns1:reader"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 		assert.Nil(t, roles)
@@ -4341,7 +4385,7 @@ func makeUserSnapshot(t *testing.T, ids ...string) []byte {
 func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+	m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true},
 		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
 	require.NoError(t, err)
 	perms := make(map[string][]authorization.Policy, len(roleNames))
@@ -4364,7 +4408,7 @@ func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 func makeRbacSnapshotWithSubjects(t *testing.T, role string, dbUserIDs ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+	m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true},
 		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
 	require.NoError(t, err)
 	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
@@ -5297,7 +5341,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 	})
 
 	// The node uploaded blobs the descriptor says were never selected, as a
-	// participant without the request-level skip flag does.
+	// participant from before the request carried skip flags does.
 	t.Run("descriptor skip discards the users blob", func(t *testing.T) {
 		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true}, nil)
 		require.Len(t, calls, 1)
@@ -5348,7 +5392,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		}`, string(calls[0].roles))
 	})
 
-	t.Run("class-less restore performs no authorization call", func(t *testing.T) {
+	t.Run("class-less restore authorizes both whole stores and every ID they touch", func(t *testing.T) {
 		const (
 			backupID = "classless-blobs"
 			node     = "Node-A"
@@ -5384,7 +5428,15 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 			UserRestoreOption: "all", RbacRestoreOption: "all",
 		}, false)
 		require.NoError(t, err)
-		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		pr := &models.Principal{Username: "test-user"}
+		// validateRestoreRequest checks the wildcards before reading the
+		// descriptor's details, and Restore checks them again on the applied blobs.
+		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: pr, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize},
+			{Principal: pr, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize},
+			{Principal: pr, Verb: authorization.CREATE, Resources: []string{"backups/users/alice"}, Method: mocks.MethodFilterAuthorizedResources},
+			{Principal: pr, Verb: authorization.CREATE, Resources: []string{"backups/roles/a"}, Method: mocks.MethodFilterAuthorizedResources},
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
 			10*time.Second, 10*time.Millisecond, "restore did not finish")
 		calls := recorder.recorded()

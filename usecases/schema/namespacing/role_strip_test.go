@@ -123,6 +123,12 @@ func TestStripPermissionForCaller(t *testing.T) {
 			want:      &models.Permission{Users: &models.PermissionUsers{Users: strPtr("customer2:apiuser")}, Roles: &models.PermissionRoles{Role: strPtr("customer2:editor")}},
 		},
 		{
+			name:      "backups user and role targets stripped",
+			principal: stripNamespacedPrincipal,
+			in:        &models.Permission{Backups: &models.PermissionBackups{User: strPtr("customer1:apiuser"), Role: strPtr("customer1:editor")}},
+			want:      &models.Permission{Backups: &models.PermissionBackups{User: strPtr("apiuser"), Role: strPtr("editor")}},
+		},
+		{
 			name:      "group-ref and namespace identifier never stripped",
 			principal: stripNamespacedPrincipal,
 			in:        &models.Permission{Groups: &models.PermissionGroups{Group: strPtr("customer1:engineers")}, Namespaces: &models.PermissionNamespaces{Namespace: strPtr("customer1")}},
@@ -364,6 +370,26 @@ func TestStripRolesForCaller(t *testing.T) {
 				},
 			}},
 			want: []*models.Role{{Name: strPtr("support"), Permissions: []*models.Permission{}}},
+		},
+		{
+			name:      "foreign-namespace backups user and role targets dropped, own ones kept and stripped",
+			principal: stripNamespacedPrincipal,
+			in: []*models.Role{{
+				Name: strPtr("backup-operator"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("manage_backups"), Backups: &models.PermissionBackups{User: strPtr("customer2:bob")}},
+					{Action: strPtr("manage_backups"), Backups: &models.PermissionBackups{Role: strPtr("customer2:editor")}},
+					{Action: strPtr("manage_backups"), Backups: &models.PermissionBackups{User: strPtr("customer1:alice")}},
+					{Action: strPtr("manage_backups"), Backups: &models.PermissionBackups{Role: strPtr("customer1:editor")}},
+				},
+			}},
+			want: []*models.Role{{
+				Name: strPtr("backup-operator"),
+				Permissions: []*models.Permission{
+					{Action: strPtr("manage_backups"), Backups: &models.PermissionBackups{User: strPtr("alice")}},
+					{Action: strPtr("manage_backups"), Backups: &models.PermissionBackups{Role: strPtr("editor")}},
+				},
+			}},
 		},
 		{
 			name:      "foreign namespaces-domain permission dropped; own and wildcard kept",
