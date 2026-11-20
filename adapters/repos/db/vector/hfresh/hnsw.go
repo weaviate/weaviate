@@ -107,22 +107,16 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, lazy bool) 
 		}
 	}
 
-	h, err := index.pendingGraph()
+	h, err := index.newGraph()
 	if err != nil {
 		return nil, err
 	}
-	index.publish(h)
+	index.hnsw.Store(h)
 
 	return &index, nil
 }
 
-// pendingGraph returns the graph searches do not see yet, creating it on first
-// use. The caller holds buildMu.
-func (i *HNSWIndex) pendingGraph() (*hnsw.HNSW, error) {
-	if i.pending != nil {
-		return i.pending, nil
-	}
-
+func (i *HNSWIndex) newGraph() (*hnsw.HNSW, error) {
 	var userConfig ent.UserConfig
 	userConfig.SetDefaults()
 	userConfig.EF = 64
@@ -137,17 +131,8 @@ func (i *HNSWIndex) pendingGraph() (*hnsw.HNSW, error) {
 		return nil, err
 	}
 	h.PostStartup(context.Background())
-	i.pending = h
 
 	return h, nil
-}
-
-// publish makes the pending graph the one every call uses. The caller holds
-// buildMu.
-func (i *HNSWIndex) publish(h *hnsw.HNSW) {
-	i.hnsw.Store(h)
-	i.pending = nil
-	i.single.Store(false)
 }
 
 // Built reports whether the centroid graph exists.
@@ -205,7 +190,10 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 		// a child of the first split
 		var err error
 		i.buildMu.Lock()
-		g, err = i.pendingGraph()
+		if i.pending == nil {
+			i.pending, err = i.newGraph()
+		}
+		g = i.pending
 		i.buildMu.Unlock()
 		if err != nil {
 			return errors.Wrap(err, "create the centroid graph")
@@ -234,7 +222,8 @@ func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 		i.buildMu.Lock()
 		defer i.buildMu.Unlock()
 		if i.pending != nil {
-			i.publish(i.pending)
+			i.hnsw.Store(i.pending)
+			i.pending = nil
 		}
 		i.single.Store(false)
 		return nil

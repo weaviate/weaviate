@@ -223,6 +223,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
+
 	h.repairOrphanPostings()
 
 	h.taskQueue.Register()
