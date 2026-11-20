@@ -21,8 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Pins the DELETE_CLASS cascade extractor for the reindex namespace
-// (weaviate/0-weaviate-issues#231).
 func TestExtractReindexTaskCollection(t *testing.T) {
 	t.Run("well-formed payload returns class name", func(t *testing.T) {
 		payload, err := json.Marshal(ReindexTaskPayload{
@@ -37,9 +35,6 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 	})
 
 	t.Run("payload missing collection is rejected", func(t *testing.T) {
-		// Sloppy ("", true) here would let DeleteTasksForCollection("")
-		// nuke every reindex task — defence in depth even though the
-		// manager already guards empty input.
 		payload, err := json.Marshal(ReindexTaskPayload{
 			MigrationType: ReindexTypeEnableRangeable,
 		})
