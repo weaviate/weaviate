@@ -70,9 +70,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	rescoreLimit := max(k, int(atomic.LoadUint32(&h.rescoreLimit)))
 	queryDistancer := quantizer.NewDistancer(vector)
 
-	var selectedCentroids []uint64
-	var postings []Posting
-
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
 	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
@@ -83,37 +80,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		defer nAllowList.Close()
 	}
 
-	var built bool
-	for {
-		built = h.Centroids.Built()
-		beforeCentroids := time.Now()
-		centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
-		helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(centroids.data) == 0 {
-			return nil, nil, nil
-		}
-
-		selectedCentroids, err = h.selectCentroids(ctx, centroids, candidateCentroidNum)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// read all the selected postings
-		beforeRead := time.Now()
-		postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
-		helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// the first split can swap in the graph and empty posting 1 after
-		// the centroid search picked it; the graph then holds its vectors
-		if built || !h.Centroids.Built() {
-			break
-		}
+	selectedCentroids, postings, mergeable, err := h.readPostings(ctx, vector, candidateCentroidNum, nAllowList)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(postings) == 0 {
+		return nil, nil, nil
 	}
 
 	q := NewResultSet(rescoreLimit)
@@ -165,7 +137,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
-		if built && postingSize < int(h.minPostingSize) {
+		if i < mergeable && postingSize < int(h.minPostingSize) {
 			err := h.taskQueue.EnqueueMerge(selectedCentroids[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
@@ -518,6 +490,54 @@ func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
 // worth scanning: it drops centroids beyond MaxDistanceRatio of the best
 // match (when past the pruning floor) and centroids whose posting is empty,
 // keeping at most budget survivors in ranked order.
+// readPostings selects the postings nearest to the query and reads them. The
+// first mergeable postings are graph postings a small size may merge.
+func (h *HFresh) readPostings(ctx context.Context, query []float32, probe int, allowList helpers.AllowList) ([]uint64, []Posting, int, error) {
+	for {
+		built := h.Centroids.Built()
+		draining := built && h.singlePostingDraining.Load()
+
+		beforeCentroids := time.Now()
+		centroids, err := h.Centroids.Search(query, probe, allowList)
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
+		if err != nil {
+			return nil, nil, 0, err
+		}
+
+		var selected []uint64
+		if len(centroids.data) > 0 {
+			selected, err = h.selectCentroids(ctx, centroids, probe)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+		}
+		var mergeable int
+		if built {
+			mergeable = len(selected)
+		}
+		// posting 1 is outside the graph until its drain deletes it
+		if draining {
+			selected = append(selected, singlePostingID)
+		}
+		if len(selected) == 0 {
+			return nil, nil, 0, nil
+		}
+
+		beforeRead := time.Now()
+		postings, err := h.PostingStore.MultiGet(ctx, selected)
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
+		if err != nil {
+			return nil, nil, 0, err
+		}
+
+		// a drain started and finished after the search picked the single
+		// posting would leave it empty; the graph then holds its vectors
+		if built || !h.Centroids.Built() {
+			return selected, postings, mergeable, nil
+		}
+	}
+}
+
 func (h *HFresh) selectCentroids(ctx context.Context, centroids *ResultSet, budget int) ([]uint64, error) {
 	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
@@ -571,39 +591,13 @@ func (h *HFresh) searchByFDE(
 		defer nAllowList.Close()
 	}
 
-	var (
-		built             bool
-		selectedCentroids []uint64
-		postings          []Posting
-	)
-	for {
-		// Step 1: Centroid selection - controlled by routingBudget only
-		built = h.Centroids.Built()
-		centroids, err := h.Centroids.Search(queryFDE, routingBudget, nAllowList)
-		if err != nil {
-			return nil, err
-		}
-		if len(centroids.data) == 0 {
-			return nil, nil
-		}
-
-		// Step 2: Filter centroids by distance and posting existence
-		selectedCentroids, err = h.selectCentroids(ctx, centroids, routingBudget)
-		if err != nil {
-			return nil, err
-		}
-
-		// Step 3: Scan postings from selected centroids
-		postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
-		if err != nil {
-			return nil, err
-		}
-
-		// the first split can swap in the graph and empty posting 1 after
-		// the centroid search picked it; the graph then holds its vectors
-		if built || !h.Centroids.Built() {
-			break
-		}
+	// Steps 1 to 3: select the postings by routingBudget only, then read them
+	selectedCentroids, postings, mergeable, err := h.readPostings(ctx, queryFDE, routingBudget, nAllowList)
+	if err != nil {
+		return nil, err
+	}
+	if len(postings) == 0 {
+		return nil, nil
 	}
 
 	visited := h.visitedPool.Borrow()
@@ -659,7 +653,7 @@ func (h *HFresh) searchByFDE(
 			q.Insert(id, dist)
 		}
 
-		if built && postingSize < int(h.minPostingSize) {
+		if i < mergeable && postingSize < int(h.minPostingSize) {
 			if err := h.taskQueue.EnqueueMerge(selectedCentroids[i]); err != nil {
 				return nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}

@@ -292,7 +292,11 @@ func (h *HFresh) centroidCommitLogExists() bool {
 // append tells whether posting 1 exists.
 func (h *HFresh) restoreCentroids() error {
 	if h.centroidCommitLogExists() {
-		return h.Centroids.Build()
+		err := h.Centroids.Build()
+		if err != nil {
+			return err
+		}
+		return h.restoreDrain()
 	}
 
 	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
@@ -301,6 +305,24 @@ func (h *HFresh) restoreCentroids() error {
 	}
 	if size > 0 {
 		h.Centroids.restoreSingle(singlePostingID)
+	}
+	return nil
+}
+
+// restoreDrain resumes the drain of a single posting cut short: posting 1 is
+// left outside the graph with its size and, unlike an orphan, no map entry or
+// the empty one of an earlier drain.
+func (h *HFresh) restoreDrain() error {
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
+	if err != nil || size == 0 || h.Centroids.Exists(singlePostingID) {
+		return err
+	}
+	metadata, err := h.PostingMap.Get(h.ctx, singlePostingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return err
+	}
+	if err != nil || metadata.Count() == 0 {
+		h.singlePostingDraining.Store(true)
 	}
 	return nil
 }
@@ -493,12 +515,6 @@ func (h *HFresh) repairOrphanPostings() {
 		if !h.Centroids.Exists(postingID) || h.Centroids.VectorMissing(postingID) {
 			orphans = append(orphans, postingID)
 		}
-	}
-	// posting 1 has no map entry while single, so a first split cut short
-	// after the graph existed leaves it out of the map
-	_, err := h.PostingMap.Get(h.ctx, singlePostingID)
-	if err != nil && !h.Centroids.Exists(singlePostingID) {
-		orphans = append(orphans, singlePostingID)
 	}
 
 	for _, postingID := range orphans {

@@ -92,6 +92,11 @@ type HFresh struct {
 	// holdFirstSplit is set while a backup halts the shard: the graph the
 	// first split creates would miss the backup's commit log capture
 	holdFirstSplit atomic.Bool
+	// firstSplitMu is held while the first split creates the graph
+	firstSplitMu sync.Mutex
+	// singlePostingDraining is set from the first split until posting 1, left
+	// outside the graph, has been re-inserted into it and deleted
+	singlePostingDraining atomic.Bool
 
 	// muvera is used for multi-vector encoding
 	muvera          atomic.Bool
@@ -244,6 +249,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 func (h *HFresh) startCentroidGraph() error {
 	if h.Centroids.Built() {
+		if h.singlePostingDraining.Load() {
+			return h.taskQueue.EnqueueSplit(singlePostingID)
+		}
 		return nil
 	}
 	if !h.Centroids.Exists(singlePostingID) {
@@ -389,15 +397,13 @@ func (h *HFresh) Flush() error {
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
-	// a first split already running must create its graph before the
-	// centroids are prepared
+	// taking the lock waits for a first split already creating its graph,
+	// which must finish before the centroids are prepared
+	h.firstSplitMu.Lock()
 	h.holdFirstSplit.Store(true)
-	err := h.taskQueue.splitQueue.Wait(ctx)
-	if err != nil {
-		return err
-	}
+	h.firstSplitMu.Unlock()
 
-	err = h.Centroids.PrepareForBackup(ctx)
+	err := h.Centroids.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}

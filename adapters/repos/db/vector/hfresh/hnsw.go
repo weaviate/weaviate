@@ -128,17 +128,13 @@ func (c *CentroidIndex) current() centroidIndex {
 }
 
 // Build switches to the centroid graph, reloading it from its commit log. The
-// single posting has no centroid to carry over, so it must not exist.
+// single posting has no centroid to carry over: it is drained into the graph.
 func (c *CentroidIndex) Build() error {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 
-	single, ok := c.current().(*singleCentroid)
-	if !ok {
+	if _, ok := c.current().(*singleCentroid); !ok {
 		return nil
-	}
-	if id := single.snapshot(); id != 0 {
-		return errors.Errorf("single posting %d must be split into the centroid graph", id)
 	}
 
 	graph, err := c.pendingGraph()
