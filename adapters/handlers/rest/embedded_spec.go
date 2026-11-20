@@ -12080,6 +12080,7 @@ func init() {
           "description": "Per-target overrides of ` + "`" + `vectorSearchParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorSearchParams` + "`" + `, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
           "type": "object",
           "additionalProperties": {
+            "x-nullable": true,
             "$ref": "#/definitions/SearchVectorSearchParams"
           }
         },
@@ -25936,6 +25937,7 @@ func init() {
           "description": "Per-target overrides of ` + "`" + `vectorSearchParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorSearchParams` + "`" + `, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
           "type": "object",
           "additionalProperties": {
+            "x-nullable": true,
             "$ref": "#/definitions/SearchVectorSearchParams"
           }
         },

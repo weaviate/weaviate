@@ -73,7 +73,7 @@ type SearchCommon struct {
 	SinglePrompt *string `json:"singlePrompt,omitempty"`
 
 	// Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{"title": {"ef": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.
-	TargetVectorSearchParams map[string]SearchVectorSearchParams `json:"targetVectorSearchParams,omitempty"`
+	TargetVectorSearchParams map[string]*SearchVectorSearchParams `json:"targetVectorSearchParams,omitempty"`
 
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`

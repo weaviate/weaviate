@@ -174,7 +174,9 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 			return newAPIError(http.StatusUnprocessableEntity,
 				"targetVectorSearchParams[%s]: not a target vector of this request", name)
 		}
-		params, apiErr := h.parseVectorSearchParamsEntry(&entry, "targetVectorSearchParams["+name+"].")
+		// entry is nil only on the direct-call path: a JSON null is rejected
+		// at bind time, an empty object binds to an all-nil struct.
+		params, apiErr := h.parseVectorSearchParamsEntry(entry, "targetVectorSearchParams["+name+"].")
 		if apiErr != nil {
 			return apiErr
 		}

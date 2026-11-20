@@ -205,6 +205,26 @@ func TestRerankValidationNamesPropertyOnce(t *testing.T) {
 	assert.Contains(t, err.Error(), "rerank.property in body is required")
 }
 
+func TestTargetVectorSearchParamsEntryBindTimeValidation(t *testing.T) {
+	// The map values are nullable in the schema so that an empty object entry
+	// binds to an all-nil struct and passes the generated required check
+	// (gRPC accepts an empty per-target entry too); only a JSON null entry is
+	// rejected at bind time.
+	t.Run("empty object entry passes bind-time validation", func(t *testing.T) {
+		req, apiErr := decodeModel(`{"query":["space"],"targetVectorSearchParams":{"title":{}}}`)
+		require.Nil(t, apiErr)
+		require.NoError(t, req.Validate(strfmt.Default))
+	})
+
+	t.Run("null entry is rejected at bind time", func(t *testing.T) {
+		req, apiErr := decodeModel(`{"query":["space"],"targetVectorSearchParams":{"title":null}}`)
+		require.Nil(t, apiErr)
+		err := req.Validate(strfmt.Default)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "targetVectorSearchParams.title in body is required")
+	})
+}
+
 func TestParseQuery(t *testing.T) {
 	t.Run("single string", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space opera"]}`)

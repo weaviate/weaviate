@@ -232,6 +232,8 @@ func TestVectorSearchParamsMultiTarget_REST(t *testing.T) {
 			{"bm25 with targetVectorSearchParams", "bm25", map[string]any{"query": "object", "targetVectorSearchParams": map[string]any{graphTarget: map[string]any{"ef": 10}}}, http.StatusUnprocessableEntity},
 			{"wrong-typed searchProbe", "near-vector", map[string]any{"vector": q, "targetVectors": targets, "vectorSearchParams": map[string]any{"searchProbe": "ten"}}, http.StatusBadRequest},
 			{"near-object targetVector and targetVectors", "near-object", map[string]any{"id": idFor(0), "targetVector": graphTarget, "targetVectors": targets}, http.StatusUnprocessableEntity},
+			{"empty targetVectorSearchParams entry is a no-op", "near-vector", map[string]any{"vector": q, "targetVectors": targets, "targetVectorSearchParams": map[string]any{graphTarget: map[string]any{}}}, http.StatusOK},
+			{"null targetVectorSearchParams entry", "near-vector", map[string]any{"vector": q, "targetVectors": targets, "targetVectorSearchParams": map[string]any{graphTarget: nil}}, http.StatusUnprocessableEntity},
 			{"hybrid unknown target in targetVectorSearchParams", "hybrid", map[string]any{"query": "object", "vector": q, "targetVectors": targets, "targetVectorSearchParams": map[string]any{"nope": map[string]any{"ef": 10}}}, http.StatusUnprocessableEntity},
 		}
 		for _, tt := range tests {
