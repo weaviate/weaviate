@@ -516,6 +516,7 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 				"vector_search_params_for_targets requires named vectors; collection %s has none", className)
 		}
 		out.PerTarget = make(map[string]searchparams.VectorSearchParams, len(perTarget))
+		seen := make(map[string]struct{}, len(perTarget))
 		for i, entry := range perTarget {
 			target := entry.GetTarget()
 			if target == "" {
@@ -526,7 +527,7 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 				return nil, status.Errorf(codes.InvalidArgument,
 					"vector_search_params_for_targets[%s]: params must be set", target)
 			}
-			if _, dup := out.PerTarget[target]; dup {
+			if _, dup := seen[target]; dup {
 				return nil, status.Errorf(codes.InvalidArgument,
 					"vector_search_params_for_targets: target %q given more than once", target)
 			}
@@ -539,7 +540,18 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 			if err != nil {
 				return nil, err
 			}
+			if p.IsZero() {
+				// Validated for its name, but an entry without any override is
+				// a no-op; storing it would turn every search into the
+				// per-target path and allocate a merged copy per shard.
+				seen[target] = struct{}{}
+				continue
+			}
+			seen[target] = struct{}{}
 			out.PerTarget[target] = p
+		}
+		if len(out.PerTarget) == 0 {
+			out.PerTarget = nil
 		}
 	}
 

@@ -675,6 +675,8 @@ func TestVectorSearchParamsEF_Cluster(t *testing.T) {
 		})
 		assertEFSensitivity(t, compose, ds, class.Class)
 	})
+
+	t.Run("Sharded per-target", testShardedPerTarget(compose))
 }
 
 // waitForVectorIndexing blocks until every shard of className reports an empty

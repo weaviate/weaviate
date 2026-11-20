@@ -67,7 +67,10 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 		if len(weightsByName) > 0 {
 			return nil, errors.New("weights are only allowed with manualWeights or relativeScore")
 		}
-		return &TargetCombination{Type: combinationType}, nil
+		// The shard join reads one weight per target for every type except
+		// minimum, so sum and average carry their implicit weights (1 and
+		// 1/n), exactly as the gRPC and GraphQL parsers fill them.
+		return &TargetCombination{Type: combinationType, Weights: implicitWeights(combinationType, len(targets))}, nil
 	}
 
 	targetSet := make(map[string]struct{}, len(targets))
@@ -92,4 +95,26 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 		}
 	}
 	return &TargetCombination{Type: combinationType, Weights: weights}, nil
+}
+
+// implicitWeights returns the positional weights the engine expects for the
+// methods that take none from the client: 1 per target for sum, 1/n for
+// average, and nil for minimum (which has no weights).
+func implicitWeights(t TargetCombinationType, n int) []float32 {
+	switch t {
+	case Sum:
+		weights := make([]float32, n)
+		for i := range weights {
+			weights[i] = 1
+		}
+		return weights
+	case Average:
+		weights := make([]float32, n)
+		for i := range weights {
+			weights[i] = 1 / float32(n)
+		}
+		return weights
+	default:
+		return nil
+	}
 }

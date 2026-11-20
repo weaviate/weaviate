@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -158,8 +159,17 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 		isTarget[target] = true
 	}
 
+	// Sorted so that a request with several invalid keys always reports the
+	// same one.
+	names := make([]string, 0, len(common.TargetVectorSearchParams))
+	for name := range common.TargetVectorSearchParams {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	perTarget := make(map[string]searchparams.VectorSearchParams, len(common.TargetVectorSearchParams))
-	for name, entry := range common.TargetVectorSearchParams {
+	for _, name := range names {
+		entry := common.TargetVectorSearchParams[name]
 		if !isTarget[name] {
 			return newAPIError(http.StatusUnprocessableEntity,
 				"targetVectorSearchParams[%s]: not a target vector of this request", name)
@@ -303,7 +313,7 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
 			"vectorSearchParams is not applicable to bm25 search")
 	}
-	if common.TargetVectorSearchParams != nil {
+	if len(common.TargetVectorSearchParams) > 0 {
 		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
 			"targetVectorSearchParams is not applicable to bm25 search")
 	}

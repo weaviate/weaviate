@@ -455,8 +455,8 @@ func TestTargetCombination(t *testing.T) {
 		{name: "one target in a list, no method", fields: `"targetVectors":["title_vec"]`, want: nil},
 		{name: "two targets default to minimum", fields: `"targetVectors":["title_vec","plot_vec"]`, want: &dto.TargetCombination{Type: dto.Minimum}},
 		{name: "empty combination object defaults", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{}`, want: &dto.TargetCombination{Type: dto.Minimum}},
-		{name: "sum", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"sum"}`, want: &dto.TargetCombination{Type: dto.Sum}},
-		{name: "average", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"average"}`, want: &dto.TargetCombination{Type: dto.Average}},
+		{name: "sum", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"sum"}`, want: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1}}},
+		{name: "average", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"average"}`, want: &dto.TargetCombination{Type: dto.Average, Weights: []float32{0.5, 0.5}}},
 		{name: "minimum", fields: `"targetVectors":["title_vec","plot_vec"],"targetCombination":{"method":"minimum"}`, want: &dto.TargetCombination{Type: dto.Minimum}},
 		{
 			name:   "manualWeights are positional in targetVectors order",
@@ -1354,7 +1354,7 @@ func TestNearObjectTargetVectors(t *testing.T) {
 			fmt.Sprintf(`{"id":%q,"targetVectors":["plot_vec","title_vec"],"targetCombination":{"method":"average"}}`, nearObjectSourceID))
 		require.Nil(t, apiErr)
 		assert.Equal(t, []string{"plot_vec", "title_vec"}, searcher.lastParams.NearObject.TargetVectors)
-		assert.Equal(t, &dto.TargetCombination{Type: dto.Average}, searcher.lastParams.TargetVectorCombination)
+		assert.Equal(t, &dto.TargetCombination{Type: dto.Average, Weights: []float32{0.5, 0.5}}, searcher.lastParams.TargetVectorCombination)
 	})
 
 	for _, tt := range targetVectorListErrorCases() {
@@ -2272,7 +2272,6 @@ func TestBm25RejectsVectorSearchParams(t *testing.T) {
 			"targetVectorSearchParams", `{"query":"space","targetVectorSearchParams":{"title_vec":{"ef":10}}}`,
 			"targetVectorSearchParams is not applicable to bm25 search",
 		},
-		{"empty targetVectorSearchParams", `{"query":"space","targetVectorSearchParams":{}}`, "targetVectorSearchParams is not applicable to bm25 search"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2282,6 +2281,13 @@ func TestBm25RejectsVectorSearchParams(t *testing.T) {
 			assert.Equal(t, tt.want, apiErr.Err.Error())
 		})
 	}
+
+	// An empty map carries no entry, so it is indistinguishable from an
+	// absent field, as an empty repeated field is on gRPC.
+	t.Run("empty targetVectorSearchParams is accepted", func(t *testing.T) {
+		_, apiErr := buildBm25(t, movieClass(), `{"query":"space","targetVectorSearchParams":{}}`)
+		require.Nil(t, apiErr)
+	})
 }
 
 func TestBaseParamsMapsVectorSearchParams(t *testing.T) {

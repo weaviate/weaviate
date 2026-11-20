@@ -395,3 +395,93 @@ func Test_SearchByVector_FilterStrategyOverride(t *testing.T) {
 		})
 	}
 }
+
+// Test_SearchByVectorDistance_FilterStrategyOverride checks that the distance
+// search entry point honours the per-request filter strategy too, and
+// annotates the slow-query log with the requested and effective strategy.
+func Test_SearchByVectorDistance_FilterStrategyOverride(t *testing.T) {
+	const (
+		size = 300
+		dims = 8
+	)
+	ctx := context.Background()
+	vectors, queryVecs := testinghelpers.RandomVecsFixedSeed(size, 1, dims)
+	query := queryVecs[0]
+
+	store := testinghelpers.NewDummyStore(t)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "search-params-filter-strategy-distance",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		AcornFilterRatio:      0.4,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+	}, ent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        64,
+		EF:                    size,
+		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        ent.FilterStrategySweeping,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	t.Cleanup(func() { index.Shutdown(ctx) })
+	r := rand.New(rand.NewSource(42))
+	index.randFunc = r.Float64
+	for id, v := range vectors {
+		require.NoError(t, index.Add(ctx, uint64(id), v))
+	}
+	require.Equal(t, SWEEPING, FilterStrategy(index.configuredFilterStrategy.Load()))
+
+	allowList := helpers.NewAllowList(3, 17, 42, 77, 101, 150, 199, 230, 261, 299)
+
+	prevCutoff := atomic.LoadInt64(&index.flatSearchCutoff)
+	atomic.StoreInt64(&index.flatSearchCutoff, 1) // never flat: the graph path runs
+	t.Cleanup(func() { atomic.StoreInt64(&index.flatSearchCutoff, prevCutoff) })
+
+	tests := []struct {
+		name          string
+		params        *searchparams.VectorSearchParams
+		wantRequested string // "" => key must be absent
+		wantEffective string // "" => key must be absent
+	}{
+		{name: "nil params does not annotate"},
+		{
+			name:          "acorn override on distance search",
+			params:        &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyAcorn},
+			wantRequested: "acorn", wantEffective: "acorn",
+		},
+		{
+			name:          "pathseer override on distance search",
+			params:        &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer},
+			wantRequested: "pathseer", wantEffective: "pathseer",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sctx := helpers.InitSlowQueryDetails(context.Background())
+			ids, _, err := index.SearchByVectorDistance(sctx, query, 1e9, -1, allowList, tt.params)
+			require.NoError(t, err)
+			details := helpers.ExtractSlowQueryDetails(sctx)
+
+			// every allowed id is within the huge distance, none outside it
+			assert.ElementsMatch(t, []uint64{3, 17, 42, 77, 101, 150, 199, 230, 261, 299}, ids)
+			if tt.wantRequested == "" {
+				assert.NotContains(t, details, "hnsw_filter_strategy_requested")
+			} else {
+				assert.Equal(t, tt.wantRequested, details["hnsw_filter_strategy_requested"])
+			}
+			if tt.wantEffective == "" {
+				assert.NotContains(t, details, "hnsw_filter_strategy_effective")
+			} else {
+				assert.Equal(t, tt.wantEffective, details["hnsw_filter_strategy_effective"])
+			}
+			assert.Equal(t, SWEEPING, FilterStrategy(index.configuredFilterStrategy.Load()))
+		})
+	}
+}

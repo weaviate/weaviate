@@ -271,9 +271,8 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 					forTarget("first", &pb.VectorSearchParams{}),
 				},
 			},
-			want: &searchparams.VectorSearchParams{
-				PerTarget: map[string]searchparams.VectorSearchParams{"first": {}},
-			},
+			// validated for its name, but a no-op entry is not stored
+			want: nil,
 		},
 		{
 			name: "per target with hybrid",
@@ -383,6 +382,31 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 				},
 			},
 			wantErr: "vector_search_params_for_targets requires named vectors; collection TestClass has none",
+		},
+		{
+			name: "per target on hybrid against legacy class",
+			req: &pb.SearchRequest{
+				Collection:   classname,
+				HybridSearch: &pb.Hybrid{Query: "q", NearVector: nearVector()},
+				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
+					forTarget("default", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				},
+			},
+			wantErr: "requires named vectors",
+		},
+		{
+			// A target name may repeat in the target list; the single entry
+			// for it is accepted and stored once.
+			name: "per target with repeated target name",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass, NearVector: nearVector("first", "first"),
+				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
+					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				},
+			},
+			want: &searchparams.VectorSearchParams{
+				PerTarget: map[string]searchparams.VectorSearchParams{"first": {EF: 300}},
+			},
 		},
 		{
 			name: "per target on bm25 only",
