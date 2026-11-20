@@ -91,7 +91,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier)
+		principal, m.qualifier, m.metrics)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -117,12 +117,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	// NS-enabled: classless beacon on a multi-target prop would reach
-	// Exists with Class=="" → DB.anyExists scans every namespace's
-	// indices, and the stored beacon would be wildcard-deletable.
-	if m.config.Config.Namespaces.Enabled && targetRef.Class == "" {
-		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
-		return &Error{err.Error(), StatusBadRequest, err}
+	// A classless beacon on a multi-target prop would reach Exists with
+	// Class=="", which scans every collection, other namespaces' included.
+	// With namespaces on, no DELETE could remove it once stored.
+	if targetRef.Class == "" {
+		if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
+			return &Error{err.Error(), StatusBadRequest, err}
+		}
 	}
 
 	if targetRef.Class != "" {

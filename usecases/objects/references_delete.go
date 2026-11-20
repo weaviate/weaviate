@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -142,7 +143,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// removeReferenceStructural's silent no-op. Non-NS keeps byte-exact
 	// compare, which already handles classless on both sides safely.
 	if m.config.Config.Namespaces.Enabled && beacon.Class == "" {
-		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+		err := validation.ErrMultiTargetRefWithoutClass
 		return &Error{err.Error(), StatusBadRequest, err}
 	}
 

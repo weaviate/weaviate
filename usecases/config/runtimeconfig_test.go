@@ -235,6 +235,10 @@ func TestDisableEndpointsWithoutClassConfig(t *testing.T) {
 			env: "DISABLE_OBJECTS_LIST_WITHOUT_CLASS", key: "disable_objects_list_without_class",
 			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableObjectsListWithoutClass },
 		},
+		{
+			env: "DISABLE_MULTI_TARGET_REFERENCES_WITHOUT_CLASS", key: "disable_multi_target_references_without_class",
+			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableMultiTargetReferencesWithoutClass },
+		},
 	}
 	for _, f := range flags {
 		for _, envSet := range []bool{false, true} {

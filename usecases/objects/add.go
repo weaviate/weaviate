@@ -210,7 +210,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier).
+		principal, m.qualifier, m.metrics).
 		Object(ctx, class, incoming, existing)
 }
 

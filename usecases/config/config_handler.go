@@ -353,6 +353,11 @@ type Config struct {
 	// parameter answer 410 Gone, as it does with namespaces on.
 	DisableObjectsListWithoutClass *runtime.DynamicValue[bool] `json:"disable_objects_list_without_class" yaml:"disable_objects_list_without_class"`
 
+	// DisableMultiTargetReferencesWithoutClass makes writes and validation refuse
+	// a beacon without a class on a property with several target classes, as
+	// with namespaces on. Deleting such a reference still works.
+	DisableMultiTargetReferencesWithoutClass *runtime.DynamicValue[bool] `json:"disable_multi_target_references_without_class" yaml:"disable_multi_target_references_without_class"`
+
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 

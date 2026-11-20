@@ -14,6 +14,9 @@ inverted_sorter_disabled: false
 # Answer 410 Gone on GET /objects without the class parameter
 # (defaults to the DISABLE_OBJECTS_LIST_WITHOUT_CLASS env var).
 # disable_objects_list_without_class: false
+# Refuse a beacon without a class on a reference property with several target classes
+# (defaults to the DISABLE_MULTI_TARGET_REFERENCES_WITHOUT_CLASS env var).
+# disable_multi_target_references_without_class: false
 # for usage module if enabled make sure that usage-gcs or usage-s3 module is enabled
 # usage_scrape_interval: 1s
 
