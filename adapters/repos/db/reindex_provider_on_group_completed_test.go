@@ -115,9 +115,9 @@ func TestRunPerUnitPhase_CapsTheErrorAcrossManyFailingUnits(t *testing.T) {
 			}
 
 			// No shard exists, so every unit fails its lookup before the phase runs.
-			err := p.runPerUnitPhase(&distributedtask.Task{}, payload, unitIDs, &Index{},
+			err := p.runPerUnitPhase(&distributedtask.Task{}, payload, unitIDs, newTestIndex(t, logger, "C", nil, nil),
 				logger, "swap-requested", "starting", false,
-				func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+				func(context.Context, string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
 					return phaseResult{}
 				})
 

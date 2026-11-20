@@ -121,7 +121,8 @@ type MigrationRun struct {
 }
 
 type DeleteClassRequest struct {
-	Name string
+	Name                 string
+	CancelsInFlightTasks bool
 }
 
 type UpdateShardStatusRequest struct {

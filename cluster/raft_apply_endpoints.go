@@ -67,9 +67,14 @@ func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.S
 }
 
 func (s *Raft) DeleteClass(ctx context.Context, name string) (uint64, error) {
+	subCommand, err := json.Marshal(&cmd.DeleteClassRequest{CancelsInFlightTasks: true})
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
 	command := &cmd.ApplyRequest{
-		Type:  cmd.ApplyRequest_TYPE_DELETE_CLASS,
-		Class: name,
+		Type:       cmd.ApplyRequest_TYPE_DELETE_CLASS,
+		Class:      name,
+		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
 }

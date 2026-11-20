@@ -76,19 +76,12 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		Vectorizer:         "none",
 	})
-	// The "tenants subset..." sub-test leaves a repair-filterable task
-	// in-flight. DeleteClass is rejected by the MutationGuard while it runs,
-	// so cleanup must cancel it (via POST .../cancel) before deleting the class.
 	defer func() {
 		cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/properties/text_word/index/filterable/cancel", restURI, mtClass)
 		cancelReq, _ := http.NewRequest(http.MethodPost, cancelURL, nil)
 		if cancelResp, err := http.DefaultClient.Do(cancelReq); err == nil {
 			cancelResp.Body.Close()
 		}
-		// A best-effort cancel may not terminalize a task already in SWAPPING,
-		// so poll the delete until the MutationGuard clears. The guard returns
-		// 400 while a reindex task is still in flight; retry only on that (and
-		// transient transport errors) and surface any other status immediately.
 		deadline := time.Now().Add(60 * time.Second)
 		var lastInfo string
 		for {

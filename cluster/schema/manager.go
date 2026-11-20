@@ -64,9 +64,7 @@ type MutationGuard interface {
 	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
 	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
-	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
-	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
-	// class blocks the mutation.
+	// CheckClassMutation gates DeleteClass entries without CancelsInFlightTasks, which only older binaries propose.
 	CheckClassMutation(className string) error
 
 	// CheckTenantMutation gates tenant transitions that make shards
@@ -792,7 +790,9 @@ func (s *SchemaManager) admitDroppedVectorConfigRemoval(cmd *command.ApplyReques
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
 	// Cross-FSM mutation guard — see [MutationGuard.CheckClassMutation].
-	if s.mutationGuard != nil {
+	var req command.DeleteClassRequest
+	cancelsInFlightTasks := json.Unmarshal(cmd.SubCommand, &req) == nil && req.CancelsInFlightTasks
+	if s.mutationGuard != nil && !cancelsInFlightTasks {
 		if err := s.mutationGuard.CheckClassMutation(cmd.Class); err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
@@ -820,7 +820,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DeleteClass validates nothing, so a name that was never a
 				// collection would otherwise be recorded too. Whether the
 				// directory is really ours is settled at the drop.
-				if s.schema.deleteClass(cmd.Class) && schemaOnly {
+				removed := s.schema.deleteClass(cmd.Class)
+				if removed && schemaOnly {
 					s.recordOrphan(cmd.Class, hasFrozen)
 				}
 				// Cascade lives in updateSchema (not updateStore) so it
@@ -828,7 +829,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// FSM state, rebuilt from RAFT log on restart, and the
 				// DELETE_CLASS apply MUST drop tasks the replay just
 				// re-added. weaviate/0-weaviate-issues#231.
-				s.cascadeDeleteDistributedTasks(cmd.Class)
+				if removed {
+					s.cascadeDeleteDistributedTasks(cmd.Class)
+				}
 				// Same reasoning for the replication FSM: its ops must be
 				// flagged on every apply path, schemaOnly replay and
 				// MetadataOnlyVoters included. Otherwise ShouldConsumeOps(),

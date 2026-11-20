@@ -560,6 +560,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
 	idx.initCycleCallbacksNoop()
 	for _, opt := range indexOpts {
 		opt(idx)
