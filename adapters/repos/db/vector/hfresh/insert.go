@@ -228,19 +228,27 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// update the posting membership and size caches
-	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+	single := !h.Centroids.Built()
+	var count uint32
+	if single {
+		// an analyze would reread all of the single posting after every
+		// append: it keeps no id list, and its size is persisted here
+		count, err = h.PostingSizes.Increment(ctx, centroidID)
+	} else {
+		_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+		if err == nil {
+			count = h.PostingSizes.FastIncrement(centroidID)
+		}
+	}
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
-	count := h.PostingSizes.FastIncrement(centroidID)
 
 	h.postingLocks.Unlock(centroidID)
 
 	limit := h.splitLimit()
-	// the single posting's map entry and size are rebuilt from the posting at
-	// startup: an analyze would reread all of it after every append
-	if count <= limit && !h.Centroids.Built() {
+	if single && count <= limit {
 		return true, nil
 	}
 

@@ -277,25 +277,19 @@ func (h *HFresh) restoreMetadata() error {
 	return h.restoreMetrics()
 }
 
-// restoreSinglePosting rebuilds posting 1's map entry and size from the
-// posting itself: appends keep them in memory only, and the ones a merge
-// persisted are stale.
+// restoreSinglePosting finds posting 1 by its size, persisted on each append,
+// without reading the posting.
 func (h *HFresh) restoreSinglePosting() error {
-	posting, err := h.PostingStore.Get(h.ctx, singlePostingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return errors.Wrapf(err, "read single posting %d", singlePostingID)
-	}
-	if len(posting) == 0 {
-		return nil
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
+	if err != nil || size == 0 {
+		return err
 	}
 
 	h.Centroids.restoreSingle()
-	h.PostingMap.FastSetVectorIDs(singlePostingID, posting)
-	h.PostingSizes.FastSet(singlePostingID, uint32(len(posting)))
 
 	// a crash can lose the queued split, and a lowered limit applies without
 	// waiting for an insert
-	if uint32(len(posting)) > h.splitLimit() {
+	if size > h.splitLimit() {
 		return h.taskQueue.EnqueueSplit(singlePostingID)
 	}
 	return nil
