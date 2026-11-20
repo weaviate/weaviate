@@ -13,7 +13,8 @@
 # Namespaces.Enabled forces:
 #   - DISABLE_GRAPHQL=true                  (Config.Validate requirement)
 #   - RBAC enabled                          (Config.Validate requirement)
-#   - REPLICATION_MAXIMUM_FACTOR=1          (enforceNamespaceStartupInvariants requirement)
+# REPLICATION_MAXIMUM_FACTOR=3 is the number of home nodes a namespace create
+# without home_nodes picks.
 #
 # Usage:
 #   docker compose -f docker-compose-test.yml build
@@ -34,7 +35,7 @@ x-weaviate-env: &weaviate-env
   AUTHORIZATION_RBAC_ROOT_USERS: "admin-user"
   NAMESPACES_ENABLED: "true"
   DISABLE_GRAPHQL: "true"
-  REPLICATION_MAXIMUM_FACTOR: "1"
+  REPLICATION_MAXIMUM_FACTOR: "3"
   NAMESPACE_CLEANUP_INTERVAL: "1s"
   # CI sets WEAVIATE_LICENSE_KEY from a repository secret.
   LICENSE_KEY: "${WEAVIATE_LICENSE_KEY:?set WEAVIATE_LICENSE_KEY to a Weaviate license key}"

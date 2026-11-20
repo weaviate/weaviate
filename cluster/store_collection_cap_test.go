@@ -36,15 +36,6 @@ func TestStoreExecute_CollectionCap(t *testing.T) {
 		return srv.store, m
 	}
 
-	executeAsync := func(st *Store, cmd *command.ApplyRequest) <-chan error {
-		done := make(chan error, 1)
-		go func() {
-			_, err := st.Execute(cmd)
-			done <- err
-		}()
-		return done
-	}
-
 	t.Run("a concurrent burst admits exactly the free capacity", func(t *testing.T) {
 		const (
 			limit   = 3

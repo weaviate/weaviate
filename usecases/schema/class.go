@@ -280,13 +280,23 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	return nil
 }
 
-// namespaceCandidates returns the first factor HomeNodes entries that are storage
-// candidates, or every storage candidate on NS-disabled clusters. It warns when it
-// skips one of the first factor entries, and refuses when fewer than factor remain.
+// namespaceCandidates returns the first factor entries of candidateHomeNodes, or
+// every storage candidate on NS-disabled clusters.
 func (h *Handler) namespaceCandidates(qualifiedClass string, factor int64) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil
 	}
+	present, err := h.candidateHomeNodes(qualifiedClass, factor)
+	if err != nil {
+		return nil, err
+	}
+	return present[:max(factor, 1)], nil
+}
+
+// candidateHomeNodes returns the HomeNodes entries that are storage candidates, in
+// HomeNodes order. It warns when it skips one of the first factor entries, and
+// refuses when fewer than factor remain.
+func (h *Handler) candidateHomeNodes(qualifiedClass string, factor int64) ([]string, error) {
 	factor = max(factor, 1)
 	ns := namespacing.NamespaceFromQualified(qualifiedClass)
 	if ns == "" {
@@ -315,18 +325,17 @@ func (h *Handler) namespaceCandidates(qualifiedClass string, factor int64) ([]st
 				"replace them in its home_nodes",
 			len(present), len(got.HomeNodes), factor))
 	}
-	placed := present[:factor]
-	if !slices.Equal(placed, got.HomeNodes[:factor]) {
+	if !slices.Equal(present[:factor], got.HomeNodes[:factor]) {
 		logger.WithField("home_nodes", missing).Warnf(
 			"placing shards on the other home nodes: %d home node(s) of the namespace are not storage candidates",
 			len(missing))
 	}
-	return placed, nil
+	return present, nil
 }
 
 // checkNamespaceFactor refuses a factor above the HomeNodes count of ns.
 func (h *Handler) checkNamespaceFactor(ns api.Namespace, factor int64) error {
-	if err := ns.CheckReplicationFactor(factor); err != nil {
+	if err := ns.CheckReplicationFactor(factor, int64(h.config.Replication.MinimumFactor)); err != nil {
 		h.logger.WithField("namespace", ns.Name).Warnf("refusing replication factor: %v", err)
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}

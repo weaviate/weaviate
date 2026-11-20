@@ -20,7 +20,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -30,19 +32,41 @@ import (
 // namespaced principal's namespace.
 func insertItem(t *testing.T, class, key string, i int) error {
 	t.Helper()
-	obj := &models.Object{
-		ID:         strfmt.UUID(uuid.NewString()),
-		Class:      class,
-		Properties: map[string]any{"i": i},
-	}
-	return helper.CreateObjectAuth(t, obj, key)
+	_, err := insertItemVia(t, helper.Client(t), class, key, i, "")
+	return err
 }
 
-// fillUntilQuota inserts until the chokepoint returns 429. Bounded by
-// wall time, not insert count: the cap only fires after a memtable
-// flush, so on fast CI a fixed insert budget can finish before the
-// 2s PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS window elapses.
+// insertItemVia inserts an item through c at consistency level cl and returns
+// its ID. An empty cl sends no consistency level.
+func insertItemVia(t *testing.T, c *client.Weaviate, class, key string, i int, cl types.ConsistencyLevel) (strfmt.UUID, error) {
+	t.Helper()
+	id := strfmt.UUID(uuid.NewString())
+	obj := &models.Object{ID: id, Class: class, Properties: map[string]any{"i": i}}
+	return id, helper.CreateObjectVia(t, c, obj, cl, key)
+}
+
+// requireObjectCapRefusal requires err to be the cap's 429 USAGE_LIMIT_EXCEEDED.
+func requireObjectCapRefusal(t *testing.T, err error) {
+	t.Helper()
+	var tmr *objects.ObjectsCreateTooManyRequests
+	require.ErrorAs(t, err, &tmr, "expected 429 USAGE_LIMIT_EXCEEDED, got %T: %v", err, err)
+	require.NotNil(t, tmr.Payload)
+	assert.Equal(t, "USAGE_LIMIT_EXCEEDED", tmr.Payload.ErrorCode)
+	assert.Equal(t, "objects", tmr.Payload.Limit)
+	assert.EqualValues(t, objectCap, tmr.Payload.Value)
+}
+
+// fillUntilQuota inserts at the default consistency level until the
+// chokepoint returns 429.
 func fillUntilQuota(t *testing.T, class, key string) {
+	t.Helper()
+	fillUntilQuotaAt(t, class, key, "")
+}
+
+// fillUntilQuotaAt inserts at consistency level cl until the chokepoint
+// returns 429. Its deadline is wall time, not an insert count, because the cap
+// fires only after a memtable flush, which a fixed count can outrun on fast CI.
+func fillUntilQuotaAt(t *testing.T, class, key string, cl types.ConsistencyLevel) {
 	t.Helper()
 	const fillBudget = 30 * time.Second
 	deadline := time.Now().Add(fillBudget)
@@ -50,16 +74,11 @@ func fillUntilQuota(t *testing.T, class, key string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("object cap %d did not fire within %s (after %d inserts)", objectCap, fillBudget, i)
 		}
-		err := insertItem(t, class, key, i)
+		_, err := insertItemVia(t, helper.Client(t), class, key, i, cl)
 		if err == nil {
 			continue
 		}
-		var tmr *objects.ObjectsCreateTooManyRequests
-		require.ErrorAs(t, err, &tmr, "expected 429 USAGE_LIMIT_EXCEEDED, got %T: %v", err, err)
-		require.NotNil(t, tmr.Payload)
-		assert.Equal(t, "USAGE_LIMIT_EXCEEDED", tmr.Payload.ErrorCode)
-		assert.Equal(t, "objects", tmr.Payload.Limit)
-		assert.EqualValues(t, objectCap, tmr.Payload.Value)
+		requireObjectCapRefusal(t, err)
 		return
 	}
 }

@@ -157,21 +157,28 @@ func CreateClassAuth(t *testing.T, class *models.Class, key string) {
 
 // WaitForClassLocal blocks until className is visible in the local schema of the
 // contacted node. The create returns on leader apply, but a lagging follower
-// would 404/422 the next op that resolves the class locally. Consistency=false
-// forces a local read; a 403 means the key can't read the class, so there's
-// nothing to probe and the wait returns.
+// would 404/422 the next op that resolves the class locally. A 403 means the key
+// can't read the class, so there's nothing to probe and the wait returns.
 func WaitForClassLocal(t *testing.T, className, key string) {
 	t.Helper()
+	waitForClassInLocalSchema(t, Client(t), className, key, false)
+}
+
+// waitForClassInLocalSchema polls the node c talks to, with consistency off,
+// until its local schema returns className to key. A 403 ends the wait unless
+// retryForbidden is set.
+func waitForClassInLocalSchema(t *testing.T, c *client.Weaviate, className, key string, retryForbidden bool) {
+	t.Helper()
 	local := false
-	getParams := schema.NewSchemaObjectsGetParams().WithClassName(className).WithConsistency(&local)
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := Client(t).Schema.SchemaObjectsGet(getParams, CreateAuth(key))
+	params := schema.NewSchemaObjectsGetParams().WithClassName(className).WithConsistency(&local)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		_, err := c.Schema.SchemaObjectsGet(params, CreateAuth(key))
 		var forbidden *schema.SchemaObjectsGetForbidden
-		if errors.As(err, &forbidden) {
+		if !retryForbidden && errors.As(err, &forbidden) {
 			return
 		}
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "class %q not visible in local schema after create", className)
+		assert.NoError(ct, err)
+	}, 30*time.Second, 50*time.Millisecond, "class %q not visible to the key in the local schema", className)
 }
 
 // CreateClassAuthWithReturn issues an authenticated class-create and returns
@@ -271,9 +278,41 @@ func CreateObjectWithTimeout(t *testing.T, object *models.Object, timeout time.D
 
 func CreateObjectAuth(t *testing.T, object *models.Object, key string) error {
 	t.Helper()
+	return CreateObjectVia(t, Client(t), object, "", key)
+}
+
+// CreateObjectVia creates object through c, so a client from NewClient picks
+// the node that receives the write. An empty cl sends no consistency level.
+func CreateObjectVia(t *testing.T, c *client.Weaviate, object *models.Object, cl types.ConsistencyLevel, key string) error {
+	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
-	_, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
+	if cl != "" {
+		cls := string(cl)
+		params.WithConsistencyLevel(&cls)
+	}
+	_, err := c.Objects.ObjectsCreate(params, CreateAuth(key))
 	return err
+}
+
+// GetObjectVia reads an object through c at consistency level cl. At ONE, the
+// node c talks to answers from its own replica when it holds one.
+func GetObjectVia(t *testing.T, c *client.Weaviate, class string, id strfmt.UUID, cl types.ConsistencyLevel, key string) (*models.Object, error) {
+	t.Helper()
+	cls := string(cl)
+	params := objects.NewObjectsClassGetParams().WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
+	resp, err := c.Objects.ObjectsClassGet(params, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+// WaitForClassVia polls until the local schema of the node c talks to returns
+// class to a request authenticated with key. A new user, its role and a new
+// class each reach a follower on their own schedule, so a 403 is retried too.
+func WaitForClassVia(t *testing.T, c *client.Weaviate, class, key string) {
+	t.Helper()
+	waitForClassInLocalSchema(t, c, class, key, true)
 }
 
 func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {

@@ -58,6 +58,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
+	// An AddTenants or AddClass takes its cap lock above before homeNodesLocks.
+	unlockHomeNodes, err := st.lockHomeNodes(req)
+	if err != nil {
+		return 0, err
+	}
+	defer unlockHomeNodes()
+
 	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
@@ -75,7 +82,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
 	// has not drained what it inherited must not judge yet. After the tenant,
-	// collection and task-movement locks, not before: each is held across the
+	// collection, home-node and task-movement locks, not before: each is held across the
 	// apply, so a caller can wait on it long enough for leadership to turn over,
 	// and a term confirmed before the wait says nothing about the term it wakes
 	// up in.
@@ -124,6 +131,60 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter checks req against
+// and returns the unlock. An UPDATE_NAMESPACE takes it exclusively. Class creates, restores
+// and updates share it, as do tenant adds and the updates explicitUpdateCarriesNodes reports.
+func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
+		ns, err := updatedNamespace(req)
+		if err != nil {
+			return nil, err
+		}
+		st.homeNodesLocks.Lock(ns)
+		return func() { st.homeNodesLocks.Unlock(ns) }, nil
+	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS,
+		api.ApplyRequest_TYPE_ADD_TENANT, api.ApplyRequest_TYPE_UPDATE_TENANT:
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		if ns == "" {
+			return func() {}, nil
+		}
+		if req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT {
+			carries, err := explicitUpdateCarriesNodes(req)
+			if err != nil {
+				return nil, err
+			}
+			if !carries {
+				return func() {}, nil
+			}
+		}
+		st.homeNodesLocks.RLock(ns)
+		return func() { st.homeNodesLocks.RUnlock(ns) }, nil
+	default:
+		return func() {}, nil
+	}
+}
+
+// explicitUpdateCarriesNodes reports whether a tenant update is explicit and carries
+// ClusterNodes. PreApplyFilter reads no list from any other update, so an
+// implicit activation or a change without a list waits on no home-node update.
+func explicitUpdateCarriesNodes(req *api.ApplyRequest) (bool, error) {
+	sub := &api.UpdateTenantsRequest{}
+	if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+		return false, fmt.Errorf("%w: unmarshal update-tenants subcommand: %w", schema.ErrBadRequest, err)
+	}
+	return !sub.ImplicitUpdateRequest && len(sub.ClusterNodes) > 0, nil
+}
+
+// updatedNamespace returns the name of the namespace an UPDATE_NAMESPACE changes.
+func updatedNamespace(req *api.ApplyRequest) (string, error) {
+	sub := &api.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return "", fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return sub.Namespace.Name, nil
+}
+
 // refuseUnknownFields refuses an update carrying a field this binary does not
 // know before it is appended. Once committed, only newer nodes could apply it.
 func refuseUnknownFields(req *api.ApplyRequest) error {
@@ -144,6 +205,8 @@ func refuseUnknownFields(req *api.ApplyRequest) error {
 // rolling update and again on every replay of that entry. Refusing before the
 // append means no node ever sees a committed entry it has to reject, so the set
 // of commands checked here can grow without becoming a compatibility event.
+// SchemaManager.PreApplyFilter checks a tenant node list against the class's
+// factor, and AddTenants and UpdateTenants check it again at apply.
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
@@ -320,11 +383,11 @@ func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
 	if req.Type != api.ApplyRequest_TYPE_UPDATE_NAMESPACE {
 		return nil
 	}
-	sub := &api.UpdateNamespaceRequest{}
-	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	ns, err := updatedNamespace(req)
+	if err != nil {
+		return err
 	}
-	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
+	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, ns)
 }
 
 // admitCreateLike refuses a create-like, property or class update command

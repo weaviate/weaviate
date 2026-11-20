@@ -11,7 +11,7 @@ All limits are **opt-in**: env vars unset means no enforcement.
 | Variable | Type | Default | Effect |
 |---|---|---|---|
 | `USAGE_LIMITS_ERROR_MESSAGE` | string | `"{limit} count limit of {value} reached for this instance."` | Operator-overridable template for the user-facing error message. Placeholders: `{limit}` (resource type) and `{value}` (configured threshold). |
-| `MAXIMUM_ALLOWED_OBJECTS_COUNT` | int | `-1` (unlimited) | Cap on live object count, summed across all loaded local shards (node-wide). Checked on every single + batch insert at the storage chokepoint, except on the target of a `MOVE` that is not yet `READY` (see *Accepted imperfections*). |
+| `MAXIMUM_ALLOWED_OBJECTS_COUNT` | int | `-1` (unlimited) | Cap on live object count per node, summed across the node's loaded shards, or only the namespace's shards on namespaced clusters. Checked on every single + batch insert at the storage chokepoint, except on the target of a `MOVE` that is not yet `READY` (see *Accepted imperfections*). |
 | `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` | int | `-1` (unlimited) | Cap on number of collections. Cluster-global when `NAMESPACES_ENABLED=false`; per namespace when `NAMESPACES_ENABLED=true`. |
 | `MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION` | int | `-1` (unlimited) | Cap on tenants per multi-tenant collection. Checked at tenant-create time only. |
 | `MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION` | int | `-1` (unlimited) | Cap on `desiredCount` of a class create request's `shardingConfig`. Config-time check. |
@@ -20,7 +20,9 @@ All values are **runtime-overrideable** via the existing runtime overrides YAML 
 
 ### Required pairing: `REPLICATION_MAXIMUM_FACTOR=1`
 
-The object/tenant/shard caps only work in the RF=1 deployment shape (see *Scope* below). When **any** of `MAXIMUM_ALLOWED_OBJECTS_COUNT`, `MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION`, or `MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION` is set, you must also set `REPLICATION_MAXIMUM_FACTOR=1`. Startup fails otherwise. `REPLICATION_MAXIMUM_FACTOR` also caps the per-class `replicationConfig.factor` for new classes, so the invariant holds at runtime too.
+On clusters with namespaces disabled, the object/tenant/shard caps need the RF=1 deployment shape (see *Scope* below). There, when **any** of `MAXIMUM_ALLOWED_OBJECTS_COUNT`, `MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION`, or `MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION` is set, you must also set `REPLICATION_MAXIMUM_FACTOR=1`. Startup fails otherwise. `REPLICATION_MAXIMUM_FACTOR` also caps the per-class `replicationConfig.factor` for new classes, so the invariant holds at runtime too.
+
+Namespaced clusters (`NAMESPACES_ENABLED=true`) are exempt and boot with the caps at any `REPLICATION_MAXIMUM_FACTOR`.
 
 `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` is **not** part of the linkage — it predates this RFC and tying it would break existing operators.
 
@@ -44,7 +46,7 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 
 The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
 
-On namespace-enabled clusters the chokepoint passes the (namespace-qualified) class name and `CheckObjects` extracts the namespace; the counter then sums only indices in that namespace. The cap is applied **per namespace**, not cluster-wide. A plain (non-qualified) class name sums all indices (NS-disabled clusters; the global slice on NS-enabled clusters that have no namespaced classes yet).
+On namespace-enabled clusters the chokepoint passes the (namespace-qualified) class name and `CheckObjects` extracts the namespace; the counter then sums only indices in that namespace. The cap is applied **per namespace per node**, not cluster-wide. A plain (non-qualified) class name sums all indices (NS-disabled clusters; the global slice on NS-enabled clusters that have no namespaced classes yet).
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 
@@ -76,16 +78,22 @@ When a batch insert would exceed `MAXIMUM_ALLOWED_OBJECTS_COUNT`, the **shard-sl
 
 ## Scope
 
-Supported deployment shapes (where the cap is meaningful and exact):
+Supported deployment shapes (where the cap is meaningful):
 
 - **Single-node clusters** (the Free Tier sandbox case) — there is no other node.
-- **Namespaced clusters in phase 1** — a namespace's collections and tenants are placed on the first of its home nodes, so the per-namespace sum is local. `MAXIMUM_ALLOWED_OBJECTS_COUNT` applies per namespace.
+- **Namespaced clusters, at any replication factor.** Each node checks `MAXIMUM_ALLOWED_OBJECTS_COUNT` against the objects it holds for the namespace, so an object in an RF=3 collection counts once on each of the three nodes holding its replicas. A collection or tenant gets a replica on the namespace's first home node when it is created or explicitly unfrozen. The exceptions are a first home node that is not a storage candidate, and a receiving node that has not yet applied the namespace's current `home_nodes` (see *Accepted imperfections*). So the first home node counts every object in the namespace once, and its cap acts as the namespace's cap. Its refusal fails a write past the cap where the consistency level needs its yes. *Accepted imperfections* names the levels that commit such a write without it, among them the default `QUORUM` at a factor of 3 or more.
+
+Running a namespaced cluster above factor 1:
+
+- **Update a namespace's `home_nodes`, or set a replication factor above 1, only once every node runs this version.** An older node applies a tenant add that this version refuses.
+- **Raise `REPLICATION_MAXIMUM_FACTOR` on every node before creating a collection above the old value, or a namespace without `home_nodes`.** A node still at the old value lists such a collection but leaves it unloaded until it restarts with the new value. A namespace created through it gets the old number of home nodes. While a node still at the old value is the leader, creating such a collection returns an error although the create committed. Every tenant add to it fails the same way. A `QUORUM` write to such a collection at RF=2 fails where a node still at the old value holds one of its replicas.
+- **A namespace cannot drop a home node lost for good while the shorter list would fall below `REPLICATION_MINIMUM_FACTOR` or below a collection's replication factor.** To drop it, first lower each such collection's factor. Where that factor already equals `REPLICATION_MINIMUM_FACTOR`, every node must first restart with a lower minimum. The node can instead stay listed until it rejoins under its name, or a new node can be swapped into each namespace's list in its place.
+- **With `REPLICATION_MAXIMUM_FACTOR` at or above the storage-node count, every namespace created without `home_nodes` lists every node.** Removing a node for good then takes one `home_nodes` update per namespace, because no endpoint updates them in bulk. Before each update, lower any collection whose factor equals that namespace's home-node count.
 
 **Out of scope:**
 
-- **RF > 1.** Every write replica except the target of a `MOVE` that is not yet `READY` checks the cap at prepare, but each counts only its own node's objects, so the cap is not exact across replicas. Namespaced clusters boot only at `REPLICATION_MAXIMUM_FACTOR=1`.
+- **RF > 1 on clusters with namespaces disabled.** Every write replica except the target of a `MOVE` that is not yet `READY` checks the cap at prepare, but each counts only its own node's objects, so the cap is not exact across replicas.
 - **Hypothetical multi-node, non-namespaced, RF=1, single-shard clusters where collections are distributed across nodes.** Each node would only see its local slice of the count, so the effective cap stacks (`cap × min(N_collections, N_nodes_with_shards)`). Not a deployment shape we ship the cap in.
-- **Phase-2 namespaces** that spread a namespace's collections across nodes — same problem as the previous bullet.
 
 ## Backward-compat note: collections-limit status code
 
@@ -97,12 +105,20 @@ The pre-existing `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` enforcement previously retu
 - **Cold lazy-load shards are skipped from the sum.** Including them wouldn't force a load (counts can be read from on-disk segment metadata), but it would add a directory walk + per-segment metadata read per cold shard on every write — unacceptable on the hot path. Effect: accounts with dormant tenants may sit slightly under-counted. Future option: cache cold counts in memory at load time.
 - **Per-shard-slice batch rejection** on multi-shard collections (see *Batch behavior*). Single-shard collections (Free Tier) see whole-batch rejection unchanged.
 - **Tenants checked at create time only**, not on subsequent multi-tenancy config changes.
+- **Concurrent writes near the cap can overshoot it.** Each write checks the count before it lands, so writes racing each other can all pass the check.
 - **Schema-side caps are not transactional with RAFT.** Read-check-write is not atomic across the RAFT-replicated `AddClass`/`AddTenants` call, so two concurrent creates can both pass the check. Bounded overshoot; next request is correctly rejected.
 - **Repair writes past the cap.** A write can commit without one replica, because that replica was down, unreachable or refused it at its cap. Repair then copies the write onto that replica, past its cap.
 - **A `MOVE`'s target skips the cap until the `MOVE` is `READY`.** A put the target refused could otherwise commit on the source alone at `ONE`, and the `MOVE` then deletes the source's copy. So from `INTEGRATING` on, the target's yes alone commits a put at `ONE`, and from `DEHYDRATING` on, when the target is the shard's only write replica, at every consistency level. From `READY` on the target counts only its own node's objects, so a namespace whose shards a `MOVE` split across nodes is capped per node. Nothing times the window out: it lasts until every node in the RAFT configuration has reported `INTEGRATING` and then `DEHYDRATING`, so a node that is down holds it open until it returns or is removed from the cluster. A `MOVE` cannot be cancelled once its target has joined the sharding state; only force-deleting the operation ends the window early.
-- **One replica's yes can commit past another's cap.** Whenever a shard has two write replicas (during a movement, after a `COPY`, or with a cap set by runtime override on an RF>1 cluster), the coordinator commits once the consistency level's count of replicas say yes. So at `ONE`, one replica's yes commits a write another refused at the cap.
+- **One replica's yes can commit past another's cap.** Whenever a shard has more than one write replica, the coordinator commits once the consistency level's count of replicas say yes. That covers a namespaced collection above factor 1, a shard during a movement or after a `COPY`, and a cap set by runtime override on an RF>1 cluster. So at `ONE`, one replica's yes commits a write another refused at the cap.
 - **Missed deletes keep counting.** A replica that was down while objects were deleted still counts them when it returns. Until async replication deletes them there (its hashtree init plus one hashbeat cycle), it refuses capped puts to the shards it holds, and a put whose consistency level needs its yes fails. With async replication disabled, or a class on the `NoAutomatedResolution` deletion strategy, it lasts until an operator deletes the objects on that replica.
-- **A namespace whose shards sit on more than one home node is capped per node.** Each node counts only the namespace's objects it holds, so the namespace can hold up to the cap on each. An update to `home_nodes` does this, because existing collections and tenants stay where they are. So does placement skipping a first home node that is not a storage candidate, which it logs as a warning naming that node.
+- **In a namespace mixing replication factors, the first home node can hold more objects than the cap.** The first home node holds a replica of every collection, so it reaches the cap first. A write it refuses still commits at a level that does not need its yes: `ONE` at a factor of 2 or more, and the default `QUORUM` at 3 or more. Repair then copies the write onto it past the cap. On three home nodes with an RF=1 and an RF=3 collection, the first home node can reach about twice the cap at the default level. That happens when the RF=1 collection fills first. Take H home nodes holding one collection at each factor from 1 to H, all written at `ONE`. When the collections fill in ascending order of factor, the k-th home node can reach about (H−k+1) times the cap, so the first home node can reach about H times.
+- **Five operations leave a collection or tenant without a replica on the first home node.** Nodes that count only part of the namespace then decide its writes, so the namespace can hold up to the cap on each node:
+  - A collection create, tenant add or explicit unfreeze while the first home node is not a storage candidate.
+  - A tenant add, explicit unfreeze or collection create received by a node that has not yet applied a `home_nodes` change. The leader admits a tenant's node list while it is still `home_nodes` entries in order, and a collection's shard while each of its replicas is on a `home_nodes` entry. It judges both against the `home_nodes` it has applied.
+  - A `home_nodes` update that changes the first entry. Existing shards stay where they are, and collections and tenants created once the receiving node has applied the update are placed on the new first entry.
+  - The automatic activation of a `FROZEN` tenant by a read, a write or the object-TTL sweep.
+  - A replica movement off the first home node.
+- **A tenant add or explicit unfreeze with a node list shorter than the replication factor is appended to the RAFT log when the leader has not yet applied the factor raise or the collection.** The node that received the request sends every one of the namespace's `home_nodes` that is a storage candidate. So the list is short only when fewer of them than the factor were candidates there, and that node had not yet applied the factor raise or the collection. The leader refuses such a list before the append, but it judges against the factor it has applied. So a factor raise or collection create it has not yet applied lets the entry through. So does an unfreeze of a tenant it holds `FREEZING` whose freeze completes before the entry applies. Every node refuses such an entry at apply, logs "apply command" at Error for it and counts it in `weaviate_cluster_store_fsm_apply_failures_total`. It does both again each time it replays the entry.
 - **A refused put waits for the slowest replica.** Where the limit refusals alone make the consistency level unreachable, the coordinator still waits for every write replica's prepare answer before it returns the 429. So a stalled replica delays the 429 by up to the coordinator's 20-second deadline.
 
 ---

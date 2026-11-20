@@ -242,6 +242,7 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		disabled   bool // namespaces off, with a global principal
 		exister    fakeNamespacesExister
 		factor     int64
+		minFactor  int      // REPLICATION_MINIMUM_FACTOR
 		storage    []string // defaults to allCandidates
 		wantOwners []string // the one shard's BelongsToNodes, in order
 		wantErr    string
@@ -257,7 +258,13 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		},
 		{
 			name:    "NS enabled: RF above the home-node count refused",
-			exister: homeNodes("node-1", "node-2"), factor: 3, wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace",
+			exister: homeNodes("node-1", "node-2"), factor: 3, minFactor: 2,
+			wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace; lower the collection's replication factor to at most 2",
+		},
+		{
+			name:    "NS enabled: no lower factor suggested below the minimum",
+			exister: homeNodes("node-1", "node-2"), factor: 3, minFactor: 3,
+			wantErr: "replication factor 3 exceeds the 2 home node(s) of the namespace; an administrator must add home nodes",
 		},
 		{name: "NS disabled: placed on the storage candidates", disabled: true, factor: 1, wantOwners: []string{"node-1"}},
 	}
@@ -275,6 +282,7 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				sm.storageCandidates = tt.storage
 			}
 			handler.namespacesExister = tt.exister
+			handler.config.Replication.MinimumFactor = tt.minFactor
 
 			var capturedState *sharding.State
 			sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
@@ -554,9 +562,9 @@ func TestAddClass_ShardCapAppliesAfterOverride(t *testing.T) {
 	}
 }
 
-// TestAddTenants_PinsShardsToNamespaceHomeNode checks that a tenant create
-// sends the first RF home nodes that are storage candidates on NS-enabled
-// clusters, and every storage candidate on NS-disabled clusters.
+// TestAddTenants_PinsShardsToNamespaceHomeNode checks that a tenant create sends
+// every home node that is a storage candidate, in stored order, and refuses fewer
+// of them than this node's factor. With namespaces off it sends every storage candidate.
 func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
@@ -566,19 +574,30 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		name      string
 		disabled  bool // namespaces off, with a global principal
 		exister   fakeNamespacesExister
-		factor    int
+		factor    int // this node's factor; 0 where it has not applied the class
 		wantNodes []string
 		wantErr   string
 	}{
 		{name: "NS enabled: ClusterNodes is the home node", exister: homeNodes("node-2"), factor: 1, wantNodes: []string{"node-2"}},
 		{
-			name:    "NS enabled: RF=2 sends the first two home nodes in stored order",
-			exister: homeNodes("node-3", "node-1", "node-2"), factor: 2, wantNodes: []string{"node-3", "node-1"},
+			name:    "NS enabled: RF=2 sends every home node in stored order, which covers a raise this node has not applied",
+			exister: homeNodes("node-3", "node-1", "node-2"), factor: 2, wantNodes: []string{"node-3", "node-1", "node-2"},
 		},
-		{name: "NS enabled: a factor of 0 sends the first home node", exister: homeNodes("node-2", "node-1"), wantNodes: []string{"node-2"}},
 		{
 			name:    "NS enabled: fewer home nodes among the storage candidates than RF is refused",
 			exister: homeNodes("node-1", "node-9"), factor: 2, wantErr: "only 1 of the namespace's 2 home node(s) are storage candidates",
+		},
+		{
+			name:    "NS enabled: a class this node has not applied sends every home node in stored order",
+			exister: homeNodes("node-3", "node-1", "node-2"), wantNodes: []string{"node-3", "node-1", "node-2"},
+		},
+		{
+			name:    "NS enabled: a class this node has not applied leaves out a home node that is no storage candidate",
+			exister: homeNodes("node-3", "node-9", "node-1"), wantNodes: []string{"node-3", "node-1"},
+		},
+		{
+			name:    "NS enabled: a class this node has not applied, with no home node among the storage candidates, is refused",
+			exister: homeNodes("node-9"), wantErr: "only 0 of the namespace's 1 home node(s) are storage candidates",
 		},
 		{name: "NS disabled: ClusterNodes is the full candidate set", disabled: true, wantNodes: allCandidates},
 	}
@@ -593,7 +612,7 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, !tt.disabled)
 			sm.storageCandidates = allCandidates
 			handler.namespacesExister = tt.exister
-			sm.On("ClassInfo", mock.Anything).Return(clusterSchema.ClassInfo{ReplicationFactor: tt.factor}).Maybe()
+			sm.On("ClassInfo", mock.Anything).Return(clusterSchema.ClassInfo{Exists: tt.factor > 0, ReplicationFactor: tt.factor}).Maybe()
 
 			var captured *cmd.AddTenantsRequest
 			sm.On("AddTenants", mock.Anything, mock.MatchedBy(func(req *cmd.AddTenantsRequest) bool {
@@ -601,8 +620,11 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				return true
 			})).Return(nil)
 
+			seeded := slices.Clone(tt.exister.byName["customer1"].HomeNodes)
 			_, err := handler.AddTenants(context.Background(), principal, "Movies",
 				[]*models.Tenant{{Name: "T1"}, {Name: "T2"}})
+			assert.Equal(t, seeded, tt.exister.byName["customer1"].HomeNodes,
+				"placement must leave the namespace's home nodes unchanged")
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				assertErrorOmits(t, err, "customer1", "node-9")
@@ -627,8 +649,8 @@ func (*offloadModuleConfig) GetByName(name string) modulecapabilities.Module {
 }
 
 // TestUpdateTenants_PinsShardsToNamespaceHomeNode checks that a namespaced
-// unfreeze runs the home-node check and sends the first RF home nodes that are
-// storage candidates, and any other namespaced update sends nil ClusterNodes.
+// unfreeze runs the home-node check and sends the home nodes that are storage
+// candidates, and any other namespaced update sends nil ClusterNodes.
 func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
@@ -699,7 +721,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			if tt.offload {
 				handler.moduleConfig = &offloadModuleConfig{}
 			}
-			sm.On("ClassInfo", mock.Anything).Return(clusterSchema.ClassInfo{ReplicationFactor: 1}).Maybe()
+			sm.On("ClassInfo", mock.Anything).Return(clusterSchema.ClassInfo{Exists: true, ReplicationFactor: 1}).Maybe()
 
 			held := make(map[string]string, len(tt.tenants))
 			local := make(map[string]string, len(tt.tenants))

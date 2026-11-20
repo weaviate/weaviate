@@ -32,9 +32,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
-func newGrpcClient(t *testing.T) (pb.WeaviateClient, *grpc.ClientConn) {
+func newGrpcClient(t *testing.T, grpcURI string) (pb.WeaviateClient, *grpc.ClientConn) {
 	t.Helper()
-	conn, err := helper.CreateGrpcConnectionClient(sharedCompose.GetWeaviate().GrpcURI())
+	conn, err := helper.CreateGrpcConnectionClient(grpcURI)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	return helper.CreateGrpcWeaviateClient(conn), conn
@@ -74,7 +74,15 @@ func TestGRPCBatchObjects_AtQuota(t *testing.T) {
 	// Fill the cap via REST so the next write is rejected.
 	fillUntilQuota(t, class, userKey)
 
-	grpcClient, conn := newGrpcClient(t)
+	requireBatchAtQuota(t, sharedCompose.GetWeaviate().GrpcURI(), class, userKey, nil)
+}
+
+// requireBatchAtQuota sends a gRPC batch through the node at grpcURI, at
+// consistency level cl, or the server's default where cl is nil. It requires
+// codes.ResourceExhausted carrying USAGE_LIMIT_EXCEEDED.
+func requireBatchAtQuota(t *testing.T, grpcURI, class, key string, cl *pb.ConsistencyLevel) {
+	t.Helper()
+	grpcClient, conn := newGrpcClient(t, grpcURI)
 	defer conn.Close()
 
 	const batchSize = 5
@@ -93,9 +101,9 @@ func TestGRPCBatchObjects_AtQuota(t *testing.T) {
 		})
 	}
 
-	_, err := grpcClient.BatchObjects(authCtx(userKey), &pb.BatchObjectsRequest{Objects: objs})
+	_, err := grpcClient.BatchObjects(authCtx(key), &pb.BatchObjectsRequest{Objects: objs, ConsistencyLevel: cl})
 
-	require.Error(t, err, "forwarded gRPC batch at quota must be rejected")
+	require.Error(t, err, "gRPC batch at quota must be rejected")
 	st, ok := status.FromError(err)
 	require.True(t, ok, "expected a gRPC status error, got %T: %v", err, err)
 	assert.Equal(t, codes.ResourceExhausted, st.Code(),

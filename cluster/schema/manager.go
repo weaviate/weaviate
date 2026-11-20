@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -41,6 +42,8 @@ var (
 	ErrBadRequest = errors.New("bad request")
 	errDB         = errors.New("updating db")
 	ErrSchema     = errors.New("updating schema")
+
+	errHomeNodesNotApplied = fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
 )
 
 type replicationFSM interface {
@@ -119,6 +122,9 @@ type SchemaManager struct {
 	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
 	// emitted.
 	shouldLogSlowApply func() bool
+	// minimumFactor is REPLICATION_MINIMUM_FACTOR, which bounds the lower factor
+	// a factor refusal suggests.
+	minimumFactor int64
 
 	// metadataOnly nodes never reload, so a record would never be drained.
 	metadataOnly bool
@@ -274,6 +280,12 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 // SetMetadataOnly marks a node that stores no class data.
 func (s *SchemaManager) SetMetadataOnly(v bool) {
 	s.metadataOnly = v
+}
+
+// SetMinimumFactor installs REPLICATION_MINIMUM_FACTOR. Call once during FSM
+// bootstrap.
+func (s *SchemaManager) SetMinimumFactor(factor int) {
+	s.minimumFactor = int64(factor)
 }
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
@@ -452,13 +464,7 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 			if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
 				return fmt.Errorf("%w: %w", ErrBadRequest, err)
 			}
-			incoming := make([]string, 0, len(atr.Tenants))
-			for _, t := range atr.Tenants {
-				if t != nil {
-					incoming = append(incoming, t.Name)
-				}
-			}
-			if current, additions, ok := s.schema.tenantCapUsage(req.Class, incoming); ok &&
+			if current, additions, ok := s.schema.tenantCapUsage(req.Class, tenantNames(atr.Tenants)); ok &&
 				current+additions > maxTenants {
 				tmpl := ""
 				if s.tenantLimitErrTemplate != nil {
@@ -473,13 +479,19 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		if err := s.checkTenantNodesAreHomeNodes(req); err != nil {
 			return err
 		}
+		if err := s.checkTenantNodesCoverFactor(req); err != nil {
+			return err
+		}
 	}
 
-	if req.Type == command.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+	switch req.Type {
+	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS, command.ApplyRequest_TYPE_UPDATE_CLASS:
+		return s.checkClassAgainstHomeNodes(req)
+	case command.ApplyRequest_TYPE_UPDATE_NAMESPACE:
 		return s.checkHomeNodesAgainstClassFactors(req)
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 // checkTenantNodesAreHomeNodes refuses a namespaced tenant add or explicit unfreeze
@@ -492,7 +504,8 @@ func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) 
 	if !ok {
 		return nil
 	}
-	nodes, err := s.placedTenantNodes(req)
+	// A FREEZING tenant can be FROZEN by the time apply runs.
+	nodes, err := s.placedTenantNodes(req, entSchema.TenantIsFrozenOrFreezing)
 	if err != nil {
 		return err
 	}
@@ -503,17 +516,110 @@ func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) 
 		}
 	}
 	if next < len(nodes) {
-		return fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
+		return errHomeNodesNotApplied
+	}
+	return nil
+}
+
+// checkClassAgainstHomeNodes refuses a namespaced class create, restore or factor
+// raise above the HomeNodes count, and a create placed outside HomeNodes. The
+// receiving node checks no restore and reads its own copy of the namespace,
+// which can lag. Store.Execute holds homeNodesLocks until the apply returns.
+func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) error {
+	ns, ok := s.classNamespace(req.Class)
+	if !ok {
+		return nil
+	}
+	var (
+		class *models.Class
+		// A restore keeps the shards where the backup had them.
+		created *sharding.State
+	)
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS {
+		sub := command.UpdateClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		class = sub.Class
+	} else {
+		sub := command.AddClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		class = sub.Class
+		if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
+			created = sub.State
+		}
+	}
+	factor := replicationFactor(class)
+	// Only a raise is checked, so a class already above the HomeNodes count can
+	// still be lowered or changed otherwise.
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_CLASS && factor <= int64(s.schema.ClassInfo(req.Class).ReplicationFactor) {
+		return nil
+	}
+	if err := ns.CheckReplicationFactor(factor, s.minimumFactor); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return checkShardsOnHomeNodes(ns, created)
+}
+
+// checkShardsOnHomeNodes refuses state where a shard has a replica on a node
+// not in ns.HomeNodes. It checks membership only, so a create placed by a node
+// that lags a reorder of HomeNodes is admitted.
+func checkShardsOnHomeNodes(ns command.Namespace, state *sharding.State) error {
+	if state == nil {
+		return nil
+	}
+	for _, shard := range state.Physical {
+		for _, node := range shard.BelongsToNodes {
+			if !slices.Contains(ns.HomeNodes, node) {
+				return errHomeNodesNotApplied
+			}
+		}
+	}
+	return nil
+}
+
+// replicationFactor returns the factor class sets, or 0 where it sets none.
+func replicationFactor(class *models.Class) int64 {
+	if class == nil || class.ReplicationConfig == nil {
+		return 0
+	}
+	return class.ReplicationConfig.Factor
+}
+
+// checkTenantNodesCoverFactor refuses a namespaced tenant add or explicit unfreeze
+// whose non-empty ClusterNodes are shorter than the class's factor. Apply runs it again
+// for a factor raise, class create or completed freeze the leader had not applied.
+// TODO(v1.43): keep it and AddTenants' cut while any node can replay an entry with
+// ClusterNodes. The cut decides placement. For an add this check changes only the
+// error. For an unfreeze it keeps metaClass.UpdateTenants from changing the tenants
+// the update lists ahead of the one it unfreezes.
+func (s *SchemaManager) checkTenantNodesCoverFactor(req *command.ApplyRequest) error {
+	if _, ok := s.classNamespace(req.Class); !ok {
+		return nil
+	}
+	// A FREEZING tenant's unfreeze is left for metaClass.UpdateTenants to refuse.
+	nodes, err := s.placedTenantNodes(req, func(status string) bool {
+		return status == models.TenantActivityStatusFROZEN
+	})
+	if err != nil {
+		return err
+	}
+	factor := s.schema.ClassInfo(req.Class).ReplicationFactor
+	if len(nodes) > 0 && len(nodes) < factor {
+		return fmt.Errorf("%w: class %q has replication factor %d, and the node that received this request has not yet applied a change to it",
+			ErrBadRequest, req.Class, factor)
 	}
 	return nil
 }
 
 // placedTenantNodes returns the ClusterNodes of a tenant add, or of an explicit
-// update that moves a tenant the schema has FROZEN or FREEZING to another status.
-// Apply reads an update's list only to unfreeze, and a FREEZING tenant can be FROZEN
-// by the time apply runs. An implicit activation is not checked, so its list of
-// every storage node can unfreeze a tenant outside the home nodes.
-func (s *SchemaManager) placedTenantNodes(req *command.ApplyRequest) ([]string, error) {
+// update that moves a tenant whose status in the schema passes isFrozen to a
+// status other than FROZEN. Apply reads an update's list only to unfreeze. An
+// implicit activation is not checked, so its list of every storage node can
+// unfreeze a tenant outside the home nodes.
+func (s *SchemaManager) placedTenantNodes(req *command.ApplyRequest, isFrozen func(status string) bool) ([]string, error) {
 	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT {
 		atr := &command.AddTenantsRequest{}
 		if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
@@ -536,7 +642,7 @@ func (s *SchemaManager) placedTenantNodes(req *command.ApplyRequest) ([]string, 
 	}
 	held, _ := s.schema.TenantsShardsStatus(req.Class, wouldUnfreeze...)
 	for _, status := range held {
-		if entSchema.TenantIsFrozenOrFreezing(status) {
+		if isFrozen(status) {
 			return utr.ClusterNodes, nil
 		}
 	}
@@ -701,16 +807,8 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// Capture previous and updated replication factors
-		var initialRF int64
-		if meta.Class.ReplicationConfig != nil {
-			initialRF = meta.Class.ReplicationConfig.Factor
-		}
-
-		var updatedRF int64
-		if u.ReplicationConfig != nil {
-			updatedRF = u.ReplicationConfig.Factor
-		}
+		initialRF := replicationFactor(&meta.Class)
+		updatedRF := replicationFactor(u)
 
 		// validate replication factor increase
 		if initialRF < updatedRF {
@@ -1146,12 +1244,23 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	if len(req.ClusterNodes) == 0 {
-		if ns, ok := s.classNamespace(cmd.Class); ok {
-			// With the whole list, GetPartitions would spread one request's
-			// tenants over every home node.
-			factor := s.schema.ClassInfo(cmd.Class).ReplicationFactor
+	if err := s.checkTenantNodesCoverFactor(cmd); err != nil {
+		return err
+	}
+	if ns, ok := s.classNamespace(cmd.Class); ok {
+		// With more than factor entries, GetPartitions would spread one request's
+		// tenants over every entry. Factor 0 marks a class the schema does not hold.
+		factor := s.schema.ClassInfo(cmd.Class).ReplicationFactor
+		if len(req.ClusterNodes) == 0 {
 			req.ClusterNodes = ns.HomeNodes[:min(factor, len(ns.HomeNodes))]
+		} else if factor > 0 && len(req.ClusterNodes) > factor {
+			s.log.WithFields(logrus.Fields{
+				"class":        cmd.Class,
+				"tenants":      tenantNames(req.Tenants),
+				"sent_nodes":   req.ClusterNodes,
+				"placed_nodes": req.ClusterNodes[:factor],
+			}).Debug("cut a tenant add's node list to the class's replication factor")
+			req.ClusterNodes = req.ClusterNodes[:factor]
 		}
 	}
 
@@ -1169,6 +1278,9 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if err := s.checkTenantNodesCoverFactor(cmd); err != nil {
+		return err
 	}
 	if len(req.ClusterNodes) == 0 {
 		// metaClass.unfreeze calls GetPartitions per tenant, so each takes the first RF entries.
