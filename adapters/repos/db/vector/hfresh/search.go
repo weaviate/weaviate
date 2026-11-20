@@ -321,7 +321,12 @@ func (h *HFresh) SearchByVectorDistance(
 			return false, nil
 		}
 
-		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
+		// The answer is this search from its first result, not the earlier pages
+		// followed by what this search has past them: a search that is asked for
+		// more can rank its first results in another order, and pages put one
+		// after the other would then return an id twice and leave another out.
+		ids, dist = ids[:totalLimitCap], dist[:totalLimitCap]
+		resultIDs, resultDist = resultIDs[:0], resultDist[:0]
 		for i := range ids {
 			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
 				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
@@ -338,9 +343,16 @@ func (h *HFresh) SearchByVectorDistance(
 		return shouldContinue, nil
 	}
 
-	var shouldContinue bool
-	var err error
-	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// A page that comes back full and within the distance asks for a larger
+	// one, and the larger one has to be searched: without the search in the
+	// loop, the first page was all a search by distance returned, and with
+	// no maximum the loop never ended.
+	for shouldContinue {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
 			h.logger.
@@ -349,9 +361,11 @@ func (h *HFresh) SearchByVectorDistance(
 					searchParams.MaximumSearchLimit())
 			break
 		}
-	}
-	if err != nil {
-		return nil, nil, err
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return resultIDs, resultDist, nil
@@ -768,7 +782,12 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 			return false, nil
 		}
 
-		ids, dists = ids[offsetCap:totalLimitCap], dists[offsetCap:totalLimitCap]
+		// The answer is this search from its first result, not the earlier pages
+		// followed by what this search has past them: a search that is asked for
+		// more can rank its first results in another order, and pages put one
+		// after the other would then return an id twice and leave another out.
+		ids, dists = ids[:totalLimitCap], dists[:totalLimitCap]
+		resultIDs, resultDist = resultIDs[:0], resultDist[:0]
 		for i := range ids {
 			if dists[i] <= targetDistance ||
 				floatcomp.InDelta(float64(dists[i]), float64(targetDistance), 1e-6) {
@@ -783,9 +802,16 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 		return shouldContinue, nil
 	}
 
-	var shouldContinue bool
-	var err error
-	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// A page that comes back full and within the distance asks for a larger
+	// one, and the larger one has to be searched: without the search in the
+	// loop, the first page was all a search by distance returned, and with
+	// no maximum the loop never ended.
+	for shouldContinue {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
 			h.logger.
@@ -794,9 +820,11 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 					searchParams.MaximumSearchLimit())
 			break
 		}
-	}
-	if err != nil {
-		return nil, nil, err
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return resultIDs, resultDist, nil
