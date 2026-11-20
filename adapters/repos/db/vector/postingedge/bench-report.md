@@ -177,6 +177,75 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v6.2b: churn largo y borrado por regiones (pre-registro, 2026-11-20)
+
+**Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo.** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
+
+### De dónde sale
+
+v6.2 dejó dos cosas sin medir en su veredicto. En diez rondas se renueva el 30 % de la base y los sustitutos siguen acumulándose, el 15 % de las aristas al final. Y todos sus borrados son al azar: con postings enteros borrados la sustitución encuentra menos candidatos.
+
+### El encargo (del usuario)
+
+- **Celdas B y C.** Treinta rondas del 3 %, con medida en las rondas 10, 20 y 30 contra el lote de los vivos en ese momento.
+- **Por ronda:** aristas por vector y fracción de aristas que son sustitutos.
+- **Además,** el 30 % borrado por regiones, a 1M, para B y C.
+- **Pre-registro:** B se sostiene si en la ronda 30 sigue dentro del criterio. Si falla y C cumple, la red de búsqueda pasa a ser obligatoria.
+
+### Cómo lo aplico (*mío*)
+
+**Las celdas** son las de v6.2, sin cambios: B, la sustitución local, sin fase de reparación; y C, la sustitución con la búsqueda como red para los vectores cuyas aristas perdidas sin sustituto llegan al 25 % de su lista. Las dos con la fusión de la ganadora de v6.1.
+
+**La base del churn largo es de 520 000 vectores, no de 760 000.**
+
+- **Por qué:** treinta rondas insertan el 90 % de la base, y dbpedia tiene 990 000 vectores. Con la base de v6.2, los vectores nuevos se acaban en la ronda 10, y habría que volver a insertar vectores borrados antes. Un vector que vuelve cae justo donde sus antiguos vecinos tenían una arista hacia él: no es lo que hace un vector nuevo, y es justo lo que esta ronda mide.
+- **Con 520 000,** cada ronda borra 15 600 vectores de la base e inserta 15 600 nuevos, y los 468 000 que hacen falta están. El índice se queda en 520 000 vivos.
+- **Lo que cuesta:** la ronda 10 de aquí no es el churn de v6.2. Es otro índice, más pequeño, y sus cifras no se ponen junto a las de v6.2 como una repetición.
+- **Lo demás, como en v6.2:** las secuencias de borrados y de inserts salen de las mismas semillas, cada ronda borra, inserta y pasa, y las búsquedas de los inserts navegan por los borrados que aún no se han quitado. Cada celda parte de una base propia, construida igual.
+
+**Las medidas en las rondas 10, 20 y 30:**
+
+- **Contra el lote de S = 236 de los vectores vivos en ese momento,** construido la primera vez que una celda llega a esa ronda y compartido por las dos: los vivos son los mismos.
+- **Las tres cantidades del criterio:** la peor diferencia de recall en la malla de ef, y las cargas leídas a 0.95 y a 0.99.
+- **El recall de arista de v2.x** sobre 2 000 vectores vivos en ese momento, los mismos en las dos celdas y en el lote, por los grupos de v6.2.
+- **La cobertura,** que es stop.
+- **Sin referencias de llenado:** en v6.2 las fusiones dejaron postings de 237 a 238 vivos y la referencia de llenado dio la misma lectura que la de S = 236.
+
+**Por ronda,** de las treinta: aristas por vector vivo y la fracción de ellas que son sustitutos, como pide el encargo; y lo que ya daba v6.2: listas reparadas, aristas sustituidas, quitadas sin sustituto, postings de la fase 2 y el contador.
+
+**El 30 % borrado por regiones** es el punto de v6.0: sobre el lote del 100 %, regiones de 64 postings vecinos, elegidas con la misma semilla, hasta el 30 % de los vectores.
+
+- **Las dos celdas, cada una sobre su copia,** contra el lote de S = 236 de los vivos, con las tres cantidades y el recall de arista.
+- **Además:** cuántas aristas muertas reciben sustituto y cuántas se quitan sin él, que es lo que el borrado por regiones cambia.
+- **Sin celda de referencia con reparación por búsqueda:** el encargo pide B y C.
+
+**El criterio,** el de v6.0, v6.1 y v6.2: la peor diferencia de recall a 0.005 o menos, las cargas a 0.95 en +15 % o menos y a 0.99 en +10 % o menos, contra el lote de S = 236 de los vivos.
+
+- **B se sostiene si cumple las tres en la ronda 30** (del usuario). Las rondas 10 y 20 se dan con las mismas tres cantidades y dicen cuándo se sale, si se sale.
+- **Si B falla en la ronda 30 y C cumple,** la red de búsqueda pasa a ser obligatoria (del usuario).
+- **Si cumplen las dos,** B sigue siendo la más barata, y digo cuánto margen le queda y hacia dónde va.
+- **Si fallan las dos,** lo digo, con la cantidad y la ronda en que sale cada una. No hay regla escrita para ese caso y no la invento.
+- **Con el borrado por regiones** doy las tres cantidades y digo si entran. El veredicto de «se sostiene» es el del churn largo.
+- **Suelo de ruido:** el de v6.1 y v6.2: 0.0012 de recall, un 1.1 % en cargas a 0.95 y un 3.0 % a 0.99.
+
+**Lo que esta ronda no separa.** Al llegar a la ronda 30, nueve de cada diez vectores vivos entraron por un insert. Si B se sale del criterio, parte puede ser de las listas que construyen los inserts y no de los sustitutos. Lo que ayuda a leerlo: B y C llevan los mismos inserts, así que lo que las separe es de la red; y el recall de arista por grupos dice si los que fallan son los insertados o los que llevan sustitutos. No lo separa del todo.
+
+**Stops,** los de v6.2: un borrado devuelto por una búsqueda, un fallo de cobertura, una lista reparada que apunta a un borrado, un borrado o una arista hacia un borrado tras la fase 2, un sustituto que no debe serlo, y una lista con un endpoint repetido o con más de 16 aristas.
+
+**Orden de la corrida:** el churn largo de B, el de C, y el borrado por regiones. Si no cabe entera antes de la cola de la noche, lo que no haya empezado se deja y se dice.
+
+**Lo que el binario añade:** en el banco de deletes, una etapa de churn con el número de rondas y las rondas de medida como opciones, y la etapa del borrado por regiones con las celdas de v6.2. El mecanismo es el de v6.2, sin tocar.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **La fracción de sustitutos sigue subiendo y se frena:** un 15 % en la ronda 10, como en v6.2, entre un 20 y un 25 % en la 20, y entre un 23 y un 30 % en la 30. Los inserts traen listas nuevas y sus aristas inversas echan a los sustitutos, que van al final de la lista.
+- **Las aristas por vector no bajan en B:** entre 8.6 y 8.9 en las treinta rondas.
+- **B se sostiene.** En la ronda 30, la peor diferencia de recall entre −0.001 y −0.003, las cargas a 0.95 entre +3 y +7 % y a 0.99 entre +3 y +9 %. El margen a 0.99 es el que menos me fío.
+- **De la ronda 10 a la 30 B empeora poco:** uno o dos puntos de cargas por cada diez rondas.
+- **C no se separa de B por encima del suelo de ruido** en ninguna de las tres rondas, y repara entre 1 500 y 3 000 listas por ronda.
+- **El recall de arista de B baja de 0.78 a entre 0.70 y 0.75** en la ronda 30, y el de los vectores con sustitutos es el más bajo de los grupos.
+- **Con el borrado por regiones** hay muchas menos aristas muertas que al azar, porque las de dentro de una región se van con sus dueños. De las que quedan, B encuentra sustituto para entre el 55 y el 75 %. Las dos celdas entran en el criterio, y aquí C sí repara más que en el churn: entre un 2 y un 6 % de los vectores vivos.
+
 ## v5.3: la fila de aristas en un valor, junto a la de miembros (pre-registro, 2026-11-20)
 
 **Estado: pre-registrado el 20 a las 10:56, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo y sus tests están escritos (abajo, «Paso 1»): `lsmkv` lo admite sin tocarlo. La corrida a 1M y la sesión, detrás del control combinado.** El mecanismo, la corrección, lo que se mide, la sesión y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás del control combinado de v5.1, cuya sesión cronometrada no ha corrido todavía: lo esperado de abajo no la usa. No corre prisa: en la integración el almacenamiento de aristas queda detrás de una interfaz.
