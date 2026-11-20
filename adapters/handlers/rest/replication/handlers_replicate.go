@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -93,7 +94,8 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 // the values the request names, or because the collection's namespace is
 // suspended, deleting or gone.
 func isUnprocessableMovement(err error) bool {
-	return errors.Is(err, replicationTypes.ErrInvalidRequest) || cerrors.NamespaceErrRendersUnprocessable(err)
+	return errors.Is(err, replicationTypes.ErrInvalidRequest) || errors.Is(err, clusterSchema.ErrBadRequest) ||
+		cerrors.NamespaceErrRendersUnprocessable(err)
 }
 
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {

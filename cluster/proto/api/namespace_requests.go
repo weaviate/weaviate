@@ -53,6 +53,15 @@ func (n Namespace) PresentHomeNodes(candidates []string) []string {
 	})
 }
 
+// CheckReplicaNode refuses node as the home of a namespaced shard's replica
+// unless it is a HomeNodes entry.
+func (n Namespace) CheckReplicaNode(node string) error {
+	if slices.Contains(n.HomeNodes, node) {
+		return nil
+	}
+	return fmt.Errorf("node %q is not a home node of the namespace", node)
+}
+
 // CheckReplicationFactor refuses a factor above the HomeNodes count, because
 // each replica of a namespaced shard goes on a different home node. Its error
 // suggests the count as a lower factor only when it is at least minimumFactor.

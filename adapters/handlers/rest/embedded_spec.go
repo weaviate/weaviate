@@ -3170,7 +3170,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list.",
         "tags": [
           "namespaces"
         ],
@@ -5731,7 +5731,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error. The plan can also stop part-way through its replica removals and empty additions, and the error then names the ones that were applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5806,7 +5806,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
+            "description": "The plan adds a replica that cannot be added: the collection has no such shard, the source node does not hold it, the target node already holds it, or the collection is in a namespace and the target node is not one of its home nodes. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10212,7 +10212,7 @@ func init() {
           "x-deprecated": true
         },
         "home_nodes": {
-          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -10272,7 +10272,7 @@ func init() {
           "x-nullable": true
         },
         "home_nodes": {
-          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -16460,7 +16460,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list.",
         "tags": [
           "namespaces"
         ],
@@ -19131,7 +19131,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error. The plan can also stop part-way through its replica removals and empty additions, and the error then names the ones that were applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19206,7 +19206,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
+            "description": "The plan adds a replica that cannot be added: the collection has no such shard, the source node does not hold it, the target node already holds it, or the collection is in a namespace and the target node is not one of its home nodes. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -23759,7 +23759,7 @@ func init() {
           "x-deprecated": true
         },
         "home_nodes": {
-          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -23819,7 +23819,7 @@ func init() {
           "x-nullable": true
         },
         "home_nodes": {
-          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
           "type": "array",
           "maxItems": 64,
           "items": {

@@ -163,7 +163,7 @@ func TestNamespaces_MovedShardServesReads(t *testing.T) {
 		class      = "MovedShard"
 		seeded     = 100
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified := ns + ":" + class
 	helper.CreateClassAuth(t, searchableClass(class), userKey)
 	t.Cleanup(func() { helper.DeleteClassAuth(t, qualified, adminKey) })
@@ -374,4 +374,62 @@ func TestNamespaces_ScalePlanRaisesFactorOnHomeNodes(t *testing.T) {
 	helper.UpdateClassAuth(t, class, updated, userKey)
 	assert.Equal(t, int64(2), helper.GetClassAuth(t, class, userKey).ReplicationConfig.Factor)
 	requireShardServedBy(t, homeNodes[1], class, "", userKey, objects, servedAfterReadyWithin)
+}
+
+// TestNamespaces_RefusesReplicaOutsideHomeNodes sends a manual COPY and a scale
+// plan that each add a replica of an RF=2 shard on weaviate-2. Each gets a 422
+// and leaves the replicas on the home nodes weaviate-0 and weaviate-1.
+func TestNamespaces_RefusesReplicaOutsideHomeNodes(t *testing.T) {
+	t.Parallel()
+
+	const (
+		class   = "Pinned"
+		outside = docker.Weaviate2
+		refusal = `node "` + outside + `" is not a home node of the namespace`
+	)
+	homeNodes := []string{docker.Weaviate0, docker.Weaviate1}
+	ns, userKey := newNamespaceOnNodes(t, homeNodes...)
+
+	qualified := ns + ":" + class
+	pinned := searchableClass(class)
+	pinned.ReplicationConfig = &models.ReplicationConfig{Factor: 2}
+	helper.CreateClassAuth(t, pinned, userKey)
+	t.Cleanup(func() { helper.DeleteClassAuth(t, qualified, adminKey) })
+	shardName := requireShardCountEventually(t, qualified, 1)[0]
+	requireReplicasEventually(t, qualified, shardName, homeNodes...)
+
+	// requireReplicasUnchanged reads after every node has applied the leader's
+	// log, so a replica the refused request removed before failing would show.
+	requireReplicasUnchanged := func(t *testing.T) {
+		t.Helper()
+		requireEveryNodeCaughtUp(t)
+		replicas, err := shardReplicas(t, qualified, shardName)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, homeNodes, replicas)
+	}
+
+	t.Run("a manual COPY", func(t *testing.T) {
+		_, err := registerMovement(t, qualified, shardName, homeNodes[0], outside, api.COPY.String())
+		var unprocessable *replication.ReplicateUnprocessableEntity
+		require.ErrorAs(t, err, &unprocessable)
+		assert.Contains(t, unprocessable.Payload.Error[0].Message, refusal)
+		requireReplicasUnchanged(t)
+	})
+
+	t.Run("a scale plan swapping a replica for an empty one", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+			replication.NewApplyReplicationScalePlanParams().WithBody(&models.ReplicationScalePlan{
+				PlanID:     strfmt.UUID("2c8e4f6a-1d3b-4a5c-9e7f-0b2d4c6e8a1f"),
+				Collection: qualified,
+				ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{
+					shardName: {AddNodes: map[string]string{outside: ""}, RemoveNodes: []string{homeNodes[1]}},
+				},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		var unprocessable *replication.ApplyReplicationScalePlanUnprocessableEntity
+		require.ErrorAs(t, err, &unprocessable)
+		assert.Contains(t, unprocessable.Payload.Error[0].Message, refusal)
+		requireReplicasUnchanged(t)
+	})
 }

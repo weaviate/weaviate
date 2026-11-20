@@ -1554,15 +1554,27 @@ const notHomeNodes = "the node that received this request has not yet applied th
 
 // TestPreApplyFilter_ClassFactorAgainstHomeNodes pins the leader's refusal of a
 // class create, restore or factor raise in namespace alpha above its home nodes
-// n1 and n2, and of a create placed outside them.
+// n1 and n2, of a create placed outside them, and of a raise while alpha:Foo
+// holds a replica outside them.
 func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
-	const aboveHomeNodes = "replication factor 3 exceeds the 2 home node(s) of the namespace"
+	const (
+		aboveHomeNodes = "replication factor 3 exceeds the 2 home node(s) of the namespace"
+		heldOutside    = "1 shard(s) keep a replica outside the home nodes (t1); an admin must move each onto a home node"
+		heldFreezing   = "1 tenant(s) with a replica outside the home nodes are being frozen (t1); retry the raise once the freeze completes"
+		hot            = models.TenantActivityStatusHOT
+		frozen         = models.TenantActivityStatusFROZEN
+		freezing       = models.TenantActivityStatusFREEZING
+	)
+	tenant := func(name, status string, nodes ...string) sharding.Physical {
+		return sharding.Physical{Name: name, Status: status, BelongsToNodes: nodes}
+	}
 	tests := []struct {
 		name    string
 		typ     cmd.ApplyRequest_Type
-		class   string   // alpha:Bar when empty
-		held    int64    // alpha:Foo's factor in the schema, 1 when 0
-		placed  []string // the nodes of the class's one shard; a multi-tenant class without shards when nil
+		class   string              // alpha:Bar when empty
+		held    int64               // alpha:Foo's factor in the schema, 1 when 0
+		placed  []string            // the nodes of the class's one shard; a multi-tenant class without shards when nil
+		shards  []sharding.Physical // alpha:Foo's tenants
 		factor  int64
 		wantErr string // the refusal's text; admitted when empty
 	}{
@@ -1577,10 +1589,50 @@ func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
 		{name: "restore: a factor above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_RESTORE_CLASS, factor: 3, wantErr: aboveHomeNodes},
 		// This row records behaviour, not intent. A restore keeps the backup's placement.
 		{name: "restore: a shard outside the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_RESTORE_CLASS, placed: []string{"n3"}, factor: 1},
-		{name: "update: a raise to the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS, class: "alpha:Foo", factor: 2},
+		{
+			name: "update: a raise to the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", shards: []sharding.Physical{tenant("t1", hot, "n1", "n2")}, factor: 2,
+		},
 		{
 			name: "update: a raise above the home nodes is refused", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
 			class: "alpha:Foo", factor: 3, wantErr: aboveHomeNodes,
+		},
+		{
+			name: "update: a raise with a replica outside the home nodes is refused", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", shards: []sharding.Physical{tenant("t1", hot, "n1", "n3")}, factor: 2, wantErr: heldOutside,
+		},
+		{
+			name: "update: a refused raise counts every shard outside the home nodes and names the first three by name",
+			typ:  cmd.ApplyRequest_TYPE_UPDATE_CLASS, class: "alpha:Foo", factor: 2,
+			shards: []sharding.Physical{
+				tenant("t5", hot, "n3"), tenant("t4", hot, "n3"), tenant("t1", hot, "n1", "n2"),
+				tenant("t3", hot, "n1", "n3"), tenant("t2", hot, "n3"),
+			},
+			wantErr: "4 shard(s) keep a replica outside the home nodes (t2, t3, t4, ...)",
+		},
+		{
+			name: "update: a raise with a frozen tenant outside the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", shards: []sharding.Physical{tenant("t1", frozen, "n3")}, factor: 2,
+		},
+		{
+			name: "update: frozen tenants outside the home nodes do not hide a hot one", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", factor: 2, wantErr: heldOutside,
+			shards: []sharding.Physical{
+				tenant("f1", frozen, "n3"), tenant("f2", frozen, "n3"), tenant("f3", frozen, "n3"),
+				tenant("f4", frozen, "n3"), tenant("f5", frozen, "n3"), tenant("t1", hot, "n3"),
+			},
+		},
+		{
+			name: "update: a raise with a freezing tenant outside the home nodes is refused", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", shards: []sharding.Physical{tenant("t1", freezing, "n3")}, factor: 2, wantErr: heldFreezing,
+		},
+		{
+			name: "update: a raise with a freezing tenant on the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", shards: []sharding.Physical{tenant("t1", freezing, "n1")}, factor: 2,
+		},
+		{
+			name: "update: a lowering with a replica outside the home nodes is admitted", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			class: "alpha:Foo", held: 2, shards: []sharding.Physical{tenant("t1", hot, "n1", "n3")}, factor: 1,
 		},
 		{
 			name: "update: a factor already above the home nodes is admitted unchanged", typ: cmd.ApplyRequest_TYPE_UPDATE_CLASS,
@@ -1593,7 +1645,11 @@ func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sm := newManagerWithNamespacedClass(t, cmp.Or(tt.held, 1), []string{"n1", "n2"}, nil)
+			physical := make(map[string]sharding.Physical, len(tt.shards))
+			for _, shard := range tt.shards {
+				physical[shard.Name] = shard
+			}
+			sm := newManagerWithNamespacedClass(t, cmp.Or(tt.held, 1), []string{"n1", "n2"}, physical)
 			class := &models.Class{
 				Class:              cmp.Or(tt.class, "alpha:Bar"),
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -1618,6 +1674,58 @@ func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
 			}
 			require.ErrorIs(t, err, ErrBadRequest)
 			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// TestPreApplyFilter_ReplicaTargetIsHomeNode pins the leader's refusal of a
+// replica movement or empty replica add whose target is not one of alpha's
+// home nodes n1 and n2.
+func TestPreApplyFilter_ReplicaTargetIsHomeNode(t *testing.T) {
+	const (
+		replicate = cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE
+		addEmpty  = cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD
+	)
+	tests := []struct {
+		name     string
+		typ      cmd.ApplyRequest_Type            // REPLICATION_REPLICATE when unset
+		transfer cmd.ShardReplicationTransferType // COPY when unset
+		class    string                           // alpha:Foo when empty
+		target   string
+		wantErr  bool
+	}{
+		{name: "a copy onto a home node is admitted", target: "n2"},
+		{name: "a copy onto another node is refused", target: "n3", wantErr: true},
+		{name: "a move onto another node is refused", transfer: cmd.MOVE, target: "n3", wantErr: true},
+		{name: "a self-recovery onto another node is admitted", transfer: cmd.SELF_RECOVERY, target: "n3"},
+		{name: "a copy of an unqualified class is not checked", class: "Foo", target: "n3"},
+		{name: "an empty replica on a home node is admitted", typ: addEmpty, target: "n2"},
+		{name: "an empty replica on another node is refused", typ: addEmpty, target: "n3", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManagerWithNamespacedClass(t, 1, []string{"n1", "n2"}, nil)
+			class, typ := cmp.Or(tt.class, "alpha:Foo"), cmp.Or(tt.typ, replicate)
+			req := &cmd.ApplyRequest{Type: typ, Class: class}
+			var sub any = cmd.AddReplicaToShard{Class: class, Shard: "s1", TargetNode: tt.target}
+			if typ == replicate {
+				req.Class = ""
+				sub = cmd.ReplicationReplicateShardRequest{
+					SourceNode: "n1", SourceCollection: class, SourceShard: "s1", TargetNode: tt.target,
+					TransferType: cmp.Or(tt.transfer, cmd.COPY).String(),
+				}
+			}
+			raw, err := json.Marshal(sub)
+			require.NoError(t, err)
+			req.SubCommand = raw
+
+			err = sm.PreApplyFilter(req)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrBadRequest)
+			assert.ErrorContains(t, err, `node "n3" is not a home node of the namespace`)
 		})
 	}
 }

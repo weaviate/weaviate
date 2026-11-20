@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -248,7 +249,18 @@ func (s *Raft) addReplacementReplicas(ctx context.Context, className, shardName 
 		}
 
 		if _, err := s.AddReplicaToShard(ctx, className, shardName, newNode); err != nil {
-			return fmt.Errorf("add replica %q to shard %q in collection %q: %w", newNode, shardName, className, err)
+			// replicaCandidates reads this node's copy of the namespace, so the
+			// leader can refuse a candidate it no longer lists as a home node.
+			if !errors.Is(err, schema.ErrBadRequest) {
+				return fmt.Errorf("add replica %q to shard %q in collection %q: %w", newNode, shardName, className, err)
+			}
+			s.log.WithFields(logrus.Fields{
+				"collection":   className,
+				"shard":        shardName,
+				"removed_node": removedNode,
+				"candidate":    newNode,
+			}).Warnf("skipping replacement replica candidate after node departure: %v", err)
+			continue
 		}
 
 		currentCount++

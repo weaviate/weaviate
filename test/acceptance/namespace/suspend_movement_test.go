@@ -49,13 +49,14 @@ func atOrPast(got, want api.ShardReplicationState) bool {
 	return at >= 0 && at >= slices.Index(movementPath, want)
 }
 
-// newNamespaceOnNode creates a namespace homed on node and a namespaced user in
-// it, and returns the namespace and the user's key.
-func newNamespaceOnNode(t *testing.T, node string) (ns, userKey string) {
+// newNamespaceOnNodes creates a namespace homed on homeNodes and a namespaced
+// user in it, and returns the namespace and the user's key. A factor-1 class in
+// it is placed on the first home node, and a movement can target the others.
+func newNamespaceOnNodes(t *testing.T, homeNodes ...string) (ns, userKey string) {
 	t.Helper()
 
 	ns = uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, ns, node, adminKey)
+	helper.CreateNamespaceWithHomeNodes(t, ns, homeNodes, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 	userKey = createNamespacedUser(t, "u1", ns, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
@@ -77,7 +78,7 @@ func newSingleShardClass(t *testing.T, ns, class, userKey string) (qualifiedClas
 func newPresentShard(t *testing.T, node string) presentShard {
 	t.Helper()
 
-	ns, userKey := newNamespaceOnNode(t, node)
+	ns, userKey := newNamespaceOnNodes(t, node)
 	qualifiedClass, shardName := newSingleShardClass(t, ns, "Anchor", userKey)
 	return presentShard{qualifiedClass, shardName}
 }
@@ -341,7 +342,7 @@ func TestNamespaces_SuspendKeepsCopyInFlight(t *testing.T) {
 		// sweep pass.
 		objectCount = 50_000
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 	seedObjects(t, class, userKey, objectCount)
 	live := map[string]presentShard{
@@ -372,7 +373,7 @@ func TestNamespaces_SuspendKeepsIntegratingMove(t *testing.T) {
 		targetNode = docker.Weaviate0
 		class      = "IntegratingMove"
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 	written := seedObjects(t, class, userKey, 1000)
 	live := map[string]presentShard{
@@ -428,7 +429,7 @@ func TestNamespaces_SuspendReleasesEndedMovement(t *testing.T) {
 		forcedClass    = "ForceDeletedCopy"
 		cancelledClass = "CancelledCopy"
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	forcedQualified, forcedShard := newSingleShardClass(t, ns, forcedClass, userKey)
 	cancelledQualified, cancelledShard := newSingleShardClass(t, ns, cancelledClass, userKey)
 	live := newPresentShard(t, sourceNode)
@@ -486,7 +487,7 @@ func TestNamespaces_SuspendKeepsMovementTargetAcrossRestart(t *testing.T) {
 		targetNode = restartNodeName
 		class      = "RestartedTarget"
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 	seedObjects(t, class, userKey, 1000)
 	live := map[string]presentShard{
@@ -583,7 +584,7 @@ func TestNamespaces_SuspendKeepsSelfRecovery(t *testing.T) {
 		targetNode = restartNodeName
 		class      = "SelfRecovered"
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 	// A probe that finds no objects on any peer sends the recovery to the empty
 	// fallback, which registers no op.
@@ -616,7 +617,7 @@ func TestNamespaces_SuspendedBootRecoversMissingShard(t *testing.T) {
 		targetNode = restartNodeName
 		class      = "RecoveredAfterResume"
 	)
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 	// A probe that finds no objects on any peer sends the recovery to the empty
 	// fallback, which registers no op.

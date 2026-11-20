@@ -489,6 +489,8 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		return s.checkClassAgainstHomeNodes(req)
 	case command.ApplyRequest_TYPE_UPDATE_NAMESPACE:
 		return s.checkHomeNodesAgainstClassFactors(req)
+	case command.ApplyRequest_TYPE_REPLICATION_REPLICATE, command.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:
+		return s.checkReplicaTargetIsHomeNode(req)
 	default:
 		return nil
 	}
@@ -522,9 +524,10 @@ func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) 
 }
 
 // checkClassAgainstHomeNodes refuses a namespaced class create, restore or factor
-// raise above the HomeNodes count, and a create placed outside HomeNodes. The
-// receiving node checks no restore and reads its own copy of the namespace,
-// which can lag. Store.Execute holds homeNodesLocks until the apply returns.
+// raise above the HomeNodes count, a create placed outside HomeNodes, and a raise
+// while a shard holds a replica outside them. The receiving node checks no restore
+// and reads its own copy of the namespace, which can lag. Store.Execute holds
+// homeNodesLocks until the apply returns.
 func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) error {
 	ns, ok := s.classNamespace(req.Class)
 	if !ok {
@@ -560,7 +563,16 @@ func (s *SchemaManager) checkClassAgainstHomeNodes(req *command.ApplyRequest) er
 	if err := ns.CheckReplicationFactor(factor, s.minimumFactor); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	return checkShardsOnHomeNodes(ns, created)
+	if req.Type != command.ApplyRequest_TYPE_UPDATE_CLASS {
+		return checkShardsOnHomeNodes(ns, created)
+	}
+	err := s.schema.Read(req.Class, true, func(_ *models.Class, held *sharding.State) error {
+		return checkHeldShardsOnHomeNodes(ns, held)
+	})
+	if err != nil && !errors.Is(err, ErrClassNotFound) {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return nil
 }
 
 // checkShardsOnHomeNodes refuses state where a shard has a replica on a node
@@ -576,6 +588,85 @@ func checkShardsOnHomeNodes(ns command.Namespace, state *sharding.State) error {
 				return errHomeNodesNotApplied
 			}
 		}
+	}
+	return nil
+}
+
+// checkHeldShardsOnHomeNodes refuses state while any of its shards has a replica
+// outside the HomeNodes of ns. A frozen tenant is skipped, because unfreezing
+// places it again. An explicit unfreeze places it on the HomeNodes, and an
+// implicit activation on any storage node. A freezing tenant is refused,
+// because a freeze that aborts leaves it on its nodes.
+func checkHeldShardsOnHomeNodes(ns command.Namespace, state *sharding.State) error {
+	if state == nil {
+		return nil
+	}
+	outsideHomeNodes := func(node string) bool { return ns.CheckReplicaNode(node) != nil }
+	var outside, freezing []string
+	for name, shard := range state.Physical {
+		status := shard.ActivityStatus()
+		if status == models.TenantActivityStatusFROZEN || !slices.ContainsFunc(shard.BelongsToNodes, outsideHomeNodes) {
+			continue
+		}
+		if status == models.TenantActivityStatusFREEZING {
+			freezing = append(freezing, name)
+		} else {
+			outside = append(outside, name)
+		}
+	}
+	switch {
+	case len(outside) > 0:
+		return fmt.Errorf("%d shard(s) keep a replica outside the home nodes (%s); "+
+			"an admin must move each onto a home node before raising the replication factor",
+			len(outside), firstShardNames(outside))
+	case len(freezing) > 0:
+		return fmt.Errorf("%d tenant(s) with a replica outside the home nodes are being frozen (%s); "+
+			"retry the raise once the freeze completes", len(freezing), firstShardNames(freezing))
+	default:
+		return nil
+	}
+}
+
+// firstShardNames sorts names and joins the first three, so a refusal over
+// many shards stays short and names the same shards on every retry.
+func firstShardNames(names []string) string {
+	const shown = 3
+	slices.Sort(names)
+	if len(names) > shown {
+		return strings.Join(names[:shown], ", ") + ", ..."
+	}
+	return strings.Join(names, ", ")
+}
+
+// checkReplicaTargetIsHomeNode refuses a namespaced replica copy, move or empty
+// replica add whose target is not a HomeNodes entry. A SELF_RECOVERY passes,
+// because its target is already one of the shard's replicas. A scale plan and a
+// departing node's replacement pick targets from the receiving node's copy of
+// the namespace, which can lag.
+func (s *SchemaManager) checkReplicaTargetIsHomeNode(req *command.ApplyRequest) error {
+	class, target := req.Class, ""
+	if req.Type == command.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD {
+		sub := command.AddReplicaToShard{}
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		target = sub.TargetNode
+	} else {
+		sub := command.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		if sub.TransferType == command.SELF_RECOVERY.String() {
+			return nil
+		}
+		class, target = sub.SourceCollection, sub.TargetNode
+	}
+	ns, ok := s.classNamespace(class)
+	if !ok {
+		return nil
+	}
+	if err := ns.CheckReplicaNode(target); err != nil {
+		return fmt.Errorf("%w: replica of %q: %w", ErrBadRequest, class, err)
 	}
 	return nil
 }

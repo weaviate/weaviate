@@ -84,6 +84,12 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 			return nil, err
 		}
 	}
+	// checkScalePlanTargets refuses the plan before any step. It reads this
+	// node's copy of the namespace, which can lag a home-node update. Store.Execute
+	// then refuses the addition, after a removal may have committed.
+	if err := s.checkScalePlanTargets(scalePlan); err != nil {
+		return nil, err
+	}
 
 	defer func() {
 		if err != nil {
@@ -108,6 +114,27 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 		return opsUUIDs, err
 	}
 	return opsUUIDs, nil
+}
+
+// checkScalePlanTargets refuses a plan that adds a replica of a namespaced
+// collection on a node outside its namespace's HomeNodes.
+func (s *Raft) checkScalePlanTargets(scalePlan api.ReplicationScalePlan) error {
+	name := namespacing.NamespaceFromQualified(scalePlan.Collection)
+	if name == "" {
+		return nil
+	}
+	ns, ok := s.store.namespaceManager.GetNamespace(name)
+	if !ok {
+		return nil
+	}
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
+		for newNode := range shardActions.AddNodes {
+			if err := ns.CheckReplicaNode(newNode); err != nil {
+				return fmt.Errorf("%w: shard %q: %w", replicationTypes.ErrInvalidRequest, shardName, err)
+			}
+		}
+	}
+	return nil
 }
 
 // registerScalePlanCopies registers an op for every addition with a source
@@ -144,8 +171,17 @@ func (s *Raft) registerScalePlanCopies(ctx context.Context, scalePlan api.Replic
 
 // applyScalePlanMembership removes the plan's replicas and adds its empty ones.
 // It skips a removed node that sources an addition, because that addition is a
-// MOVE and removes its source once the copy is in.
+// MOVE and removes its source once the copy is in. A step refused after an
+// earlier one committed comes back unwrapped, naming the committed steps, so the
+// handler answers 500 rather than the 422 that says no step was applied.
 func (s *Raft) applyScalePlanMembership(ctx context.Context, scalePlan api.ReplicationScalePlan) error {
+	var applied []string
+	refused := func(step string, err error) error {
+		if len(applied) == 0 {
+			return fmt.Errorf("%s: %w", step, err)
+		}
+		return fmt.Errorf("%s: %s; the plan stopped after applying: %s", step, err.Error(), strings.Join(applied, "; "))
+	}
 	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
 		additionSources := make(map[string]struct{}, len(shardActions.AddNodes))
 		for _, sourceNode := range shardActions.AddNodes {
@@ -158,18 +194,22 @@ func (s *Raft) applyScalePlanMembership(ctx context.Context, scalePlan api.Repli
 			if _, isMoveSource := additionSources[node]; isMoveSource {
 				continue
 			}
+			step := fmt.Sprintf("delete replica %q from shard %q", node, shardName)
 			if _, err := s.DeleteReplicaFromShard(ctx, scalePlan.Collection, shardName, node); err != nil {
-				return fmt.Errorf("delete replica %q from shard %q: %w", node, shardName, err)
+				return refused(step, err)
 			}
+			applied = append(applied, step)
 		}
 
 		for newNode, sourceNode := range shardActions.AddNodes {
 			if sourceNode != "" {
 				continue
 			}
+			step := fmt.Sprintf("add empty replica %q to shard %q", newNode, shardName)
 			if _, err := s.AddReplicaToShard(ctx, scalePlan.Collection, shardName, newNode); err != nil {
-				return fmt.Errorf("add empty replica %q to shard %q: %w", newNode, shardName, err)
+				return refused(step, err)
 			}
+			applied = append(applied, step)
 		}
 	}
 	return nil

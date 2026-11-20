@@ -37,7 +37,9 @@ func TestObjectLimitAfterReplicaCopy(t *testing.T) {
 	require.NotContains(t, []string{sourceNode, targetNode}, sharedCompose.GetWeaviate().Name(),
 		"test invariant: the client must enter on a node that holds no replica")
 
-	helper.CreateNamespaceWithHomeNode(t, ns, sourceNode, adminKey)
+	// The class's one shard is placed on sourceNode only, and the COPY needs
+	// targetNode to be a home node too.
+	helper.CreateNamespaceWithHomeNodes(t, ns, []string{sourceNode, targetNode}, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 
 	userKey := createNamespacedUser(t, "u", ns)
