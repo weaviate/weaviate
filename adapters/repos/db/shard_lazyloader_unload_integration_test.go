@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -528,4 +529,66 @@ func TestLazyLoadShard_TryUnloadLeavesTenantStatus(t *testing.T) {
 	require.True(t, lazy.TryUnload(testCtx(), UnloadRequest{}))
 	require.Equal(t, models.TenantActivityStatusHOT, state.Physical["t1"].Status)
 	require.Same(t, lazy, f.index.shards.Load("t1"))
+}
+
+type switchableNamespace struct{ suspended atomic.Bool }
+
+func (e *switchableNamespace) GetNamespace(name string) (api.Namespace, bool) {
+	state := api.NamespaceStateActive
+	if e.suspended.Load() {
+		state = api.NamespaceStateSuspended
+	}
+	return api.Namespace{Name: name, State: state}, true
+}
+
+func TestLazyLoadShard_TryUnloadAndSuspendUnloadInEitherOrder(t *testing.T) {
+	tests := []struct {
+		name  string
+		first func(t *testing.T, f *unloadFixture)
+		then  func(t *testing.T, f *unloadFixture)
+	}{
+		{
+			name: "idle unload then suspend unload",
+			first: func(t *testing.T, f *unloadFixture) {
+				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+				f.requireUnloaded(t)
+			},
+			then: func(t *testing.T, f *unloadFixture) {
+				outcome, err := f.index.db.UnloadShard(testCtx(), f.index.Config.ClassName.String(), f.name)
+				require.NoError(t, err)
+				require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+				require.Nil(t, f.index.shards.Load(f.name))
+			},
+		},
+		{
+			name: "suspend unload then idle unload",
+			first: func(t *testing.T, f *unloadFixture) {
+				outcome, err := f.index.db.UnloadShard(testCtx(), f.index.Config.ClassName.String(), f.name)
+				require.NoError(t, err)
+				require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+				require.Nil(t, f.index.shards.Load(f.name))
+			},
+			then: func(t *testing.T, f *unloadFixture) {
+				require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+				require.Zero(t, f.unloader.registry.Loaded())
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			id := f.put(t)
+			e := &switchableNamespace{}
+			f.index.namespace, f.index.namespacesExister = "alpha", e
+			e.suspended.Store(true)
+
+			tt.first(t, f)
+			tt.then(t, f)
+
+			e.suspended.Store(false)
+			require.NoError(t, f.index.db.ReopenShard(testCtx(), f.index.Config.ClassName.String(), f.name))
+			require.NotNil(t, f.index.shards.Load(f.name))
+			require.True(t, f.exists(t, id))
+		})
+	}
 }

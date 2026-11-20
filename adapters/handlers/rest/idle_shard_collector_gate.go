@@ -13,10 +13,8 @@ package rest
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
-	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // idleShardCollectorHookKey prefixes every IdleShardCollector* runtime field.
@@ -56,15 +54,4 @@ func idleShardCollectorHooks(u db.ShardUnloader) map[string]func() error {
 		r.RefreshConfig()
 		return nil
 	}}
-}
-
-// namespaceActiveFor reports whether a namespace is active; nil when namespaces are off.
-func namespaceActiveFor(enabled bool, e namespaces.Exister) func(string) bool {
-	if !enabled || e == nil {
-		return nil
-	}
-	return func(name string) bool {
-		ns, ok := e.GetNamespace(name)
-		return ok && ns.State == api.NamespaceStateActive
-	}
 }

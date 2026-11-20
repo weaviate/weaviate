@@ -32,13 +32,6 @@ func (l *LazyLoadShard) unloader() ShardUnloader {
 	return l.shardOpts.index.Config.ShardUnloader
 }
 
-func (l *LazyLoadShard) namespace() string {
-	return l.shardOpts.index.namespace
-}
-
-// Namespace is the namespace of the wrapper's collection, "" outside namespaces.
-func (l *LazyLoadShard) Namespace() string { return l.namespace() }
-
 // LastAccess is the access clock tick of the wrapper's last pin.
 func (l *LazyLoadShard) LastAccess() uint32 { return l.lastAccess.Load() }
 

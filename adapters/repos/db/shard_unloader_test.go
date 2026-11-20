@@ -21,8 +21,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-func registryWrapper(namespace string) *LazyLoadShard {
-	return &LazyLoadShard{shardOpts: &deferredShardOpts{index: &Index{namespace: namespace}}}
+func registryWrapper() *LazyLoadShard {
+	return &LazyLoadShard{shardOpts: &deferredShardOpts{index: &Index{}}}
 }
 
 func requireRegistryConsistent(t *testing.T, r *LoadedShardRegistry) {
@@ -38,25 +38,25 @@ func requireRegistryConsistent(t *testing.T, r *LoadedShardRegistry) {
 func TestLoadedShardRegistry(t *testing.T) {
 	tests := []struct {
 		name       string
-		namespaces []string
+		n          int
 		remove     []int
 		wantLoaded int64
 	}{
 		{name: "empty"},
-		{name: "single", namespaces: []string{""}, wantLoaded: 1},
-		{name: "remove the only one", namespaces: []string{""}, remove: []int{0}},
-		{name: "remove first swaps last in", namespaces: []string{"a", "b", "c"}, remove: []int{0}, wantLoaded: 2},
-		{name: "remove last", namespaces: []string{"a", "a", "b"}, remove: []int{2}, wantLoaded: 2},
-		{name: "remove the same twice", namespaces: []string{"a", "b", "a", "b"}, remove: []int{1, 1}, wantLoaded: 3},
-		{name: "remove two in the middle", namespaces: []string{"a", "b", "a", "b"}, remove: []int{1, 2}, wantLoaded: 2},
-		{name: "remove all", namespaces: []string{"a", "b"}, remove: []int{0, 1, 0}},
+		{name: "single", n: 1, wantLoaded: 1},
+		{name: "remove the only one", n: 1, remove: []int{0}},
+		{name: "remove first swaps last in", n: 3, remove: []int{0}, wantLoaded: 2},
+		{name: "remove last", n: 3, remove: []int{2}, wantLoaded: 2},
+		{name: "remove the same twice", n: 4, remove: []int{1, 1}, wantLoaded: 3},
+		{name: "remove two in the middle", n: 4, remove: []int{1, 2}, wantLoaded: 2},
+		{name: "remove all", n: 2, remove: []int{0, 1, 0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewLoadedShardRegistry()
-			wrappers := make([]*LazyLoadShard, len(tt.namespaces))
-			for i, ns := range tt.namespaces {
-				wrappers[i] = registryWrapper(ns)
+			wrappers := make([]*LazyLoadShard, tt.n)
+			for i := range wrappers {
+				wrappers[i] = registryWrapper()
 				r.add(wrappers[i], nil)
 				r.add(wrappers[i], nil)
 			}
@@ -85,7 +85,7 @@ func TestLoadedShardRegistryAppendChunk(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewLoadedShardRegistry()
 			for range tt.loaded {
-				r.add(registryWrapper(""), nil)
+				r.add(registryWrapper(), nil)
 			}
 			var got []*LazyLoadShard
 			chunks := 0

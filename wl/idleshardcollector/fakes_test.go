@@ -28,9 +28,8 @@ import (
 )
 
 type fakeShard struct {
-	name      string
-	namespace string
-	reg       *fakeRegistry
+	name string
+	reg  *fakeRegistry
 
 	lastAccess atomic.Uint32
 	loadedAt   atomic.Int64
@@ -56,8 +55,6 @@ func (f *fakeShard) UnloadedAt() time.Time {
 	}
 	return time.Time{}
 }
-
-func (f *fakeShard) Namespace() string { return f.namespace }
 
 func (f *fakeShard) UnloadCandidate() bool {
 	return f.loadedAt.Load() != 0 && !f.pending.Load() && !f.inUse.Load()
@@ -119,8 +116,8 @@ func newFakeRegistry() *fakeRegistry { return &fakeRegistry{epoch: time.Now()} }
 
 func (r *fakeRegistry) clock() uint32 { return uint32(time.Since(r.epoch)/time.Second) + 1 }
 
-func (r *fakeRegistry) load(name, namespace string) *fakeShard {
-	f := &fakeShard{name: name, namespace: namespace, reg: r}
+func (r *fakeRegistry) load(name string) *fakeShard {
+	f := &fakeShard{name: name, reg: r}
 	f.markLoaded()
 	return f
 }
@@ -201,13 +198,12 @@ func set[T runtime.DynamicType](t testing.TB, dv *runtime.DynamicValue[T], v T) 
 }
 
 type harness struct {
-	t      testing.TB
-	reg    *fakeRegistry
-	knobs  *testKnobs
-	p      *policy[*fakeShard]
-	active sync.Map
-	prom   *prometheus.Registry
-	logs   *logrustest.Hook
+	t     testing.TB
+	reg   *fakeRegistry
+	knobs *testKnobs
+	p     *policy[*fakeShard]
+	prom  *prometheus.Registry
+	logs  *logrustest.Hook
 }
 
 type harnessOpt func(*harness, *policyDeps)
@@ -231,10 +227,6 @@ func newHarnessWithKnobs(t testing.TB, knobs Knobs, opts ...harnessOpt) *harness
 	deps := policyDeps{
 		logger: logger,
 		clock:  h.reg.clock,
-		nsActive: func(ns string) bool {
-			v, ok := h.active.Load(ns)
-			return !ok || v.(bool)
-		},
 	}
 	for _, opt := range opts {
 		opt(h, &deps)
@@ -245,10 +237,10 @@ func newHarnessWithKnobs(t testing.TB, knobs Knobs, opts ...harnessOpt) *harness
 	return h
 }
 
-func (h *harness) loadN(n int, namespace string) []*fakeShard {
+func (h *harness) loadN(n int) []*fakeShard {
 	out := make([]*fakeShard, n)
 	for i := range out {
-		out[i] = h.reg.load(namespace+"-"+time.Now().String(), namespace)
+		out[i] = h.reg.load(time.Now().String())
 		time.Sleep(time.Second)
 	}
 	return out

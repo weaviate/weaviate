@@ -95,5 +95,5 @@ func (p *policy[S]) process(it item[S]) {
 
 // stillWanted re-checks a handoff, which may have queued behind busy workers, against the current knobs.
 func (p *policy[S]) stillWanted(s *snapshot, it item[S]) bool {
-	return s.idleTTL > 0 && p.namespaceActive(it.shard.Namespace())
+	return s.idleTTL > 0
 }

@@ -21,8 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-const queuedNamespace = "ns"
-
 func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
 	unpause := func(h *harness) {
 		set(h.t, h.knobs.paused, false)
@@ -91,13 +89,6 @@ func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
 			change:    func(h *harness) { set(h.t, h.knobs.paused, true) },
 			want:      stays,
 		},
-		{
-			name:      "idle sweep, namespace no longer active",
-			configure: idleSweep,
-			queue:     unpause,
-			change:    func(h *harness) { h.active.Store(queuedNamespace, false) },
-			want:      stays,
-		},
 	}
 
 	for _, tt := range tests {
@@ -107,7 +98,7 @@ func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
 					set(t, k.checkInterval, 24*time.Hour)
 					tt.configure(k)
 				})
-				shards := h.loadN(4, queuedNamespace)
+				shards := h.loadN(4)
 				time.Sleep(time.Minute)
 				synctest.Wait()
 				gate := make(chan struct{})

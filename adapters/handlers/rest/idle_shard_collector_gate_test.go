@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/wl/idleshardcollector"
@@ -100,21 +99,4 @@ func TestIdleShardCollectorHooks(t *testing.T) {
 	require.NoError(t, mergeRuntimeHooks(map[string]func() error{}, hooks))
 	require.NoError(t, hooks[idleShardCollectorHookKey]())
 	require.Equal(t, 1, r.refreshes)
-}
-
-type fakeExister map[string]api.NamespaceState
-
-func (f fakeExister) GetNamespace(name string) (api.Namespace, bool) {
-	state, ok := f[name]
-	return api.Namespace{Name: name, State: state}, ok
-}
-
-func TestNamespaceActiveFor(t *testing.T) {
-	e := fakeExister{"live": api.NamespaceStateActive, "parked": api.NamespaceStateSuspended}
-	require.Nil(t, namespaceActiveFor(false, e))
-	require.Nil(t, namespaceActiveFor(true, nil))
-	active := namespaceActiveFor(true, e)
-	require.True(t, active("live"))
-	require.False(t, active("parked"))
-	require.False(t, active("gone"))
 }
