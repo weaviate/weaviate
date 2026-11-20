@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -226,6 +227,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
+	ShutdownLog                         ShutdownLog                    `json:"shutdown_log" yaml:"-"`
 	RecountPropertiesAtStartup          bool                           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
@@ -1257,6 +1259,14 @@ type CORS struct {
 	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
 	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+// ShutdownLog is filled by FromEnv from the environment or its defaults, so a
+// config-file value never takes effect.
+type ShutdownLog struct {
+	HeartbeatAfter    time.Duration             `json:"heartbeat_after"`
+	HeartbeatInterval time.Duration             `json:"heartbeat_interval"`
+	Thresholds        shutdownreport.Thresholds `json:"thresholds"`
 }
 
 // Export holds operator-level configuration for data exports.
