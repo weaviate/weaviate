@@ -342,8 +342,11 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	// Teardown sets shut before SHUTDOWN, so a status read past a re-checked shut predates it.
 	if s := l.liveShard(); s != nil {
-		return s.GetStatus()
+		if status := s.GetStatus(); !s.shut.Load() {
+			return status
+		}
 	}
 	if !l.lockUnlessTearing() {
 		return storagestate.StatusLazyLoading
@@ -358,7 +361,9 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 
 func (l *LazyLoadShard) GetStatusReason() string {
 	if s := l.liveShard(); s != nil {
-		return s.GetStatusReason()
+		if reason := s.GetStatusReason(); !s.shut.Load() {
+			return reason
+		}
 	}
 	if !l.lockUnlessTearing() {
 		return storagestate.StatusLazyLoading.String()
