@@ -47,7 +47,7 @@ func NewUpdateNamespace(ctx *middleware.Context, handler UpdateNamespaceHandler)
 
 # Update a namespace
 
-Update a namespace's `home_nodes`. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.
+Update a namespace's `home_nodes`. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list.
 */
 type UpdateNamespace struct {
 	Context *middleware.Context

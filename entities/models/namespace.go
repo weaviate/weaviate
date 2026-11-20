@@ -34,7 +34,7 @@ type Namespace struct {
 	// Deprecated: use home_nodes. Holds the first entry of `home_nodes`.
 	HomeNode string `json:"home_node,omitempty"`
 
-	// The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.
+	// The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A replica copy, move or scale-plan addition in the namespace must target a node on the list. A collection's replication factor cannot be raised while one of its shards, frozen tenants aside, keeps a replica on a node outside the list. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.
 	// Max Items: 64
 	HomeNodes []string `json:"home_nodes"`
 

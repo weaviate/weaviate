@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -448,87 +449,88 @@ func requireClassDirsReclaimed(t *testing.T, ctx context.Context, qualifiedClass
 	}, 30*time.Second, 250*time.Millisecond, "class directories were never reclaimed")
 }
 
-// TestNamespaces_DeleteSuspendedNamespace asserts the delete cascade removes a
-// suspended namespace's classes and aliases and reclaims their directories on
-// disk. The cascade issues DeleteAlias and DeleteClass while the namespace is
-// deleting, so a prior suspend must not stop them.
-func TestNamespaces_DeleteSuspendedNamespace(t *testing.T) {
+// TestNamespaces_DeleteReclaimsEveryReplica asserts the delete cascade removes an
+// active or a suspended namespace's classes and aliases, and reclaims the
+// directories of their RF=2 replicas on both home nodes. A prior suspend must
+// not stop the DeleteAlias and DeleteClass the cascade issues.
+func TestNamespaces_DeleteReclaimsEveryReplica(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 
-	ns := uniqueNS()
-	const (
-		mtClassName = "SuspendedTenants"
-		stClassName = "SuspendedDocs"
-		mtAlias     = "TenantsAlias"
-		stAlias     = "DocsAlias"
-		tenant      = "warm"
-		objTitle    = "written before the suspend"
-	)
-	qualifiedMT := ns + ":" + mtClassName
-	qualifiedST := ns + ":" + stClassName
-
-	homeNode := helper.CreateNamespace(t, ns, adminKey).HomeNodes[0]
-	userKey := createNamespacedUser(t, "u1", ns, adminKey)
-
-	// Two of each, so the cascade's alias and class loops run over more than one.
-	// The cleanup asserts nothing: the cascade has usually removed these already,
-	// and a run that failed before the delete leaves the namespace suspended,
-	// where AdmitDestructiveApply refuses a class delete.
-	helper.CreateClassAuth(t, mtClass(mtClassName), userKey)
-	helper.CreateClassAuth(t, &models.Class{
-		Class:      stClassName,
-		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
-	}, userKey)
-	t.Cleanup(func() {
-		helper.DeleteClassWithoutAssert(t, qualifiedMT, adminKey)
-		helper.DeleteClassWithoutAssert(t, qualifiedST, adminKey)
-	})
-	require.NoError(t, addTenantsAuth(t, mtClassName, []*models.Tenant{
-		{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT},
-	}, userKey))
-	created, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
-		Class: mtClassName, Tenant: tenant, Properties: map[string]any{"title": objTitle},
-	}, userKey)
-	require.NoError(t, err)
-	helper.CreateAliasAuth(t, &models.Alias{Alias: mtAlias, Class: mtClassName}, userKey)
-	helper.CreateAliasAuth(t, &models.Alias{Alias: stAlias, Class: stClassName}, userKey)
-
-	requireShardsEventually(t, qualifiedMT, tenant)
-	requireShardCountEventually(t, qualifiedST, 1)
-
-	// The read-back proves the directory the reclaim check waits on held an object.
-	obj, err := helper.GetObjectAuthWithTenant(t, qualifiedMT, created.ID, tenant, adminKey)
-	require.NoError(t, err)
-	props, ok := obj.Properties.(map[string]any)
-	require.True(t, ok, "unexpected property shape %T", obj.Properties)
-	require.Equal(t, objTitle, props["title"])
-
-	// Without this, the reclaim check below would pass on an empty ./data.
-	entriesBeforeDelete, err := dataDirEntries(ctx, nodeIndexFromName(t, homeNode))
-	require.NoError(t, err)
-	for _, class := range []string{qualifiedMT, qualifiedST} {
-		require.Contains(t, entriesBeforeDelete, strings.ToLower(class),
-			"class directory missing on home node %s before the delete", homeNode)
+	tests := []struct {
+		name    string
+		suspend bool
+	}{
+		{name: "an active namespace"},
+		{name: "a suspended namespace", suspend: true},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			const objTitle = "written before the delete"
+			homeNodes := []string{docker.Weaviate1, docker.Weaviate2}
 
-	helper.SuspendNamespace(t, ns, adminKey)
+			ns := uniqueNS()
+			helper.CreateNamespaceWithHomeNodes(t, ns, homeNodes, adminKey)
+			userKey := createNamespacedUser(t, "u1", ns, adminKey)
 
-	// The helper returns once GET reports 404, so the cascade removed the entry.
-	helper.DeleteNamespace(t, ns, adminKey)
+			// Two classes with an alias each, so the cascade's alias and class loops
+			// run over more than one.
+			targets := newRF2Shards(t, ns, userKey)
+			var classes, aliases []string
+			for _, tg := range targets {
+				alias := tg.class + "Alias"
+				helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: tg.class}, userKey)
+				classes = append(classes, ns+":"+tg.class)
+				aliases = append(aliases, ns+":"+alias)
+			}
 
-	for _, class := range []string{qualifiedMT, qualifiedST} {
-		_, err := helper.GetClassAuthWithReturn(t, class, adminKey)
-		var notFound *schema.SchemaObjectsGetNotFound
-		require.ErrorAs(t, err, &notFound, "class %q must be gone, got %T: %v", class, err, err)
+			// The read-back proves the directories the reclaim check waits on held an object.
+			tenants := targets[1]
+			created, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+				Class: tenants.class, Tenant: tenants.tenant, Properties: map[string]any{"title": objTitle},
+			}, userKey)
+			require.NoError(t, err)
+			obj, err := helper.GetObjectAuthWithTenant(t, ns+":"+tenants.class, created.ID, tenants.tenant, adminKey)
+			require.NoError(t, err)
+			props, ok := obj.Properties.(map[string]any)
+			require.True(t, ok, "unexpected property shape %T", obj.Properties)
+			require.Equal(t, objTitle, props["title"])
+
+			// Without this, the reclaim check below would pass on an empty ./data.
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				for _, node := range homeNodes {
+					entries, err := dataDirEntries(ctx, nodeIndexFromName(t, node))
+					if !assert.NoError(c, err) {
+						return
+					}
+					for _, class := range classes {
+						assert.Contains(c, entries, strings.ToLower(class), "class directory missing on %s", node)
+					}
+				}
+			}, 30*time.Second, 250*time.Millisecond, "a class directory never appeared on every home node")
+
+			if tt.suspend {
+				helper.SuspendNamespace(t, ns, adminKey)
+			}
+
+			// The helper returns once GET reports 404, so the cascade removed the entry.
+			helper.DeleteNamespace(t, ns, adminKey)
+
+			for _, class := range classes {
+				_, err := helper.GetClassAuthWithReturn(t, class, adminKey)
+				var notFound *schema.SchemaObjectsGetNotFound
+				require.ErrorAs(t, err, &notFound, "class %q must be gone, got %T: %v", class, err, err)
+			}
+			for _, alias := range aliases {
+				_, err := helper.GetAliasAuthWithReturn(t, alias, adminKey)
+				var notFound *schema.AliasesGetAliasNotFound
+				require.ErrorAs(t, err, &notFound, "alias %q must be gone, got %T: %v", alias, err, err)
+			}
+
+			requireClassDirsReclaimed(t, ctx, classes...)
+		})
 	}
-	for _, alias := range []string{ns + ":" + mtAlias, ns + ":" + stAlias} {
-		_, err := helper.GetAliasAuthWithReturn(t, alias, adminKey)
-		var notFound *schema.AliasesGetAliasNotFound
-		require.ErrorAs(t, err, &notFound, "alias %q must be gone, got %T: %v", alias, err, err)
-	}
-
-	requireClassDirsReclaimed(t, ctx, qualifiedMT, qualifiedST)
 }
 
 // schemaDumpAs hits a generic authenticated endpoint with the given key.

@@ -31,6 +31,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -40,6 +42,7 @@ type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
+	namespaces     usecasesNamespaces.Exister
 	logger         logrus.FieldLogger
 
 	// localNodeID is embedded in node-reached-state broadcasts so peers
@@ -58,13 +61,16 @@ type Manager struct {
 
 const inflightDrainBackstop = 60 * time.Second
 
-func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
+func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector,
+	namespaces usecasesNamespaces.Exister, reg prometheus.Registerer,
+) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
+		namespaces:     namespaces,
 		ctx:            ctx,
 		cancel:         cancel,
 		inflightDrainFailuresCounter: prometheus.NewCounter(prometheus.CounterOpts{
@@ -571,6 +577,22 @@ func wrapClassNotFoundErr(err error, collection string) error {
 	return err
 }
 
+// replicaCandidates returns the nodes QueryReplicationScalePlan adds replicas
+// of class on. A namespaced class gets only its HomeNodes entries that are
+// storage candidates, in HomeNodes order.
+func (m *Manager) replicaCandidates(class string) ([]string, error) {
+	storage := m.nodeSelector.StorageCandidates()
+	name := namespacing.NamespaceFromQualified(class)
+	if name == "" {
+		return storage, nil
+	}
+	ns, ok := m.namespaces.GetNamespace(name)
+	if !ok {
+		return nil, fmt.Errorf("namespace %q not found", name)
+	}
+	return ns.PresentHomeNodes(storage), nil
+}
+
 func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationScalePlanRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
@@ -588,6 +610,11 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 		return nil, fmt.Errorf("%w: %s", ErrClassNotFound, subCommand.Collection)
 	}
 
+	candidates, err := m.replicaCandidates(subCommand.Collection)
+	if err != nil {
+		return nil, err
+	}
+
 	currentShards := make(map[string][]string, len(shardingState.Physical))
 	desiredShards := make(map[string][]string, len(shardingState.Physical))
 
@@ -595,7 +622,7 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 		currentShards[name] = make([]string, len(shard.BelongsToNodes))
 		copy(currentShards[name], shard.BelongsToNodes)
 
-		if err := shard.AdjustReplicas(int(subCommand.ReplicationFactor), m.nodeSelector); err != nil {
+		if err := shard.AdjustReplicas(int(subCommand.ReplicationFactor), candidates); err != nil {
 			return nil, err
 		}
 

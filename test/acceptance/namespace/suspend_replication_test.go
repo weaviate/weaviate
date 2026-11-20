@@ -168,22 +168,21 @@ func startCopyMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targ
 //
 // That is what happens, not what should. A suspended namespace ought to refuse
 // this command before the schema records anything, and the scale-plan and
-// replica-list assertions invert when it does. Until then the target opens a
-// shard on a node that is not the namespace's home node, and the target's own
-// sweep closes it within one sweep interval. The open is not asserted, because
-// it can start and end between two polls.
+// replica-list assertions invert when it does. Until then the target opens the
+// shard, and its own sweep closes it within one sweep interval. The open is not
+// asserted, because it can start and end between two polls.
 func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 	t.Parallel()
 
 	const (
-		// The namespace pins its shards to its home node, so the addition lands
-		// on a node that holds nothing of this class.
+		// The class's one shard is on the first home node only, so the addition
+		// targets a home node that holds nothing of this class.
 		homeNode   = docker.Weaviate1
 		targetNode = docker.Weaviate0
 		class      = "EmptyReplicaShard"
 	)
 
-	ns, userKey := newNamespaceOnNode(t, homeNode)
+	ns, userKey := newNamespaceOnNodes(t, homeNode, targetNode)
 
 	// Read before the suspend: a suspended namespace reports no shards.
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
@@ -221,15 +220,15 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	t.Parallel()
 
 	const (
-		// The namespace pins its shards to its home node, which makes that node
-		// the movement's only possible source.
+		// The class's one shard is on the first home node only, which makes that
+		// node the movement's only possible source.
 		sourceNode = docker.Weaviate1
 		targetNode = docker.Weaviate0
 		class      = "MovedShard"
 		title      = "written before the movement"
 	)
 
-	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	ns, userKey := newNamespaceOnNodes(t, sourceNode, targetNode)
 	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 
 	// One object, so the movement has something to copy and the replica it lands

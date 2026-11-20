@@ -497,7 +497,7 @@ func NewApplyReplicationScalePlanUnprocessableEntity() *ApplyReplicationScalePla
 /*
 ApplyReplicationScalePlanUnprocessableEntity describes a response with status code 422, with default header values.
 
-The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.
+The plan adds a replica that cannot be added: the collection has no such shard, the source node does not hold it, the target node already holds it, or the collection is in a namespace and the target node is not one of its home nodes. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.
 */
 type ApplyReplicationScalePlanUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -565,7 +565,7 @@ func NewApplyReplicationScalePlanInternalServerError() *ApplyReplicationScalePla
 /*
 ApplyReplicationScalePlanInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error. The plan can also stop part-way through its replica removals and empty additions, and the error then names the ones that were applied.
 */
 type ApplyReplicationScalePlanInternalServerError struct {
 	Payload *models.ErrorResponse

@@ -236,8 +236,10 @@ func (p *Physical) DeleteReplica(replica string) error {
 	return nil
 }
 
-// AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
-func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
+// AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes). It
+// extends the set with the first candidates the set lacks, and shrinks it
+// keeping the replicas on candidates first.
+func (p *Physical) AdjustReplicas(count int, candidates []string) error {
 	if count < 0 {
 		return fmt.Errorf("negative replication factor: %d", count)
 	}
@@ -261,17 +263,27 @@ func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 		}
 	}
 	if count < len(p.BelongsToNodes) { // less replicas wanted
+		slices.SortStableFunc(p.BelongsToNodes, func(a, b string) int {
+			inA, inB := slices.Contains(candidates, a), slices.Contains(candidates, b)
+			switch {
+			case inA == inB:
+				return 0
+			case inA:
+				return -1
+			default:
+				return 1
+			}
+		})
 		p.BelongsToNodes = p.BelongsToNodes[:count]
 		return nil
 	}
 
-	names := nodes.StorageCandidates()
-	if count > len(names) {
-		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
+	if count > len(candidates) {
+		return fmt.Errorf("not enough candidate nodes: found %d %v, want %d", len(candidates), candidates, count)
 	}
 
 	// make sure included nodes are unique
-	for _, n := range names {
+	for _, n := range candidates {
 		if !available[n] {
 			p.BelongsToNodes = append(p.BelongsToNodes, n)
 			available[n] = true

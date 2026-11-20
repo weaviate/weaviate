@@ -58,18 +58,19 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
+	collection, task, err := st.taskOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+
 	// An AddTenants or AddClass takes its cap lock above before homeNodesLocks.
-	unlockHomeNodes, err := st.lockHomeNodes(req)
+	unlockHomeNodes, err := st.lockHomeNodes(req, collection)
 	if err != nil {
 		return 0, err
 	}
 	defer unlockHomeNodes()
 
 	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
-	collection, task, err := st.taskOrMovementCollection(req)
-	if err != nil {
-		return 0, err
-	}
 	switch key := classLockKey(cmp.Or(collection, req.Class)); {
 	case collection != "":
 		st.taskMovementLocks.Lock(key)
@@ -133,8 +134,10 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 // lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter checks req against
 // and returns the unlock. An UPDATE_NAMESPACE takes it exclusively. Class creates, restores
-// and updates share it, as do tenant adds and the updates explicitUpdateCarriesNodes reports.
-func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
+// and updates share it, as do tenant adds, the updates explicitUpdateCarriesNodes reports,
+// replica movements and empty replica adds. A movement has no Class, so its namespace
+// comes off collection.
+func (st *Store) lockHomeNodes(req *api.ApplyRequest, collection string) (func(), error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
 		ns, err := updatedNamespace(req)
@@ -144,8 +147,9 @@ func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 		st.homeNodesLocks.Lock(ns)
 		return func() { st.homeNodesLocks.Unlock(ns) }, nil
 	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS,
-		api.ApplyRequest_TYPE_ADD_TENANT, api.ApplyRequest_TYPE_UPDATE_TENANT:
-		ns := namespacing.NamespaceFromQualified(req.Class)
+		api.ApplyRequest_TYPE_ADD_TENANT, api.ApplyRequest_TYPE_UPDATE_TENANT,
+		api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:
+		ns := namespacing.NamespaceFromQualified(cmp.Or(collection, req.Class))
 		if ns == "" {
 			return func() {}, nil
 		}

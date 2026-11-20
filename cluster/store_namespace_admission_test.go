@@ -472,7 +472,7 @@ func replicaMovementCommand() gatedCommand {
 			// setupApplyTest swaps the schema manager, and Manager.Replicate
 			// validates against the schema reader it was built over.
 			ms.store.replicationManager = replication.NewManager(
-				ms.store.schemaManager.NewSchemaReader(), ms.cfg.NodeSelector, prometheus.NewPedanticRegistry())
+				ms.store.schemaManager.NewSchemaReader(), ms.cfg.NodeSelector, nil, prometheus.NewPedanticRegistry())
 			seedClass(t, ms, target)
 		},
 		expectApplied: func(t *testing.T, ms *MockStore, _ string) {},

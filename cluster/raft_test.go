@@ -719,7 +719,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	t.Run("While its namespace is suspended a copy is refused before any step, and applies once it is active", func(t *testing.T) {
 		const nsClass = "alpha:Books"
 		namespaces := m.cfg.NamespacesController
-		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode, removeNode}}, nsCreateIndex))
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode, destNode, removeNode}}, nsCreateIndex))
 		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
 			PartitioningEnabled: true,
 			Physical: map[string]sharding.Physical{
@@ -781,6 +781,37 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		})
 		require.ErrorIs(t, err, usecasesNamespaces.ErrNamespaceDeleting)
 
+		after, err := readShardingState(r.SchemaReader(), nsClass)
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{sourceNode, removeNode}, after.Physical[shard].BelongsToNodes)
+	})
+
+	t.Run("A plan adding a replica outside the home nodes applies no step", func(t *testing.T) {
+		const nsClass = "gamma:Books"
+		require.NoError(t, m.cfg.NamespacesController.Create(
+			command.Namespace{Name: "gamma", HomeNodes: []string{sourceNode, removeNode}}, nsCreateIndex))
+		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				shard:      {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+				otherShard: {Name: otherShard, BelongsToNodes: []string{sourceNode}},
+			},
+		})
+		require.NoError(t, err)
+
+		// The removal comes ahead of the empty addition in the same shard, so
+		// only a check before either step leaves removeNode in place.
+		_, err = r.ApplyReplicationScalePlan(ctx, command.ReplicationScalePlan{
+			Collection: nsClass,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes:    map[string]string{destNode: ""},
+					RemoveNodes: map[string]struct{}{removeNode: {}},
+				},
+			},
+		})
+		require.ErrorIs(t, err, replicationTypes.ErrInvalidRequest)
+		require.ErrorContains(t, err, `node "Node-2" is not a home node of the namespace`)
 		after, err := readShardingState(r.SchemaReader(), nsClass)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{sourceNode, removeNode}, after.Physical[shard].BelongsToNodes)

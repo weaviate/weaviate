@@ -30,7 +30,7 @@ import (
 func newDrainTestManager(t *testing.T, opID uint64, coll, shard string) *Manager {
 	t.Helper()
 	// schemaReader/nodeSelector are unused on the broadcastNodeReachedState path.
-	m := NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+	m := NewManager(schema.SchemaReader{}, nil, nil, prometheus.NewPedanticRegistry())
 	m.SetLogger(logrus.New())
 	require.NoError(t, m.GetReplicationFSM().Replicate(opID, &cmd.ReplicationReplicateShardRequest{
 		Version:          cmd.ReplicationCommandVersionV0,
