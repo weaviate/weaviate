@@ -1297,9 +1297,9 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
 - **Junto a HFresh:** 634 inserts por segundo con 8 buscadores, donde HFresh hace 2 089 con un escritor y sus 9 workers de fondo. Queda a 3.3 veces.
 - **Lo que no mide:** una cadena continua en vez de tandas; búsquedas de usuario mientras se inserta; y varios índices compartiendo buscadores.
 
-### Enmienda 3 (10:25 del 20, del usuario): N = 1, 4 y 8 otra vez, de noche y sin actividad
+### Enmienda 3 (10:18 del 20, del usuario): N = 1, 4 y 8 otra vez, de noche y sin actividad
 
-**Motivo.** Tres de las cuatro corridas del paso 2 llevan teclado o trackpad, entre ellas las dos del criterio, y N = 1 salió un 6 % por debajo de lo que v5.0 dio de noche. El usuario pide, a las 10:20: *«repite de noche, sin actividad, la medida de N = 1, 4 y 8 para tener el número limpio»*. El veredicto de v5.2 no se toca: es el de la regla como está escrita, con las corridas del paso 2.
+**Motivo.** Tres de las cuatro corridas del paso 2 llevan teclado o trackpad, entre ellas las dos del criterio, y N = 1 salió un 6 % por debajo de lo que v5.0 dio de noche. El usuario pide, a las 10:17: *«repite de noche, sin actividad, la medida de N = 1, 4 y 8 para tener el número limpio»*. El veredicto de v5.2 no se toca: es el de la regla como está escrita, con las corridas del paso 2.
 
 *Mío, para aplicarlo:*
 
