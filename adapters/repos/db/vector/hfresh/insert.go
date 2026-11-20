@@ -238,6 +238,12 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	h.postingLocks.Unlock(centroidID)
 
 	limit := h.splitLimit()
+	// the single posting's map entry and size are rebuilt from the posting at
+	// startup: an analyze would reread all of it after every append
+	if count <= limit && !h.Centroids.Built() {
+		return true, nil
+	}
+
 	if !reassigned {
 		if uint64(count) > uint64(limit)*5 {
 			err = h.doSplit(ctx, centroidID, true)
