@@ -23,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestRESTTaskListPassesLogUnreadablePayloadsAsOneLine(t *testing.T) {
@@ -44,6 +46,16 @@ func TestRESTTaskListPassesLogUnreadablePayloadsAsOneLine(t *testing.T) {
 			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: &fakeShardingState{}, logger: l}
 			_, err := enq.LiveOpIDs(context.Background())
 			require.NoError(t, err)
+		}},
+		{"drop-vector reconcile round", func(l logrus.FieldLogger) {
+			classes := []*models.Class{
+				{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+				{Class: "B", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+			}
+			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: tasks}}
+			state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{"s1": {BelongsToNodes: []string{"n1"}}})}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, logger: l}
+			reconcileDroppedVectorIndexes(context.Background(), classes, enq, l)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
