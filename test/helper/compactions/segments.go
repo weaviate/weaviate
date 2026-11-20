@@ -22,48 +22,118 @@ import (
 	"strings"
 
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 )
 
-// ListBucketFiles executes `ls -1` inside the container for the given bucket
-// directory and returns plain filenames (basenames).
-func ListBucketFiles(ctx context.Context, c testcontainers.Container, col, shard, bucket string) []string {
-	path := fmt.Sprintf("/data/%s/%s/lsm/%s", strings.ToLower(col), shard, bucket)
-	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
-	if err != nil || code != 0 {
-		return nil
+// listDir runs `ls -1` on path inside the container and returns the entry names.
+func listDir(ctx context.Context, c testcontainers.Container, path string) ([]string, error) {
+	return execLines(ctx, c, []string{"ls", "-1", path})
+}
+
+func execLines(ctx context.Context, c testcontainers.Container, cmd []string) ([]string, error) {
+	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		return nil, fmt.Errorf("exec %q: %w", cmd, err)
 	}
 	buf := new(strings.Builder)
 	if _, err := io.Copy(buf, reader); err != nil {
-		return nil
+		return nil, fmt.Errorf("read output of %q: %w", cmd, err)
 	}
-	var files []string
+	if code != 0 {
+		return nil, fmt.Errorf("exec %q: exit code %d: %s", cmd, code, buf.String())
+	}
+	var lines []string
 	for line := range strings.SplitSeq(buf.String(), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			files = append(files, line)
+			lines = append(lines, line)
 		}
 	}
+	return lines, nil
+}
+
+func bucketPath(col, shard, bucket string) string {
+	return fmt.Sprintf("/data/%s/%s/lsm/%s", strings.ToLower(col), shard, bucket)
+}
+
+// ListBucketFiles executes `ls -1` inside the container for the given bucket
+// directory and returns plain filenames (basenames). It returns nil on error.
+func ListBucketFiles(ctx context.Context, c testcontainers.Container, col, shard, bucket string) []string {
+	files, _ := listDir(ctx, c, bucketPath(col, shard, bucket))
 	return files
 }
 
 func ListLSMBuckets(ctx context.Context, c testcontainers.Container, col, shard string) []string {
-	path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(col), shard)
-	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
-	if err != nil || code != 0 {
-		return nil
-	}
-	buf := new(strings.Builder)
-	if _, err := io.Copy(buf, reader); err != nil {
-		return nil
-	}
-	var dirs []string
-	for line := range strings.SplitSeq(buf.String(), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			dirs = append(dirs, line)
+	dirs, _ := listDir(ctx, c, fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(col), shard))
+	return dirs
+}
+
+func liveSegments(files []string) []string {
+	var segs []string
+	for _, f := range files {
+		if strings.HasSuffix(f, ".db") {
+			segs = append(segs, f)
 		}
 	}
-	return dirs
+	return segs
+}
+
+// SegmentNames returns the names of the bucket's live segment files (*.db).
+func SegmentNames(ctx context.Context, c testcontainers.Container, col, shard, bucket string) ([]string, error) {
+	files, err := listDir(ctx, c, bucketPath(col, shard, bucket))
+	if err != nil {
+		return nil, err
+	}
+	return liveSegments(files), nil
+}
+
+// StagedSegmentCount counts the segment files hard-linked into the staged
+// bucket directories matching dirGlob. Backup staging mirrors the data root
+// (/data/.backup-staging-*/<col>/<shard>/lsm/<bucket>); replica staging mirrors
+// the shard (/data/.replica-staging-*/lsm/<bucket>). No match counts as zero.
+func StagedSegmentCount(ctx context.Context, c testcontainers.Container, dirGlob string) (int, error) {
+	files, err := execLines(ctx, c, []string{"sh", "-c", "ls -1 " + dirGlob + " 2>/dev/null || true"})
+	if err != nil {
+		return 0, err
+	}
+	return len(liveSegments(files)), nil
+}
+
+// MergeWatcher detects a compaction that ran after Arm. Only compaction and
+// cleanup remove a segment file, so a segment that first appeared after Arm
+// and later disappears was merged after Arm.
+type MergeWatcher struct {
+	baseline map[string]struct{}
+	fresh    map[string]struct{}
+}
+
+// Arm records the listing taken at the start of the observation window.
+func (w *MergeWatcher) Arm(segments []string) {
+	w.baseline = make(map[string]struct{}, len(segments))
+	for _, s := range segments {
+		w.baseline[s] = struct{}{}
+	}
+	w.fresh = map[string]struct{}{}
+}
+
+// Observe takes the latest listing and reports whether a segment that first
+// appeared after Arm is gone from it.
+func (w *MergeWatcher) Observe(segments []string) bool {
+	current := make(map[string]struct{}, len(segments))
+	for _, s := range segments {
+		current[s] = struct{}{}
+	}
+	for s := range w.fresh {
+		if _, ok := current[s]; !ok {
+			return true
+		}
+	}
+	for s := range current {
+		if _, ok := w.baseline[s]; !ok {
+			w.fresh[s] = struct{}{}
+		}
+	}
+	return false
 }
 
 // CountDeletemeSegments counts files ending in ".deleteme".
