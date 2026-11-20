@@ -39,6 +39,12 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	// checkIDOrAssignNew would pass an empty class to Exists, which searches every
+	// collection for the id. resolveNS turns a namespaced caller's "" into "<ns>:".
+	if object.Class == "" {
+		return nil, NewErrInvalidUserInput("invalid object: %s", validation.ErrorMissingClass)
+	}
+
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
 		return nil, userInputOrForbidden(err)
