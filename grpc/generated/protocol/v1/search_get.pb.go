@@ -153,7 +153,9 @@ type SearchRequest struct {
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
 	Boost        *Boost             `protobuf:"bytes,62,opt,name=boost,proto3,oneof" json:"boost,omitempty"`
-	// Per-request vector search tuning; rejected (InvalidArgument) on bm25-only requests.
+	// Per-request vector search tuning. Requires a near* or hybrid search:
+	// rejected (InvalidArgument) on bm25-only requests and on requests without
+	// any search clause.
 	VectorSearchParams *VectorSearchParams `protobuf:"bytes,63,opt,name=vector_search_params,json=vectorSearchParams,proto3,oneof" json:"vector_search_params,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
@@ -408,8 +410,10 @@ func (x *SearchRequest) GetUses_127Api() bool {
 
 type VectorSearchParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// HNSW layer-0 beam width; 0/unset = collection default
-	Ef            *uint32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"` // 2 reserved for search_probe (HFresh)
+	// HNSW layer-0 beam width, floored at the requested limit; 0/unset =
+	// collection default. Must not exceed the server's HNSW_MAX_SEARCH_EF
+	// (defaults to QUERY_MAXIMUM_RESULTS), otherwise InvalidArgument.
+	Ef            *uint32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2225,10 +2229,10 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\v_generativeB\t\n" +
 	"\a_rerankB\b\n" +
 	"\x06_boostB\x17\n" +
-	"\x15_vector_search_params\"0\n" +
+	"\x15_vector_search_params\"6\n" +
 	"\x12VectorSearchParams\x12\x13\n" +
 	"\x02ef\x18\x01 \x01(\rH\x00R\x02ef\x88\x01\x01B\x05\n" +
-	"\x03_ef\"s\n" +
+	"\x03_efJ\x04\b\x02\x10\x03\"s\n" +
 	"\aGroupBy\x12\x12\n" +
 	"\x04path\x18\x01 \x03(\tR\x04path\x12(\n" +
 	"\x10number_of_groups\x18\x02 \x01(\x05R\x0enumberOfGroups\x12*\n" +

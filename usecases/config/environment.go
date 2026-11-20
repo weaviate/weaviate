@@ -855,9 +855,17 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
-	// Cap for a per-request HNSW ef. Unset or 0 falls back to the resolved
-	// QUERY_MAXIMUM_RESULTS.
-	config.HNSWMaxSearchEF = config.QueryMaximumResults
+	// Cap for a per-request HNSW ef. Precedence: the HNSW_MAX_SEARCH_EF env
+	// var, then hnsw_max_search_ef from the config file (already in config
+	// here), then the resolved QUERY_MAXIMUM_RESULTS. A value of 0 at any step
+	// falls through to the next, and a non-positive QUERY_MAXIMUM_RESULTS is
+	// replaced by its default so the cap never ends up rejecting every ef.
+	if config.HNSWMaxSearchEF <= 0 {
+		config.HNSWMaxSearchEF = config.QueryMaximumResults
+	}
+	if config.HNSWMaxSearchEF <= 0 {
+		config.HNSWMaxSearchEF = DefaultQueryMaximumResults
+	}
 	if v := os.Getenv("HNSW_MAX_SEARCH_EF"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {

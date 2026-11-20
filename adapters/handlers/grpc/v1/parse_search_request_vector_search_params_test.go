@@ -84,6 +84,19 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 			wantErr: "vector_search_params is not applicable to bm25 search",
 		},
 		{
+			// A plain object listing runs no vector search either.
+			name: "no search clause with ef",
+			req: &pb.SearchRequest{
+				Collection:         classname,
+				VectorSearchParams: vsp(800),
+			},
+			wantErr: "vector_search_params requires a near* or hybrid search",
+		},
+		{
+			name: "no search clause without params",
+			req:  &pb.SearchRequest{Collection: classname},
+		},
+		{
 			name: "bm25 with hybrid and ef",
 			req: &pb.SearchRequest{
 				Collection:         classname,

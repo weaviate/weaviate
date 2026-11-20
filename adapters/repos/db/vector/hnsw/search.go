@@ -98,16 +98,22 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	ef := h.searchTimeEF(k, params)
 	// Annotate only when a request override is present: boxing the ints into
 	// `any` allocates, and the default path must stay allocation-free.
-	if requested := params.EFOrZero(); requested > 0 {
+	requested := params.EFOrZero()
+	if requested > 0 {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", requested)
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
 	}
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
+		// Brute force: no graph walk happens, so there is no effective beam to
+		// report. ef only caps the compressed candidates kept for rescoring and
+		// is discarded entirely on an uncompressed index.
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
 		return h.flatSearch(ctx, vector, k, ef, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
+	if requested > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
+	}
 	return h.knnSearchByVector(ctx, vector, k, ef, allowList)
 }
 
@@ -1280,7 +1286,8 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	ef := h.searchTimeEF(kPrime, params)
-	if params.EFOrZero() > 0 {
+	if requested := params.EFOrZero(); requested > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", requested)
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
 	}
 	for _, vec := range queryVectors {

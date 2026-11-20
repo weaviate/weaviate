@@ -255,14 +255,14 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
 
-	// Mirror the REST surface: a bm25-only request runs no vector search, so
-	// per-request vector params are a client mistake. Hybrid is accepted.
-	if req.VectorSearchParams != nil && req.Bm25Search != nil &&
-		req.NearVector == nil && req.NearObject == nil && req.NearText == nil &&
-		req.HybridSearch == nil && req.NearImage == nil && req.NearAudio == nil &&
-		req.NearVideo == nil && req.NearDepth == nil && req.NearThermal == nil &&
-		req.NearImu == nil {
-		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params is not applicable to bm25 search")
+	// Mirror the REST surface: a request that runs no vector search (bm25
+	// only, or a plain object listing) cannot use per-request vector params,
+	// so they are a client mistake. Hybrid is accepted.
+	if req.VectorSearchParams != nil && !hasVectorSearch(req) {
+		if req.Bm25Search != nil {
+			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params is not applicable to bm25 search")
+		}
+		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params requires a near* or hybrid search")
 	}
 
 	vsp, err := extractVectorSearchParams(req.VectorSearchParams, config.HNSWMaxSearchEF)
@@ -481,6 +481,15 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, err
 	}
 	return out, nil
+}
+
+// hasVectorSearch reports whether the request runs a vector search (any near*
+// clause or hybrid), i.e. whether per-request vector search params can apply.
+func hasVectorSearch(req *pb.SearchRequest) bool {
+	return req.NearVector != nil || req.NearObject != nil || req.NearText != nil ||
+		req.HybridSearch != nil || req.NearImage != nil || req.NearAudio != nil ||
+		req.NearVideo != nil || req.NearDepth != nil || req.NearThermal != nil ||
+		req.NearImu != nil
 }
 
 // extractVectorSearchParams converts the per-request vector search params.

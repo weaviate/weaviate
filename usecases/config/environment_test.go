@@ -3187,15 +3187,22 @@ func TestEnvironmentHNSWMaxSearchEF(t *testing.T) {
 		name          string
 		maxResults    string
 		maxEF         string
+		fileMaxEF     int64 // hnsw_max_search_ef parsed from the config file
 		expectedMaxEF int64
 		expectErr     bool
 	}{
-		{"unset follows QUERY_MAXIMUM_RESULTS default", "", "", DefaultQueryMaximumResults, false},
-		{"unset follows explicit QUERY_MAXIMUM_RESULTS", "5000", "", 5000, false},
-		{"explicit value wins", "5000", "20000", 20000, false},
-		{"zero falls back", "5000", "0", 5000, false},
-		{"negative rejected", "", "-1", 0, true},
-		{"not a number rejected", "", "abc", 0, true},
+		{name: "unset follows QUERY_MAXIMUM_RESULTS default", expectedMaxEF: DefaultQueryMaximumResults},
+		{name: "unset follows explicit QUERY_MAXIMUM_RESULTS", maxResults: "5000", expectedMaxEF: 5000},
+		{name: "explicit value wins", maxResults: "5000", maxEF: "20000", expectedMaxEF: 20000},
+		{name: "zero falls back", maxResults: "5000", maxEF: "0", expectedMaxEF: 5000},
+		{name: "negative rejected", maxEF: "-1", expectErr: true},
+		{name: "not a number rejected", maxEF: "abc", expectErr: true},
+		// a broken QUERY_MAXIMUM_RESULTS must not turn the cap into "reject everything"
+		{name: "zero QUERY_MAXIMUM_RESULTS falls back to default", maxResults: "0", expectedMaxEF: DefaultQueryMaximumResults},
+		{name: "negative QUERY_MAXIMUM_RESULTS falls back to default", maxResults: "-1", expectedMaxEF: DefaultQueryMaximumResults},
+		{name: "config file value kept when env unset", maxResults: "5000", fileMaxEF: 777, expectedMaxEF: 777},
+		{name: "env overrides config file value", fileMaxEF: 777, maxEF: "20000", expectedMaxEF: 20000},
+		{name: "zero env falls back to config file value", fileMaxEF: 777, maxEF: "0", expectedMaxEF: 777},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3205,7 +3212,7 @@ func TestEnvironmentHNSWMaxSearchEF(t *testing.T) {
 			if tt.maxEF != "" {
 				t.Setenv("HNSW_MAX_SEARCH_EF", tt.maxEF)
 			}
-			conf := Config{}
+			conf := Config{HNSWMaxSearchEF: tt.fileMaxEF}
 			err := FromEnv(&conf)
 
 			if tt.expectErr {

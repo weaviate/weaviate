@@ -51,7 +51,9 @@ message SearchRequest {
 
   optional Boost boost = 62;
 
-  // Per-request vector search tuning; rejected (InvalidArgument) on bm25-only requests.
+  // Per-request vector search tuning. Requires a near* or hybrid search:
+  // rejected (InvalidArgument) on bm25-only requests and on requests without
+  // any search clause.
   optional VectorSearchParams vector_search_params = 63;
 
   bool uses_123_api = 100 [deprecated = true];
@@ -60,9 +62,11 @@ message SearchRequest {
 }
 
 message VectorSearchParams {
-  // HNSW layer-0 beam width; 0/unset = collection default
+  // HNSW layer-0 beam width, floored at the requested limit; 0/unset =
+  // collection default. Must not exceed the server's HNSW_MAX_SEARCH_EF
+  // (defaults to QUERY_MAXIMUM_RESULTS), otherwise InvalidArgument.
   optional uint32 ef = 1;
-  // 2 reserved for search_probe (HFresh)
+  reserved 2;  // search_probe (HFresh)
 }
 
 message GroupBy {

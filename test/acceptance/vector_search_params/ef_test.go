@@ -91,6 +91,11 @@ func cosineDistance(a, b []float32) float64 {
 // exactTopK returns the ids of the k exact nearest neighbours of q by cosine
 // distance among the vectors accepted by keep (nil keeps all).
 func (d *dataset) exactTopK(q []float32, keep func(i int) bool) []string {
+	return d.exactTopN(q, k, keep)
+}
+
+// exactTopN is exactTopK for an arbitrary result size n.
+func (d *dataset) exactTopN(q []float32, n int, keep func(i int) bool) []string {
 	type scored struct {
 		i    int
 		dist float64
@@ -103,8 +108,8 @@ func (d *dataset) exactTopK(q []float32, keep func(i int) bool) []string {
 		all = append(all, scored{i, cosineDistance(q, v)})
 	}
 	sort.Slice(all, func(a, b int) bool { return all[a].dist < all[b].dist })
-	ids := make([]string, 0, k)
-	for _, s := range all[:k] {
+	ids := make([]string, 0, n)
+	for _, s := range all[:n] {
 		ids = append(ids, idFor(s.i))
 	}
 	return ids
@@ -245,7 +250,7 @@ func meanRecall(t *testing.T, c pb.WeaviateClient, ds *dataset, collection strin
 func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 	helper.SetupClient(singleNode.GetWeaviate().URI())
 	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
-	ds := newDataset(42, numObjects, numQueries)
+	ds := newDataset(42, numObjects, statQueries)
 
 	t.Run("unset equals zero", func(t *testing.T) {
 		createSingleVectorCollection(t, "EfUnsetZero", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
@@ -277,24 +282,68 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 
 	t.Run("ef below limit", func(t *testing.T) {
 		createSingleVectorCollection(t, "EfBelowLimit", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
-		for _, q := range ds.queries[:5] {
-			ids := searchIDs(t, grpcClient, nearVectorRequest("EfBelowLimit", q, 100, u32(10)))
-			require.Len(t, ids, 100)
+		// The beam is floored at the limit, so ef=10 and ef=100 both search
+		// with a beam of 100 and must return the same 100 ids.
+		for qi, q := range ds.queries {
+			floored := searchIDs(t, grpcClient, nearVectorRequest("EfBelowLimit", q, 100, u32(10)))
+			require.Len(t, floored, 100, "query %d", qi)
+			atLimit := searchIDs(t, grpcClient, nearVectorRequest("EfBelowLimit", q, 100, u32(100)))
+			require.Equal(t, atLimit, floored, "query %d: ef below limit must behave as ef=limit", qi)
 		}
 	})
 
 	t.Run("with filter", func(t *testing.T) {
-		createSingleVectorCollection(t, "EfFilter", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
-		filter := &pb.Filters{
-			Operator:  pb.Filters_OPERATOR_EQUAL,
-			TestValue: &pb.Filters_ValueInt{ValueInt: 3},
-			Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "bucket"}},
+		// bucketBelow keeps the objects whose bucket is < n, i.e. n*10% of them.
+		bucketBelow := func(n int) (*pb.Filters, func(i int) bool) {
+			return &pb.Filters{
+				Operator:  pb.Filters_OPERATOR_LESS_THAN,
+				TestValue: &pb.Filters_ValueInt{ValueInt: int64(n)},
+				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "bucket"}},
+			}, func(i int) bool { return i%numBuckets < n }
 		}
-		keep := func(i int) bool { return i%numBuckets == 3 }
-		low := meanRecall(t, grpcClient, ds, "EfFilter", u32(10), filter, keep)
-		high := meanRecall(t, grpcClient, ds, "EfFilter", u32(1000), filter, keep)
-		t.Logf("filtered recall ef=10: %.3f, ef=1000: %.3f", low, high)
-		assert.GreaterOrEqual(t, high, low)
+		// With the default flatSearchCutoff (40000) every allow list here is
+		// brute-forced and ef only caps the compressed candidates kept for
+		// rescoring, so the gap is tiny; with flatSearchCutoff 0 the graph is
+		// walked and the filter strategy sees the override, which must then
+		// open a clear recall gap. The graph cases keep 50% of the objects: on
+		// a 10% filter sweeping explores so much of the graph to find allowed
+		// candidates that ef=10 is already near-exact (measured gap 0.01), while
+		// at 50% all three strategies lose about 0.10 recall at ef=10.
+		cases := []struct {
+			name      string
+			cutoff    int
+			strategy  string
+			buckets   int // selectivity: buckets of 10 kept
+			strictGap bool
+		}{
+			{"brute force below flatSearchCutoff", -1, "", 1, false},
+			{"graph sweeping", 0, "sweeping", 5, true},
+			{"graph acorn", 0, "acorn", 5, true},
+			{"graph pathseer", 0, "pathseer", 5, true},
+		}
+		for i, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := rqConfig()
+				if tc.cutoff >= 0 {
+					cfg["flatSearchCutoff"] = tc.cutoff
+				}
+				if tc.strategy != "" {
+					cfg["filterStrategy"] = tc.strategy
+				}
+				filter, keep := bucketBelow(tc.buckets)
+				class := fmt.Sprintf("EfFilter%d", i)
+				createSingleVectorCollection(t, class, "hnsw", cfg, nil, ds, numObjects, types.ConsistencyLevelQuorum)
+				low := meanRecall(t, grpcClient, ds, class, u32(10), filter, keep)
+				high := meanRecall(t, grpcClient, ds, class, u32(1000), filter, keep)
+				t.Logf("%s: filtered recall ef=10 %.3f, ef=1000 %.3f", tc.name, low, high)
+				assert.GreaterOrEqual(t, high, 0.95, "ef=1000 must be near-exact")
+				if tc.strictGap {
+					assert.LessOrEqual(t, low, high-0.03, "ef=10 must have clearly lower recall on the graph path")
+				} else {
+					assert.GreaterOrEqual(t, high, low)
+				}
+			})
+		}
 	})
 
 	for _, muvera := range []bool{false, true} {
@@ -308,12 +357,22 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 	}
 
 	t.Run("hybrid dense leg", func(t *testing.T) {
-		createSingleVectorCollection(t, "EfHybrid", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
+		// The hybrid dense leg fetches max(limit, QUERY_HYBRID_MAXIMUM_RESULTS=100)
+		// candidates, so its beam is floored at 100 and an ef below 100 is a
+		// no-op. Recall cannot tell beam 100 from beam 1000 at k=100 (both are
+		// ~1.0), so the check is exact equality with the equivalent near-vector
+		// request, made informative by requiring that the two references (beam
+		// 100 and beam 1000) differ on some queries. The collection gets ef
+		// 1000 so that the default beam is the wide one.
+		const hybridLimit = 100
+		cfg := rqConfig()
+		cfg["ef"] = 1000
+		createSingleVectorCollection(t, "EfHybrid", "hnsw", cfg, nil, ds, numObjects, types.ConsistencyLevelQuorum)
 		alpha := float32(1)
-		hybridIDs := func(q []float32, ef uint32) []string {
-			return searchIDs(t, grpcClient, &pb.SearchRequest{
+		hybridIDs := func(q []float32, ef *uint32) []string {
+			ids := searchIDs(t, grpcClient, &pb.SearchRequest{
 				Collection: "EfHybrid",
-				Limit:      k,
+				Limit:      hybridLimit,
 				Metadata:   &pb.MetadataRequest{Uuid: true},
 				HybridSearch: &pb.Hybrid{
 					Query:         "object",
@@ -324,24 +383,28 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 						VectorBytes: byteops.Fp32SliceToBytes(q),
 					}},
 				},
-				VectorSearchParams: efParams(u32(ef)),
+				VectorSearchParams: efParams(ef),
 				Uses_127Api:        true,
 			})
+			require.Len(t, ids, hybridLimit)
+			return ids
 		}
-		// ef=1000: the dense leg must match near-vector exactly.
-		for qi, q := range ds.queries[:10] {
-			nv := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, k, u32(1000)))
-			require.Equal(t, nv, hybridIDs(q, 1000), "ef 1000 query %d", qi)
+		differs := 0
+		for qi, q := range ds.queries {
+			narrow := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, hybridLimit, u32(100)))
+			wide := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, hybridLimit, u32(1000)))
+			if !assert.ObjectsAreEqual(narrow, wide) {
+				differs++
+			}
+			// alpha 1: the hybrid result is the dense leg, so it must equal the
+			// near-vector request with the same limit and ef...
+			require.Equal(t, narrow, hybridIDs(q, u32(100)), "request ef 100, query %d", qi)
+			require.Equal(t, wide, hybridIDs(q, u32(1000)), "request ef 1000, query %d", qi)
+			// ...and without params it must use the collection default (1000).
+			require.Equal(t, wide, hybridIDs(q, nil), "collection ef, query %d", qi)
 		}
-		// ef=10: hybrid sub-searches fetch max(limit, QUERY_HYBRID_MAXIMUM_RESULTS=100)
-		// candidates, so the dense leg's beam is max(10, 100) = 100. The matching
-		// near-vector request is therefore the top 10 of a limit-100, ef=10 search
-		// (NOT limit 10, whose beam would be 10). Note this cannot detect a
-		// dropped ef: the hybrid beam floor of 100 already gives ~1.0 recall.
-		for qi, q := range ds.queries[:10] {
-			nv := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, 100, u32(10)))
-			require.Equal(t, nv[:k], hybridIDs(q, 10), "ef 10 query %d", qi)
-		}
+		t.Logf("hybrid: beam 100 and beam 1000 differ on %d of %d queries", differs, len(ds.queries))
+		require.Positive(t, differs, "beam 100 and 1000 never differ, so the equalities above prove nothing")
 	})
 
 	t.Run("errors", func(t *testing.T) {
@@ -411,7 +474,7 @@ func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 		}
 	})
 
-	for qi := 0; qi < 5; qi++ {
+	search := func(q [][]float32, ef uint32) []string {
 		reply, err := c.Search(context.Background(), &pb.SearchRequest{
 			Collection: name,
 			Limit:      k,
@@ -419,22 +482,39 @@ func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 			NearVector: &pb.NearVector{
 				Vectors: []*pb.Vectors{{
 					Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
-					VectorBytes: byteops.Fp32SliceOfSlicesToBytes(multi()),
+					VectorBytes: byteops.Fp32SliceOfSlicesToBytes(q),
 				}},
 				Targets: &pb.Targets{TargetVectors: []string{"colbert"}},
 			},
-			VectorSearchParams: efParams(u32(500)),
+			VectorSearchParams: efParams(u32(ef)),
 			Uses_127Api:        true,
 		})
-		require.Len(t, idsOf(t, reply, err), k, "query %d", qi)
+		ids := idsOf(t, reply, err)
+		require.Len(t, ids, k)
+		return ids
 	}
+
+	// ef=1000 visits every document (1000 candidates, or all of them after
+	// the MUVERA pre-search), so late interaction over that set is the exact
+	// MaxSim top k and serves as the reference. ef=10 pools only a few dozen
+	// candidates and must lose recall against it, otherwise the override
+	// never reached the multi-vector path.
+	var sum float64
+	for qi := 0; qi < numQueries; qi++ {
+		q := multi()
+		sum += recallOf(search(q, 10), search(q, 1000))
+	}
+	mean := sum / numQueries
+	t.Logf("muvera=%v: mean recall@%d of ef=10 against ef=1000: %.3f", muvera, k, mean)
+	assert.LessOrEqual(t, mean, 0.9, "ef=10 must return a different top k than ef=1000")
 }
 
 func TestVectorSearchParamsEF_REST(t *testing.T) {
 	uri := singleNode.GetWeaviate().URI()
 	helper.SetupClient(uri)
-	ds := newDataset(43, 1000, numQueries)
-	createSingleVectorCollection(t, "EfREST", "hnsw", rqConfig(), nil, ds, 1000, types.ConsistencyLevelQuorum)
+	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
+	ds := newDataset(43, numObjects, numQueries)
+	createSingleVectorCollection(t, "EfREST", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
 
 	post := func(searchType string, body map[string]any) (int, map[string]any) {
 		t.Helper()
@@ -449,35 +529,57 @@ func TestVectorSearchParamsEF_REST(t *testing.T) {
 		return resp.StatusCode, out
 	}
 
+	restIDs := func(out map[string]any) []string {
+		t.Helper()
+		res, ok := out["results"].([]any)
+		require.True(t, ok, "%v", out)
+		ids := make([]string, 0, len(res))
+		for _, r := range res {
+			ids = append(ids, r.(map[string]any)["id"].(string))
+		}
+		return ids
+	}
+
 	tests := []struct {
 		name       string
 		searchType string
-		params     any
+		body       map[string]any
 		wantStatus int
-		wantHits   int
 	}{
-		{"ef 800", "near-vector", map[string]any{"ef": 800}, http.StatusOK, k},
-		{"negative ef", "near-vector", map[string]any{"ef": -1}, http.StatusUnprocessableEntity, 0},
-		{"ef above cap", "near-vector", map[string]any{"ef": 10001}, http.StatusUnprocessableEntity, 0},
-		{"bm25 rejects params", "bm25", map[string]any{"ef": 10}, http.StatusUnprocessableEntity, 0},
+		{"near-vector", "near-vector", map[string]any{"vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": 800}}, http.StatusOK},
+		{"near-object", "near-object", map[string]any{"id": idFor(0), "vectorSearchParams": map[string]any{"ef": 800}}, http.StatusOK},
+		{"hybrid", "hybrid", map[string]any{"query": "object", "alpha": 1, "vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": 800}}, http.StatusOK},
+		{"negative ef", "near-vector", map[string]any{"vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": -1}}, http.StatusUnprocessableEntity},
+		{"ef above cap", "near-vector", map[string]any{"vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": 10001}}, http.StatusUnprocessableEntity},
+		{"bm25 rejects params", "bm25", map[string]any{"query": "object", "vectorSearchParams": map[string]any{"ef": 10}}, http.StatusUnprocessableEntity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := map[string]any{"limit": k, "vectorSearchParams": tt.params}
-			if tt.searchType == "bm25" {
-				body["query"] = "object"
-			} else {
-				body["vector"] = ds.queries[0]
-			}
-			status, out := post(tt.searchType, body)
+			tt.body["limit"] = k
+			status, out := post(tt.searchType, tt.body)
 			require.Equal(t, tt.wantStatus, status, "%v", out)
 			if tt.wantStatus == http.StatusOK {
-				res, ok := out["results"].([]any)
-				require.True(t, ok, "%v", out)
-				assert.Len(t, res, tt.wantHits)
+				assert.Len(t, restIDs(out), k)
 			}
 		})
 	}
+
+	// REST must land on the same search as gRPC: for every query, the ids at
+	// ef=10 and at ef=1000 are identical across the two surfaces. The gRPC
+	// path is proven ef-sensitive above, so this pins the REST mapping without
+	// a second statistical check.
+	t.Run("matches gRPC per query", func(t *testing.T) {
+		for _, ef := range []uint32{10, 1000} {
+			for qi, q := range ds.queries {
+				status, out := post("near-vector", map[string]any{
+					"vector": q, "limit": k, "vectorSearchParams": map[string]any{"ef": ef},
+				})
+				require.Equal(t, http.StatusOK, status, "%v", out)
+				want := searchIDs(t, grpcClient, nearVectorRequest("EfREST", q, k, u32(ef)))
+				require.Equal(t, want, restIDs(out), "ef %d query %d", ef, qi)
+			}
+		}
+	})
 }
 
 func TestVectorSearchParamsEF_FlatIgnores(t *testing.T) {

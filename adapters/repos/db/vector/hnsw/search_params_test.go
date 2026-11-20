@@ -14,11 +14,13 @@ package hnsw
 import (
 	"context"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -156,5 +158,35 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, ids, k, "query %d", i)
 		}
+	})
+
+	// The slow-query log must name the requested ef on every path, but report
+	// an effective beam only where a graph walk happened: brute force has none.
+	t.Run("slow-query annotations", func(t *testing.T) {
+		q := queryVecs[0]
+		params := &searchparams.VectorSearchParams{EF: 64}
+		search := func(allow helpers.AllowList, params *searchparams.VectorSearchParams) map[string]any {
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			_, _, err := idxA.SearchByVector(ctx, q, k, allow, params)
+			require.NoError(t, err)
+			return helpers.ExtractSlowQueryDetails(ctx)
+		}
+
+		details := search(nil, nil)
+		assert.NotContains(t, details, "hnsw_ef_requested", "default path must not annotate")
+		assert.NotContains(t, details, "hnsw_ef_effective", "default path must not annotate")
+
+		details = search(nil, params)
+		assert.Equal(t, 64, details["hnsw_ef_requested"])
+		assert.Equal(t, 64, details["hnsw_ef_effective"])
+		assert.Equal(t, false, details["hnsw_flat_search"])
+
+		prev := atomic.LoadInt64(&idxA.flatSearchCutoff)
+		atomic.StoreInt64(&idxA.flatSearchCutoff, 1000)
+		defer atomic.StoreInt64(&idxA.flatSearchCutoff, prev)
+		details = search(helpers.NewAllowList(1, 2, 3, 4, 5), params)
+		assert.Equal(t, 64, details["hnsw_ef_requested"])
+		assert.NotContains(t, details, "hnsw_ef_effective", "brute force walks no graph")
+		assert.Equal(t, true, details["hnsw_flat_search"])
 	})
 }
