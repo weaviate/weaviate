@@ -174,6 +174,147 @@ func TestAddBatch_MultipleBatches(t *testing.T) {
 	}
 }
 
+func TestAddBatch_RejectedMixedBatchDoesNotConsumeDimensionTracking(t *testing.T) {
+	index := testHNSW(t)
+	defer index.Shutdown(context.Background())
+
+	// Mixed-length batch must fail without settling dims.
+	err := index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0}},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.Equal(t, int32(0), index.dims.Load(), "rejected mixed batch must leave dims unset")
+
+	// Valid retry should initialize dims and accept the batch.
+	err = index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), index.dims.Load())
+
+	// Wrong-dimension insert must now be rejected via ValidateBeforeInsert.
+	err = index.ValidateBeforeInsert([]float32{1, 2, 3})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "length 3")
+}
+
+func TestAddBatch_RestoredDimsRejectsMixedBatchWithoutPartialInsert(t *testing.T) {
+	index := testHNSW(t)
+	defer index.Shutdown(context.Background())
+
+	// Simulate dims restored from compression metadata at startup.
+	index.dims.Store(4)
+
+	err := index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0}},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.False(t, index.ContainsDoc(1), "mixed batch must not insert a valid prefix")
+	assert.False(t, index.ContainsDoc(2))
+	assert.Equal(t, int32(4), index.dims.Load())
+}
+
+func TestAddMultiBatch_RejectedMixedBatchDoesNotConsumeDimensionTracking(t *testing.T) {
+	index := newTestMultivectorIndex(t)
+	defer index.Shutdown(context.Background())
+
+	err := index.AddMultiBatch(context.Background(),
+		[]uint64{1, 2},
+		[][][]float32{
+			{{1, 0, 0, 0}, {0, 1, 0, 0}},
+			{{0, 0, 1}},
+		},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.Equal(t, int32(0), index.dims.Load(), "rejected mixed multi batch must leave dims unset")
+	assert.False(t, index.ContainsDoc(1))
+	assert.False(t, index.ContainsDoc(2))
+
+	err = index.AddMultiBatch(context.Background(),
+		[]uint64{1, 2},
+		[][][]float32{
+			{{1, 0, 0, 0}, {0, 1, 0, 0}},
+			{{0, 0, 1, 0}},
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), index.dims.Load())
+	assert.True(t, index.ContainsDoc(1))
+	assert.True(t, index.ContainsDoc(2))
+
+	err = index.ValidateMultiBeforeInsert([][]float32{{1, 2, 3}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "length 3")
+}
+
+func TestAddMultiBatch_RestoredDimsRejectsMixedBatchWithoutPartialInsert(t *testing.T) {
+	index := newTestMultivectorIndex(t)
+	defer index.Shutdown(context.Background())
+
+	index.dims.Store(4)
+
+	err := index.AddMultiBatch(context.Background(),
+		[]uint64{1, 2},
+		[][][]float32{
+			{{1, 0, 0, 0}, {0, 1, 0, 0}},
+			{{0, 0, 1}},
+		},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.False(t, index.ContainsDoc(1), "mixed multi batch must not insert a valid prefix")
+	assert.False(t, index.ContainsDoc(2))
+	assert.Equal(t, int32(4), index.dims.Load())
+}
+
+// Two first batches of different lengths can both observe dims == 0. Only the
+// one that settles the dimension may be accepted; the loser must be rejected
+// rather than mixing vector lengths in one index.
+func TestTrackDimensions_ConcurrentFirstBatchesKeepOneDimension(t *testing.T) {
+	for round := range 50 {
+		index := testHNSW(t)
+
+		// A long scan widens the window in which both callers see dims == 0.
+		const padding = 300_000
+		wide := make([][]float32, padding)
+		vec4 := []float32{1, 2, 3, 4}
+		for i := range wide {
+			wide[i] = vec4
+		}
+		narrow := [][]float32{{1, 2, 3, 4, 5, 6, 7}}
+
+		start := make(chan struct{})
+		errs := make([]error, 2)
+		var wg sync.WaitGroup
+		for i, batch := range [][][]float32{wide, narrow} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errs[i] = index.trackDimensions(batch)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		index.Shutdown(context.Background())
+
+		var rejected int
+		for _, err := range errs {
+			if err != nil {
+				rejected++
+			}
+		}
+		require.Equal(t, 1, rejected, "round %d: exactly one of the two lengths must win, got %d rejections", round, rejected)
+		require.NotEqual(t, int32(0), index.dims.Load())
+	}
+}
+
 func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 	index := testHNSW(t)
 	defer index.Shutdown(context.Background())
@@ -195,7 +336,9 @@ func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 
 	err = index.AddBatch(context.Background(), batch2IDs, batch2Vectors)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vector lengths don't match")
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.False(t, index.ContainsDoc(3))
+	assert.False(t, index.ContainsDoc(4))
 }
 
 func TestAddBatch_MemoryAllocationFailure(t *testing.T) {

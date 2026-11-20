@@ -115,7 +115,6 @@ type hnsw struct {
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
 	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
 	multiVectorForID                  common.MultiVectorForID
-	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
 	trackRQOnce                       sync.Once
 	dims                              atomic.Int32
