@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -87,15 +86,15 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		t.Logf("insertion complete!")
 	})
 
-	t.Run("halt compaction with readonly status", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReadOnly.String(), "test readonly")
+	t.Run("halt compaction by pausing background I/O", func(t *testing.T) {
+		err := shd.Store().PauseBackgroundIO(true)
 		require.Nil(t, err)
 
-		// give the status time to propagate
+		// give the pause time to propagate
 		// before grabbing the baseline below
 		time.Sleep(time.Second)
 
-		// once shard status is set to readonly,
+		// once background I/O is paused,
 		// the segment files should not change
 		haltedFiles = listFiles(t)
 
@@ -108,11 +107,11 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		}
 	})
 
-	t.Run("update shard status to ready", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReady.String(), "test ready")
+	t.Run("resume background I/O", func(t *testing.T) {
+		err := shd.Store().PauseBackgroundIO(false)
 		require.Nil(t, err)
 
-		// the work held back while readonly has to resume, otherwise
+		// the work held back while paused has to resume, otherwise
 		// the files above stayed unchanged for another reason
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			assert.NotEqual(c, haltedFiles, listFiles(c))

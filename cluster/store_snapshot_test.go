@@ -61,7 +61,6 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 	target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 	snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -115,7 +114,6 @@ func TestSnapshotCapturesStateAtSnapshotTime(t *testing.T) {
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 	target.indexer.On("AddClass", mock.Anything).Return(nil)
 	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
 
@@ -170,7 +168,6 @@ func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
 	target.parser.On("ParseClass", mock.Anything).Return(nil)
 	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 	target.indexer.On("AddClass", mock.Anything).Return(nil)
 	// Pre-existing task the snapshot producer never had: must NOT survive.
 	applyDTM(target, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
@@ -700,7 +697,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -784,7 +780,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -867,7 +862,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -951,7 +945,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -1034,7 +1027,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -1118,7 +1110,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -1195,7 +1186,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -1280,7 +1270,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
@@ -1365,7 +1354,6 @@ func TestReplicationFactorMigration(t *testing.T) {
 		target.parser.On("ParseClass", mock.Anything).Return(nil)
 		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
-		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		target.indexer.On("AddClass", mock.Anything).Return(nil)
 
 		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))

@@ -31,6 +31,9 @@ type ShardStatusGetResponse struct {
 	// Name of the shard
 	Name string `json:"name,omitempty"`
 
+	// Lists why each replica refuses writes, if it does. `USER_READONLY` is set through `PUT /schema/{className}/shards/{shardName}`. `RESOURCE_PRESSURE` means disk or memory use on that node is over its read-only limit. `REINDEXING` means an inverted index of the shard is being rebuilt. A node that did not report is missing.
+	PerNodeConditions map[string][]string `json:"per_node_conditions,omitempty"`
+
 	// Status of the shard on each of its replicas
 	PerNodeStatus map[string]string `json:"per_node_status,omitempty"`
 

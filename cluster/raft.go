@@ -113,6 +113,10 @@ func (s *Raft) SchemaReader() schema.SchemaReader {
 	return s.store.SchemaReader()
 }
 
+func (s *Raft) NodeOverlay() *schema.NodeOverlay {
+	return s.store.schemaManager.NodeOverlay()
+}
+
 func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
 	return s.store.WaitToRestoreDB(ctx, period, close)
 }
