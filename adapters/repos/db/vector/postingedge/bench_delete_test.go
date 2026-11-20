@@ -44,7 +44,9 @@ var (
 		"rounds, with the best cell of random30, which must come before it). And those of v6.1: repair30 (the maintenance "+
 		"pass in two phases, repair and eliminate, in its cells, over 30 % deleted at random) and repairchurn (the churn "+
 		"with the best of them). And those of v6.2: memory30 (the pass of v6.1, B and C, each over its own copy with "+
-		"30 % deleted at random) and memorychurn (the churn with the pass of v6.1, A, B and C, each over its own base)")
+		"30 % deleted at random) and memorychurn (the churn with the pass of v6.1, A, B and C, each over its own base). "+
+		"And those of v6.2b: memorylong (that churn over more rounds, measured after some of them) and "+
+		"memoryclustered (the cells of v6.2 over whole regions deleted, 30 % of the train set)")
 	benchDeleteMin = flag.Int("bench.deletemin", 118, "with -bench.deletes: the live members under which the cleanup "+
 		"merges a posting into its nearest one")
 	benchDeleteOver = flag.Float64("bench.deleteover", 0.30, "with -bench.deletes: the share of deleted members past "+
@@ -58,6 +60,14 @@ var (
 		"point, after cell 1: a deleted member that is still in its posting is a routing source")
 	benchRepairCell = flag.String("bench.repaircell", "", "with -bench.deletes: the cell repairchurn runs with, by its "+
 		"key, when repair30 is not among the stages to choose it")
+	benchMemoryRounds = flag.Int("bench.memoryrounds", 30, "with the stage memorylong of -bench.deletes (v6.2b): the "+
+		"rounds of its churn, each deleting 3 % of the base and inserting as many new vectors")
+	benchMemoryMeasure = flag.String("bench.memorymeasure", "10,20,30", "with the stage memorylong: the rounds after "+
+		"which every cell is searched and set against a batch index of the vectors live then, separated by commas")
+	benchMemoryBase = flag.Int("bench.memorybase", 520, "with the stage memorylong: the vectors of the base of its "+
+		"churn, of every 990 of the train set. The new vectors of all its rounds have to fit in the rest")
+	benchMemoryCells = flag.String("bench.memorycells", "", "with the stages memorylong, memoryclustered and memory30: "+
+		"the cells of v6.2 they run, by their keys, separated by commas. Empty: all of them")
 	benchDeleteFill = flag.Bool("bench.deletefill", false, "with -bench.deletes: every point builds besides a batch "+
 		"index of the vectors that are left with the mean live size of the postings of its cells as its posting size, "+
 		"one for the cells before the cleanup and one for those after it, and sets every cell against its own")
@@ -260,11 +270,15 @@ type deleteStage struct {
 	Reference      deleteReference `json:"reference"`
 	// Fills are the batch indexes of the vectors that are left built with
 	// the live sizes of the postings of the cells.
-	Fills   []deleteReference `json:"fills,omitempty"`
-	Cells   []deleteCell      `json:"cells"`
-	Rounds  []deleteRound     `json:"rounds,omitempty"`
-	Stopped string            `json:"stopped,omitempty"`
-	Seconds float64           `json:"seconds"`
+	Fills  []deleteReference `json:"fills,omitempty"`
+	Cells  []deleteCell      `json:"cells"`
+	Rounds []deleteRound     `json:"rounds,omitempty"`
+	// Checkpoints are the rounds of the long churn of v6.2b after which its
+	// cells are measured, each with its own reference: the batch index of
+	// the vectors live then.
+	Checkpoints []deleteStage `json:"checkpoints,omitempty"`
+	Stopped     string        `json:"stopped,omitempty"`
+	Seconds     float64       `json:"seconds"`
 }
 
 type deleteResult struct {
@@ -630,7 +644,7 @@ func TestStreamDeletes(t *testing.T) {
 	var whole *Index
 	var built *state
 	needWhole := slices.ContainsFunc(stages, func(stage string) bool {
-		return stage != "churn" && stage != "repairchurn" && stage != "memorychurn"
+		return stage != "churn" && stage != "repairchurn" && stage != "memorychurn" && stage != "memorylong"
 	})
 	if needWhole {
 		all := make([]uint64, n)
@@ -1002,6 +1016,19 @@ func TestStreamDeletes(t *testing.T) {
 		}
 	}
 
+	// memoryWanted tells whether a stage runs the cell of v6.2 with the
+	// given key: all of them, unless -bench.memorycells names some.
+	memoryWanted := func(key string) bool {
+		if *benchMemoryCells == "" {
+			return true
+		}
+		for _, wanted := range strings.Split(*benchMemoryCells, ",") {
+			if strings.TrimSpace(wanted) == key {
+				return true
+			}
+		}
+		return false
+	}
 	// memoryMeasure counts a cell of v6.2 when its passes end and searches
 	// it. Its verdict waits for the reference of its stage, which is built
 	// after the cells (memoryJudge). It returns false if the stage has to
@@ -1131,7 +1158,7 @@ func TestStreamDeletes(t *testing.T) {
 			return memoryMeasure(stage, spec, whole, d, truth, memory, sample, nearest, nil)
 		}
 		for _, spec := range memorySpecs {
-			if spec.key == "A" {
+			if spec.key == "A" || !memoryWanted(spec.key) {
 				continue
 			}
 			if !cell(spec) {
@@ -1264,6 +1291,172 @@ func TestStreamDeletes(t *testing.T) {
 		fill(stage, live, truth)
 	}
 
+	// memoryLong is the long churn of v6.2b: the churn of memoryChurn over
+	// -bench.memoryrounds rounds, for the cells of -bench.memorycells, each
+	// over a base of its own. After every round of -bench.memorymeasure a
+	// cell is searched and set against the batch index of the vectors that
+	// are live then, which is built the first time a cell gets there and is
+	// the same for all: so are the deletes and the inserts. The base is
+	// smaller than that of memoryChurn so that every insert of every round
+	// is a vector the index never held.
+	memoryLong := func(stage *deleteStage) {
+		rounds := *benchMemoryRounds
+		var measureAt []int
+		for _, field := range strings.Split(*benchMemoryMeasure, ",") {
+			var round int
+			_, err := fmt.Sscanf(strings.TrimSpace(field), "%d", &round)
+			require.NoError(t, err, "-bench.memorymeasure")
+			require.True(t, round >= 1 && round <= rounds, "-bench.memorymeasure: round %d of %d", round, rounds)
+			measureAt = append(measureAt, round)
+		}
+		require.True(t, slices.IsSorted(measureAt), "-bench.memorymeasure: in order")
+		order := rand.New(rand.NewPCG(6, 6)).Perm(n)
+		baseN := n * *benchMemoryBase / 990
+		each := baseN * 3 / 100
+		base, fresh := make([]uint64, baseN), make([]uint64, 0, n-baseN)
+		for i, id := range order {
+			if i < baseN {
+				base[i] = uint64(id)
+			} else {
+				fresh = append(fresh, uint64(id))
+			}
+		}
+		require.GreaterOrEqual(t, len(fresh), rounds*each, "new vectors to insert")
+		require.GreaterOrEqual(t, len(base), rounds*each, "vectors of the base to delete")
+		// The base is deleted in the order of another shuffle of it.
+		leaving := slices.Clone(base)
+		rand.New(rand.NewPCG(7, 7)).Shuffle(len(leaving), func(i, j int) { leaving[i], leaving[j] = leaving[j], leaving[i] })
+		stage.Corpus, stage.Deleted, stage.Inserted = baseN, rounds*each, rounds*each
+
+		// What every round of measure is measured with: the vectors live
+		// after it, those of them the churn inserted, the truth of the
+		// queries among them and the sample of the edge recall.
+		type measured struct {
+			live, inserted []bool
+			truth          [][]uint64
+			sample         []uint64
+			nearest        [][]scored
+		}
+		points := make([]measured, len(measureAt))
+		stage.Checkpoints = make([]deleteStage, len(measureAt))
+		for at, round := range measureAt {
+			pt, cp := &points[at], &stage.Checkpoints[at]
+			pt.live, pt.inserted = make([]bool, n), make([]bool, n)
+			for _, id := range base {
+				pt.live[id] = true
+			}
+			for _, id := range leaving[:round*each] {
+				pt.live[id] = false
+			}
+			for _, id := range fresh[:round*each] {
+				pt.live[id], pt.inserted[id] = true, true
+			}
+			cp.Name = fmt.Sprintf("round %d", round)
+			cp.Corpus, cp.Deleted, cp.Inserted = baseN, round*each, round*each
+			pt.truth, cp.TruthFallbacks = liveTruthOf(t, data, pt.live, k)
+			pt.sample = memorySample(pt.live, memorySampleSize)
+		}
+		defer func() { sampled = nil }()
+
+		cell := func(spec memorySpec) bool {
+			index, took := build(base, uc.TargetPostingSize)
+			defer func() { require.NoError(t, index.Shutdown(ctx)) }()
+			t.Logf("%s, %s: the base, %d vectors, built in %s", stage.Name, spec.key, baseN, took.Round(time.Second))
+			s, err := newStreamIndex(index, n, cfg, vectorOf)
+			require.NoError(t, err)
+			d := newDeleteIndex(s, *benchDeleteOver, *benchDeleteMin)
+			d.remember()
+			d.scoreDeletedEndpoints(true)
+			d.deletedAreSources(true)
+			require.NoError(t, index.UpdateUserConfig(insertUC, func() {}))
+			memory := &memoryCell{}
+			stop := func(format string, args ...any) bool {
+				stage.Stopped = spec.key + ", " + fmt.Sprintf(format, args...)
+				write()
+				t.Logf("STOP, %s: %s", stage.Name, stage.Stopped)
+				return false
+			}
+			for round := range rounds {
+				out := deleteRound{Round: round + 1, Coverage: "complete"}
+				for _, id := range leaving[round*each : (round+1)*each] {
+					require.NoError(t, d.remove(id))
+				}
+				inserts := s.stats.clone()
+				for _, id := range fresh[round*each : (round+1)*each] {
+					if err := s.insert(ctx, id, data.train[id]); err != nil {
+						return stop("round %d, insert of doc %d: %v", round+1, id, err)
+					}
+				}
+				out.Deleted, out.Inserted = (round+1)*each, (round+1)*each
+				pass, err := d.pass(ctx, spec, fillUnder, cfg.threshold)
+				if err != nil {
+					return stop("round %d: %v", round+1, err)
+				}
+				if err := s.cleanCentroidGraph(); err != nil {
+					t.Logf("%s, %s, round %d: cleaning the centroid graph failed: %v", stage.Name, spec.key, round+1, err)
+				}
+				if err := d.checkCoverage(); err != nil {
+					return stop("round %d, coverage: %v", round+1, err)
+				}
+				out.Counts, out.Work, out.Refresh = d.counts(uc.TargetPostingSize), d.stats, pass.Repair
+				// Of the inserts of a round, these four counts are of the
+				// round. Every other count of out.Inserts, and all of
+				// out.Work, are of the rounds so far.
+				out.Inserts = s.stats.clone()
+				out.Inserts.Inserted -= inserts.Inserted
+				out.Inserts.Splits -= inserts.Splits
+				out.Inserts.SearchLoads -= inserts.SearchLoads
+				out.Inserts.InverseEdges -= inserts.InverseEdges
+				memory.add(pass)
+				memory.Rounds = append(memory.Rounds, out)
+				memoryLog(stage, spec, round+1, &pass, out.Counts)
+
+				at := slices.Index(measureAt, round+1)
+				if at < 0 {
+					continue
+				}
+				pt, cp := &points[at], &stage.Checkpoints[at]
+				if !slices.Equal(pt.live, s.live) {
+					return stop("round %d: the live vectors are not those its measure was prepared for", round+1)
+				}
+				if pt.nearest == nil {
+					pt.nearest, err = memoryNearest(ctx, logger, index.provider, vectorOf, pt.live, pt.sample, uc.Edges)
+					require.NoError(t, err)
+				}
+				// What the cell has done so far, as it is after this round.
+				so := *memory
+				so.Deleted = (round + 1) * each
+				so.Passes, so.Rounds = slices.Clone(memory.Passes), slices.Clone(memory.Rounds)
+				if !memoryMeasure(cp, spec, index, d, pt.truth, &so, pt.sample, pt.nearest, pt.inserted) {
+					stage.Stopped = fmt.Sprintf("round %d, %s", round+1, cp.Stopped)
+					write()
+					return false
+				}
+				if len(cp.Reference.Points) == 0 {
+					sampled = func(index *Index) *memoryEdges {
+						edges, err := edgesOfBatch(index.state.Load(), n, pt.sample, pt.nearest)
+						require.NoError(t, err)
+						return &edges
+					}
+					cp.Reference = reference(pt.live, pt.truth, uc.TargetPostingSize)
+					sampled = nil
+				}
+				memoryJudge(cp)
+				// The searches of the next inserts go on with their ef.
+				require.NoError(t, index.UpdateUserConfig(insertUC, func() {}))
+			}
+			return true
+		}
+		for _, spec := range memorySpecs {
+			if !memoryWanted(spec.key) {
+				continue
+			}
+			if !cell(spec) {
+				return
+			}
+		}
+	}
+
 	for _, name := range stages {
 		name = strings.TrimSpace(name)
 		if !until.IsZero() && !time.Now().Before(until) {
@@ -1316,6 +1509,10 @@ func TestStreamDeletes(t *testing.T) {
 			memoryPoint(stage, gone)
 		case "memorychurn":
 			memoryChurn(stage)
+		case "memorylong":
+			memoryLong(stage)
+		case "memoryclustered":
+			memoryPoint(stage, clustered(stage, 0.30))
 		default:
 			t.Fatalf("unknown stage %q of -bench.deletes", name)
 		}
