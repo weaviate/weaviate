@@ -229,6 +229,7 @@ Checkpoints of unloaded shards, answered from their persisted hashtree, are coun
 | `http_request_size_bytes` | Size (in bytes) of the request received | `Histogram` | `method, route` | ❌ High 
 | `http_response_size_bytes` | Size (in bytes) of the response sent | `Histogram` | `method, route` | ❌ High 
 | `http_requests_inflight` | Current number of inflight requests | `Gauge` | `method, route` | ❌ High 
+| `objects_list_without_class_requests_total` | Number of `GET /v1/objects` requests without a `class`, which list objects across all collections. Listing without a class is deprecated, so a non-zero rate means a client still relies on it. Rejected requests count too, such as the 410 answered while namespaces are enabled. `http_request_duration_seconds` cannot show this: its `route` is `/objects` with or without `class`. | `Counter` | `-` | - Low (1 series) |
 
 #### gRPC Server Metrics
 | Name | Description | Type | Labels | High Cardinality |
