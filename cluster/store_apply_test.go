@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -542,7 +543,17 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 
 func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
 	t.Helper()
-	ms := newClassApplyTestStore(t)
+	ms := newClassApplyTestStore(t, func(c *Config) {
+		c.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
+			"test-namespace": decodeCollection(func(payload []byte) (string, bool) {
+				var p struct {
+					Collection string `json:"collection"`
+				}
+				err := json.Unmarshal(payload, &p)
+				return p.Collection, err == nil && p.Collection != ""
+			}),
+		}
+	})
 
 	cls := &models.Class{Class: className}
 	state := &sharding.State{
@@ -566,9 +577,9 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 
 // newClassApplyTestStore returns a store built by NewFSM, with its own
 // SchemaManager, whose indexer and parser accept class adds and deletes.
-func newClassApplyTestStore(t *testing.T) *MockStore {
+func newClassApplyTestStore(t *testing.T, tweaks ...func(*Config)) *MockStore {
 	t.Helper()
-	ms := NewMockStore(t, "Node-1", 0)
+	ms := NewMockStore(t, "Node-1", 0, tweaks...)
 	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
 
 	tmpDir := t.TempDir()
@@ -612,19 +623,6 @@ func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 // task records.
 func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
-
-	ms.store.distributedTasksManager.RegisterCollectionExtractor(
-		"test-namespace",
-		func(payload []byte) (string, bool) {
-			var p struct {
-				Collection string `json:"collection"`
-			}
-			if err := json.Unmarshal(payload, &p); err != nil {
-				return "", false
-			}
-			return p.Collection, p.Collection != ""
-		},
-	)
 
 	// Raft indexes must be monotonic across the test (Store.Apply reads
 	// l.Index for version/metrics/catchingUp): 1=add-class, 2..4=add-task,
@@ -780,19 +778,6 @@ func TestStore_Apply_UpdateClass_MarkerIntroductionPurge(t *testing.T) {
 // on weaviate/weaviate#11345.
 func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
 	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
-
-	ms.store.distributedTasksManager.RegisterCollectionExtractor(
-		"test-namespace",
-		func(payload []byte) (string, bool) {
-			var p struct {
-				Collection string `json:"collection"`
-			}
-			if err := json.Unmarshal(payload, &p); err != nil {
-				return "", false
-			}
-			return p.Collection, p.Collection != ""
-		},
-	)
 
 	// Apply ADD_CLASS + ADD_TASK at low indexes, then set
 	// lastAppliedIndexToDB above them and apply DELETE_CLASS at an

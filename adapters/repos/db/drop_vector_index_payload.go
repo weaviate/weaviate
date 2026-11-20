@@ -540,14 +540,25 @@ func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targe
 	return p.Collection, p.Targets, true
 }
 
-// ExtractDropVectorIndexTaskCollection is the collection extractor registered
-// with the DTM Manager so the DeleteClass cascade can drop this namespace's task
-// records (mirrors ExtractReindexTaskCollection). ok is false on an unparseable
-// payload.
+// ExtractDropVectorIndexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
 func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok bool) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
 		return "", false
 	}
 	return p.Collection, true
+}
+
+var _ distributedtask.HeaderDecoder = (*DropVectorIndexDetector)(nil)
+
+type dropVectorIndexTaskHeader string
+
+func (h dropVectorIndexTaskHeader) Collection() string { return string(h) }
+
+func (*DropVectorIndexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
+	p, err := decodeDropVectorIndexPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return dropVectorIndexTaskHeader(p.Collection), nil
 }
