@@ -149,6 +149,9 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot decode vector")
 	}
+	if len(vector) != len(input) {
+		return nil, fmt.Errorf("invalid response from HuggingFace: got %d embeddings for %d inputs", len(vector), len(input))
+	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,

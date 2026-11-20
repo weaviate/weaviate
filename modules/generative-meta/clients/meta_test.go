@@ -153,6 +153,18 @@ func TestGenerate(t *testing.T) {
 			body:        `not json`,
 			expectedErr: "unmarshal response",
 		},
+		{
+			name:        "empty choices",
+			statusCode:  http.StatusOK,
+			body:        `{"choices":[]}`,
+			expectedErr: "empty choices in response",
+		},
+		{
+			name:        "no choices",
+			statusCode:  http.StatusOK,
+			body:        `{}`,
+			expectedErr: "empty choices in response",
+		},
 	}
 
 	for _, tt := range tests {

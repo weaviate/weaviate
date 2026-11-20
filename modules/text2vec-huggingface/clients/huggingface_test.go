@@ -166,6 +166,91 @@ func TestClient(t *testing.T) {
 	})
 }
 
+func TestClientMalformedResponse(t *testing.T) {
+	tests := []struct {
+		name          string
+		inputs        []string
+		body          string
+		wantErr       string
+		wantVectors   [][]float32
+		wantInputErrs []string
+	}{
+		{
+			name:    "more embeddings than inputs",
+			inputs:  []string{"text"},
+			body:    `[[0.1],[0.2]]`,
+			wantErr: "got 2 embeddings for 1 inputs",
+		},
+		{
+			name:    "fewer embeddings than inputs",
+			inputs:  []string{"first", "second"},
+			body:    `[[0.1]]`,
+			wantErr: "got 1 embeddings for 2 inputs",
+		},
+		{
+			name:    "embeddings object with more embeddings than inputs",
+			inputs:  []string{"text"},
+			body:    `{"embeddings":[[0.1],[0.2]]}`,
+			wantErr: "got 2 embeddings for 1 inputs",
+		},
+		{
+			name:    "token matrices for more inputs than sent",
+			inputs:  []string{"text"},
+			body:    `[[[[0.1]],[[0.2]]]]`,
+			wantErr: "got 2 embeddings for 1 inputs",
+		},
+		{
+			name:          "ragged token matrix",
+			inputs:        []string{"text"},
+			body:          `[[[[1,2],[1]]]]`,
+			wantVectors:   [][]float32{nil},
+			wantInputErrs: []string{"token vector 1 has 1 dimensions, expected 2"},
+		},
+		{
+			name:          "zero-length token vectors",
+			inputs:        []string{"text"},
+			body:          `[[[[],[]]]]`,
+			wantVectors:   [][]float32{nil},
+			wantInputErrs: []string{"token vector 0 has no dimensions"},
+		},
+		{
+			name:          "ragged token matrix for the second input only",
+			inputs:        []string{"first", "second"},
+			body:          `[[[[1,2],[3,4]],[[1,2],[]]]]`,
+			wantVectors:   [][]float32{{2, 3}, nil},
+			wantInputErrs: []string{"", "token vector 1 has 0 dimensions, expected 2"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+			c := New("apiKey", 0, nullLogger())
+
+			res, _, _, err := c.Vectorize(context.Background(), tt.inputs,
+				fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantVectors, res.Vector)
+			require.Len(t, res.Errors, len(tt.wantInputErrs))
+			for i, wantErr := range tt.wantInputErrs {
+				if wantErr == "" {
+					assert.NoError(t, res.Errors[i])
+				} else {
+					assert.EqualError(t, res.Errors[i], wantErr)
+				}
+			}
+		})
+	}
+}
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error

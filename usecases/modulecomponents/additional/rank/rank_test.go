@@ -145,3 +145,52 @@ func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []str
 	}
 	return result, nil
 }
+
+func TestRankScoreCountMustMatchDocuments(t *testing.T) {
+	tests := []struct {
+		name    string
+		scores  int
+		wantErr string
+	}{
+		{name: "one score per document", scores: 2},
+		{name: "no scores", scores: 0, wantErr: "reranker returned 0 scores for 2 documents"},
+		{name: "fewer scores than documents", scores: 1, wantErr: "reranker returned 1 scores for 2 documents"},
+		{name: "more scores than documents", scores: 3, wantErr: "reranker returned 3 scores for 2 documents"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rankProvider := New(&fixedCountRankClient{scores: tt.scores})
+			in := []search.Result{
+				{ID: "uuid-1", Schema: map[string]interface{}{"content": "a"}},
+				{ID: "uuid-2", Schema: map[string]interface{}{"content": "b"}},
+			}
+			property := "content"
+			params := &Params{Property: &property}
+
+			var err error
+			require.NotPanics(t, func() {
+				_, err = rankProvider.AdditionalPropertyFn(context.Background(), in, params, nil, nil, nil)
+			})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for i := range in {
+				require.Contains(t, in[i].AdditionalProperties, "rerank")
+			}
+		})
+	}
+}
+
+type fixedCountRankClient struct {
+	scores int
+}
+
+func (c *fixedCountRankClient) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
+	scores := make([]ent.DocumentScore, c.scores)
+	for i := range scores {
+		scores[i] = ent.DocumentScore{Score: float64(i)}
+	}
+	return &ent.RankResult{DocumentScores: scores, Query: query}, nil
+}

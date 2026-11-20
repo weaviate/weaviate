@@ -112,6 +112,13 @@ func (v *xai) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 		return nil, errors.Errorf("connection to xAI API failed with status: %d", res.StatusCode)
 	}
 
+	if len(resBody.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
+	}
+	if resBody.Choices[0].Message == nil {
+		return nil, errors.New("empty message in response")
+	}
+
 	textResponse := resBody.Choices[0].Message.Content
 
 	return &modulecapabilities.GenerateResponse{

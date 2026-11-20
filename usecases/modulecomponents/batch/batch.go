@@ -487,6 +487,9 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 		Observe(float64(tokensInCurrentBatch))
 
 	res, rateLimitNew, tokensUsed, err := b.client.Vectorize(job.ctx, texts, cfg)
+	if err == nil && res == nil {
+		err = errors.New("vectorizer returned no result")
+	}
 
 	if err != nil {
 		b.logger.WithField("class", job.cfg.Class()).WithError(err).Debug("vectorization failed")
@@ -496,12 +499,15 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 		}
 	} else {
 		for j := 0; j < len(texts); j++ {
-			if res.Errors != nil && j < len(res.Errors) && res.Errors[j] != nil {
+			switch {
+			case res.Errors != nil && j < len(res.Errors) && res.Errors[j] != nil:
 				job.errs[origIndex[j]] = res.Errors[j]
-			} else if j < len(res.Vector) {
-				job.vecs[origIndex[j]] = res.Vector[j]
-			} else {
+			case j >= len(res.Vector):
 				job.errs[origIndex[j]] = errors.New("vectorizer returned fewer vectors than requested")
+			case modulecomponents.IsEmbeddingEmpty(res.Vector[j]):
+				job.errs[origIndex[j]] = errors.New("vectorizer returned an empty embedding")
+			default:
+				job.vecs[origIndex[j]] = res.Vector[j]
 			}
 		}
 	}

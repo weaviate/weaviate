@@ -133,7 +133,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	}
 
 	if len(response.Choices) == 0 {
-		return &modulecapabilities.GenerateResponse{Debug: debugData}, nil
+		return nil, errors.New("empty choices in response")
 	}
 
 	answer := strings.TrimSpace(response.Choices[0].Message.Content)

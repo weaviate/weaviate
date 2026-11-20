@@ -70,6 +70,65 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	})
 }
 
+func TestSinglePromptRecordsClientFailure(t *testing.T) {
+	// The "client panics" case needs the panic recovered.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	tests := []struct {
+		name    string
+		client  modulecapabilities.GenerativeClient
+		wantErr string
+	}{
+		{
+			name:    "client returns an error",
+			client:  &failingSingleClient{err: fmt.Errorf("provider is down")},
+			wantErr: "provider is down",
+		},
+		{
+			name:    "client panics",
+			client:  &failingSingleClient{panicMsg: "index out of range"},
+			wantErr: "index out of range",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			provider := NewGeneric(map[string]modulecapabilities.GenerativeProperty{
+				"openai": {Client: tt.client},
+			}, "openai", logger)
+			in := []search.Result{
+				{ID: "uuid-1", Schema: map[string]interface{}{"content": "a"}},
+				{ID: "uuid-2", Schema: map[string]interface{}{"content": "b"}},
+			}
+			prompt := "describe {content}"
+
+			_, err := provider.AdditionalPropertyFn(context.Background(), in, &Params{Prompt: &prompt}, nil, nil, nil)
+			require.NoError(t, err)
+
+			for i := range in {
+				generate, ok := in[i].AdditionalProperties["generate"].(map[string]interface{})
+				require.True(t, ok, "result %d has no generate entry", i)
+				resultErr, ok := generate["error"].(error)
+				require.True(t, ok, "result %d has no error", i)
+				require.ErrorContains(t, resultErr, tt.wantErr)
+			}
+		})
+	}
+}
+
+type failingSingleClient struct {
+	fakeClient
+	err      error
+	panicMsg string
+}
+
+func (c *failingSingleClient) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	if c.panicMsg != "" {
+		panic(c.panicMsg)
+	}
+	return nil, c.err
+}
+
 type fakeClient struct{}
 
 func (c *fakeClient) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {

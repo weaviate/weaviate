@@ -150,6 +150,54 @@ func TestGetScore(t *testing.T) {
 	})
 }
 
+func TestRankScoreCount(t *testing.T) {
+	documents := []string{"I work at Apple", "I work at Google"}
+	tests := []struct {
+		name    string
+		scores  []DocumentScore
+		wantErr string
+	}{
+		{
+			name:   "one score per document",
+			scores: []DocumentScore{{Document: documents[0], Score: 0.9}, {Document: documents[1], Score: 0.2}},
+		},
+		{
+			name:    "fewer scores than documents",
+			scores:  []DocumentScore{{Document: documents[0], Score: 0.9}},
+			wantErr: "1 scores for 2 documents",
+		},
+		{
+			name: "more scores than documents",
+			scores: []DocumentScore{
+				{Document: documents[0], Score: 0.9},
+				{Document: documents[1], Score: 0.2},
+				{Document: documents[1], Score: 0.1},
+			},
+			wantErr: "3 scores for 2 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testCrossRankerHandler{t: t, res: RankResponse{Scores: tt.scores}})
+			defer server.Close()
+			c := New(server.URL, 0, nullLogger())
+
+			res, err := c.Rank(context.Background(), "Where do I work?", documents, nil)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []ent.DocumentScore{
+				{Document: documents[0], Score: 0.9},
+				{Document: documents[1], Score: 0.2},
+			}, res.DocumentScores)
+		})
+	}
+}
+
 type testCrossRankerHandler struct {
 	lock           sync.RWMutex
 	t              *testing.T

@@ -67,6 +67,7 @@ type contextualEmbeddingsRequest struct {
 
 type embeddingsDataResponse struct {
 	Embedding []float32 `json:"embedding"`
+	Index     int       `json:"index"`
 }
 
 type embeddingsResponse struct {
@@ -221,16 +222,20 @@ func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images, videos 
 		return nil, err
 	}
 
+	embeddings, err := embeddingsByIndex(resBody.Data, len(texts)+len(images)+len(videos))
+	if err != nil {
+		return nil, err
+	}
 	var textVectors, imageVectors, videoVectors [][]float32
 	textEnd := len(texts)
 	imageEnd := textEnd + len(images)
-	for i := range resBody.Data {
+	for i := range embeddings {
 		if i < textEnd {
-			textVectors = append(textVectors, resBody.Data[i].Embedding)
+			textVectors = append(textVectors, embeddings[i])
 		} else if i < imageEnd {
-			imageVectors = append(imageVectors, resBody.Data[i].Embedding)
+			imageVectors = append(imageVectors, embeddings[i])
 		} else {
-			videoVectors = append(videoVectors, resBody.Data[i].Embedding)
+			videoVectors = append(videoVectors, embeddings[i])
 		}
 	}
 
@@ -240,6 +245,31 @@ func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images, videos 
 		VideoVectors: videoVectors,
 	}
 	return res, nil
+}
+
+// embeddingsByIndex places each embedding at the input position given by its
+// response index. It errors unless every input gets exactly one non-empty
+// embedding.
+func embeddingsByIndex(data []embeddingsDataResponse, inputCount int) ([][]float32, error) {
+	embeddings := make([][]float32, inputCount)
+	for _, d := range data {
+		if d.Index < 0 || d.Index >= inputCount {
+			return nil, fmt.Errorf("invalid response from VoyageAI API: embedding index %d out of range for %d inputs", d.Index, inputCount)
+		}
+		if embeddings[d.Index] != nil {
+			return nil, fmt.Errorf("invalid response from VoyageAI API: duplicate index %d", d.Index)
+		}
+		if modulecomponents.IsEmbeddingEmpty(d.Embedding) {
+			return nil, fmt.Errorf("invalid response from VoyageAI API: empty embedding for index %d", d.Index)
+		}
+		embeddings[d.Index] = d.Embedding
+	}
+	for i := range embeddings {
+		if embeddings[i] == nil {
+			return nil, fmt.Errorf("invalid response from VoyageAI API: missing embedding for input %d (got %d of %d)", i, len(data), inputCount)
+		}
+	}
+	return embeddings, nil
 }
 
 func (c *Client) getMultiModalEmbeddingsRequest(texts, images, videos []string, settings Settings,

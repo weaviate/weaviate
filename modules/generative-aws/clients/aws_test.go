@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -132,6 +133,267 @@ func TestAWS_GetAnswer(t *testing.T) {
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to AWS failed with status: 200 error: some error from the server")
 	})
+}
+
+type responseShape struct {
+	name    string
+	body    string
+	want    string
+	wantErr string
+}
+
+func TestBedrockResponseShapes(t *testing.T) {
+	tests := []struct {
+		model  string
+		shapes []responseShape
+	}{
+		{
+			model: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+			shapes: []responseShape{
+				{name: "no content", body: `{"type":"message"}`, wantErr: "empty content in response"},
+				{
+					name:    "empty content, with stop_reason",
+					body:    `{"type":"message","content":[],"stop_reason":"refusal"}`,
+					wantErr: "empty content in response (stop_reason: refusal)",
+				},
+				{
+					name:    "content without text, with stop_reason",
+					body:    `{"type":"message","content":[{"type":"tool_use"}],"stop_reason":"tool_use"}`,
+					wantErr: "empty content in response (stop_reason: tool_use)",
+				},
+				{
+					name: "thinking before text",
+					body: `{"type":"message","content":[{"type":"thinking","thinking":"Let me think"},{"type":"text","text":"John"}]}`,
+					want: "John",
+				},
+				{name: "text with empty value", body: `{"type":"message","content":[{"type":"text","text":""}],"stop_reason":"end_turn"}`, want: ""},
+				{name: "text", body: `{"type":"message","content":[{"type":"text","text":"John"}]}`, want: "John"},
+			},
+		},
+		{
+			model: "anthropic.claude-v2",
+			shapes: []responseShape{
+				{name: "no completion", body: `{}`, wantErr: "empty content in response"},
+				{
+					name:    "no completion, with stop_reason",
+					body:    `{"stop_reason":"max_tokens"}`,
+					wantErr: "empty content in response (stop_reason: max_tokens)",
+				},
+				{name: "empty completion", body: `{"completion":"","stop_reason":"stop_sequence"}`, want: ""},
+				{name: "completion", body: `{"completion":"John"}`, want: "John"},
+			},
+		},
+		{
+			model: "ai21.j2-ultra-v1",
+			shapes: []responseShape{
+				{name: "no completions", body: `{}`, wantErr: "empty completions in response"},
+				{name: "completion without data", body: `{"completions":[{}]}`, wantErr: "empty content in response"},
+				{
+					name:    "completion without data, with finishReason",
+					body:    `{"completions":[{"finishReason":{"reason":"length"}}]}`,
+					wantErr: "empty content in response (finishReason: length)",
+				},
+				{name: "completion with empty text", body: `{"completions":[{"data":{"text":""}}]}`, want: ""},
+				{name: "completion with text", body: `{"completions":[{"data":{"text":"John"}}]}`, want: "John"},
+			},
+		},
+		{
+			model: "cohere.command-r-v1:0",
+			shapes: []responseShape{
+				{name: "no text", body: `{}`, wantErr: "empty content in response"},
+				{
+					name:    "no text, with finish_reason",
+					body:    `{"finish_reason":"ERROR_TOXIC"}`,
+					wantErr: "empty content in response (finish_reason: ERROR_TOXIC)",
+				},
+				{name: "empty text", body: `{"text":"","finish_reason":"COMPLETE"}`, want: ""},
+				{name: "text", body: `{"text":"John"}`, want: "John"},
+			},
+		},
+		{
+			model: "cohere.command-text-v14",
+			shapes: []responseShape{
+				{name: "no generations", body: `{}`, wantErr: "received empty response from AWS Bedrock"},
+				{
+					name:    "generation without text, with finish_reason",
+					body:    `{"generations":[{"id":"1","finish_reason":"ERROR_TOXIC"}]}`,
+					wantErr: "empty content in response (finish_reason: ERROR_TOXIC)",
+				},
+				{name: "generation with empty text", body: `{"generations":[{"id":"1","text":""}]}`, want: ""},
+				{name: "generation with text", body: `{"generations":[{"id":"1","text":"John"}]}`, want: "John"},
+			},
+		},
+		{
+			model: "amazon.titan-text-express-v1",
+			shapes: []responseShape{
+				{name: "no results", body: `{}`, wantErr: "received empty response from AWS Bedrock"},
+				{
+					name:    "result without outputText, with completionReason",
+					body:    `{"results":[{"completionReason":"CONTENT_FILTERED"}]}`,
+					wantErr: "empty content in response (completionReason: CONTENT_FILTERED)",
+				},
+				{name: "result with empty outputText", body: `{"results":[{"outputText":"","completionReason":"FINISH"}]}`, want: ""},
+				{name: "result with outputText", body: `{"results":[{"outputText":"John","completionReason":"FINISH"}]}`, want: "John"},
+				{name: "result with outputText, without completionReason", body: `{"results":[{"outputText":"John"}]}`, want: "John"},
+			},
+		},
+		{
+			model: "mistral.mistral-7b-instruct-v0:2",
+			shapes: []responseShape{
+				{name: "no outputs", body: `{}`, wantErr: "empty outputs in response"},
+				{
+					name:    "output without text, with stop_reason",
+					body:    `{"outputs":[{"stop_reason":"length"}]}`,
+					wantErr: "empty content in response (stop_reason: length)",
+				},
+				{name: "output with empty text", body: `{"outputs":[{"text":"","stop_reason":"stop"}]}`, want: ""},
+				{name: "output with text", body: `{"outputs":[{"text":"John"}]}`, want: "John"},
+			},
+		},
+		{
+			model: "meta.llama3-8b-instruct-v1:0",
+			shapes: []responseShape{
+				{name: "no generation", body: `{}`, wantErr: "empty content in response"},
+				{
+					name:    "no generation, with stop_reason",
+					body:    `{"stop_reason":"length"}`,
+					wantErr: "empty content in response (stop_reason: length)",
+				},
+				{name: "empty generation", body: `{"generation":"","stop_reason":"stop"}`, want: ""},
+				{name: "generation", body: `{"generation":"John"}`, want: "John"},
+			},
+		},
+		{
+			model: "amazon.nova-micro-v1:0",
+			shapes: []responseShape{
+				{name: "no output message", body: `{}`, wantErr: "empty message in response"},
+				{
+					name:    "no output message, with stopReason",
+					body:    `{"output":{},"stopReason":"content_filtered"}`,
+					wantErr: "empty message in response (stopReason: content_filtered)",
+				},
+				{
+					name:    "message with empty content, with stopReason",
+					body:    `{"output":{"message":{"role":"assistant","content":[]}},"stopReason":"content_filtered"}`,
+					wantErr: "empty content in response (stopReason: content_filtered)",
+				},
+				{
+					name:    "content without text, with stopReason",
+					body:    `{"output":{"message":{"role":"assistant","content":[{"toolUse":{}}]}},"stopReason":"tool_use"}`,
+					wantErr: "empty content in response (stopReason: tool_use)",
+				},
+				{
+					name: "reasoning before text",
+					body: `{"output":{"message":{"role":"assistant","content":[{"reasoningContent":{"reasoningText":{"text":"Let me think"}}},{"text":"John"}]}}}`,
+					want: "John",
+				},
+				{name: "text with empty value", body: `{"output":{"message":{"role":"assistant","content":[{"text":""}]}},"stopReason":"end_turn"}`, want: ""},
+				{name: "text", body: `{"output":{"message":{"role":"assistant","content":[{"text":"John"}]}}}`, want: "John"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			for _, sh := range tt.shapes {
+				t.Run(sh.name, func(t *testing.T) {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						assert.Equal(t, "/model/"+tt.model+"/invoke", r.URL.Path)
+						w.Header().Set("Content-Type", "application/json")
+						w.Write([]byte(sh.body))
+					}))
+					defer server.Close()
+					t.Setenv("AWS_ENDPOINT_URL", server.URL)
+					t.Setenv("AWS_CONFIG_FILE", "/nonexistent")
+					t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "/nonexistent")
+
+					c := New("access", "secret", "", 0, nullLogger())
+					params := awsparams.Params{Service: "bedrock", Region: "us-east-1", Model: tt.model}
+					props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+
+					var res *modulecapabilities.GenerateResponse
+					var err error
+					require.NotPanics(t, func() {
+						res, err = c.GenerateAllResults(context.Background(), props, "What is my name?", params, false, nil)
+					})
+					assertResponseShape(t, sh, res, err)
+				})
+			}
+		})
+	}
+}
+
+func TestSagemakerResponseShapes(t *testing.T) {
+	tests := []responseShape{
+		{name: "no generations", body: `{}`, wantErr: "received empty response from AWS Sagemaker"},
+		{name: "generation without text", body: `{"generations":[{"id":"1"}]}`, wantErr: "empty content in response"},
+		{name: "generation with empty text", body: `{"generations":[{"id":"1","text":""}]}`, want: ""},
+		{name: "generation with text", body: `{"generations":[{"id":"1","text":"John"}]}`, want: "John"},
+		{name: "generation with text, without id", body: `{"generations":[{"text":"John"}]}`, want: "John"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			c := New("access", "secret", "", 0, nullLogger())
+			c.buildSagemakerUrlFn = func(service, region, endpoint string) string {
+				return server.URL
+			}
+			params := awsparams.Params{Service: "sagemaker", Region: "us-east-1", Endpoint: "my-endpoint"}
+			props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+
+			var res *modulecapabilities.GenerateResponse
+			var err error
+			require.NotPanics(t, func() {
+				res, err = c.GenerateAllResults(context.Background(), props, "What is my name?", params, false, nil)
+			})
+			assertResponseShape(t, tt, res, err)
+		})
+	}
+
+	t.Run("debug information", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"generations":[{"id":"1","text":"John"}]}`))
+		}))
+		defer server.Close()
+
+		c := New("access", "secret", "", 0, nullLogger())
+		c.buildSagemakerUrlFn = func(service, region, endpoint string) string {
+			return server.URL
+		}
+		params := awsparams.Params{Service: "sagemaker", Region: "us-east-1", Endpoint: "my-endpoint"}
+		props := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "My name is john"}}
+
+		res, err := c.GenerateSingleResult(context.Background(), props, "What is my name?", params, true, nil)
+
+		require.NoError(t, err)
+		require.NotNil(t, res.Debug)
+		assert.Equal(t, "What is my name?", res.Debug.Prompt)
+	})
+}
+
+func TestGenerateUnsupportedService(t *testing.T) {
+	c := New("access", "secret", "", 0, nullLogger())
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+
+	res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", awsparams.Params{Service: "bedrok"}, false, nil)
+
+	require.EqualError(t, err, "unsupported service: bedrok")
+	assert.Nil(t, res)
+}
+
+func assertResponseShape(t *testing.T, sh responseShape, res *modulecapabilities.GenerateResponse, err error) {
+	t.Helper()
+	if sh.wantErr != "" {
+		require.EqualError(t, err, sh.wantErr)
+		assert.Nil(t, res)
+		return
+	}
+	require.NoError(t, err)
+	require.NotNil(t, res.Result)
+	assert.Equal(t, sh.want, *res.Result)
 }
 
 type testAnswerHandler struct {

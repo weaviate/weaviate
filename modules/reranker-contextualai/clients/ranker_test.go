@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const (
@@ -84,6 +85,92 @@ func TestClientRank(t *testing.T) {
 	assert.Len(t, result.DocumentScores, 3)
 	assert.Equal(t, "doc1", result.DocumentScores[0].Document)
 	assert.Equal(t, 0.9, result.DocumentScores[0].Score)
+}
+
+func TestRankResultIndexes(t *testing.T) {
+	documents := []string{"doc1", "doc2"}
+	tests := []struct {
+		name    string
+		topN    int
+		results []RerankedResult
+		want    []ent.DocumentScore
+		wantErr string
+	}{
+		{
+			name:    "results in a different order than the documents",
+			results: []RerankedResult{{Index: 1, RelevanceScore: 0.2}, {Index: 0, RelevanceScore: 0.9}},
+			want:    []ent.DocumentScore{{Document: documents[0], Score: 0.9}, {Document: documents[1], Score: 0.2}},
+		},
+		{
+			name:    "topN equal to the number of documents",
+			topN:    2,
+			results: []RerankedResult{{Index: 1, RelevanceScore: 0.2}, {Index: 0, RelevanceScore: 0.9}},
+			want:    []ent.DocumentScore{{Document: documents[0], Score: 0.9}, {Document: documents[1], Score: 0.2}},
+		},
+		{
+			name:    "index equal to the number of documents",
+			results: []RerankedResult{{Index: 0, RelevanceScore: 0.9}, {Index: 2, RelevanceScore: 0.2}},
+			wantErr: "result index 2 out of range for 2 documents",
+		},
+		{
+			name:    "negative index",
+			results: []RerankedResult{{Index: -1, RelevanceScore: 0.9}, {Index: 1, RelevanceScore: 0.2}},
+			wantErr: "result index -1 out of range for 2 documents",
+		},
+		{
+			name:    "duplicate index",
+			results: []RerankedResult{{Index: 0, RelevanceScore: 0.9}, {Index: 0, RelevanceScore: 0.2}},
+			wantErr: "duplicate result index 0",
+		},
+		{
+			name:    "fewer results than documents",
+			results: []RerankedResult{{Index: 0, RelevanceScore: 0.9}},
+			wantErr: "1 results for 2 documents",
+		},
+		{
+			name:    "more results than documents",
+			results: []RerankedResult{{Index: 0, RelevanceScore: 0.9}, {Index: 1, RelevanceScore: 0.2}, {Index: 2, RelevanceScore: 0.1}},
+			wantErr: "3 results for 2 documents",
+		},
+		{
+			name:    "topN lower than the number of documents",
+			topN:    1,
+			results: []RerankedResult{{Index: 1, RelevanceScore: 0.9}},
+			wantErr: "topN 1 is lower than the 2 documents to rerank",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set(contentTypeHeader, applicationJSON)
+				json.NewEncoder(w).Encode(RankResponse{Results: tt.results})
+			}))
+			defer testServer.Close()
+
+			client := &client{
+				apiKey:       testAPIKey,
+				httpClient:   &http.Client{Timeout: 30 * time.Second},
+				host:         testServer.URL,
+				path:         rerankPath,
+				maxDocuments: 1000,
+				logger:       logrus.New(),
+			}
+			classConfig := map[string]any{"model": testModel}
+			if tt.topN > 0 {
+				classConfig["topN"] = tt.topN
+			}
+
+			res, err := client.Rank(context.Background(), testQuery, documents, fakeClassConfig{classConfig: classConfig})
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
+		})
+	}
 }
 
 func TestClientMetaInfo(t *testing.T) {

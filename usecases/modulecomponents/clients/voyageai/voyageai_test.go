@@ -195,6 +195,178 @@ func TestClient(t *testing.T) {
 	})
 }
 
+func TestVectorizeMultiModalMalformedResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		texts   []string
+		images  []string
+		videos  []string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "empty data array",
+			texts:   []string{"text"},
+			body:    `{"data":[]}`,
+			wantErr: "empty embeddings response",
+		},
+		{
+			name:    "more embeddings than inputs",
+			texts:   []string{"text"},
+			images:  []string{"image"},
+			body:    `{"data":[{"index":0,"embedding":[0.1]},{"index":1,"embedding":[0.2]},{"index":2,"embedding":[0.3]}]}`,
+			wantErr: "embedding index 2 out of range for 2 inputs",
+		},
+		{
+			name:    "negative index",
+			texts:   []string{"text"},
+			body:    `{"data":[{"index":-1,"embedding":[0.1]}]}`,
+			wantErr: "embedding index -1 out of range for 1 inputs",
+		},
+		{
+			name:    "duplicate index",
+			texts:   []string{"first", "second"},
+			body:    `{"data":[{"index":0,"embedding":[0.1]},{"index":0,"embedding":[0.2]}]}`,
+			wantErr: "duplicate index 0",
+		},
+		{
+			name:    "fewer embeddings than inputs",
+			texts:   []string{"text"},
+			images:  []string{"image"},
+			body:    `{"data":[{"index":0,"embedding":[0.1]}]}`,
+			wantErr: "missing embedding for input 1 (got 1 of 2)",
+		},
+		{
+			name:    "missing video embedding",
+			texts:   []string{"text"},
+			videos:  []string{"video"},
+			body:    `{"data":[{"index":0,"embedding":[0.1]}]}`,
+			wantErr: "missing embedding for input 1 (got 1 of 2)",
+		},
+		{
+			name:    "empty embedding after a valid one",
+			texts:   []string{"text"},
+			images:  []string{"image"},
+			body:    `{"data":[{"index":0,"embedding":[0.1]},{"index":1,"embedding":[]}]}`,
+			wantErr: "empty embedding for index 1",
+		},
+		{
+			name:    "empty embedding for an earlier index",
+			texts:   []string{"text"},
+			images:  []string{"image"},
+			body:    `{"data":[{"index":1,"embedding":[0.1]},{"index":0,"embedding":null}]}`,
+			wantErr: "empty embedding for index 0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newClientWithBody(t, tt.body)
+			res, err := c.VectorizeMultiModal(context.Background(), tt.texts, tt.images, tt.videos,
+				Settings{Model: "voyage-multimodal-3"})
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Nil(t, res)
+		})
+	}
+}
+
+func TestVectorizeMultiModalResponseOrder(t *testing.T) {
+	tests := []struct {
+		name   string
+		texts  []string
+		images []string
+		videos []string
+		body   string
+		want   *modulecomponents.VectorizationCLIPResult[[]float32]
+	}{
+		{
+			name:   "in order",
+			texts:  []string{"text"},
+			images: []string{"image"},
+			videos: []string{"video"},
+			body:   `{"data":[{"index":0,"embedding":[0.1]},{"index":1,"embedding":[0.2]},{"index":2,"embedding":[0.3]}]}`,
+			want: &modulecomponents.VectorizationCLIPResult[[]float32]{
+				TextVectors:  [][]float32{{0.1}},
+				ImageVectors: [][]float32{{0.2}},
+				VideoVectors: [][]float32{{0.3}},
+			},
+		},
+		{
+			name:   "out of order",
+			texts:  []string{"text"},
+			images: []string{"image"},
+			videos: []string{"video"},
+			body:   `{"data":[{"index":2,"embedding":[0.3]},{"index":0,"embedding":[0.1]},{"index":1,"embedding":[0.2]}]}`,
+			want: &modulecomponents.VectorizationCLIPResult[[]float32]{
+				TextVectors:  [][]float32{{0.1}},
+				ImageVectors: [][]float32{{0.2}},
+				VideoVectors: [][]float32{{0.3}},
+			},
+		},
+		{
+			name:   "texts and videos without images, out of order",
+			texts:  []string{"first", "second"},
+			videos: []string{"video"},
+			body:   `{"data":[{"index":2,"embedding":[0.3]},{"index":1,"embedding":[0.2]},{"index":0,"embedding":[0.1]}]}`,
+			want: &modulecomponents.VectorizationCLIPResult[[]float32]{
+				TextVectors:  [][]float32{{0.1}, {0.2}},
+				VideoVectors: [][]float32{{0.3}},
+			},
+		},
+		{
+			name:   "images only, out of order",
+			images: []string{"first", "second"},
+			body:   `{"data":[{"index":1,"embedding":[0.2]},{"index":0,"embedding":[0.1]}]}`,
+			want: &modulecomponents.VectorizationCLIPResult[[]float32]{
+				ImageVectors: [][]float32{{0.1}, {0.2}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, requests := newClientWithBody(t, tt.body)
+			res, err := c.VectorizeMultiModal(context.Background(), tt.texts, tt.images, tt.videos,
+				Settings{Model: "voyage-multimodal-3"})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res)
+
+			var wantTypes []multimodalType
+			for range tt.texts {
+				wantTypes = append(wantTypes, text)
+			}
+			for range tt.images {
+				wantTypes = append(wantTypes, imageBase64)
+			}
+			for range tt.videos {
+				wantTypes = append(wantTypes, videoBase64)
+			}
+			var gotTypes []multimodalType
+			for _, input := range (<-requests).Inputs {
+				require.Len(t, input.Content, 1)
+				gotTypes = append(gotTypes, input.Content[0].MultimodalType)
+			}
+			assert.Equal(t, wantTypes, gotTypes, "request inputs must be texts, then images, then videos")
+		})
+	}
+}
+
+// newClientWithBody returns a client whose server answers 200 with body, and
+// a channel that receives the first request that server decoded.
+func newClientWithBody(t *testing.T, body string) (*Client, <-chan embeddingsRequest) {
+	t.Helper()
+	requests := make(chan embeddingsRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embeddingsRequest
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		select {
+		case requests <- req:
+		default:
+		}
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	return New("apiKey", 0, &fakeVoyageaiUrlBuilder{origin: server.URL, pathMask: "/multimodalembeddings"}, nullLogger()), requests
+}
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error

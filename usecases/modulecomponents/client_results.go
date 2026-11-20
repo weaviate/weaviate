@@ -105,6 +105,19 @@ type VectorizationResult[T dto.Embedding] struct {
 	Errors     []error
 }
 
+// IsEmbeddingEmpty reports whether embedding has no dimensions. A multi-vector
+// embedding is empty when it has no token vectors or any token vector is empty.
+func IsEmbeddingEmpty[T dto.Embedding](embedding T) bool {
+	if tokens, ok := any(embedding).([][]float32); ok {
+		for i := range tokens {
+			if len(tokens[i]) == 0 {
+				return true
+			}
+		}
+	}
+	return len(embedding) == 0
+}
+
 type VectorizationCLIPResult[T dto.Embedding] struct {
 	TextVectors  []T
 	ImageVectors []T
