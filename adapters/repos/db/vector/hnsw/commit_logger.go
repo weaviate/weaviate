@@ -138,6 +138,12 @@ func commitLogDirectory(rootPath, name string) string {
 	return rootPath + "/" + name + ".hnsw.commitlog.d"
 }
 
+// CommitLogDirectory is the directory holding the commit logs of the index
+// with this root path and id.
+func CommitLogDirectory(rootPath, id string) string {
+	return commitLogDirectory(rootPath, id)
+}
+
 // createNewCommitFile always starts a fresh raw commit log file, regardless
 // of what already exists in the directory. Before creating the new file, any
 // zero-byte raw files left behind by previous startups (that the compactor

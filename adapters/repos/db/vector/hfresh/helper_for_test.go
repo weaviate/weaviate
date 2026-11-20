@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -51,6 +52,13 @@ func (s *testVectorStore) put(id uint64, v []float32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.m[id] = v
+}
+
+// remove drops a vector as deleting its object does.
+func (s *testVectorStore) remove(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.m, id)
 }
 
 func (s *testVectorStore) get(_ context.Context, id uint64) ([]float32, error) {
@@ -126,6 +134,18 @@ func withDistanceProvider(provider distancer.Provider) testIndexOption {
 		cfg.DistanceProvider = provider
 		cfg.Centroids.HNSWConfig.DistanceProvider = provider
 	}
+}
+
+// setSinglePostingLimit keeps indexes created by the test in single-posting
+// mode until their posting exceeds n vectors; 0 builds the graph up front.
+func setSinglePostingLimit(t testing.TB, n uint32) {
+	t.Setenv(singlePostingMaxSizeEnv, strconv.FormatUint(singlePostingSize(n), 10))
+}
+
+// singlePostingSize is the byte budget that holds n vectors of
+// singlePostingDims dimensions.
+func singlePostingSize(n uint32) uint64 {
+	return uint64(float64(n) * postingEntryBytes(singlePostingDims))
 }
 
 // newTestIndex is the single index constructor behind every test fixture in

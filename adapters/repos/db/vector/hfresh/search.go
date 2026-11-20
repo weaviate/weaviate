@@ -82,6 +82,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		nAllowList = h.wrapAllowList(ctx, allowList)
 		defer nAllowList.Close()
 	}
+	built := h.Centroids.Built()
 	beforeCentroids := time.Now()
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
 	helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
@@ -105,6 +106,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
 	if err != nil {
 		return nil, nil, err
+	}
+	// the first split may have emptied the single posting after the centroid
+	// search picked it: the graph now holds its vectors
+	if !built && h.Centroids.Built() {
+		return h.SearchByVector(ctx, vector, k, allowList)
 	}
 
 	visited := h.visitedPool.Borrow()
@@ -561,6 +567,7 @@ func (h *HFresh) searchByFDE(
 		defer nAllowList.Close()
 	}
 
+	built := h.Centroids.Built()
 	centroids, err := h.Centroids.Search(queryFDE, routingBudget, nAllowList)
 	if err != nil {
 		return nil, err
@@ -579,6 +586,10 @@ func (h *HFresh) searchByFDE(
 	postings, err := h.PostingStore.MultiGet(ctx, selectedCentroids)
 	if err != nil {
 		return nil, err
+	}
+	// as in SearchByVector: the first split may have emptied the single posting
+	if !built && h.Centroids.Built() {
+		return h.searchByFDE(ctx, queryFDE, routingBudget, rerankBudget, allowList)
 	}
 
 	visited := h.visitedPool.Borrow()
