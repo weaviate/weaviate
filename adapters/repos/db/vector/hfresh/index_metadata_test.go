@@ -209,12 +209,16 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 	all := addRestartVectors(t, index, vectors, 0, 300)
+	// persisted by the appends, without waiting for a shutdown
+	requireSinglePostingSize(t, index, 300)
+	requireNoSinglePostingIDs(t, index)
 	require.NoError(t, index.Delete(7))
 	require.NoError(t, index.Shutdown(t.Context()))
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.False(t, index.Centroids.Built())
 	requireSinglePostingSize(t, index, 300)
+	requireNoSinglePostingIDs(t, index)
 
 	require.Eventually(t, func() bool {
 		return inMemoryVersion(index.VersionMap, 7).Deleted()
@@ -233,21 +237,27 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, 7)
 }
 
-// requireSinglePostingSize checks posting 1's map entry and size, which stay
-// in memory until its first split.
+// requireSinglePostingSize checks posting 1's size, in memory and in the
+// store, where each append persists it.
 func requireSinglePostingSize(t *testing.T, index *HFresh, size uint32) {
 	t.Helper()
-	metadata, err := index.PostingMap.Get(t.Context(), 1)
-	require.NoError(t, err)
-	require.Equal(t, size, metadata.Count())
-
 	inMemory, err := index.PostingSizes.Get(t.Context(), 1)
 	require.NoError(t, err)
 	require.Equal(t, size, inMemory)
+	persisted, err := index.PostingSizes.store.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, size, persisted)
 }
 
-// A merge rewrites the single posting and persists its map entry and size,
-// which later appends leave stale: a restart must read the posting instead.
+// requireNoSinglePostingIDs checks that posting 1 keeps no id list.
+func requireNoSinglePostingIDs(t *testing.T, index *HFresh) {
+	t.Helper()
+	_, err := index.PostingMap.Get(t.Context(), 1)
+	require.ErrorIs(t, err, ErrPostingNotFound)
+}
+
+// A merge rewrites the single posting and persists its size, which later
+// appends must keep current for the restart.
 func TestSinglePostingRestartAfterMerge(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
