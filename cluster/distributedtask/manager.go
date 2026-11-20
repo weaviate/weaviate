@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -53,7 +54,8 @@ type Manager struct {
 	// [SchemaMutationDetector] godoc for the motivating bug).
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
-	readOnlyClass func(collection string) *models.Class
+	readOnlyClass     func(collection string) *models.Class
+	readShardingState func(collection string, read func(*sharding.State)) (bool, error)
 
 	headerDecoders         map[string]HeaderDecoder
 	targetVectorExtractors map[string]TargetVectorExtractor
@@ -237,6 +239,8 @@ type ManagerParameters struct {
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
 	ReadOnlyClass           func(collection string) *models.Class
+	// ReadShardingState reports false when the collection does not exist.
+	ReadShardingState func(collection string, read func(*sharding.State)) (bool, error)
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -259,6 +263,7 @@ func NewManager(params ManagerParameters) *Manager {
 		conflictDetectors:       params.ConflictDetectors,
 		schemaMutationDetectors: params.SchemaMutationDetectors,
 		readOnlyClass:           params.ReadOnlyClass,
+		readShardingState:       params.ReadShardingState,
 
 		logger: params.Logger,
 	}
@@ -510,9 +515,44 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	newTask.IndexGroups()
 
 	newTask.header = m.headerFor(newTask.Namespace, newTask.Payload)
+	if r.AddMissingGroups {
+		if err := m.addMissingGroupsWithLock(newTask, r.PaidByVersions); err != nil {
+			return err
+		}
+	}
 	m.setTaskWithLock(newTask)
 	m.notifySchedulerWithLock()
 
+	return nil
+}
+
+func (m *Manager) addMissingGroupsWithLock(task *Task, paidBy []uint64) error {
+	adder, ok := m.conflictDetectors[task.Namespace].(MissingGroupAdder)
+	if !ok {
+		return fmt.Errorf("task %s/%s asks to add its missing groups, which namespace %q cannot do: %w",
+			task.Namespace, task.ID, task.Namespace, ErrMissingGroupsUnsupported)
+	}
+	collection := task.collection()
+	var collectionTasks []*Task
+	for _, t := range m.tasks[task.Namespace] {
+		if strings.EqualFold(t.collection(), collection) {
+			collectionTasks = append(collectionTasks, t)
+		}
+	}
+	var added []*Unit
+	var addErr error
+	found, err := m.readShardingState(collection, func(state *sharding.State) {
+		added, addErr = adder.AddMissingGroups(task, paidBy, collectionTasks, state)
+	})
+	switch {
+	case err != nil:
+		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+	case !found:
+		return NewReplicasChangedError(collection)
+	case addErr != nil:
+		return addErr
+	}
+	task.addUnits(added)
 	return nil
 }
 

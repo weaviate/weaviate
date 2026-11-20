@@ -99,7 +99,13 @@ var (
 	ErrTaskTenantsNotHot = errors.New("task names tenants that are not HOT")
 
 	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
+	ErrTaskUnitIDTaken     = errors.New("two replicas share a task unit ID")
 )
+
+func NewUnitIDTakenError(collection, unitID string) error {
+	return wrapPermanent(ErrTaskUnitIDTaken,
+		fmt.Sprintf("two tenant replicas of collection %q share unit ID %q", collection, unitID))
+}
 
 func NewBlockedByReplicaMovementError(collection string) error {
 	return wrapPermanent(ErrTaskBlockedByReplicaMovement,
@@ -123,6 +129,10 @@ func NewTenantsNotHotError(collection string) error {
 // up to the per-task bound. Distinct from [ErrPermanentRejection] (FSM
 // rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
+
+// ErrMissingGroupsUnsupported marks an add-missing-groups ask in a namespace
+// whose detector is no [MissingGroupAdder]. A wiring bug, so deliberately not permanent.
+var ErrMissingGroupsUnsupported = errors.New("namespace cannot add missing groups")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
 // permanent FSM rejections from generic Internal errors on the wire. It
@@ -152,6 +162,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskReplicasChanged, "task-replicas-changed"},
 	{ErrTaskTenantsNotHot, "task-tenants-not-hot"},
 	{ErrNothingLeftToCancel, "nothing-left-to-cancel"},
+	{ErrTaskUnitIDTaken, "task-unit-id-taken"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

@@ -46,7 +46,7 @@ import (
 //      one tuple never bleeds into a sibling tuple.
 //   5. The builder closure exposes a fresh probe each time so the
 //      backup gate sees the live state, not a stale snapshot.
-//   6. uniqueShardsFromPayload dedupes shards across UnitToShard
+//   6. uniqueShardsOfTask dedupes shards across UnitToShard
 //      entries (multi-property migrations route multiple units to
 //      the same shard).
 
@@ -226,12 +226,12 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		"final state must be an empty map")
 }
 
-// TestUniqueShardsFromPayload_Dedupes pins that the helper used by
+// TestUniqueShardsOfTask_Dedupes pins that the helper used by
 // [autoCleanupAfterTerminal] to enumerate shards collapses duplicates
 // — multi-property semantic migrations route N units to the same
 // shard, and we must register each shard exactly once so the
 // matching unregister loop releases the slot symmetrically.
-func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
+func TestUniqueShardsOfTask_Dedupes(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "C",
 		UnitToShard: map[string]string{
@@ -242,27 +242,29 @@ func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
 			"u5": "shardC",
 		},
 	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA", "shardB", "shardC"}, out,
+	// u6 was added by the task-add apply, so the payload does not list it.
+	out := uniqueShardsOfTask(&distributedtask.Task{Units: map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", GroupID: "shardA"}, "u6": {ID: "u6", GroupID: "shardD"},
+	}}, payload)
+	assert.ElementsMatch(t, []string{"shardA", "shardB", "shardC", "shardD"}, out,
 		"unique shards must include each distinct value exactly once")
 }
 
-// TestUniqueShardsFromPayload_EmptyPayload pins the boundary: an
-// empty UnitToShard returns a nil slice (callers iterate it with
-// range, so nil is correct).
-func TestUniqueShardsFromPayload_EmptyPayload(t *testing.T) {
+// TestUniqueShardsOfTask_NoUnits pins that an empty UnitToShard and a task
+// with no units return a nil slice, which callers range over.
+func TestUniqueShardsOfTask_NoUnits(t *testing.T) {
 	payload := &ReindexTaskPayload{Collection: "C", UnitToShard: nil}
-	require.Nil(t, uniqueShardsFromPayload(payload))
+	require.Nil(t, uniqueShardsOfTask(&distributedtask.Task{}, payload))
 
 	payload = &ReindexTaskPayload{Collection: "C", UnitToShard: map[string]string{}}
-	require.Nil(t, uniqueShardsFromPayload(payload))
+	require.Nil(t, uniqueShardsOfTask(&distributedtask.Task{}, payload))
 }
 
-// TestUniqueShardsFromPayload_SkipsEmptyShardName pins defensive
+// TestUniqueShardsOfTask_SkipsEmptyShardName pins defensive
 // handling of a UnitToShard entry whose value is an empty string —
 // a malformed payload should not produce a zero-string registration
 // that the gate would silently never match.
-func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
+func TestUniqueShardsOfTask_SkipsEmptyShardName(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "C",
 		UnitToShard: map[string]string{
@@ -270,7 +272,7 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 			"u2": "",
 		},
 	}
-	out := uniqueShardsFromPayload(payload)
+	out := uniqueShardsOfTask(&distributedtask.Task{}, payload)
 	assert.ElementsMatch(t, []string{"shardA"}, out)
 }
 

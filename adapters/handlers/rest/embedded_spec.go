@@ -6149,7 +6149,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or two tenant replicas would share one reindex unit ID (` + "`" + `\u003ctenant\u003e__\u003cnode\u003e` + "`" + `), which needs a ` + "`" + `__` + "`" + ` inside a tenant or node name or a node name that starts with ` + "`" + `_` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6414,7 +6414,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or two tenant replicas would share one reindex unit ID (` + "`" + `\u003ctenant\u003e__\u003cnode\u003e` + "`" + `), which needs a ` + "`" + `__` + "`" + ` inside a tenant or node name or a node name that starts with ` + "`" + `_` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18973,7 +18973,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or two tenant replicas would share one reindex unit ID (` + "`" + `\u003ctenant\u003e__\u003cnode\u003e` + "`" + `), which needs a ` + "`" + `__` + "`" + ` inside a tenant or node name or a node name that starts with ` + "`" + `_` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19238,7 +19238,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or two tenant replicas would share one reindex unit ID (` + "`" + `\u003ctenant\u003e__\u003cnode\u003e` + "`" + `), which needs a ` + "`" + `__` + "`" + ` inside a tenant or node name or a node name that starts with ` + "`" + `_` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

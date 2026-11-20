@@ -234,6 +234,9 @@ message AddDistributedTaskRequest {
   repeated string unit_ids = 6;
   repeated UnitSpec unit_specs = 7;
   bool needs_preparation_barrier = 8;
+  bool add_missing_groups = 9;
+  // Versions of the runs whose swaps let the submitter leave tenants out of unit_specs.
+  repeated uint64 paid_by_versions = 10;
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.

@@ -71,6 +71,16 @@ func TestMapSubmitTaskError(t *testing.T) {
 		assert.Contains(t, body.Error[0].Message, "set them to HOT")
 	})
 
+	t.Run("unit-id-taken sentinel -> 422", func(t *testing.T) {
+		fsmErr := fmt.Errorf("executing command: %w", distributedtask.NewUnitIDTakenError("C", "x__y__z"))
+		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa", fsmErr)
+		code, body := statusOf(t, resp)
+		require.Equal(t, http.StatusUnprocessableEntity, code)
+		require.Len(t, body.Error, 1)
+		assert.Contains(t, body.Error[0].Message, "node name contains an underscore")
+		assert.NotContains(t, body.Error[0].Message, "dtm-perm")
+	})
+
 	t.Run("generic infra error -> 500", func(t *testing.T) {
 		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa",
 			errors.New("raft leader lost"))

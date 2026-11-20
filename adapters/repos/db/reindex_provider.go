@@ -466,8 +466,8 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 
 	// Determine which units belong to this node.
 	var localUnits []string
-	for unitID, nodeName := range payload.UnitToNode {
-		if nodeName == p.localNode {
+	for unitID := range task.Units {
+		if unitNode(task, &payload, unitID) == p.localNode {
 			localUnits = append(localUnits, unitID)
 		}
 	}
@@ -550,7 +550,7 @@ func (p *ReindexProvider) processOneUnit(
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
 ) {
-	shardName := payload.UnitToShard[unitID]
+	shardName := unitShard(task, payload, unitID)
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
 
@@ -1064,7 +1064,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		return phaseUnitResolution{Skip: true}
 	}
 
-	shardName := payload.UnitToShard[unitID]
+	shardName := unitShard(task, payload, unitID)
 	resolvedShard, err := lookupShardByName(idx, shardName)
 	if err != nil {
 		return phaseUnitResolution{
@@ -1371,7 +1371,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 				agg.Transient = true
 			}
 			if phase.OverlayUnwrapErr != nil {
-				refused[payload.UnitToShard[unitID]] = struct{}{}
+				refused[unitShard(task, payload, unitID)] = struct{}{}
 				if agg.OverlayUnwrapErr == nil {
 					agg.OverlayUnwrapErr = phase.OverlayUnwrapErr
 				}
@@ -1503,7 +1503,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	}
 
 	if !prepOK {
-		shardName := payload.UnitToShard[unitID]
+		shardName := unitShard(task, payload, unitID)
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
 		logger.WithField("unit", unitID).WithField("shard", shardName).
@@ -1511,7 +1511,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 		return out
 	}
 
-	shardName := payload.UnitToShard[unitID]
+	shardName := unitShard(task, payload, unitID)
 	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
 	if swap.Transient {
@@ -1554,13 +1554,14 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
-			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
+			return p.onSwapRequestedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
 
 // Re-runs PREP on rehydrate so OnAfterLsmInit installs the double-write callbacks before SWAP.
 func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	ctx context.Context,
+	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
 	unitID string,
 	shard ShardLike,
@@ -1575,14 +1576,14 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 			out.Transient = true
 		}
 		if !prepOK {
-			shardName := payload.UnitToShard[unitID]
+			shardName := unitShard(task, payload, unitID)
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				Warn("reindex provider: swap-requested: rehydrate prep check failed; skipping overlay+swap for this shard")
 			return out
 		}
 	}
 
-	shardName := payload.UnitToShard[unitID]
+	shardName := unitShard(task, payload, unitID)
 	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
 	if swap.Transient {
@@ -1627,7 +1628,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				tornLocally := len(task.PostCompletionAcks) > 0 ||
 					len(task.PreparedGroups) > 0 || len(task.SwapDecidedGroups) > 0
 				if !tornLocally {
-					tornLocally = p.probeLocalPostMergeState(payload)
+					tornLocally = p.probeLocalPostMergeState(task, payload)
 				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
 				if tornLocally {
@@ -1685,7 +1686,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 	defer unseal()
-	shards := uniqueShardsFromPayload(payload)
+	shards := uniqueShardsOfTask(task, payload)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
 	}
@@ -1879,13 +1880,13 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 // p.serverCtx. The ctx is read once per shard and nothing below it takes one,
 // so the deadline bounds how many shards the probe visits, not how long it
 // runs: one wedged directory read still blocks past it.
-func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) bool {
+func (p *ReindexProvider) probeLocalPostMergeState(task *distributedtask.Task, payload *ReindexTaskPayload) bool {
 	ctx, cancel := context.WithTimeout(p.serverCtx, reindexTornStateProbeTimeout)
 	defer cancel()
-	return p.hasLocalPostMergeState(ctx, payload)
+	return p.hasLocalPostMergeState(ctx, task, payload)
 }
 
-func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
+func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, task *distributedtask.Task, payload *ReindexTaskPayload) bool {
 	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false
 	}
@@ -1893,7 +1894,7 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	if idx == nil {
 		return false
 	}
-	shards := uniqueShardsFromPayload(payload)
+	shards := uniqueShardsOfTask(task, payload)
 	if len(shards) == 0 {
 		return false
 	}
@@ -1934,27 +1935,45 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	return false
 }
 
-// uniqueShardsFromPayload returns the distinct shard names referenced
-// in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
-// each shard exactly once in [cleanupInProgress] — multiple units can
-// map to the same shard for multi-property migrations.
-func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
-	if len(payload.UnitToShard) == 0 {
-		return nil
-	}
+func uniqueShardsOfTask(task *distributedtask.Task, payload *ReindexTaskPayload) []string {
 	seen := make(map[string]struct{}, len(payload.UnitToShard))
-	out := make([]string, 0, len(payload.UnitToShard))
+	var out []string
+	add := func(shardName string) {
+		if _, ok := seen[shardName]; shardName != "" && !ok {
+			seen[shardName] = struct{}{}
+			out = append(out, shardName)
+		}
+	}
 	for _, shardName := range payload.UnitToShard {
-		if shardName == "" {
-			continue
-		}
-		if _, ok := seen[shardName]; ok {
-			continue
-		}
-		seen[shardName] = struct{}{}
-		out = append(out, shardName)
+		add(shardName)
+	}
+	for _, u := range task.Units {
+		add(u.GroupID)
 	}
 	return out
+}
+
+// unitShard falls back to the unit's GroupID for units AddMissingGroups added, which UnitToShard lacks.
+func unitShard(task *distributedtask.Task, payload *ReindexTaskPayload, unitID string) string {
+	if shardName, ok := payload.UnitToShard[unitID]; ok {
+		return shardName
+	}
+	if u := task.Units[unitID]; u != nil {
+		return u.GroupID
+	}
+	return ""
+}
+
+func unitNode(task *distributedtask.Task, payload *ReindexTaskPayload, unitID string) string {
+	if node, ok := payload.UnitToNode[unitID]; ok {
+		return node
+	}
+	if u := task.Units[unitID]; u != nil && u.GroupID != "" {
+		if node, ok := strings.CutPrefix(unitID, MigrationUnitID(u.GroupID, "")); ok {
+			return node
+		}
+	}
+	return ""
 }
 
 // registerCleanup marks (collection, shard) as having an in-flight
@@ -2526,11 +2545,13 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 // ShardReplicaOwnershipForMT returns shard ownership for the named tenants
 // (all, if empty) that still need work, or every one if none do; [ErrTenantsNotHot] if any of those isn't HOT: a COLD
 // tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
+// It also returns the sorted versions of the runs that paid the tenants it skipped.
 func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTaskPayload, property string,
 	tenantNames []string, tasks []*distributedtask.Task,
-) (map[string][]string, error) {
+) (map[string][]string, []uint64, error) {
 	className := target.Collection
 	_, paid, _ := ReindexMigratedTenants(ReindexRuns(tasks), property, target)
+	paidBy := map[uint64]struct{}{}
 	result := make(map[string][]string)
 	notHot := 0
 	tenantSet := make(map[string]struct{}, len(tenantNames))
@@ -2556,13 +2577,16 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTas
 		}
 
 		for shardName, shard := range state.Physical {
-			if _, isPaid := paid[shardName]; !inScope(shardName) || (isPaid && !rerunAll) {
+			version, isPaid := paid[shardName]
+			if !inScope(shardName) {
+				continue
+			}
+			if isPaid && !rerunAll {
+				paidBy[version] = struct{}{}
 				continue
 			}
 
-			switch entschema.ActivityStatus(shard.Status) {
-			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
-			default:
+			if !reindexableTenantStatus(shard.Status) {
 				notHot++
 				continue
 			}
@@ -2577,10 +2601,10 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTas
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
+		return nil, nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
 	if notHot > 0 {
-		return nil, &TenantsNotHotError{Count: notHot}
+		return nil, nil, &TenantsNotHotError{Count: notHot}
 	}
 
 	// Sort shard names per node for determinism.
@@ -2588,7 +2612,19 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTas
 		sort.Strings(shards)
 	}
 
-	return result, nil
+	if len(paidBy) == 0 {
+		return result, nil, nil
+	}
+	return result, slices.Sorted(maps.Keys(paidBy)), nil
+}
+
+func reindexableTenantStatus(status string) bool {
+	switch entschema.ActivityStatus(status) {
+	case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
+		return true
+	default:
+		return false
+	}
 }
 
 // ErrTenantsNotHot refuses a reindex that targets tenants which are not HOT.
