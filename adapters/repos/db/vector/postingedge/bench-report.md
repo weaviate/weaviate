@@ -2152,6 +2152,71 @@ Código en `45e586c572`, después del pre-registro (`3f2824cb6a`). Escrito mient
 
 Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el linter de goroutines pasan. Los tests del paquete entero pasan (135 s).
 
+### Control combinado, paso 2: la celda nueva y lo que lee una carga en frío (2026-11-20, de 10:15 a 10:37)
+
+**Estado: hecho, sin cronometrar. La celda nueva devuelve lo mismo que el índice de K = 64 tal cual. Y la cuenta dice de dónde sale que v5.1 no mejore en frío: pide menos al store que v5.0 y trae más del disco, porque su fila de aristas, sola en su bucket, cuesta una lectura de disco propia, y en v5.0 viene casi gratis detrás de los miembros.** Corrió a la vez que v6.2, que no toca el volumen. El binario es el de `45e586c572`. Los datos, en `testdata/bench/v5.1/dbpedia-1m-comb-reorg.json` y `-comb-reads-*.json`. Las tablas son las de `combined-verdict.md`.
+
+**La celda nueva:**
+
+- **Corrección, que es stop: pasa.** Devuelve los mismos ids, distancias y trabajo que el índice de K = 64 tal cual, en las 5 000 queries de sus dos puntos. Su cobertura es completa.
+- **Escribirla llevó 104 s.** El bucket de miembros pasa de 228.8 MB en 2 segmentos a 215.1 MB en uno, y el de filas de aristas sigue en uno, 40.3 MB.
+- **El store lee 2.00 veces por carga,** donde tal cual eran 2.92, y 1.053 veces los bytes del modelo en los dos.
+
+**Lo que cuenta el store por carga, a 0.95,** en modo pread. Es lo mismo en frío que en caliente:
+
+| índice | fila de miembros: lecturas | bytes | fila de aristas: lecturas | bytes | las dos: lecturas | bytes |
+|---|---|---|---|---|---|---|
+| K = 64, tal cual | 1.92 | 55.7 KB | 1.00 | 11.6 KB | 2.92 | 67.3 KB |
+| crecido de v5.0, tal cual | 1.95 | 55.6 KB | 1.96 | 16.7 KB | 3.91 | 72.3 KB |
+| K = 64, reorganizado | 1.00 | 55.7 KB | 1.00 | 11.6 KB | 2.00 | 67.3 KB |
+| la celda 2 de v5.0 | 1.00 | 55.6 KB | 1.00 | 13.6 KB | 2.00 | 69.2 KB |
+
+**Lo que el sistema lee del disco por carga, a 0.95, en frío,** con el store leyendo por su mapping como en las curvas. Las 500 queries de la tanda en frío, de una en una, en tandas de 10 tras tirar la caché, con las filas de cada carga leídas una detrás de otra:
+
+| índice | se lee primero | fila de miembros: page-ins | bytes | fila de aristas: page-ins | bytes | las dos: page-ins | bytes | el rescore de la query: bytes |
+|---|---|---|---|---|---|---|---|---|
+| K = 64, tal cual | los miembros | 4.70 | 118.8 KB | 1.44 | 48.3 KB | 6.15 | 167.1 KB | 1 313 KB |
+| K = 64, tal cual | las aristas | 4.70 | 118.8 KB | 1.44 | 48.3 KB | 6.15 | 167.1 KB | 1 392 KB |
+| crecido de v5.0, tal cual | los miembros | 4.86 | 128.4 KB | 0.88 | 15.1 KB | 5.74 | 143.5 KB | 1 427 KB |
+| crecido de v5.0, tal cual | las aristas | 3.18 | 52.2 KB | 2.56 | 107.7 KB | 5.74 | 159.9 KB | 1 323 KB |
+| K = 64, reorganizado | los miembros | 4.07 | 93.1 KB | 1.44 | 48.3 KB | 5.51 | 141.3 KB | 1 204 KB |
+| K = 64, reorganizado | las aristas | 4.07 | 93.1 KB | 1.44 | 48.3 KB | 5.51 | 141.3 KB | 1 204 KB |
+| la celda 2 de v5.0 | los miembros | 4.13 | 94.0 KB | 0.73 | 14.2 KB | 4.86 | 108.2 KB | 1 205 KB |
+| la celda 2 de v5.0 | las aristas | 3.19 | 53.9 KB | 1.68 | 72.3 KB | 4.86 | 126.2 KB | 1 205 KB |
+
+- **A 0.99 sale lo mismo, con menos por carga:** 5.25 page-ins y 125.7 KB en K = 64 tal cual, frente a 5.05 y de 111.5 a 125.7 KB en v5.0. Está en `combined-verdict.md`.
+
+**De dónde sale que v5.1 no mejore en frío:**
+
+- **No de lo que pide al store.** K = 64 pide menos que v5.0: 2.92 lecturas y 67.3 KB por carga, frente a 3.91 y 72.3 KB.
+- **De lo que eso trae del disco, que es más.** 6.15 page-ins y 167.1 KB por carga, frente a 5.74 page-ins y de 143.5 a 159.9 KB en v5.0: un 7 % más de page-ins y de un 5 a un 16 % más de bytes.
+- **La diferencia está en la fila de aristas.** En v5.1 va sola en su bucket: traer sus 11.6 KB cuesta 1.44 page-ins y 48.3 KB de disco, se lea antes o después. En v5.0 va junto a la de miembros en cada segmento: leída detrás de ellos cuesta 0.88 page-ins y 15.1 KB, porque el sistema ya la trajo al leer por delante.
+  - **En v5.0 el orden importa y en v5.1 no,** que es lo que enseña que las dos filas comparten páginas: con las aristas primero, la fila de miembros de v5.0 baja de 4.86 a 3.18 page-ins y la de aristas sube de 0.88 a 2.56. La suma no cambia: 5.74.
+- **La fila de miembros cuesta lo mismo en los dos,** 4.70 y 4.86 page-ins cuando se lee primero. v5.1 no la toca.
+- **El sistema lee por delante más del doble de lo pedido:** 167 KB de disco por 67 KB de filas. Por eso contar lecturas del store no predice el frío.
+- **El rescore no separa a v5.1 de v5.0:** de 1.31 a 1.43 MB por query en los dos índices tal cual, con más diferencia entre dos pasadas del mismo índice que entre índices. Que en la sesión de la noche el rescore de v5.1 saliera más lento no está en lo que lee. Queda la otra hipótesis, dónde quedaron los ficheros, que esta cuenta no separa.
+- **En tamaño, cuadra a medias:** un 7 % más de page-ins por carga donde la sesión de la noche midió un 14 % más de tiempo en traer los bloques. En las curvas las filas se piden a la vez, y lo que v5.0 se ahorra no es solo disco: es una espera que sirve a las dos filas.
+
+**Reorganizado, la diferencia sigue, y es mayor en proporción:**
+
+- **K = 64 reorganizado trae 5.51 page-ins y 141.3 KB por carga; la celda 2 de v5.0, 4.86 y de 108.2 a 126.2 KB.** Un 13 % más de page-ins.
+- **Reorganizar le quita a cada uno lo suyo:** a K = 64, un 10 % de los page-ins de una carga, de 6.15 a 5.51; a v5.0, un 15 %, de 5.74 a 4.86. Y a los dos, de un 8 a un 16 % de lo que lee el rescore, que queda en 1.20 MB por query con los vectores en orden de posting.
+- **La fila de aristas de v5.1 no cambia al reorganizar:** su bucket ya era un segmento.
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| lo que cuenta el store, K = 64 frente a v5.0 | unas 3.0 lecturas frente a 3.9, y unos 67 KB frente a 72 | 2.92 frente a 3.91, y 67.3 frente a 72.3 | sí |
+| la cuenta del store no explica el frío | | pide menos y trae más | sí |
+| v5.1 trae del disco tantos bytes o más, en más sitios | no sabía si se vería | un 7 % más de page-ins, y su fila de aristas no comparte páginas | sí |
+
+**Lo que esto adelanta de la sesión cronometrada, escrito antes de que corra.** Mi expectativa pre-registrada era que la celda nueva quedara en frío en empate con la celda 2 de v5.0. Con esta cuenta la espero algo por detrás: trae un 13 % más de page-ins por carga. No cambio el intervalo que escribí, de 1.05 a 1.15 veces el lote; la espero en su mitad alta.
+
+**Lo que sugiere, sin proponerlo como formato** (*mío*): la fila de aristas en un solo valor es lo que arregla el caliente, y sacarla a otro bucket es lo que le cuesta el frío. Guardada junto a la fila de miembros, en el mismo segmento y con una clave contigua, tendría las dos cosas. No está escrito ni medido.
+
+**Lo que no dice:** cuánto espera una ronda con las filas pedidas a la vez, que es lo que mide la sesión; ni nada del formato en lote, que no se cuenta aquí.
+
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
 **Estado: medido.** La validación a 1M pasa sus dos stops. Los criterios 1 y 2 no se cumplen con el índice tal como crece, el primero por medio punto, y los dos por el almacenamiento más que por el algoritmo: abajo, «Paso 3» y «Paso 4». El control de reorganización del 19, «Paso 5», deja el mismo índice a 1.07 veces del lote en frío, con su bucket en un segmento y sus vectores en orden de posting, y con el bucket en un segmento cumple el criterio 1. **El pre-registro** se escribió el 18 a las 14:00, antes de compilar nada de esta ronda y antes de ningún dato suyo. El encargo, el camino de escritura, la validación, las medidas y el pre-registro son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. La propuesta de almacenamiento es mía: el usuario la pidió.
