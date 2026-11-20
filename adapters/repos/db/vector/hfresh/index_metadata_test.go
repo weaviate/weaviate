@@ -774,7 +774,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			mutate: func(t *testing.T, h *HFresh) []uint64 {
 				add(t, h, 200, 800)
 				waitIdle(t, h)
-				require.NoError(t, h.Centroids.hnsw.Load().CleanUpTombstonedNodes(func() bool { return false }))
+				require.NoError(t, h.Centroids.state.Load().hnsw.CleanUpTombstonedNodes(func() bool { return false }))
 				for id := range h.PostingMap.Iter() {
 					highestPostingID = max(highestPostingID, id)
 				}

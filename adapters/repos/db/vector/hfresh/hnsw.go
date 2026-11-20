@@ -74,14 +74,26 @@ type HNSWIndex struct {
 	cfg     *Config
 	counter atomic.Int32
 
-	// nil in single-posting mode
-	hnsw atomic.Pointer[hnsw.HNSW]
-	// single reports whether posting 1 exists, while there is no graph
-	single atomic.Bool
+	state atomic.Pointer[centroidState]
 	// pending receives the children of the first split, and becomes the
 	// graph when the split deletes posting 1
 	pending *hnsw.HNSW
 	buildMu sync.Mutex
+}
+
+// centroidState is replaced as a whole, so a reader never combines the graph
+// of one moment with the single posting of another.
+type centroidState struct {
+	// nil in single-posting mode
+	hnsw *hnsw.HNSW
+	// single reports whether posting 1 exists, while there is no graph
+	single bool
+}
+
+// load returns the graph and, without one, whether posting 1 exists.
+func (i *HNSWIndex) load() (*hnsw.HNSW, bool) {
+	state := i.state.Load()
+	return state.hnsw, state.single
 }
 
 // NewHNSWIndex creates the centroid graph, reloading it from its commit log.
@@ -93,6 +105,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, lazy bool) 
 		store:   store,
 		cfg:     cfg,
 	}
+	index.state.Store(&centroidState{})
 
 	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
 		return nil, nil
@@ -111,7 +124,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, lazy bool) 
 	if err != nil {
 		return nil, err
 	}
-	index.hnsw.Store(h)
+	index.state.Store(&centroidState{hnsw: h})
 
 	return &index, nil
 }
@@ -137,19 +150,20 @@ func (i *HNSWIndex) newGraph() (*hnsw.HNSW, error) {
 
 // Built reports whether the centroid graph exists.
 func (i *HNSWIndex) Built() bool {
-	return i.hnsw.Load() != nil
+	g, _ := i.load()
+	return g != nil
 }
 
 // restoreSingle reinstates the single posting found on disk at a restart.
 func (i *HNSWIndex) restoreSingle() {
-	i.single.Store(true)
+	i.state.Store(&centroidState{single: true})
 	i.counter.Store(1)
 }
 
 func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
-	g := i.hnsw.Load()
+	g, single := i.load()
 	if g == nil {
-		if !i.Exists(id) {
+		if id != singlePostingID || !single {
 			return nil, errors.Wrapf(ErrPostingNotFound, "centroid %d", id)
 		}
 		// no vector: with a single candidate nothing compares it
@@ -176,14 +190,14 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 		return nil
 	}
 
-	g := i.hnsw.Load()
+	g, single := i.load()
 	if g == nil {
 		if id == singlePostingID {
-			i.single.Store(true)
+			i.state.Store(&centroidState{single: true})
 			i.counter.Add(1)
 			return nil
 		}
-		if !i.single.Load() {
+		if !single {
 			return errors.Errorf("centroid graph not built: cannot add posting %d", id)
 		}
 
@@ -215,26 +229,23 @@ func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 	}
 	i.counter.Add(-1)
 
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		// the first split deletes posting 1 once its children are in the
-		// pending graph
+		// pending graph: one store replaces the posting by the graph
 		i.buildMu.Lock()
 		defer i.buildMu.Unlock()
-		if i.pending != nil {
-			i.hnsw.Store(i.pending)
-			i.pending = nil
-		}
-		i.single.Store(false)
+		i.state.Store(&centroidState{hnsw: i.pending})
+		i.pending = nil
 		return nil
 	}
 	return g.Delete(id)
 }
 
 func (i *HNSWIndex) Exists(id uint64) bool {
-	g := i.hnsw.Load()
+	g, single := i.load()
 	if g == nil {
-		return id == singlePostingID && i.single.Load()
+		return id == singlePostingID && single
 	}
 	return g.ContainsDoc(id)
 }
@@ -243,7 +254,7 @@ func (i *HNSWIndex) Exists(id uint64) bool {
 // crash that saves the commit log but not the compressed vectors leaves it.
 // The single posting has no stored vector to lose.
 func (i *HNSWIndex) VectorMissing(id uint64) bool {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		return false
 	}
@@ -257,11 +268,11 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 	start := time.Now()
 	defer i.metrics.CentroidSearchDuration(start)
 
-	g := i.hnsw.Load()
+	g, single := i.load()
 	if g == nil {
 		// the allow list is left to the posting scan, which applies it per entry
 		var results ResultSet
-		if i.single.Load() {
+		if single {
 			results.data = append(results.data, Result{ID: singlePostingID})
 		}
 		return &results, nil
@@ -300,9 +311,9 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 }
 
 func (i *HNSWIndex) GetMaxID() uint64 {
-	g := i.hnsw.Load()
+	g, single := i.load()
 	if g == nil {
-		if i.single.Load() {
+		if single {
 			return singlePostingID + 1
 		}
 		return 0
@@ -311,7 +322,7 @@ func (i *HNSWIndex) GetMaxID() uint64 {
 }
 
 func (i *HNSWIndex) Shutdown(ctx context.Context) error {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		// a first split that failed halfway leaves its graph pending
 		i.buildMu.Lock()
@@ -325,7 +336,7 @@ func (i *HNSWIndex) Shutdown(ctx context.Context) error {
 }
 
 func (i *HNSWIndex) Flush() error {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		return nil
 	}
@@ -333,7 +344,7 @@ func (i *HNSWIndex) Flush() error {
 }
 
 func (i *HNSWIndex) PrepareForBackup(ctx context.Context) error {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		return nil
 	}
@@ -341,7 +352,7 @@ func (i *HNSWIndex) PrepareForBackup(ctx context.Context) error {
 }
 
 func (i *HNSWIndex) ResumeAfterBackup(ctx context.Context) error {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		return nil
 	}
@@ -349,7 +360,7 @@ func (i *HNSWIndex) ResumeAfterBackup(ctx context.Context) error {
 }
 
 func (i *HNSWIndex) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g == nil {
 		return nil, nil
 	}
@@ -357,7 +368,7 @@ func (i *HNSWIndex) ListFiles(ctx context.Context, basePath string) ([]string, e
 }
 
 func (i *HNSWIndex) PostStartup(ctx context.Context) {
-	g := i.hnsw.Load()
+	g, _ := i.load()
 	if g != nil {
 		g.PostStartup(ctx)
 	}
