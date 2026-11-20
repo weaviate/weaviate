@@ -444,7 +444,14 @@ Lo que queda por medir:
 
 **Sin medir:** la reorganización en segundo plano, inserts concurrentes, búsquedas durante los inserts, el halo en este camino, el refresco, los deletes, la durabilidad y Linux.
 
-**En marcha (v5.1, pre-registrado el 19):** las aristas consolidadas. Los cambios de aristas de un posting esperan en memoria y su fila se escribe entera, como un solo valor, cada K cambios, en el split y al cerrar.
+**Las aristas consolidadas (v5.1, cerrado el 20): no sirve, por su criterio.** Los cambios de aristas de un posting esperan en memoria y su fila se escribe entera, como un solo valor, cada K cambios, en el split y al cerrar.
+
+- **En caliente es lo que cierra la distancia con el lote:** 1.21 veces a 0.95 donde v5.0 queda a 1.45. Traer la fila de aristas cuesta 1.37 veces la del lote, donde valor a valor costaba 5.54. La fila de miembros, que sigue valor a valor, 1.26.
+- **En frío no mejora a v5.0:** 1.41 veces el lote con K = 64 y 1.47 con K = 16, con el límite en 1.20 y v5.0 en 1.31 en la misma sesión. Sin explicar todavía.
+- **Inserts:** 197 por segundo con K = 16 y 187 con K = 64, con 2.4 y 9.0 MB de cambios esperando en su pico. K = 16 escribe 1.5 veces lo que v5.0; K = 64, 0.8.
+- **En marcha (encargado el 20):** el índice de K = 64 reorganizado como la celda 2 del control, para ver si las dos mitades se suman: el frío de la reorganización y el caliente de las filas de aristas.
+
+**El scan con los códigos en RAM (v4.1, cerrado el 20): no es una opción.** Con los códigos de 512 o 768 bits en RAM para ruteo y scan, y en disco solo las aristas y los vectores, la mejor curva queda en frío a 0.95 a 1.49 veces de la celda de ruteo: ahorra una lectura de bloque por carga y paga 136 lecturas de rescore más por query. Con el presupuesto de un nodo, 1.46.
 
 ## Requisito de integración: los recursos compartidos del nodo (2026-11-19)
 
@@ -458,7 +465,8 @@ Un nodo reparte dos recursos entre todos sus índices. El índice tiene que usar
 - **Las cargas de una ronda no miran el presupuesto.** Pide a la vez las filas de sus 4 postings: 8 lecturas en vuelo, 12 con halo. En una máquina de 10 procs caben en lo concedido hasta unas 17 queries a la vez (10 con halo). Por encima, la ronda se alarga, y eso no está medido.
 - **El mantenimiento corre dentro del insert, sin cola.** En v5.0 y v5.1 el split, el refresco y la escritura de filas los hace el propio insert. Con una cola compartida, el ritmo de inserts y lo que hay pendiente dependen de cuántos workers le toquen al índice: sin medir.
 - **El rescore sí lo mira,** como el de HFresh.
-- **Los buscadores de los inserts en paralelo (v5.2, pre-registrado el 19)** son goroutines del benchmark, 4 u 8 para un solo índice. En producto salen de esos mismos workers compartidos, y con más índices en el nodo le tocan menos a cada uno.
+- **Los buscadores de los inserts en paralelo (v5.2, cerrado el 20)** son goroutines del benchmark, 4 u 8 para un solo índice. En producto salen de esos mismos workers compartidos, y con más índices en el nodo le tocan menos a cada uno.
+  - **Lo medido, que es el mejor caso:** 3.0 veces los inserts por segundo con 4 buscadores y 3.76 con 8, en tandas de 32, sin perder calidad a igual ef. El aplicador único no es el límite, 0.30 ms por insert. El límite es que ocho búsquedas a la vez tardan un 54 % más cada una.
 
 Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en `bench-report.md`, «Los recursos compartidos del nodo».
 

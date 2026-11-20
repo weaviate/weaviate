@@ -108,7 +108,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **Durabilidad.** Qué queda escrito cuando `Add` devuelve, y qué se recupera tras una caída. Con las aristas consolidadas de v5.1, los cambios pendientes viven en memoria hasta que se escribe la fila. En v5.0 cada cambio se entrega al store al momento.
 - **La reorganización en segundo plano.** El índice crecido solo cumple el criterio de latencia en frío con el bucket de postings en un segmento y los vectores en orden de posting (1.07 veces el lote, frente a 1.33 tal cual). `lsmkv` no llega solo a un segmento. No está diseñada ni medida.
-- **Inserts y búsquedas a la vez.** Todo lo medido tiene un escritor y ninguna búsqueda mientras escribe. v5.2, en cola, pone en paralelo las búsquedas de los propios inserts. Las queries mientras se inserta siguen sin medir.
+- **Inserts y búsquedas a la vez.** Todo lo medido tiene un escritor y ninguna búsqueda mientras escribe. v5.2 pone en paralelo las búsquedas de los propios inserts: 3.76 veces con 8 buscadores, con el aplicador en un 19 % del tiempo. Las queries mientras se inserta siguen sin medir.
 - **Deletes en disco, y el halo en el camino de inserts.** Los deletes de v6.0 son en memoria y en conteos.
 - **El estado residente del índice en lote como algo que se actualiza.** v4.0 lo lee de ficheros planos escritos una vez. El formato que crece ya lo tiene en buckets.
 
@@ -349,7 +349,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 |---|---|---|---|---|
 | ninguno: el halo | Nada. El sketch de cada endpoint viaja en el posting que lleva a él | 35.0 MB | De 1.3 a 1.6 veces la latencia en frío del modo de ruteo | Medido en v4.0 |
 | el código de ruteo | 72 B: un código de 512 bits, con el que se ordenan los postings. El scan lee los códigos completos del posting | 106.0 MB | La referencia | Medido en v4.0. Es la celda sobre la que se miden los inserts |
-| el código de scan y de ruteo | Un código de 512 o 768 bits que sirve para las dos cosas. En disco quedan las aristas y los vectores | Sin medir. Lo residente en ficheros son 105.7 y 137.4 MB | El store baja de 243.0 a 36.8 MB. Pide más rescore: 200 o 400 | v4.1: sin cronometrar todavía, y su criterio sin leer |
+| el código de scan y de ruteo | Un código de 512 o 768 bits que sirve para las dos cosas. En disco quedan las aristas y los vectores | Sin medir. Lo residente en ficheros son 105.7 y 137.4 MB | El store baja de 243.0 a 36.8 MB. Pide más rescore: 200 o 400 | v4.1, cerrado el 20: no es una opción. La mejor curva, 768 bits con rescore 200, queda en frío a 1.49 veces del modo de ruteo, con el límite en 1.20. El modo queda reservado y sin implementar |
 
 **Tres nombres para el parámetro,** como enumerado:
 
@@ -518,6 +518,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Lo que está en vuelo y puede mover este plan:**
 
-- **v4.1,** el scan con los códigos en RAM: dice si el modo `scan` existe.
-- **v5.2,** inserts con búsquedas en paralelo: dice cómo escala el insert, que hoy son 179 por segundo con un escritor.
-- **La sesión de la noche del 19,** con HFresh configurado como un nodo: son los números de referencia frente a HFresh.
+- **v4.1,** el scan con los códigos en RAM, cerrado el 20: el modo `scan` no es una opción a 1M y 1536d. Queda reservado.
+- **v5.2,** inserts con búsquedas en paralelo, cerrado el 20: 634 inserts por segundo con 8 buscadores, 3.76 veces los 169 de un escritor en la misma sesión. No llega a las 4 veces de su criterio. HFresh, con un escritor y sus workers de fondo, hace 2 089.
+- **La sesión de la noche del 19,** con HFresh configurado como un nodo, hecha: en frío a 0.95 con 1 thread, 51.96 ms de HFresh frente a 3.54 del modo de ruteo y 4.76 del halo. Son los números de referencia frente a HFresh.
+- **El control combinado,** encargado el 20: el índice de aristas consolidadas con K = 64, reorganizado. Decide el formato de las aristas, que en el hito 1 de la integración va detrás de una interfaz.

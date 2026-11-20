@@ -6,7 +6,7 @@
 
 ## Resumen, al cierre de la sesión de día del 2026-11-18
 
-*Una página. Cada cifra sale de las secciones de abajo. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0) y los inserts en disco (v5.0), del 18, con su control de reorganización, del 19.*
+*Una página. Cada cifra sale de las secciones de abajo. Con lo de la noche del 19 al 20 añadido el 20 por la mañana. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0) y los inserts en disco (v5.0), del 18, con su control de reorganización, del 19.*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -138,6 +138,10 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **A 0.99, HFresh llega y le sale muy caro:** 928 postings por query, 179 ms en frío donde la celda de 512 bits tarda 8.84 y el halo 14.16. En caliente, 16.33 ms frente a 3.22 y 4.87.
 - **Parte de la diferencia en frío es cómo lee HFresh:** sus postings, uno detrás de otro. Posting-edge pide a la vez los bloques de una ronda. Lee además tres veces menos: 101 lecturas frente a 310 a 0.95.
   - **Medido el 19, con HFresh leyendo 8 postings a la vez:** baja de 46.80 a 14.28 ms en frío a 0.95. La celda de 512 bits tarda entonces 4.0 veces menos, y el halo 3.0. Con 8 threads HFresh no gana nada.
+- **Con HFresh como lo corre un nodo (noche del 19 al 20), que son los números para enseñar:** su grafo de centroides limpio y el presupuesto del limitador de admisión, en una sesión con las dos celdas. En frío a 0.95 con 1 thread, 51.96 ms de HFresh frente a 3.54 de la celda de 512 bits y 4.76 del halo: 14.7 y 10.9 veces. En caliente, 3.40 ms frente a 0.90 y 1.26.
+  - **HFresh sale en frío un 11 % más lento que con el arnés de v4.0:** con el grafo limpio pide searchProbe 214 en vez de 185 para 0.95.
+  - **Ningún criterio cambia de signo.**
+- **El scan con los sketches en RAM (v4.1, del 20) no es una opción:** la mejor curva, 768 bits con rescore 200, queda en frío a 0.95 a 1.49 veces de la celda de 512 bits, con el límite en 1.20. Cambia una lectura de bloque por carga por 136 lecturas de rescore más. El presupuesto de un nodo no lo arregla: 1.46.
 - **Cada celda devuelve desde disco lo mismo que en memoria,** y el store lee de 1.002 a 1.005 veces los bytes del modelo de v3.0.
 - **RAM a 1M, heap tras abrir:** 145.8 MB con los códigos de 512 bits en RAM, 74.8 MB con todo en disco y 163.3 MB en HFresh. *Desglosado el 19: 40 MB de cada cifra son del arnés y del proceso, y el índice son 106.0, 35.0 y 123.0 MB. Los de HFresh llevan unos 50 MB de centroides borrados que el arnés no limpia y un nodo sí.*
 - **Cinco de las ocho curvas quedaron marcadas,** cuatro por entrada de teclado o trackpad durante la primera ronda y tres por una mediana en caliente con 8 threads que se movió un 13 a un 15 % entre rondas. Se repitieron la noche del 18, y ningún veredicto cambia: las cifras de arriba son las de la repetición, a menos de un 3 % de las de la primera ronda.
@@ -153,6 +157,9 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - **En caliente sigue a 1.34 veces:** el store entrega las filas valor a valor, y reorganizar no lo toca.
   - **Con el bucket en un segmento el criterio 1 se cumple:** 1.089.
 - **179 inserts por segundo con un escritor,** el 93 % en la búsqueda de aristas. Un insert entrega 1.35 KB al store, además de su vector.
+  - **HFresh, con un escritor y sus 9 workers de fondo (del 20):** 2 089 por segundo, de 10.6 a 11.7 veces.
+  - **Con las búsquedas de los inserts en paralelo (v5.2, del 20):** 634 por segundo con 8 buscadores, 3.76 veces el insert de siempre, sin perder calidad a igual ef. Su criterio pedía 4 veces: no sirve como se pre-registró. Ocho búsquedas a la vez tardan un 54 % más cada una.
+- **Aristas consolidadas (v5.1, del 19 y el 20): no sirve, por su criterio.** La fila de aristas de un posting en un solo valor, escrita cada K cambios. En caliente cierra un 55 % de la distancia con el lote, 1.21 veces donde v5.0 queda a 1.45. En frío no mejora a v5.0: 1.41 a 1.47 veces el lote, sin que sepa todavía por qué. Un control combinado, encargado el 20, lo mide reorganizado.
 - **Antes de compactar, la basura pesa un 34.5 % más de bytes por carga** y 1.75 veces las lecturas, con la política por niveles.
 - **El store escribe de 7 a 17 veces lo que guarda,** con cualquiera de sus dos políticas.
 - **Un bug de `lsmkv` encontrado por el camino:** su compactador de Set devolvía valores borrados. Arreglado aquí y en un PR a main, weaviate/weaviate#13950.
@@ -1012,7 +1019,7 @@ Binario de `936a323672`. Datos en `testdata/bench/v6.0/r2/dbpedia-1m-deletes.jso
 
 ## v5.2: inserts con búsquedas en paralelo (pre-registro, 2026-11-19)
 
-**Estado: paso 1 cerrado, con dos enmiendas. Va sobre el camino de v5.0, y sus cuatro corridas a 1M están en cola detrás de v4.1.** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
+**Estado: cerrado. No sirve, por la regla como está escrita: N = 8 da 3.76 veces los inserts por segundo de N = 1, donde hacían falta 4. Abajo, «Paso 2» y «Veredicto de v5.2».** Pre-registrado el 19 a las 12:22, antes de compilar nada de esta celda y antes de ningún dato suyo. El mecanismo, las celdas, la validación, las medidas, el criterio y la nota para la integración son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la corrida a 1M.
 
 ### El encargo (del usuario)
 
@@ -1166,9 +1173,102 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
 
 **El script de la sesión y sus tablas** se escribieron después (`1e17992fab`): `testdata/bench/v5.2/scripts/run_v52.sh` y `parallel_inserts_verdict.py`.
 
+### Paso 2, cerrado: las cuatro corridas a 1M (2026-11-20, de 06:39 a 09:51)
+
+**Estado: hechas, las cuatro. No sirve, por la regla como está escrita: N = 8 da 3.76 veces los inserts por segundo de N = 1, donde hacían falta 4, y sus cargas a 0.99 quedan un 15.8 % por encima, donde el límite era un 5 %. A igual ef los cuatro índices son el mismo: lo de 0.99 es del tamaño del ruido entre dos corridas.** Corrieron detrás de v4.1, de día. El binario es el de `4ff2563947`, construido el 19 a las 13:30. Los datos, en `testdata/bench/v5.2/dbpedia-1m-par-*-manifest.json`. Las tablas son las de `parallel-inserts-verdict.md`.
+
+**Validación, que es stop: pasa.** Las cuatro celdas tienen cobertura completa en cada checkpoint, del 20 al 100 %, y al acabar.
+
+**Inserts por segundo,** del 10 al 100 %, 891 000 inserts por celda:
+
+| celda | hasta el 20 % | hasta el 40 % | hasta el 60 % | hasta el 80 % | hasta el 100 % | toda la corrida | frente a N = 1 |
+|---|---|---|---|---|---|---|---|
+| N = 1, el insert de siempre | 207 | 189 | 164 | 154 | 157 | 169 | 1.00x |
+| N = 4, tandas de 32 | 577 | 521 | 501 | 487 | 486 | 506 | 3.00x |
+| N = 8, tandas de 32 | 709 | 642 | 629 | 620 | 615 | 634 | 3.76x |
+| N = 8, tandas de 8 | 598 | 540 | 489 | 468 | 442 | 493 | 2.92x |
+
+**Dónde se va el tiempo:**
+
+| celda | el aplicador, del tiempo de reloj | los buscadores, del suyo, buscando | búsqueda por insert, ms | aplicar un insert, ms |
+|---|---|---|---|---|
+| N = 1, el insert de siempre | 5.7 % | 100 % | 5.59 | 0.340 |
+| N = 4, tandas de 32 | 14.8 % | 92 % | 6.21 | 0.292 |
+| N = 8, tandas de 32 | 18.8 % | 84 % | 8.59 | 0.296 |
+| N = 8, tandas de 8 | 15.0 % | 53 % | 7.38 | 0.304 |
+
+- **El aplicador no es el límite:** aplicar un insert son 0.30 ms, y con N = 8 ocupa un 18.8 % del tiempo de reloj.
+- **Lo que falta para las 4 veces está en los buscadores, por dos lados.** Una búsqueda tarda 8.59 ms cuando corren ocho a la vez, donde sola tarda 5.59: un 54 % más. Y los buscadores pasan un 16 % de su tiempo parados, esperando a que la tanda acabe y se aplique.
+- **Con tandas de 8 esperan casi la mitad del tiempo,** un 47 %: cada tanda espera a su búsqueda más lenta. Por eso queda en 2.92 veces.
+- **Lo que el aplicador tuvo que rehacer es casi nada:** con N = 8 y tandas de 32, 35 planes de 891 000 eligieron posting otra vez, y 1 622 releyeron alguna lista, un 0.18 %.
+- **Una cadena continua, calculada con los tiempos medidos y no medida:** 932 inserts por segundo con N = 8, 5.5 veces N = 1, limitada por los buscadores.
+
+**Calidad del índice que deja cada celda:**
+
+| celda | 0.95: ef | cargas | frente a N = 1 | 0.99: ef | cargas | frente a N = 1 | con el ef de N = 1 a 0.99: recall | cargas |
+|---|---|---|---|---|---|---|---|---|
+| N = 1, el insert de siempre | 21 | 19.55 | | 144 | 67.39 | | 0.9901 | 67.39 |
+| N = 4, tandas de 32 | 20 | 19.00 | −2.8 % | 149 | 68.89 | +2.2 % | 0.9896 | 67.26 |
+| N = 8, tandas de 32 | 21 | 19.54 | −0.1 % | 179 | 78.05 | +15.8 % | 0.9890 | 67.26 |
+| N = 8, tandas de 8 | 21 | 19.53 | −0.1 % | 167 | 74.27 | +10.2 % | 0.9890 | 67.11 |
+
+- **A igual ef los cuatro índices dan lo mismo:** con ef 144, de 0.9890 a 0.9901 de recall y de 67.11 a 67.39 cargas.
+- **A 0.99 la curva es casi plana,** y 0.0011 de recall mueve el ef de 144 a 179. De ahí sale el +15.8 %.
+- **El ruido entre dos corridas, que la enmienda 1 pedía dar:** N = 4 y N = 8 llevan la misma tanda y se separan un 2.9 % en cargas a 0.95 y un 13.3 % a 0.99. La diferencia de N = 8 con N = 1 a 0.99, un 15.8 %, es del tamaño de ese ruido y no menor que él.
+
+**El criterio, como está escrito:**
+
+| | medido | hacía falta | |
+|---|---|---|---|
+| inserts por segundo de N = 8 entre los de N = 1 | 3.76x | 4 o más | no |
+| cargas a 0.95 de N = 8 sobre las de N = 1 | −0.1 % | +5 % o menos | sí |
+| cargas a 0.99 de N = 8 sobre las de N = 1 | +15.8 % | +5 % o menos | no |
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| N = 1 | unos 180 por segundo, el aplicador un 7 % | 169, un 5.7 % | cerca: un 6 % menos |
+| N = 8, tandas de 32 | de 4.5 a 5.5 veces, el aplicador del 35 al 40 % | 3.76 veces, un 18.8 % | fuera, por abajo |
+| N = 4 | de 3.0 a 3.5 veces | 3.00 | en el borde |
+| N = 8, tandas de 8 | de 3.5 a 4.2 veces | 2.92 | fuera, por abajo |
+| cargas, a menos de un 2 % de N = 1 | | a 0.95, de −2.8 a −0.1 %; a 0.99, de +2.2 a +15.8 % | a 0.95 sí; a 0.99 no, por el cruce |
+| planes con posting reelegido | menos de uno de cada mil | 0.004 % | sí |
+| planes con listas leídas otra vez | menos de uno de cada cien | 0.18 % | sí |
+| una cadena continua, calculada | unas 8 veces con N = 8 | 5.5 | fuera, por abajo |
+
+- **Lo que no vi:** que una búsqueda se alarga cuando corren ocho a la vez. Conté con los 5.2 ms de una sola. El aplicador, en cambio, pesa la mitad de lo que esperaba.
+
+**La sesión.** Una corrida por celda, de día, con la actividad anotada, como decía el pre-registro:
+
+| celda | de | a | teclado o trackpad durante la corrida |
+|---|---|---|---|
+| N = 1 | 06:39 | 08:09 | sí |
+| N = 4, tandas de 32 | 08:09 | 08:41 | no |
+| N = 8, tandas de 32 | 08:41 | 09:07 | sí |
+| N = 8, tandas de 8 | 09:18 | 09:51 | sí |
+
+- **Tres de las cuatro corridas llevan actividad del usuario,** entre ellas las dos del criterio. Arrancaron a las 06:39, antes de las 07:00, y la regla de la cola las dejó seguir de día.
+- **Durante N = 1, hasta las 07:00, yo leía resultados y escribía borradores fuera del worktree.** Nada compiló en la máquina entre las 06:00 y las 09:51: la caché de compilación de Go no tiene ningún fichero de esas horas.
+- **N = 1 sale a 169 por segundo, donde v5.0 dio 179 en su noche:** un 6 % menos, que no separo de la actividad.
+- **El pre-registro no pide repetir.** Una razón de 3.76 con el denominador medido con actividad no la doy por cerrada a un 6 %: con los 179 de la noche de v5.0 serían 3.54. En ninguno de los dos casos llega a 4.
+
+### Veredicto de v5.2
+
+**No sirve, tal como se pre-registró:** con N = 8 da 3.76 veces los inserts por segundo de N = 1, 634 frente a 169, y no las 4 que pedía el criterio.
+
+- **Lo de las cargas a 0.99 no es del mecanismo:** a igual ef los índices son el mismo, y dos corridas con la misma tanda se separan un 13.3 %. Lo aplico como está escrito y digo que es ruido de corrida.
+- **Lo que deja medido para la integración:**
+  - buscar las aristas en paralelo da 3.0 veces con 4 buscadores y 3.8 con 8, con tandas de 32, sin perder calidad a igual ef;
+  - el aplicador único no es el límite hasta mucho más allá: 0.30 ms por insert son más de 3 000 inserts por segundo;
+  - el límite es que ocho búsquedas a la vez se estorban, un 54 % más de tiempo cada una, y eso en producto será peor, porque los buscadores salen de los workers compartidos del nodo;
+  - las tandas pequeñas pierden por espera, no por calidad.
+- **Junto a HFresh:** 634 inserts por segundo con 8 buscadores, donde HFresh hace 2 089 con un escritor y sus 9 workers de fondo. Queda a 3.3 veces.
+- **Lo que no mide:** una cadena continua en vez de tandas; búsquedas de usuario mientras se inserta; y varios índices compartiendo buscadores.
+
 ## v4.1: el scan con los sketches en RAM (pre-registro, 2026-11-19)
 
-**Estado: pasos 1 y 2 cerrados, con las dos comprobaciones a 1M pasadas, y la sesión cronometrada en cola para la noche del 19.** Pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo. El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
+**Estado: cerrado. No es una opción, tal como se pre-registró: la mejor curva, 768 bits con rescore 200, queda en frío a 0.95 a 1.49 veces de la celda actual, con el límite en 1.20. Abajo, «Paso 3» y «Veredicto de v4.1».** Pre-registrado el 19 a las 11:32, antes de compilar nada de esta celda y antes de ningún dato suyo. El encargo, la celda, los tres rescores, lo que se mide, contra qué y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Lo que dependa del prototipo se añade como enmienda, con su hora y su motivo, antes de la sesión cronometrada.
 
 ### El encargo (del usuario)
 
@@ -1316,6 +1416,75 @@ Binario de `b098d01b1a`. Tablas en `testdata/bench/v4.1/sketch-verdict.md`, que 
 
 **Sin medir todavía:** la latencia y el heap, que salen de la sesión cronometrada.
 
+### Paso 3, cerrado: la sesión cronometrada (2026-11-20, de 04:11 a 06:39)
+
+**Estado: hecha, en dos rondas y con los dos presupuestos. Ninguna curva es una opción, con ninguno de los dos presupuestos: la mejor, 768 bits con rescore 200, queda en frío a 0.95 a 1.49 veces de la celda actual, con el límite en 1.20.** Corrió detrás de la cola de la noche, fuera de la ventana de 23:00 a 03:00, como decía el pre-registro. El binario es el de `b098d01b1a`, construido el 19 a las 11:51. Los datos, en `testdata/bench/v4.1/dbpedia-1m-sketch-r1-*.json` y `-r2-*.json`. Las tablas son las de `sketch-verdict.md`, primera ronda.
+
+**La lectura,** por el p50 en frío a 0.95 con 1 thread, sobre el de la celda actual en la misma pasada:
+
+| curva | llega a 0.99 | con presupuesto de 8, ms | frente a la actual | con el de un nodo, ms | frente a la actual | es una opción |
+|---|---|---|---|---|---|---|
+| la actual: 512 bits en RAM, rescore 64 | sí | 3.62 | | 3.43 | | |
+| scan con 512 bits, rescore 200 | no, hasta 0.9822 | 5.78 | 1.60x | 5.38 | 1.57x | no |
+| scan con 512 bits, rescore 400 | sí | 8.79 | 2.43x | 7.85 | 2.29x | no |
+| scan con 512 bits, rescore 800 | sí | 13.35 | 3.68x | 11.83 | 3.45x | no |
+| scan con 768 bits, rescore 200 | sí | 5.41 | 1.49x | 5.00 | 1.46x | no |
+| scan con 768 bits, rescore 400 | sí | 8.27 | 2.28x | 7.57 | 2.21x | no |
+| scan con 768 bits, rescore 800 | sí | 12.37 | 3.41x | 11.27 | 3.29x | no |
+
+- **La lectura no cambia con el presupuesto de un nodo.** Era donde podía cambiar.
+- **En la segunda ronda las razones son las mismas:** con presupuesto de 8, 1.62, 2.39, 3.68, 1.51, 2.26 y 3.43 veces.
+
+**Lo que sale:**
+
+- **En frío manda el rescore, y el presupuesto casi no lo abarata.** De la media en frío a 0.95 con 1 thread:
+
+  | curva | media, ms | espera de los bloques | scan y ruteo | rescore, con presupuesto de 8 | rescore, con el de un nodo |
+  |---|---|---|---|---|---|
+  | la actual, rescore 64 | 4.22 | 1.89 | 0.65 | 1.56 | 1.41 |
+  | scan con 512 bits, rescore 200 | 5.93 | 1.22 | 0.78 | 3.81 | 3.45 |
+  | scan con 768 bits, rescore 200 | 5.58 | 0.99 | 0.65 | 3.82 | 3.42 |
+  | scan con 768 bits, rescore 400 | 8.23 | 0.98 | 0.66 | 6.45 | 5.74 |
+  | scan con 768 bits, rescore 800 | 12.13 | 0.97 | 0.70 | 10.28 | 9.31 |
+
+  - **La celda nueva ahorra la mitad de la espera de los bloques,** de 1.89 a 0.99 ms con 768 bits: una lectura por carga en vez de dos, y 13.0 cargas en vez de 18.6.
+  - **Y paga 2.3 ms más de rescore** por leer 200 vectores en vez de 64.
+  - **Con 20 lecturas en vuelo en vez de 8 el rescore de 200 baja un 10 %,** de 3.82 a 3.42 ms. Esperaba que bajara a unos 2 ms. En frío una lectura de rescore cuesta de 17 a 24 µs de pared con cualquiera de los dos presupuestos: lo que limita es el disco, no las lecturas en vuelo.
+- **A 0.99 en frío, 768 bits con rescore 200 queda a 1.21 veces** de la actual con presupuesto de 8, y a 1.14 con el de un nodo: 10.69 ms frente a 8.83, y 9.83 frente a 8.61. A 0.99 la actual carga 76.6 postings y el rescore pesa menos.
+- **En caliente a 0.95, 768 bits con rescore 200 queda a 1.13 veces** con presupuesto de 8 y a 1.10 con el de un nodo: 1.02 ms frente a 0.90. Con 512 bits, 1.30 y 1.27. Con rescore 800, casi el doble.
+- **Con 8 threads es peor en todos los puntos:** en frío a 0.95, de 1.77 a 3.15 veces con presupuesto de 8, y en caliente, de 1.49 a 5.15.
+- **Lo que da a cambio,** de la parte sin cronometrar: el store baja de 243.0 a 36.8 MB, y el total en disco de 6 431 a 6 257 MB con 768 bits, un 2.7 %. El heap sube de 145.8 a 185.2 MB.
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| en frío a 0.95, presupuesto de 8, rescore 200 | de 1.4 a 1.8 veces | 1.60 y 1.49 | sí |
+| ninguna curva dentro de 1.20 con presupuesto de 8 | | ninguna | sí |
+| en frío a 0.95, presupuesto de un nodo, rescore 200 | de 0.9 a 1.2 veces | 1.57 y 1.46 | fuera, por arriba |
+| `s512` con rescore 200 puede no llegar a 0.99 | | se queda en 0.9822 | sí |
+| en caliente, empate con rescore 200 y peor con 800 | | 1.13 y 1.30 con 200; 1.88 y 1.95 con 800 | a medias: con 200 no es empate |
+| RAM | unos 154 y 185 MB | 153.8 y 185.2 | sí |
+| el store | de 243 a unos 37 MB | 36.8 | sí |
+
+- **Me equivoqué en lo que más importaba:** creí que el presupuesto de un nodo dejaría el rescore de 200 en unos 2 ms. Supuse que las lecturas en frío escalan con las que hay en vuelo, y pasadas las 8 no escalan.
+
+**Las curvas: dos rondas, deriva y actividad.**
+
+- **Una mediana de 104 se movió más de un 10 % entre rondas:** scan con 768 bits y rescore 800, con el presupuesto de un nodo, a 0.99 con 8 threads en frío, de 49.35 a 60.29 ms.
+- **Dos tramos con teclado o trackpad,** los dos de la segunda ronda con el presupuesto de un nodo: scan con 512 bits y rescore 800 (06:15 a 06:22; la pantalla se enciende a las 06:21) y scan con 768 bits y rescore 200 (06:22 a 06:27).
+- **Ninguna de las tres curvas marcadas decide la lectura,** que es de la primera ronda con presupuesto de 8. Por la regla de su pre-registro se repiten la noche del 20, dentro de la ventana.
+- **Mientras cronometraba el principio de la primera ronda con presupuesto de 8, de 04:11 a 04:30,** yo leía los resultados de la cola y escribía borradores fuera del worktree: lecturas de ficheros y scripts cortos, nada compilado. El registro de actividad no lo ve, porque no es teclado. Son los tramos de la celda actual y de las tres curvas de 512 bits. Su segunda ronda, de 05:25 a 05:45, sin nada mío, da de un 0.5 a un 3.6 % menos de latencia y las mismas razones.
+
+### Veredicto de v4.1
+
+**El scan con los sketches en RAM no es una opción, tal como se pre-registró:** ninguna anchura queda a 1.20 veces o menos de la celda actual en frío a 0.95, con ninguno de los tres rescores ni de los dos presupuestos.
+
+- **Lo que más se acerca es 768 bits con rescore 200:** 1.49 veces en frío a 0.95, 1.21 a 0.99, y 1.13 en caliente. Cuesta 39 MB más de heap y ahorra 206 MB de un disco de 6.4 GB.
+- **Por qué no llega:** cambia una lectura de bloque por carga, que en frío es barata, por 136 lecturas de rescore más por query, que no lo es.
+- **Para la integración:** el modo `scan` de `rq.cacheMode` queda reservado y sin implementar. No hay medida que lo recomiende a 1M y 1536d.
+- **Lo que no dice:** qué pasa con un rescore menor de 200 a 768 bits, que no estaba en el encargo; ni a 768d, donde el vector exacto pesa la mitad.
+
 ## El heap a 1M, por componente (2026-11-19)
 
 **Estado: medido el 19 a las 11:35, sin cronometrar nada.** Encargo del usuario: el desglose del heap a 1M de HFresh y de las dos celdas de posting-edge (512 bits en RAM y halo), en centroides, mapas por vector, códigos y resto.
@@ -1421,7 +1590,7 @@ La parte del rescore en la latencia media de una query, medida con el presupuest
 
 ## v5.1: aristas consolidadas (pre-registro, 2026-11-19)
 
-**Estado: validado a 1M. El stop de corrección pasa con K = 16 y con K = 64. La primera mitad del criterio no se cumple con ninguna, por 0.05: abajo, «Paso 2». La sesión cronometrada, en cola para la noche del 19.** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
+**Estado: cerrado. No sirve, tal como se pre-registró: ninguna K cumple ninguna de las dos mitades del criterio. En caliente cierra más de la mitad de la distancia de v5.0 con el lote; en frío, nada. Abajo, «Paso 2», «Paso 3» y «Veredicto de v5.1».** Abajo, «Paso 1». **El pre-registro** se escribió el 19 a las 08:37, antes de compilar nada de esta ronda y antes de ningún dato suyo. Se escribe mientras cronometra el control de reorganización de v5.0, cuyos resultados no están: lo esperado de abajo no los usa. Se confirma en git cuando ese control acaba: quedó confirmado a las 09:24, en `efa5e26cc2`, solo y antes de compilar. El mecanismo, la corrección, las medidas y el criterio son del usuario. Lo que dejan abierto lo fijo aquí, marcado como mío.
 
 ### Qué se mide
 
@@ -1728,6 +1897,127 @@ Los miembros con cambios esperando y los bytes de sus listas y de sus distancias
 
 - **En la validación** cada checkpoint lo vacía: su pico es el de un tramo. **En la cronometrada** solo se vacía al cerrar.
 
+
+### Paso 3, cerrado: la sesión cronometrada (noche del 19 al 20, de 00:34 a 04:02)
+
+**Estado: hecha. La segunda mitad del criterio tampoco se cumple: en frío a 0.95 el índice de K = 16 tarda 1.47 veces lo que la celda en lote y el de K = 64, 1.41, con el límite en 1.20. En caliente las aristas consolidadas sí cierran más de la mitad de la distancia de v5.0 con el lote; en frío no cierran nada.** De noche, con la máquina despierta y sin teclado ni trackpad en ningún tramo. El binario es el de `5d5203e096`, construido el 19 a las 10:14. Los datos, en `testdata/bench/v5.1/dbpedia-1m-cons-k16-manifest.json`, `-k64-manifest.json`, `-r1-*.json` y `-r2-*.json`. Las tablas son las de `consolidated-verdict.md`, primera ronda.
+
+**Qué corrió:** los inserts de K = 16, de 00:34 a 01:51, y los de K = 64, de 01:51 a 03:12, cada uno del 10 % al 100 % con un escritor; y cuatro curvas en dos rondas, de 03:12 a 04:02: los dos índices que dejaron, el crecido de v5.0 que hay en disco y la celda de 512 bits en lote. Los dos índices acaban con cobertura completa y con sus puntos en ef 21 y ef 166.
+
+**Lo que sale:**
+
+- **Segunda mitad del criterio: no se cumple, con ninguna K.**
+
+  | índice | p50 en frío, 1 thread, a 0.95, ms | entre el lote | a 1.20 o menos | de su media en frío: traer los bloques | scan y ruteo | rescore |
+  |---|---|---|---|---|---|---|
+  | K = 16 | 5.48 | 1.47x | **no** | 3.42 | 0.77 | 2.27 |
+  | K = 64 | 5.25 | 1.41x | **no** | 3.43 | 0.77 | 2.08 |
+  | crecido de v5.0 | 4.86 | 1.31x | no | 2.99 | 0.79 | 1.88 |
+  | escrito en lote (v4.0, 512 bits en RAM) | 3.72 | | | 1.95 | 0.64 | 1.62 |
+
+  - **En la segunda ronda,** 5.28, 5.27, 4.81 y 3.65 ms: 1.45, 1.44 y 1.32 veces.
+- **En frío, las aristas consolidadas no mejoran al crecido de v5.0.** A 0.95 con 1 thread, K = 64 queda a 1.08 veces de él en la primera ronda y a 1.10 en la segunda, y K = 16, a 1.13 y a 1.10: entre el empate y su borde, siempre por el lado malo.
+  - **Traer los bloques cuesta más, no menos:** 3.42 ms de la media frente a 2.99, en las dos rondas y con las dos K.
+  - **Por fila, la de aristas baja a la mitad y la de miembros sube:** por carga, 199 µs la de aristas donde en v5.0 eran 391, y 443 la de miembros donde eran 372. La ronda espera a su fila más lenta, que es la de miembros.
+  - **El rescore también sale más lento,** de 2.05 a 2.27 ms frente a 1.87, y v5.1 no lo toca: son los mismos 64 vectores de un fichero escrito igual.
+  - **No sé por qué.** Dos hipótesis, sin medir ninguna. Una: en v5.0 las dos filas de un posting van seguidas en los mismos segmentos, y la lectura de una trae páginas de la otra; con las aristas en otro bucket, cada carga espera a tres sitios distintos del disco en vez de a dos. Otra: son ficheros escritos esa misma noche en un volumen más lleno, y lo que cambia es dónde quedaron, que explicaría también el rescore. Lo separaría contar en frío las lecturas y los bytes por fila y por segmento, y repetir la curva sobre una copia del índice.
+- **En caliente sí mejoran, y es lo que el formato cambia.**
+
+  | a 0.95, en caliente | p50, 1 thread, ms | entre el lote | p50, 8 threads | entre el lote |
+  |---|---|---|---|---|
+  | K = 16 | 1.10 | 1.21x | 1.56 | 1.20x |
+  | K = 64 | 1.12 | 1.22x | 1.55 | 1.19x |
+  | crecido de v5.0 | 1.33 | 1.45x | 2.05 | 1.58x |
+  | escrito en lote | 0.91 | | 1.30 | |
+
+  - **Cierran un 55 % de la distancia de v5.0 con el lote** con 1 thread, y un 65 % con 8. A 0.99, un 53 % y un 66 %.
+  - **Frente al crecido de v5.0:** 0.83 veces con 1 thread y 0.76 con 8 a 0.95.
+- **Lo que cuesta traer cada fila en caliente (enmienda 1),** por carga, con 1 thread, a 0.95:
+
+  | índice | fila de miembros, µs | entre la del lote | fila de aristas, µs | entre la del lote | traer los bloques, de pared, µs | entre el del lote |
+  |---|---|---|---|---|---|---|
+  | K = 16 | 18.0 | 1.26x | 9.7 | 1.37x | 22.0 | 1.35x |
+  | K = 64 | 18.1 | 1.27x | 9.5 | 1.34x | 22.8 | 1.40x |
+  | crecido de v5.0 | 18.7 | 1.31x | 39.2 | 5.54x | 34.8 | 2.13x |
+  | escrito en lote | 14.2 | | 7.1 | | 16.3 | |
+
+  - **La fila de aristas en un valor cuesta 1.37 veces la del lote,** donde valor a valor costaba 5.54.
+  - **La fila de miembros, que sigue valor a valor, cuesta 1.26 veces la del lote:** 3.8 µs más por carga. En caliente no es lo que separa a v5.1 del lote.
+  - **A 0.99 las razones son las mismas:** 1.25 y 1.36 veces con K = 16.
+  - **Lo que queda en caliente a 0.95, de la media:** 0.13 ms de traer los bloques y 0.16 de scan y ruteo, sobre 1.21 del lote. El scan y ruteo de más está también en el crecido de v5.0, que carga un 5 % más de postings que el lote.
+- **Para la pregunta de la enmienda, si los miembros también necesitan consolidarse:** en caliente no lo piden, por lo de arriba. En frío la fila de miembros es la lenta, 1.70 veces la del lote por carga, pero eso lo mide mal esta sesión, que no sabe explicar por qué v5.1 sale peor que v5.0 en frío. Lo medido que sí habla de la fila de miembros en frío es el control de v5.0: con el bucket en un segmento y los vectores en orden de posting queda a 1.07 veces del lote.
+- **Inserts por segundo, con un escritor: 197 con K = 16 y 187 con K = 64.** v5.0 dio 179 en su noche, que es otra sesión.
+
+  | tramo | v5.0 | K = 16 | K = 64 |
+  |---|---|---|---|
+  | del 10 al 20 % | 213 | 285 | 238 |
+  | del 20 al 40 % | 195 | 216 | 204 |
+  | del 40 al 60 % | 176 | 190 | 184 |
+  | del 60 al 80 % | 171 | 181 | 175 |
+  | del 80 al 100 % | 163 | 176 | 171 |
+  | **todo** | **179** | **197** | **187** |
+
+  - **Un insert son 5.07 ms con K = 16 y 5.34 con K = 64,** donde en v5.0 eran 5.59. Lo que baja es la búsqueda de aristas, que sigue siendo del 91.5 al 92.2 % del insert: lee las filas de aristas más barato.
+  - **Escribir las filas de aristas es un 0.6 % del insert con K = 16 y un 0.3 % con K = 64.**
+  - **K = 16 inserta un 5 % más rápido que K = 64,** un empate, y no sé si es de K o del orden en la noche.
+- **Lo que el store escribe:** 14.46 GB con K = 16, 26.0 veces lo que ocupa al final; 7.74 GB con K = 64, 14.0 veces; y 9.43 GB en v5.0, 16.6 veces. Como en la validación: K = 64 escribe menos que v5.0, y K = 16 bastante más.
+- **RAM de lo pendiente, en su pico, sin vaciar en los checkpoints:**
+
+  | K | miembros con cambios esperando | bytes | en postings |
+  |---|---|---|---|
+  | 16 | 29 364 | 2.36 MB | 3 746 |
+  | 64 | 113 817 | 8.96 MB | 3 979 |
+
+  - **Crece con el índice y no se satura:** al 20 % son 0.44 y 1.69 MB, y al 100 %, 2.32 y 8.95.
+  - **Al cerrar se escribieron las filas que esperaban,** 3 767 y 3 993, en 0.2 y 0.3 s, dentro del tiempo.
+- **RAM al buscar:** 175.7 MB de heap tras abrir con K = 16 y 175.1 con K = 64, como el crecido de v5.0 (175.5), frente a 145.7 del lote.
+
+**Las curvas: dos rondas, deriva y actividad.**
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| K = 16 | 03:12 a 03:18 | 03:37 a 03:43 | no | −3.6 % (0.95, 1 thread, en frío: 5.48 y 5.28 ms) | — |
+| K = 64 | 03:18 a 03:25 | 03:43 a 03:50 | no | +8.3 % (0.95, 8 threads, en caliente: 1.55 y 1.68 ms) | — |
+| crecido de v5.0 | 03:25 a 03:31 | 03:50 a 03:57 | no | +6.2 % (0.99, 8 threads, en frío: 31.12 y 33.04 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 03:31 a 03:37 | 03:57 a 04:02 | no | −1.8 % (0.95, 1 thread, en frío: 3.72 y 3.65 ms) | — |
+
+- **Ninguna curva queda marcada.** No hay nada que repetir.
+- **Las curvas corrieron pasadas las 03:00,** detrás de los inserts, como sigue la cola de noche.
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| lecturas por carga del último tramo, entre las de v5.0 | de 0.5 a 0.6 | 0.545 y 0.551 | sí, en la validación |
+| latencia en frío a 0.95, entre el lote | de 1.2 a 1.35 | 1.47 y 1.41 | fuera, por arriba |
+| lo que el store lee de más sobre el modelo, compactado | de un 9 a un 6 % | un 5.7 % | sí, en la validación |
+| K no cambia las lecturas | | 3.40 y 3.43 | sí |
+| fila de miembros en caliente, entre la del lote | de 1.5 a 2.5, igual en v5.0 y v5.1 | 1.26 y 1.31 | fuera, por abajo |
+| fila de aristas de v5.1 en caliente, entre la del lote | de 1.0 a 1.5 | 1.37 y 1.34 | sí |
+| fila de aristas de v5.0 en caliente, entre la del lote | de 3 a 5 | 5.54 | fuera, por arriba |
+| traer los bloques de v5.1 en caliente | entre v5.0 y el lote, más cerca de v5.0 | 22.0 µs, entre 34.8 y 16.3 | fuera: más cerca del lote |
+
+- **Me equivoqué en lo mismo dos veces:** creí que la fila de miembros valor a valor era cara en caliente, y lo caro era la de aristas.
+- **Y esperaba que en frío v5.1 quedara entre v5.0 y el lote.** Queda por encima de v5.0.
+
+**Lo que no es comparable:**
+
+- **Los inserts por segundo de v5.0 y de v5.1** son de noches distintas.
+- **Las razones contra el lote de esta sesión con las de otras sesiones.** El mismo crecido de v5.0 que hay en disco salió a 1.43 veces del lote en su noche, a 1.33 en el control de reorganización y a 1.31 aquí.
+
+### Veredicto de v5.1
+
+| K | lecturas por carga a la mitad o menos | latencia en frío a 1.20 o menos | sirve |
+|---|---|---|---|
+| 16 | no: 0.545 | no: 1.47 | **no** |
+| 64 | no: 0.551 | no: 1.41 | **no** |
+
+**No sirve, tal como se pre-registró: ninguna K cumple ninguna de las dos mitades.**
+
+- **Lo que sí da, fuera del criterio:** en caliente, la búsqueda queda a 1.2 veces del lote donde v5.0 queda a 1.45, y el insert sale de un 4 a un 10 % más rápido, con otra sesión de por medio. Lo paga con 9 MB de RAM pendiente con K = 64, o con 1.5 veces la escritura de v5.0 con K = 16.
+- **Lo que no da:** nada en frío, que es donde estaba el criterio. Y no sé decir si es del formato o de dónde quedaron los ficheros.
+- **v5.2 va sobre el camino de v5.0,** como decía su enmienda 2.
+- **Para la integración** queda una pregunta abierta, no una decisión: las aristas en un valor valen la pena en caliente si el frío se arregla por otro lado, que por lo medido en el control de v5.0 es reorganizar el bucket y el fichero de vectores.
 
 ## v5.0: inserts en disco (pre-registro, 2026-11-18)
 
@@ -2456,11 +2746,57 @@ Por el p50.
 - **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
 - **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
 
+**La repetición de la celda 1 (2026-11-20, de 00:27 a 00:34).** La curva marcada por deriva, sola, con el binario de entonces (`3f1f905516`), de noche y sin teclado ni trackpad. Datos en `testdata/bench/v5.0/dbpedia-1m-grow-night-grown1.json`.
+
+| celda 1: un segmento | ronda 1, ms | ronda 2 | repetición de noche | sobre la ronda 1 |
+|---|---|---|---|---|
+| 0.95, en frío, 1 thread | 4.45 | 4.35 | 4.28 | −3.8 % |
+| 0.95, en frío, 8 threads | 13.84 | 15.27 | 13.65 | −1.4 % |
+| 0.95, en caliente, 1 thread | 1.23 | 1.22 | 1.20 | −2.4 % |
+| 0.95, en caliente, 8 threads | 1.89 | 1.89 | 1.87 | −1.1 % |
+| 0.99, en frío, 1 thread | 10.18 | 10.11 | 9.89 | −2.8 % |
+| 0.99, en frío, 8 threads | 27.98 | 28.18 | 26.97 | −3.6 % |
+| 0.99, en caliente, 1 thread | 4.19 | 4.16 | 4.12 | −1.7 % |
+| 0.99, en caliente, 8 threads | 6.42 | 6.45 | 6.38 | −0.6 % |
+
+- **La mediana que derivó repite la de la primera ronda:** 13.65 ms donde eran 13.84 y 15.27. El valor suelto era el de la segunda ronda.
+- **La primera ronda, que es la del veredicto, se confirma:** ninguna mediana se separa de ella más de un 3.8 %. Lo que la celda 1 recupera, calculado con la primera ronda, no cambia.
+- **No recalculo las razones contra el lote con la repetición:** el lote no se repitió esta noche, y una razón vale dentro de su sesión.
+
 #### Lo que vale y lo que no
 
 - **Los números absolutos de esta máquina no valen para producción.** Vale la comparación entre curvas de la misma sesión.
 - **Las celdas son el mismo índice con sus bytes en otro sitio:** no miden una reorganización en segundo plano, sino lo que dejaría.
 - **El formato de las filas no cambia en ninguna celda:** el marco por valor del Set sigue ahí.
+
+### Los inserts de HFresh a 1M con un escritor (enmiendas 4 y 5; 2026-11-20, de 04:02 a 04:10)
+
+**Estado: medido, en una corrida. HFresh inserta 2 089 vectores por segundo con un escritor, y 2 076 contando hasta que sus colas de fondo quedan vacías. Son de 10.6 a 11.7 veces los de posting-edge con un escritor.** De noche, sin teclado ni trackpad en el tramo y sin eventos de energía. El binario es el de `39b47223c6`. Los datos, en `testdata/bench/v5.0/dbpedia-1m-hfresh-inserts-w1.json`.
+
+| | inserts por segundo | escritores | qué hay dentro |
+|---|---|---|---|
+| HFresh, hasta el último insert | 2 089 | 1 | los 990 000 `Add`, uno detrás de otro, en 473.8 s, con sus tareas de fondo en 9 workers y el ciclo de limpieza de su grafo |
+| HFresh, hasta la cola vacía | 2 076 | 1 | lo anterior más 3.1 s hasta que sus colas de análisis, splits y reasignaciones no tienen nada |
+| posting-edge, v5.0 | 179 | 1 | todo: la búsqueda de sus aristas, sus aristas inversas, sus splits, su vector exacto y los ciclos del store |
+| posting-edge, v5.1, K = 16 | 197 | 1 | lo mismo, con las filas de aristas escritas cada 16 cambios |
+| posting-edge, v5.1, K = 64 | 187 | 1 | lo mismo, cada 64 |
+
+- **Por tramos del 10 %:** 2 768, 2 117, 1 971, 1 904, 1 807, 1 866, 2 259, 2 241, 2 165 y 2 085 por segundo. Tras el primer tramo se mueve entre 1 807 y 2 259, sin la bajada sostenida de posting-edge, que va de 213 a 163.
+- **Lo que queda en sus colas al volver el último `Add`:** 16 637 análisis, 352 splits, 39 073 reasignaciones y ningún merge. Se vacían en 3.1 s. Durante la corrida las colas se llenan y se vacían: al acabar cada tramo había entre 0 y 39 073 reasignaciones.
+- **El grafo de centroides, con la limpieza cada 5 minutos:** al último insert, 40 067 nodos, 11 990 de ellos tombstones, para 28 077 postings. Con las colas vacías, 40 347, 12 130 y 28 217. En una corrida de ocho minutos el ciclo pasa una vez: queda un 30 % de tombstones, donde el build de v4.0, sin ciclo, acabó con la mitad.
+- **El índice que deja:** 28 217 postings y 4 888 203 entradas, 4.94 por vector. Su recall por defecto (searchProbe 256, rescoreLimit 350) es 0.9636; el build de 10 escritores dio 0.9674.
+  - **Su bucket de postings ocupa 4.10 GB en 468 segmentos,** sin compactar: la corrida acaba con las colas vacías y no espera al store. El de v4.0, compactado, son 1.14 GB en 2.
+- **Los vectores exactos se escribieron antes, aparte,** en 17.4 s, que no entran.
+- **Lo esperado y lo medido:** esperaba de 1 000 a 3 000 por segundo hasta el último insert, y poco menos hasta la cola vacía. Sale dentro: 2 089 y 2 076.
+
+**Lo que no es lo mismo, como decían las enmiendas:**
+
+- **Un escritor no es un core.** HFresh reparte su trabajo de fondo entre 9 workers, todos para este índice, y la limpieza usa además 5 goroutines cuando corre. Posting-edge hace todo dentro del insert, en el hilo del escritor, salvo las lecturas de una ronda.
+- **HFresh construye desde cero** y posting-edge crece desde un 10 % escrito en lote.
+- **Los vectores que piden los splits y las reasignaciones de HFresh se leen de memoria** en este arnés. Posting-edge los lee de su fichero, y escribe el vector exacto dentro del insert.
+- **El store de HFresh lleva el tamaño de memtable por defecto de `lsmkv`,** no el dinámico de un shard, y queda sin compactar.
+- **No son de la misma sesión** que los inserts de v5.0. Los de v5.1 sí son de esta noche.
+- **Con todo eso, la diferencia es de un orden de magnitud y no la cierra nada de lo anterior.** El insert de posting-edge es su búsqueda de aristas, un 92 % del tiempo: 62.8 cargas con ef 160. v5.2 mide cuánto se recupera con esas búsquedas en paralelo.
 
 ## v4.0: primer prototipo que lee de disco (pre-registro, 2026-11-18)
 
@@ -3238,7 +3574,7 @@ Las cinco curvas marcadas, cada una una vez, con las condiciones de siempre. Pas
 
 ### Resultados de v4.0: HFresh con sus postings leídos en paralelo (2026-11-19, de 07:10 a 08:24)
 
-**Estado: hecha la sesión de dos rondas de la enmienda 6. Dos curvas quedan marcadas por actividad y se repiten esta noche.** El binario es el del commit `ada5ebdf5a`. Los datos, en `testdata/bench/v4.0/dbpedia-1m-disk-p1-*.json` y `-p2-*.json`. Las tablas son las de `parallel-verdict.md`, primera ronda.
+**Estado: hecha la sesión de dos rondas de la enmienda 6. Dos curvas quedaron marcadas por actividad y se repitieron la noche del 19 al 20: confirman su primera ronda (abajo, «La repetición de noche»).** El binario es el del commit `ada5ebdf5a`. Los datos, en `testdata/bench/v4.0/dbpedia-1m-disk-p1-*.json` y `-p2-*.json`. Las tablas son las de `parallel-verdict.md`, primera ronda.
 
 **Lo que sale:**
 
@@ -3337,6 +3673,24 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 - **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
 - **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
 
+**La repetición de noche (2026-11-20, de 00:14 a 00:27).** Las dos curvas marcadas, como se cronometraron entonces: el índice de v4.0 con su grafo sin limpiar, presupuesto de 8 y el binario de `ada5ebdf5a`. Sin teclado ni trackpad en ninguno de los dos tramos. Datos en `testdata/bench/v4.0/dbpedia-1m-disk-night-hfresh-best95-par.json` y `-night-hfresh-best99.json`.
+
+| curva | | ronda 1, ms | ronda 2 | repetición de noche | sobre la ronda 1 |
+|---|---|---|---|---|---|
+| HFresh, la mejor a 0.95, en paralelo | en frío, 1 thread | 14.28 | 14.18 | 14.12 | −1.1 % |
+| | en frío, 8 threads | 73.63 | 74.03 | 73.44 | −0.3 % |
+| | en caliente, 1 thread | 2.85 | 2.89 | 2.86 | +0.4 % |
+| | en caliente, 8 threads | 8.73 | 8.78 | 8.58 | −1.7 % |
+| HFresh, la mejor a 0.99, en serie | en frío, 1 thread | 178.42 | 181.82 | 178.61 | +0.1 % |
+| | en frío, 8 threads | 242.75 | 247.12 | 243.36 | +0.3 % |
+| | en caliente, 1 thread | 16.06 | 15.97 | 16.06 | 0.0 % |
+| | en caliente, 8 threads | 42.14 | 41.70 | 41.29 | −2.0 % |
+
+- **La repetición confirma la primera ronda:** ninguna mediana se mueve más de un 2.0 %. La actividad de las 07:17 a las 07:26 no movió nada.
+- **Con la repetición en lugar de la primera ronda no cambia ninguna lectura:** la celda de 512 bits en RAM queda a 4.0 veces menos que HFresh en paralelo en frío a 0.95, 3.54 ms frente a 14.12, donde eran 4.0 con 14.28.
+- **`disk-verdict.md` toma la curva de 0.99 en serie, que también es suya, por esta repetición:** el script pone la repetición de noche en lugar de la primera ronda del 18, aunque en aquella sesión la curva no estaba marcada. Sus medianas pasan de 178.98 a 178.61 ms en frío con 1 thread y de 16.33 a 16.06 en caliente, y seis razones de sus tablas cambian en el último dígito. Ninguna lectura de v4.0 cambia.
+- **`parallel-verdict.md` no tiene columna de repetición** y sigue con sus dos rondas: la repetición queda en esta tabla.
+
 **Lo que vale y lo que no:**
 
 - **HFresh en paralelo no es el HFresh de main:** es su búsqueda con una sola cosa cambiada, cuántos postings pide a la vez. En el producto el cambio queda apagado.
@@ -3345,7 +3699,7 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 
 ### Resultados de la enmienda 7, sin cronometrar: el HFresh limpio a 1M (2026-11-19, de 12:14 a 13:25)
 
-**Estado: preparado. La sesión cronometrada es lo primero de la cola de la noche del 19.** Binarios de `39b47223c6`. El índice limpio es una copia del de v4.0, en `/Volumes/v40bench/v40/hf-node`; el original no se ha tocado. Datos en `testdata/bench/v4.0/node/`.
+**Estado: preparado. La sesión cronometrada corrió la noche del 19 al 20: abajo, «Resultados de la enmienda 7, cronometrados».** Binarios de `39b47223c6`. El índice limpio es una copia del de v4.0, en `/Volumes/v40bench/v40/hf-node`; el original no se ha tocado. Datos en `testdata/bench/v4.0/node/`.
 
 - **El grafo de centroides:** de 57 433 nodos, 28 967 de ellos tombstones, a 28 466 nodos y ninguno, en una ronda de limpieza y 7.6 s.
 - **Con el grafo limpio HFresh pierde recall a igual configuración.** Por defecto (searchProbe 256, rescoreLimit 350), de 0.9674 a 0.9636. El techo del barrido no cambia: 0.9989.
@@ -3400,6 +3754,132 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 
 - **El primer driver** arrancó la sesión antes de que acabara esta preparación; el script la rechazó y el driver pasó al paso siguiente. Parado a los dos minutos.
 - **Edité el script de la sesión mientras la preparación lo ejecutaba.** Lo devolví a su estado enseguida, pero el proceso ya leía el fichero cambiado y acabó con un error de sintaxis después de sus tres etapas. Las tres pasaron, cada una con su log; el driver, que miraba el código de salida, se saltó la sesión. Relanzado a las 13:28 mirando los tres logs.
+
+### Resultados de la enmienda 7, cronometrados: HFresh como en un nodo, junto a las dos celdas (noche del 19 al 20, de 23:00 a 00:14)
+
+**Estado: hecha, en dos rondas. Los dos criterios de v4.0, leídos con estos números, se cumplen, y ninguno cambia de signo. HFresh como en un nodo sale en frío algo más lento que lo publicado, no más rápido. Dos tramos de HFresh de la primera ronda quedan marcados por actividad; su segunda ronda, limpia, da lo mismo, con un 2.0 % de diferencia como mucho.** Los binarios son los de la preparación, de `39b47223c6`. Los datos, en `testdata/bench/v4.0/node/dbpedia-1m-node-n1-*.json` y `-n2-*.json`. Las tablas son las de `node-verdict.md`, primera ronda.
+
+**Qué corrió:** las seis curvas de la enmienda, cada una en su proceso, en dos rondas. El presupuesto que dio el limitador fue de 20.0 por query con 1 thread y de 14.4 con 8, en las seis: también en las dos celdas de posting-edge, comprobado en sus logs. Cada proceso comprobó antes de cronometrar que su recall sobre las 5 000 queries era el de su manifiesto.
+
+**Lo que sale:**
+
+- **Criterio de la celda de 512 bits en RAM: se cumple.** En frío a 0.95 con 1 thread tarda 3.54 ms de p50 donde HFresh tarda 51.96: 14.7 veces menos. Llega a 0.99.
+- **Criterio del halo de 512 bits: se cumple.** 4.76 ms frente a 51.96: 10.9 veces menos. Llega a 0.99.
+- **Frente a HFresh con sus postings leídos de 8 en 8, que no es producto:** 14.57 ms de HFresh; 4.1 veces menos la celda de 512 bits y 3.1 el halo.
+- **Con 8 threads, en frío a 0.95:** 7.3 veces menos la celda de 512 bits y 5.3 el halo. Con ocho queries a la vez, leer de 8 en 8 no le da nada a HFresh: 80.76 ms frente a 83.95, un empate.
+- **En caliente a 0.95:** 3.8 veces menos con 1 thread y 7.8 con 8 la celda de 512 bits; 2.7 y 4.7 el halo.
+- **A 0.99:** en frío, 20.2 veces menos con 1 thread y 10.4 con 8 la celda de 512 bits, y 12.9 y 6.1 el halo. En caliente, 4.7 y 9.5, y 3.1 y 5.2.
+- **Ninguna diferencia entre un índice de posting-edge y HFresh es un empate:** la menor es 2.2 veces, el halo en caliente a 0.95 con 1 thread frente a HFresh leyendo de 8 en 8.
+
+#### Recall 0.95, en frío
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | searchProbe 214, rescoreLimit 100 | 51.96 | 61.83 | 64.66 | 19 | 83.95 | 106.57 | 108.26 | 87 |
+| HFresh, postings de 8 en 8 | searchProbe 214, rescoreLimit 100 | 14.57 | 17.14 | 17.80 | 69 | 80.76 | 133.20 | 157.52 | 91 |
+| posting-edge, 512 bits en RAM | ef 21 | 3.54 | 8.10 | 13.13 | 238 | 11.57 | 23.15 | 31.03 | 527 |
+| posting-edge, halo de 512 bits | ef 21 | 4.76 | 14.39 | 24.57 | 160 | 15.74 | 37.41 | 50.23 | 355 |
+
+#### Recall 0.95, en caliente
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | searchProbe 214, rescoreLimit 100 | 3.40 | 4.58 | 4.96 | 286 | 9.97 | 13.00 | 14.24 | 799 |
+| HFresh, postings de 8 en 8 | searchProbe 214, rescoreLimit 100 | 2.75 | 3.91 | 4.48 | 350 | 9.59 | 13.47 | 15.19 | 817 |
+| posting-edge, 512 bits en RAM | ef 21 | 0.90 | 2.94 | 4.39 | 843 | 1.27 | 4.03 | 6.12 | 4 764 |
+| posting-edge, halo de 512 bits | ef 21 | 1.26 | 4.82 | 7.36 | 562 | 2.11 | 7.74 | 12.21 | 2 750 |
+
+#### Recall 0.99, en frío
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | searchProbe 1000, rescoreLimit 350 | 182.11 | 259.94 | 271.64 | 6 | 246.71 | 361.63 | 368.74 | 30 |
+| HFresh, postings de 8 en 8 | searchProbe 1000, rescoreLimit 350 | 47.07 | 67.56 | 69.10 | 21 | 234.58 | 361.10 | 472.38 | 31 |
+| posting-edge, 512 bits en RAM | ef 187 | 9.03 | 27.41 | 39.54 | 87 | 23.73 | 55.11 | 72.43 | 237 |
+| posting-edge, halo de 512 bits | ef 187 | 14.08 | 50.22 | 73.32 | 52 | 40.45 | 107.54 | 133.52 | 131 |
+
+#### Recall 0.99, en caliente
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | searchProbe 1000, rescoreLimit 350 | 15.21 | 17.05 | 17.65 | 65 | 41.77 | 51.37 | 57.66 | 191 |
+| HFresh, postings de 8 en 8 | searchProbe 1000, rescoreLimit 350 | 11.70 | 13.85 | 14.54 | 84 | 42.44 | 58.31 | 66.46 | 185 |
+| posting-edge, 512 bits en RAM | ef 187 | 3.23 | 10.75 | 15.58 | 235 | 4.40 | 14.92 | 21.72 | 1 375 |
+| posting-edge, halo de 512 bits | ef 187 | 4.87 | 17.53 | 25.55 | 151 | 7.98 | 27.76 | 40.87 | 754 |
+
+#### HFresh entre cada celda: cuántas veces el p50 de la celda
+
+| recall | HFresh | celda | en frío, 1 thread | en frío, 8 threads | en caliente, 1 thread | en caliente, 8 threads |
+|---|---|---|---|---|---|---|
+| 0.95 | postings uno a uno | 512 bits en RAM | 14.69x | 7.26x | 3.79x | 7.83x |
+| 0.95 | postings uno a uno | halo de 512 bits | 10.91x | 5.33x | 2.70x | 4.72x |
+| 0.95 | postings de 8 en 8 | 512 bits en RAM | 4.12x | 6.98x | 3.06x | 7.53x |
+| 0.95 | postings de 8 en 8 | halo de 512 bits | 3.06x | 5.13x | 2.18x | 4.54x |
+| 0.99 | postings uno a uno | 512 bits en RAM | 20.17x | 10.40x | 4.71x | 9.49x |
+| 0.99 | postings uno a uno | halo de 512 bits | 12.94x | 6.10x | 3.12x | 5.23x |
+| 0.99 | postings de 8 en 8 | 512 bits en RAM | 5.21x | 9.88x | 3.63x | 9.65x |
+| 0.99 | postings de 8 en 8 | halo de 512 bits | 3.34x | 5.80x | 2.40x | 5.32x |
+
+#### Junto a lo publicado en v4.0
+
+No es la misma sesión ni el mismo HFresh: lo publicado es con el grafo sin limpiar, searchProbe 185 y 928, y presupuesto de 8. Se pone al lado y no se mezcla. Esta sesión no separa cuánto de la diferencia es de la limpieza y cuánto del presupuesto.
+
+- **HFresh en serie, en frío a 0.95:** 51.96 ms donde se publicó 46.80, un 11.0 % más con 1 thread, y un 7.9 % más con 8. Es lo que la preparación anunciaba: con el grafo limpio lee un 10.6 % más de veces por query, y en frío mandan las lecturas.
+  - **De su latencia media:** leer los postings pasa de 40.48 a 46.01 ms, y la búsqueda de centroides baja de 0.80 a 0.35.
+- **HFresh en serie, en caliente a 0.95:** 3.40 ms donde se publicó 3.38 con 1 thread, lo mismo. Los centroides bajan de 0.67 a 0.29 ms, y leer y puntuar más postings se lo come. Con 8 threads, 9.97 frente a 8.97: un 11.2 % más.
+- **HFresh a 0.99:** en frío, un 2.1 % más con 1 thread y un 1.6 % con 8. En caliente, un 5.3 % menos con 1 thread y un 0.9 % menos con 8: ahí los centroides pesaban más, 3.11 ms de 16.16, y bajan a 1.16.
+- **HFresh de 8 en 8:** entre un 8.1 % menos y un 9.9 % más, según el punto.
+- **Las dos celdas de posting-edge no se mueven con el presupuesto de un nodo:** de un 1.8 % menos a un 5.8 % más en los 16 puntos, y 15 de ellos a menos de un 3 %.
+- **El arnés de v4.0 no favorecía a posting-edge en latencia.** Con HFresh configurado como un nodo, la distancia en frío a 0.95 con 1 thread pasa de 13.2 a 14.7 veces.
+
+#### Lo esperado y lo medido
+
+| | esperaba | medido | |
+|---|---|---|---|
+| HFresh en serie, en frío a 0.95, 1 thread | de 43 a 46 ms | 51.96 | fuera, por arriba |
+| HFresh en serie, en caliente a 0.95, 1 thread | de 2.9 a 3.3 ms | 3.40 | fuera, por arriba |
+| HFresh de 8 en 8, en frío a 0.95, 1 thread | de 12 a 14 ms | 14.57 | fuera, por arriba |
+| su searchProbe a 0.95 | 185 o algo menos | 214 | fuera: visto ya en la preparación |
+| la celda de 512 bits, en frío a 0.95, 1 thread | de 2.9 a 3.5 ms | 3.54 y 3.48 | en el borde: el presupuesto de 20 no le da nada medible |
+| ningún criterio cambia de signo | | ninguno | sí |
+| la distancia en frío con HFresh en serie, por encima de 10 veces | | 14.7 y 10.9 | sí |
+| el heap del índice de HFresh limpio | unos 73 MB | 74.9 | sí, en la preparación |
+
+- **Las tres latencias de HFresh que esperaba eran más bajas que las medidas por la misma razón:** las escribí creyendo que el grafo limpio pediría el mismo searchProbe o menos. Pide un 15.7 % más.
+
+#### RAM de los seis procesos
+
+| índice | heap en uso tras abrir | huella del proceso |
+|---|---|---|
+| HFresh limpio, las cuatro curvas | 115.6 MB | de 286.4 a 289.3 MB |
+| posting-edge, 512 bits en RAM | 145.6 MB | 287.8 MB |
+| posting-edge, halo de 512 bits | 74.6 MB | 145.8 MB |
+
+- **El heap lleva lo del arnés:** las queries y el manifiesto, unos 32 MB en HFresh. El del índice solo está en la preparación: 74.9 MB el de HFresh limpio.
+
+#### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| HFresh a 0.95, uno a uno | 23:00 a 23:05 | 23:37 a 23:41 | no | +1.0 % (8 threads, en frío: 83.95 y 84.78 ms) | — |
+| HFresh a 0.95, de 8 en 8 | 23:05 a 23:08 | 23:41 a 23:45 | sí, en la ronda 1 | −0.2 % (8 threads, en caliente: 9.59 y 9.57 ms) | actividad |
+| HFresh a 0.99, uno a uno | 23:08 a 23:18 | 23:45 a 23:55 | sí, en la ronda 1 | +2.0 % (8 threads, en frío: 246.71 y 251.76 ms) | actividad |
+| HFresh a 0.99, de 8 en 8 | 23:18 a 23:26 | 23:55 a 00:03 | no | +2.1 % (1 thread, en caliente: 11.70 y 11.95 ms) | — |
+| posting-edge, 512 bits en RAM | 23:26 a 23:31 | 00:03 a 00:08 | no | −3.6 % (0.99, 1 thread, en frío: 9.03 y 8.70 ms) | — |
+| posting-edge, halo de 512 bits | 23:31 a 23:37 | 00:08 a 00:14 | no | −2.4 % (0.95, 1 thread, en frío: 4.76 y 4.65 ms) | — |
+
+- **Ninguna mediana se movió un 10 % entre rondas,** de 32: la mayor diferencia es un 3.6 %.
+- **La actividad de la primera ronda es de las 23:08:29:** el teclado, 14 segundos antes de acabar el tramo de HFresh a 0.95 de 8 en 8, y la pantalla encendida hasta las 23:10:18, ya dentro del de HFresh a 0.99 uno a uno. Es el mensaje del usuario pidiendo subir los commits de la tarde, y el `git push` que hice a continuación por esa orden, a las 23:08, ya dentro del tramo de HFresh a 0.99. Pude dejarlo para cuando acabara la sesión.
+- **El tramo de HFresh a 0.99 de 8 en 8 lleva un evento de energía y ninguna actividad:** a las 23:24:48 caduca la marca de usuario activo de las 23:08. No se marca.
+- **Las dos curvas marcadas dan lo mismo en su segunda ronda, que está limpia:** 14.57 y 14.57 ms en frío con 1 thread la de 0.95, y 182.11 y 179.64 la de 0.99, un 1.4 % menos. Ninguna lectura de arriba cambia con la segunda ronda en su lugar.
+- **Se repiten la noche del 20,** por la regla de la enmienda 5, que el usuario confirma a las 06:55.
+
+#### Lo que vale y lo que no
+
+- **Estos son los números para enseñar,** con HFresh como lo corre un nodo en lo que el arnés puede dar: su grafo limpio y el presupuesto del limitador.
+- **Lo que sigue sin ser un nodo,** como decía la enmienda: el objeto de HFresh es solo el vector, que es un suelo para su rescore; no hay otros índices compitiendo por los workers ni por el presupuesto; y las cargas de posting-edge no pasan por el presupuesto, aunque caben en él.
+- **Es macOS, sobre un volumen APFS del disco interno, a 1M y 1536d.** Sin Linux y sin 10M.
+- **HFresh de 8 en 8 no es producto.** Va para separar cuánto de la diferencia es leer en serie: de las 14.7 veces en frío a 0.95, 3.6 son leer en serie y quedan 4.1 con los dos leyendo en paralelo.
 
 ## v3.1: podar el halo (pre-registro, 2026-11-17)
 
