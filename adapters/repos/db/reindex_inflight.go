@@ -61,6 +61,12 @@ func newReindexGate(db *DB, maxAge time.Duration) reindexGate {
 	}
 }
 
+// unloadReindexGate is the gate idle unloads share, so the collector costs one task-list fetch per reindexGateMaxAge.
+func (db *DB) unloadReindexGate() reindexGate {
+	db.unloadGateOnce.Do(func() { db.unloadGate = newReindexGate(db, reindexGateMaxAge) })
+	return db.unloadGate
+}
+
 // reindexActivityLookup defaults to "no live reindex" when the lookup is
 // unwired (with a one-time WARN). Refusing instead broke every module-test
 // fixture that skips the post-bootstrap install; production HTTP gates on
