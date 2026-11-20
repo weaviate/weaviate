@@ -21,6 +21,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 type fakeShardUnloader struct {
@@ -98,6 +100,27 @@ func (f *unloadFixture) requireUnloaded(t *testing.T) {
 	require.False(t, f.lazy.isLoaded())
 	require.Same(t, f.lazy, f.index.shards.Load(f.name), "the wrapper stays in the shard map")
 	require.Zero(t, f.unloader.registry.Loaded())
+}
+
+type movementFSM struct {
+	replicationTypes.ReplicationFSMReader
+	source, target func() bool
+}
+
+func (m movementFSM) HasActiveSourceReplicationForShard(string, string, string) bool {
+	return m.source()
+}
+
+func (m movementFSM) HasActiveTargetReplicationForShard(string, string, string) bool {
+	return m.target()
+}
+
+// setMovement makes the FSM report a movement for the shard while source or
+// target returns true, and returns the undo.
+func (f *unloadFixture) setMovement(source, target func() bool) func() {
+	prev := f.index.getReplicationFSMReader()
+	f.index.SetReplicationFSMReader(movementFSM{ReplicationFSMReader: prev, source: source, target: target})
+	return func() { f.index.SetReplicationFSMReader(prev) }
 }
 
 type failingShutdownVectorIndex struct{ VectorIndex }
@@ -216,6 +239,18 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			},
 		},
 		{name: "not idle", req: UnloadRequest{IdleTTL: time.Hour}},
+		{
+			name: "movement source",
+			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+				return f.setMovement(func() bool { return true }, func() bool { return false })
+			},
+		},
+		{
+			name: "movement target",
+			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+				return f.setMovement(func() bool { return false }, func() bool { return true })
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -260,6 +295,29 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
 		})
 	}
+}
+
+func TestLazyLoadShard_TryUnloadRefusesAMovementStartedAfterItsCheck(t *testing.T) {
+	f := newUnloadFixture(t)
+	id := f.put(t)
+	var active atomic.Bool
+	t.Cleanup(f.setMovement(active.Load, func() bool { return false }))
+	f.lazy.unloadMarkedHook = func() { active.Store(true) }
+
+	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	f.requireUnloaded(t)
+	f.lazy.unloadMarkedHook = nil
+
+	require.NoError(t, f.index.IncomingStartChangeCapture(testCtx(), f.name, "op-1"))
+	s := f.lazy.currentShard()
+	require.NotNil(t, s, "activation loads the shard")
+
+	require.False(t, tryUnloadPromptly(t, f.lazy, UnloadRequest{}))
+	require.Same(t, s, f.lazy.currentShard())
+	require.False(t, s.shut.Load())
+	require.EqualValues(t, 1, f.unloader.registry.Loaded())
+	require.NoError(t, f.index.IncomingStopChangeCapture(testCtx(), f.name, "op-1"))
+	require.True(t, f.exists(t, id))
 }
 
 func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) bool {

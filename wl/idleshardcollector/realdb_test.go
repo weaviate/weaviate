@@ -130,6 +130,8 @@ func newRealDB(t *testing.T, unloader db.ShardUnloader, tenants int) *realDB {
 	fsm.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	fsm.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{realDBNode}).Maybe()
 	fsm.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{realDBNode}).Maybe()
+	fsm.EXPECT().HasActiveSourceReplicationForShard(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	fsm.EXPECT().HasActiveTargetReplicationForShard(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
 	reader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
