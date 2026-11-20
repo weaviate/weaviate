@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
@@ -33,13 +34,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
+var _NUMCPU = runtime.NumCPU()
+
 const (
-	// maxConcurrentRequests is 32 requests in flight per query.
-	maxConcurrentRequests = 32
-	// maxConcurrentImageRequests is 4 requests in flight per query when the
-	// documents are images: a request holds about three copies of its base64
-	// while it is in flight (80 MiB for a 20 MiB image).
-	maxConcurrentImageRequests = 4
 	// MaxDocumentsPerQuery is 1,000 documents. A query sends one billed
 	// request per object.
 	MaxDocumentsPerQuery = 1000
@@ -51,16 +48,6 @@ const (
 	apiKeyHeader       = "X-Openai-Api-Key"
 	baseURLHeader      = "X-Openai-Baseurl"
 	organizationHeader = "X-Openai-Organization"
-	// maxErrorBodyBytes is 16 KiB (16,384 bytes): the most of an error reply
-	// the client reads.
-	maxErrorBodyBytes = 16 * 1024
-	// maxErrorMessageBytes is 512 bytes: the most of a reply an error quotes.
-	maxErrorMessageBytes = 512
-	// maxResponseBodyBytes is 1 MiB (1,048,576 bytes): the largest reply body
-	// the client reads.
-	maxResponseBodyBytes = 1 << 20
-	// maxQueryBytes is 100,000 bytes per rerank.query.
-	maxQueryBytes = 100_000
 )
 
 type client struct {
@@ -83,17 +70,12 @@ func New(apiKey, organization string, timeout time.Duration, maxDocumentsPerQuer
 	}
 }
 
-// validateQuery returns the error of a rerank.query the module does not rank
-// with: a blank one, and one above maxQueryBytes. The gRPC search rejects a
-// blank query before the search; GraphQL reaches this check only. The API
-// answers a blank query with a probability and bills the request.
+// validateQuery rejects a blank rerank.query. The gRPC search rejects it
+// before the search; GraphQL reaches this check only. The API answers a blank
+// query with a probability and bills the request.
 func (c *client) validateQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
 		return errors.New("rerank.query is required by reranker-openai: the query is the condition the model judges")
-	}
-	if len(query) > maxQueryBytes {
-		return fmt.Errorf("rerank.query is %d bytes; reranker-openai sends it with every document and takes at most %d bytes",
-			len(query), maxQueryBytes)
 	}
 	return nil
 }
@@ -116,7 +98,7 @@ func (c *client) Rank(ctx context.Context, query, property string, documents []s
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
-	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
+	endpointURL, apiKey, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -145,20 +127,15 @@ func (c *client) Rank(ctx context.Context, query, property string, documents []s
 	}
 
 	request := judgeRequest{
-		endpointURL: endpointURL, apiKey: apiKey, organization: c.organizationFor(ctx, hostFromHeader),
-		hostFromHeader: hostFromHeader, model: settings.Model(), query: query, image: image,
-	}
-	maxInFlight := maxConcurrentRequests
-	if image {
-		maxInFlight = maxConcurrentImageRequests
+		endpointURL: endpointURL, apiKey: apiKey, organization: c.organizationFor(ctx),
+		model: settings.Model(), query: query, image: image,
 	}
 	scores := make([]float64, len(documents))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(maxInFlight)
+	eg.SetLimit(_NUMCPU)
 	for _, index := range pending {
 		eg.Go(func() error {
-			// After a failed request, the rest would still build their bodies,
-			// up to 20 MiB of base64 each for images.
+			// After a failed request, the rest would still build their bodies.
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -205,12 +182,9 @@ type judgeRequest struct {
 	endpointURL  string
 	apiKey       string
 	organization string
-	// hostFromHeader says the request header named the host. Anyone who may
-	// query can name one, so an error quotes nothing of its replies.
-	hostFromHeader bool
-	model          string
-	query          string
-	image          bool
+	model        string
+	query        string
+	image        bool
 }
 
 func (c *client) judge(ctx context.Context, r judgeRequest, document string) (float64, error) {
@@ -218,11 +192,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document string) (fl
 	if err != nil {
 		return 0, err
 	}
-	score, err := response.score(questionName)
-	if err != nil {
-		return 0, c.replyError(err, r.hostFromHeader)
-	}
-	return score, nil
+	return response.score(questionName)
 }
 
 func (c *client) send(ctx context.Context, r judgeRequest, document string) (decisionResponse, error) {
@@ -250,62 +220,28 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return decisionResponse{}, c.transportError(ctx, "send OpenAI request", "no HTTP response from", err, r.hostFromHeader)
+		return decisionResponse{}, fmt.Errorf("send OpenAI request: %w", err)
 	}
 	defer res.Body.Close()
-	return c.readResponse(ctx, res, r.hostFromHeader)
+	return c.readResponse(res)
 }
 
-// transportError keeps the transport's error for the class or default host.
-// For a host the request header named it keeps only the end of the context:
-// net/http quotes bytes the host sent, and a dial error names the address that
-// refused the connection. failure says what the host did not deliver.
-func (c *client) transportError(ctx context.Context, action, failure string, err error, hostFromHeader bool) error {
-	if !hostFromHeader {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return fmt.Errorf("%s: %w", action, ctxErr)
-	}
-	// The client timeout ends a context of the transport, not ctx.
-	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s: %w", action, context.DeadlineExceeded)
-	}
-	return fmt.Errorf("%s: %s the host named by %s", action, failure, baseURLHeader)
-}
-
-// readResponse quotes no status error body, no error object and no decode
-// error of a host the request header named. A decode error of the class or
-// default host is cut to 512 bytes.
-func (c *client) readResponse(ctx context.Context, res *http.Response, hostFromHeader bool) (decisionResponse, error) {
+func (c *client) readResponse(res *http.Response) (decisionResponse, error) {
 	if res.StatusCode != http.StatusOK {
-		return decisionResponse{}, c.statusError(res, hostFromHeader)
+		return decisionResponse{}, c.statusError(res)
 	}
-
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return decisionResponse{}, c.transportError(ctx, "read OpenAI response", "no complete body from", err, hostFromHeader)
-	}
-	if len(body) > maxResponseBodyBytes {
-		return decisionResponse{}, c.replyError(fmt.Errorf("OpenAI response exceeds %d bytes", maxResponseBodyBytes), hostFromHeader)
+		return decisionResponse{}, fmt.Errorf("read OpenAI response: %w", err)
 	}
 	var response decisionResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		// Value holds the whole number literal of the reply when it is out of range.
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) {
-			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
-		}
-		err = fmt.Errorf("parse OpenAI response: %s", truncate(err.Error()))
-		if hostFromHeader || len(body) == 0 {
-			return decisionResponse{}, c.replyError(err, hostFromHeader)
-		}
-		return decisionResponse{}, fmt.Errorf("%w: %s", err, truncate(string(body)))
+		return decisionResponse{}, fmt.Errorf("parse OpenAI response: %w: %s", err, body)
 	}
 	if response.Error != nil {
-		message := response.Error.message()
-		if hostFromHeader || message == "" {
-			return decisionResponse{}, c.replyError(errors.New("OpenAI API returned an error"), hostFromHeader)
+		message := response.Error.Message
+		if message == "" {
+			message = string(body)
 		}
 		return decisionResponse{}, fmt.Errorf("OpenAI API returned an error: %s", message)
 	}
@@ -335,49 +271,26 @@ func (e *apiError) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e apiError) message() string {
-	return truncate(e.Message)
-}
-
-// replyError is the error of a 200 reply the client cannot use. For the class
-// or default host it is err. For a host the request header named it is a fixed
-// message: err can quote the reply, such as the name or the type of an answer.
-func (c *client) replyError(err error, hostFromHeader bool) error {
-	if hostFromHeader {
-		return errors.New("unexpected OpenAI response from the host named by " + baseURLHeader)
-	}
-	return err
-}
-
-func (c *client) readAPIError(body io.Reader) apiError {
-	var parsed struct {
-		Error apiError `json:"error"`
-	}
-	errorBody, _ := io.ReadAll(io.LimitReader(body, maxErrorBodyBytes))
-	if json.Unmarshal(errorBody, &parsed) != nil {
-		return apiError{}
-	}
-	return parsed.Error
-}
-
 // statusError quotes no body for a 401 or a 403. OpenAI's message for a
 // rejected key holds a masked form of the key, and its message for a 403 can
-// name the project of the key.
-//
-// A body that is not quoted is not read, so a host that stalls it does not
-// hold the call until the client timeout.
-func (c *client) statusError(res *http.Response, hostFromHeader bool) error {
+// name the project of the key. Any other status quotes the message of the
+// error object, or the reply as it is.
+func (c *client) statusError(res *http.Response) error {
 	switch res.StatusCode {
 	case http.StatusUnauthorized:
 		return errors.New("OpenAI rejected the API key (status 401)")
 	case http.StatusForbidden:
 		return errors.New("OpenAI denied the request (status 403)")
 	}
-	apiErr := apiError{}
-	if !hostFromHeader {
-		apiErr = c.readAPIError(res.Body)
+	body, _ := io.ReadAll(res.Body)
+	message := string(body)
+	var parsed struct {
+		Error apiError `json:"error"`
 	}
-	return rejectedError{status: res.StatusCode, message: apiErr.message()}
+	if json.Unmarshal(body, &parsed) == nil && parsed.Error.Message != "" {
+		message = parsed.Error.Message
+	}
+	return rejectedError{status: res.StatusCode, message: message}
 }
 
 type rejectedError struct {
@@ -392,53 +305,32 @@ func (e rejectedError) Error() string {
 	return fmt.Sprintf("connection to OpenAI API failed with status %d: %s", e.status, e.message)
 }
 
-// truncate cuts s to maxErrorMessageBytes and drops the bytes that are not
-// valid UTF-8, such as those of a character the cut splits.
-func truncate(s string) string {
-	return strings.ToValidUTF8(s[:min(len(s), maxErrorMessageBytes)], "")
-}
-
-// The server's organization never goes to a host the request header named, as
-// its key does not.
-func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) string {
+func (c *client) organizationFor(ctx context.Context) string {
 	if organization := modulecomponents.GetValueFromContext(ctx, organizationHeader); organization != "" {
 		return organization
-	}
-	if hostFromHeader {
-		return ""
 	}
 	return c.organization
 }
 
-// endpoint picks the base URL and the key of a query. A base URL from the
-// request header is used only with a key from the request header, so the
-// server's key never goes to a host the request names.
-func (c *client) endpoint(ctx context.Context, classBaseURL string,
-) (endpointURL, apiKey string, hostFromHeader bool, err error) {
-	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
-	baseURL := classBaseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
-		if apiKey == "" {
-			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-				baseURLHeader, apiKeyHeader)
-		}
-		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
-			return "", "", false, err
-		}
-		baseURL, hostFromHeader = headerBaseURL, true
+// endpoint picks the base URL and the key of a query.
+func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
+	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, baseURLHeader, classBaseURL)
+	if err != nil {
+		return "", "", err
 	}
+	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	if apiKey == "" {
 		apiKey = c.apiKey
 	}
 	if apiKey == "" {
-		return "", "", false, fmt.Errorf("OpenAI API key: no api key found neither in request header: %s "+
+		return "", "", fmt.Errorf("OpenAI API key: no api key found neither in request header: %s "+
 			"nor in environment variable under OPENAI_APIKEY", apiKeyHeader)
 	}
 	endpointURL, err = url.JoinPath(baseURL, apiPath)
 	if err != nil {
-		return "", "", false, fmt.Errorf("OpenAI base URL %q: %w", baseURL, err)
+		return "", "", fmt.Errorf("OpenAI base URL %q: %w", baseURL, err)
 	}
-	return endpointURL, apiKey, hostFromHeader, nil
+	return endpointURL, apiKey, nil
 }
 
 type decisionRequest struct {
@@ -472,7 +364,7 @@ func (r decisionResponse) score(name string) (float64, error) {
 	}
 	answer := r.Answers[0]
 	if answer.Name != name {
-		return 0, fmt.Errorf("OpenAI answer is for %q, want %q", truncate(answer.Name), name)
+		return 0, fmt.Errorf("OpenAI answer is for %q, want %q", answer.Name, name)
 	}
 	switch answer.Type {
 	case refusalType:
@@ -488,6 +380,6 @@ func (r decisionResponse) score(name string) (float64, error) {
 		}
 		return *answer.Probability, nil
 	default:
-		return 0, fmt.Errorf("OpenAI answer has type %q, want %q", truncate(answer.Type), predicateType)
+		return 0, fmt.Errorf("OpenAI answer has type %q, want %q", answer.Type, predicateType)
 	}
 }

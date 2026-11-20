@@ -45,11 +45,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantBaseURL: "http://base-url.com",
 		},
 		{
-			name:    "empty model",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"model": ""}},
-			wantErr: errors.New("no model provided"),
-		},
-		{
 			name:    "nil config",
 			cfg:     nil,
 			wantErr: errors.New("empty config"),

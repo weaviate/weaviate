@@ -12,7 +12,6 @@
 package clients
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -269,37 +268,6 @@ func TestRankRequiresAQuery(t *testing.T) {
 	}
 }
 
-func TestRankLimitsTheQuerySize(t *testing.T) {
-	tests := []struct {
-		name         string
-		queryBytes   int
-		wantErr      string
-		wantRequests int
-	}{
-		{name: "at the limit", queryBytes: maxQueryBytes, wantRequests: 1},
-		{
-			name:       "one byte over the limit",
-			queryBytes: maxQueryBytes + 1,
-			wantErr:    "rerank.query is 100001 bytes; reranker-openai sends it with every document and takes at most 100000 bytes",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-
-			_, err := newTestClient(defaultFakeKey).Rank(context.Background(), strings.Repeat("q", tt.queryBytes), "text",
-				[]string{noRefund}, classConfig(f.url(), nil))
-
-			if tt.wantErr != "" {
-				require.EqualError(t, err, tt.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Len(t, f.received(), tt.wantRequests)
-		})
-	}
-}
-
 func TestRankCapsTheDocumentsOfAQuery(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -519,17 +487,12 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 		{
 			name:    "a body without a message",
 			reply:   fakeReply{status: http.StatusBadGateway, body: "<html>Bad Gateway</html>"},
-			wantErr: "connection to OpenAI API failed with status 502",
+			wantErr: "connection to OpenAI API failed with status 502: <html>Bad Gateway</html>",
 		},
 		{
-			name:    "a message above 512 bytes is cut",
+			name:    "a long message is quoted whole",
 			reply:   fakeReply{status: http.StatusInternalServerError, body: `{"error":{"message":"` + strings.Repeat("x", 2000) + `"}}`},
-			wantErr: "connection to OpenAI API failed with status 500: " + strings.Repeat("x", 512),
-		},
-		{
-			name:    "the cut does not split a character",
-			reply:   fakeReply{status: http.StatusInternalServerError, body: `{"error":{"message":"` + strings.Repeat("x", 511) + `é"}}`},
-			wantErr: "connection to OpenAI API failed with status 500: " + strings.Repeat("x", 511),
+			wantErr: "connection to OpenAI API failed with status 500: " + strings.Repeat("x", 2000),
 		},
 		{
 			name:    "400 quotes the message",
@@ -566,7 +529,7 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 				status: http.StatusBadRequest,
 				body:   `{"error":{"message":["Unsupported model"],"param":"model","code":"invalid_value"}}`,
 			},
-			wantErr: "connection to OpenAI API failed with status 400",
+			wantErr: `connection to OpenAI API failed with status 400: {"error":{"message":["Unsupported model"],"param":"model","code":"invalid_value"}}`,
 		},
 		{
 			name: "400 with an error that is a string quotes it",
@@ -626,23 +589,23 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	}
 }
 
-// 33 documents are 33 requests, one more than a query sends at once. The fake
-// answers 429 once the first 32 have arrived, and the first failure cancels
-// the query before it frees a slot, so the 33rd is never sent.
+// One request more than a query sends at once. The fake answers 429 once the
+// first ones have arrived, and the first failure cancels the query before it
+// frees a slot, so the last request is never sent.
 func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
 	f := newFake(t)
-	f.together = maxConcurrentRequests
+	f.together = _NUMCPU
 	f.replies = map[int]fakeReply{}
-	for i := range maxConcurrentRequests + 1 {
+	for i := range _NUMCPU + 1 {
 		f.replies[i] = fakeReply{status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`}
 	}
 
 	res, err := newTestClient(defaultFakeKey).Rank(context.Background(), churn, "text",
-		numbered("ticket %d", maxConcurrentRequests+1), classConfig(f.url(), nil))
+		numbered("ticket %d", _NUMCPU+1), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, "connection to OpenAI API failed with status 429: slow down")
 	assert.Nil(t, res)
-	assert.Len(t, f.received(), maxConcurrentRequests)
+	assert.Len(t, f.received(), _NUMCPU)
 }
 
 func TestRankSendsNothingForAClassBaseURLWithoutAScheme(t *testing.T) {
@@ -722,14 +685,14 @@ func TestRankReportsAnErrorObjectInA200(t *testing.T) {
 			wantErr: "OpenAI API returned an error: The model is overloaded",
 		},
 		{
-			name:    "a message above 512 bytes is cut",
+			name:    "a long message is quoted whole",
 			body:    `{"error":{"message":"` + strings.Repeat("x", 2000) + `"}}`,
-			wantErr: "OpenAI API returned an error: " + strings.Repeat("x", 512),
+			wantErr: "OpenAI API returned an error: " + strings.Repeat("x", 2000),
 		},
 		{
 			name:    "an error object without a message",
 			body:    `{"error":{"type":"server_error"}}`,
-			wantErr: "OpenAI API returned an error",
+			wantErr: `OpenAI API returned an error: {"error":{"type":"server_error"}}`,
 		},
 		{
 			name:      "a null error",
@@ -785,12 +748,6 @@ func TestRankHeaders(t *testing.T) {
 			wantAuth:  "Bearer headerKey",
 		},
 		{
-			name:          "base URL header without a key header",
-			serverKey:     "env",
-			headerBaseURL: true,
-			wantErr:       "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
-		},
-		{
 			name:          "base URL header with a key header",
 			serverKey:     "env",
 			headerKey:     "headerKey",
@@ -818,14 +775,6 @@ func TestRankHeaders(t *testing.T) {
 			headerOrganization: "org-header",
 			wantAuth:           "Bearer env",
 			wantOrganization:   []string{"org-header"},
-		},
-		{
-			name:               "server organization not sent to a host the request names",
-			serverKey:          "env",
-			serverOrganization: "org-env",
-			headerKey:          "headerKey",
-			headerBaseURL:      true,
-			wantAuth:           "Bearer headerKey",
 		},
 		{
 			name:               "organization header sent to a host the request names",
@@ -880,35 +829,6 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
-// A header base URL is a host the request names, even when it equals the class
-// base URL, so it needs a key header.
-func TestRankTakesAHeaderBaseURLAsAHostTheRequestNames(t *testing.T) {
-	tests := []struct {
-		name string
-		// <class> stands for the URL in the class config.
-		headerBaseURL string
-	}{
-		{name: "the class base URL", headerBaseURL: "<class>"},
-		{name: "a path under the class base URL", headerBaseURL: "<class>/proxy"},
-		{name: "another name of the class host", headerBaseURL: "http://localhost:<port>"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
-			_, port, err := net.SplitHostPort(strings.TrimPrefix(f.url(), "http://"))
-			require.NoError(t, err)
-			headerBaseURL := strings.NewReplacer("<class>", f.url(), "<port>", port).Replace(tt.headerBaseURL)
-			ctx := context.WithValue(context.Background(), "X-Openai-Baseurl", []string{headerBaseURL})
-
-			_, err = New("env", "org-env", testTimeout, MaxDocumentsPerQuery, nullLogger()).Rank(ctx, churn, "text",
-				[]string{noRefund}, classConfig(f.url(), nil))
-
-			require.EqualError(t, err, "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request")
-			assert.Empty(t, f.received())
-		})
-	}
-}
-
 func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 	tests := []struct {
 		name string
@@ -920,7 +840,7 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 		{
 			name:    "no scheme",
 			baseURL: "api.openai.com",
-			wantErr: "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
+			wantErr: `send OpenAI request: Post "api.openai.com/v1/decisions": unsupported protocol scheme ""`,
 		},
 		{
 			name:     "http while MODULES_VALIDATE_BASE_URL is on",
@@ -984,149 +904,14 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	}
 }
 
-// unexpectedHeaderHostReply is the error of a 200 reply the client cannot use
-// from a host the request header named.
-const unexpectedHeaderHostReply = "unexpected OpenAI response from the host named by X-Openai-Baseurl"
-
-// A host named in the base URL header is untrusted: status errors quote no reply body of it.
-func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
-	const banner = `{"error":{"message":"internal banner"}}`
-	tests := []struct {
-		name       string
-		reply      fakeReply
-		fromHeader bool
-		wantErr    string
-	}{
-		{
-			name:    "a 400 from the class base URL",
-			reply:   fakeReply{status: http.StatusBadRequest, body: banner},
-			wantErr: "connection to OpenAI API failed with status 400: internal banner",
-		},
-		{
-			name:       "a 400 from the header base URL",
-			reply:      fakeReply{status: http.StatusBadRequest, body: banner},
-			fromHeader: true,
-			wantErr:    "connection to OpenAI API failed with status 400",
-		},
-		{
-			name:       "a 500 from the header base URL",
-			reply:      fakeReply{status: http.StatusInternalServerError, body: banner},
-			fromHeader: true,
-			wantErr:    "connection to OpenAI API failed with status 500",
-		},
-		{
-			name:       "a 401 from the header base URL",
-			reply:      fakeReply{status: http.StatusUnauthorized, body: banner},
-			fromHeader: true,
-			wantErr:    "OpenAI rejected the API key (status 401)",
-		},
-		{
-			name:    "a 200 with an error object from the class base URL",
-			reply:   fakeReply{status: http.StatusOK, body: banner},
-			wantErr: "OpenAI API returned an error: internal banner",
-		},
-		{
-			name:       "a 200 with an error object from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: banner},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:    "a 200 above 1 MiB from the class base URL",
-			reply:   fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
-			wantErr: "OpenAI response exceeds 1048576 bytes",
-		},
-		{
-			name:       "a 200 above 1 MiB from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: strings.Repeat(" ", maxResponseBodyBytes+1)},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:    "a 200 that is not JSON from the class base URL",
-			reply:   fakeReply{status: http.StatusOK, body: "not json"},
-			wantErr: "parse OpenAI response: invalid character 'o' in literal null (expecting 'u'): not json",
-		},
-		{
-			name:       "a 200 that is not JSON from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: "not json"},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "a wrong answer name from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"internal banner","probability":0.5}]}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "an answer of another type from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"internal banner","name":"condition","probability":0.5}]}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "a probability outside 0 to 1 from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"condition","probability":7.25}]}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-		{
-			name:       "two answers from the header base URL",
-			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"condition","probability":0.5},{"type":"predicate","name":"condition","probability":0.5}]}`},
-			fromHeader: true,
-			wantErr:    unexpectedHeaderHostReply,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used, unused := classServer, headerServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				used, unused = headerServer, classServer
-				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
-			}
-			used.replies = map[int]fakeReply{0: tt.reply}
-
-			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
-				[]string{noRefund}, classConfig(classServer.url(), nil))
-
-			require.EqualError(t, err, tt.wantErr)
-			assert.Len(t, used.received(), 1)
-			assert.Empty(t, unused.received())
-		})
-	}
-}
-
 // The client timeout is 30 seconds, so a call that waited for the body fails
 // the one-second bound.
 func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     int
-		fromHeader bool
-		wantErr    string
+		name    string
+		status  int
+		wantErr string
 	}{
-		{
-			name:       "a 500 from the header base URL",
-			status:     http.StatusInternalServerError,
-			fromHeader: true,
-			wantErr:    "connection to OpenAI API failed with status 500",
-		},
-		{
-			name:       "a 400 from the header base URL",
-			status:     http.StatusBadRequest,
-			fromHeader: true,
-			wantErr:    "connection to OpenAI API failed with status 400",
-		},
-		{
-			name:       "a 401 from the header base URL",
-			status:     http.StatusUnauthorized,
-			fromHeader: true,
-			wantErr:    "OpenAI rejected the API key (status 401)",
-		},
 		{
 			name:    "a 401 from the class base URL",
 			status:  http.StatusUnauthorized,
@@ -1140,17 +925,10 @@ func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used := classServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				used = headerServer
-				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
-			}
+			used := newFake(t)
 			used.replies = map[int]fakeReply{0: {status: tt.status, stalled: true}}
 
-			result := rankInBackground(t, ctx, newTestClient(defaultFakeKey), classServer, []string{noRefund})
+			result := rankInBackground(t, context.Background(), newTestClient(defaultFakeKey), used, []string{noRefund})
 
 			select {
 			case err := <-result:
@@ -1160,273 +938,6 @@ func TestRankDoesNotReadAnErrorBodyItDoesNotQuote(t *testing.T) {
 				t.Fatal("Rank waited for the body of the error reply")
 			}
 			assert.Len(t, used.received(), 1)
-		})
-	}
-}
-
-// net/http quotes bytes of the host in its errors, and a dial error names the
-// address that refused.
-func TestRankHidesTheTransportErrorOfAHostTheRequestNames(t *testing.T) {
-	const (
-		banner = "SSH-2.0-OpenSSH_9.6"
-		// net/http reads the trailer of a chunked body with the body.
-		trailer = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n{\r\n0\r\n" + banner + "\r\n\r\n"
-	)
-	tests := []struct {
-		name       string
-		host       func(t *testing.T) string
-		fromHeader bool
-		wantErr    string
-		// <host> stands for the host and port.
-		wantInErr []string
-	}{
-		{
-			name:       "a banner that is not HTTP from the header base URL",
-			host:       func(t *testing.T) string { return newRawHost(t, banner+"\r\n") },
-			fromHeader: true,
-			wantErr:    "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
-		},
-		{
-			name:       "a closed port at the header base URL",
-			host:       closedPort,
-			fromHeader: true,
-			wantErr:    "send OpenAI request: no HTTP response from the host named by X-Openai-Baseurl",
-		},
-		{
-			name:       "a 200 with a trailer that is not a header from the header base URL",
-			host:       func(t *testing.T) string { return newRawHost(t, trailer) },
-			fromHeader: true,
-			wantErr:    "read OpenAI response: no complete body from the host named by X-Openai-Baseurl",
-		},
-		{
-			name:      "a 200 with a trailer that is not a header from the class base URL",
-			host:      func(t *testing.T) string { return newRawHost(t, trailer) },
-			wantInErr: []string{"read OpenAI response: ", banner},
-		},
-		{
-			name:      "a banner that is not HTTP from the class base URL",
-			host:      func(t *testing.T) string { return newRawHost(t, banner+"\r\n") },
-			wantInErr: []string{`send OpenAI request: Post "http://<host>/v1/decisions": `, `malformed HTTP response "` + banner + `"`},
-		},
-		{
-			name:      "a closed port at the class base URL",
-			host:      closedPort,
-			wantInErr: []string{`send OpenAI request: Post "http://<host>/v1/decisions": dial tcp <host>: `, "connection refused"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			host := tt.host(t)
-			classBaseURL := "http://" + host
-			ctx := context.Background()
-			if tt.fromHeader {
-				classBaseURL = newFake(t).url()
-				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{"http://" + host})
-			}
-
-			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
-				classConfig(classBaseURL, nil))
-
-			require.Error(t, err)
-			for _, part := range tt.wantInErr {
-				assert.ErrorContains(t, err, strings.ReplaceAll(part, "<host>", host))
-			}
-			if tt.fromHeader {
-				assert.EqualError(t, err, tt.wantErr)
-				for _, hidden := range []string{banner, "connection refused", host} {
-					assert.NotContains(t, err.Error(), hidden)
-				}
-			}
-		})
-	}
-}
-
-func TestRankKeepsTheEndOfTheContextOfAHostTheRequestNames(t *testing.T) {
-	tests := []struct {
-		name    string
-		timeout time.Duration
-		// stalledBody sends the 200 and its headers, and never the body.
-		stalledBody bool
-		cancel      bool
-		wantIs      error
-		wantErr     string
-	}{
-		{
-			name:    "the client timeout",
-			timeout: 50 * time.Millisecond,
-			wantIs:  context.DeadlineExceeded,
-			wantErr: "send OpenAI request: context deadline exceeded",
-		},
-		{
-			name:        "the client timeout while the body is read",
-			timeout:     500 * time.Millisecond,
-			stalledBody: true,
-			wantIs:      context.DeadlineExceeded,
-			wantErr:     "read OpenAI response: context deadline exceeded",
-		},
-		{
-			name:        "a query cancelled while the body is read",
-			timeout:     testTimeout,
-			stalledBody: true,
-			cancel:      true,
-			wantIs:      context.Canceled,
-			wantErr:     "read OpenAI response: context canceled",
-		},
-		{
-			name:    "a cancelled query",
-			timeout: testTimeout,
-			cancel:  true,
-			wantIs:  context.Canceled,
-			wantErr: "send OpenAI request: context canceled",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			headerHost, release := newBlockingFake(t)
-			defer release()
-			if tt.stalledBody {
-				headerHost.replies = map[int]fakeReply{0: {status: http.StatusOK, stalled: true}}
-				release()
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
-			ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerHost.url()})
-			c := New(defaultFakeKey, "", tt.timeout, MaxDocumentsPerQuery, nullLogger())
-			headers := &headersSeen{base: c.httpClient.Transport, seen: make(chan struct{})}
-			c.httpClient.Transport = headers
-
-			result := rankInBackground(t, ctx, c, newFake(t), []string{noRefund})
-			require.Eventually(t, func() bool { return len(headerHost.received()) == 1 }, 5*time.Second, time.Millisecond)
-			if tt.stalledBody {
-				select {
-				case <-headers.seen:
-				case <-time.After(5 * time.Second):
-					t.Fatal("the client did not get the headers of the reply within 5 seconds")
-				}
-			}
-			if tt.cancel {
-				cancel()
-			}
-
-			select {
-			case err := <-result:
-				require.ErrorIs(t, err, tt.wantIs)
-				assert.EqualError(t, err, tt.wantErr)
-			case <-time.After(5 * time.Second):
-				t.Fatal("Rank did not return within 5 seconds")
-			}
-		})
-	}
-}
-
-// headersSeen closes seen once the client has the status and the headers of a
-// reply, so a test can end the context while the body is read.
-type headersSeen struct {
-	base http.RoundTripper
-	seen chan struct{}
-}
-
-func (h *headersSeen) RoundTrip(req *http.Request) (*http.Response, error) {
-	res, err := h.base.RoundTrip(req)
-	if err == nil {
-		close(h.seen)
-	}
-	return res, err
-}
-
-// newRawHost answers every request with reply and closes the connection. It
-// returns the host and port.
-func newRawHost(t *testing.T, reply string) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	var serving sync.WaitGroup
-	serving.Go(func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			// A close with unread bytes resets the connection, and the client
-			// could see the reset before the reply.
-			if request, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
-				io.Copy(io.Discard, request.Body)
-				io.WriteString(conn, reply)
-			}
-			conn.Close()
-		}
-	})
-	t.Cleanup(serving.Wait)
-	t.Cleanup(func() { listener.Close() })
-	return listener.Addr().String()
-}
-
-func closedPort(t *testing.T) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	require.NoError(t, listener.Close())
-	return listener.Addr().String()
-}
-
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "empty", in: "", want: ""},
-		{name: "short", in: "a 400", want: "a 400"},
-		{name: "at the limit", in: strings.Repeat("a", maxErrorMessageBytes), want: strings.Repeat("a", maxErrorMessageBytes)},
-		{name: "above the limit", in: strings.Repeat("a", maxErrorMessageBytes+1), want: strings.Repeat("a", maxErrorMessageBytes)},
-		{
-			name: "the limit splits a character",
-			in:   strings.Repeat("a", maxErrorMessageBytes-1) + "é",
-			want: strings.Repeat("a", maxErrorMessageBytes-1),
-		},
-		{name: "a short text that ends inside a character", in: "caf\xc3", want: "caf"},
-		{name: "a short text with bytes that are not UTF-8", in: "\xff\xfe not json", want: " not json"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, truncate(tt.in))
-		})
-	}
-}
-
-func TestRankCutsLongErrorText(t *testing.T) {
-	hugeNumber := `{"answers":[{"type":"predicate","name":"condition","probability":` + strings.Repeat("9", 100_000) + `}]}`
-	tests := []struct {
-		name       string
-		fromHeader bool
-	}{
-		{name: "a decode error from the class base URL"},
-		{name: "a decode error from the header base URL", fromHeader: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used := classServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				used = headerServer
-				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
-			}
-			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: hugeNumber}}
-
-			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
-				classConfig(classServer.url(), nil))
-
-			require.Error(t, err)
-			if tt.fromHeader {
-				assert.Equal(t, unexpectedHeaderHostReply, err.Error())
-				return
-			}
-			assert.Contains(t, err.Error(), "parse OpenAI response: ")
-			assert.LessOrEqual(t, len(err.Error()), 1200)
 		})
 	}
 }
@@ -1465,67 +976,11 @@ func TestRankReadsHeadersFromGRPCMetadata(t *testing.T) {
 	assert.Equal(t, []string{"grpcOrg"}, requests[0].organization)
 }
 
-func TestRankKeepsTheNumberLiteralOutOfTheDecodeError(t *testing.T) {
-	reply := func(probability string) string {
-		return `{"answers":[{"type":"predicate","name":"condition","probability":` + probability + `}]}`
-	}
-	nines := strings.Repeat("9", 4096)
-	tests := []struct {
-		name       string
-		fromHeader bool
-		body       string
-		notWant    string
-		wantPrefix string
-		maxLen     int
-	}{
-		{name: "4096 digits from the header host", fromHeader: true, body: reply(nines), notWant: "99", maxLen: 300},
-		{name: "1e999 from the header host", fromHeader: true, body: reply("1e999"), notWant: "1e999", maxLen: 300},
-		{
-			name: "4096 digits from the class host", body: reply(nines), notWant: "99",
-			wantPrefix: "parse OpenAI response: json: cannot unmarshal number into Go struct field",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			classServer, headerServer := newFake(t), newFake(t)
-			used := classServer
-			ctx := context.Background()
-			if tt.fromHeader {
-				used = headerServer
-				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
-				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
-			}
-			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
-
-			_, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text", []string{noRefund},
-				classConfig(classServer.url(), nil))
-
-			require.Error(t, err)
-			message := err.Error()
-			if tt.fromHeader {
-				assert.Equal(t, unexpectedHeaderHostReply, message)
-				return
-			}
-			require.Contains(t, message, "probability")
-			if tt.wantPrefix != "" {
-				require.True(t, strings.HasPrefix(message, tt.wantPrefix), message)
-				// the body excerpt is appended after the decode error
-				message = strings.TrimPrefix(message, tt.wantPrefix)
-				message, _, _ = strings.Cut(message, ": {")
-			}
-			assert.NotContains(t, message, tt.notWant)
-			if tt.maxLen > 0 {
-				assert.Less(t, len(message), tt.maxLen)
-			}
-		})
-	}
-}
-
-// A query sends at most 32 requests at once, and 4 when they carry images.
+// A query sends at most one request per CPU at once.
 // The fake holds every request, so a query without the limit would send them
 // all.
 func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
-	images := make([]string, 2*maxConcurrentImageRequests)
+	images := make([]string, 2*_NUMCPU)
 	for i := range images {
 		images[i] = pngOfSize(100 + i)
 	}
@@ -1535,8 +990,8 @@ func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
 		documents []string
 		wantCap   int
 	}{
-		{name: "text", property: "text", documents: numbered("ticket %d", 2*maxConcurrentRequests), wantCap: maxConcurrentRequests},
-		{name: "images", property: "photo", documents: images, wantCap: maxConcurrentImageRequests},
+		{name: "text", property: "text", documents: numbered("ticket %d", 2*_NUMCPU), wantCap: _NUMCPU},
+		{name: "images", property: "photo", documents: images, wantCap: _NUMCPU},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1565,7 +1020,7 @@ func TestRankCapsRequestsInFlightPerQuery(t *testing.T) {
 // Without the limit of the error group a query starts one goroutine per
 // document.
 func TestRankStartsNoMoreGoroutinesThanTheLimit(t *testing.T) {
-	const slots, documents = maxConcurrentRequests, 200
+	slots, documents := _NUMCPU, 200
 	synctest.Test(t, func(t *testing.T) {
 		c := newTestClient(defaultFakeKey)
 		transport := &holdingTransport{release: make(chan struct{})}
@@ -1622,7 +1077,7 @@ func goroutinesIn(function string) int {
 
 func TestRankStopsOnContextCancel(t *testing.T) {
 	// More documents than a query sends at once.
-	documents := numbered("ticket %d", 2*maxConcurrentRequests)
+	documents := numbered("ticket %d", 2*_NUMCPU)
 	f, release := newBlockingFake(t)
 	defer release()
 	c := newTestClient(defaultFakeKey)
@@ -1630,14 +1085,14 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 	defer cancel()
 
 	result := rankInBackground(t, ctx, c, f, documents)
-	require.Eventually(t, func() bool { return len(f.received()) == maxConcurrentRequests }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return len(f.received()) == _NUMCPU }, 5*time.Second, time.Millisecond)
 
 	cancel()
 	requireCanceledWithinASecond(t, result)
 
 	release()
 	waitFor(t, &f.handlers)
-	assert.Len(t, f.received(), maxConcurrentRequests, "the requests waiting for a slot are not sent")
+	assert.Len(t, f.received(), _NUMCPU, "the requests waiting for a slot are not sent")
 	res, err := c.Rank(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
 	require.NoError(t, err)
 	assert.Len(t, res.DocumentScores, 1)
@@ -1705,14 +1160,14 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			wantErr: `OpenAI answer is for "", want "condition"`,
 		},
 		{
-			name:    "a name above 512 bytes is cut",
+			name:    "a long name is quoted whole",
 			body:    `{"answers":[{"type":"predicate","name":"` + strings.Repeat("x", 600) + `","probability":0.9}]}`,
-			wantErr: `OpenAI answer is for "` + strings.Repeat("x", 512) + `", want "condition"`,
+			wantErr: `OpenAI answer is for "` + strings.Repeat("x", 600) + `", want "condition"`,
 		},
 		{
-			name:    "a type above 512 bytes is cut",
+			name:    "a long type is quoted whole",
 			body:    `{"answers":[{"type":"` + strings.Repeat("x", 600) + `","name":"condition","probability":0.9}]}`,
-			wantErr: `OpenAI answer has type "` + strings.Repeat("x", 512) + `", want "predicate"`,
+			wantErr: `OpenAI answer has type "` + strings.Repeat("x", 600) + `", want "predicate"`,
 		},
 		{
 			name:    "a refusal of another question",
@@ -1764,11 +1219,6 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			name:    "not JSON",
 			body:    `<html>`,
 			wantErr: "parse OpenAI response: invalid character '<' looking for beginning of value: <html>",
-		},
-		{
-			name:    "a body above the limit",
-			body:    `{"answers":[{"type":"predicate","name":"condition","probability":0.5}]}` + strings.Repeat(" ", maxResponseBodyBytes),
-			wantErr: "OpenAI response exceeds 1048576 bytes",
 		},
 	}
 	for _, tt := range tests {

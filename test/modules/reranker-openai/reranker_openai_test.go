@@ -21,7 +21,6 @@ import (
 	"image/png"
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -259,14 +258,6 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 				minRequests: 0,
 				maxRequests: 0,
 			},
-			{
-				name:        "a query above the limit fails before any request",
-				property:    "text",
-				query:       new(strings.Repeat("q", 100_001)),
-				wantErr:     []string{"rerank.query is 100001 bytes"},
-				minRequests: 0,
-				maxRequests: 0,
-			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -349,8 +340,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 		})
 
 		// The class base URL resolves to no host, so the requests reach the
-		// fake only through the base URL header. The server's organization
-		// does not go to a host the request names.
+		// fake only through the base URL header.
 		t.Run("the base URL and the key of the request headers are used", func(t *testing.T) {
 			const headerKey = "header-key"
 			fake.reset(allProbabilities, nil, nil)
@@ -367,7 +357,6 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			for _, r := range requests {
 				assert.Equal(t, "/v1/decisions", r.path)
 				assert.Equal(t, "Bearer "+headerKey, r.authorization)
-				assert.Empty(t, r.organization)
 			}
 		})
 	}

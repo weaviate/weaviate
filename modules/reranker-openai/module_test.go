@@ -32,17 +32,18 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-func TestValidateClassRejectsAnEmptyModel(t *testing.T) {
+func TestValidateClassChecksTheBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
 	class := &models.Class{
 		Class: "Doc",
 		ModuleConfig: map[string]any{
-			Name: map[string]any{"model": ""},
+			Name: map[string]any{"baseURL": "http://api.example.com"},
 		},
 	}
 	cfg := modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{})
 
 	err := New().ValidateClass(context.Background(), class, cfg)
-	require.EqualError(t, err, "no model provided")
+	require.EqualError(t, err, "baseURL must use HTTPS")
 }
 
 func TestInitPassesTheDocumentsPerQueryCap(t *testing.T) {
