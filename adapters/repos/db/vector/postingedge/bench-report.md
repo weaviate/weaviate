@@ -177,7 +177,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## v5.3: la fila de aristas en un valor, junto a la de miembros (pre-registro, 2026-11-20)
 
-**Estado: pre-registrado el 20 a las 10:56, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, la corrección, lo que se mide, la sesión y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás del control combinado de v5.1, cuya sesión cronometrada no ha corrido todavía: lo esperado de abajo no la usa. No corre prisa: en la integración el almacenamiento de aristas queda detrás de una interfaz.
+**Estado: pre-registrado el 20 a las 10:56, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo y sus tests están escritos (abajo, «Paso 1»): `lsmkv` lo admite sin tocarlo. La corrida a 1M y la sesión, detrás del control combinado.** El mecanismo, la corrección, lo que se mide, la sesión y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás del control combinado de v5.1, cuya sesión cronometrada no ha corrido todavía: lo esperado de abajo no la usa. No corre prisa: en la integración el almacenamiento de aristas queda detrás de una interfaz.
 
 ### De dónde sale
 
@@ -248,6 +248,26 @@ El control combinado contó hoy lo que lee una carga en frío (arriba, en v5.1, 
 - **Cumple las dos mitades.** De la de en caliente estoy menos seguro: leer un valor de un Set pasa por resolver lápidas, y no sé cuánto cuesta frente al `Get` de un bucket Replace.
 - **Cronometrado, tal cual:** en frío, de 1.25 a 1.35 veces el lote, como v5.0 tal cual y mejor que v5.1 tal cual. En caliente, de 1.22 a 1.35: peor que v5.1 tal cual, por las versiones viejas que cada lectura descarta.
 - **Lo que el store escribe:** más que K = 64 de v5.1, que escribió 7.7 GB, y cerca de v5.0, 9.4 GB.
+
+### Paso 1, cerrado: el mecanismo y su equivalencia a pequeña escala (11:18 del 20)
+
+Código en `fca75d8472`, después del pre-registro (`7b538deef7`). **`lsmkv` lo admite sin tocarlo: no hubo que parar.** La corrida a 1M y la sesión van detrás del control combinado.
+
+- **Qué es:** una opción del índice que crece con aristas consolidadas. Con ella no existe el bucket de filas de aristas: la fila de un posting es el único valor de la clave contigua a la de sus miembros, en el bucket de postings. Escribirla otra vez es quitar la fila vieja, con una lápida que la lleva, y añadir la nueva.
+- **Si el store devuelve dos filas para un posting, es stop:** lo dice la lectura de la fila, y con ella la búsqueda que carga el posting y la reescritura de su fila.
+- **Una fila reescrita con el mismo contenido no escribe nada.**
+- **Los postings retirados, como en v5.0, y aquí aprendí algo.** Mi primera versión quitaba la fila de un posting retirado con su lápida, y los tests fallaron: la fila reaparecía. No era el mecanismo. El store salta en la compactación las claves de los postings retirados, lápidas incluidas, y la fila que esa lápida quitaba puede estar en un segmento más viejo, que la compactación no ha tocado todavía. Nada lee esa fila, porque un posting retirado no se vuelve a cargar, y se va cuando la compactación llega a su segmento: lo mismo que les pasa a sus miembros desde v5.0. Ahora no se escribe ninguna lápida para ellos, que es lo que decía el pre-registro.
+  - **La comprobación de cobertura** ya no exige que el store no guarde nada de un posting retirado en este formato. Sigue exigiéndolo con las filas en su bucket, donde borrar es borrar.
+
+**Los tests,** en `grow_equiv_test.go`:
+
+- **`TestGrowConsolidatedEqualsMemory`** corre ahora sus siete casos con los dos sitios para las filas: idéntico al gemelo en memoria en cada insert, con cambios esperando, con todo escrito, reabierto y compactado, cruzando splits, volcados y la compactación por niveles. Al final cada posting vivo tiene una fila y solo una.
+- **`TestGrowReorganized`** y **`TestGrowRowCount`** llevan el formato nuevo como tercer caso: la celda reorganizada devuelve lo mismo y no tiene bucket de filas, y el conteo fila a fila cuadra con el del store.
+- **`TestGrowRowsNextToMembersStop`:** una fila reescrita tres veces deja una fila; un segundo valor bajo su clave es stop, en la lectura y en la carga del posting; y el formato pide aristas consolidadas.
+
+**Seis fallos provocados a mano, y cazados los seis:** una fila reescrita sin quitar la vieja, la lápida con la fila nueva en vez de la vieja, el bucket de filas creado de todos modos, la fila escrita bajo la clave de los miembros, varias filas tomadas por una, y la celda reorganizada con sus filas como listas de v5.0. En la primera tanda dos no se cazaban: uno era un cambio sin efecto, y al stop le faltaba su test. Y esa tanda la repetí entera, porque el test nuevo fallaba por su cuenta y eso habría dado por cazado cualquier cosa.
+
+Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el linter de goroutines pasan. Los tests del paquete entero pasan (158 s).
 
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
