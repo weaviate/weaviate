@@ -16,24 +16,28 @@ package rebalanceplanner
 import (
 	"cmp"
 	"context"
+	"fmt"
+	"math"
 	"slices"
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-// TODO(calibration): the weights, epsilon, minGain and headroomMargin are
-// placeholders until tests on large clusters set them.
+// TODO(calibration): the weights and headroomMargin are placeholders until
+// tests on large clusters set them.
 const (
-	// epsilon is the smallest cost drop for which Search takes a move.
-	epsilon = 1e-6
-	// minGain is the smallest drop that an acceptable plan achieves in disk
-	// variance or in count-ratio variance. The drop is absolute, not relative.
-	minGain        = 1e-3
 	diskWeight     = 1.0
 	countWeight    = 1.0
 	movementWeight = 0.1
 	headroomMargin = 1.0
 )
+
+// minRelativeGain guards against rounding error. It is not a value awaiting
+// calibration. Search computes a candidate's balance value by updating running
+// sums. So a move that changes nothing in exact arithmetic can come out one
+// rounding step below the current value. Search takes a move only when it
+// lowers the current value by more than minRelativeGain × the current value.
+const minRelativeGain = 1e-9
 
 // Role is a listed node's role in a plan.
 type Role int
@@ -49,9 +53,11 @@ type Node struct {
 	Role      Role
 	UsedBytes int64
 	// UsableBytes is the disk total × the disk warning percentage / 100. It is
-	// greater than 0.
+	// finite and greater than 0.
 	UsableBytes float64
-	Workers     int
+	// Workers is at least 1. Search keeps Workers × headroomMargin × the
+	// largest incoming replica free on a target.
+	Workers int
 }
 
 // Replica is one shard replica on a listed node. Every replica counts towards
@@ -68,7 +74,8 @@ type Replica struct {
 type Input struct {
 	Nodes    []Node
 	Replicas []Replica
-	// MaxMoves is the largest number of moves Search returns. It is at least 0.
+	// MaxMoves is the largest number of moves Search returns. It is at least 0;
+	// Search returns an error for a negative value.
 	MaxMoves int
 }
 
@@ -93,8 +100,9 @@ const (
 // Result is what Search returns.
 type Result struct {
 	Verdict Verdict
-	// Moves holds the accepted moves in greedy order. Goal holds one row per
-	// input node, in input node order. Both are set only for MovesFound.
+	// Moves holds every move Search took, in the order taken. Goal holds one
+	// row per input node, in input node order. Both are set only for
+	// MovesFound.
 	Moves []Move
 	Goal  []types.RebalanceNodeBalance
 	// MinMoveCount is MaxMoves + 1 for LimitExceeded and 0 otherwise.
@@ -129,31 +137,6 @@ func Cost(p Placement) float64 {
 	return sumsOf(p.Nodes).balance() + movement(p.MovedBytes, p.SourceUsedBytes)
 }
 
-// Acceptable reports whether plan passes three rules against baseline:
-//  1. Its cost is lower.
-//  2. Its disk variance or its count-ratio variance is lower by at least minGain.
-//  3. On every target, used bytes plus headroom fit within usable bytes.
-//     Headroom is workers × LargestIncoming × headroomMargin.
-func Acceptable(baseline, plan Placement) bool {
-	if Cost(plan) >= Cost(baseline) {
-		return false
-	}
-	b, p := sumsOf(baseline.Nodes), sumsOf(plan.Nodes)
-	if b.diskVariance()-p.diskVariance() < minGain && b.countVariance()-p.countVariance() < minGain {
-		return false
-	}
-	for _, n := range plan.Nodes {
-		if n.Role != Target {
-			continue
-		}
-		headroom := float64(n.Workers) * float64(n.LargestIncoming) * headroomMargin
-		if float64(n.UsedBytes)+headroom > n.UsableBytes {
-			return false
-		}
-	}
-	return true
-}
-
 // PassesBalanceRule reports whether diskWeight × variance(disk utilisation) +
 // countWeight × variance(count ratio) is strictly lower for after than for
 // before.
@@ -169,12 +152,12 @@ func movement(movedBytes, sourceUsedBytes int64) float64 {
 }
 
 // sums holds the running sums behind both variances. A move changes the terms
-// of only two nodes, so costAfter scores a candidate in constant time.
+// of only two nodes, so balanceAfter scores a candidate in constant time.
 type sums struct {
 	n            float64
 	disk, diskSq float64
 	// count, the replica total, is the same for every placement of one input,
-	// so costAfter updates only countSq.
+	// so balanceAfter updates only countSq.
 	count, countSq int64
 }
 
@@ -213,26 +196,54 @@ func (s sums) balance() float64 {
 	return diskWeight*s.diskVariance() + countWeight*s.countVariance()
 }
 
-// Search plans direct moves from the input's sources to its targets. Each step
-// takes the candidate move that lowers cost the most, and Search stops when
-// none lowers it by at least epsilon. If Search would take a step beyond
-// MaxMoves, it returns LimitExceeded. Otherwise it returns the longest prefix
-// of the moves that passes Acceptable, or NoAcceptablePlan when none does.
-// The order of nodes and replicas in the input does not change the result.
-// Search checks ctx before each step and returns ctx.Err() once ctx is done.
+// Search plans direct moves from the input's sources to its targets.
+//
+// Search returns an error and Result{} when any of these holds:
+//   - MaxMoves is negative;
+//   - two nodes share a name;
+//   - a node's UsableBytes is not finite or not above 0;
+//   - a node's UsedBytes is negative;
+//   - a node's Workers is below 1;
+//   - a replica on a listed node has negative Bytes;
+//   - two replicas on a listed node share a (collection, shard, node).
+//
+// The balance value of a state is diskWeight × variance(disk utilisation) +
+// countWeight × variance(count ratio). Let current be the balance value before
+// a move. The move gains when the balance value after it is below
+// current − current × minRelativeGain. Each step runs in this order:
+//  1. If ctx is done, Search returns ctx.Err() and Result{}.
+//  2. If Balanced accepts the current state, Search stops.
+//  3. Among allowed moves that gain, Search takes the one with the lowest
+//     balance value after it. It stops when no allowed move gains.
+//
+// A move is allowed when:
+//   - it leaves its source's used bytes at 0 or above;
+//   - its target's used bytes after the move, plus Workers × headroomMargin ×
+//     the largest replica moved onto the target, fit within the target's
+//     usable bytes;
+//   - the standard deviation of disk utilisation after it is at most the
+//     larger of balanceTolerance and the input's standard deviation.
+//
+// If Search would take a step beyond MaxMoves, it returns LimitExceeded.
+// Otherwise it returns MovesFound with every move taken, or NoAcceptablePlan
+// when it takes none. The order of nodes and replicas in the input does not
+// change the result.
 func Search(ctx context.Context, in Input) (Result, error) {
+	if err := validate(in); err != nil {
+		return Result{}, err
+	}
 	s := newSearch(in)
-	baseline := s.p
-	baseline.Nodes = slices.Clone(s.p.Nodes)
+	diskLimit := max(balanceTolerance, stddev(s.disk))
 
 	var moves []Move
-	var goal []types.RebalanceNodeBalance
-	accepted := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		c, ok := s.best()
+		if Balanced(s.rows()) {
+			break
+		}
+		c, ok := s.best(diskLimit)
 		if !ok {
 			break
 		}
@@ -240,15 +251,52 @@ func Search(ctx context.Context, in Input) (Result, error) {
 			return Result{Verdict: LimitExceeded, MinMoveCount: in.MaxMoves + 1}, nil
 		}
 		moves = append(moves, s.apply(c))
-		if Acceptable(baseline, s.p) {
-			accepted = len(moves)
-			goal = s.goal(in.Nodes)
-		}
 	}
-	if accepted == 0 {
+	if len(moves) == 0 {
 		return Result{Verdict: NoAcceptablePlan}, nil
 	}
-	return Result{Verdict: MovesFound, Moves: moves[:accepted:accepted], Goal: goal}, nil
+	return Result{Verdict: MovesFound, Moves: moves, Goal: s.goal(in.Nodes)}, nil
+}
+
+// validate returns an error for the first error case from Search's doc comment
+// that it finds. It checks MaxMoves, then nodes in input order, then replicas
+// in input order.
+func validate(in Input) error {
+	if in.MaxMoves < 0 {
+		return fmt.Errorf("max moves %d is negative", in.MaxMoves)
+	}
+	names := make(map[string]struct{}, len(in.Nodes))
+	for _, n := range in.Nodes {
+		if _, dup := names[n.Name]; dup {
+			return fmt.Errorf("node %q is listed twice", n.Name)
+		}
+		names[n.Name] = struct{}{}
+		if !(n.UsableBytes > 0) || math.IsInf(n.UsableBytes, 1) {
+			return fmt.Errorf("node %q: usable bytes %v is not finite and above 0", n.Name, n.UsableBytes)
+		}
+		if n.UsedBytes < 0 {
+			return fmt.Errorf("node %q: used bytes %d is negative", n.Name, n.UsedBytes)
+		}
+		if n.Workers <= 0 {
+			return fmt.Errorf("node %q: workers %d is below 1", n.Name, n.Workers)
+		}
+	}
+	type key struct{ collection, shard, node string }
+	replicas := make(map[key]struct{}, len(in.Replicas))
+	for _, r := range in.Replicas {
+		if _, listed := names[r.Node]; !listed {
+			continue
+		}
+		k := key{r.Collection, r.Shard, r.Node}
+		if r.Bytes < 0 {
+			return fmt.Errorf("replica %s/%s on node %q: bytes %d is negative", r.Collection, r.Shard, r.Node, r.Bytes)
+		}
+		if _, dup := replicas[k]; dup {
+			return fmt.Errorf("replica %s/%s on node %q is listed twice", r.Collection, r.Shard, r.Node)
+		}
+		replicas[k] = struct{}{}
+	}
+	return nil
 }
 
 type replica struct {
@@ -269,8 +317,10 @@ type candidate struct {
 // source's replicas are sorted. This makes every float sum run in the same
 // order for equal input.
 type search struct {
-	names    []string
-	p        Placement
+	names []string
+	nodes []NodeLoad
+	// disk[i] is utilisation(nodes[i]).
+	disk     []float64
 	sums     sums
 	sources  []int
 	targets  []int
@@ -285,7 +335,8 @@ func newSearch(in Input) *search {
 	nodes := slices.SortedFunc(slices.Values(in.Nodes), func(a, b Node) int { return cmp.Compare(a.Name, b.Name) })
 	s := &search{
 		names:    make([]string, len(nodes)),
-		p:        Placement{Nodes: make([]NodeLoad, len(nodes))},
+		nodes:    make([]NodeLoad, len(nodes)),
+		disk:     make([]float64, len(nodes)),
 		onSource: make(map[int][]int),
 		holds:    make(map[holding]struct{}, len(in.Replicas)),
 	}
@@ -293,11 +344,11 @@ func newSearch(in Input) *search {
 	for i, n := range nodes {
 		index[n.Name] = i
 		s.names[i] = n.Name
-		s.p.Nodes[i] = NodeLoad{Role: n.Role, UsedBytes: n.UsedBytes, UsableBytes: n.UsableBytes, Workers: n.Workers}
+		s.nodes[i] = NodeLoad{Role: n.Role, UsedBytes: n.UsedBytes, UsableBytes: n.UsableBytes, Workers: n.Workers}
+		s.disk[i] = utilisation(s.nodes[i])
 		switch n.Role {
 		case Source:
 			s.sources = append(s.sources, i)
-			s.p.SourceUsedBytes += n.UsedBytes
 		case Target:
 			s.targets = append(s.targets, i)
 		}
@@ -311,72 +362,96 @@ func newSearch(in Input) *search {
 		if !listed {
 			continue
 		}
-		s.p.Nodes[i].Replicas++
+		s.nodes[i].Replicas++
 		s.holds[holding{r.Collection, r.Shard, i}] = struct{}{}
-		if r.Eligible && s.p.Nodes[i].Role == Source {
+		if r.Eligible && s.nodes[i].Role == Source {
 			s.onSource[i] = append(s.onSource[i], len(s.replicas))
 			s.replicas = append(s.replicas, replica{Replica: r})
 		}
 	}
-	s.sums = sumsOf(s.p.Nodes)
+	s.sums = sumsOf(s.nodes)
 	return s
 }
 
-// best returns the candidate move with the lowest resulting cost. It reports
-// false when that move lowers cost by less than epsilon. On a tie, the first
-// candidate in source, replica, target order wins.
-func (s *search) best() (candidate, bool) {
-	current := s.sums.balance() + movement(s.p.MovedBytes, s.p.SourceUsedBytes)
+// Among allowed candidate moves that gain, best returns the one with the lowest
+// balance value after it. Search's doc comment defines which moves are allowed
+// and which gain. best reports false when no allowed move gains. On a tie, the
+// first candidate in source, replica, target order wins.
+func (s *search) best(diskLimit float64) (candidate, bool) {
 	var best candidate
-	bestCost, found := 0.0, false
+	current := s.sums.balance()
+	bestValue, found := current-current*minRelativeGain, false
 	for _, src := range s.sources {
+		from := s.nodes[src]
 		for _, ri := range s.onSource[src] {
 			r := &s.replicas[ri]
-			if r.moved {
+			if r.moved || from.UsedBytes-r.Bytes < 0 {
 				continue
 			}
 			for _, tgt := range s.targets {
 				if _, held := s.holds[holding{r.Collection, r.Shard, tgt}]; held {
 					continue
 				}
-				if c := s.costAfter(src, tgt, r.Bytes); !found || c < bestCost {
-					best, bestCost, found = candidate{src, tgt, ri}, c, true
+				to := s.nodes[tgt]
+				headroom := float64(to.Workers) * float64(max(to.LargestIncoming, r.Bytes)) * headroomMargin
+				if float64(to.UsedBytes)+float64(r.Bytes)+headroom > to.UsableBytes {
+					continue
 				}
+				value, fromAfter, toAfter := s.balanceAfter(src, tgt, r.Bytes)
+				// bestValue starts at the gain threshold. Only a candidate that
+				// beats bestValue runs the disk check, which costs O(nodes).
+				if value >= bestValue || s.diskSpreadAfter(src, tgt, fromAfter, toAfter) > diskLimit {
+					continue
+				}
+				best, bestValue, found = candidate{src, tgt, ri}, value, true
 			}
 		}
 	}
-	return best, found && current-bestCost >= epsilon
+	return best, found
 }
 
-// costAfter is the cost after moving bytes from src to tgt.
-func (s *search) costAfter(src, tgt int, bytes int64) float64 {
-	from, to := s.p.Nodes[src], s.p.Nodes[tgt]
-	fromBefore, toBefore := utilisation(from), utilisation(to)
+// balanceAfter returns the balance value after moving bytes from src to tgt,
+// and the two nodes' disk utilisations after that move.
+func (s *search) balanceAfter(src, tgt int, bytes int64) (value, fromAfter, toAfter float64) {
+	from, to := s.nodes[src], s.nodes[tgt]
 	from.UsedBytes -= bytes
 	to.UsedBytes += bytes
-	fromAfter, toAfter := utilisation(from), utilisation(to)
+	fromBefore, toBefore := s.disk[src], s.disk[tgt]
+	fromAfter, toAfter = utilisation(from), utilisation(to)
 
 	next := s.sums
 	next.disk += fromAfter + toAfter - fromBefore - toBefore
 	next.diskSq += fromAfter*fromAfter + toAfter*toAfter - fromBefore*fromBefore - toBefore*toBefore
 	// (from−1)² + (to+1)² − from² − to² = 2(to − from) + 2
 	next.countSq += 2*int64(to.Replicas-from.Replicas) + 2
-	return next.balance() + movement(s.p.MovedBytes+bytes, s.p.SourceUsedBytes)
+	return next.balance(), fromAfter, toAfter
+}
+
+// diskSpreadAfter returns the standard deviation of disk utilisation with
+// src at fromAfter and tgt at toAfter. Search sets diskLimit with the same
+// stddev call on the same slice in the same order. So a state exactly at the
+// limit gives the same float64 as the limit.
+func (s *search) diskSpreadAfter(src, tgt int, fromAfter, toAfter float64) float64 {
+	fromBefore, toBefore := s.disk[src], s.disk[tgt]
+	s.disk[src], s.disk[tgt] = fromAfter, toAfter
+	spread := stddev(s.disk)
+	s.disk[src], s.disk[tgt] = fromBefore, toBefore
+	return spread
 }
 
 func (s *search) apply(c candidate) Move {
 	r := &s.replicas[c.replica]
 	r.moved = true
-	from, to := &s.p.Nodes[c.source], &s.p.Nodes[c.target]
+	from, to := &s.nodes[c.source], &s.nodes[c.target]
 	from.UsedBytes -= r.Bytes
 	from.Replicas--
 	to.UsedBytes += r.Bytes
 	to.Replicas++
 	to.LargestIncoming = max(to.LargestIncoming, r.Bytes)
-	s.p.MovedBytes += r.Bytes
+	s.disk[c.source], s.disk[c.target] = utilisation(*from), utilisation(*to)
 	delete(s.holds, holding{r.Collection, r.Shard, c.source})
 	s.holds[holding{r.Collection, r.Shard, c.target}] = struct{}{}
-	s.sums = sumsOf(s.p.Nodes)
+	s.sums = sumsOf(s.nodes)
 	return Move{
 		Collection: r.Collection,
 		Shard:      r.Shard,
@@ -391,11 +466,20 @@ func (s *search) goal(nodes []Node) []types.RebalanceNodeBalance {
 	rows := make([]types.RebalanceNodeBalance, len(nodes))
 	for i, n := range nodes {
 		j, _ := slices.BinarySearch(s.names, n.Name)
-		rows[i] = types.RebalanceNodeBalance{
-			Node:            n.Name,
-			DiskUtilisation: utilisation(s.p.Nodes[j]),
-			ReplicaCount:    s.p.Nodes[j].Replicas,
-		}
+		rows[i] = s.row(j)
 	}
 	return rows
+}
+
+// rows returns one row per node, in sorted node order.
+func (s *search) rows() []types.RebalanceNodeBalance {
+	rows := make([]types.RebalanceNodeBalance, len(s.nodes))
+	for i := range s.nodes {
+		rows[i] = s.row(i)
+	}
+	return rows
+}
+
+func (s *search) row(i int) types.RebalanceNodeBalance {
+	return types.RebalanceNodeBalance{Node: s.names[i], DiskUtilisation: s.disk[i], ReplicaCount: s.nodes[i].Replicas}
 }
