@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
@@ -402,10 +403,18 @@ func prefetchVector[T any](vec []T, maxBytes int) {
 	if len(vec) == 0 {
 		return
 	}
-	var zero T
-	n := min(len(vec)*int(unsafe.Sizeof(zero)), maxBytes)
-	prefetchNFunc(uintptr(unsafe.Pointer(&vec[0])), n)
+	prefetchNFunc(prefetchRange(vec, maxBytes))
 	runtime.KeepAlive(vec)
+}
+
+// prefetchRange returns what prefetchVector asks prefetchNFunc for: the
+// address of a non-empty vec and a size whose hints reach the last of its
+// first maxBytes bytes. A vector is not stored on a cache line boundary, so
+// it can end one line further than its size alone says.
+func prefetchRange[T any](vec []T, maxBytes int) (addr uintptr, size int) {
+	var zero T
+	addr = uintptr(unsafe.Pointer(&vec[0]))
+	return addr, asm.PrefetchSpan(addr, min(len(vec)*int(unsafe.Sizeof(zero)), maxBytes))
 }
 
 func (s *shardedLockCache[T]) LockAll() {
