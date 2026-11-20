@@ -418,7 +418,7 @@ Cada ronda borra 15 600 vectores de la base e inserta 15 600 nuevos. Al final se
 
 ## v5.3: la fila de aristas en un valor, junto a la de miembros (pre-registro, 2026-11-20)
 
-**Estado: pre-registrado el 20 a las 10:56, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo y sus tests están escritos (abajo, «Paso 1»): `lsmkv` lo admite sin tocarlo. La corrida a 1M y la sesión, detrás del control combinado.** El mecanismo, la corrección, lo que se mide, la sesión y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás del control combinado de v5.1, cuya sesión cronometrada no ha corrido todavía: lo esperado de abajo no la usa. No corre prisa: en la integración el almacenamiento de aristas queda detrás de una interfaz.
+**Estado: pre-registrado el 20 a las 10:56, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo y sus tests están escritos (abajo, «Paso 1»): `lsmkv` lo admite sin tocarlo. La parte sin cronometrar está hecha (abajo, «Paso 2»): la validación a 1M pasa, y el store escribe casi el doble que en v5.0. La sesión cronometrada, pendiente.** El mecanismo, la corrección, lo que se mide, la sesión y la lectura son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás del control combinado de v5.1, cuya sesión cronometrada no ha corrido todavía: lo esperado de abajo no la usa. No corre prisa: en la integración el almacenamiento de aristas queda detrás de una interfaz.
 
 ### De dónde sale
 
@@ -521,6 +521,87 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 - **Lo demás no cambia.**
 
 **Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** la validación pasa en cada checkpoint, el índice reorganizado devuelve lo mismo que el índice tal cual, y el script saca sus tablas con las cuatro filas del control al lado. Script en `testdata/bench/v5.3/scripts/run_v53.sh`, tablas en `rows_verdict.py`.
+
+### Paso 2, cerrado: la parte sin cronometrar (2026-11-20, de 13:21 a 18:06)
+
+**Estado: hecha, entera. La validación a 1M pasa: el índice es idéntico a su gemelo en memoria. En conteos, v5.3 es el formato que menos lee del disco de los seis. Su crecimiento es el que más hace escribir al store: 17.1 GB, casi el doble que v5.0. La sesión cronometrada no ha corrido todavía.** El código de los binarios es el de `5485f5b4f6`. Los datos, en `testdata/bench/v5.3/`, y las tablas completas, en `rows-verdict.md`. Corrió de día, junto a v6.2b y a la corrida de la sesión de integración: nada de este paso es un tiempo.
+
+#### La validación, que era stop: pasa
+
+- **Idéntico al gemelo en cada uno de los 891 000 inserts:** el mismo posting, las mismas aristas y las mismas cuentas. En cada checkpoint, del 20 al 100 %, cobertura completa e índice idéntico. Al final, 7 750 postings y 3 665 splits.
+- **Cerrado y abierto otra vez,** devuelve lo mismo que el gemelo en las 5 000 queries de sus dos puntos: ef 21 a 0.9502 y ef 187 a 0.9900.
+- **Ningún stop:** ninguna clave devolvió dos filas.
+
+**Lo que la clave guarda mientras la compactación no pasa,** en los tres estados del store al acabar la validación, a 0.95. Las filas de v5.0 y de K = 64 de v5.1 son las de sus validaciones:
+
+| estado del store | índice | segmentos | lecturas por carga | bytes por carga | real entre modelo |
+|---|---|---|---|---|---|
+| como lo dejan los ciclos | v5.0, un valor por cambio | 3 | 4.81 | 92.5 KB | 1.457 |
+| | K = 64 de v5.1, filas en su bucket | 3 | 2.36 | 54.2 KB | 0.863 |
+| | **v5.3, filas junto a los miembros** | 4 | 5.67 | 143.3 KB | 2.249 |
+| volcado, antes de compactar | v5.0 | 4 | 6.59 | 94.3 KB | 1.487 |
+| | K = 64 de v5.1 | 4 | 4.13 | 66.4 KB | 1.058 |
+| | **v5.3** | 5 | 6.88 | 166.4 KB | 2.613 |
+| compactado | v5.0 | 2 | 3.76 | 70.1 KB | 1.105 |
+| | K = 64 de v5.1 | 2 | 2.76 | 66.4 KB | 1.057 |
+| | **v5.3** | 1 | 2.00 | 67.3 KB | 1.057 |
+
+- **Sin compactar, una carga de v5.3 lee más del doble de lo que usa:** de 143 a 166 KB, con 63.7 KB por el modelo. Son las filas viejas y sus lápidas, y una lápida lleva la fila entera.
+- **Con todo volcado lee 2.5 veces lo que K = 64 de v5.1 y 1.8 veces lo que v5.0:** 166.4 KB por carga frente a 66.4 y 94.3.
+- **Es mucho más de lo que esperaba.** Los miembros son unos 56 KB por carga en cualquier estado, así que la fila de aristas sale, por diferencia, en 87 a 110 KB por carga, donde compactada son 11.6. Esperaba de 15 a 30. Fila a fila no está contado en esos estados.
+- **Compactado en un segmento no queda nada de eso:** 2.00 lecturas y 1.057 veces el modelo.
+- **En el primer estado el store cuenta de menos en los tres:** lo que está en la memtable no pasa por él. Por eso K = 64 sale ahí por debajo del modelo.
+
+#### El índice de las curvas: lo que su crecimiento escribió
+
+| índice | postings | el store escribió | lo que ocupa al final | entre lo que ocupa | filas escritas | lápidas de filas |
+|---|---|---|---|---|---|---|
+| v5.0, un valor por cambio | 7 788 | 9.43 GB | 567.7 MB | 16.6 veces | — | — |
+| K = 64 de v5.1, filas en su bucket | 7 716 | 7.74 GB | 553.9 MB | 14.0 veces | 84 537, 0.90 GB | — |
+| **v5.3, filas junto a los miembros** | 7 762 | 17.08 GB | 540.1 MB | 31.6 veces | 84 336, 0.90 GB | 76 994, 0.81 GB |
+
+- **El store escribe 17.08 GB, 2.2 veces lo de K = 64 y 1.8 veces lo de v5.0.** Esperaba algo más que K = 64 y cerca de v5.0: me equivoqué por mucho.
+- **De dónde sale:** el índice entrega al store 1.71 GB de filas y lápidas, donde K = 64 entregaba 0.90 GB de filas. Y la compactación del bucket de postings reescribe 13.02 GB, donde en K = 64 la de los miembros solos son 2.84 GB.
+- **Las filas cuestan al store unos 11.9 GB en el bucket de los miembros y unos 2.6 GB en un bucket propio,** por diferencia entre los dos crecimientos. En un bucket Replace una fila vieja desaparece en la primera compactación que la ve. En un Set la lápida, con su fila entera, sigue hasta la compactación que llega al segmento más viejo.
+- **El crecimiento no se cronometra:** corrió de día con otras dos corridas en la máquina, y sus inserts por segundo no son una medida.
+
+#### Tal cual y reorganizado: aquí son el mismo bucket
+
+- **El crecimiento acaba con una compactación que aquí dejó el bucket de postings en un solo segmento:** de 383.9 MB en dos a 255.3 MB en uno. En v5.0 y en K = 64 de v5.1 esa misma compactación los dejó en dos.
+- **Así que «v5.3, tal cual» ya es un bucket de un segmento,** y el reorganizado solo cambia el orden de los vectores. Los dos ocupan 255.28 MB y leen lo mismo por carga, del store y del disco.
+- **No es comparable con los otros dos «tal cual»:** está tomado en su mejor estado. Lo que lee entre compactaciones es la tabla de la validación, arriba.
+- **El reorganizado devuelve lo mismo que el índice tal cual** en las 5 000 queries de cada punto: los mismos ids, distancias y trabajo. Escribirlo llevó 43 s.
+
+#### Lo que lee una carga en frío: las seis filas
+
+A 0.95. Las cuatro filas de v5.0 y de v5.1 son las del control combinado, contadas esta mañana; a 0.99 y con el detalle fila a fila, en `rows-verdict.md`.
+
+| índice | el store: lecturas y bytes | del disco: page-ins | bytes, leyendo primero los miembros | bytes, leyendo primero las aristas | la fila de aristas detrás de los miembros: page-ins y bytes |
+|---|---|---|---|---|---|
+| crecido de v5.0, tal cual | 3.91 y 72.3 KB | 5.74 | 143.5 KB | 159.9 KB | 0.88 y 15.1 KB |
+| K = 64 de v5.1, tal cual | 2.92 y 67.3 KB | 6.15 | 167.1 KB | 167.1 KB | 1.44 y 48.3 KB |
+| **v5.3, tal cual (en un segmento)** | 2.00 y 67.2 KB | 4.75 | 105.9 KB | 124.5 KB | 0.63 y 12.6 KB |
+| la celda 2 de v5.0 | 2.00 y 69.2 KB | 4.86 | 108.2 KB | 126.2 KB | 0.73 y 14.2 KB |
+| K = 64 de v5.1, reorganizado | 2.00 y 67.3 KB | 5.51 | 141.3 KB | 141.3 KB | 1.44 y 48.3 KB |
+| **v5.3, reorganizado** | 2.00 y 67.2 KB | 4.75 | 105.9 KB | 124.5 KB | 0.63 y 12.6 KB |
+
+- **La hipótesis se confirma en el conteo:** junto a los miembros, la fila de aristas en un valor viene detrás de ellos con 0.63 page-ins y 12.6 KB por carga. En su bucket costaba 1.44 y 48.3 KB.
+- **v5.3 reorganizado es el que menos lee del disco de los seis:** 4.75 page-ins y 105.9 KB por carga. La celda 2 de v5.0 lee 4.86 y 108.2 KB, un 2 % más, y el reorganizado de v5.1, 5.51 y 141.3 KB.
+- **El orden de los vectores se ve en el resto de la query,** que es su rescore: 1 324.7 KB con el índice tal cual y 1 202.0 KB reorganizado.
+- **Si eso se ve en el reloj, lo dice la sesión.**
+
+#### Lo esperado y lo medido, sin cronometrar
+
+| | esperaba | medido | |
+|---|---|---|---|
+| reorganizado, lo que cuenta el store | 2.00 lecturas y unos 67 KB | 2.00 y 67.2 KB | sí |
+| reorganizado, lo que trae del disco | de 4.8 a 5.1 page-ins, de 105 a 125 KB | 4.75; 105.9 y 124.5 KB | sí, con algo menos de page-ins |
+| tal cual, la fila de aristas en el store | de 15 a 30 KB por carga, en 1.5 a 2 lecturas | 11.6 KB en 1.00, con el bucket en un segmento; sin compactar, de 87 a 110 KB | **no** |
+| tal cual, lo que trae del disco | de 5.6 a 6.0 page-ins | 4.75, con el bucket en un segmento | **no** |
+| lo que el store escribe | más que 7.7 GB y cerca de 9.4 GB | 17.08 GB | **no: casi el doble** |
+
+- **Las dos que fallan por abajo fallan por lo mismo:** no conté con que el índice de las curvas acabara en un segmento.
+- **La que falla por arriba es del mecanismo:** quitar un valor de un Set cuesta lo que pesa el valor, y esa lápida se reescribe en cada compactación hasta la última. De las opciones del pre-registro, la primera (un bucket Map, con la fila como un par que se reemplaza por su clave) y la segunda (un Set que admita reemplazar sin lápida por valor) lo evitarían. No las he escrito ni medido.
 
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
