@@ -39,11 +39,16 @@ func TestDistance(t *testing.T) {
 		{name: "berlin to paris", latA: 52.52, lonA: 13.405, latB: 48.8566, lonB: 2.3522, want: 877_460, tolerance: 1_000},
 		{name: "across the antimeridian", latA: 0, lonA: 179.5, latB: 0, lonB: -179.5, want: 111_195, tolerance: 100},
 		{name: "pole to pole", latA: 90, lonA: 0, latB: -90, lonB: 0, want: float32(math.Pi * earthRadiusMeters), tolerance: 1},
+		// the haversine term of these rounds to just above 1, which was a NaN
+		{name: "pole to pole across longitudes", latA: 90, lonA: 0, latB: -90, lonB: 180, want: float32(math.Pi * earthRadiusMeters), tolerance: 1},
+		{name: "pole to pole from the antimeridian", latA: -90, lonA: 180, latB: 90, lonB: -180, want: float32(math.Pi * earthRadiusMeters), tolerance: 1},
+		{name: "antipodes on the equator", latA: 0, lonA: -90, latB: 0, lonB: 90, want: float32(math.Pi * earthRadiusMeters), tolerance: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := Distance(test.latA, test.lonA, test.latB, test.lonB)
 			assert.InDelta(t, test.want, got, float64(test.tolerance))
+			assert.False(t, math.IsNaN(float64(got)))
 			// symmetric
 			assert.Equal(t, got, Distance(test.latB, test.lonB, test.latA, test.lonA))
 		})

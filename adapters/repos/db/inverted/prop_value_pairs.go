@@ -40,7 +40,9 @@ type propValuePair struct {
 
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
-	valueGeoRange      *filters.GeoRange
+	valueGeoRange *filters.GeoRange
+	// only set if operator=OperatorWithinGeoBox
+	valueGeoBox        *filters.GeoBox
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
@@ -497,7 +499,7 @@ func (pv *propValuePair) getBucketName() string {
 		return ""
 	}
 
-	if pv.operator == filters.OperatorWithinGeoRange {
+	if pv.operator == filters.OperatorWithinGeoRange || pv.operator == filters.OperatorWithinGeoBox {
 		if pv.hasFilterableIndex {
 			return helpers.BucketGeoFromPropNameLSM(pv.prop)
 		}

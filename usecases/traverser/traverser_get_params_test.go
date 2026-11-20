@@ -427,9 +427,38 @@ func Test_GetClass_WithFilters(t *testing.T) {
 		{
 			{
 				name: "valid geoCoordinates search",
+				filters: buildFilter(filters.OperatorWithinGeoRange, []interface{}{"geo_prop"},
+					schema.DataTypeGeoCoordinates, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{Latitude: ptFloat32(52.5), Longitude: ptFloat32(13.4)},
+						Distance:       1000,
+					}),
+				expectedError: nil,
+			},
+			{
+				name: "valid geoCoordinates box search",
+				filters: buildFilter(filters.OperatorWithinGeoBox, []interface{}{"geo_prop"},
+					schema.DataTypeGeoCoordinates, filters.GeoBox{
+						SouthWest: &models.GeoCoordinates{Latitude: ptFloat32(52), Longitude: ptFloat32(13)},
+						NorthEast: &models.GeoCoordinates{Latitude: ptFloat32(53), Longitude: ptFloat32(14)},
+					}),
+				expectedError: nil,
+			},
+			{
+				name: "a geoCoordinates prop takes no other operator",
 				filters: buildFilter(filters.OperatorEqual, []interface{}{"geo_prop"},
 					schema.DataTypeGeoCoordinates, "foo"),
-				expectedError: nil,
+				expectedError: errors.New("invalid 'where' filter: property \"geo_prop\" is of type " +
+					"geoCoordinates, it can only be filtered with a geo range or a geo box"),
+			},
+			{
+				name: "a geo range value does not go with the box operator",
+				filters: buildFilter(filters.OperatorWithinGeoBox, []interface{}{"geo_prop"},
+					schema.DataTypeGeoCoordinates, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{Latitude: ptFloat32(52.5), Longitude: ptFloat32(13.4)},
+						Distance:       1000,
+					}),
+				expectedError: errors.New("invalid 'where' filter: property \"geo_prop\": a geo range " +
+					"value needs operator WithinGeoRange, got WithinGeoBox"),
 			},
 		},
 		buildInvalidTests(filters.OperatorEqual, []interface{}{"geo_prop"},

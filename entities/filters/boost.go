@@ -13,6 +13,7 @@ package filters
 
 import (
 	"fmt"
+	"math"
 )
 
 // Boost represents a set of soft ranking conditions that promote or demote
@@ -71,6 +72,9 @@ type PropertyValue struct {
 // For time-based decay, Origin/Scale/Offset are strings ("now", "7d", ISO date).
 // For numeric decay, set IsNumeric=true and use OriginNumeric/ScaleNumeric/OffsetNumeric
 // directly to avoid lossy float64→string→float64 round-trips.
+// For geo decay, set IsGeo=true: the distance is the great-circle distance in
+// meters from OriginGeo to a geoCoordinates property, and ScaleNumeric and
+// OffsetNumeric are meters.
 type Decay struct {
 	Path   *Path
 	Origin string // "now", ISO date, or numeric string (time decay)
@@ -84,8 +88,17 @@ type Decay struct {
 	ScaleNumeric  float64
 	OffsetNumeric float64
 
+	IsGeo     bool
+	OriginGeo GeoOrigin
+
 	Curve      DecayCurveType
 	DecayValue float32 // score at scale distance, default 0.5
+}
+
+// GeoOrigin is the point a geo decay measures from.
+type GeoOrigin struct {
+	Latitude  float32
+	Longitude float32
 }
 
 // MaxBoostConditions is the maximum number of conditions allowed in a single
@@ -189,7 +202,23 @@ func validateDecay(d *Decay, condIdx int) error {
 	}
 	// Origin is optional — defaults to "now" for date properties at scoring time.
 	// For numeric properties, a missing origin will produce a parse error at scoring time.
-	if d.IsNumeric {
+	if d.IsNumeric && d.IsGeo {
+		return fmt.Errorf("boost condition[%d] decay: cannot be both numeric and geo", condIdx)
+	}
+	if d.IsGeo {
+		for _, v := range []float32{d.OriginGeo.Latitude, d.OriginGeo.Longitude} {
+			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+				return fmt.Errorf("boost condition[%d] decay: origin coordinates must be finite numbers", condIdx)
+			}
+		}
+		// a NaN scale fails the comparison either way, so compare for the valid case
+		if !(d.ScaleNumeric > 0) || math.IsInf(d.ScaleNumeric, 0) {
+			return fmt.Errorf("boost condition[%d] decay: scale must be a distance in meters > 0", condIdx)
+		}
+		if !(d.OffsetNumeric >= 0) || math.IsInf(d.OffsetNumeric, 0) {
+			return fmt.Errorf("boost condition[%d] decay: offset must be a distance in meters >= 0", condIdx)
+		}
+	} else if d.IsNumeric {
 		if d.ScaleNumeric <= 0 {
 			return fmt.Errorf("boost condition[%d] decay: scale must be > 0", condIdx)
 		}

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -90,6 +91,7 @@ var (
 						{Name: "number", DataType: schema.DataTypeNumber.PropString()},
 						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
 						{Name: "date", DataType: schema.DataTypeDate.PropString()},
+						{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
 					},
 					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
 				},
@@ -2994,6 +2996,16 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 			NumericDecay: &pb.Boost_NumericDecayFunction{Property: prop, Scale: 10},
 		}}
 	}
+	geoDecay := func(prop string, scale float64) *pb.Boost_Condition {
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_GeoDecay{
+			GeoDecay: &pb.Boost_GeoDecayFunction{Property: prop, Latitude: 52.5, Longitude: 13.4, Scale: scale},
+		}}
+	}
+	geoDecayWith := func(mutate func(d *pb.Boost_GeoDecayFunction)) *pb.Boost_Condition {
+		d := &pb.Boost_GeoDecayFunction{Property: "location", Latitude: 52.5, Longitude: 13.4, Scale: 1000}
+		mutate(d)
+		return &pb.Boost_Condition{Condition: &pb.Boost_Condition_GeoDecay{GeoDecay: d}}
+	}
 
 	tests := []struct {
 		name  string
@@ -3016,6 +3028,21 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 		{"numeric_decay on date errors", numericDecay("date"), true},
 		{"numeric_decay on nonexistent property errors", numericDecay("doesNotExist"), true},
 		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
+		{"geo_decay on geoCoordinates is valid", geoDecay("location", 1000), false},
+		{"geo_decay on number errors", geoDecay("number", 1000), true},
+		{"geo_decay on text errors", geoDecay("name", 1000), true},
+		{"geo_decay on nonexistent property errors", geoDecay("doesNotExist", 1000), true},
+		{"geo_decay on nested path errors", geoDecay("location.latitude", 1000), true},
+		{"geo_decay without a property errors", geoDecay("", 1000), true},
+		{"geo_decay with a zero scale errors", geoDecay("location", 0), true},
+		{"geo_decay with a negative scale errors", geoDecay("location", -5), true},
+		{"geo_decay with a NaN scale errors", geoDecay("location", math.NaN()), true},
+		{"geo_decay with an infinite scale errors", geoDecay("location", math.Inf(1)), true},
+		{"geo_decay with a negative offset errors", geoDecayWith(func(d *pb.Boost_GeoDecayFunction) { d.Offset = ptr(-1.0) }), true},
+		{"geo_decay with an offset is valid", geoDecayWith(func(d *pb.Boost_GeoDecayFunction) { d.Offset = ptr(250.0) }), false},
+		{"geo_decay with a NaN origin errors", geoDecayWith(func(d *pb.Boost_GeoDecayFunction) { d.Latitude = float32(math.NaN()) }), true},
+		{"geo_decay with a decay value above 1 errors", geoDecayWith(func(d *pb.Boost_GeoDecayFunction) { d.DecayValue = ptr(float32(1.5)) }), true},
+		{"geo_decay with a curve is valid", geoDecayWith(func(d *pb.Boost_GeoDecayFunction) { d.Curve = ptr(pb.Boost_DECAY_CURVE_GAUSS) }), false},
 	}
 
 	parser := NewParser(false, getClass, nil, namespacing.Disabled)
@@ -3033,6 +3060,250 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGRPCSearchRequestGeoOperators(t *testing.T) {
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
+	onLocation := &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "location"}}
+	box := &pb.Filters_ValueGeoBox{ValueGeoBox: &pb.GeoBoundingBoxFilter{
+		SouthLatitude: 47, WestLongitude: 5, NorthLatitude: 55, EastLongitude: 15,
+	}}
+	geoRange := &pb.Filters_ValueGeo{ValueGeo: &pb.GeoCoordinatesFilter{Latitude: 52.5, Longitude: 13.4, Distance: 1000}}
+
+	t.Run("a geo box filter", func(t *testing.T) {
+		out, err := parser.Search(&pb.SearchRequest{
+			Collection: boostClass,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_WITHIN_GEO_BOX, Target: onLocation, TestValue: box},
+		}, cfg)
+		require.NoError(t, err)
+		require.NotNil(t, out.Filters)
+		assert.Equal(t, filters.OperatorWithinGeoBox, out.Filters.Root.Operator)
+		assert.Equal(t, schema.DataTypeGeoCoordinates, out.Filters.Root.Value.Type)
+		assert.Equal(t, filters.GeoBox{
+			SouthWest: &models.GeoCoordinates{Latitude: ptr(float32(47)), Longitude: ptr(float32(5))},
+			NorthEast: &models.GeoCoordinates{Latitude: ptr(float32(55)), Longitude: ptr(float32(15))},
+		}, out.Filters.Root.Value.Value)
+	})
+
+	rejected := []struct {
+		name    string
+		filter  *pb.Filters
+		wantErr string
+	}{
+		{
+			name:    "a box value with the range operator",
+			filter:  &pb.Filters{Operator: pb.Filters_OPERATOR_WITHIN_GEO_RANGE, Target: onLocation, TestValue: box},
+			wantErr: "needs operator WithinGeoBox",
+		},
+		{
+			name:    "a range value with the box operator",
+			filter:  &pb.Filters{Operator: pb.Filters_OPERATOR_WITHIN_GEO_BOX, Target: onLocation, TestValue: geoRange},
+			wantErr: "needs operator WithinGeoRange",
+		},
+		{
+			name: "text on a geo property",
+			filter: &pb.Filters{
+				Operator: pb.Filters_OPERATOR_EQUAL, Target: onLocation,
+				TestValue: &pb.Filters_ValueText{ValueText: "berlin"},
+			},
+			wantErr: "can only be filtered with a geo range or a geo box",
+		},
+		{
+			name: "the box operator on a text property",
+			filter: &pb.Filters{
+				Operator: pb.Filters_OPERATOR_WITHIN_GEO_BOX, TestValue: box,
+				Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "name"}},
+			},
+			wantErr: "needs a geoCoordinates property",
+		},
+		{
+			name: "the range operator on a number property",
+			filter: &pb.Filters{
+				Operator: pb.Filters_OPERATOR_WITHIN_GEO_RANGE, TestValue: geoRange,
+				Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "number"}},
+			},
+			wantErr: "needs a geoCoordinates property",
+		},
+	}
+	for _, tt := range rejected {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parser.Search(&pb.SearchRequest{Collection: boostClass, Filters: tt.filter}, cfg)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+
+	t.Run("a sort by distance", func(t *testing.T) {
+		out, err := parser.Search(&pb.SearchRequest{
+			Collection: boostClass,
+			SortBy: []*pb.SortBy{{
+				Ascending: true, Path: []string{"location"},
+				DistanceFrom: &pb.SortBy_GeoOrigin{Latitude: 52.5, Longitude: 13.4},
+			}},
+		}, cfg)
+		require.NoError(t, err)
+		assert.Equal(t, []filters.Sort{{
+			Order: "asc", Path: []string{"location"},
+			DistanceFrom: &filters.SortGeoOrigin{Latitude: 52.5, Longitude: 13.4},
+		}}, out.Sort)
+	})
+
+	t.Run("a geo decay boost", func(t *testing.T) {
+		out, err := parser.Search(&pb.SearchRequest{
+			Collection: boostClass,
+			Boost: &pb.Boost{Conditions: []*pb.Boost_Condition{{
+				Condition: &pb.Boost_Condition_GeoDecay{GeoDecay: &pb.Boost_GeoDecayFunction{
+					Property: "location", Latitude: 52.5, Longitude: 13.4, Scale: 2000,
+					Offset: ptr(100.0), Curve: ptr(pb.Boost_DECAY_CURVE_LINEAR), DecayValue: ptr(float32(0.25)),
+				}},
+				Weight: ptr(float32(2)),
+			}}},
+		}, cfg)
+		require.NoError(t, err)
+		require.NotNil(t, out.Boost)
+		require.Len(t, out.Boost.Conditions, 1)
+		assert.Equal(t, float32(2), out.Boost.Conditions[0].Weight)
+		assert.Equal(t, &filters.Decay{
+			Path:          &filters.Path{Property: "location"},
+			IsGeo:         true,
+			OriginGeo:     filters.GeoOrigin{Latitude: 52.5, Longitude: 13.4},
+			ScaleNumeric:  2000,
+			OffsetNumeric: 100,
+			Curve:         filters.DecayCurveLinear,
+			DecayValue:    0.25,
+		}, out.Boost.Conditions[0].Decay)
+	})
+}
+
+// A boost scores by properties read from the returned objects, so the search
+// must fetch them even when the user selected others; the reply must not carry
+// them.
+func TestGRPCSearchRequestSelectsBoostProperties(t *testing.T) {
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
+	onlyName := &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
+	boost := func(conds ...*pb.Boost_Condition) *pb.Boost { return &pb.Boost{Conditions: conds} }
+	hidden := func(name string) search.SelectProperty { return search.SelectProperty{Name: name} }
+	name := search.SelectProperty{Name: "name", IsPrimitive: true}
+
+	tests := []struct {
+		name string
+		req  *pb.SearchRequest
+		want search.SelectProperties
+	}{
+		{
+			name: "nothing to rank by",
+			req:  &pb.SearchRequest{Collection: boostClass, Properties: onlyName},
+			want: search.SelectProperties{name},
+		},
+		{
+			name: "numeric decay",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(&pb.Boost_Condition{
+				Condition: &pb.Boost_Condition_NumericDecay{NumericDecay: &pb.Boost_NumericDecayFunction{Property: "number", Scale: 10}},
+			})},
+			want: search.SelectProperties{name, hidden("number")},
+		},
+		{
+			name: "time decay",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(&pb.Boost_Condition{
+				Condition: &pb.Boost_Condition_TimeDecay{TimeDecay: &pb.Boost_TimeDecayFunction{Property: "date", Scale: "7d"}},
+			})},
+			want: search.SelectProperties{name, hidden("date")},
+		},
+		{
+			name: "geo decay",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(&pb.Boost_Condition{
+				Condition: &pb.Boost_Condition_GeoDecay{GeoDecay: &pb.Boost_GeoDecayFunction{Property: "location", Scale: 10}},
+			})},
+			want: search.SelectProperties{name, hidden("location")},
+		},
+		{
+			name: "property value",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(&pb.Boost_Condition{
+				Condition: &pb.Boost_Condition_PropertyValue{PropertyValue: &pb.Boost_PropertyValueFunction{Property: "int"}},
+			})},
+			want: search.SelectProperties{name, hidden("int")},
+		},
+		{
+			name: "a boost filter, nested in an and",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(&pb.Boost_Condition{
+				Condition: &pb.Boost_Condition_Filter{Filter: &pb.Filters{
+					Operator: pb.Filters_OPERATOR_AND,
+					Filters: []*pb.Filters{
+						{
+							Operator: pb.Filters_OPERATOR_GREATER_THAN, TestValue: &pb.Filters_ValueInt{ValueInt: 3},
+							Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "int"}},
+						},
+						{
+							Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "a"},
+							Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "name"}},
+						},
+					},
+				}},
+			})},
+			want: search.SelectProperties{name, hidden("int")},
+		},
+		{
+			name: "several conditions on one property select it once",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(
+				&pb.Boost_Condition{Condition: &pb.Boost_Condition_NumericDecay{
+					NumericDecay: &pb.Boost_NumericDecayFunction{Property: "number", Scale: 10},
+				}},
+				&pb.Boost_Condition{Condition: &pb.Boost_Condition_PropertyValue{
+					PropertyValue: &pb.Boost_PropertyValueFunction{Property: "number"},
+				}},
+			)},
+			want: search.SelectProperties{name, hidden("number")},
+		},
+		{
+			name: "a property the user selected stays as selected",
+			req: &pb.SearchRequest{
+				Collection: boostClass, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "number"}},
+				Boost: boost(&pb.Boost_Condition{Condition: &pb.Boost_Condition_NumericDecay{
+					NumericDecay: &pb.Boost_NumericDecayFunction{Property: "number", Scale: 10},
+				}}),
+			},
+			want: search.SelectProperties{name, {Name: "number", IsPrimitive: true}},
+		},
+		{
+			name: "a boost on an array is not selected, it would read as references",
+			req: &pb.SearchRequest{Collection: boostClass, Properties: onlyName, Boost: boost(&pb.Boost_Condition{
+				Condition: &pb.Boost_Condition_Filter{Filter: &pb.Filters{
+					Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueNumber{ValueNumber: 1},
+					Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "floats"}},
+				}},
+			})},
+			want: search.SelectProperties{name},
+		},
+		{
+			name: "a sort leaves the selection to the index",
+			req: &pb.SearchRequest{
+				Collection: boostClass, Properties: onlyName,
+				SortBy: []*pb.SortBy{{Path: []string{"int"}}},
+			},
+			want: search.SelectProperties{name},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := parser.Search(tt.req, cfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.Properties)
+			assert.False(t, out.AdditionalProperties.NoProps)
+		})
+	}
+
+	t.Run("no selected properties at all", func(t *testing.T) {
+		out, err := parser.Search(&pb.SearchRequest{
+			Collection: boostClass, Properties: &pb.PropertiesRequest{},
+			Boost: boost(&pb.Boost_Condition{Condition: &pb.Boost_Condition_NumericDecay{
+				NumericDecay: &pb.Boost_NumericDecayFunction{Property: "number", Scale: 10},
+			}}),
+		}, cfg)
+		require.NoError(t, err)
+		assert.Equal(t, search.SelectProperties{hidden("number")}, out.Properties)
+		assert.False(t, out.AdditionalProperties.NoProps, "the objects' properties must be read for the boost")
+	})
 }
 
 func getClass(name string) (*models.Class, error) {

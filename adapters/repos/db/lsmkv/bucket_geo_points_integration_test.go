@@ -18,7 +18,9 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,7 +100,81 @@ func (f *geoFixture) check(t *testing.T, b *Bucket, queries int) {
 		got, err := b.GeoPointsWithinRange(context.Background(), lat, lon, dist)
 		require.NoError(t, err)
 		require.Equal(t, want, got.ToArray(), "circle (%v, %v, %v)", lat, lon, dist)
+
+		f.checkBox(t, b, lat, lon)
+		f.checkNearest(t, b, lat, lon)
 	}
+}
+
+// checkBox compares a box around (lat, lon), every third one across the
+// antimeridian, with the points written.
+func (f *geoFixture) checkBox(t *testing.T, b *Bucket, lat, lon float32) {
+	t.Helper()
+	height := float32(math.Exp(f.r.Float64()*8) / 50)
+	width := float32(math.Exp(f.r.Float64()*8) / 50)
+	// the package's own min and max are for ints
+	clamp := func(v, lo, hi float32) float32 {
+		return float32(math.Min(math.Max(float64(v), float64(lo)), float64(hi)))
+	}
+	south, north := clamp(lat-height, -90, 90), clamp(lat+height, -90, 90)
+	west, east := clamp(lon-width, -180, 180), clamp(lon+width, -180, 180)
+	if f.r.Intn(3) == 0 {
+		west, east = 180-width/2, -180+width/2
+		if west <= east {
+			west, east = 170, -170
+		}
+	}
+
+	box, err := geopoints.NewBoxQuery(south, north, west, east)
+	require.NoError(t, err)
+	want := []uint64{}
+	for id, p := range f.live {
+		if box.Contains(geopoints.Canonical(p.Lat, p.Lon)) {
+			want = append(want, id)
+		}
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+
+	got, err := b.GeoPointsWithinBox(context.Background(), south, north, west, east)
+	require.NoError(t, err)
+	require.Equal(t, want, got.ToArray(), "box lat [%v, %v] lon %v east to %v", south, north, west, east)
+}
+
+// checkNearest compares the nearest points to (lat, lon), every other time
+// under a filter, with the points written. A removed point must not come back
+// whichever layer holds its removal.
+func (f *geoFixture) checkNearest(t *testing.T, b *Bucket, lat, lon float32) {
+	t.Helper()
+	limit := []int{1, 10, 300, len(f.live) + 10}[f.r.Intn(4)]
+	var allow func(uint64) bool
+	if f.r.Intn(2) == 0 {
+		mod := uint64(f.r.Intn(5) + 2)
+		allow = func(id uint64) bool { return id%mod == 1 }
+	}
+
+	want := make([]geopoints.Neighbor, 0, len(f.live))
+	for id, p := range f.live {
+		if allow != nil && !allow(id) {
+			continue
+		}
+		pLat, pLon := geopoints.Canonical(p.Lat, p.Lon)
+		want = append(want, geopoints.Neighbor{DocID: id, Distance: geopoints.Distance(lat, lon, pLat, pLon)})
+	}
+	sort.Slice(want, func(i, j int) bool {
+		if want[i].Distance != want[j].Distance {
+			return want[i].Distance < want[j].Distance
+		}
+		return want[i].DocID < want[j].DocID
+	})
+	want = want[:min(limit, len(want))]
+
+	got, err := b.GeoPointsNearest(context.Background(), lat, lon, limit, allow)
+	require.NoError(t, err)
+	if len(want) == 0 {
+		require.Empty(t, got)
+		return
+	}
+	require.Equal(t, want, got, "nearest to (%v, %v) limit %d", lat, lon, limit)
 }
 
 func TestGeoPointsBucket(t *testing.T) {
@@ -325,4 +401,76 @@ func mustGeoReader(t *testing.T, seg Segment) *geopoints.SegmentReader {
 	reader, err := seg.newGeoPointsReader()
 	require.NoError(t, err)
 	return reader
+}
+
+// TestGeoPointsNearestUnderUpdates runs nearest searches against objects that
+// are being updated: each update retires the object's doc ID and adds a new
+// one at the same coordinates, as the shard's write path does. A search must
+// see every object at most once. It would see one twice if it took a
+// memtable's deletions and its points at different moments: the retired doc ID
+// read before its removal, the new one after its add.
+func TestGeoPointsNearestUnderUpdates(t *testing.T) {
+	ctx := testCtx()
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyGeoPoints))
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	// doc ID = object + objects*version, so a doc ID names its object
+	const objects = 64
+	coords := func(object uint64) (float32, float32) { return float32(object) * 0.5, float32(object) * 0.25 }
+	for object := uint64(0); object < objects; object++ {
+		lat, lon := coords(object)
+		require.NoError(t, b.GeoPointsAdd(object, lat, lon))
+	}
+	// the first versions in a segment, the updates in the memtable
+	require.NoError(t, b.FlushAndSwitch())
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var writeErr error
+	go func() {
+		defer wg.Done()
+		version := make([]uint64, objects)
+		for i := uint64(0); ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			object := i % objects
+			lat, lon := coords(object)
+			if writeErr = b.GeoPointsRemove(object + objects*version[object]); writeErr != nil {
+				return
+			}
+			version[object]++
+			if writeErr = b.GeoPointsAdd(object+objects*version[object], lat, lon); writeErr != nil {
+				return
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	searches := 0
+	for time.Now().Before(deadline) {
+		neighbors, err := b.GeoPointsNearest(ctx, 0, 0, objects*2, nil)
+		require.NoError(t, err)
+		seen := map[uint64]uint64{}
+		for _, n := range neighbors {
+			object := n.DocID % objects
+			if other, dup := seen[object]; dup {
+				close(stop)
+				wg.Wait()
+				t.Fatalf("search %d returned object %d twice, as doc IDs %d and %d", searches, object, other, n.DocID)
+			}
+			seen[object] = n.DocID
+		}
+		searches++
+	}
+	close(stop)
+	wg.Wait()
+	require.NoError(t, writeErr)
+	require.Greater(t, searches, 100)
 }

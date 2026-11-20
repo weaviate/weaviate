@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -63,16 +64,70 @@ func (e *comparableValueExtractor) extractFromBytes(objData []byte, propName str
 			ba := e.mustExtractBools(value)
 			return &ba
 		case schema.DataTypePhoneNumber:
-			fa := e.toFloatArrayFromPhoneNumber(e.mustExtractPhoneNumber(value))
+			// a stored null decodes to a nil pointer: no value, as if missing
+			pn := e.mustExtractPhoneNumber(value)
+			if pn == nil {
+				return nil
+			}
+			fa := e.toFloatArrayFromPhoneNumber(pn)
 			return &fa
 		case schema.DataTypeGeoCoordinates:
-			fa := e.toFloatArrayFromGeoCoordinates(e.mustExtractGeoCoordinates(value))
+			gc := e.mustExtractGeoCoordinates(value)
+			if gc == nil {
+				return nil
+			}
+			fa := e.toFloatArrayFromGeoCoordinates(gc)
 			return &fa
 		default:
 			return nil
 		}
 	}
 	return nil
+}
+
+// extractDistanceFromBytes returns the distance in meters from origin to the
+// object's geoCoordinates property, or nil when the object has none.
+func (e *comparableValueExtractor) extractDistanceFromBytes(objData []byte, propName string,
+	origin *filters.SortGeoOrigin,
+) interface{} {
+	value, success, _ := storobj.ParseAndExtractProperty(objData, propName)
+	if !success || len(value) != 1 {
+		return nil
+	}
+	var coordinates *models.GeoCoordinates
+	if err := json.Unmarshal([]byte(value[0]), &coordinates); err != nil {
+		return nil
+	}
+	return distanceFrom(origin, coordinates)
+}
+
+// extractDistanceFromObject is extractDistanceFromBytes for a live object.
+func (e *comparableValueExtractor) extractDistanceFromObject(object *storobj.Object, propName string,
+	origin *filters.SortGeoOrigin,
+) interface{} {
+	propertiesMap, ok := object.Properties().(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	coordinates, ok := asGeoCoordinates(propertiesMap[propName])
+	if !ok {
+		return nil
+	}
+	return distanceFrom(origin, coordinates)
+}
+
+// distanceFrom measures between the canonical points, as the geo bucket does:
+// coordinates are not range-checked on write, and the float32 arithmetic of
+// Distance only holds up for canonical ones, so on raw coordinates this sort
+// and the bucket's nearest search would disagree.
+func distanceFrom(origin *filters.SortGeoOrigin, coordinates *models.GeoCoordinates) interface{} {
+	if coordinates == nil || coordinates.Latitude == nil || coordinates.Longitude == nil {
+		return nil
+	}
+	originLat, originLon := geopoints.Canonical(origin.Latitude, origin.Longitude)
+	lat, lon := geopoints.Canonical(*coordinates.Latitude, *coordinates.Longitude)
+	d := float64(geopoints.Distance(originLat, originLon, lat, lon))
+	return &d
 }
 
 func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, propName string) interface{} {

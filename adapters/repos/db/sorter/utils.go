@@ -14,6 +14,7 @@ package sorter
 import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func extractPropNamesAndOrders(sort []filters.Sort) ([]string, []string, error) {
@@ -31,6 +32,33 @@ func extractPropNamesAndOrders(sort []filters.Sort) ([]string, []string, error) 
 		orders[i] = srt.Order
 	}
 	return propNames, orders, nil
+}
+
+// extractDistanceOrigins returns, per sort level, the point a distance sort
+// measures from, or nil for a sort by value.
+func extractDistanceOrigins(sort []filters.Sort) []*filters.SortGeoOrigin {
+	origins := make([]*filters.SortGeoOrigin, len(sort))
+	for i, srt := range sort {
+		origins[i] = srt.DistanceFrom
+	}
+	return origins
+}
+
+// validateDistanceOrigins errors when a distance sort is not on a
+// geoCoordinates property: there is no distance to order by.
+func validateDistanceOrigins(dataTypesHelper *dataTypesHelper, propNames []string,
+	origins []*filters.SortGeoOrigin,
+) error {
+	for level, origin := range origins {
+		if origin == nil {
+			continue
+		}
+		if dt := dataTypesHelper.getType(propNames[level]); dt != schema.DataTypeGeoCoordinates {
+			return errors.Errorf("sorting by distance needs a geoCoordinates property, %q is of type %q",
+				propNames[level], dt)
+		}
+	}
+	return nil
 }
 
 func validateLimit(limit, elementsCount int) int {

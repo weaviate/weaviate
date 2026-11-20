@@ -11,7 +11,10 @@
 
 package sorter
 
-import "github.com/weaviate/weaviate/entities/storobj"
+import (
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storobj"
+)
 
 type comparable struct {
 	docID uint64
@@ -25,10 +28,14 @@ type comparable struct {
 type comparableCreator struct {
 	extractor *comparableValueExtractor
 	propNames []string
+	// per level: the point a distance sort measures from, nil for a sort by value
+	origins []*filters.SortGeoOrigin
 }
 
-func newComparableCreator(extractor *comparableValueExtractor, propNames []string) *comparableCreator {
-	return &comparableCreator{extractor, propNames}
+func newComparableCreator(extractor *comparableValueExtractor, propNames []string,
+	origins []*filters.SortGeoOrigin,
+) *comparableCreator {
+	return &comparableCreator{extractor, propNames, origins}
 }
 
 func (c *comparableCreator) createFromBytes(docID uint64, objData []byte) *comparable {
@@ -38,6 +45,10 @@ func (c *comparableCreator) createFromBytes(docID uint64, objData []byte) *compa
 func (c *comparableCreator) createFromBytesWithPayload(docID uint64, objData []byte, payload interface{}) *comparable {
 	values := make([]interface{}, len(c.propNames))
 	for level, propName := range c.propNames {
+		if origin := c.origins[level]; origin != nil {
+			values[level] = c.extractor.extractDistanceFromBytes(objData, propName, origin)
+			continue
+		}
 		values[level] = c.extractor.extractFromBytes(objData, propName)
 	}
 	return &comparable{docID, values, payload}
@@ -46,6 +57,10 @@ func (c *comparableCreator) createFromBytesWithPayload(docID uint64, objData []b
 func (c *comparableCreator) createFromObjectWithPayload(object *storobj.Object, payload interface{}) *comparable {
 	values := make([]interface{}, len(c.propNames))
 	for level, propName := range c.propNames {
+		if origin := c.origins[level]; origin != nil {
+			values[level] = c.extractor.extractDistanceFromObject(object, propName, origin)
+			continue
+		}
 		values[level] = c.extractor.extractFromObject(object, propName)
 	}
 	return &comparable{object.DocID, values, payload}
