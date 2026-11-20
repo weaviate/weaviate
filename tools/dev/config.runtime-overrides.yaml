@@ -8,6 +8,9 @@ query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
 # Toggle the GraphQL API on/off at runtime (defaults to the DISABLE_GRAPHQL env var).
 # disable_graphql: false
+# Answer 410 Gone on the /objects/{id} and /objects/{id}/references/{propertyName}
+# endpoints that leave out the class (defaults to the DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS env var).
+# disable_object_id_endpoints_without_class: false
 # for usage module if enabled make sure that usage-gcs or usage-s3 module is enabled
 # usage_scrape_interval: 1s
 

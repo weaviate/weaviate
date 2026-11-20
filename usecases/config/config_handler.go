@@ -344,6 +344,11 @@ type Config struct {
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
+	// DisableObjectIDEndpointsWithoutClass makes the /objects/{id} and
+	// /objects/{id}/references/{propertyName} endpoints that leave out the
+	// class answer 410 Gone, as they do with namespaces on.
+	DisableObjectIDEndpointsWithoutClass *runtime.DynamicValue[bool] `json:"disable_object_id_endpoints_without_class" yaml:"disable_object_id_endpoints_without_class"`
+
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 

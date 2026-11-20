@@ -216,6 +216,45 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 	})
 }
 
+// The env var sets the default, the overrides file changes it through the
+// registered config, and removing the key restores the env value.
+func TestDisableObjectIDEndpointsWithoutClassConfig(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	tests := []struct {
+		name string
+		env  string
+		want bool
+	}{
+		{name: "env unset", want: false},
+		{name: "env set", env: "true", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS", tt.env)
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.want, conf.DisableObjectIDEndpointsWithoutClass.Get())
+
+			registered := BuildRegisteredRuntimeConfig(&conf)
+			apply := func(overrides string) {
+				parsed, err := ParseRuntimeConfig([]byte(overrides))
+				require.NoError(t, err)
+				require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
+			}
+
+			apply(fmt.Sprintf("disable_object_id_endpoints_without_class: %t", !tt.want))
+			assert.Equal(t, !tt.want, conf.DisableObjectIDEndpointsWithoutClass.Get())
+
+			apply("")
+			assert.Equal(t, tt.want, conf.DisableObjectIDEndpointsWithoutClass.Get())
+		})
+	}
+}
+
 func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
 	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
 	// renamed or misspelled yaml tag.
