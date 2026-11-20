@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -174,6 +175,39 @@ func Test_MergeObject(t *testing.T) {
 			},
 			errMerge: errAny,
 			wantCode: StatusInternalServerError,
+			stage:    stageCount,
+		},
+		{
+			name: "read-only shard",
+			previous: &models.Object{
+				Class:      cls,
+				Properties: map[string]interface{}{},
+				Vectors:    map[string]models.Vector{},
+			},
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			vectorizerCalledWith: &models.Object{
+				Class: cls,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			expectedOutput: &MergeDocument{
+				UpdateTime: lastTime,
+				Class:      cls,
+				ID:         uuid,
+				PrimitiveSchema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+				Vectors: nil, // nil because named vectors haven't changed
+			},
+			errMerge: storagestate.ErrStatusReadOnlyWithReason("shard is out of disk"),
+			wantCode: StatusUnprocessableEntity,
 			stage:    stageCount,
 		},
 		{

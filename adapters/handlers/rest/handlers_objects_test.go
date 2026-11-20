@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -462,6 +463,40 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		require.True(t, ok, "unexpected result %T", res)
 		require.Len(t, parsed.Payload.Error, 1)
 		assert.Contains(t, parsed.Payload.Error[0].Message, "cannot reach enough replicas")
+	})
+
+	t.Run("add object on a read-only shard", func(t *testing.T) {
+		fakeManager := &fakeManager{
+			addObjectErr: fmt.Errorf("put object: %w",
+				storagestate.ErrStatusReadOnlyWithReason("shard is out of disk")),
+		}
+		h := &objectHandlers{manager: fakeManager, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.addObject(objects.ObjectsCreateParams{
+			HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+			Body:        &models.Object{Class: "Foo"},
+		}, nil)
+		parsed, ok := res.(*objects.ObjectsCreateUnprocessableEntity)
+		require.True(t, ok, "unexpected result %T", res)
+		require.Len(t, parsed.Payload.Error, 1)
+		assert.Contains(t, parsed.Payload.Error[0].Message, "store is read-only due to: shard is out of disk")
+	})
+
+	t.Run("update object on a read-only shard", func(t *testing.T) {
+		fakeManager := &fakeManager{
+			updateObjectErr: fmt.Errorf("put object: %w",
+				storagestate.ErrStatusReadOnlyWithReason("shard is out of disk")),
+		}
+		h := &objectHandlers{manager: fakeManager, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.updateObject(objects.ObjectsClassPutParams{
+			HTTPRequest: httptest.NewRequest("PUT", "/v1/objects/Foo/123", nil),
+			Body:        &models.Object{Class: "Foo"},
+			ID:          "123",
+			ClassName:   "Foo",
+		}, nil)
+		parsed, ok := res.(*objects.ObjectsClassPutUnprocessableEntity)
+		require.True(t, ok, "unexpected result %T", res)
+		require.Len(t, parsed.Payload.Error, 1)
+		assert.Contains(t, parsed.Payload.Error[0].Message, "store is read-only due to: shard is out of disk")
 	})
 
 	t.Run("get objects", func(t *testing.T) {

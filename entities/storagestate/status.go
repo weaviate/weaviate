@@ -27,8 +27,10 @@ const (
 	StatusRecovering  Status = "RECOVERING"
 )
 
+// ErrStatusReadOnlyWithReason wraps ErrStatusReadOnly so callers can tell a
+// read-only store apart from an internal fault with errors.Is.
 var ErrStatusReadOnlyWithReason = func(reason string) error {
-	return fmt.Errorf("store is read-only due to: %v", reason)
+	return fmt.Errorf("%w due to: %v", ErrStatusReadOnly, reason)
 }
 
 var (
