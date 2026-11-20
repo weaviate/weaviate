@@ -24,13 +24,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // TestPatternCheckedAsStored checks that create and add refuse a pattern that
-// stops compiling once conv stores it, and checkLookup doesn't, so a row already
+// stops compiling once conv stores it, and conv.CheckLookup doesn't, so a row already
 // stored stays removable.
 func TestPatternCheckedAsStored(t *testing.T) {
 	tests := []struct {
@@ -52,7 +53,7 @@ func TestPatternCheckedAsStored(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.NoError(t, validatePermissions(false, checkLookup, tt.perm))
+			require.NoError(t, conv.ValidatePermissions(false, conv.CheckLookup, tt.perm))
 
 			t.Run("create role", func(t *testing.T) {
 				logger, _ := test.NewNullLogger()
@@ -78,55 +79,6 @@ func TestPatternCheckedAsStored(t *testing.T) {
 				require.True(t, ok, "got %T", res)
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.wantErr)
 			})
-		})
-	}
-}
-
-// TestValidateStorablePoliciesBraceRewrite checks that the stored-form compile
-// rewrites "{...}" as KeyMatch5 does, so a target the matcher accepts is not refused.
-func TestValidateStorablePoliciesBraceRewrite(t *testing.T) {
-	require.NoError(t, validateStorablePolicies([]authorization.Policy{{Resource: "users/x{1001}"}}))
-}
-
-// TestValidatePermissionsAliasRule checks that create and add apply the
-// class-name rule to the uppercased alias pattern and that lookups skip it.
-func TestValidatePermissionsAliasRule(t *testing.T) {
-	tests := []struct {
-		name              string
-		namespacesEnabled bool
-		aliases           *models.PermissionAliases
-		wantErr           string
-	}{
-		{name: "no aliases"},
-		{name: "no alias", aliases: &models.PermissionAliases{Collection: String("*")}},
-		{name: "wildcard", aliases: &models.PermissionAliases{Alias: String("*")}},
-		{name: "lowercase first letter", aliases: &models.PermissionAliases{Alias: String("my_alias")}},
-		{name: "prefix pattern", aliases: &models.PermissionAliases{Alias: String("Alias*")}},
-		{name: "alternation", aliases: &models.PermissionAliases{Alias: String("Movies|Books")}},
-		{name: "non-ASCII first letter", aliases: &models.PermissionAliases{Alias: String("ålias.*")}, wantErr: "'ålias.*' is not a valid alias name"},
-		{name: "non-ASCII letter after the first", aliases: &models.PermissionAliases{Alias: String("Alïas")}, wantErr: "not a valid alias name"},
-		{name: "long s, whose uppercase is ASCII S", aliases: &models.PermissionAliases{Alias: String("ſlias.*")}, wantErr: "not a valid alias name"},
-		{name: "dotless i, whose uppercase is ASCII I", aliases: &models.PermissionAliases{Alias: String("ıtems")}, wantErr: "not a valid alias name"},
-		{name: "starts with a regex operator", aliases: &models.PermissionAliases{Alias: String(".*_v2")}, wantErr: "not a valid alias name"},
-		{name: "colon with namespaces off", aliases: &models.PermissionAliases{Alias: String("my:alias")}, wantErr: "not a valid alias name"},
-		{name: "empty", aliases: &models.PermissionAliases{Alias: String("")}, wantErr: "not a valid alias name"},
-		{name: "qualified with namespaces on", namespacesEnabled: true, aliases: &models.PermissionAliases{Alias: String("customer1:films*")}},
-		{name: "empty namespace with namespaces on", namespacesEnabled: true, aliases: &models.PermissionAliases{Alias: String(":films")}, wantErr: "not a valid alias name"},
-		{name: "qualified non-ASCII alias with namespaces on", namespacesEnabled: true, aliases: &models.PermissionAliases{Alias: String("customer1:\u00e5lias")}, wantErr: "not a valid alias name"},
-		{name: "POSIX class with namespaces on", namespacesEnabled: true, aliases: &models.PermissionAliases{Alias: String("[[:alpha:]]+")}, wantErr: "not a valid alias name"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			perm := &models.Permission{Aliases: tt.aliases}
-			for _, check := range []permissionCheck{checkCreate, checkAdd} {
-				err := validatePermissions(tt.namespacesEnabled, check, perm)
-				if tt.wantErr == "" {
-					require.NoError(t, err)
-					continue
-				}
-				require.ErrorContains(t, err, tt.wantErr)
-			}
-			require.NoError(t, validatePermissions(tt.namespacesEnabled, checkLookup, perm))
 		})
 	}
 }
