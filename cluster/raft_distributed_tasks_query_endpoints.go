@@ -17,15 +17,13 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/utils"
 )
 
 func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	// The leader RPC waits for a connection that may never come up. Most callers pass no deadline.
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, s.store.cfg.ConsistencyWaitTimeout)
-		defer cancel()
-	}
+	ctx, cancel := utils.BoundIfNoDeadline(ctx, s.store.cfg.ConsistencyWaitTimeout)
+	defer cancel()
 	command := &cmd.QueryRequest{
 		Type: cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST,
 	}

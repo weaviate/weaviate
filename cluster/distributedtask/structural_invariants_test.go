@@ -241,11 +241,8 @@ func structuralInvariantSeedTask(
 
 // TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer pins the fact
 // [Manager.CleanUpTask]'s unrecognized-status exit rests on. That exit is
-// only sound because the sweep filters on the leader's view, so a CLEAN_UP
-// for a task this build cannot classify exists only once the cluster
-// already considers it done. A second proposer reading local state would
-// let one node delete a task the rest still considers live, so adding one
-// has to fail here rather than in production.
+// only sound because the sweep proposes CLEAN_UP only for a recognized terminal status, which
+// never changes. A second proposer without that filter could delete a task others consider live.
 //
 // Two spellings count as proposing: calling the service method, and
 // building the command directly. The second is how the first one is

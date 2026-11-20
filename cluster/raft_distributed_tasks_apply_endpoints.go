@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/utils"
 )
 
 func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.ApplyRequest_Type, req any) error {
@@ -36,6 +37,13 @@ func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.Appl
 		return fmt.Errorf("executing command: %w", err)
 	}
 	return nil
+}
+
+// applyBoundedTaskCommand is for commands whose payload does not grow with the tenant count.
+func (s *Raft) applyBoundedTaskCommand(ctx context.Context, cmdType cmd.ApplyRequest_Type, req any) error {
+	ctx, cancel := utils.BoundIfNoDeadline(ctx, s.store.cfg.ConsistencyWaitTimeout)
+	defer cancel()
+	return s.applyDistributedTaskCommand(ctx, cmdType, req)
 }
 
 // AddDistributedTask is the no-barrier variant — task uses pre-barrier
@@ -128,7 +136,7 @@ func (s *Raft) RecordDistributedTaskUnitFailure(ctx context.Context, namespace, 
 }
 
 func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &cmd.RecordDistributedTaskUnitCompletionRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
@@ -140,7 +148,7 @@ func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespac
 }
 
 func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS, &cmd.UpdateDistributedTaskUnitProgressRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS, &cmd.UpdateDistributedTaskUnitProgressRequest{
 		Namespace:           namespace,
 		Id:                  taskID,
 		Version:             version,
@@ -152,7 +160,7 @@ func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace,
 }
 
 func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
 		Namespace: namespace,
 		Id:        taskID,
 		Version:   taskVersion,
@@ -160,7 +168,7 @@ func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID str
 }
 
 func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED, &cmd.MarkTaskFinalizedRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED, &cmd.MarkTaskFinalizedRequest{
 		Namespace:             namespace,
 		Id:                    taskID,
 		Version:               taskVersion,
@@ -169,7 +177,7 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 }
 
 func (s *Raft) MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED, &cmd.MarkTaskFailedRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED, &cmd.MarkTaskFailedRequest{
 		Namespace:          namespace,
 		Id:                 taskID,
 		Version:            taskVersion,
@@ -194,7 +202,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 	success bool,
 	errMsg string,
 ) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
 		&cmd.RecordDistributedTaskPostCompletionAckRequest{
 			Namespace:         namespace,
 			Id:                taskID,
@@ -216,7 +224,7 @@ func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 	success bool,
 	errMsg string,
 ) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK,
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK,
 		&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 			Namespace:         namespace,
 			Id:                taskID,
