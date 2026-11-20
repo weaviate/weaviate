@@ -13,7 +13,9 @@ package idleshardcollector
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -21,15 +23,18 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	apiclient "github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -302,4 +307,102 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 	}
 	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)
 	c.waitIdle(ctx, t, "every node unloads its idle shards again")
+}
+
+// reindexIdleTTL is short so the shards a reindex unit loads go idle while the task is still running.
+const reindexIdleTTL = "1s"
+
+func TestMultiNodeRuntimeReindexOverIdleUnloadedTenants(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	b := newCompose(t, true, clusterSize, fastKnobs(knobs{"idle_ttl": reindexIdleTTL})).
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+	compose := start(ctx, t, b)
+	node := compose.GetWeaviateNode(1)
+	cl := newClient(node.URI())
+	waitUnloader(ctx, t, compose, clusterSize)
+
+	const class, perShard = "ReindexIdle", 100
+	tenants := tenantNames("t", 300)
+	l := newLedger()
+	createClass(ctx, t, cl, vectorClass(class, true, clusterSize))
+	for chunk := range slices.Chunk(tenants, 20) {
+		createTenants(ctx, t, cl, class, chunk)
+	}
+	seed(ctx, t, cl, l, class, tenants, perShard, &all)
+	eventuallyLoaded(ctx, t, compose, clusterSize, 2*time.Minute, noneLoaded, "idle shards unload before the reindex")
+
+	taskID := reindexhelpers.SubmitIndexUpsert(t, node.URI(), class, "seq", "rangeFilters", `{}`)
+	reindexhelpers.AwaitReindexFinished(t, node.URI(), taskID, reindexhelpers.WithTimeout(5*time.Minute))
+	require.Eventually(t, func() bool { return seqRangeable(ctx, cl, class) }, 30*time.Second, time.Second,
+		"the schema shows seq rangeable")
+
+	ranges := []struct {
+		where string
+		want  int
+	}{
+		{where: `{path:["seq"],operator:GreaterThanEqual,valueInt:0}`, want: perShard},
+		{where: `{operator:And,operands:[{path:["seq"],operator:GreaterThanEqual,valueInt:10},{path:["seq"],operator:LessThan,valueInt:25}]}`, want: 15},
+		{where: `{path:["seq"],operator:GreaterThan,valueInt:30}`, want: perShard - 31},
+	}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+	for _, tenant := range tenants {
+		g.Go(func() error {
+			for _, r := range ranges {
+				n, err := aggregateCount(gctx, cl, class, tenant, r.where)
+				if err != nil {
+					return err
+				}
+				if n != r.want {
+					return fmt.Errorf("%s/%s: %s matches %d objects, want %d", class, tenant, r.where, n, r.want)
+				}
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+	verifyAll(ctx, t, cl, l, class, tenants)
+	eventuallyLoaded(ctx, t, compose, clusterSize, 2*time.Minute, noneLoaded, "idle shards unload once the reindex finished")
+}
+
+func seqRangeable(ctx context.Context, cl *apiclient.Weaviate, class string) bool {
+	resp, err := cl.Schema.SchemaObjectsGet(schema.NewSchemaObjectsGetParams().WithContext(ctx).WithClassName(class), nil)
+	if err != nil {
+		return false
+	}
+	for _, p := range resp.Payload.Properties {
+		if p.Name == "seq" {
+			return p.IndexRangeFilters != nil && *p.IndexRangeFilters
+		}
+	}
+	return false
+}
+
+func aggregateCount(ctx context.Context, cl *apiclient.Weaviate, class, tenant, where string) (int, error) {
+	q := fmt.Sprintf(`{Aggregate{%s(tenant:%q,where:%s){meta{count}}}}`, class, tenant, where)
+	resp, err := cl.Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithContext(ctx).WithBody(&models.GraphQLQuery{Query: q}), nil)
+	if err != nil {
+		return 0, fmt.Errorf("aggregate %s/%s: %w", class, tenant, err)
+	}
+	if len(resp.Payload.Errors) > 0 {
+		return 0, fmt.Errorf("aggregate %s/%s: %s", class, tenant, resp.Payload.Errors[0].Message)
+	}
+	raw, err := json.Marshal(resp.Payload.Data["Aggregate"])
+	if err != nil {
+		return 0, err
+	}
+	var out map[string][]struct {
+		Meta struct {
+			Count int `json:"count"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return 0, fmt.Errorf("aggregate %s/%s: %w", class, tenant, err)
+	}
+	if len(out[class]) != 1 {
+		return 0, fmt.Errorf("aggregate %s/%s: unexpected result %s", class, tenant, raw)
+	}
+	return out[class][0].Meta.Count, nil
 }

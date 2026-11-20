@@ -118,6 +118,10 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	name := l.shardOpts.name
 	defer l.ClearUnloadPending()
 
+	// Before any lock: a stale gate fetches the task list from the leader.
+	if l.reindexBlocksUnload() {
+		return false
+	}
 	if !idx.tryEnterRead() {
 		return false
 	}
@@ -200,6 +204,18 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	default:
 	}
 	return unloaded
+}
+
+// reindexBlocksUnload reports whether a runtime reindex may be using the shard,
+// which the RAFT FSM would keep from going cold. Like refuseIfReindexInFlight,
+// a gate error or a missing database refuses.
+func (l *LazyLoadShard) reindexBlocksUnload() bool {
+	idx := l.shardOpts.index
+	if idx.db == nil {
+		return true
+	}
+	live, err := idx.db.unloadReindexGate()(idx.Config.ClassName.String(), l.shardOpts.name)
+	return live || err != nil
 }
 
 func (l *LazyLoadShard) unloadRegistry() *LoadedShardRegistry {

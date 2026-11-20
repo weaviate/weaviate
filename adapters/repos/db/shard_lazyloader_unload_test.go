@@ -320,6 +320,78 @@ func TestLazyLoadShard_TryUnloadRefusesAMovementStartedAfterItsCheck(t *testing.
 	require.True(t, f.exists(t, id))
 }
 
+func TestLazyLoadShard_TryUnloadRefusesWhileAReindexIsLive(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []func(*Config)
+		arm  func(db *DB, collection, shard string)
+		want bool
+	}{
+		{
+			name: "no live reindex",
+			arm: func(db *DB, collection, shard string) {
+				db.SetShardReindexActivityLookup(makeActivityBuilder(nil))
+			},
+			want: true,
+		},
+		{
+			name: "live reindex on the shard",
+			arm: func(db *DB, collection, shard string) {
+				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, shard}: true}))
+			},
+		},
+		{
+			name: "live reindex on another shard",
+			arm: func(db *DB, collection, shard string) {
+				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, "other"}: true}))
+			},
+			want: true,
+		},
+		{
+			name: "terminal reindex still cleaning up the shard",
+			arm: func(db *DB, collection, shard string) {
+				db.SetShardReindexActivityLookup(makeActivityBuilder(nil))
+				db.SetReindexCleanupInProgressLookup(makeCleanupBuilder(map[[2]string]bool{{collection, shard}: true}))
+			},
+		},
+		{
+			name: "task list unavailable",
+			arm: func(db *DB, collection, shard string) {
+				db.SetShardReindexActivityLookup(unreachableActivityBuilder)
+			},
+		},
+		{
+			name: "runtime reindex disabled",
+			opts: []func(*Config){func(c *Config) { c.RuntimeReindexDisabled = true }},
+			arm: func(db *DB, collection, shard string) {
+				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, shard}: true}))
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t, tt.opts...)
+			id := f.put(t)
+			s := f.lazy.currentShard()
+			require.NotNil(t, s)
+			tt.arm(f.index.db, f.index.Config.ClassName.String(), f.name)
+
+			require.Equal(t, tt.want, tryUnloadPromptly(t, f.lazy, UnloadRequest{}))
+			if tt.want {
+				f.requireUnloaded(t)
+				require.True(t, f.exists(t, id))
+				return
+			}
+			require.Same(t, s, f.lazy.currentShard(), "a refused unload leaves the shard loaded")
+			require.False(t, s.shut.Load())
+			require.EqualValues(t, 1, f.unloader.registry.Loaded())
+			require.True(t, f.exists(t, id))
+		})
+	}
+}
+
 func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) bool {
 	t.Helper()
 	done := make(chan bool, 1)

@@ -130,6 +130,9 @@ type DB struct {
 	reindexLookupsMu                   sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+	// unloadGateOnce builds unloadGate, the reindex gate every idle unload shares.
+	unloadGateOnce sync.Once
+	unloadGate     reindexGate
 
 	// Both carry their own lock; see [migrationUnitSeals] and
 	// [migrationClusterReconciler].
