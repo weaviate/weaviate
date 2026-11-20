@@ -234,26 +234,30 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 		return b.WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true")
 	})
 	names := c.nodeNames(ctx, t)
+	setKnobs(ctx, t, c.compose, clusterSize, fastKnobs(knobs{"idle_ttl": "1s"}))
 
 	resp, err := c.cl.Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 		WithContext(ctx).WithCollection(&c.class), nil)
 	require.NoError(t, err)
-	type move struct{ shard, source, target string }
+	type move struct{ shard, source, target, typ string }
 	var moves []move
 	for _, s := range resp.Payload.ShardingState.Shards {
-		if len(moves) == 3 {
+		if len(moves) == 4 {
 			break
 		}
 		require.Len(t, s.Replicas, 2)
+		typ := api.MOVE.String()
+		if len(moves) == 3 {
+			typ = api.COPY.String()
+		}
 		for _, n := range names {
 			if !slices.Contains(s.Replicas, n) {
-				moves = append(moves, move{shard: s.Shard, source: s.Replicas[0], target: n})
+				moves = append(moves, move{shard: s.Shard, source: s.Replicas[0], target: n, typ: typ})
 			}
 		}
 	}
-	require.Len(t, moves, 3)
+	require.Len(t, moves, 4)
 
-	moveType := api.MOVE.String()
 	opIDs := make([]strfmt.UUID, len(moves))
 	for i, m := range moves {
 		resp, err := c.cl.Replication.Replicate(replication.NewReplicateParams().WithContext(ctx).WithBody(
@@ -262,9 +266,9 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 				Shard:      &m.shard,
 				SourceNode: &m.source,
 				TargetNode: &m.target,
-				Type:       &moveType,
+				Type:       &m.typ,
 			}), nil)
-		require.NoError(t, err, "start MOVE of %s %s->%s", m.shard, m.source, m.target)
+		require.NoError(t, err, "start %s of %s %s->%s", m.typ, m.shard, m.source, m.target)
 		opIDs[i] = *resp.Payload.ID
 	}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -272,10 +276,10 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 			details, err := c.cl.Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithContext(ctx).WithID(id), nil)
 			require.NoError(ct, err)
 			require.NotNil(ct, details.Payload.Status)
-			require.NotEqual(ct, "CANCELLED", details.Payload.Status.State, "MOVE of %s", moves[i].shard)
-			require.Equal(ct, "READY", details.Payload.Status.State, "MOVE of %s", moves[i].shard)
+			require.NotEqual(ct, "CANCELLED", details.Payload.Status.State, "%s of %s", moves[i].typ, moves[i].shard)
+			require.Equal(ct, "READY", details.Payload.Status.State, "%s of %s", moves[i].typ, moves[i].shard)
 		}
-	}, 5*time.Minute, 2*time.Second, "every MOVE completes while idle shards unload")
+	}, 5*time.Minute, 2*time.Second, "every op completes while idle shards unload")
 
 	resp, err = c.cl.Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 		WithContext(ctx).WithCollection(&c.class), nil)
@@ -286,10 +290,14 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 	}
 	for _, m := range moves {
 		require.Contains(t, replicas[m.shard], m.target)
-		require.NotContains(t, replicas[m.shard], m.source)
+		if m.typ == api.MOVE.String() {
+			require.NotContains(t, replicas[m.shard], m.source)
+		} else {
+			require.Contains(t, replicas[m.shard], m.source)
+		}
 		target := m.target
 		for _, id := range c.ledger.ids(c.class, m.shard) {
-			require.NoError(t, readObject(ctx, c.cl, c.class, m.shard, id, &target), "moved replica on %s", target)
+			require.NoError(t, readObject(ctx, c.cl, c.class, m.shard, id, &target), "%s replica on %s", m.typ, target)
 		}
 	}
 	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)

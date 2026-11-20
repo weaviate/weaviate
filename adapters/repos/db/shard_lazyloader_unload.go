@@ -148,6 +148,10 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	if entry, ok := idx.shards.Load(name).(*LazyLoadShard); !ok || entry != l {
 		return false
 	}
+	// A movement's change-log calls refuse an unloaded shard, so hold it for the whole op.
+	if _, held := idx.heldForMovement(name); held {
+		return false
+	}
 
 	if !l.mutex.TryLock() {
 		return false
