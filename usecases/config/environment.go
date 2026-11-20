@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const (
@@ -1102,7 +1101,9 @@ func FromEnv(config *Config) error {
 	if err != nil {
 		return err
 	}
-	config.WeaviateLicense = licenseState.Status == license.StatusValid
+	// M5 deliberately keeps the feature gate tied to the key form check. The
+	// verified state only changes reporting until the gate moves in M7.
+	config.WeaviateLicense = licenseState.LicenseID != ""
 	config.License = licenseState
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))

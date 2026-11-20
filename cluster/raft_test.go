@@ -928,6 +928,8 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m.cfg.TelemetryEnabled = false
+	m.cfg.ClusterIDEnabled = true
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	m.indexer.On("Open", mock.Anything).Return(nil)
 	m.indexer.On("Close", mock.Anything).Return(nil)

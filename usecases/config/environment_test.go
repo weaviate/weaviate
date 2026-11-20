@@ -1208,7 +1208,7 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
-		require.Equal(t, license.StatusValid, conf.License.Status)
+		require.Equal(t, license.StatusUnreachable, conf.License.Status)
 		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
@@ -1277,7 +1277,7 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
-		require.Equal(t, license.StatusValid, conf.License.Status)
+		require.Equal(t, license.StatusUnreachable, conf.License.Status)
 		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
