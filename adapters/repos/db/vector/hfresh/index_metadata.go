@@ -304,7 +304,7 @@ func (h *HFresh) restoreCentroids() error {
 		return err
 	}
 	if size > 0 {
-		h.Centroids.restoreSingle(singlePostingID)
+		h.Centroids.restoreSingle()
 	}
 	return nil
 }

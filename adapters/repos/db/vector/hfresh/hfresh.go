@@ -109,7 +109,7 @@ type HFresh struct {
 	disableIntermediateRescore bool
 
 	// Internal components
-	Centroids     *CentroidIndex      // Provides access to the centroids.
+	Centroids     *HNSWIndex          // Provides access to the centroids.
 	PostingStore  *PostingStore       // Used for managing persistence of postings.
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
@@ -210,7 +210,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		}
 	}
 
-	h.Centroids, err = NewCentroidIndex(metrics, store, cfg)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg)
 	if err != nil {
 		return nil, err
 	}
