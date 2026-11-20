@@ -60,6 +60,7 @@ import (
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
+	modrerankertypesafeai "github.com/weaviate/weaviate/modules/reranker-typesafeai"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -544,6 +545,12 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 func (d *Compose) WithRerankerCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerTypeSafeAI(apiKey string) *Compose {
+	d.weaviateEnvs["TYPESAFEAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankertypesafeai.Name)
 	return d
 }
 
