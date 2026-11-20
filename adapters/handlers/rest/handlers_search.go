@@ -42,6 +42,7 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		DefaultLimit:       appState.ServerConfig.Config.QueryDefaults.Limit,
 		MaximumResults:     appState.ServerConfig.Config.QueryMaximumResults,
 		MaxSearchEF:        appState.ServerConfig.Config.HNSWMaxSearchEF,
+		MaxSearchProbe:     appState.ServerConfig.Config.HFreshMaxSearchProbe,
 		CrossRefDepthLimit: appState.ServerConfig.Config.QueryCrossReferenceDepthLimit,
 		Logger:             appState.Logger,
 	})

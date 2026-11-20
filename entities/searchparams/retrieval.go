@@ -30,14 +30,35 @@ type Selection struct {
 	MMR *SelectionMMR `json:"mmr,omitempty"`
 }
 
+// Per-request HNSW filter strategies. They mirror the collection-level
+// vectorIndexConfig.filterStrategy values but are defined here so that this
+// package stays free of the index packages (which import it).
+const (
+	FilterStrategySweeping = "sweeping"
+	FilterStrategyAcorn    = "acorn"
+	FilterStrategyPathseer = "pathseer"
+)
+
 // VectorSearchParams carries per-request overrides for the vector index search.
 // It is set on a single search request and takes precedence over the
-// collection-level configuration. EF overrides vectorIndexConfig.ef for HNSW
-// only; other index types ignore it. A zero EF, or a nil *VectorSearchParams,
-// means the collection default is used. The struct crosses nodes as JSON
-// (see the "ef" tag), so new fields must keep the zero value meaning "default".
+// collection-level configuration. Each field belongs to one index type and is
+// ignored by the others: EF and FilterStrategy override vectorIndexConfig.ef
+// and vectorIndexConfig.filterStrategy for HNSW, SearchProbe overrides
+// vectorIndexConfig.searchProbe for HFresh. A zero field, or a nil
+// *VectorSearchParams, means the collection default is used.
+//
+// PerTarget holds overrides for individual target vectors of a multi-target
+// search, keyed by target vector name. It is only meaningful at request and
+// shard level: the shard resolves it with ForTarget before calling an index,
+// so an index never sees a non-empty PerTarget.
+//
+// The struct crosses nodes as JSON, so new fields must keep the zero value
+// meaning "default", and nodes that predate a field drop it on decode.
 type VectorSearchParams struct {
-	EF int `json:"ef,omitempty"`
+	EF             int                           `json:"ef,omitempty"`
+	SearchProbe    int                           `json:"searchProbe,omitempty"`
+	FilterStrategy string                        `json:"filterStrategy,omitempty"`
+	PerTarget      map[string]VectorSearchParams `json:"perTarget,omitempty"`
 }
 
 // EFOrZero returns the per-request ef, or 0 when unset or when p is nil.
@@ -46,6 +67,59 @@ func (p *VectorSearchParams) EFOrZero() int {
 		return 0
 	}
 	return p.EF
+}
+
+// SearchProbeOrZero returns the per-request HFresh search probe, or 0 when
+// unset or when p is nil.
+func (p *VectorSearchParams) SearchProbeOrZero() int {
+	if p == nil {
+		return 0
+	}
+	return p.SearchProbe
+}
+
+// FilterStrategyOrEmpty returns the per-request HNSW filter strategy, or ""
+// when unset or when p is nil.
+func (p *VectorSearchParams) FilterStrategyOrEmpty() string {
+	if p == nil {
+		return ""
+	}
+	return p.FilterStrategy
+}
+
+// IsZero reports whether p carries no override at all, request-wide or
+// per-target. A nil p is zero.
+func (p *VectorSearchParams) IsZero() bool {
+	return p == nil || (p.EF == 0 && p.SearchProbe == 0 && p.FilterStrategy == "" && len(p.PerTarget) == 0)
+}
+
+// ForTarget returns the parameters the index of target vector name must use:
+// the per-target entry merged field-wise over the request-wide values, where
+// a set field of the entry wins and an unset one falls back. It returns p
+// itself (no allocation) when there is no entry for name, and nil when p is
+// nil. The result never carries a PerTarget map.
+func (p *VectorSearchParams) ForTarget(name string) *VectorSearchParams {
+	if p == nil {
+		return nil
+	}
+	entry, ok := p.PerTarget[name]
+	if !ok {
+		if len(p.PerTarget) == 0 {
+			return p
+		}
+		return &VectorSearchParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
+	}
+	merged := VectorSearchParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
+	if entry.EF > 0 {
+		merged.EF = entry.EF
+	}
+	if entry.SearchProbe > 0 {
+		merged.SearchProbe = entry.SearchProbe
+	}
+	if entry.FilterStrategy != "" {
+		merged.FilterStrategy = entry.FilterStrategy
+	}
+	return &merged
 }
 
 type NearVector struct {

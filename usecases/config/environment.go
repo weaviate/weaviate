@@ -855,29 +855,18 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
-	// Cap for a per-request HNSW ef. Precedence: the HNSW_MAX_SEARCH_EF env
-	// var, then hnsw_max_search_ef from the config file (already in config
-	// here), then the resolved QUERY_MAXIMUM_RESULTS. A value of 0 at any step
-	// falls through to the next, and a non-positive QUERY_MAXIMUM_RESULTS is
-	// replaced by its default so the cap never ends up rejecting every ef.
-	if config.HNSWMaxSearchEF <= 0 {
-		config.HNSWMaxSearchEF = config.QueryMaximumResults
+	// Caps for the per-request vector search params (hnsw ef, hfresh search
+	// probe). The config-file values are already in config here.
+	maxSearchEF, err := resolveSearchCap("HNSW_MAX_SEARCH_EF", config.HNSWMaxSearchEF, config.QueryMaximumResults)
+	if err != nil {
+		return err
 	}
-	if config.HNSWMaxSearchEF <= 0 {
-		config.HNSWMaxSearchEF = DefaultQueryMaximumResults
+	config.HNSWMaxSearchEF = maxSearchEF
+	maxSearchProbe, err := resolveSearchCap("HFRESH_MAX_SEARCH_PROBE", config.HFreshMaxSearchProbe, config.QueryMaximumResults)
+	if err != nil {
+		return err
 	}
-	if v := os.Getenv("HNSW_MAX_SEARCH_EF"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("parse HNSW_MAX_SEARCH_EF as int: %w", err)
-		}
-		if asInt < 0 {
-			return fmt.Errorf("HNSW_MAX_SEARCH_EF must not be negative")
-		}
-		if asInt > 0 {
-			config.HNSWMaxSearchEF = int64(asInt)
-		}
-	}
+	config.HFreshMaxSearchProbe = maxSearchProbe
 
 	if v := os.Getenv("QUERY_HYBRID_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
@@ -2661,4 +2650,33 @@ func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
 		return fmt.Errorf("duration between %s and %s expected, got %s", MinBackupDedupeConvergenceTimeout, MaxBackupDedupeConvergenceTimeout, val)
 	}
 	return nil
+}
+
+// resolveSearchCap resolves the upper bound for one per-request vector search
+// knob. Precedence: the envName env var, then fileValue (the config-file
+// setting), then queryMax (the resolved QUERY_MAXIMUM_RESULTS). A value of 0
+// at any step falls through to the next, and a non-positive queryMax is
+// replaced by its default so a broken setting can never turn the cap into
+// "reject every request". A negative or non-numeric env var is an error.
+func resolveSearchCap(envName string, fileValue, queryMax int64) (int64, error) {
+	resolved := fileValue
+	if resolved <= 0 {
+		resolved = queryMax
+	}
+	if resolved <= 0 {
+		resolved = DefaultQueryMaximumResults
+	}
+	if v := os.Getenv(envName); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s as int: %w", envName, err)
+		}
+		if asInt < 0 {
+			return 0, fmt.Errorf("%s must not be negative", envName)
+		}
+		if asInt > 0 {
+			resolved = int64(asInt)
+		}
+	}
+	return resolved, nil
 }
