@@ -533,3 +533,60 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **v5.2,** inserts con búsquedas en paralelo, cerrado el 20: 634 inserts por segundo con 8 buscadores, 3.76 veces los 169 de un escritor en la misma sesión. No llega a las 4 veces de su criterio. HFresh, con un escritor y sus workers de fondo, hace 2 089.
 - **La sesión de la noche del 19,** con HFresh configurado como un nodo, hecha: en frío a 0.95 con 1 thread, 51.96 ms de HFresh frente a 3.54 del modo de ruteo y 4.76 del halo. Son los números de referencia frente a HFresh.
 - **El control combinado,** encargado el 20: el índice de aristas consolidadas con K = 64, reorganizado. Decide el formato de las aristas, que en el hito 1 de la integración va detrás de una interfaz.
+
+## 6. Hito 1 de la integración (2026-11-20): qué se hizo y qué cambió respecto de este plan
+
+*Rama `feat/posting-edge-integration`, salida de `feat/posting-edge-index` en `423b7214d1`. Lo que cuenta esta sección está en esa rama. Las secciones 1 a 5 describen el paquete de antes del hito: donde chocan con esta, manda esta.*
+
+**Qué hay.** Una clase puede crearse con `vectorIndexType: "postingedge"`. El shard abre el índice sobre su propio store, vacío, y el índice inserta, busca, borra con la marca guardada y vuelve como estaba tras un reinicio. Cubre los pasos 1 a 4 del orden de la sección 5 y, del paso 5, solo el presupuesto de la query.
+
+**Lo que cambió respecto del plan.** *Lo marcado como mío lo decidí al integrar y está sin confirmar.*
+
+- **El índice del shard es un tipo nuevo, `postingedge.Persistent`** (`persistent.go`, `postingedge.Open`). `Index` sigue siendo el índice en memoria construido en lote: lo usan los experimentos, y `Persistent` lo usa para su primer lote.
+- **Empezar vacío** (*mío*). Los primeros vectores se guardan aparte, en un bucket propio, y se buscan de forma exacta. Al llegar a 10 000 (el límite de entrenamiento de RQ centrado) se construye con ellos el primer lote, con el build en lote, y desde ahí todo entra por inserts. Es el camino que midió v5.0, con una base de 10 000 en vez del 10 % del corpus.
+  - **El insert que completa la base paga ese build entero,** dentro de la petición: no hay tareas de fondo.
+  - **Crecer cien veces desde una base de 10 000 no está medido.** v2.2 midió crecer diez veces desde el 10 %.
+  - **Una colección de menos de 10 000 vectores se queda en búsqueda exacta,** leyendo sus vectores del bucket en cada query.
+- **Los vectores exactos viven en un fichero propio,** por doc id, como en v5.0 (*mío*). Con la celda 1b el split necesita el vector de un miembro borrado, que el bucket de objetos ya no tiene.
+- **El insert son dos pasos** (del usuario, 20): `plan`, que solo lee, y `apply`, que escribe en orden. En el hito corren en serie, un insert cada vez.
+- **Concurrencia** (*mío*): un cerrojo de lectura y escritura. Las búsquedas y el paso de cálculo de un insert corren a la vez. El aplicador, un delete y la construcción de la base excluyen a las búsquedas mientras duran. Sin medir.
+- **Las aristas van detrás de una interfaz** (`growEdges`, en `grow_edges.go`). La implementación del índice es la de v5.0, un valor por lista. La consolidada de v5.1 y v5.3 se queda en test (`grow_rows_test.go`) y los arneses la siguen usando.
+- **La configuración pública es nueva y vive en `entities/vectorindex/postingedge`.** El `UserConfig` del paquete del índice no se movió: se queda como configuración interna, con los ajustes de los experimentos.
+- **`rq.cacheMode`:** `routing` funciona, `none` es un valor válido que responde «todavía no disponible», y cualquier otro, también `scan` y un booleano, es desconocido.
+- **`rq.rescoreLimit` automático:** la regla de la sección 4, con un tope en 1 600, lo que da a 384 bits (*mío*). Por debajo no hay medidas y la regla crece sin límite. El insert usa el mismo límite que las queries.
+- **`maxPostingSizeKB` explícito** hereda el suelo de 192 vectores de HFresh (*mío*). El plan lo dejaba por decidir.
+- **El código de ruteo son 512 bits** donde el código completo es más ancho, y el código completo donde no.
+- **El rescore salta un candidato cuyo vector no se encuentra,** como HNSW y HFresh. Cualquier otro fallo de lectura sigue fallando la búsqueda.
+- **Sin flag propio** (*mío*): el tipo se limita con `ALLOWED_VECTOR_INDEX_TYPES`, como HFresh. Sin esa variable, el tipo se puede usar.
+- **Los buckets están en el store del shard,** con el id del índice en el nombre: `postingedge_{postings,map,routing,edgedists,deleted,staging}_<id>`. El shard los vuelca y los compacta con los ciclos del nodo.
+- **Una escritura que falla a medias deja el índice parado** (*mío*): lo dice en cada llamada hasta que el shard se reinicia, en vez de servir algo que no sabe si es un índice.
+- **`PostingEdgeBaseSize`** es un ajuste interno de la base de datos, para tests: ninguna variable de entorno lo fija.
+
+**Qué fichero de test se vació y dónde quedó cada cosa.**
+
+| estaba en | qué | ahora está en |
+|---|---|---|
+| `grow_test.go` | El índice que crece en disco: `growIndex`, `growMeta`, `growStats`, `growPlan`, `writeGrowIndex`, `openGrowIndex`, `fetch`, `plan`, `apply`, `insert`, `insertBatch`, `planBatch`, `refresh`, `enterNeighbors`, `split`, `sync`, `close` | `grow.go`, el mismo fichero renombrado |
+| `grow_test.go` | La lectura y la escritura de las listas de v5.0, y `joinEdges` | `grow_edges.go`, en `growLists` |
+| `grow_test.go` | Las aristas consolidadas: `growEdgesBlock`, `getRow`, `putRow`, `dropRow`, `setPending`, `dropPending`, `writeRow`, y la rama consolidada de `joinLists` | `grow_rows_test.go`, en `growRows` |
+| `grow_test.go` | `cleanCentroidGraph`, `checkCoverage`, `sameAs`, `reorganizeGrowIndex`, `sizeOnDisk` | `grow_check_test.go` |
+| `disk_test.go` | Las constantes del formato, `diskKey`, `diskCodecs`, `writeArray`, `readArray`, `openCentroidGraph`, `writeCentroidGraph`, `diskPosting`, `diskRound`, `diskSearchStats`, `fetchedSearch` y su `run`, `scoreHalo` | `disk.go` |
+| `halo_test.go` | `haloState` | `disk.go` |
+| `stream_test.go` | La constante `unplaced` | `disk.go` |
+
+- **Se quedan en test:** el formato en lote de v4.0 (`writeDiskIndex`, `openDiskIndex`), el halo, el gemelo en memoria (`streamIndex`) y los deletes en memoria (`deleteIndex`).
+- **Los `bench_*_test.go` no se tocaron.** Los campos de `growIndex` que solo usa la variante consolidada siguen ahí, porque los arneses los leen.
+
+**Lo que no está, y da error o falta sin más:**
+
+- **Error explícito:** filtros, búsqueda por distancia, backup, multi-vector, distancias que no sean coseno.
+- **Limpieza de deletes.** Un borrado se marca y nada más: ocupa su sitio y cuesta trabajo en cada búsqueda. Es la celda 1b sola, que con el 30 % borrado carga un 19 % más a 0.95.
+- **Durabilidad ante una caída a mitad de un insert.** Lo comprobado es una caída entre dos peticiones: una copia de los ficheros tomada tras un `Flush` abre como el índice que era. A mitad de un insert no hay garantía, y el índice puede negarse a abrir.
+- **Mantenimiento del grafo de centroides.** Cada split deja un centroide borrado en el grafo y nada lo limpia, ni condensa su commit log.
+- **Tareas de fondo y workers compartidos.** El paso de cálculo del insert es el que irá a ellos.
+- **Reorganización,** refresco de aristas, el modo `none`.
+- **Métricas de Prometheus, la cuenta de uso, el endpoint de reset.**
+
+**Verificado, en la máquina de los experimentos:** los tests del paquete, con los de equivalencia entre disco y memoria tal como estaban; los del índice del shard con `-race`; el de punta a punta por un shard (`adapters/repos/db/postingedge_integration_test.go`); `go vet` con y sin `postingedgebench`; `golangci-lint` sobre el repo; el linter de goroutines.
+
+**Sin verificar:** nada a escala. Los tests usan unos miles de vectores sintéticos de 64 dimensiones, donde el recall sale 1.0: comprueban el cableado, no la calidad. Los arneses con el tag compilan, y no se ha corrido ninguno sobre el código movido. Tampoco hay ninguna medida de latencia ni de inserts por segundo a través del shard.
