@@ -587,6 +587,11 @@ func (r *Replier) buildPropertiesResult(resolver *schemaResolver, results map[st
 			nonRefProps.Fields[prop.Name] = value
 			continue
 		}
+		// A property a module needs is selected without Refs and stays out of
+		// the reply; its value can be an array that is not references.
+		if len(prop.Refs) == 0 {
+			continue
+		}
 		refs, ok := propRaw.([]interface{})
 		if !ok {
 			continue
