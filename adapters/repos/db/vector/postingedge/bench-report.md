@@ -272,6 +272,53 @@ Va detrás del mecanismo y sus tests, y antes de crecer nada a 1M. El índice de
 - **Cronometrado, reorganizado, en caliente:** de 1.21 a 1.29. Es la otra condición que dudo.
 - **Cumple lo escrito y el frío. De las otras dos no sé.**
 
+### Enmienda 1 (11:10 del 21, antes de ningún dato; del usuario): la puerta mide y no para, y se cronometra de día
+
+**Motivo.** A las 11:10, con el mecanismo escrito y sin ningún dato de v5.4, el usuario escribe: *«Tengo el Mac libre hasta el lunes por la mañana. Puedes cronometrar de día. Mantén la espera de 15 minutos sin actividad, el detector de deriva y la regla de no compilar durante una sesión cronometrada. No pares a preguntar: toma la lectura más razonable, anótala como decisión tuya y sigue. Para solo ante algo irreversible.»* Y pone v5.4, «como está encargado», lo primero de su lista.
+
+*Mío, para aplicarlo:*
+
+- **La puerta se mide igual y su regla se aplica igual, pero ya no detiene la corrida.** Si dice «para», lo dice el informe, con las opciones, y la corrida sigue: la validación, el crecimiento y la sesión cronometrada. Parar a esperar una respuesta es lo que el usuario pide que no haga. Lo que la puerta ahorraba eran horas de máquina, que este fin de semana sobran.
+  - **Las otras dos condiciones,** lo escrito y lo leído sin compactar, no dependen de la puerta y se quieren medidas en cualquier caso.
+  - **Lo que la puerta deja de decidir lo decide la sesión cronometrada,** con su cuarta curva: los mismos postings sobre el Set y sobre el Map, en la misma sesión.
+- **La validación y el crecimiento del índice de las curvas corren a la vez,** cada uno en su proceso, detrás de la puerta. No son tiempos.
+- **La sesión cronometrada corre de día,** cuando la máquina lleve 15 minutos sin teclado ni trackpad y no haya nada compilando ni corriendo de la otra sesión. La cola levanta el marcador antes de ponerse a esperar, para que la otra sesión no arranque nada.
+- **El índice de la validación se borra en cuanto pasa,** con sus tres estados ya contados: el disco libre es compartido con la otra sesión y hace falta para lo que viene detrás.
+- **Lo demás no cambia:** las cuatro condiciones, las curvas, las dos rondas y el detector de deriva.
+
+### Paso 1, cerrado: el mecanismo y su equivalencia a pequeña escala (11:10 del 21)
+
+Código en `ee4cd877e0`, después del pre-registro (`dcdda281ef`). **El bucket Map lo admite sin tocar `lsmkv`: la clave contigua y el reemplazo sin lápida funcionan, y el índice es idéntico a su gemelo. No hubo que parar.** La corrida a 1M va detrás.
+
+- **Qué es:** una opción del índice que crece con las filas de aristas junto a los miembros. Con ella el bucket de postings es un Map. Un miembro es un par, con su posición en el posting como clave. La fila de aristas es un par con una clave fija, y escribirla otra vez es escribir ese par.
+- **Si el store devuelve más de un par bajo la clave de la fila, o un par que no es el suyo, es stop.** Y si un miembro no está en su posición.
+- **Un posting retirado se quita par a par:** una lápida por miembro y una por la fila, de 6 y 5 bytes. De un posting retirado no se lee nada, antes y después de compactar, y la comprobación de cobertura lo exige.
+- **Una fila reescrita con el mismo contenido no escribe nada.**
+- **No hay lectura cruda de un Map:** la del Set (`SetRawList`) rechaza un segmento de Map. Lo comprobé al escribir un test, que ahora mira el tamaño en disco.
+- **La copia reorganizada puede ir sobre un Map** venga de donde venga: es lo que usa la puerta.
+
+**Los tests,** en `grow_equiv_test.go`:
+
+- **`TestGrowConsolidatedEqualsMemory`** corre sus siete casos con los tres sitios para las filas: en su bucket, junto a los miembros en un Set y junto a ellos en un Map. Idéntico al gemelo en cada insert, con cambios esperando, con todo escrito, reabierto y compactado, cruzando splits, volcados y la compactación por niveles.
+- **`TestGrowReorganized`** y **`TestGrowRowCount`** llevan el Map como cuarto caso, y la reorganización, la copia de un índice de Set escrita sobre un Map.
+- **`TestGrowMapRowsStop`:** una fila reescrita cinco veces, en el memtable, volcada, volcada otra vez y compactada, deja la última y no ocupa más; un par de más bajo la clave de la fila es stop, y un miembro fuera de su posición también; una fila de 65 535 bytes no cabe; y de los postings retirados no se lee nada.
+
+**Ocho fallos provocados a mano, y cazados los ocho:** la fila escrita con una clave que cambia, un posting retirado que conserva sus miembros, otro que conserva su fila, un miembro escrito una posición más allá, el Map con la función de saltar claves, la copia sobre un Map que se queda en un Set, los miembros de un split escritos desde la posición 1, y la fila idéntica escrita de todos modos. Este último no lo cazaba ningún test en la primera tanda: le faltaba su comprobación, y la añadí.
+
+Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el linter de goroutines pasan. Los tests del paquete entero pasan (203 s).
+
+**Un fallo de `lsmkv`, encontrado al leer y arreglado aparte (`87866f1cf8`).**
+
+- **Qué es:** al leer un Map de un segmento, `MapList` tomaba por lápida cualquier par cuyo valor codificado mide 12 bytes, y lo quitaba del resultado. Es un parche de 2024 para lápidas escritas sin su marca (issue 4125), que miden eso: una clave de 8 bytes y ningún valor.
+- **Qué causaba:** un par con una clave de 1 a 7 bytes y un valor que completa 8 entre los dos desaparecía de la lectura en cuanto su memtable se volcaba. Los datos siguen en el segmento; la lectura no los devuelve. Reproducido con cuatro formas de par.
+- **El arreglo:** solo un par sin valor puede ser una de esas lápidas. Un par de 12 bytes con valor se devuelve.
+- **Lo que queda, con un test que falla a propósito:** un par con una clave de 8 bytes y un valor vacío, escrito con `MapSet`, se sigue leyendo como lápida. Tiene los mismos bytes que una lápida sin marca, y nada en el segmento los distingue. Arreglarlo pide decidir qué buckets pueden tener esas lápidas viejas. El test es `TestMapPairWithKeyOfEightBytesAndNoValue_BucketJourney`, en `adapters/repos/db/lsmkv`, y está rojo.
+- **Este formato no pasa por ahí,** con el arreglo y sin él: ningún par suyo mide 12 bytes. Los tests unitarios de `lsmkv` pasan todos menos ese, y los de integración de Map también.
+
+**Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** la validación pasa en cada checkpoint, el índice reorganizado devuelve lo mismo que el índice tal cual, y el script saca sus tablas. Script en `testdata/bench/v5.4/scripts/run_v54.sh`, tablas en `map_verdict.py`.
+
+- **En esa prueba la puerta dijo «para»:** traer la fila de miembros a través del Map costó unos 30 µs por carga, donde por el Set son 20, con la corrida de la otra sesión en la máquina. No es un dato; es un aviso de por dónde puede salir la puerta de verdad.
+
 ## v6.2b: churn largo y borrado por regiones (2026-11-20)
 
 **Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo. Cerrado el 20 a las 18:33: B se sostiene (abajo, «Paso 2» y «Veredicto de v6.2b»).** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
