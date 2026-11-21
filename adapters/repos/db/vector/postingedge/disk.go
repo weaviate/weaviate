@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // What the indexes that read their postings from disk have in common: the
@@ -173,6 +172,10 @@ type centroidCycles struct {
 	// logThreshold, when positive, is the size past which a file of the
 	// commit log is closed and a new one started.
 	logThreshold int64
+	// everyCycle has the graph take its deleted centroids out in every cycle
+	// of the tombstones, and not once in the interval an HNSW graph leaves
+	// between two cleanups, which is minutes: for the tests.
+	everyCycle bool
 }
 
 // openCentroidGraphWith is openCentroidGraph with the cycles that keep the
@@ -187,11 +190,11 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		cycles.commitLogs = cyclemanager.NewCallbackGroupNoop()
 	}
 	index := &centroidIndex{vectors: vectors}
-	vectorForID := func(_ context.Context, id uint64) ([]float32, error) {
-		if id >= uint64(len(index.vectors)) {
-			return nil, storobj.NewErrNotFoundf(id, "centroid out of range")
-		}
-		return index.vectors[id], nil
+	index.publish()
+	vectorForID := index.publishedVector
+	uc := centroidUserConfig(centroidEF)
+	if cycles.everyCycle {
+		uc.CleanupIntervalSeconds = 0
 	}
 	graph, err := hnsw.New(hnsw.Config{
 		RootPath: dir,
@@ -218,7 +221,7 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		},
 		GetViewThunk: func() common.BucketView { return noopBucketView{} },
 		HFreshMode:   true,
-	}, centroidUserConfig(centroidEF), cycles.tombstones, nil)
+	}, uc, cycles.tombstones, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "open the centroid graph")
 	}

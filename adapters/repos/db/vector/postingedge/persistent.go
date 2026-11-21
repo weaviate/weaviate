@@ -206,6 +206,10 @@ type PersistentConfig struct {
 	// passes that are on.
 	noMaintenance bool
 	noBackground  bool
+	// centroidsEveryCycle has the graph over the centroids cleaned in every
+	// cycle of TombstoneCallbacks, and not once every few minutes: for the
+	// tests, which run the cycles themselves.
+	centroidsEveryCycle bool
 }
 
 func (c *PersistentConfig) validate() error {
@@ -322,7 +326,7 @@ func (p *Persistent) growOpen() growOpen {
 		keepPending: true,
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
-			logThreshold: p.cfg.CommitLogThreshold,
+			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
 		},
 	}
 }

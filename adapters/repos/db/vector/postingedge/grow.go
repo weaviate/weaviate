@@ -2394,6 +2394,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	g.stats.SplitCentroid.add(2, len(rawMeans))
 	centroids := st.centroids
 	centroids.vectors = append(centroids.vectors, means[0], means[1])
+	centroids.publish()
 	for c := range 2 {
 		if err := centroids.graph.Add(ctx, uint64(first)+uint64(c), means[c]); err != nil {
 			return errors.Wrap(err, "add a centroid")

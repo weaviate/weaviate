@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 
@@ -34,8 +35,36 @@ func (noopBucketView) ReleaseView() {}
 // vectors were assigned to their centroids in. Graph node ids are posting
 // ids.
 type centroidIndex struct {
+	// vectors are the centroids, by posting, for whoever holds the lock of
+	// the index they belong to.
 	vectors [][]float32
-	graph   *hnsw.HNSW
+	// published is vectors as the graph of an index on disk reads them
+	// (publish), which it does from goroutines that hold no lock of the index.
+	published atomic.Pointer[[][]float32]
+	graph     *hnsw.HNSW
+}
+
+// publish hands the centroids, as they are now, to the graph of an index on
+// disk. That graph reads a centroid from the goroutines of the index, which
+// hold its lock, and from others that hold none: the one that fills its cache
+// once it is opened, and the cycle of the node that takes its deleted
+// centroids out. A posting that splits appends its two centroids to vectors
+// with the index locked, which keeps none of those out: they would read the
+// slice while it is replaced. So they read the one that was published last,
+// which nobody writes to. Whoever appends to vectors publishes them before
+// the graph hears of the new ones.
+func (c *centroidIndex) publish() {
+	vectors := c.vectors
+	c.published.Store(&vectors)
+}
+
+// publishedVector is how the graph of an index on disk reads a centroid.
+func (c *centroidIndex) publishedVector(_ context.Context, id uint64) ([]float32, error) {
+	vectors := *c.published.Load()
+	if id >= uint64(len(vectors)) {
+		return nil, storobj.NewErrNotFoundf(id, "centroid out of range")
+	}
+	return vectors[id], nil
 }
 
 // newCentroidIndex builds the graph over the centroids. dir is where the hnsw
