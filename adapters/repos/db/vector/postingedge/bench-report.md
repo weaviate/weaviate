@@ -180,6 +180,56 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
+
+**Estado: pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4.** Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
+
+### El encargo (del usuario)
+
+- **`ef` dinámico:** recall y cargas con k = 1 y k = 100 en 1M dbpedia, sobre la malla de ef. Proponer la regla.
+- **Regla del rescore a 768d:** 1M de wiki-dpr, rescore 64, 100, 150 y 200 sobre la malla de ef. Proponer el valor automático en función de los bits del código.
+
+### De dónde salen
+
+Son los dos pendientes de `integration-plan.md`, sección 4. Todo lo medido es con k = 10. El default de `ef` es 20, fijo, y la búsqueda sube a k un `ef` menor que k: con k = 100 corre con la parada más temprana posible. Y la regla propuesta para `rq.rescoreLimit` automático, el mayor entre 64 y 200 × (768 / bits)³, tiene su ancla de 200 en un hueco sin medir: a 768 bits solo hay 64 y 200.
+
+### Cómo lo aplico (*mío*)
+
+**El `ef` dinámico, en dbpedia 1M:**
+
+- **El índice:** el lote de las celdas de v4.0: 990 000 vectores de 1536d, S = 236, P = 256, rescate 64, coseno. El build es determinista, así que cada corrida mide el mismo índice.
+- **Dos celdas por corrida,** las de `TestHalo`: la de referencia, con el código completo en RAM, y la de ruteo con códigos de 512 bits, que es la búsqueda de nuestras dos celdas de disco.
+- **k = 1, k = 10 y k = 100,** cada uno en su proceso, con 5 000 queries. k = 10 va para tener los tres sobre la misma malla y contra las mismas queries; tiene que repetir los puntos de v4.0 (ef 21 a 0.95 con 18.6 cargas, ef 187 a 0.99 con 76.3).
+- **La malla:** la de siempre, de 10 a 1 024, más lo que cada k necesita en sus extremos.
+  - k = 1: 1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768 y 1 024.
+  - k = 10: de 10 en adelante, la misma.
+  - k = 100: 100, 128, 160, 192, 256, 384, 512, 768, 1 024, 1 536 y 2 048. Por debajo de k la búsqueda corre con k.
+- **El rescore** es el default, 64. La búsqueda usa el mayor entre ese y k: con k = 100 son 100, sin margen para reordenar.
+  - **Además, para k = 100** (*mío*): la malla otra vez con rescore 200 y con 400. Es el otro pendiente del plan que sale de esta misma medida: cuánto margen sobre k necesita el rescore.
+- **Qué se reporta:** recall a k y cargas por query, media y p95, en cada ef; y, por k y por celda, el ef en que el recall cruza 0.95 y 0.99, interpolado entre dos puntos de la malla en el logaritmo de ef, con sus cargas.
+- **La regla que propongo sale de esos cruces:** el ef que da 0.95 en cada k, y si se deja escribir como un mínimo y un factor por k, que es la forma de HNSW. Si no se deja, lo digo y propongo la que salga.
+
+**La regla del rescore, en wiki-dpr 1M:**
+
+- **El índice:** el lote de v1.4: 1 000 000 de vectores de 768d, S = 236, P = 256, rescate 64, coseno, con el código completo, que aquí son 768 bits. 1 000 queries, k = 10.
+- **Dos celdas por corrida:** la de referencia, con el código completo en RAM, y la de ruteo con códigos de 512 bits. El scan lee 768 bits en las dos; cambia con qué se ordenan los extremos de las aristas.
+- **Rescore 64, 100, 150 y 200,** sobre la malla de 10 a 1 024 más 1 536 y 2 048. El arnés barre el default y un segundo valor por corrida: son tres corridas, y el de 64 sale tres veces, que tienen que coincidir.
+- **Qué se reporta:** recall y cargas en cada ef y cada rescore; el techo de cada rescore, que es su recall a ef 2 048; y el ef en que cada uno cruza 0.99, si lo cruza.
+- **La regla que propongo sale de ahí:** el menor rescore de los cuatro que cruza 0.99 con un ef que no pase de 320 es el ancla a 768 bits, en lugar del 200 de hoy. La forma, el mayor entre un suelo y ancla × (768 / bits)³, no se vuelve a medir: sale de v1.2 y v1.4.
+  - **Por qué 320:** es donde cruza hoy la celda de 512 bits a 1536d con rescore 64 (ef 187) más una octava de margen. Un techo que solo se alcanza con ef 1 024 no sirve de default.
+
+**Lo que no miden:** nada en disco ni con tiempos; otro dataset que estos dos; k entre 10 y 100; el rescore por debajo de 64 a 1536d, que era la otra propuesta mía y no está en el encargo; ni la interacción entre `ef` dinámico y `rescoreLimit` automático más allá de k = 100.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **k = 10 repite v4.0:** 0.95 en ef 20 o 21, y 0.99 entre ef 180 y 195, en la celda de 512 bits.
+- **k = 1:** 0.95 entre ef 6 y 12, con 8 a 13 cargas. Acertar el primero es más fácil que acertar diez, pero la búsqueda tiene que llegar igual a su posting.
+- **k = 100, con el default:** en ef 100, la parada más temprana, el recall queda entre 0.90 y 0.94. No llega a 0.95 con ningún ef, o lo hace muy tarde: con el rescore en 100 no hay margen para reordenar.
+- **k = 100, con rescore 200 y 400:** 0.95 entre ef 120 y 200, y 0.99 con 400, no con 200.
+- **La regla:** un factor entre 1.5 y 2.5 veces k con un mínimo de 20 no describe k = 1, donde bastará el mínimo. Creo que saldrá un mínimo de 20 y un factor de 2.
+- **wiki-dpr, techos:** 0.982 con 64, como en v1.4; de 0.989 a 0.992 con 100; de 0.993 a 0.995 con 150; y 0.996 con 200.
+- **El ancla:** 150. Con 100 el techo queda en el borde de 0.99 y no lo cruza antes de ef 320.
+
 ## v5.4: la disposición de v5.3 sobre un bucket Map (2026-11-21)
 
 **Estado: pre-registrado el 21 a las 10:45, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, la corrección, lo que se mide, la sesión, la lectura y la condición de parada son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
