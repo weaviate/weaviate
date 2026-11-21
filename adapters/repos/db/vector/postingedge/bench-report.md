@@ -253,7 +253,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Ya no hay fichero de entrenamiento que borrar,** y el orden deja de importar para el disco. HFresh va primero igualmente.
 - **Lo demás no cambia.**
 
-### Enmienda 2 (15:40 del 21, antes de construir nada a 10M): lo que enseñó el ensayo a 1M
+### Enmienda 2 (15:35 del 21, antes de construir nada a 10M): lo que enseñó el ensayo a 1M
 
 **Motivo.** El ensayo de la corrida entera sobre 1M de wiki-dpr, que no es un dato salvo sus dos celdas, acabó a las 14:15. Enseñó tres cosas que cambian cómo se corre el 10M, y la medida de la regla del rescore dejó una cuarta.
 
@@ -269,7 +269,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
-**Estado: pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4.** Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
+**Estado: medido el 21, de 11:37 a 13:55. `ef` dinámico: no hace falta un factor por k; basta el mínimo de 20 y que `ef` no baje de k, y lo que k = 100 necesita es rescore, 4 veces k. Regla del rescore: el ancla a 768 bits baja de 200 a 150. Abajo, «Resultados» y «Las dos reglas que propongo».** Pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4. Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
 
 ### El encargo (del usuario)
 
@@ -316,6 +316,77 @@ Son los dos pendientes de `integration-plan.md`, sección 4. Todo lo medido es c
 - **La regla:** un factor entre 1.5 y 2.5 veces k con un mínimo de 20 no describe k = 1, donde bastará el mínimo. Creo que saldrá un mínimo de 20 y un factor de 2.
 - **wiki-dpr, techos:** 0.982 con 64, como en v1.4; de 0.989 a 0.992 con 100; de 0.993 a 0.995 con 150; y 0.996 con 200.
 - **El ancla:** 150. Con 100 el techo queda en el borde de 0.99 y no lo cruza antes de ef 320.
+
+### Resultados (2026-11-21, de 11:37 a 13:55)
+
+**Hechas, las siete corridas, sin cronometrar y con la máquina ocupada: son conteos.** Binario de `ee4cd877e0`. Datos en `testdata/bench/params/`; las mallas enteras, en `params-tables.md`. Lo que sigue es la celda de ruteo con códigos de 512 bits, que es la búsqueda de nuestras celdas de disco; la de referencia va en las tablas.
+
+**El `ef` dinámico, en dbpedia 1M.** Dónde cruza cada k, interpolado en la malla:
+
+| k | rescore | 0.95: ef | cargas | 0.99: ef | cargas | techo de la malla |
+|---|---|---|---|---|---|---|
+| 1 | 64 | 18 | 16.8 | 283 | 102.8 | 0.9974 |
+| 10 | 64 | 20 | 18.0 | 188 | 76.9 | 0.9973 |
+| 100 | 100, que es k | no llega | | no llega | | 0.8150 |
+| 100 | 200 | 144 | 63.9 | no llega | | 0.9734 |
+| 100 | 400 | 100, que es k | 49.9 | 444 | 141.0 | 0.9969 |
+
+- **k = 10 repite v4.0:** 0.95 en ef 20 con 18.0 cargas y 0.99 en ef 188 con 76.9, donde la celda de disco tiene ef 21 con 18.6 y ef 187 con 76.3.
+- **Acertar uno no es más fácil que acertar diez.** Con k = 1 el 0.95 pide ef 18, casi el mismo que con k = 10, y el 0.99 pide más: ef 283. Con un `ef` de 10 se queda en 0.934.
+- **Con k = 100 lo que falta no es `ef`, es rescore.** La búsqueda ya corre con `ef` = k. Con el rescore en k no hay margen para reordenar, y el recall se queda en 0.80 a 0.815 por mucho que suba `ef`.
+  - **Con 2 veces k** llega a 0.95 en ef 144, y su techo es 0.973: el 0.99 queda fuera.
+  - **Con 4 veces k** ya da 0.954 en ef 100, y llega a 0.99 en ef 444.
+- **Con el default de hoy, `ef` 20 fijo,** el recall es 0.954 con k = 1 y 0.950 con k = 10. Con k = 100 son 0.80, 0.938 o 0.954 según el rescore sea k, 2 k o 4 k.
+
+**La regla del rescore, en wiki-dpr 1M a 768d:**
+
+| rescore | 0.95: ef | cargas | 0.99: ef | cargas | techo, a ef 2 048 |
+|---|---|---|---|---|---|
+| 64 | 35 | 22.5 | no llega | | 0.9815 |
+| 100 | 29 | 19.6 | 704 | 195.0 | 0.9913 |
+| 150 | 28 | 19.3 | 198 | 74.9 | 0.9958 |
+| 200 | 27 | 18.7 | 159 | 64.4 | 0.9973 |
+
+- **Con 100 el 0.99 se alcanza, y tarde:** en ef 704, con 195 cargas.
+- **Con 150 se alcanza en ef 198,** dentro del límite de 320 que fijé. Con 200, en ef 159.
+- **150 frente a 200:** a 0.95 carga lo mismo, 19.3 frente a 18.7, y lee 50 vectores menos: unas 189 lecturas por query frente a 237, un 20 % menos. A 0.99 carga un 16 % más y lee 50 vectores menos: unas 300 lecturas frente a 329.
+- **La celda de referencia, con el código completo en RAM, da los mismos cruces:** ef 192 con 150 y ef 158 con 200.
+
+**Dos corridas no dan el mismo índice, y lo había escrito al revés.** El pre-registro decía que el build es determinista. En dbpedia las dos corridas de k = 100 coinciden: 0.0000 de recall y un 0.05 % de cargas. En wiki-dpr los tres barridos con rescore 64 se separan hasta 0.0035 de recall y un 0.8 % de cargas.
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| k = 10 repite v4.0 | ef 20 o 21, y de 180 a 195 | ef 20 y 188 | sí |
+| k = 1, a 0.95 | entre ef 6 y 12, con 8 a 13 cargas | ef 18, con 16.8 | fuera: no es más fácil |
+| k = 100 con el default, en ef 100 | de 0.90 a 0.94 | 0.80 | fuera, por abajo |
+| k = 100 con el default no llega a 0.95 | | no llega: techo 0.815 | sí |
+| k = 100, a 0.95, con 200 y 400 | entre ef 120 y 200 | ef 144 con 200; ef 100 con 400 | sí con 200; con 400 basta k |
+| k = 100, a 0.99 | con 400, no con 200 | con 400, en ef 444; con 200 no | sí |
+| la regla del `ef` | mínimo de 20 y factor de 2 | mínimo de 20, sin factor | fuera: el factor no hace falta |
+| wiki-dpr, techos | 0.982, de 0.989 a 0.992, de 0.993 a 0.995 y 0.996 | 0.9815, 0.9913, 0.9958 y 0.9973 | sí los dos primeros; los otros dos, algo por encima |
+| el ancla | 150 | 150 | sí |
+
+### Las dos reglas que propongo (*mías*, con estos datos)
+
+**`ef`: el default sigue en 20, y no hace falta un factor por k.**
+
+- **`ef` efectivo = el mayor entre `ef` y k,** que es lo que la búsqueda ya hace. Con los nombres de HNSW: `dynamicEfMin` 20 y `dynamicEfFactor` 1.
+- **Por qué no un factor de 2:** con k = 100 y el rescore que necesita, `ef` = k ya da 0.954. Subirlo a 2 k lleva el recall a 0.976 y las cargas de 50 a 78, un 56 % más, sin que nadie lo haya pedido.
+- **Lo que no dice:** k entre 10 y 100, donde no hay medida; ni k por encima de 100.
+
+**`rq.rescoreLimit` automático = el mayor entre 64, 150 × (768 / bits)³ y 4 × k,** con los bits del código con el que se hace el scan.
+
+| bits del scan | 384 | 512 | 768 | 1 024 | 1 536 |
+|---|---|---|---|---|---|
+| automático, con k = 10 | 1 200 | 506 | 150 | 64 | 64 |
+| con el ancla de antes, 200 | 1 600 | 675 | 200 | 85 | 64 |
+
+- **El ancla baja de 200 a 150** por la regla que pre-registré: es el menor rescore que cruza 0.99 antes de ef 320.
+- **El término de 4 × k es nuevo,** y sale de un solo punto: k = 100 a 1 536 bits. Con 2 × k el 0.99 queda fuera; con 4 × k entra. No sé si bastan 3.
+- **Por debajo de 768 bits la regla queda más justa que antes.** Con 512 bits da 506, y lo medido ahí en v1.2 y v1.4 es que 400 llega a 0.99 solo con ef 640 o más, y 800 con ef 320. Es una extrapolación de la forma cúbica desde un ancla menor, sin dato nuevo por debajo de 768 bits. Si se quiere el mismo margen que antes ahí abajo, el ancla tendría que seguir en 200.
+- **Lo que queda sin medir:** un dataset nativo de menos de 768d; 1 024 bits; el rescore por debajo de 64 a 1 536 bits; y si el 10M pide más rescore que el 1M para el mismo techo, que es lo que la corrida de esta noche prueba con 150.
 
 ## v5.4: la disposición de v5.3 sobre un bucket Map (2026-11-21)
 

@@ -395,6 +395,20 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **No fijar los valores sin medir.** El punto de partida sería un mínimo de 20 y un factor de 2, que con k = 10 es el default de hoy. Antes de darlo por bueno: un barrido de k (1, 10 y 100) que diga qué ef da 0.95 en cada uno.
 - **Mientras tanto, el default sigue siendo `ef: 20`.**
 
+**Medido el 21 (`bench-report.md`, «Parámetros»): no hace falta un factor por k.** En dbpedia 1M, con la búsqueda de las celdas de disco:
+
+| k | rescore | 0.95: ef | cargas | 0.99: ef | cargas |
+|---|---|---|---|---|---|
+| 1 | 64 | 18 | 16.8 | 283 | 102.8 |
+| 10 | 64 | 20 | 18.0 | 188 | 76.9 |
+| 100 | 100, que es k | no llega: techo 0.815 | | no llega | |
+| 100 | 200 | 144 | 63.9 | no llega: techo 0.973 | |
+| 100 | 400 | 100, que es k | 49.9 | 444 | 141.0 |
+
+- **Propuesta mía, con el dato:** `ef` 20 por defecto, y `ef` efectivo = el mayor entre `ef` y k, que es lo que la búsqueda ya hace. En los nombres de HNSW, `dynamicEfMin` 20 y `dynamicEfFactor` 1.
+- **Lo que k = 100 necesita es rescore, no `ef`:** con el rescore en k el recall no pasa de 0.815. Va en la regla de `rq.rescoreLimit`, abajo.
+- **Sin medir:** k entre 10 y 100, y por encima de 100.
+
 ### El valor automático de `rq.rescoreLimit`
 
 **Acordado:** vive en `rq.rescoreLimit`. En el modo `routing` no se acopla a `ef`. Y el automático no puede ser un 64 fijo.
@@ -430,13 +444,28 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **En `routing` y en `none`,** los bits del scan son los de la dimensión, redondeados a 64.
 - **Un valor explícito se respeta tal cual,** con k como único suelo.
 
+**Medido el 21 (`bench-report.md`, «Parámetros»): el ancla a 768 bits baja a 150, y hace falta un término por k.** En wiki-dpr 1M a 768d, con la búsqueda de las celdas de disco:
+
+| rescore | 0.95: ef | cargas | 0.99: ef | cargas | techo |
+|---|---|---|---|---|---|
+| 64 | 35 | 22.5 | no llega | | 0.9815 |
+| 100 | 29 | 19.6 | 704 | 195.0 | 0.9913 |
+| 150 | 28 | 19.3 | 198 | 74.9 | 0.9958 |
+| 200 | 27 | 18.7 | 159 | 64.4 | 0.9973 |
+
+- **Propuesta mía, con el dato: el automático es el mayor entre 64, 150 × (768 / bits)³ y 4 × k.** Con k = 10: 1 200 con 384 bits, 506 con 512, 150 con 768 y 64 de 1 024 en adelante.
+- **150 es el menor rescore que cruza 0.99 antes de ef 320.** Frente a 200 lee un 20 % menos por query a 0.95 y un 9 % menos a 0.99.
+- **El término de 4 × k sale de un punto,** k = 100 a 1 536 bits: con 2 × k el 0.99 queda fuera y con 4 × k entra.
+- **Por debajo de 768 bits queda más justa que con el ancla de 200:** con 512 bits da 506, donde lo medido es que 400 llega a 0.99 solo con ef 640 o más. Sin dato nuevo ahí abajo.
+- **El 10M de esta noche corre nuestras celdas con 150,** con 200 y 400 de reserva si no llegara a 0.99: dirá si el ancla depende del tamaño del corpus.
+
 **Qué puntos faltan para fijarla:**
 
-1. **Dónde cruza 0.99 con 768 bits, entre 64 y 200.** Es el ancla de la regla y cae en un hueco sin medir. La interpolación dice que entre 100 y 140. Si 150 deja margen, son 50 lecturas menos por query a 768d.
+1. ~~Dónde cruza 0.99 con 768 bits, entre 64 y 200.~~ *Medido el 21:* con 100 llega tarde, en ef 704; con 150, en ef 198.
 2. **Por debajo de 64 con 1 536 bits.** El suelo de 64 está ahí porque no hay nada medido por debajo, y la ley dice que bastarían unos 25. A 0.95 el rescore son 64 de las 101 lecturas de una query: es donde más habría que ahorrar.
 3. **Una anchura entre 768 y 1 536,** por ejemplo 1 024 bits. La regla da 85 sin ningún dato cerca.
 4. **Un dataset nativo de menos de 768d.** Los puntos de 512, 384 y 256 bits son códigos capados de vectores de 768d y de 1536d.
-5. **Otros k.** Todo es con k = 10, y no sé si el valor escala con k. Sale de la medida pendiente de k = 1 y k = 100.
+5. ~~Otros k.~~ *Medido el 21 con k = 1 y k = 100 a 1 536 bits:* hace falta 4 × k. Entre 2 × k y 4 × k, y a 768 bits, sin medir.
 6. **Un segundo dataset a 1536d.** El 64 sale solo de dbpedia.
 
 **Pendiente antes de integrar,** junto a k = 1 y k = 100:
