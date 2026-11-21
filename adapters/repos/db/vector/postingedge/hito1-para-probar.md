@@ -115,7 +115,7 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 - **Las aristas de los vectores más viejos se rehacen cada vez que el índice dobla su tamaño.** Mientras dura una de esas pasadas, cada insert rehace además las aristas de un vector viejo: cuesta más o menos como otro insert.
   - *Verificado solo por tests.*
 - **Varios inserts a la vez:** si llegan por varias goroutines (un import con varios workers), sus búsquedas corren en paralelo y solo sus escrituras van de una en una.
-  - *Verificado solo por tests, y no por el shard.* **Con `ASYNC_INDEXING` sigue sin probar.**
+  - *Verificado solo por tests.* **Con `ASYNC_INDEXING` ya hay un test por el shard:** importar, buscar, borrar, actualizar y reiniciar con unos miles de vectores. A escala no está probado.
 - **El fichero de vectores se reescribe entero cada vez que el índice dobla,** para dejar juntos los vectores de cada posting. Mientras dura pide el doble de disco de los vectores: 12 GB por millón a 1536 dimensiones.
 - **Abrir tarda más:** 2.6 s a 1M con la máquina ocupada, frente a 0.3 s.
 

@@ -888,6 +888,10 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Tests.** Ocho llamadores con deletes y búsquedas a la vez, con `-race`: el índice comprueba lista a lista que nada de lo que una escritura toma de su búsqueda está viejo (10 921 listas comprobadas, 3 565 releídas y 33 postings elegidos otra vez en una pasada del test), y al final el índice está entero, con cada vector el que se le dio, y devuelve lo mismo reabierto (`TestPersistentAddsFromSeveralCallers`). El mismo doc id desde cuatro llamadores. Y por debajo, que un plan cuya lista cambió después de su búsqueda escribe sobre la lista nueva (`TestGrowPlansWriteAfterOtherWrites`, que falla si se quita la comprobación).
 
+**Por el shard, con indexación asíncrona** (`TestPostingEdge_ThroughAShardWithAsyncIndexing`, con `-race`): con `ASYNC_INDEXING` los vectores y los deletes llegan al índice desde los workers compartidos del nodo, varios a la vez, cada uno con una parte de la cola del shard. Una clase así pasa los mismos pasos que una sin ella: importar, buscar, borrar, actualizar, reiniciar y seguir. Son 3 200 objetos de 64 dimensiones, no una prueba de escala.
+
+- **Lo que destapó:** `Settle` volvía sin esperar a una base que se estaba construyendo, un fallo de la pieza 5 de unas horas antes. Arreglado, con su test (`TestPersistentSettleWaitsForItsBase`).
+
 ### Pieza 6: el grafo de centroides
 
 **Qué hay.** El grafo de centroides es un HNSW, y lo mantienen los ciclos del nodo que mantienen cualquier HNSW. El shard le pasa los dos, con el límite de log del grafo de centroides de HFresh:
