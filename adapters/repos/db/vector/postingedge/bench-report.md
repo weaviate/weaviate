@@ -437,6 +437,12 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 - **El arreglo:** solo un par sin valor puede ser una de esas lápidas. Un par de 12 bytes con valor se devuelve.
 - **Lo que queda, con un test que falla a propósito:** un par con una clave de 8 bytes y un valor vacío, escrito con `MapSet`, se sigue leyendo como lápida. Tiene los mismos bytes que una lápida sin marca, y nada en el segmento los distingue. Arreglarlo pide decidir qué buckets pueden tener esas lápidas viejas. El test es `TestMapPairWithKeyOfEightBytesAndNoValue_BucketJourney`, en `adapters/repos/db/lsmkv`, y está rojo.
 - **Este formato no pasa por ahí,** con el arreglo y sin él: ningún par suyo mide 12 bytes. Los tests unitarios de `lsmkv` pasan todos menos ese, y los de integración de Map también.
+- **Después, por encargo del usuario (21, 12:15):**
+  - **PR en borrador a `main`:** [weaviate/weaviate#13983](https://github.com/weaviate/weaviate/pull/13983), con el arreglo del par con valor y su test. El caso de la clave de 8 bytes y el valor vacío va descrito allí como decisión abierta para el equipo de almacenamiento, sin arreglar.
+  - **Alcance en producto, leído en `main`:** ningún bucket escribe hoy un par de 12 bytes con valor, así que el arreglo no cambia nada visible. Los buckets searchable con estrategia Map escriben pares de 20 bytes. El bucket `dimensions` en su estrategia Map, la de antes de v1.34, escribe justo el caso abierto: clave de 8 bytes y valor vacío.
+  - **Efecto visible por el shard: no lo he conseguido reproducir.** Todos los lectores de `dimensions` van por cursor, que no aplica la regla; uno de ellos se movió de `MapList` a cursor en #12918, y su comentario dice por qué.
+  - **En esta rama ya no hay test rojo:** el caso queda fijado como conocido, con enlace al PR, en `TestMapPairWithKeyOfEightBytesAndNoValue_ReadsAsTombstoneFromSegment`.
+  - **Nuestro formato no escribe nunca un par sin valor:** el índice lo rechaza al escribir (`errEmptyMapValue`), con su test, y no depende de cómo se resuelva.
 
 **Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** la validación pasa en cada checkpoint, el índice reorganizado devuelve lo mismo que el índice tal cual, y el script saca sus tablas. Script en `testdata/bench/v5.4/scripts/run_v54.sh`, tablas en `map_verdict.py`.
 

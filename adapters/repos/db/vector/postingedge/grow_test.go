@@ -526,6 +526,15 @@ func growMemberPairKey(at int) ([]byte, error) {
 	return key, nil
 }
 
+// errEmptyMapValue stops a pair without a value from being written to a
+// bucket of postings that is a Map. The store has two readings of a pair with
+// a key and no value, a pair and a tombstone that lost its flag, and which one
+// it gives depends on the size of the key and on what reads it
+// (https://github.com/weaviate/weaviate/pull/13983). No pair of this format
+// is empty, a member has its doc id and a row its count of members, so the
+// index never depends on how that is settled: this keeps it so.
+var errEmptyMapValue = errors.New("a pair without a value in a bucket of postings that is a Map")
+
 // growBlock is a row of edges decoded: the members it has a list of, in its
 // order, and where the list of each starts.
 type growBlock struct {
@@ -859,6 +868,9 @@ func (g *growIndex) putRow(p uint32, old, block []byte) error {
 		if old != nil && bytes.Equal(old, block) {
 			return nil
 		}
+		if len(block) == 0 {
+			return errors.Wrapf(errEmptyMapValue, "the row of edges of posting %d", p)
+		}
 		if len(block) >= math.MaxUint16 {
 			return errors.Errorf("a row of edges of %d bytes for posting %d: the value of a pair of a Map takes less than %d",
 				len(block), p, math.MaxUint16)
@@ -921,6 +933,9 @@ func (g *growIndex) addMembers(p uint32, from int, members [][]byte) error {
 	}
 	pairs := make([]lsmkv.MapPair, len(members))
 	for i, member := range members {
+		if len(member) == 0 {
+			return errors.Wrapf(errEmptyMapValue, "member %d of posting %d", from+i, p)
+		}
 		key, err := growMemberPairKey(from + i)
 		if err != nil {
 			return err

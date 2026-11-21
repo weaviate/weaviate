@@ -1199,6 +1199,16 @@ func TestGrowMapRowsStop(t *testing.T) {
 	require.NoError(t, g.fetchMembers(p, &dp))
 	f.same(t, "with the members of a posting as they were")
 
+	// No pair of the format is written without a value, whatever the store
+	// would make of one: an empty row and an empty member stop.
+	require.ErrorIs(t, g.putRow(p, old, []byte{}), errEmptyMapValue)
+	require.ErrorIs(t, g.putRow(p, nil, nil), errEmptyMapValue)
+	require.ErrorIs(t, g.addMembers(p, n, [][]byte{first, {}}), errEmptyMapValue)
+	require.NoError(t, g.fetchMembers(p, &dp), "nothing was written by the write that stopped")
+	got, err = g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, old, got)
+
 	// A row that does not fit the value of a pair, and a member past the keys.
 	require.ErrorContains(t, g.putRow(p, old, make([]byte, math.MaxUint16)), "takes less than 65535")
 	_, err = growMemberPairKey(math.MaxUint16 + 1)

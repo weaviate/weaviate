@@ -323,12 +323,47 @@ func TestMapPairOfTwelveEncodedBytesWithValue_BucketJourney(t *testing.T) {
 	}
 }
 
-// KNOWN FAILURE, pinned on purpose: a pair with a key of 8 bytes and an empty
-// value, written with MapSet, is read from a segment as a tombstone and
-// disappears from MapList. It has the bytes of a tombstone that lost its flag
-// (issue 4125), which MapList still has to read as one, and nothing in the
-// segment tells the two apart. A fix needs a decision: which buckets may hold
-// such tombstones. Until then this test stays red.
-func TestMapPairWithKeyOfEightBytesAndNoValue_BucketJourney(t *testing.T) {
-	twelveBytePairJourney(t, MapPair{Key: bytes.Repeat([]byte{0x11}, 8), Value: []byte{}})
+// The open case: a pair with a key of 8 bytes and an empty value, written with
+// MapSet. It has the bytes of a tombstone that lost its flag (issue 4125),
+// which MapList has to keep reading as one, and nothing in the segment tells
+// the two apart: once the pair is in a segment, MapList drops it. A cursor
+// does not apply that rule and returns it. The Map strategy of the dimensions
+// bucket writes pairs of this shape, and reads them through a cursor for this
+// reason.
+//
+// This pins what the read does today, so that whoever settles which buckets
+// may still hold such tombstones changes it on purpose.
+//
+// A known case, open for a decision: https://github.com/weaviate/weaviate/pull/13983
+func TestMapPairWithKeyOfEightBytesAndNoValue_ReadsAsTombstoneFromSegment(t *testing.T) {
+	ctx := context.Background()
+	rowKey := []byte("row")
+	pair := MapPair{Key: bytes.Repeat([]byte{0x11}, 8), Value: []byte{}}
+	require.Equal(t, 12, pair.Size())
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyMapCollection))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, b.Shutdown(ctx)) }()
+
+	require.NoError(t, b.MapSet(rowKey, pair))
+	got, err := b.MapList(ctx, rowKey)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "from the memtable the pair is read")
+	require.Equal(t, pair.Key, got[0].Key)
+
+	require.NoError(t, b.FlushAndSwitch())
+	got, err = b.MapList(ctx, rowKey)
+	require.NoError(t, err)
+	require.Empty(t, got, "from a segment MapList takes the pair for a tombstone")
+
+	c, err := b.MapCursor()
+	require.NoError(t, err)
+	defer c.Close()
+	k, pairs := c.First(ctx)
+	require.Equal(t, rowKey, k)
+	require.Len(t, pairs, 1, "a cursor returns the pair")
+	require.Equal(t, pair.Key, pairs[0].Key)
+	require.Empty(t, pairs[0].Value)
+	require.False(t, pairs[0].Tombstone)
 }
