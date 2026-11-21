@@ -594,7 +594,7 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 
 - **11.78 GB, con el límite en 10: no se cumple.** Es un 31 % menos que v5.3 y un 25 % más que v5.0.
 - **El log de escritura sale como esperaba:** 1.54 GB, con cada fila escrita una vez.
-- **Lo que no vi es la compactación:** 8.44 GB, donde los miembros solos son 2.84. Las filas, 85 MB vivos, se reescriben cada vez que la compactación reescribe los miembros con los que comparten bucket. En su propio bucket costaban unos 1.7 GB.
+- **Lo que no vi es la compactación:** 8.44 GB, donde los miembros solos son 2.84. Las filas, unos 40 MB vivos, se reescriben cada vez que la compactación reescribe los miembros con los que comparten bucket. En su propio bucket costaban unos 1.7 GB.
 - **Retirar postings par a par no pesa:** 1 335 116 lápidas de clave, 8 MB en total.
 
 **Lo que una carga trae del disco en frío,** a 0.95, reorganizado: 4.83 page-ins y 107.4 KB leyendo primero los miembros, donde v5.3 reorganizado trae 4.75 y 105.9 KB. La fila de aristas viene detrás de los miembros igual que en v5.3: 0.61 page-ins y 12.2 KB.
