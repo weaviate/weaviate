@@ -724,7 +724,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote |
 | 3 | Refresco de aristas al doblar | hechos | corriendo desde el 21 a las 21:21 |
 | 4 | Cálculo de inserts en los workers compartidos | hechos | sin hacer |
-| 5 | Durabilidad a mitad de un insert, y base en segundo plano | el diario, hecho; la base en segundo plano, sin hacer | sin hacer |
+| 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | sin hacer |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | sin hacer |
 | 7 | Modo `none`, con el halo en la escritura | sin empezar | |
 
@@ -931,7 +931,21 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Tests.** El formato del diario: los registros vuelven enteros y en orden, y de un registro cortado en cualquier byte, o con un byte cambiado, no vuelve nada y los anteriores sí. Por el índice: una copia del directorio en cada punto donde un proceso puede morir al acabar un paso (antes de su registro, después, y tras entregar cada escritura), 487 copias por caso; cada una abre como el índice de antes del paso o como el de después, comparados por todo lo que tienen (`TestGrowOpensWhatACrashLeft`, con inserts, splits, marcas, y la pasada de limpieza con sus fusiones). Sin escribir el registro, el test falla en el primer insert: la copia no abre. Por el índice del shard: 179 caídas a lo largo de lotes, marcas, la limpieza y el refresco en línea; cada copia abre con todo lo de las llamadas anteriores, con los primeros vectores del lote que estaba entrando y ninguno suelto, responde y sigue aceptando inserts (`TestPersistentOpensWhatACrashLeft`). Todos los tests del formato del shard corren ahora con el diario puesto, los de equivalencia con el gemelo en memoria también.
 
+**La base, en segundo plano** (`persistent_base.go`). El usuario lo fijó para este hito: la construcción de la base no puede correr dentro de un insert. Con 10 000 vectores de 1536 dimensiones eran unos 3 s de una petición, y con 99 000, 1 min 19 s, con las búsquedas esperando.
+
+- **Quién la construye:** el trabajo de fondo del índice, sin ninguno de sus cerrojos. El insert que trae el vector que la completa vuelve como cualquier otro.
+- **Mientras se construye,** los vectores que llegan se apartan como los anteriores, y las búsquedas siguen leyendo todos los apartados, exactas.
+- **Un vector borrado mientras se construye** puede estar dentro de la base. Deja de devolverse en el momento, y en el bucket queda una marca en su lugar, que pasa a ser una marca de borrado del índice cuando la base lo es. Su doc id no se puede dar otra vez hasta entonces: un insert con él se rechaza (*mío*; un shard no reutiliza doc ids).
+- **Cuando la base es el índice,** los vectores que llegaron mientras tanto siguen apartados. El índice los toma de uno en uno, como cualquier insert: de fondo, y dos con cada insert nuevo (*mío*), pagando su parte del refresco y de la limpieza. Hasta que no queda ninguno, una búsqueda los lee todos, exactos, y los mezcla con lo que encuentra en el índice.
+- **Solo el cambio de «apartados» a «índice» deja a todos fuera,** el tiempo de abrir la base y soltar los vectores con los que se construyó.
+- **Si la construcción falla,** los vectores siguen apartados y se intenta otra vez cuando hayan llegado más.
+- **Tras una caída:** sin meta no hay base, lo que haya de una se descarta al abrir y los vectores siguen apartados, como antes. Con meta, el bucket de apartados puede tener vectores que la base ya tiene, que se sueltan al abrir; marcas, que se llevan al índice; y los que llegaron después, que el índice sigue tomando.
+- **Sin trabajo de fondo** (los ganchos de test) la base se construye dentro del insert, como antes.
+
+**Tests de la base.** Con la construcción parada en cada uno de sus puntos: inserts, deletes y búsquedas mientras se construye y con la base ya escrita; el doc id borrado que no se puede volver a dar; las búsquedas junto a los vectores que aún esperan; y una copia de los ficheros en tres momentos (construyendo, con la base escrita, y con cinco vectores tomados), que abierta acaba con los mismos vectores (`TestPersistentBuildsItsBaseInTheBackground`). Falla si la búsqueda no mezcla los apartados, y si las marcas no se llevan al índice. Una construcción que falla y se repite, y un apagado a mitad de la construcción.
+
 **Sin verificar de la pieza 5:**
 
 - **A 1M:** que el índice crecido con el diario es el mismo, cuánto escribe el diario por insert, y una muerte de verdad del proceso (`kill -9`) a mitad de los inserts, reabierta.
-- **La base en segundo plano,** que es la otra mitad de la pieza: sin empezar.
+- **La base en segundo plano, a 1M y por el shard:** el arnés espera a la base antes de seguir, para que sus corridas se comparen con las anteriores; el test de extremo a extremo pasa, y no mira qué ocurre mientras se construye.
+- **Lo que tarda una búsqueda con miles de vectores apartados:** los lee todos del bucket en cada query, como antes de la base. Con una base grande y muchos inserts durante su construcción puede ser lento un rato.

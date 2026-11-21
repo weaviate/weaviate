@@ -103,7 +103,7 @@ func (p *Persistent) Settle(ctx context.Context) error {
 		due := !p.closed && p.failed == nil && p.g != nil &&
 			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
 		p.mu.RUnlock()
-		if !due && !p.cleanOn() && !p.refreshOn() {
+		if !due && !p.cleanOn() && !p.refreshOn() && !p.baseOn() {
 			return nil
 		}
 		if err := p.maintain(ctx); err != nil {
@@ -117,6 +117,11 @@ func (p *Persistent) Settle(ctx context.Context) error {
 // vectors are laid out. The bucket of postings is asked to be one segment
 // when that is due, which the store then sees to.
 func (p *Persistent) maintain(ctx context.Context) error {
+	// The base first, and the vectors that came while it was built: until
+	// the index has taken them every search reads them all.
+	if err := p.settleBase(ctx); err != nil {
+		return err
+	}
 	p.mergeRows()
 	if p.cleanOn() {
 		if err := p.cleanPasses(ctx, false); err != nil {

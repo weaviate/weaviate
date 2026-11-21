@@ -195,6 +195,10 @@ func (f *persistentFixture) add(t *testing.T, from, to int) {
 		ids := sequentialIDs(end-start, uint64(start))
 		require.NoError(t, f.index.AddBatch(context.Background(), ids, f.vectors[start:end]), "docs [%d, %d)", start, end)
 	}
+	// The base is built in the background, and the vectors that came
+	// meanwhile wait for the index to take them: the tests look at an index
+	// that has them all.
+	require.NoError(t, f.index.settleBase(context.Background()))
 }
 
 // truth returns the k doc ids nearest to a query among the first n vectors
@@ -746,6 +750,7 @@ func TestPersistentSparseDocIDs(t *testing.T) {
 	for i, vector := range f.vectors {
 		require.NoError(t, f.index.Add(ctx, docID(i), vector), "vector %d as doc %d", i, docID(i))
 	}
+	require.NoError(t, f.index.settleBase(ctx))
 	f.covered(t, "grown")
 	check := func(at string) {
 		hits, total := 0, 0

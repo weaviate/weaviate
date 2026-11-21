@@ -96,9 +96,23 @@ type Persistent struct {
 	uc ent.UserConfig
 	// g is the index once its base is built, nil before.
 	g *growIndex
-	// staged has the doc ids of the vectors kept aside, while there is no
-	// base.
+	// staged has the doc ids of the vectors kept aside: every vector the
+	// index holds while it has no base, and afterwards those that came while
+	// the base was built, until the index takes them (persistent_base.go).
 	staged map[uint64]struct{}
+	// baseMu is held by whoever builds the base, for as long as it builds.
+	// building tells that a base is being built, gone has the doc ids that
+	// were deleted since it started, which it may hold, and buildFailed how
+	// many vectors were kept aside when a build last failed. But for
+	// baseMu, mu guards them.
+	baseMu      sync.Mutex
+	building    bool
+	gone        map[uint64]struct{}
+	buildFailed int
+	// aside lists the doc ids that are still aside once the index has its
+	// base, lowest first, for whoever has the index take them, who holds
+	// writeMu.
+	aside []uint64
 	// dirty tells that something changed since the last flush.
 	dirty  bool
 	closed bool
@@ -210,6 +224,9 @@ type PersistentConfig struct {
 	// cycle of TombstoneCallbacks, and not once every few minutes: for the
 	// tests, which run the cycles themselves.
 	centroidsEveryCycle bool
+	// baseHook, in the tests, is called at every point of the build of the
+	// base and of what follows it, with what has just happened.
+	baseHook func(point string) error
 }
 
 func (c *PersistentConfig) validate() error {
@@ -265,6 +282,7 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 		store:    store,
 		uc:       uc,
 		staged:   map[uint64]struct{}{},
+		gone:     map[uint64]struct{}{},
 	}
 	p.plans.New = func() any { return newGrowPlan() }
 	ctx := context.Background()
@@ -279,13 +297,14 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 	_, statErr := os.Stat(filepath.Join(p.dir, diskMetaFile))
 	switch {
 	case statErr == nil:
-		// The base is written before the vectors it was built from are let
-		// go: whatever is still kept aside is in the index already.
-		if err := p.dropStaging(ctx); err != nil {
-			return nil, err
-		}
 		if err := p.openGrown(ctx); err != nil {
 			return nil, errors.Wrap(err, "open the index")
+		}
+		// What is still kept aside is in the base already, and leaves, or
+		// came while the base was built, and waits for the index to take it.
+		if err := p.openLeftovers(ctx); err != nil {
+			_ = p.g.release(ctx)
+			return nil, errors.Wrap(err, "open the vectors kept aside")
 		}
 	case os.IsNotExist(statErr):
 		// Without a meta there is no base: what there is of one is of a
@@ -298,6 +317,12 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 			return nil, err
 		}
 		if err := p.loadStaged(); err != nil {
+			_ = p.closeStaging(ctx)
+			return nil, err
+		}
+		// A vector that was deleted while a base was built: that base is not
+		// there, and neither is the vector.
+		if err := p.settleGone(); err != nil {
 			_ = p.closeStaging(ctx)
 			return nil, err
 		}
@@ -354,6 +379,10 @@ func (p *Persistent) closeStaging(ctx context.Context) error {
 // loadStaged reads which vectors are kept aside, and their dimensions.
 func (p *Persistent) loadStaged() error {
 	err := growScan(p.staging, func(key, value []byte) error {
+		if len(key) == 4 && isGoneMark(value) {
+			p.gone[uint64(binary.BigEndian.Uint32(key))] = struct{}{}
+			return nil
+		}
 		if len(key) != 4 || len(value) == 0 || len(value)%4 != 0 {
 			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d", len(key), len(value))
 		}
@@ -709,13 +738,17 @@ func (p *Persistent) payInLine(ctx context.Context, id uint64) error {
 	if err := p.cleanInLine(ctx, 1); err != nil {
 		return errors.Wrapf(err, "take the deleted vectors out after the vector of id %d", id)
 	}
+	if err := p.drainInLine(ctx); err != nil {
+		return errors.Wrapf(err, "take in a vector kept aside after the vector of id %d", id)
+	}
 	return nil
 }
 
 // wakeIfDue tells what runs in the background that there is work, if there
 // is. The caller holds writeMu.
 func (p *Persistent) wakeIfDue() {
-	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.g.refreshDue() || p.cleaning != nil) {
+	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.g.refreshDue() || p.cleaning != nil ||
+		len(p.staged) > 0) {
 		p.wakeMaintenance()
 	}
 }
@@ -723,11 +756,14 @@ func (p *Persistent) wakeIfDue() {
 // placed tells whether a doc id is taken: kept aside, or in a posting, where
 // a deleted vector still is. The caller holds writeMu.
 func (p *Persistent) placed(id uint64) bool {
-	if p.g == nil {
-		_, staged := p.staged[id]
-		return staged
+	if _, staged := p.staged[id]; staged {
+		return true
 	}
-	return id < uint64(len(p.g.live)) && p.g.live[id]
+	// One that was deleted while the base is built may be in it.
+	if _, gone := p.gone[id]; gone {
+		return true
+	}
+	return p.g != nil && id < uint64(len(p.g.live)) && p.g.live[id]
 }
 
 // add takes one vector, normalized. The caller holds writeMu.
@@ -780,22 +816,33 @@ func (p *Persistent) stage(ctx context.Context, id uint64, vector []float32) err
 		putFloat32(raw[4*i:], x)
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if err := p.staging.Put(growDocKey(id), raw); err != nil {
+		p.mu.Unlock()
 		return errors.Wrap(err, "keep the vector aside")
 	}
 	p.staged[id] = struct{}{}
 	p.dirty = true
-	if len(p.staged) < p.cfg.BaseSize {
+	due := p.baseDue()
+	p.mu.Unlock()
+	if !due {
 		return nil
 	}
-	return errors.Wrap(p.buildBase(context.WithoutCancel(ctx)), "build the first postings")
+	if p.cfg.noMaintenance || p.cfg.noBackground {
+		// Nothing runs in the background: the base is built here, by
+		// whoever brought the vector that completes it.
+		return errors.Wrap(p.buildBase(context.WithoutCancel(ctx), true), "build the first postings")
+	}
+	p.wakeMaintenance()
+	return nil
 }
 
 // readStaged reads the vectors kept aside, in the order of their doc ids.
 func (p *Persistent) readStaged() (ids []uint64, vectors [][]float32, err error) {
 	dims := int(p.dims.Load())
 	err = growScan(p.staging, func(key, value []byte) error {
+		if isGoneMark(value) {
+			return nil
+		}
 		if len(key) != 4 || len(value) != 4*dims {
 			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d, for %d dimensions",
 				len(key), len(value), dims)
@@ -811,16 +858,49 @@ func (p *Persistent) readStaged() (ids []uint64, vectors [][]float32, err error)
 }
 
 // buildBase builds the vectors kept aside into the base of the index, in
-// batch, writes it and opens it. The base has a meta only once it is whole:
-// if anything fails before, what was written is removed, the vectors stay
-// aside, and the next vector tries again. The caller holds mu for writing.
-func (p *Persistent) buildBase(ctx context.Context) (err error) {
+// batch, writes it and makes it the index. The base has a meta only once it
+// is whole: if anything fails before, what was written is removed, the
+// vectors stay aside, and the base is tried again once more have come.
+//
+// It builds with none of the locks of the index: the vectors that come
+// meanwhile are kept aside as those before them, and the searches go on
+// reading every vector kept aside. Only its end keeps everybody out, while
+// the base becomes the index and the vectors it was built from are let go.
+// Those that came meanwhile stay aside until the index takes them, one by
+// one (drainStep). holdsWriteMu tells that the caller is the writer.
+func (p *Persistent) buildBase(ctx context.Context, holdsWriteMu bool) (err error) {
+	p.baseMu.Lock()
+	defer p.baseMu.Unlock()
+	p.mu.Lock()
+	if p.closed || p.failed != nil || !p.baseDue() {
+		p.mu.Unlock()
+		return nil
+	}
 	ids, vectors, err := p.readStaged()
+	if err == nil && len(ids) != len(p.staged) {
+		err = errors.Errorf("%d vectors kept aside in the store, %d counted", len(ids), len(p.staged))
+	}
 	if err != nil {
+		p.buildFailed = len(p.staged)
+		p.mu.Unlock()
 		return err
 	}
-	if len(ids) != len(p.staged) {
-		return errors.Errorf("%d vectors kept aside in the store, %d counted", len(ids), len(p.staged))
+	p.building = true
+	p.mu.Unlock()
+	defer func() {
+		if err == nil {
+			return
+		}
+		// The vectors stay aside, and those deleted meanwhile are gone.
+		p.mu.Lock()
+		p.building, p.buildFailed = false, len(ids)
+		if settled := p.settleGone(); settled != nil {
+			p.logger.Errorf("forget the vectors deleted while a base was built: %v", settled)
+		}
+		p.mu.Unlock()
+	}()
+	if err := p.baseHook("the vectors of the base are read"); err != nil {
+		return err
 	}
 	dims := int(p.dims.Load())
 	threshold := splitThreshold(p.uc.MaxPostingSizeKB, dims)
@@ -902,20 +982,40 @@ func (p *Persistent) buildBase(ctx context.Context) (err error) {
 		}
 		return errors.Wrap(err, "write the base")
 	}
-	if err := p.openGrown(ctx); err != nil {
-		// The base is whole on disk, and it is what the index is from here
-		// on: it opens when the shard does.
-		p.failed = err
-		return errors.Wrap(err, "open the base")
+	_ = p.baseHook("the base is written")
+
+	// The base becomes the index, with nobody else in. It is whole on disk:
+	// what is left to do is not left halfway because whoever runs the build
+	// was told to stop.
+	ctx = context.WithoutCancel(ctx)
+	if !holdsWriteMu {
+		p.writeMu.Lock()
+		defer p.writeMu.Unlock()
 	}
-	if err := p.dropStaging(ctx); err != nil {
-		p.failed = err
-		return err
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.building = false
+	if p.closed {
+		// The base is whole on disk: it is the index when the shard opens.
+		return nil
 	}
+	// From here on the base is whole on disk, and it is what the index is:
+	// whatever fails stops the index, which opens when the shard does.
+	if opened := p.openGrown(ctx); opened != nil {
+		p.failed = opened
+		return nil
+	}
+	_ = p.baseHook("the base is the index")
+	if reconciled := p.reconcileStaged(ctx); reconciled != nil {
+		p.failed = reconciled
+		return nil
+	}
+	p.dirty = true
 	p.logger.WithFields(logrus.Fields{
-		"action":   "postingedge_build_base",
-		"vectors":  len(ids),
-		"postings": p.g.meta.Postings,
+		"action":    "postingedge_build_base",
+		"vectors":   len(ids),
+		"postings":  p.g.meta.Postings,
+		"leftAside": len(p.staged),
 	}).Info("built the first postings of the index")
 	return nil
 }
@@ -950,38 +1050,47 @@ func (p *Persistent) mark(ids []uint64) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	marks := 0
-	if p.g != nil {
-		// The marks of a call are one write of the index.
-		err := p.g.step(func() error {
-			for _, id := range ids {
-				marked, err := p.g.remove(id)
-				if err != nil {
-					return errors.Wrapf(err, "delete doc %d", id)
-				}
-				if marked {
-					marks++
-					p.dirty = true
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			// What the index has in memory is not what is on disk.
-			p.failed = err
-			return 0, err
-		}
-		return marks, nil
-	}
 	for _, id := range ids {
 		if _, staged := p.staged[id]; !staged {
 			continue
 		}
 		// Nothing leads to a vector that is kept aside: it goes for good.
-		if err := p.staging.Delete(growDocKey(id)); err != nil {
+		// While a base is built it may be in it: a mark takes its place, and
+		// goes to the index when the base does (reconcileStaged).
+		var err error
+		if p.building {
+			err = p.staging.Put(growDocKey(id), goneMark)
+			p.gone[id] = struct{}{}
+		} else {
+			err = p.staging.Delete(growDocKey(id))
+		}
+		if err != nil {
 			return marks, errors.Wrapf(err, "delete doc %d", id)
 		}
 		delete(p.staged, id)
 		p.dirty = true
+	}
+	if p.g == nil {
+		return marks, nil
+	}
+	// The marks of a call are one write of the index.
+	err := p.g.step(func() error {
+		for _, id := range ids {
+			marked, err := p.g.remove(id)
+			if err != nil {
+				return errors.Wrapf(err, "delete doc %d", id)
+			}
+			if marked {
+				marks++
+				p.dirty = true
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		// What the index has in memory is not what is on disk.
+		p.failed = err
+		return 0, err
 	}
 	return marks, nil
 }
@@ -1010,7 +1119,18 @@ func (p *Persistent) SearchByVector(ctx context.Context, vector []float32, k int
 		return nil, nil, nil
 	}
 	if p.g != nil {
-		return p.g.searcher().run(ctx, vector, k, nil, nil)
+		ids, dists, err := p.g.searcher().run(ctx, vector, k, nil, nil)
+		if err != nil || len(p.staged) == 0 {
+			return ids, dists, err
+		}
+		// What came while the base was built and the index has not taken
+		// yet is searched as everything was before the base: exactly.
+		aside, asideDists, err := p.searchStaged(ctx, distancer.Normalize(vector), k)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids, dists = mergeNearest(ids, dists, aside, asideDists, k)
+		return ids, dists, nil
 	}
 	if len(vector) != dims {
 		return nil, nil, errors.Wrapf(common.ErrWrongDimensions,
@@ -1034,6 +1154,9 @@ func (p *Persistent) searchStaged(ctx context.Context, query []float32, k int) (
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+		}
+		if isGoneMark(value) {
+			return nil
 		}
 		if len(key) != 4 || len(value) != 4*len(query) {
 			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d", len(key), len(value))
@@ -1096,29 +1219,26 @@ func (p *Persistent) ValidateBeforeInsert(vector []float32) error {
 func (p *Persistent) ContainsDoc(docID uint64) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.g == nil {
-		_, staged := p.staged[docID]
-		return staged
+	if _, staged := p.staged[docID]; staged {
+		return true
 	}
-	return p.g.holds(docID)
+	return p.g != nil && p.g.holds(docID)
 }
 
 func (p *Persistent) Iterate(fn func(docID uint64) bool) {
 	p.mu.RLock()
-	var ids []uint64
-	if p.g == nil {
-		ids = make([]uint64, 0, len(p.staged))
-		for id := range p.staged {
-			ids = append(ids, id)
-		}
-		slices.Sort(ids)
-	} else {
+	ids := make([]uint64, 0, len(p.staged))
+	for id := range p.staged {
+		ids = append(ids, id)
+	}
+	if p.g != nil {
 		for id := range p.g.live {
 			if p.g.holds(uint64(id)) {
 				ids = append(ids, uint64(id))
 			}
 		}
 	}
+	slices.Sort(ids)
 	p.mu.RUnlock()
 
 	for _, id := range ids {

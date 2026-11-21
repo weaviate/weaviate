@@ -119,4 +119,7 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 - **El fichero de vectores se reescribe entero cada vez que el índice dobla,** para dejar juntos los vectores de cada posting. Mientras dura pide el doble de disco de los vectores: 12 GB por millón a 1536 dimensiones.
 - **Abrir tarda más:** 2.6 s a 1M con la máquina ocupada, frente a 0.3 s.
 
-**Lo que sigue igual que en el hito 1:** la base se construye dentro del insert que la completa; `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».
+- **La base ya no se construye dentro de un insert.** Al llegar a 10 000 vectores el índice la construye de fondo: los inserts siguen entrando y las búsquedas siguen siendo exactas mientras tanto. Los vectores que llegan durante la construcción se buscan de forma exacta hasta que el índice los toma, de uno en uno.
+  - *Verificado solo por tests.*
+
+**Lo que sigue igual que en el hito 1:** `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».

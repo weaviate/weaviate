@@ -371,14 +371,20 @@ func TestIntegrationScale(t *testing.T) {
 		if err := adding.Wait(); err != nil {
 			t.Fatalf("inserts %d to %d: %v", inserted, to, err)
 		}
+		if !wasBuilt {
+			// The index builds its base in the background once it has the
+			// vectors for it. The run waits for it, so that every vector
+			// after it is an insert, as in the runs it is compared with.
+			require.NoError(t, p.settleBase(ctx))
+		}
 		require.NoError(t, p.Flush())
 		took := time.Since(clock)
 		switch {
 		case !wasBuilt && p.g != nil:
-			// The batch that completed the base built it.
+			// The batch that completed the base, and the build of the base.
 			result.BaseSeconds = took.Seconds()
 			result.Base = p.g.meta.Live
-			t.Logf("the base: %d vectors in %d postings, built in %s inside the insert that completed it", p.g.meta.Live,
+			t.Logf("the base: %d vectors in %d postings, built in %s once the vector that completed it was in", p.g.meta.Live,
 				p.g.meta.Postings, took.Round(time.Second))
 			lastLog, lastInserted = time.Now(), to
 		case wasBuilt:
