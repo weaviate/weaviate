@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -104,6 +105,79 @@ func TestPersistentCleansItsDeletes(t *testing.T) {
 	f.normalized[again] = distancer.Normalize(f.vectors[other])
 	f.vectorsIntact(t, "a doc id given again")
 	f.covered(t, "a doc id given again")
+}
+
+// The pass that takes the deleted vectors out goes in line with the writes:
+// it starts with the delete that makes the marked ones 3 % of the index,
+// takes out those that were marked then, and every delete and every insert
+// after that takes it a step further, with nothing in the background. So it
+// ends within a bounded number of writes, however they come.
+func TestPersistentCleansInLineWithItsWrites(t *testing.T) {
+	ctx := context.Background()
+	const k = 10
+	const grown = 2 * persistentBase
+	const total = grown + 300
+	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
+	f.add(t, 0, grown)
+	removed := func() int {
+		f.index.mu.RLock()
+		defer f.index.mu.RUnlock()
+		return f.index.g.cleaned.Removed
+	}
+
+	// One delete a call. Under the share nothing leaves.
+	due := int(growCleanShare * grown)
+	deleted := map[uint64]bool{}
+	next := uint64(0)
+	for ; len(deleted) < due-1; next++ {
+		require.NoError(t, f.index.Delete(next))
+		deleted[next] = true
+	}
+	require.Equal(t, due-1, f.marked())
+	require.False(t, f.index.cleanOn())
+	// The delete that makes them enough starts the pass, and those that
+	// follow take it to its end.
+	for ; f.index.cleans.Load() == 0; next++ {
+		require.Less(t, len(deleted), due+200, "the pass ends within a couple of hundred deletes")
+		require.NoError(t, f.index.Delete(next))
+		deleted[next] = true
+	}
+	require.Equal(t, due, removed(), "the pass took out the vectors that were marked when it started")
+	require.Equal(t, len(deleted)-due, f.marked(), "those deleted under it wait")
+	f.covered(t, "after the first pass")
+
+	// A pass that the deletes start and leave halfway is ended by inserts.
+	for ; !f.index.cleanOn(); next++ {
+		require.NoError(t, f.index.Delete(next))
+		deleted[next] = true
+	}
+	marked := f.marked()
+	inserted := grown
+	for ; f.index.cleans.Load() < 2; inserted++ {
+		require.Less(t, inserted, total, "the pass ends within three hundred inserts")
+		require.NoError(t, f.index.Add(ctx, uint64(inserted), f.vectors[inserted]))
+	}
+	require.Equal(t, due+marked, removed())
+	require.Zero(t, f.marked())
+	f.covered(t, "after the second pass")
+	f.vectorsIntact(t, "after the second pass")
+	held := func(id uint64) bool { return id < uint64(inserted) && !deleted[id] }
+	hits, wanted := 0, 0
+	for i, query := range f.queries {
+		ids, _, err := f.index.SearchByVector(ctx, query, k, nil)
+		require.NoError(t, err)
+		for _, id := range ids {
+			require.True(t, held(id), "query %d returned doc %d", i, id)
+		}
+		want := f.truth(t, query, inserted, k, held)
+		for _, id := range want {
+			if slices.Contains(ids, id) {
+				hits++
+			}
+		}
+		wanted += len(want)
+	}
+	assert.Greater(t, float64(hits)/float64(wanted), 0.9)
 }
 
 // The cleanup of the deleted vectors and the layout of the vectors run in the

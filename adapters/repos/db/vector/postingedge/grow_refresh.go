@@ -172,7 +172,7 @@ func (g *growIndex) planRefresh(ctx context.Context, plan *growPlan, docID uint6
 	if err != nil {
 		return err
 	}
-	plan.docID, plan.vector = docID, vector
+	plan.docID, plan.vector, plan.seq = docID, vector, g.seq
 	plan.kept = plan.kept[:0]
 	clear(plan.keptAt)
 	clear(plan.captured)
@@ -213,6 +213,7 @@ func (g *growIndex) applyRefresh(plan *growPlan) error {
 	// The posting of the vector as it is now: a split may have moved it
 	// since its search.
 	p := g.st.side.postingOf[docID]
+	g.begin(plan)
 	g.kept, g.keptAt, g.captured = plan.kept, plan.keptAt, plan.captured
 	defer func() { plan.kept = g.kept }()
 	g.touched = g.touched[:0]
@@ -271,8 +272,10 @@ func (g *growIndex) applyRefresh(plan *growPlan) error {
 		if err := g.edgeStore.replace(p, docID, old, edges, edgeDists); err != nil {
 			return err
 		}
-		// What the refresh kept of the posting is no longer its list.
+		// What the refresh kept of the posting is no longer its list, nor
+		// what any other plan kept of it.
 		delete(g.keptAt, p)
+		g.listSeq[p] = g.seq
 		out.ListsChanged++
 	}
 	if err := g.setBuilt(docID, g.held()); err != nil {

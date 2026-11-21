@@ -51,7 +51,7 @@ func TestPersistentRefreshesItsEdgesAsItDoubles(t *testing.T) {
 	const total = 4*persistentBase + 100
 	// Nothing in the background: the inserts alone take the passes to their
 	// end, and where each ends is known.
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noMaintenance = true })
+	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
 	f.add(t, 0, 2*persistentBase-50)
 	stats, refreshedAt, _ := f.refreshState()
 	require.Zero(t, stats.Refreshed, "nothing is refreshed before the index doubles")
@@ -105,14 +105,14 @@ func TestPersistentRefreshesItsEdgesAsItDoubles(t *testing.T) {
 // opens: which vectors have new edges is on disk.
 func TestPersistentRefreshEndsInTheBackground(t *testing.T) {
 	const total = 2*persistentBase + 100
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noMaintenance = true })
+	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
 	f.add(t, 0, total)
 	stats, refreshedAt, _ := f.refreshState()
 	require.Equal(t, 101, stats.Refreshed)
 	require.Equal(t, persistentBase, refreshedAt)
 
 	// Closed with the pass on, and opened with its goroutine.
-	f.cfg.noMaintenance = false
+	f.cfg.noBackground = false
 	f.restart(t)
 	require.Eventually(t, func() bool { return f.index.refreshes.Load() >= 1 }, 60*time.Second, 5*time.Millisecond,
 		"the pass that was on is ended once the index is open")
@@ -135,7 +135,7 @@ func TestPersistentRefreshNextToSearchesAndWrites(t *testing.T) {
 	ctx := context.Background()
 	const k = 10
 	const total = 2*persistentBase + 600
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noMaintenance = true })
+	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
 	f.add(t, 0, 2*persistentBase)
 
 	// The insert that doubled the base started the pass, with one vector.

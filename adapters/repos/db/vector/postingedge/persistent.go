@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
@@ -110,8 +111,9 @@ type Persistent struct {
 	// to look for work, stopMaintenance ends it and waits for it.
 	wake            chan struct{}
 	stopMaintenance func()
-	// passMu lets one pass of maintenance over the index run at a time,
-	// whoever calls it. It is taken before the two locks above.
+	// passMu lets one pass over the vectors run at a time, whoever calls it:
+	// two would write the files of the same generation. It is taken before
+	// the two locks above.
 	passMu sync.Mutex
 	// layouts counts the passes over the vectors that ended, for whoever
 	// waits for one, and layoutNotBefore is how many vectors the file must
@@ -122,9 +124,14 @@ type Persistent struct {
 	// refreshes those that built edges again.
 	cleans    atomic.Int64
 	refreshes atomic.Int64
-	// refreshing is the refresh of the edges that is on, nil when there is
-	// none. Whoever holds writeMu reads and writes it.
+	// refreshing is the refresh of the edges that is on, and cleaning the
+	// pass over the deleted vectors, nil when there is none. Whoever holds
+	// writeMu reads and writes them.
 	refreshing *growRefresh
+	cleaning   *growClean
+	// plans has the plans of the inserts, which every caller takes for the
+	// vectors it is adding and gives back.
+	plans sync.Pool
 }
 
 const (
@@ -178,14 +185,27 @@ type PersistentConfig struct {
 	BaseSize int
 	// Seed makes the base and the splits reproducible.
 	Seed uint64
+	// TombstoneCallbacks and CommitLogCallbacks are the cycles of the node
+	// that keep an HNSW graph, for the graph over the centroids: the first
+	// takes out for good the centroids of the postings that were split or
+	// merged, and the second condenses and combines the files of its commit
+	// log. Without them nothing does either. CommitLogThreshold, when
+	// positive, is the size past which a file of that log is closed.
+	TombstoneCallbacks cyclemanager.CycleCallbackGroup
+	CommitLogCallbacks cyclemanager.CycleCallbackGroup
+	CommitLogThreshold int64
 
 	// listEdges has the base written as the first version of the index wrote
 	// it: a value per list of edges, and the exact vectors at their doc ids.
 	// Only the tests set it, to have an index of then to open.
 	listEdges bool
-	// noMaintenance leaves out what runs in the background, for the tests
-	// that call it themselves.
+	// noMaintenance leaves out everything the index does by itself, in the
+	// background and in line with its writes, for the tests and the
+	// experiments that call it themselves. noBackground leaves out only what
+	// runs in the background: the writes still pay their share of the
+	// passes that are on.
 	noMaintenance bool
+	noBackground  bool
 }
 
 func (c *PersistentConfig) validate() error {
@@ -242,6 +262,7 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 		uc:       uc,
 		staged:   map[uint64]struct{}{},
 	}
+	p.plans.New = func() any { return newGrowPlan() }
 	ctx := context.Background()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return nil, errors.Wrap(err, "create the directory of the index")
@@ -299,6 +320,10 @@ func (p *Persistent) growOpen() growOpen {
 		// A shard flushes its indexes and may stop without closing them:
 		// what waits in memory of the edges is on disk too.
 		keepPending: true,
+		cycles: centroidCycles{
+			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
+			logThreshold: p.cfg.CommitLogThreshold,
+		},
 	}
 }
 
@@ -473,10 +498,19 @@ func (p *Persistent) Add(ctx context.Context, id uint64, vector []float32) error
 	return p.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
-// AddBatch adds the vectors one after another. A doc id the index holds
-// already is refused, with the whole batch: that would be an update, and the
-// index has none. A shard gives a vector that changes a new doc id, and
-// deletes the old one.
+// AddBatch adds the vectors, in their order. A doc id the index holds already
+// is refused, with the whole batch: that would be an update, and the index
+// has none. A shard gives a vector that changes a new doc id, and deletes the
+// old one.
+//
+// Several callers add at once: the shared workers of the node each bring a
+// part of what a queue holds, and so do the goroutines of an import. Once the
+// index has its base, the searches of their inserts run next to each other,
+// in the goroutines that call, and their writes one at a time (v5.2,
+// bench-report.md, "inserts con búsquedas en paralelo"). A caller searches
+// for insertWindow of its vectors and then writes them, so that with eight
+// callers the search of an insert misses the thirty-two or so that have not
+// written yet, the batch the experiments measured.
 func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -489,56 +523,195 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 	}
 
 	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	if err := p.usable(); err != nil {
-		return err
+	based, err := p.admit(ids, vectors)
+	if err != nil || !based {
+		defer p.writeMu.Unlock()
+		if err != nil {
+			return err
+		}
+		// Without a base the vectors are kept aside, one after another, and
+		// the one that completes the base builds it. Those after it are
+		// inserted, by this caller alone.
+		for i, vec := range vectors {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := p.add(ctx, ids[i], distancer.Normalize(vec)); err != nil {
+				return errors.Wrapf(err, "add vector of id %d", ids[i])
+			}
+			if err := p.payInLine(ctx, ids[i]); err != nil {
+				return err
+			}
+		}
+		p.wakeIfDue()
+		return nil
 	}
+	p.writeMu.Unlock()
 
+	for from := 0; from < len(ids); from += insertWindow {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		to := min(from+insertWindow, len(ids))
+		if err := p.addWindow(ctx, ids[from:to], vectors[from:to]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// insertWindow is how many inserts of a caller search before they write.
+const insertWindow = 4
+
+// admit checks a batch before any of it goes in: its dimensions, its values,
+// and that none of its doc ids is taken, in the index or twice in the batch.
+// It gives the index room for its doc ids, and tells whether the index has
+// its base. The caller holds writeMu.
+func (p *Persistent) admit(ids []uint64, vectors [][]float32) (based bool, err error) {
+	if err := p.usable(); err != nil {
+		return false, err
+	}
 	dims := int(p.dims.Load())
 	if dims == 0 {
 		dims = len(vectors[0])
 	}
 	if dims == 0 {
-		return errors.New("cannot add a vector without dimensions")
+		return false, errors.New("cannot add a vector without dimensions")
 	}
 	batch := make(map[uint64]struct{}, len(ids))
 	for i, vec := range vectors {
 		id := ids[i]
 		if id >= maxVectors {
-			return errors.Errorf("doc id %d: the index addresses doc ids up to %d", id, uint64(maxVectors-1))
+			return false, errors.Errorf("doc id %d: the index addresses doc ids up to %d", id, uint64(maxVectors-1))
 		}
 		if len(vec) != dims {
-			return errors.Wrapf(common.ErrWrongDimensions,
+			return false, errors.Wrapf(common.ErrWrongDimensions,
 				"vector of id %d has length %d, the index holds vectors of length %d", id, len(vec), dims)
 		}
 		if err := checkValues(vec); err != nil {
-			return errors.Wrapf(err, "vector of id %d", id)
+			return false, errors.Wrapf(err, "vector of id %d", id)
 		}
 		_, repeated := batch[id]
 		if repeated || p.placed(id) {
-			return errors.Wrapf(ErrNotSupported, "id %d was already added, updating a vector", id)
+			return false, errors.Wrapf(ErrNotSupported, "id %d was already added, updating a vector", id)
 		}
 		batch[id] = struct{}{}
 	}
 	p.dims.Store(int32(dims))
-
-	for i, vec := range vectors {
-		if err := ctx.Err(); err != nil {
-			return err
+	if p.g == nil {
+		return false, nil
+	}
+	if last := slices.Max(ids); last >= uint64(p.g.meta.Keys) {
+		p.mu.Lock()
+		err := p.g.extend(keysFor(last))
+		p.mu.Unlock()
+		if err != nil {
+			return false, err
 		}
-		if err := p.add(ctx, ids[i], distancer.Normalize(vec)); err != nil {
+	}
+	return true, nil
+}
+
+// addWindow inserts a few vectors of a caller: their searches, which read
+// and write nothing, next to the queries and to the searches of the other
+// callers, and then their writes, in their order, with nobody else writing.
+// A search does not see the vectors of its window, nor those the other
+// callers have searched for and not written. What was written between a
+// search and its writes, the writes look at again (growIndex.begin).
+func (p *Persistent) addWindow(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	plans := make([]*growPlan, len(ids))
+	for i := range plans {
+		plans[i] = p.plans.Get().(*growPlan)
+	}
+	defer func() {
+		for _, plan := range plans {
+			p.plans.Put(plan)
+		}
+	}()
+
+	p.mu.RLock()
+	if err := p.usable(); err != nil {
+		p.mu.RUnlock()
+		return err
+	}
+	g := p.g
+	for i, id := range ids {
+		plans[i].work = nil
+		if err := g.plan(ctx, plans[i], id, distancer.Normalize(vectors[i])); err != nil {
+			p.mu.RUnlock()
+			return errors.Wrapf(err, "add vector of id %d", id)
+		}
+	}
+	p.mu.RUnlock()
+
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	for i, plan := range plans {
+		if err := p.write(ctx, g, plan); err != nil {
 			return errors.Wrapf(err, "add vector of id %d", ids[i])
 		}
-		// While the edges of the oldest vectors are being built again, every
-		// insert pays its share of it.
-		if err := p.refreshInLine(ctx); err != nil {
-			return errors.Wrapf(err, "refresh edges after the vector of id %d", ids[i])
+		if err := p.payInLine(ctx, ids[i]); err != nil {
+			return err
 		}
 	}
-	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.g.refreshDue()) {
-		p.wakeMaintenance()
+	p.wakeIfDue()
+	return nil
+}
+
+// write applies the writes of an insert whose search is done. They are not
+// left halfway because whoever asked stopped waiting. The caller holds
+// writeMu.
+func (p *Persistent) write(ctx context.Context, g *growIndex, plan *growPlan) error {
+	ctx = context.WithoutCancel(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.usable(); err != nil {
+		return err
+	}
+	if p.placed(plan.docID) {
+		// Another caller gave the doc id since this one was let in.
+		return errors.Wrapf(ErrNotSupported, "id %d was already added, updating a vector", plan.docID)
+	}
+	if err := g.insertable(plan.docID, plan.vector); err != nil {
+		return err
+	}
+	if g.outdated(plan) {
+		// A vector left the index since the search: it runs again, with
+		// nobody else in.
+		if err := g.plan(ctx, plan, plan.docID, plan.vector); err != nil {
+			return err
+		}
+	} else if err := g.refresh(ctx, plan); err != nil {
+		// The posting the search chose was split since.
+		return err
+	}
+	if err := g.apply(ctx, plan); err != nil {
+		p.failed = err
+		return err
+	}
+	p.dirty = true
+	return nil
+}
+
+// payInLine has an insert pay its share of the passes that are on: of the
+// refresh of the edges of the oldest vectors, and of the one that takes the
+// deleted vectors out. The caller holds writeMu.
+func (p *Persistent) payInLine(ctx context.Context, id uint64) error {
+	if err := p.refreshInLine(ctx); err != nil {
+		return errors.Wrapf(err, "refresh edges after the vector of id %d", id)
+	}
+	if err := p.cleanInLine(ctx, 1); err != nil {
+		return errors.Wrapf(err, "take the deleted vectors out after the vector of id %d", id)
 	}
 	return nil
+}
+
+// wakeIfDue tells what runs in the background that there is work, if there
+// is. The caller holds writeMu.
+func (p *Persistent) wakeIfDue() {
+	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.g.refreshDue() || p.cleaning != nil) {
+		p.wakeMaintenance()
+	}
 }
 
 // placed tells whether a doc id is taken: kept aside, or in a posting, where
@@ -750,9 +923,27 @@ func (p *Persistent) Delete(ids ...uint64) error {
 	if err := p.usable(); err != nil {
 		return err
 	}
+	marks, err := p.mark(ids)
+	if err != nil {
+		return err
+	}
+	// While a pass takes the deleted vectors out, every delete pays its
+	// share of it.
+	if err := p.cleanInLine(context.Background(), marks); err != nil {
+		return errors.Wrap(err, "take the deleted vectors out")
+	}
+	if p.g != nil && (p.cleaning != nil || p.g.cleanDue()) {
+		p.wakeMaintenance()
+	}
+	return nil
+}
+
+// mark marks the vectors deleted, with no search in the index, and tells how
+// many it marked. The caller holds writeMu.
+func (p *Persistent) mark(ids []uint64) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
+	marks := 0
 	for _, id := range ids {
 		if p.g == nil {
 			if _, staged := p.staged[id]; !staged {
@@ -760,7 +951,7 @@ func (p *Persistent) Delete(ids ...uint64) error {
 			}
 			// Nothing leads to a vector that is kept aside: it goes for good.
 			if err := p.staging.Delete(growDocKey(id)); err != nil {
-				return errors.Wrapf(err, "delete doc %d", id)
+				return marks, errors.Wrapf(err, "delete doc %d", id)
 			}
 			delete(p.staged, id)
 			p.dirty = true
@@ -768,14 +959,14 @@ func (p *Persistent) Delete(ids ...uint64) error {
 		}
 		marked, err := p.g.remove(id)
 		if err != nil {
-			return errors.Wrapf(err, "delete doc %d", id)
+			return marks, errors.Wrapf(err, "delete doc %d", id)
 		}
-		p.dirty = p.dirty || marked
+		if marked {
+			marks++
+			p.dirty = true
+		}
 	}
-	if p.g != nil && p.g.cleanDue() {
-		p.wakeMaintenance()
-	}
-	return nil
+	return marks, nil
 }
 
 // SearchByVector returns the k nearest vectors to the query, nearest first.

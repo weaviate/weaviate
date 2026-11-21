@@ -157,6 +157,35 @@ func getFloat32(buf []byte) float32 {
 // from the same centroids would not be the same graph.
 func openCentroidGraph(ctx context.Context, logger logrus.FieldLogger, dir string, vectors [][]float32,
 ) (*centroidIndex, error) {
+	return openCentroidGraphWith(ctx, logger, dir, vectors, centroidCycles{})
+}
+
+// centroidCycles are the cycles of a node that keep a centroid graph as they
+// keep any HNSW graph: the one that takes its deleted centroids out for good,
+// and the one that condenses and combines the files of its commit log. A
+// posting that is split or merged leaves a deleted centroid, and every
+// centroid that comes or goes a record in the log. The zero value has
+// neither cycle: the experiments, which clean the graph themselves before
+// they measure (cleanCentroidGraph) and write an index once.
+type centroidCycles struct {
+	tombstones cyclemanager.CycleCallbackGroup
+	commitLogs cyclemanager.CycleCallbackGroup
+	// logThreshold, when positive, is the size past which a file of the
+	// commit log is closed and a new one started.
+	logThreshold int64
+}
+
+// openCentroidGraphWith is openCentroidGraph with the cycles that keep the
+// graph.
+func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir string, vectors [][]float32,
+	cycles centroidCycles,
+) (*centroidIndex, error) {
+	if cycles.tombstones == nil {
+		cycles.tombstones = cyclemanager.NewCallbackGroupNoop()
+	}
+	if cycles.commitLogs == nil {
+		cycles.commitLogs = cyclemanager.NewCallbackGroupNoop()
+	}
 	index := &centroidIndex{vectors: vectors}
 	vectorForID := func(_ context.Context, id uint64) ([]float32, error) {
 		if id >= uint64(len(index.vectors)) {
@@ -169,7 +198,11 @@ func openCentroidGraph(ctx context.Context, logger logrus.FieldLogger, dir strin
 		ID:       "centroids",
 		Logger:   logger,
 		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(dir, "centroids", logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+			if cycles.logThreshold > 0 {
+				// Whatever the graph asks for comes after, and wins.
+				opts = append([]hnsw.CommitlogOption{hnsw.WithCommitlogThreshold(cycles.logThreshold)}, opts...)
+			}
+			return hnsw.NewCommitLogger(dir, "centroids", logger, cycles.commitLogs, opts...)
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),
 		VectorForIDThunk: vectorForID,
@@ -185,7 +218,7 @@ func openCentroidGraph(ctx context.Context, logger logrus.FieldLogger, dir strin
 		},
 		GetViewThunk: func() common.BucketView { return noopBucketView{} },
 		HFreshMode:   true,
-	}, centroidUserConfig(centroidEF), cyclemanager.NewCallbackGroupNoop(), nil)
+	}, centroidUserConfig(centroidEF), cycles.tombstones, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "open the centroid graph")
 	}

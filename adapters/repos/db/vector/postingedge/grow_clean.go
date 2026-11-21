@@ -90,6 +90,13 @@ type growCleanStats struct {
 	EmptyRetired  int `json:"emptyRetired"`
 }
 
+// wrote counts a write of the index that is not that of a plan: a step of a
+// pass that rewrites a posting.
+func (g *growIndex) wrote() {
+	g.seq++
+	g.sinceMerge++
+}
+
 // cleanDue tells whether enough vectors are marked deleted for a pass.
 func (g *growIndex) cleanDue() bool {
 	return g.consolidated() && g.marks != nil && g.deletedCount > 0 &&
@@ -425,6 +432,10 @@ func (c *growClean) substitute() (bool, error) {
 	if len(changes) == 0 {
 		return true, nil
 	}
+	// A write of the index: what a search of an insert kept of this posting
+	// before it is not its lists any more.
+	g.wrote()
+	g.listSeq[p] = g.seq
 	if err := g.rewriteRow(p, old, ids, lists); err != nil {
 		return false, err
 	}
@@ -531,6 +542,10 @@ func (c *growClean) remove() (bool, error) {
 		}
 		stayIDs, stayLists = append(stayIDs, docID), append(stayLists, lists[i])
 	}
+	// A write of the index that takes vectors out: a search of an insert
+	// that ran before it may hold one of them as a neighbor.
+	g.wrote()
+	g.listSeq[p], g.removedSeq = g.seq, g.seq
 	if err := g.rewriteRow(p, old, stayIDs, stayLists); err != nil {
 		return false, err
 	}
@@ -665,6 +680,9 @@ func (c *growClean) join(p, target uint32) error {
 		members[i] = growMemberValue(docID, c.dp.codes[i*words:(i+1)*words])
 		intoIDs, intoLists = append(intoIDs, docID), append(intoLists, list)
 	}
+	// A write of the index: the members of p are in another posting after it.
+	g.wrote()
+	g.listSeq[p], g.listSeq[target] = g.seq, g.seq
 	// What waited of p has its distances written and leaves with its row.
 	if err := g.retirePosting(p); err != nil {
 		return err

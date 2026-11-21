@@ -364,19 +364,24 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 		// The index keeps its files in a directory of its own under the
 		// shard, and its buckets in the store of the shard, which flushes
-		// and compacts them with the cycles of the node. It runs nothing in
-		// the background yet, so it takes neither the scheduler nor the
-		// cycles of the commit logs.
+		// and compacts them with the cycles of the node. The graph over its
+		// centroids is kept by the cycles that keep every HNSW graph of the
+		// node, with the commit log limit of the centroid graph of HFresh.
+		// What else it does by itself runs in a goroutine of its own, and
+		// not in the scheduler, yet.
 		vi, err := postingedge.Open(postingedge.PersistentConfig{
-			ID:                physicalID,
-			ShardName:         s.name,
-			ClassName:         s.index.Config.ClassName.String(),
-			RootPath:          s.path(),
-			Logger:            logger,
-			DistanceProvider:  distProv,
-			AllocChecker:      s.index.allocChecker,
-			MakeBucketOptions: makeBucketOptions,
-			BaseSize:          s.index.Config.PostingEdgeBaseSize,
+			ID:                 physicalID,
+			ShardName:          s.name,
+			ClassName:          s.index.Config.ClassName.String(),
+			RootPath:           s.path(),
+			Logger:             logger,
+			DistanceProvider:   distProv,
+			AllocChecker:       s.index.allocChecker,
+			MakeBucketOptions:  makeBucketOptions,
+			BaseSize:           s.index.Config.PostingEdgeBaseSize,
+			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			CommitLogCallbacks: s.cycleCallbacks.vectorCommitLoggerCallbacks,
+			CommitLogThreshold: s.index.Config.HNSWMaxLogSize / 5,
 		}, userConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: postingedge index", s.ID())

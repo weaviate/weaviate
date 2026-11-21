@@ -14,6 +14,7 @@ package postingedge
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -44,7 +45,7 @@ const maintenanceFlushEvery = 256
 // and whoever set it calls the work itself.
 func (p *Persistent) startMaintenance() {
 	p.wake = make(chan struct{}, 1)
-	if p.cfg.noMaintenance {
+	if p.cfg.noMaintenance || p.cfg.noBackground {
 		p.stopMaintenance = func() {}
 		return
 	}
@@ -59,11 +60,17 @@ func (p *Persistent) startMaintenance() {
 	}
 	enterrors.GoWrapper(func() {
 		defer close(done)
+		// It looks by itself too, now and then: whether the store has left
+		// the bucket of postings as one segment is not something anybody
+		// tells it (persistent_merge.go).
+		tick := time.NewTicker(mergeCheckEvery)
+		defer tick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-p.wake:
+			case <-tick.C:
 			}
 			if err := p.maintain(ctx); err != nil && ctx.Err() == nil {
 				p.logger.WithFields(logrus.Fields{
@@ -93,10 +100,10 @@ func (p *Persistent) wakeMaintenance() {
 func (p *Persistent) Settle(ctx context.Context) error {
 	for {
 		p.mu.RLock()
-		due := !p.closed && p.failed == nil && p.g != nil && (p.g.cleanDue() ||
-			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load())
+		due := !p.closed && p.failed == nil && p.g != nil &&
+			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
 		p.mu.RUnlock()
-		if !due && !p.refreshOn() {
+		if !due && !p.cleanOn() && !p.refreshOn() {
 			return nil
 		}
 		if err := p.maintain(ctx); err != nil {
@@ -107,13 +114,12 @@ func (p *Persistent) Settle(ctx context.Context) error {
 
 // maintain does what is due, one thing after another: first the deleted
 // vectors leave, then the edges that are old are built again, and then the
-// vectors are laid out.
+// vectors are laid out. The bucket of postings is asked to be one segment
+// when that is due, which the store then sees to.
 func (p *Persistent) maintain(ctx context.Context) error {
-	p.mu.RLock()
-	due := !p.closed && p.failed == nil && p.g != nil && p.g.cleanDue()
-	p.mu.RUnlock()
-	if due {
-		if err := p.clean(ctx); err != nil {
+	p.mergeRows()
+	if p.cleanOn() {
+		if err := p.cleanPasses(ctx, false); err != nil {
 			return err
 		}
 	}
@@ -124,7 +130,7 @@ func (p *Persistent) maintain(ctx context.Context) error {
 	}
 
 	p.mu.RLock()
-	due = !p.closed && p.failed == nil && p.g != nil && p.g.layoutDue() &&
+	due := !p.closed && p.failed == nil && p.g != nil && p.g.layoutDue() &&
 		int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
 	slots := int64(0)
 	if due {

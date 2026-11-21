@@ -449,6 +449,32 @@ type growIndex struct {
 	// cleaned counts what the passes over the deleted vectors did
 	// (grow_clean.go).
 	cleaned growCleanStats
+	// seq counts the writes the index has applied: an insert, a refresh of
+	// the edges of a vector, a step of a cleanup. listSeq is, by posting, the
+	// write that last changed a list of edges of it, and removedSeq the last
+	// one that took a vector out. A plan knows the count it searched with
+	// (growPlan.seq): the search of an insert can run while other inserts
+	// write, and what they wrote since is not what it kept. applying is the
+	// count of the plan that is being applied, and reread the postings its
+	// writes have read again.
+	seq        uint64
+	listSeq    []uint64
+	removedSeq uint64
+	applying   uint64
+	reread     []uint32
+	// sinceMerge counts the writes of the index since the store was last
+	// asked to leave the bucket of postings as one segment, merging tells
+	// that it is being asked now, and merges how many times it got there
+	// (persistent_merge.go).
+	sinceMerge int
+	merging    bool
+	merges     int
+	// verifyKept, for the tests, has every list of edges that a write takes
+	// from what its plan kept read again from the index, and fails the write
+	// if the two differ, as batchVerify does for a batch: a plan kept a list
+	// that a write changed since, and nobody noticed. batchVerified counts
+	// them.
+	verifyKept bool
 	// builtAt is, by doc id, how many vectors the index held when the edges
 	// of each were last built, built the file that holds it, and refreshed
 	// what the refreshes of edges did (grow_refresh.go).
@@ -492,6 +518,9 @@ type growPlan struct {
 	// selfMissing, in the plan of a refresh, tells that the search of the
 	// vector did not return the vector itself.
 	selfMissing bool
+	// seq is the count of the writes the index had applied when the plan
+	// searched (growIndex.seq).
+	seq uint64
 }
 
 func newGrowPlan() *growPlan {
@@ -600,6 +629,9 @@ type growOpen struct {
 	// index that did not close has lost it: the experiments, which close
 	// every index they grow.
 	keepPending bool
+	// cycles are the cycles of the node that keep the centroid graph: none
+	// in the experiments.
+	cycles centroidCycles
 }
 
 // growBlock is a row of edges decoded: the members it has a list of, in its
@@ -1053,7 +1085,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	for p := range centroids {
 		centroids[p] = flat[p*meta.Dims : (p+1)*meta.Dims : (p+1)*meta.Dims]
 	}
-	graph, err := openCentroidGraph(ctx, logger, path(diskGraphDir), centroids)
+	graph, err := openCentroidGraphWith(ctx, logger, path(diskGraphDir), centroids, opts.cycles)
 	if err != nil {
 		return nil, err
 	}
@@ -1144,6 +1176,10 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	for p, size := range g.size {
 		g.retired[p] = size == 0
 	}
+	g.listSeq = make([]uint64, meta.Postings)
+	// How much was written since the bucket of postings was last one
+	// segment is not known to an index that opens: it counts as all of it.
+	g.sinceMerge = live
 	if err := g.openBuilt(); err != nil {
 		return nil, err
 	}
@@ -1547,7 +1583,9 @@ func (g *growIndex) keep(p uint32, dp *diskPosting) {
 // the insert left them, or read again from the store if it did not load q.
 func (g *growIndex) listOf(q uint32, u uint64) ([]uint32, error) {
 	at, found := g.keptAt[q]
-	if found && g.batchDirty != nil {
+	switch {
+	case !found:
+	case g.batchDirty != nil:
 		if _, changed := g.batchDirty[u]; changed {
 			// An insert of the batch changed this list after the plan kept
 			// it: its posting is read again, as it is now.
@@ -1555,8 +1593,16 @@ func (g *growIndex) listOf(q uint32, u uint64) ([]uint32, error) {
 			g.batchStale = true
 			g.stats.StaleLists++
 		}
+	case g.listSeq[q] > g.applying && g.listSeq[q] != g.seq && !slices.Contains(g.reread, q):
+		// A write that came between the search of the plan and its own
+		// writes changed a list of this posting: what the plan kept of it
+		// is read again, once. What this write itself changed of it is in
+		// what it keeps.
+		found = false
+		g.stats.StaleLists++
 	}
 	if !found {
+		g.reread = append(g.reread, q)
 		var dp diskPosting
 		if err := g.fetchMembers(q, &dp); err != nil {
 			return nil, err
@@ -1577,7 +1623,7 @@ func (g *growIndex) listOf(q uint32, u uint64) ([]uint32, error) {
 		return nil, errors.Errorf("doc %d is not in posting %d, where the map has it", u, q)
 	}
 	list := kept.edges[kept.edgeStart[m]:kept.edgeStart[m+1]]
-	if found && g.batchVerify && g.batchDirty != nil {
+	if found && (g.batchVerify && g.batchDirty != nil || g.verifyKept) {
 		var dp diskPosting
 		if err := g.fetchMembers(q, &dp); err != nil {
 			return nil, err
@@ -1783,7 +1829,7 @@ func (g *growIndex) insert(ctx context.Context, docID uint64, vector []float32) 
 // at once as long as no insert is being applied.
 func (g *growIndex) plan(ctx context.Context, plan *growPlan, docID uint64, vector []float32) error {
 	st := g.st
-	plan.docID, plan.vector = docID, vector
+	plan.docID, plan.vector, plan.seq = docID, vector, g.seq
 	plan.kept = plan.kept[:0]
 	clear(plan.keptAt)
 	clear(plan.captured)
@@ -1828,9 +1874,13 @@ func (g *growIndex) plan(ctx context.Context, plan *growPlan, docID uint64, vect
 // rows that are due. One at a time, in the order of the inserts.
 func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 	st := g.st
-	docID, vector, neighbors, dists := plan.docID, plan.vector, plan.neighbors, plan.dists
+	docID, vector := plan.docID, plan.vector
+	// A neighbor that was marked deleted since the search is not one.
+	neighbors, dists := g.heldNeighbors(plan.neighbors, plan.dists)
 	p := uint32(plan.entry[0])
-	// What the search of the plan left is what the writes read from.
+	// What the search of the plan left is what the writes read from, but for
+	// what was written since (listOf).
+	g.begin(plan)
 	g.kept, g.keptAt, g.captured = plan.kept, plan.keptAt, plan.captured
 	defer func() { plan.kept = g.kept }()
 	searched := &plan.searched
@@ -1973,6 +2023,47 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 		g.stats.CycleTime += time.Since(clock)
 	}
 	return nil
+}
+
+// begin starts a write of the index over what the given plan read: the write
+// has a number, one more than the last, and the plan the number of the last
+// write there was when it searched. What was written between the two is what
+// the plan did not see.
+func (g *growIndex) begin(plan *growPlan) {
+	g.seq++
+	g.sinceMerge++
+	g.applying = plan.seq
+	g.reread = g.reread[:0]
+}
+
+// outdated tells whether a vector left the index since the plan searched: its
+// doc id may have been given again, to another vector, and what the plan
+// holds of its neighbors and of their vectors may be of the one that left.
+// Such a plan is made again.
+func (g *growIndex) outdated(plan *growPlan) bool {
+	return g.removedSeq > plan.seq
+}
+
+// heldNeighbors returns, of the neighbors a search found and their
+// distances, those the index still holds: the same slices when it holds all.
+func (g *growIndex) heldNeighbors(neighbors []uint64, dists []float32) ([]uint64, []float32) {
+	all := true
+	for _, u := range neighbors {
+		if !g.holds(u) {
+			all = false
+			break
+		}
+	}
+	if all {
+		return neighbors, dists
+	}
+	held, heldDists := make([]uint64, 0, len(neighbors)), make([]float32, 0, len(dists))
+	for i, u := range neighbors {
+		if g.holds(u) {
+			held, heldDists = append(held, u), append(heldDists, dists[i])
+		}
+	}
+	return held, heldDists
 }
 
 // insertBatch adds the given vectors as insert adds one, with their searches
@@ -2170,6 +2261,7 @@ func (g *growIndex) enterNeighbors(docID uint64, vector []float32, p uint32, nei
 		// be looked at again. What the other plans of its batch kept of it
 		// does not.
 		copy(edges, updated)
+		g.listSeq[q] = g.seq
 		if g.batchDirty != nil {
 			g.batchDirty[u] = struct{}{}
 		}
@@ -2313,6 +2405,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 
 	g.retiredMu.Lock()
 	g.retired = append(g.retired, false, false)
+	g.listSeq = append(g.listSeq, g.seq, g.seq)
 	g.retired[p] = true
 	g.retiredMu.Unlock()
 	g.size = append(g.size, uint32(sizes[0]), uint32(sizes[1]))

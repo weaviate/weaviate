@@ -102,6 +102,9 @@ func (p *Persistent) refreshStep(ctx context.Context) (bool, error) {
 // refreshInLine has an insert pay its share of the pass that is on. The
 // caller holds writeMu.
 func (p *Persistent) refreshInLine(ctx context.Context) error {
+	if p.cfg.noMaintenance {
+		return nil
+	}
 	for range refreshPerInsert {
 		if p.g == nil || p.refreshing == nil && !p.g.refreshDue() {
 			return nil

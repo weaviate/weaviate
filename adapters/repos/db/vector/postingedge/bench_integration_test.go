@@ -87,6 +87,11 @@ var (
 		"vectors that are left")
 	benchIntegrationChurnShare = flag.Float64("bench.integrationchurnshare", 0.03, "with -bench.integrationchurn: "+
 		"the share of the base deleted and inserted in every round")
+	benchIntegrationWriters = flag.Int("bench.integrationwriters", 1, "with TestIntegrationScale: how many callers "+
+		"add to the index at once while it grows, a batch of a hundred vectors each (v5.2)")
+	benchIntegrationReuse = flag.Bool("bench.integrationreuse", false, "with TestIntegrationScale: "+
+		"-bench.integrationdir holds an index a run before left, which is opened as it is, with nothing put in: it "+
+		"is measured as the cycles left it and again with its bucket of postings as one segment")
 )
 
 // integrationRound is a round of the churn: what was deleted and inserted,
@@ -214,7 +219,12 @@ func TestIntegrationScale(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	require.Empty(t, entries, "%s is not empty", dir)
+	reuse := *benchIntegrationReuse
+	if reuse {
+		require.NotEmpty(t, entries, "%s holds no index to open", dir)
+	} else {
+		require.Empty(t, entries, "%s is not empty", dir)
+	}
 
 	var (
 		flush, compaction cyclemanager.CycleCallbackGroup
@@ -228,7 +238,8 @@ func TestIntegrationScale(t *testing.T) {
 	// reads with pread, which is how it reads once counting is set.
 	metrics, err := diskStoreMetrics()
 	require.NoError(t, err)
-	counting := false
+	// An index that a run before left is read with pread from the start.
+	counting := reuse && *benchIntegrationReads
 	// baseSize is the vectors the index gathers before it builds its base.
 	// In the churn nothing runs in the background: the passes over the
 	// deleted vectors are called, one a round.
@@ -262,7 +273,7 @@ func TestIntegrationScale(t *testing.T) {
 			MakeBucketOptions: makeOptions,
 			BaseSize:          baseSize,
 			Seed:              1,
-			noMaintenance:     churn > 0,
+			noMaintenance:     churn > 0 || reuse,
 		}, uc, store)
 		require.NoError(t, err)
 		closed = false
@@ -311,8 +322,12 @@ func TestIntegrationScale(t *testing.T) {
 	vectors := make([][]float32, 0, batch)
 	// In the churn the index is its base alone until the rounds start.
 	grownTo := n
-	if churn > 0 {
+	switch {
+	case churn > 0:
 		grownTo = baseSize
+	case reuse:
+		// The index is as a run before left it: nothing goes in.
+		grownTo = 0
 	}
 	for inserted < grownTo {
 		if !until.IsZero() && time.Now().After(until) {
@@ -320,14 +335,28 @@ func TestIntegrationScale(t *testing.T) {
 			t.Fatalf("STOP: it is past %s with %d of %d vectors in: the run ends here, with nothing of it alive",
 				*benchIntegrationUntil, inserted, n)
 		}
-		to := min(inserted+batch, grownTo)
-		vectors = vectors[:0]
-		for _, id := range order[inserted:to] {
-			vectors = append(vectors, data.train[id])
-		}
+		// Once the index has its base, as many callers as asked for add at
+		// once, a batch each, as the shared workers of a node do with what a
+		// queue holds.
 		wasBuilt := p.g != nil
+		callers := 1
+		if wasBuilt {
+			callers = max(*benchIntegrationWriters, 1)
+		}
+		to := min(inserted+batch*callers, grownTo)
 		clock := time.Now()
-		if err := p.AddBatch(ctx, order[inserted:to], vectors); err != nil {
+		adding := enterrors.NewErrorGroupWrapper(logger)
+		for from := inserted; from < to; from += batch {
+			upto := min(from+batch, to)
+			adding.Go(func() error {
+				own := make([][]float32, 0, upto-from)
+				for _, id := range order[from:upto] {
+					own = append(own, data.train[id])
+				}
+				return p.AddBatch(ctx, order[from:upto], own)
+			})
+		}
+		if err := adding.Wait(); err != nil {
 			t.Fatalf("inserts %d to %d: %v", inserted, to, err)
 		}
 		require.NoError(t, p.Flush())
@@ -344,10 +373,10 @@ func TestIntegrationScale(t *testing.T) {
 			insertTime += took
 			afterBase += to - inserted
 		}
-		inserted = to
-		if inserted%growCycleEvery == 0 {
+		if to/growCycleEvery != inserted/growCycleEvery {
 			cycle()
 		}
+		inserted = to
 		if p.g != nil && (time.Since(lastLog) > 5*time.Minute || inserted == grownTo) {
 			stretch := integrationStretch{
 				Inserted: inserted, Seconds: time.Since(begin).Seconds(), Postings: p.g.meta.Postings,
@@ -384,7 +413,7 @@ func TestIntegrationScale(t *testing.T) {
 	}
 	// reopened tells that the index is not the one that took the inserts:
 	// what it counts is no longer what they did.
-	reopened := false
+	reopened := reuse
 	// reopen closes the index and its store and opens them again from disk,
 	// and returns how long opening them took. What the index holds must be
 	// what it held.
@@ -534,6 +563,39 @@ func TestIntegrationScale(t *testing.T) {
 		require.Equal(t, "complete", stage.Coverage, "STOP: the coverage of the index, %s", name)
 		return answers
 	}
+	if reuse {
+		// An index a run before left, as it is: what a load reads of its
+		// bucket of postings as the cycles left it, and with the bucket as
+		// one segment, which the index asks the store for.
+		live := make([]bool, n)
+		deleted := 0
+		for id := range live {
+			live[id] = p.ContainsDoc(uint64(id))
+			if !live[id] {
+				deleted++
+			}
+		}
+		truth, fallbacks := liveTruthOf(t, data, live, k)
+		t.Logf("an index a run before left: %d vectors held of %d, %d queries of the ground truth by brute force",
+			n-deleted, n, fallbacks)
+		left := measure("as it was left", truth, live, deleted, nil, "", 0)
+		p.mu.Lock()
+		if !g.merging {
+			g.beginMerge()
+		}
+		p.mu.Unlock()
+		rounds := 0
+		for compaction.CycleCallback(func() bool { return false }) {
+			rounds++
+		}
+		p.mu.Lock()
+		one := g.endMerge()
+		p.mu.Unlock()
+		t.Logf("the bucket of postings asked for as one segment: %d rounds of compaction, one segment: %v", rounds, one)
+		measure("the bucket of postings as one segment", truth, live, deleted, left, "its bucket was compacted", 0)
+		return
+	}
+
 	if churn > 0 {
 		// The churn of v6.2 (bench-report.md, "v6.2: reparación en el
 		// churn"): every round deletes a share of the base at random, inserts
@@ -723,10 +785,21 @@ func TestIntegrationScale(t *testing.T) {
 			for name, bucket := range store.GetBucketsByName() {
 				require.NoError(t, bucket.FlushAndSwitch(), "flush the bucket %s", name)
 			}
+			// The index asks the store for the bucket of postings as one
+			// segment, as it does by itself when enough has been written, and
+			// the cycles of the store do it.
+			p.mu.Lock()
+			if !g.merging {
+				g.beginMerge()
+			}
+			p.mu.Unlock()
 			rounds := 0
 			for compaction.CycleCallback(func() bool { return false }) {
 				rounds++
 			}
+			p.mu.Lock()
+			g.endMerge()
+			p.mu.Unlock()
 			passes := p.layouts.Load()
 			p.mu.RLock()
 			due := g.meta.VectorGen > 0 && g.meta.VectorsLaidOut < int(g.nextSlot)
