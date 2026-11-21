@@ -369,6 +369,36 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 
 - **En esa prueba la puerta dijo «para»:** traer la fila de miembros a través del Map costó unos 30 µs por carga, donde por el Set son 20, con la corrida de la otra sesión en la máquina. No es un dato; es un aviso de por dónde puede salir la puerta de verdad.
 
+### Paso 2, primera parte: la puerta (de 11:09 a 11:27 del 21)
+
+**Estado: medida. Por su regla, la puerta dice «para»: en caliente, leer a través del Map sale más caro. Por la enmienda 1 la corrida sigue, y aquí van las opciones. La corrección pasa y los bytes entran.** Binario de `ee4cd877e0`. Datos en `testdata/bench/v5.4/dbpedia-1m-map-gate-*.json`; tablas en `map-verdict.md`. Corrió de día, con la corrida B de la otra sesión en la máquina: nada de este paso es un tiempo limpio.
+
+- **Corrección, que era stop: pasa.** El índice de las curvas de v5.3, reorganizado sobre un Map, devuelve los mismos ids, distancias y trabajo que ese índice en las 5 000 queries de sus dos puntos. Escribirlo llevó 121 s, donde sobre el Set fueron 43.
+- **Lo que lee el store: entra.** 2.00 lecturas y 68.6 KB por carga, 1.077 veces lo que usa, con el límite en 1.10. Sobre el Set son 67.0 KB y 1.053. El bucket ocupa 261.2 MB donde ocupaba 255.3, un 2.3 % más: es el enmarcado, y lo esperaba (68.5 KB, 1.075).
+- **En caliente, la regla dice «para»:** la mediana de las tres pasadas del Map queda un 24.4 % por encima de la del Set, con el límite en un 5 %.
+
+| pasada | Set: p50, ms | Map | traer los bloques, Set, ms | Map | fila de miembros, Set, µs por carga | Map | fila de aristas, Set | Map | rescore, Set, ms | Map |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1.744 | 1.772 | 0.367 | 0.405 | 18.8 | 25.7 | 12.3 | 10.1 | 0.736 | 0.748 |
+| 2 | 1.425 | 1.503 | 0.381 | 0.406 | 18.5 | 25.8 | 12.3 | 10.4 | 0.539 | 0.460 |
+| 3 | 1.363 | 1.859 | 0.366 | 0.436 | 18.8 | 25.9 | 12.2 | 10.8 | 0.354 | 0.849 |
+
+- **Ese 24.4 % no mide el Map: mide la máquina.** El p50 del mismo índice se mueve un 28 % de una pasada a otra, y lo que se mueve es el rescore, de 0.35 a 0.85 ms donde con la máquina sola son 0.14. Los vectores compartían la caché con otras tres corridas. Aplico la regla como está escrita y lo digo.
+- **Lo que sí repite, pasada a pasada, es lo que cuesta cada fila:**
+  - **La de miembros, por el Map, 25.8 µs por carga; por el Set, 18.7.** Son 7 µs más, un 38 %. Es la fusión de `MapList`: unos 240 pares que descodificar y ordenar, y dos reservas de memoria.
+  - **La de aristas sale 2 µs más barata por el Map,** 10.4 frente a 12.3: un par frente a resolver lápidas.
+  - **Traer los bloques de una query,** con las dos filas de cada carga a la vez: 0.416 ms por el Map y 0.371 por el Set, un 12 % más.
+- **Lo que eso proyecta sobre la sesión cronometrada:** 0.04 ms más sobre un p50 de 1.12, un 3.5 %. v5.3 reorganizado estaba a 1.21 veces el lote, y el límite es 1.25: el Map queda en el borde, hacia 1.25 o 1.26. Lo decide la sesión, con su cuarta curva.
+
+**Las opciones, que el encargo pedía si el Map encarece la lectura.** Ninguna está escrita ni medida:
+
+1. **Una lectura cruda de la fila de miembros de un Map, en `lsmkv`.** Los miembros no se reemplazan ni se borran mientras el posting vive, así que no necesitan fusión: bastaría devolver los pares como están, que es lo que el Set hace con sus valores. Dejaría la fila de miembros en lo que cuesta hoy por el Set y mantendría el reemplazo de la fila de aristas. Toca `lsmkv`: una función de lectura nueva, sin cambio de formato.
+2. **Un Set que admita reemplazar,** también en `lsmkv`: quitar de una clave todo lo anterior sin una lápida por valor. Los miembros se quedan como en v5.3, y la fila de aristas deja de arrastrar su versión vieja. Es un cambio mayor que el primero: toca el memtable, el volcado y el compactador del Set.
+3. **Agrupar los miembros en pocos pares,** sin tocar `lsmkv`: 8 pares por posting en vez de 240. Lee tan barato como el Set. A cambio, cada insert reescribe un grupo entero, unas 16 veces lo que escribe hoy, y sus versiones viejas se quedan en los segmentos anteriores: empeora lo que se escribe y lo que se lee sin compactar, que son las otras dos condiciones.
+4. **Dejar v5.3 como está** y pagar su escritura: 17.1 GB al crecer y, entre compactaciones, 2.2 a 2.6 veces lo que una carga usa.
+
+*Lo que yo haría, a falta del resto de v5.4:* la primera. Es la más pequeña, y separa las dos cosas que este experimento junta: cómo se reemplaza la fila, que el Map resuelve, y cómo se leen los miembros, que el Map encarece.
+
 ## v6.2b: churn largo y borrado por regiones (2026-11-20)
 
 **Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo. Cerrado el 20 a las 18:33: B se sostiene (abajo, «Paso 2» y «Veredicto de v6.2b»).** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
