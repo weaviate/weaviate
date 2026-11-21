@@ -73,9 +73,9 @@ func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{SubCommand: payload, Version: createIndex}
 }
 
-func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
+func updateCmd(t *testing.T, name string, homeNodes []string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}})
+	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: homeNodes}})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
@@ -337,35 +337,36 @@ func TestManager_RejectsMalformedApplyRequest(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
+	seeded := []string{"node-1"}
 	tests := []struct {
 		name       string
+		seedState  cmd.NamespaceState
 		updateName string
-		homeNode   string
+		homeNodes  []string
 		wantErr    error
-		// wantHomeNode is checked on success to confirm the controller
-		// actually stored the new HomeNode (i.e. dispatch worked).
-		wantHomeNode string
+		// wantStored is customer1's HomeNodes after the update.
+		wantStored []string
 	}{
-		{name: "happy path dispatches to controller", updateName: "customer1", homeNode: "node-2", wantHomeNode: "node-2"},
-		{name: "update missing returns ErrNotFound", updateName: "never-existed", homeNode: "node-2", wantErr: usecasesNamespaces.ErrNotFound},
-		{name: "update empty home_node returns ErrBadRequest", updateName: "customer1", homeNode: "", wantErr: usecasesNamespaces.ErrBadRequest},
+		{name: "happy path dispatches to controller", seedState: cmd.NamespaceStateActive, updateName: "customer1", homeNodes: []string{"node-2"}, wantStored: []string{"node-2"}},
+		{name: "update missing returns ErrNotFound", seedState: cmd.NamespaceStateActive, updateName: "never-existed", homeNodes: []string{"node-2"}, wantErr: usecasesNamespaces.ErrNotFound, wantStored: seeded},
+		{name: "update empty home_node returns ErrBadRequest", seedState: cmd.NamespaceStateActive, updateName: "customer1", homeNodes: []string{""}, wantErr: usecasesNamespaces.ErrBadRequest, wantStored: seeded},
+		{name: "a deleting namespace answers ErrNamespaceDeleting", seedState: cmd.NamespaceStateDeleting, updateName: "customer1", homeNodes: []string{"n1", "n2"}, wantErr: usecasesNamespaces.ErrNamespaceDeleting, wantStored: seeded},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestManager(t)
-			require.NoError(t, m.Add(addCmd(t, "customer1")))
+			seedNamespace(t, m, "customer1", tc.seedState)
 
-			err := m.Update(updateCmd(t, tc.updateName, tc.homeNode))
+			err := m.Update(updateCmd(t, tc.updateName, tc.homeNodes))
 			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
-				return
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
-			require.NoError(t, err)
-			got := m.controller.Get(tc.updateName)
+			got := m.controller.Get("customer1")
 			require.Len(t, got, 1)
-			assert.Equal(t, tc.wantHomeNode, got[0].Primary())
+			assert.Equal(t, tc.wantStored, got[0].HomeNodes)
 		})
 	}
 }

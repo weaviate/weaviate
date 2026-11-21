@@ -72,8 +72,7 @@ const (
 
 	DefaultMaxShardingCount = 512
 
-	DefaultTransferInactivityTimeout = 5 * time.Minute
-	DefaultHaltForTransferTimeout    = time.Hour
+	DefaultHaltForTransferTimeout = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
@@ -223,16 +222,6 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
 		config.ForceFullReplicasSearch = true
-	}
-
-	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
-		timeout, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
-		}
-		config.TransferInactivityTimeout = timeout
-	} else {
-		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	}
 
 	err := parsePositiveDuration(
@@ -1157,6 +1146,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+	config.Replication.AsyncReplicationInMaintenanceEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_IN_MAINTENANCE_ENABLED")))
 
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
@@ -1549,9 +1539,6 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
-	// fully on the stamp version: a pre-stamp node still derives blockmax truth
-	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
 	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),

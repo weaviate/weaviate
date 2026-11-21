@@ -53,6 +53,14 @@ func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, erro
 	return vals, true, nil
 }
 
+// CountPropValues returns how many values ParseAndExtractTextProp would return
+// for the property, without copying them.
+func CountPropValues(data []byte, propName string) (int, error) {
+	n := 0
+	err := parseAndExtractValueProp(data, propName, func([]byte) { n++ })
+	return n, err
+}
+
 // parseAndExtractTextValueProp retains the JSON type so strings can be decoded
 // exactly once while other tokens keep their existing representation.
 func parseAndExtractTextValueProp(data []byte, propName string, valueFn func([]byte, jsonparser.ValueType) error) error {

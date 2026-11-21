@@ -104,9 +104,6 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	// dropping holds indices whose index.drop() is still running for backup purposes.
-	dropping sync.Map
-
 	jobQueueCh          chan job
 	scheduler           *queue.Scheduler
 	shutDownWg          sync.WaitGroup
@@ -485,7 +482,6 @@ type Config struct {
 	LazyLoadShardSizeThresholdGB        float64
 	LazyLoadShardWarmupMinObjects       int64
 	ForceFullReplicasSearch             bool
-	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	LSMSkipWriteClassNameEnabled        bool
@@ -713,7 +709,9 @@ func (db *DB) OpenLocalShardNames(collection string) ([]string, error) {
 // UnloadShard skips the namespace check, which would refuse the suspended
 // namespaces it is called for. It blocks while DB.Shutdown holds indexLock.
 // It keeps a self-recovery placeholder in the map, because a request would
-// otherwise create an empty shard before the copy from a peer finishes.
+// otherwise create an empty shard before the copy from a peer finishes. It keeps
+// a shard a non-terminal replication op copies out of or into, and returns
+// movement_source or movement_target.
 func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
 	if db.shuttingDown() {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
@@ -749,17 +747,6 @@ func (db *DB) GetIndexForIncomingSharding(ctx context.Context, className schema.
 	}
 
 	return index
-}
-
-// droppingIndex returns an index whose drop is still in flight, or nil. Only
-// db.ReleaseBackup may use it: drop() parks on backupLock, which nothing but
-// idx.ReleaseBackup releases. Everything else wants GetIndex, which reports a
-// deleted class as gone.
-func (db *DB) droppingIndex(id string) *Index {
-	if idx, ok := db.dropping.Load(id); ok {
-		return idx.(*Index)
-	}
-	return nil
 }
 
 // DropOrphanedClass removes the data of a class the schema already dropped.
@@ -839,11 +826,6 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 		return true, nil
 	}
 	id := indexID(className)
-
-	// Register before unpublishing: db.ReleaseBackup must find the index in one
-	// map or the other, never neither.
-	db.dropping.Store(id, index)
-	defer db.dropping.Delete(id)
 
 	// a reader holding dropIndex would block the drop below
 	index.signalCloseRequested(errIndexDropped)

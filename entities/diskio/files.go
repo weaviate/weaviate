@@ -164,7 +164,13 @@ func SanitizeFilePathJoin(rootPath string, relativeFilePath string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("resolve symlinks for root path %q: %w", rootPath, err)
 	}
+	return JoinInRoot(rootPath, relativeFilePath)
+}
 
+// JoinInRoot joins rootPath and relativeFilePath and refuses a result outside
+// rootPath. It compares both as written, so a relativeFilePath holding ".." is
+// judged against an unresolved rootPath. SanitizeFilePathJoin resolves it first.
+func JoinInRoot(rootPath string, relativeFilePath string) (string, error) {
 	// clean the path to remove any ../ or ./ sequences
 	cleanFilePath := filepath.Clean(relativeFilePath)
 	if filepath.IsAbs(cleanFilePath) {

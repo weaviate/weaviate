@@ -13,14 +13,14 @@ package db
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Pins the DELETE_CLASS cascade extractor for the reindex namespace
-// (weaviate/0-weaviate-issues#231).
 func TestExtractReindexTaskCollection(t *testing.T) {
 	t.Run("well-formed payload returns class name", func(t *testing.T) {
 		payload, err := json.Marshal(ReindexTaskPayload{
@@ -35,9 +35,6 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 	})
 
 	t.Run("payload missing collection is rejected", func(t *testing.T) {
-		// Sloppy ("", true) here would let DeleteTasksForCollection("")
-		// nuke every reindex task — defence in depth even though the
-		// manager already guards empty input.
 		payload, err := json.Marshal(ReindexTaskPayload{
 			MigrationType: ReindexTypeEnableRangeable,
 		})
@@ -87,6 +84,41 @@ func TestExtractReindexTaskReplicas(t *testing.T) {
 			for shard, nodes := range tc.want {
 				require.ElementsMatch(t, nodes, got[shard])
 			}
+		})
+	}
+}
+
+// Adding a payload field must force a decision on whether GET /v1/tasks may show
+// it to a caller without tenant read.
+func TestTaskPayloadFieldsAreClassifiedForTasksList(t *testing.T) {
+	tests := []struct {
+		payload any
+		visible []string
+		hidden  []string
+	}{
+		{
+			payload: ReindexTaskPayload{},
+			visible: ReindexTaskVisiblePayloadFields,
+			hidden:  []string{"properties", "tenants", "unitToNode", "unitToShard"},
+		},
+		{
+			payload: DropVectorIndexTaskPayload{},
+			visible: DropVectorIndexTaskVisiblePayloadFields,
+			hidden:  []string{"targets", "unitToNode", "unitToShard", "cleanedShards", "deferredShards"},
+		},
+	}
+	for _, tt := range tests {
+		payloadType := reflect.TypeOf(tt.payload)
+		t.Run(payloadType.Name(), func(t *testing.T) {
+			fields := make([]string, 0, payloadType.NumField())
+			for i := 0; i < payloadType.NumField(); i++ {
+				name, _, _ := strings.Cut(payloadType.Field(i).Tag.Get("json"), ",")
+				require.NotEmpty(t, name, "field %s needs a json name", payloadType.Field(i).Name)
+				fields = append(fields, name)
+			}
+
+			require.ElementsMatch(t, fields, append(append([]string{}, tt.visible...), tt.hidden...),
+				"each payload field must be in exactly one of the visible or hidden lists")
 		})
 	}
 }

@@ -36,25 +36,29 @@ func Test_FlatUserConfig(t *testing.T) {
 				VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
 				Distance:              common.DefaultDistanceMetric,
 				PQ: CompressionUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       DefaultCompressionEnabled,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				BQ: CompressionUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       DefaultCompressionEnabled,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				SQ: CompressionUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       DefaultCompressionEnabled,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				RQ: RQUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-					Bits:         DefaultRQBits,
+					Enabled:       DefaultCompressionEnabled,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
+					Bits:          DefaultRQBits,
 				},
 			},
 		},
@@ -73,25 +77,29 @@ func Test_FlatUserConfig(t *testing.T) {
 				VectorCacheMaxObjects: 100,
 				Distance:              common.DefaultDistanceMetric,
 				PQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				BQ: CompressionUserConfig{
-					Enabled:      true,
-					RescoreLimit: 100,
-					Cache:        true,
+					Enabled:       true,
+					RescoreLimit:  100,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         true,
 				},
 				SQ: CompressionUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       DefaultCompressionEnabled,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				RQ: RQUserConfig{
-					Enabled:      DefaultCompressionEnabled,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-					Bits:         DefaultRQBits,
+					Enabled:       DefaultCompressionEnabled,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
+					Bits:          DefaultRQBits,
 				},
 			},
 		},
@@ -157,25 +165,29 @@ func Test_FlatUserConfig(t *testing.T) {
 				VectorCacheMaxObjects: 100,
 				Distance:              common.DefaultDistanceMetric,
 				PQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				BQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				SQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				RQ: RQUserConfig{
-					Enabled:      true,
-					RescoreLimit: 100,
-					Cache:        true,
-					Bits:         DefaultRQBits,
+					Enabled:       true,
+					RescoreLimit:  100,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         true,
+					Bits:          DefaultRQBits,
 				},
 			},
 		},
@@ -195,25 +207,29 @@ func Test_FlatUserConfig(t *testing.T) {
 				VectorCacheMaxObjects: 100,
 				Distance:              common.DefaultDistanceMetric,
 				PQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				BQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				SQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				RQ: RQUserConfig{
-					Enabled:      true,
-					RescoreLimit: 100,
-					Cache:        true,
-					Bits:         8,
+					Enabled:       true,
+					RescoreLimit:  100,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         true,
+					Bits:          8,
 				},
 			},
 		},
@@ -233,25 +249,29 @@ func Test_FlatUserConfig(t *testing.T) {
 				VectorCacheMaxObjects: 100,
 				Distance:              common.DefaultDistanceMetric,
 				PQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				BQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				SQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
+					Enabled:       false,
+					RescoreLimit:  DefaultCompressionRescore,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         DefaultVectorCache,
 				},
 				RQ: RQUserConfig{
-					Enabled:      true,
-					RescoreLimit: 100,
-					Cache:        true,
-					Bits:         1,
+					Enabled:       true,
+					RescoreLimit:  100,
+					RescoreFactor: RescoreFactorAuto,
+					Cache:         true,
+					Bits:          1,
 				},
 			},
 		},
@@ -396,12 +416,74 @@ func Test_RQUserConfigDefaults(t *testing.T) {
 		config.SetDefaults()
 
 		expectedRQ := RQUserConfig{
-			Enabled:      DefaultCompressionEnabled,
-			RescoreLimit: DefaultCompressionRescore,
-			Cache:        DefaultVectorCache,
-			Bits:         DefaultRQBits,
+			Enabled:       DefaultCompressionEnabled,
+			RescoreLimit:  DefaultCompressionRescore,
+			RescoreFactor: RescoreFactorAuto,
+			Cache:         DefaultVectorCache,
+			Bits:          DefaultRQBits,
 		}
 
 		assert.Equal(t, expectedRQ, config.RQ)
 	})
+}
+
+func Test_FlatRescoreFactor(t *testing.T) {
+	tests := []struct {
+		name      string
+		quantizer string
+		input     interface{}
+		stored    float64
+		effective float64
+		expectErr string
+	}{
+		{name: "bq absent is automatic", quantizer: "bq", stored: RescoreFactorAuto, effective: DefaultCompressionRescoreFactor},
+		{name: "bq -1 is automatic", quantizer: "bq", input: float64(-1), stored: RescoreFactorAuto, effective: DefaultCompressionRescoreFactor},
+		{name: "bq 0 is automatic", quantizer: "bq", input: float64(0), stored: 0, effective: DefaultCompressionRescoreFactor},
+		{name: "bq explicit is kept", quantizer: "bq", input: 2.5, stored: 2.5, effective: 2.5},
+		{name: "bq below 1 is rejected", quantizer: "bq", input: 0.5, expectErr: "bq rescoreFactor must be -1 (automatic) or a number of at least 1, got 0.5"},
+		{name: "bq string is rejected", quantizer: "bq", input: "2", expectErr: "bq rescoreFactor must be a number, got string"},
+		{name: "rq absent is automatic", quantizer: "rq", stored: RescoreFactorAuto, effective: DefaultCompressionRescoreFactor},
+		{name: "rq explicit is kept", quantizer: "rq", input: float64(4), stored: 4, effective: 4},
+		{name: "rq below -1 is rejected", quantizer: "rq", input: float64(-2), expectErr: "rq rescoreFactor must be -1 (automatic) or a number of at least 1, got -2"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			quantizerMap := map[string]interface{}{"enabled": true}
+			if test.quantizer == "rq" {
+				quantizerMap["bits"] = float64(8)
+			}
+			if test.input != nil {
+				quantizerMap["rescoreFactor"] = test.input
+			}
+			cfg, err := ParseAndValidateConfig(map[string]interface{}{test.quantizer: quantizerMap})
+			if test.expectErr != "" {
+				require.ErrorContains(t, err, test.expectErr)
+				return
+			}
+			require.NoError(t, err)
+			uc := cfg.(UserConfig)
+			stored, policy := uc.BQ.RescoreFactor, uc.BQ.RescorePolicy()
+			if test.quantizer == "rq" {
+				stored, policy = uc.RQ.RescoreFactor, uc.RQ.RescorePolicy()
+			}
+			assert.Equal(t, test.stored, stored, "stored")
+			assert.Equal(t, test.effective, policy.Factor, "effective")
+		})
+	}
+}
+
+// Test_FlatRescoreLegacyConfig feeds a config an older version stored, which
+// has no rescoreFactor: it must land on automatic, which keeps the old
+// max(k, rescoreLimit).
+func Test_FlatRescoreLegacyConfig(t *testing.T) {
+	legacy := map[string]interface{}{
+		"bq": map[string]interface{}{"enabled": true, "rescoreLimit": float64(100), "cache": true},
+	}
+	cfg, err := ParseAndValidateConfig(legacy)
+	require.NoError(t, err)
+	uc := cfg.(UserConfig)
+	assert.Equal(t, RescoreFactorAuto, uc.BQ.RescoreFactor)
+	assert.Equal(t, 100, uc.BQ.RescorePolicy().Candidates(10))
+	assert.Equal(t, 200, uc.BQ.RescorePolicy().Candidates(200))
 }

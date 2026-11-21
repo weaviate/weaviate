@@ -46,7 +46,9 @@ func TestNamespaces_SuspendedNamespaceRefusesSearch(t *testing.T) {
 		}, &resp, adminKey)
 	}
 
-	withHomeNodeStopped(t, modeAHomeSuspended, func(t *testing.T) {
+	// Mode A needs the suspended namespace's home node stopped. With any other node
+	// stopped, the shard guard refuses in the gate's place and every row passes.
+	withNodeStopped(t, modeAHomeSuspended, nil, func(t *testing.T) {
 		// A namespace that is active but equally remote still answers here, so a
 		// transport failure caused by the stopped node does not read as a refusal.
 		t.Run("an active namespace still answers with a node stopped", func(t *testing.T) {

@@ -101,6 +101,7 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 	builder := docker.New().
 		WithMCP().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateWithGRPC().WithRBAC().WithApiKey().WithDbUsers().
 		WithBackendFilesystem().
 		WithWeaviateLicense().

@@ -155,7 +155,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// Step 2: deactivate. A COLD tenant leaves the index's shard map, which is
 	// what puts it out of every later sweep's reach.
 	coldNames := tenantNames(tenants, func(tn sweepTenant) bool { return tn.cold })
-	setTenantStatus(t, coldNames, models.TenantActivityStatusCOLD)
+	helper.SetTenantsStatus(t, coldCancelClass, coldNames, models.TenantActivityStatusCOLD)
 
 	// Step 3: plant. Deterministic on purpose — whether the cancel above
 	// managed to sweep itself clean before the drain timeout is a race, and
@@ -278,7 +278,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 
 	// (d) The COLD tenants' state is deferred, not lost: reactivate them and
 	// the next submit in the same sweep scope drains them.
-	setTenantStatus(t, coldNames, models.TenantActivityStatusHOT)
+	helper.SetTenantsStatus(t, coldCancelClass, coldNames, models.TenantActivityStatusHOT)
 	drainTaskID := reindexhelpers.RebuildIndex(t, restURI, coldCancelClass, coldCancelProp,
 		"filterable", reindexhelpers.WithTenants(coldNames))
 	t.Logf("reactivated-tenant filterable rebuild task: %s", drainTaskID)
@@ -401,39 +401,6 @@ func rangeableOn(t *testing.T) bool {
 	}
 	assert.Failf(t, "property missing", "class %q has no property %q", coldCancelClass, coldCancelProp)
 	return false
-}
-
-func setTenantStatus(t *testing.T, names []string, status string) {
-	t.Helper()
-	updates := make([]*models.Tenant, len(names))
-	for i, name := range names {
-		updates[i] = &models.Tenant{Name: name, ActivityStatus: status}
-	}
-	helper.UpdateTenants(t, coldCancelClass, updates)
-
-	wanted := map[string]bool{status: true}
-	switch status {
-	case models.TenantActivityStatusCOLD:
-		wanted[models.TenantActivityStatusINACTIVE] = true
-	case models.TenantActivityStatusHOT:
-		wanted[models.TenantActivityStatusACTIVE] = true
-	}
-	require.Eventually(t, func() bool {
-		got, err := helper.GetTenants(t, coldCancelClass)
-		if err != nil {
-			return false
-		}
-		pending := len(names)
-		for _, tenant := range got.Payload {
-			for _, name := range names {
-				if tenant.Name == name && wanted[tenant.ActivityStatus] {
-					pending--
-				}
-			}
-		}
-		return pending == 0
-	}, 60*time.Second, 200*time.Millisecond,
-		"tenants %v should report activity status %q", names, status)
 }
 
 // =============================================================================
