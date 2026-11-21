@@ -160,8 +160,10 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 			}
 			if sg.compactLeftOverSegments && !leftoverPairFound {
 				// leftover segments enabled, none leftover pair found yet
-				if sg.compactionFitsSizeLimit(lSeg, rSeg) && isSimilarSegmentSizes(lSeg.Size(), rSeg.Size()) {
-					// max size not exceeded, segment sizes similar despite different levels
+				if sg.compactionFitsSizeLimit(lSeg, rSeg) &&
+					(sg.compactLeftOverOfAnySize.Load() || isSimilarSegmentSizes(lSeg.Size(), rSeg.Size())) {
+					// max size not exceeded, segment sizes similar despite different levels,
+					// or the group was asked to end as one segment whatever their sizes
 					leftoverPairFound = true
 					leftoverPos = lPos
 					leftoverLvl = lLvl
