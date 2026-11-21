@@ -620,7 +620,16 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **Coincide dentro del ruido en todo menos en el recall a ef 21,** que queda 0.0018 y 0.0014 por encima de los dos de v5.0. Entre sí, esos dos difieren en 0.0004, y el margen que se daba por ruido es 0.001.
 - **En lo demás:** a ef 158 el recall queda a 0.0002 o menos, y las cargas a menos de un 0.7 % en los dos puntos.
-- **Por qué sube a ef 21 no está comprobado.** La búsqueda es la misma función con los mismos parámetros: ef del grafo de centroides 8, rescore de 64, ef de inserción 160. Queda la base distinta. Saberlo pide otra corrida de dos horas.
+- **Por qué sube a ef 21 no está comprobado.** La búsqueda es la misma función con los mismos parámetros: ef del grafo de centroides 8, rescore de 64, ef de inserción 160. Queda la base distinta.
+
+**Diferencia abierta frente a v5.0: el recall a ef 21** (*anotada el 21 de noviembre; decisión del usuario: no se investiga ahora*).
+
+- **La diferencia:** 0.9523 en el índice integrado frente a 0.9504 y 0.9509 en los dos de v5.0, con las mismas cargas, 19.63. A ef 158 coincide todo.
+- **Hipótesis, sin comprobar: el orden de la base.** El índice integrado la construye con los vectores en orden de doc id, y v5.0 en orden de llegada. Es otra base, con los mismos 420 postings.
+- **El ruido entre corridas ya medido, según la sesión de experimentos:** cinco índices crecidos del 10 al 100 % con el mismo insert, desde una base en lote de 99 000 en orden de llegada, dan a ef 21 0.9502 (la validación de v5.3), 0.9504 y 0.9509 (v5.0), 0.9513 y 0.9516 (los dos N = 1 de v5.2).
+  - Son 0.0014 entre corridas del mismo algoritmo: el margen de 0.001 que se daba por ruido era corto.
+  - El 0.9523 queda 0.0007 por encima de la mayor. Eso no explica la diferencia y no descarta la hipótesis.
+- **Qué la cerraría:** una corrida del índice integrado con la base en orden de llegada, de unas dos horas.
 
 **Tras borrar el 30 % al azar,** 297 000 de 990 000, por `Delete` como los borra un shard:
 
