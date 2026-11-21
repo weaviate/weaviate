@@ -541,4 +541,12 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **v5.3,** cerrado el 20: la fila de aristas en un valor, en el bucket de los miembros y junto a ellos, tiene las dos mitades. Reorganizado es el formato candidato: 1.10 veces el lote en frío y 1.21 en caliente, a 0.95 con 1 thread.
   - **La disposición en disco a la que apuntar es esa.** El almacenamiento de aristas sigue detrás de su interfaz.
   - **La forma de escribirla, todavía no:** reescribir la fila con una lápida de Set hace que el store escriba 17.1 GB al crecer, casi el doble que v5.0, y que entre compactaciones una carga lea de 2.2 a 2.6 veces lo que usa.
-  - **Sin escribir ni medir** (*propuesta mía*): la misma disposición con un bucket Map, donde la fila se reemplaza por su clave, o con un Set de `lsmkv` que admita reemplazar sin una lápida por valor.
+  - **En marcha como v5.4** (*encargo del usuario del 21*): la misma disposición con un bucket Map, donde la fila se reemplaza por su clave, sin lápida que lleve la fila. La otra opción, un Set de `lsmkv` que admita reemplazar sin una lápida por valor, queda sin escribir.
+
+**Diferencias abiertas del índice integrado frente a v5.0:**
+
+- **El recall a ef 21 del índice integrado a 1M, 0.9523** (*anotado el 21; decisión del usuario: no se investiga ahora*). Es la corrida A de la sesión de integración, con la base forzada a 99 000, y queda 0.0014 y 0.0018 por encima de los dos índices de v5.0, 0.9509 y 0.9504. Las cargas coinciden, 19.63, y a 0.99 coincide todo.
+  - **Hipótesis, sin comprobar: el orden de la base.** El índice integrado construye su base con los vectores en orden de doc id, y v5.0 en orden de llegada. Es otra base, con los mismos 420 postings. La búsqueda es la misma función con los mismos parámetros.
+  - **Lo que ya hay medido del ruido entre corridas, sin correr nada más:** los índices crecidos del 10 al 100 % con el insert de siempre, desde una base en lote de 99 000 en orden de llegada, dan a ef 21 0.9502 (v5.3, su validación), 0.9504 y 0.9509 (v5.0), 0.9513 (N = 1 de v5.2, de día) y 0.9516 (N = 1 de v5.2, de noche). Son 0.0014 entre cinco corridas del mismo algoritmo: el margen de 0.001 que se daba por ruido era corto. El 0.9523 queda 0.0007 por encima de la mayor. No lo explica, y no descarta la hipótesis.
+  - **Qué lo cerraría:** una corrida del índice integrado con la base en orden de llegada, de unas dos horas.
+  - **La corrida B,** con la base por defecto de 10 000 y reapertura a 1M, sigue, y avisa de cualquier otra diferencia con v5.0.

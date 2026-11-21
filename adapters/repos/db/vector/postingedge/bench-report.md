@@ -180,6 +180,98 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## v5.4: la disposición de v5.3 sobre un bucket Map (2026-11-21)
+
+**Estado: pre-registrado el 21 a las 10:45, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, la corrección, lo que se mide, la sesión, la lectura y la condición de parada son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+
+### De dónde sale
+
+v5.3 cerró ayer como formato candidato: la fila de aristas de un posting en un solo valor, junto a sus miembros. Lo que cuesta es escribirla. Su bucket es un Set, y reescribir la fila es quitar la vieja con una lápida que la lleva entera: el store escribe 17.1 GB al crecer, y entre compactaciones una carga lee de 2.2 a 2.6 veces lo que usa. v5.4 mide la misma disposición con otra forma de reescribir: un bucket Map, donde un par se reemplaza por su clave.
+
+### El encargo (del usuario)
+
+- **Mecanismo:** la disposición de v5.3 sobre un bucket Map. La fila de aristas se reemplaza por su clave, sin lápida que lleve la fila. Miembros y aristas siguen juntos, con clave contigua.
+- **Corrección:** idéntico al gemelo. Es stop.
+- **Sin cronometrar:** GB escritos al crecer; lecturas y KB por carga con el store volcado y compactado; y page-ins por carga. Junto a v5.0, v5.1 y v5.3.
+- **Cronometrado,** reorganizado y en la misma sesión que el lote y v5.3 reorganizado: frío y caliente a 0.95.
+- **Lectura:** sustituye a v5.3 como formato si mantiene 1.20 o menos en frío y 1.25 o menos en caliente, escribe 10 GB o menos al crecer, y sin compactar una carga lee 1.5 veces o menos lo que usa.
+- **Si el bucket Map no permite la clave contigua con los miembros, o encarece la lectura por su enmarcado, parar y dar las opciones.**
+
+### Lo que el bucket Map de `lsmkv` permite (*mío*, leído en el código antes de escribir nada)
+
+**La clave contigua, sí. El reemplazo sin lápida, sí. Si encarece la lectura no lo decide el código: lo decide una medida corta, que va antes de la corrida larga (abajo, «La puerta»).**
+
+- **Qué es un Map:** una clave tiene pares, cada uno con su clave de par y su valor. `MapSet` escribe un par, y si su clave de par ya existe, el nuevo gana. No hay lápida: la versión vieja sigue en su segmento hasta que una compactación la junta con la nueva.
+- **La clave contigua.** Un segmento de Map tiene el formato de uno de Set: un nodo por clave, en orden. Con las dos claves por posting de v5.3, la fila de miembros y la de aristas van seguidas en cada segmento.
+- **Los miembros son un par por miembro, y la fila de aristas es un par,** siempre con la misma clave de par.
+- **El orden de los miembros lo pone la clave de par.** Un Map devuelve los pares ordenados por ella, no por llegada. Para que el posting salga como el del gemelo, la clave de par de un miembro es su posición de llegada en el posting, en 2 bytes. El valor es el miembro de siempre: su doc id y su código.
+- **El enmarcado.** Un par lleva dos largos de 2 bytes y su clave, además de los 9 bytes de un valor de Set. Un miembro pasa de 209 a 215 bytes en disco, un 2.9 % más, y la fila de aristas lleva 5 bytes más. Son unos 1.5 KB más por carga, un 2 %.
+- **El valor de un par lleva su largo en 2 bytes: tiene que medir menos de 65 535.** La fila de aristas de un posting de 361 miembros con 16 aristas son 24 913 bytes, y cabe. Con el formato de hoy cabe hasta 949 miembros. Es un límite que el Set no tenía, y queda por debajo del tope de 1 600 del plan de integración: allí la fila tendría que partirse en varios pares.
+- **Leer es `MapList`, y no hay otra lectura.** Copia el nodo de cada segmento, como el Set. Después descodifica cada par y los fusiona por clave de par, con una reserva de memoria por segmento y otra para el resultado. El Set daba los miembros crudos, sin resolver nada. Cuánto cuesta esa fusión con unos 240 pares por carga no lo dice el código: es lo que mide la puerta.
+- **El memtable guarda todas las versiones de un par hasta que se vuelca,** y al volcar deja la última. El log de escritura lleva cada versión una vez, donde en v5.3 llevaba la fila dos veces.
+- **Entre compactaciones, una lectura trae una versión de la fila por cada segmento que la tenga,** y se queda con la última. En v5.3 traía además las lápidas, cada una con su fila. Un bucket Replace, el de v5.1, lee solo la última: es lo que un Map no puede hacer.
+- **Los postings retirados no se van solos.** El compactador de Map no mira la función que dice qué claves saltar; el de Set sí. El volcado sí la mira, así que con ella puesta una lápida se perdería antes de llegar al disco, que es lo que aprendí en v5.3. Aquí el bucket se abre sin esa función, y al retirar un posting se escribe una lápida por cada uno de sus pares. La lápida de un par lleva su clave y no su valor: unos 15 bytes.
+- **Una trampa de `lsmkv`, que este formato esquiva:** un par cuyo valor codificado mide 12 bytes se lee de un segmento como lápida, por un arreglo antiguo. Con claves de par de 2 bytes para los miembros, cuyo valor mide 16 bytes o más, y de 1 byte para la fila, cuyo largo nunca es 7, ningún par mide 12.
+
+### Cómo lo aplico (*mío*)
+
+- **Lo que cambia frente a v5.3:** el bucket de postings es un Map. Un miembro se escribe como un par; la fila de aristas, como un par que reemplaza al anterior; un posting se retira con lápidas de clave; y las dos filas se leen con `MapList`. Todo lo demás es de v5.3: K = 64, cuándo se escribe la fila, su formato y lo que espera en memoria.
+- **Si el store devuelve más de un par para la fila de un posting, es stop,** como en v5.3.
+- **Dos crecimientos, como en v5.3** (su enmienda 1), del 10 % al 100 % de dbpedia 1M, con un escritor, T = 360 y ef de inserción 160:
+  - **La validación:** junto a su gemelo en memoria, con el store en modo pread y la compactación por niveles.
+  - **El índice de las curvas:** con la compactación forzada de HFresh y sin gemelo, con su cobertura comprobada al acabar. De día y sin puerta: sus inserts por segundo no son una medida.
+- **Corrección, que es stop:** en cada insert, el mismo posting, las mismas aristas y las mismas cuentas que el gemelo; en cada checkpoint, del 20 al 100 %, con todo volcado, cobertura completa e índice idéntico; y cerrado y abierto otra vez, lo mismo que el gemelo en las 5 000 queries de sus dos puntos.
+  - **En los tests, a pequeña escala:** lo mismo, cruzando splits, volcados, compactaciones y reaperturas; que cada lectura de la fila devuelve un único par; y que de un posting retirado no se lee nada.
+- **El reorganizado** es una copia del índice de las curvas escrita como la de v5.3: de cada posting vivo sus dos filas, en un bucket vacío que se vuelca una vez, y los vectores en orden de posting. Tiene que devolver lo mismo que el índice tal cual en las 5 000 queries de sus dos puntos: es stop.
+- **GB escritos al crecer:** lo que el store escribe en el crecimiento del índice de las curvas, que es de donde salen los 9.43 GB de v5.0, los 7.74 de K = 64 de v5.1 y los 17.08 de v5.3. Con su reparto: log de escritura, volcados y compactación del bucket de postings, filas escritas y lápidas de clave.
+- **Lecturas y KB por carga, del store,** en los tres estados del índice validado, como en v5.0, v5.1 y v5.3: como lo dejan los ciclos, volcado sin compactar y compactado. Junto a lo que usa el gemelo.
+- **Page-ins por carga:** el conteo de v5.3, sobre el índice de las curvas tal cual y reorganizado: las 500 queries de la tanda en frío, de una en una, las filas de cada carga leídas una detrás de otra, y la cuenta del disco en los dos órdenes. Las filas de v5.0, v5.1 y v5.3 no se vuelven a medir: son conteos.
+- **Cronometrado, cuatro curvas,** cada una en su proceso, en dos rondas, en caliente y en frío, con 1 y 8 threads:
+
+  | curva | de quién |
+  |---|---|
+  | v5.4, reorganizado | del usuario |
+  | v5.3, reorganizado | del usuario |
+  | el lote (v4.0, 512 bits en RAM) | del usuario |
+  | el índice de v5.3, reorganizado sobre un Map: el de la puerta | **mía** |
+
+  - **La cuarta curva** tiene los mismos postings que «v5.3, reorganizado», con el bucket como única diferencia. v5.4 y v5.3 son dos crecimientos, y sus postings no son los mismos; esta separa el formato del crecimiento. Son seis minutos por ronda. Si el usuario no la quiere, se quita antes de la sesión.
+  - **v5.4 tal cual no se cronometra:** el encargo pide el reorganizado.
+- **La lectura, con cuatro condiciones.** Sustituye a v5.3 si cumple las cuatro:
+  1. **En frío:** el p50 con 1 thread a 0.95, en la primera ronda, de v5.4 reorganizado entre el del lote de la misma sesión, 1.20 o menos.
+  2. **En caliente:** lo mismo, 1.25 o menos.
+  3. **Lo escrito:** el store escribe 10 GB o menos en el crecimiento del índice de las curvas.
+  4. **Sin compactar:** en el estado volcado y sin compactar del índice validado, a 0.95, los bytes que el store lee por carga entre los que usa el gemelo, 1.5 o menos. El estado como lo dejan los ciclos y el punto de 0.99 se reportan sin umbral.
+  - **Por debajo de un 10 % entre dos índices es un empate.**
+  - **A 0.99 y con 8 threads** se reporta sin umbral.
+- **Condiciones de la sesión:** las de v5.3: la máquina despierta, 15 minutos sin teclado ni trackpad antes de arrancar, nada compilando ni corriendo de la otra sesión, dos rondas y la actividad de cada tramo. Una curva que derive o coincida con actividad se marca, y se repite en la ventana de la noche.
+- **Lo que no mide:** inserts por segundo; K distinto de 64; postings de más de 949 miembros; una reorganización en segundo plano de verdad; ni otra forma de leer un Map, que pediría tocar `lsmkv`.
+- **Lo que el binario añade:** en ficheros de test, el bucket de postings como Map, como opción del índice que crece con las filas junto a los miembros, con sus tests de equivalencia; su caso en la reorganización, que puede escribir sobre un Map la copia de un índice de Set; y sus etapas en un script. Nada en `lsmkv` ni en el índice.
+
+### La puerta: si el Map encarece la lectura (*mío*, para aplicar la parada del usuario)
+
+Va detrás del mecanismo y sus tests, y antes de crecer nada a 1M. El índice de las curvas de v5.3 sigue en disco. Se escribe reorganizado otra vez, con el bucket Map: los mismos postings, en el mismo orden, con los mismos vectores, y el bucket como única diferencia con «v5.3, reorganizado».
+
+- **Corrección, que es stop:** devuelve los mismos ids, distancias y trabajo que el índice de v5.3 en las 5 000 queries de sus dos puntos.
+- **Lo que cuenta el store:** lecturas y KB por carga, en un segmento, junto a los de «v5.3, reorganizado» (2.00 lecturas, 67.03 KB, 1.053 veces lo que usa).
+- **En caliente, sin cronometrar e indicativo:** el p50 a 0.95 con 1 thread de los dos índices, cada uno en su proceso, alternados tres veces, y lo que cuesta traer cada fila. Es de día: se dice qué más corría.
+- **Paro y doy las opciones si:**
+  - con el store compactado, la carga lee más de 1.10 veces lo que usa; o
+  - el p50 en caliente sobre el Map queda más de un 5 % por encima del de «v5.3, reorganizado», en la mediana de las tres pasadas.
+- **Por qué un 5 %:** v5.3 reorganizado quedó ayer a 1.21 y 1.20 veces el lote en caliente, y el límite es 1.25, un 3.3 % más. Con un 5 % la proyección es 1.27, fuera aun quitándole el ruido de una medida de día.
+- **Entre un 2 % y un 5 % sigo,** y digo que la sesión cronometrada puede fallar la condición de en caliente.
+- **Las opciones, si paro,** sin escribir ninguna: una lectura cruda de un Map en `lsmkv`, que para los miembros no necesita fusión; un Set que admita reemplazar sin una lápida por valor; o los miembros agrupados en pocos pares, que cambia cuánto se reescribe en cada insert.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **La puerta, lo que cuenta el store:** 2.00 lecturas y unos 68.5 KB por carga, 1.075 veces lo que usa.
+- **La puerta, en caliente:** entre un 1 y un 6 % más lento que sobre el Set. No sé de qué lado del 5 % cae: la fusión son unos 240 pares por carga, y lo que tiene de margen la condición de en caliente son 1.5 µs por carga.
+- **Lo que el store escribe al crecer:** entre 7.5 y 9.5 GB. Por debajo de 10, sin mucho margen: los miembros cuestan lo que en v5.1 y las filas algo más que en su bucket Replace.
+- **Sin compactar:** entre 1.35 y 1.65 veces lo que usa, en el estado volcado. Es la condición que menos sé prever. Una carga trae una versión de la fila por segmento que la tenga, y por las lecturas de v5.3 la fila está en unos tres de los cinco segmentos: dos versiones de más, unos 24 KB sobre 64.
+- **Cronometrado, reorganizado, en frío:** de 1.08 a 1.14 veces el lote, en empate con v5.3 reorganizado.
+- **Cronometrado, reorganizado, en caliente:** de 1.21 a 1.29. Es la otra condición que dudo.
+- **Cumple lo escrito y el frío. De las otras dos no sé.**
+
 ## v6.2b: churn largo y borrado por regiones (2026-11-20)
 
 **Estado: pre-registrado el 20 a las 14:19, antes de compilar nada de esta ronda y antes de ningún dato suyo. Cerrado el 20 a las 18:33: B se sostiene (abajo, «Paso 2» y «Veredicto de v6.2b»).** Las celdas, el protocolo, las medidas y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Son conteos, en memoria: nada se cronometra. Puede correr de día junto a la validación de v5.3, y nunca durante una sesión cronometrada.
