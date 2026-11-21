@@ -16,7 +16,7 @@
 - **Un filtro hoy da error, y eso falla la query entera.** La opción mínima es una búsqueda exacta sobre la lista por debajo de un corte, y filtrar en el scan por encima. Sin medir.
 - **Dos decisiones abiertas condicionan el formato:** dónde viven los vectores exactos, y si hay un formato en disco o dos.
 - **En parámetros,** lo acordado son seis: `distance` (solo `cosine` en la primera versión), `ef`, `efConstruction`, `rq.rescoreLimit`, `maxPostingSizeKB` y `rq.cacheMode`, que acepta `routing` (por defecto) y `none`; el modo `scan` salió de la lista el 20, descartado por v4.1. El `rescoreLimit` automático no se acopla a `ef` en el modo `routing`: sale de los bits del código de scan, 64 a 1536d y 200 a 768d.
-- **Medido el 21:** k = 1 y k = 100, y el barrido a 768d con rescore 64, 100, 150 y 200. El `ef` no necesita un factor por k, y el `rescoreLimit` automático pasa a ser el mayor entre 64, 150 × (768 / bits)³ y 4 × k (sección 4).
+- **Medido el 21:** k = 1 y k = 100, y el barrido a 768d con rescore 64, 100, 150 y 200. El `ef` no necesita un factor por k, y el `rescoreLimit` automático pasa a ser el mayor entre 64, 150 × (768 / bits)³ y 4 × k (sección 4). **La regla del rescore está validada solo a 768 y a 1 536 bits; por debajo es extrapolación, y falta un barrido a 1M con un dataset de 384 o 512d antes de publicar el índice.**
 - **Al leer apareció un bug en flat y en HFresh,** en la búsqueda por distancia. Está arreglado en esta rama con sus tests, y sigue en `main`.
 
 ## 1. Qué exige un tipo de índice
@@ -456,7 +456,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **Propuesta mía, con el dato: el automático es el mayor entre 64, 150 × (768 / bits)³ y 4 × k.** Con k = 10: 1 200 con 384 bits, 506 con 512, 150 con 768 y 64 de 1 024 en adelante.
 - **150 es el menor rescore que cruza 0.99 antes de ef 320.** Frente a 200 lee un 20 % menos por query a 0.95 y un 9 % menos a 0.99.
 - **El término de 4 × k sale de un punto,** k = 100 a 1 536 bits: con 2 × k el 0.99 queda fuera y con 4 × k entra.
-- **Por debajo de 768 bits queda más justa que con el ancla de 200:** con 512 bits da 506, donde lo medido es que 400 llega a 0.99 solo con ef 640 o más. Sin dato nuevo ahí abajo.
+- **Validada solo a 768 y a 1 536 bits** (*decisión del usuario del 21*). A 768 bits con wiki-dpr 1M y a 1 536 con dbpedia 1M. **Por debajo de 768 bits es una extrapolación** de la forma cúbica: con 512 bits da 506, donde lo medido con códigos capados es que 400 llega a 0.99 solo con ef 640 o más.
+- **Pendiente explícito antes de publicar el índice: un barrido a 1M con un dataset nativo de 384 o 512 dimensiones,** rescore frente a `ef` hasta llegar a 0.99, que diga cuánto rescore pide de verdad. Hoy no hay en disco ninguno de ese tamaño: los únicos de 384d son `custom-fiqa-12k` y `custom-fiqa-48k`, de 12 000 y 48 000 vectores, y el rescore que hace falta crece con el corpus. De 512d no hay ninguno.
 - **El 10M de esta noche corre nuestras celdas con 150,** con 200 y 400 de reserva si no llegara a 0.99: dirá si el ancla depende del tamaño del corpus.
 
 **Qué puntos faltan para fijarla:**
