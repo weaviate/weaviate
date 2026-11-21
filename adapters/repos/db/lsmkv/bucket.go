@@ -1490,8 +1490,12 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 				}
 				// Read "broken" tombstones with length 12 but a non-tombstone value
 				// Related to Issue #4125
+				// A tombstone carries a key and no value, so such a pair has a
+				// key of 8 bytes: a pair of 12 bytes that carries a value is a
+				// regular pair and must be returned.
 				// TODO: Remove the extra check, as it may interfere future in-disk format changes
-				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
+				segmentDecoded[j].Tombstone = v.tombstone ||
+					(len(v.value) == 12 && len(segmentDecoded[j].Value) == 0)
 			}
 		}
 		if len(segmentDecoded) > 0 {
