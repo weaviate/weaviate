@@ -320,6 +320,41 @@ func TestPersistentShutsDownWhileItsBaseIsBuilt(t *testing.T) {
 	f.expect(t, "with more added", total, held)
 }
 
+// Settle waits for a base that is being built, and for the index to take
+// what was kept aside meanwhile: whoever calls it gets an index with its
+// base. It used to return at once while the base was being built, since no
+// base was due.
+func TestPersistentSettleWaitsForItsBase(t *testing.T) {
+	ctx := context.Background()
+	const base, total = persistentBase, persistentBase + 60
+	steps := newBaseSteps()
+	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.baseHook = steps.hook })
+	for start := 0; start < base; start += 50 {
+		require.NoError(t, f.index.AddBatch(ctx, sequentialIDs(50, uint64(start)), f.vectors[start:start+50]))
+	}
+	steps.at(t, "the vectors of the base are read")
+	require.NoError(t, f.index.AddBatch(ctx, sequentialIDs(60, base), f.vectors[base:total]))
+	settled := make(chan error, 1)
+	enterrors.GoWrapper(func() { settled <- f.index.Settle(ctx) }, testLogger())
+	var early bool
+	select {
+	case <-settled:
+		early = true
+	case <-time.After(300 * time.Millisecond):
+	}
+	// The build goes on whatever Settle did: the index cannot be closed
+	// with it stopped.
+	steps.stopping.Store(false)
+	steps.proceed <- struct{}{}
+	require.False(t, early, "Settle returned while the base was being built")
+	require.NoError(t, <-settled)
+	f.index.mu.RLock()
+	require.NotNil(t, f.index.g, "the base is built")
+	require.Empty(t, f.index.staged, "and nothing is left aside")
+	f.index.mu.RUnlock()
+	f.expect(t, "settled", total, func(uint64) bool { return true })
+}
+
 func mapsClone(m map[uint64]bool) map[uint64]bool {
 	out := make(map[uint64]bool, len(m))
 	for id, is := range m {

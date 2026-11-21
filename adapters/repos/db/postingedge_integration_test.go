@@ -172,6 +172,18 @@ func postingEdgeTestShard(t *testing.T, repo *DB) *Shard {
 // as it was. What the index does not do fails the query with an error that
 // says what.
 func TestPostingEdge_ThroughAShard(t *testing.T) {
+	postingEdgeThroughAShard(t, false)
+}
+
+// With async indexing the vectors reach the index from the shared workers of
+// the node, several at once, each with a part of what the queue of the shard
+// holds, and so do the deletes: the class behaves as it does without it, once
+// the queue has been through.
+func TestPostingEdge_ThroughAShardWithAsyncIndexing(t *testing.T) {
+	postingEdgeThroughAShard(t, true)
+}
+
+func postingEdgeThroughAShard(t *testing.T, async bool) {
 	const (
 		dims  = 64
 		base  = 1000
@@ -199,10 +211,19 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 			// The index gathers this many vectors before it builds its first
 			// postings: the default is ten times as many.
 			config.PostingEdgeBaseSize = base
+			config.AsyncIndexingEnabled = async
 		}, nil, class)
 	}
 	repo := open()
 	closed := false
+	// indexed waits, with async indexing, for the queue of the shard to have
+	// been through: what was written is in the index, or out of it.
+	indexed := func(t *testing.T, repo *DB) {
+		t.Helper()
+		if async {
+			waitForIndexing(t, repo, postingEdgeTestClass)
+		}
+	}
 	defer func() {
 		if !closed {
 			require.NoError(t, repo.Shutdown(context.Background()))
@@ -271,6 +292,7 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 				require.NoError(t, object.Err, "object %d", start+object.OriginalIndex)
 			}
 		}
+		indexed(t, repo)
 	}
 	index := func(t *testing.T, repo *DB) *postingedge.Persistent {
 		t.Helper()
@@ -300,6 +322,8 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 		got := recall(t, repo, total)
 		t.Logf("recall@%d after importing %d objects: %.4f", k, total, got)
 		assert.Greater(t, got, 0.9)
+		// The base is built in the background once its vectors are in.
+		require.NoError(t, index(t, repo).Settle(ctx))
 		meta := filepath.Join(postingEdgeTestShard(t, repo).path(),
 			helpers.PostingEdgeDirName(helpers.VectorIndexIDForTarget("")), "meta.json")
 		_, err := os.Stat(meta)
@@ -311,6 +335,7 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 			require.NoError(t, repo.DeleteObject(ctx, postingEdgeTestClass, corpus.ids[i], time.Time{}, nil, "", 0))
 			deleted[i] = true
 		}
+		indexed(t, repo)
 		got := recall(t, repo, total)
 		t.Logf("recall@%d with a quarter of the objects deleted: %.4f", k, got)
 		assert.Greater(t, got, 0.9)
@@ -327,6 +352,7 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 				Properties: map[string]interface{}{"name": fmt.Sprintf("object %d, updated", i)},
 			}, query, nil, nil, nil, 0))
 			corpus.vectors[i], corpus.normalized[i] = query, distancer.Normalize(query)
+			indexed(t, repo)
 			got := search(t, repo, query, 1)
 			require.Equal(t, []strfmt.UUID{corpus.ids[i]}, got, "object %d is the nearest to the vector it was given", i)
 		}
@@ -345,6 +371,7 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 		closed = true
 		repo = open()
 		closed = false
+		indexed(t, repo)
 
 		for i, query := range corpus.queries {
 			require.Equal(t, before[i], search(t, repo, query, k), "query %d", i)
@@ -362,10 +389,12 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 				Properties: map[string]interface{}{"name": "late"},
 			}, vector, nil, nil, nil, 0))
 		}
+		indexed(t, repo)
 		for i, vector := range more.vectors[:20] {
 			require.Equal(t, []strfmt.UUID{more.ids[i]}, search(t, repo, vector, 1), "a late object is its own nearest")
 		}
 		require.NoError(t, repo.DeleteObject(ctx, postingEdgeTestClass, more.ids[0], time.Time{}, nil, "", 0))
+		indexed(t, repo)
 		require.NotContains(t, search(t, repo, more.vectors[0], k), more.ids[0])
 	})
 

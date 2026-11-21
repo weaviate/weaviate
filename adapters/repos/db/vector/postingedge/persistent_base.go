@@ -67,15 +67,15 @@ func (p *Persistent) baseDue() bool {
 	return p.g == nil && !p.building && len(p.staged) >= p.cfg.BaseSize && len(p.staged) > p.buildFailed
 }
 
-// baseOn tells whether the base is due, or the index has one and vectors are
-// still aside.
+// baseOn tells whether the base is due or being built, or the index has one
+// and vectors are still aside.
 func (p *Persistent) baseOn() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.closed || p.failed != nil {
 		return false
 	}
-	return p.baseDue() || (p.g != nil && len(p.staged) > 0)
+	return p.building || p.baseDue() || (p.g != nil && len(p.staged) > 0)
 }
 
 // baseHook tells the tests where the build of the base is. What they answer
