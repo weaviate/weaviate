@@ -80,7 +80,32 @@ var (
 		"-bench.integrationreopen: once opened again the store reads with pread and counts what it reads, a load of "+
 		"a posting is told in reads and bytes of the store, and the index is measured once more with its store "+
 		"compacted until it finds nothing to compact and its vectors laid out again")
+	benchIntegrationChurn = flag.Int("bench.integrationchurn", 0, "with TestIntegrationScale: the rounds of the churn "+
+		"of v6.2, 0 for none. The index is its base alone, of -bench.integrationbase vectors built in batch, and "+
+		"every round deletes a share of them at random, inserts as many new ones and runs a pass over the deleted "+
+		"vectors. It is measured at the end, opened again, and next to an index whose base is a batch of the "+
+		"vectors that are left")
+	benchIntegrationChurnShare = flag.Float64("bench.integrationchurnshare", 0.03, "with -bench.integrationchurn: "+
+		"the share of the base deleted and inserted in every round")
 )
+
+// integrationRound is a round of the churn: what was deleted and inserted,
+// what the passes over the deleted vectors have done up to it, and what the
+// index is left with.
+type integrationRound struct {
+	Round    int            `json:"round"`
+	Deleted  int            `json:"deleted"`
+	Inserted int            `json:"inserted"`
+	Cleaned  growCleanStats `json:"cleanedSoFar"`
+	// Held is the vectors the index holds after the pass, Postings its live
+	// postings and EdgesPerVector the edges of a vector, on average.
+	Held           int     `json:"held"`
+	Postings       int     `json:"livePostings"`
+	EdgesPerVector float64 `json:"edgesPerVector"`
+	// PassSeconds is how long the pass took. It is not a timing: the
+	// machine is not alone.
+	PassSeconds float64 `json:"passSeconds"`
+}
 
 type integrationPoint struct {
 	EF     int     `json:"ef"`
@@ -147,7 +172,11 @@ type integrationResult struct {
 	Stretches    []integrationStretch `json:"stretches"`
 	Stats        growStats            `json:"stats"`
 	DirBytes     int64                `json:"dirBytes"`
-	Stages       []integrationStage   `json:"stages"`
+	// Reference, after a churn, is the meta of the index built in batch from
+	// the vectors that were left.
+	Reference *growMeta          `json:"referenceMeta,omitempty"`
+	Rounds    []integrationRound `json:"rounds,omitempty"`
+	Stages    []integrationStage `json:"stages"`
 }
 
 func TestIntegrationScale(t *testing.T) {
@@ -198,6 +227,14 @@ func TestIntegrationScale(t *testing.T) {
 	metrics, err := diskStoreMetrics()
 	require.NoError(t, err)
 	counting := false
+	// baseSize is the vectors the index gathers before it builds its base.
+	// In the churn nothing runs in the background: the passes over the
+	// deleted vectors are called, one a round.
+	baseSize, churn := *benchIntegrationBase, *benchIntegrationChurn
+	if churn > 0 {
+		require.Positive(t, baseSize, "-bench.integrationchurn takes the base of -bench.integrationbase")
+		require.Less(t, baseSize, n)
+	}
 	// open opens the store and the index over it: empty the first time, and
 	// after a shut what the ones before left on disk.
 	open := func() {
@@ -221,8 +258,9 @@ func TestIntegrationScale(t *testing.T) {
 			Logger:            logger,
 			DistanceProvider:  distancer.NewCosineDistanceProvider(),
 			MakeBucketOptions: makeOptions,
-			BaseSize:          *benchIntegrationBase,
+			BaseSize:          baseSize,
 			Seed:              1,
+			noMaintenance:     churn > 0,
 		}, uc, store)
 		require.NoError(t, err)
 		closed = false
@@ -269,13 +307,18 @@ func TestIntegrationScale(t *testing.T) {
 	var insertTime time.Duration
 	lastLog, lastInserted := time.Now(), 0
 	vectors := make([][]float32, 0, batch)
-	for inserted < n {
+	// In the churn the index is its base alone until the rounds start.
+	grownTo := n
+	if churn > 0 {
+		grownTo = baseSize
+	}
+	for inserted < grownTo {
 		if !until.IsZero() && time.Now().After(until) {
 			shut()
 			t.Fatalf("STOP: it is past %s with %d of %d vectors in: the run ends here, with nothing of it alive",
 				*benchIntegrationUntil, inserted, n)
 		}
-		to := min(inserted+batch, n)
+		to := min(inserted+batch, grownTo)
 		vectors = vectors[:0]
 		for _, id := range order[inserted:to] {
 			vectors = append(vectors, data.train[id])
@@ -303,7 +346,7 @@ func TestIntegrationScale(t *testing.T) {
 		if inserted%growCycleEvery == 0 {
 			cycle()
 		}
-		if p.g != nil && (time.Since(lastLog) > 5*time.Minute || inserted == n) {
+		if p.g != nil && (time.Since(lastLog) > 5*time.Minute || inserted == grownTo) {
 			stretch := integrationStretch{
 				Inserted: inserted, Seconds: time.Since(begin).Seconds(), Postings: p.g.meta.Postings,
 				PerSecond: float64(inserted-lastInserted) / time.Since(lastLog).Seconds(),
@@ -487,6 +530,165 @@ func TestIntegrationScale(t *testing.T) {
 		require.Equal(t, "complete", stage.Coverage, "STOP: the coverage of the index, %s", name)
 		return answers
 	}
+	if churn > 0 {
+		// The churn of v6.2 (bench-report.md, "v6.2: reparación en el
+		// churn"): every round deletes a share of the base at random, inserts
+		// as many new vectors, whose searches go through the deleted ones
+		// that are still there, and then runs the pass that takes them out.
+		perRound := int(*benchIntegrationChurnShare * float64(baseSize))
+		require.Positive(t, perRound)
+		require.LessOrEqual(t, baseSize+churn*perRound, n, "the train set has no vectors for %d rounds", churn)
+		live := make([]bool, n)
+		for _, id := range order[:baseSize] {
+			live[id] = true
+		}
+		// edgesPerVector reads every row of edges of the index: the edges of
+		// the vectors it holds, on average, how many it holds, and its live
+		// postings.
+		edgesPerVector := func() (edges float64, held, postings int) {
+			p.mu.RLock()
+			defer p.mu.RUnlock()
+			total := 0
+			for q := range uint32(g.meta.Postings) {
+				if g.retired[q] {
+					continue
+				}
+				postings++
+				_, ids, lists, err := g.readEdges(q)
+				require.NoError(t, err)
+				for i, id := range ids {
+					if g.deleted[id] {
+						continue
+					}
+					held++
+					total += len(lists[i])
+				}
+			}
+			return float64(total) / float64(max(held, 1)), held, postings
+		}
+		edges, held, postings := edgesPerVector()
+		t.Logf("the base: %d vectors in %d postings, %.2f edges a vector", held, postings, edges)
+		next := baseSize
+		for round := 1; round <= churn; round++ {
+			var holds []uint64
+			for id, is := range live {
+				if is {
+					holds = append(holds, uint64(id))
+				}
+			}
+			rng := rand.New(rand.NewPCG(6, uint64(round)))
+			rng.Shuffle(len(holds), func(i, j int) { holds[i], holds[j] = holds[j], holds[i] })
+			victims := holds[:perRound]
+			for from := 0; from < len(victims); from += batch {
+				require.NoError(t, p.Delete(victims[from:min(from+batch, len(victims))]...))
+			}
+			for _, id := range victims {
+				live[id] = false
+			}
+			for from := next; from < next+perRound; from += batch {
+				to := min(from+batch, next+perRound)
+				vectors = vectors[:0]
+				for _, id := range order[from:to] {
+					vectors = append(vectors, data.train[id])
+				}
+				if err := p.AddBatch(ctx, order[from:to], vectors); err != nil {
+					t.Fatalf("round %d, inserts %d to %d: %v", round, from, to, err)
+				}
+				require.NoError(t, p.Flush())
+				if (to-baseSize)%growCycleEvery == 0 {
+					cycle()
+				}
+			}
+			for _, id := range order[next : next+perRound] {
+				live[id] = true
+			}
+			next += perRound
+
+			clock := time.Now()
+			require.NoError(t, p.clean(ctx), "round %d: the pass over the deleted vectors", round)
+			took := time.Since(clock)
+			require.NoError(t, p.Flush())
+			cycle()
+			edges, held, postings := edgesPerVector()
+			p.mu.RLock()
+			cleaned, marked := g.cleaned, g.deletedCount
+			p.mu.RUnlock()
+			require.Zero(t, marked, "round %d: vectors are left marked after the pass", round)
+			require.Equal(t, baseSize, held, "round %d: the index holds as many vectors as its base", round)
+			result.Rounds = append(result.Rounds, integrationRound{
+				Round: round, Deleted: perRound, Inserted: perRound, Cleaned: cleaned, Held: held, Postings: postings,
+				EdgesPerVector: edges, PassSeconds: took.Seconds(),
+			})
+			write()
+			t.Logf("round %d: %d deleted, %d inserted, and a pass of %s, with other runs on the machine | so far %d taken "+
+				"out, %d edges with a substitute and %d without, %d merges | %d vectors in %d postings, %.2f edges a vector",
+				round, perRound, perRound, took.Round(time.Second), cleaned.Removed, cleaned.Substituted, cleaned.Without,
+				cleaned.Merges, held, postings, edges)
+		}
+
+		truth, fallbacks := liveTruthOf(t, data, live, k)
+		t.Logf("the ground truth of the vectors that are left: %d queries by brute force", fallbacks)
+		churned := measure("churned", truth, live, churn*perRound, nil, "", 0)
+		if *benchIntegrationReopen {
+			took := reopen("churned")
+			measure("churned, opened again", truth, live, churn*perRound, churned, "the index was closed", took)
+		}
+		result.DirBytes, err = sizeOnDisk(dir)
+		require.NoError(t, err)
+		p.mu.RLock()
+		churnedMeta := g.meta
+		p.mu.RUnlock()
+
+		// The reference: an index whose base is a batch of the vectors that
+		// are left, built and read by the same code.
+		shut()
+		dir += "-reference"
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Empty(t, entries, "%s is not empty", dir)
+		baseSize, counting = 0, false
+		for _, is := range live {
+			if is {
+				baseSize++
+			}
+		}
+		open()
+		var ids []uint64
+		vectors = vectors[:0]
+		clock := time.Now()
+		add := func() {
+			if len(ids) == 0 {
+				return
+			}
+			if err := p.AddBatch(ctx, ids, vectors); err != nil {
+				t.Fatalf("the reference, %d vectors from doc %d: %v", len(ids), ids[0], err)
+			}
+			require.NoError(t, p.Flush())
+			ids, vectors = ids[:0], vectors[:0]
+		}
+		for _, id := range order {
+			if !live[id] {
+				continue
+			}
+			ids, vectors = append(ids, id), append(vectors, data.train[id])
+			if len(ids) == batch {
+				add()
+			}
+		}
+		add()
+		require.NotNil(t, p.g, "the reference has no base")
+		g = p.g
+		cycle()
+		t.Logf("the reference: a batch of the %d vectors that are left, in %d postings, built in %s with other runs on "+
+			"the machine", g.meta.Live, g.meta.Postings, time.Since(clock).Round(time.Second))
+		measure("reference: a batch of the vectors that are left", truth, live, 0, nil, "", 0)
+		reference := g.meta
+		result.Reference, result.Meta = &reference, churnedMeta
+		write()
+		return
+	}
+
 	require.NoError(t, p.Flush())
 	result.DirBytes, err = sizeOnDisk(dir)
 	require.NoError(t, err)
