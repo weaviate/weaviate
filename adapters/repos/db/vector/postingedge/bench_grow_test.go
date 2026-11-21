@@ -88,6 +88,9 @@ var (
 		"cell, the first one with its exact vectors in posting order besides")
 	benchGrowRows = flag.Bool("bench.growrows", false, "with -bench.growk: the rows of edges go in the bucket of "+
 		"postings, each as the one value of the key next to that of its members, and not in a bucket of their own (v5.3)")
+	benchGrowMap = flag.Bool("bench.growmap", false, "with -bench.growrows: the bucket of postings is a Map, where the "+
+		"row of edges of a posting is a pair that a new one replaces (v5.4). With TestGrowReorganize: the cells are "+
+		"written over a Map, whatever the bucket of the index of -bench.growdir is")
 	benchGrowK = flag.Int("bench.growk", 0, "with TestGrowValidate and TestGrowTimedInserts: consolidated edges (v5.1), "+
 		"the changes a row of edges is written whole after. 0 is v5.0: every change a value of its own")
 	benchGrowSearchers = flag.Int("bench.growsearchers", 1, "with TestGrowTimedInserts: the goroutines that run the "+
@@ -233,9 +236,11 @@ type growResult struct {
 	// without consolidated edges (v5.0).
 	Consolidate int `json:"consolidate"`
 	// RowsWithMembers tells that those rows are in the bucket of postings (v5.3).
-	RowsWithMembers bool             `json:"rowsWithMembers,omitempty"`
-	Base            growCheckpoint   `json:"base"`
-	Checkpoints     []growCheckpoint `json:"checkpoints"`
+	RowsWithMembers bool `json:"rowsWithMembers,omitempty"`
+	// MapRows tells that the bucket of postings is a Map (v5.4).
+	MapRows     bool             `json:"mapRows,omitempty"`
+	Base        growCheckpoint   `json:"base"`
+	Checkpoints []growCheckpoint `json:"checkpoints"`
 	// Force tells the compaction of the bucket of postings while the index
 	// grew: forced, as that of HFresh, or by levels.
 	Force bool `json:"force"`
@@ -328,7 +333,7 @@ func TestGrowValidate(t *testing.T) {
 	result := &growResult{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
 		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits, Force: *benchGrowForce,
-		Consolidate: *benchGrowK, RowsWithMembers: *benchGrowRows,
+		Consolidate: *benchGrowK, RowsWithMembers: *benchGrowRows, MapRows: *benchGrowMap,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
 			"edges": uc.Edges, "centroidEF": centroidEF, "rescoreLimit": uc.RescoreLimit, "loadBatch": uc.LoadBatch,
@@ -379,7 +384,7 @@ func TestGrowValidate(t *testing.T) {
 	begin = time.Now()
 	cfg := growConfig{
 		keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1, consolidate: *benchGrowK,
-		rowsWithMembers: *benchGrowRows,
+		rowsWithMembers: *benchGrowRows, mapRows: *benchGrowMap,
 	}
 	require.NoError(t, writeGrowIndex(ctx, logger, dir, st, cfg, provider, vectorOf))
 	t.Logf("wrote the base in %s", time.Since(begin).Round(time.Second))
@@ -718,11 +723,13 @@ type growManifest struct {
 	// of the whole run, with that.
 	Consolidate int `json:"consolidate"`
 	// RowsWithMembers tells that those rows are in the bucket of postings (v5.3).
-	RowsWithMembers bool      `json:"rowsWithMembers,omitempty"`
-	FlushRows       int       `json:"flushRows"`
-	FlushSeconds    float64   `json:"flushSeconds"`
-	Stats           growStats `json:"stats"`
-	Coverage        string    `json:"coverage"`
+	RowsWithMembers bool `json:"rowsWithMembers,omitempty"`
+	// MapRows tells that the bucket of postings is a Map (v5.4).
+	MapRows      bool      `json:"mapRows,omitempty"`
+	FlushRows    int       `json:"flushRows"`
+	FlushSeconds float64   `json:"flushSeconds"`
+	Stats        growStats `json:"stats"`
+	Coverage     string    `json:"coverage"`
 	// Searchers and Batch are those of the inserts in batches (v5.2): 1 and
 	// 1 for the insert of always. ApplyShare is the part of the time of the
 	// inserts their writes took, one after another, and SearchBusy the part
@@ -790,6 +797,7 @@ func TestGrowTimedInserts(t *testing.T) {
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Start: *benchGrowStart,
 		Threshold: *benchGrowThreshold, InsertEF: *benchGrowInsertEF, RoutingBits: *benchGrowBits,
 		Procs: runtime.GOMAXPROCS(0), Force: *benchGrowForce, Consolidate: *benchGrowK, RowsWithMembers: *benchGrowRows,
+		MapRows:   *benchGrowMap,
 		Searchers: *benchGrowSearchers, Batch: *benchGrowBatch,
 		Config: map[string]any{
 			"targetPostingSize": uc.TargetPostingSize, "buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit,
@@ -836,7 +844,7 @@ func TestGrowTimedInserts(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	cfg := growConfig{
 		keys: n, neighbors: uc.Edges, threshold: *benchGrowThreshold, seed: 1, consolidate: *benchGrowK,
-		rowsWithMembers: *benchGrowRows,
+		rowsWithMembers: *benchGrowRows, mapRows: *benchGrowMap,
 	}
 	require.NoError(t, writeGrowIndex(ctx, logger, dir, st, cfg, provider, vectorOf))
 	require.NoError(t, index.Shutdown(ctx))
@@ -1359,7 +1367,7 @@ func TestGrowReorganize(t *testing.T) {
 		}
 		require.NoError(t, os.MkdirAll(cell.dir, 0o755))
 		begin := time.Now()
-		require.NoError(t, reorganizeGrowIndex(ctx, logger, src, cell.dir, cell.order))
+		require.NoError(t, reorganizeGrowIndex(ctx, logger, src, cell.dir, cell.order, *benchGrowMap))
 		result.Seconds[cell.name] = time.Since(begin).Seconds()
 		t.Logf("%s: written in %s", cell.name, time.Since(begin).Round(time.Second))
 		g := open(cell.dir)

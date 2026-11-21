@@ -129,6 +129,14 @@ type growMeta struct {
 	// miembros"). A Set cannot replace a value: writing the row again takes
 	// the old one out, with a tombstone that carries it, and adds the new.
 	RowsWithMembers bool `json:"rowsWithMembers,omitempty"`
+	// MapRows, with RowsWithMembers, has the bucket of postings be a Map
+	// (v5.4, bench-report.md, "v5.4: la disposición de v5.3 sobre un bucket
+	// Map"): a member is a pair, keyed by its place in the posting, and the
+	// row of edges is one pair, always with the same key, so that a row
+	// written again replaces the one before with no tombstone. A Map does
+	// not skip the keys of a retired posting when it compacts: every pair of
+	// one is taken out, with a tombstone that carries its key.
+	MapRows bool `json:"mapRows,omitempty"`
 }
 
 // growIO counts reads or writes: how many, and their bytes.
@@ -201,7 +209,11 @@ type growStats struct {
 	// RowTombstones counts the rows taken out of the bucket of postings to
 	// be written again or because their posting was retired, where the rows
 	// of edges live next to the members: each is a tombstone with the row.
-	RowTombstones    growIO `json:"rowTombstones"`
+	RowTombstones growIO `json:"rowTombstones"`
+	// RetireTombstones counts the pairs of the postings retired that were
+	// taken out of a bucket of postings that is a Map: each is a tombstone
+	// with the key of its pair, and its bytes are those of that pair.
+	RetireTombstones growIO `json:"retireTombstones"`
 	RowDists         growIO `json:"rowDistWrites"`
 	RowDeletes       int    `json:"rowDeletes"`
 	StoreRows        growIO `json:"storeRowReads"`
@@ -496,6 +508,24 @@ func growEdgesBlock(ids []uint64, lists [][]uint32) ([]byte, error) {
 	return block, nil
 }
 
+// growRowPairKey is the key of the pair that holds the row of edges of a
+// posting whose bucket is a Map: always the same one. It is one byte, and the
+// key of a member two, so that no pair of the bucket takes 12 bytes encoded:
+// the store reads a pair of that size as a tombstone.
+var growRowPairKey = []byte{0}
+
+// growMemberPairKey is the key of the pair of a member of a posting whose
+// bucket is a Map: its place in the posting in the order of arrival, which is
+// then the order the store gives the members back in.
+func growMemberPairKey(at int) ([]byte, error) {
+	if at < 0 || at > math.MaxUint16 {
+		return nil, errors.Errorf("member %d of a posting: its key in a Map holds up to %d", at, math.MaxUint16)
+	}
+	key := make([]byte, 2)
+	binary.BigEndian.PutUint16(key, uint16(at))
+	return key, nil
+}
+
 // growBlock is a row of edges decoded: the members it has a list of, in its
 // order, and where the list of each starts.
 type growBlock struct {
@@ -545,6 +575,8 @@ type growConfig struct {
 	// rowsWithMembers has those rows in the bucket of postings, next to the
 	// members (growMeta.RowsWithMembers).
 	rowsWithMembers bool
+	// mapRows has the bucket of postings be a Map (growMeta.MapRows).
+	mapRows bool
 }
 
 // writeGrowIndex writes an index built in batch to dir, which must exist and
@@ -556,6 +588,9 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 ) (err error) {
 	if cfg.rowsWithMembers && cfg.consolidate <= 0 {
 		return errors.New("the rows of edges go next to the members only with consolidated edges")
+	}
+	if cfg.mapRows && !cfg.rowsWithMembers {
+		return errors.New("the bucket of postings is a Map only with the rows of edges next to the members")
 	}
 	if st == nil {
 		return ErrNotBuilt
@@ -595,7 +630,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		Version: growFormatVersion, Distance: provider.Type(), Dims: st.dims, Keys: cfg.keys,
 		ScanCodeWords: store.codeWords, RoutingBits: routingBits, RoutingCodeWords: st.side.codeWords,
 		Neighbors: cfg.neighbors, Threshold: cfg.threshold, Seed: cfg.seed, Postings: postings, Live: n,
-		Consolidate: cfg.consolidate, RowsWithMembers: cfg.rowsWithMembers,
+		Consolidate: cfg.consolidate, RowsWithMembers: cfg.rowsWithMembers, MapRows: cfg.mapRows,
 	}
 	path := func(name string) string { return filepath.Join(dir, name) }
 	if err := writeArray(path(diskMeanFile), 4, putFloat32, quantizer.Data().Mean); err != nil {
@@ -666,7 +701,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 				return errors.Wrapf(err, "write the vector of doc %d", docID)
 			}
 		}
-		if err := g.postings.SetAdd(diskKey(uint32(p), diskBlockMembers), members); err != nil {
+		if err := g.addMembers(uint32(p), 0, members); err != nil {
 			return errors.Wrapf(err, "write the members of posting %d", p)
 		}
 		if cfg.consolidate > 0 {
@@ -731,9 +766,14 @@ func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 	common := []lsmkv.BucketOption{
 		lsmkv.WithPread(opts.pread), lsmkv.WithForceCompaction(!opts.leveled), lsmkv.WithDirtyThreshold(1000 * time.Hour),
 	}
-	err = store.CreateOrLoadBucket(ctx, growBucketPostings, append([]lsmkv.BucketOption{
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection), lsmkv.WithShouldSkipKeyFunction(g.skipKey),
-	}, common...)...)
+	postings := []lsmkv.BucketOption{lsmkv.WithStrategy(lsmkv.StrategySetCollection), lsmkv.WithShouldSkipKeyFunction(g.skipKey)}
+	if g.meta.MapRows {
+		// A Map, and nothing to tell it which keys to skip: its compaction
+		// would not ask, and its flush would, leaving out the tombstones
+		// that take the pairs of a retired posting out of older segments.
+		postings = []lsmkv.BucketOption{lsmkv.WithStrategy(lsmkv.StrategyMapCollection)}
+	}
+	err = store.CreateOrLoadBucket(ctx, growBucketPostings, append(postings, common...)...)
 	if err != nil {
 		_ = store.Shutdown(ctx)
 		return errors.Wrap(err, "open the bucket of postings")
@@ -779,6 +819,20 @@ func (g *growIndex) getRow(p uint32) ([]byte, error) {
 	if !g.meta.RowsWithMembers {
 		return g.edges.Get(growPostingKey(p))
 	}
+	if g.meta.MapRows {
+		pairs, err := g.postings.MapList(context.Background(), diskKey(p, diskBlockEdges))
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case len(pairs) == 0:
+			return nil, nil
+		case len(pairs) == 1 && bytes.Equal(pairs[0].Key, growRowPairKey):
+			return pairs[0].Value, nil
+		}
+		return nil, errors.Errorf("STOP: the store holds %d pairs for the row of edges of posting %d, the first with key % x: not the one pair of a row",
+			len(pairs), p, pairs[0].Key)
+	}
 	values, err := g.postings.SetList(diskKey(p, diskBlockEdges))
 	if err != nil {
 		return nil, err
@@ -794,11 +848,22 @@ func (g *growIndex) getRow(p uint32) ([]byte, error) {
 
 // putRow writes the row of edges of posting p, whose row so far is old, nil
 // if it has none. In a bucket of its own the new row replaces it. Next to the
-// members there is no replacing: the old row is taken out, with a tombstone
-// that carries it, and the new one is added.
+// members, in a Set, there is no replacing: the old row is taken out, with a
+// tombstone that carries it, and the new one is added. In a Map the row is a
+// pair, and the new pair replaces the old one, which has its key.
 func (g *growIndex) putRow(p uint32, old, block []byte) error {
 	if !g.meta.RowsWithMembers {
 		return g.edges.Put(growPostingKey(p), block)
+	}
+	if g.meta.MapRows {
+		if old != nil && bytes.Equal(old, block) {
+			return nil
+		}
+		if len(block) >= math.MaxUint16 {
+			return errors.Errorf("a row of edges of %d bytes for posting %d: the value of a pair of a Map takes less than %d",
+				len(block), p, math.MaxUint16)
+		}
+		return g.postings.MapSet(diskKey(p, diskBlockEdges), lsmkv.MapPair{Key: growRowPairKey, Value: block})
 	}
 	if old != nil {
 		if bytes.Equal(old, block) {
@@ -819,11 +884,50 @@ func (g *growIndex) putRow(p uint32, old, block []byte) error {
 // its memtable is flushed, and the row it takes out may be in an older
 // segment: until a compaction gets to it the store still holds that row,
 // which nothing reads, because the posting is never loaded again.
-func (g *growIndex) dropRow(p uint32) error {
+//
+// A Map is told nothing to skip, and every pair of the retired posting, which
+// had this many members, is taken out: its row of edges and each of its
+// members, with a tombstone that carries the key of the pair and not its
+// value.
+func (g *growIndex) dropRow(p uint32, members int) error {
 	if !g.meta.RowsWithMembers {
 		return g.edges.Delete(growPostingKey(p))
 	}
+	if !g.meta.MapRows {
+		return nil
+	}
+	if err := g.postings.MapDeleteKey(diskKey(p, diskBlockEdges), growRowPairKey); err != nil {
+		return err
+	}
+	g.stats.RetireTombstones.add(1, lsmkv.MapPair{Key: growRowPairKey}.Size())
+	for at := range members {
+		key, err := growMemberPairKey(at)
+		if err != nil {
+			return err
+		}
+		if err := g.postings.MapDeleteKey(diskKey(p, diskBlockMembers), key); err != nil {
+			return err
+		}
+		g.stats.RetireTombstones.add(1, lsmkv.MapPair{Key: key}.Size())
+	}
 	return nil
+}
+
+// addMembers adds members to the row of posting p, which holds from of them
+// already, in the order given. In a Map each is a pair, keyed by its place.
+func (g *growIndex) addMembers(p uint32, from int, members [][]byte) error {
+	if !g.meta.MapRows {
+		return g.postings.SetAdd(diskKey(p, diskBlockMembers), members)
+	}
+	pairs := make([]lsmkv.MapPair, len(members))
+	for i, member := range members {
+		key, err := growMemberPairKey(from + i)
+		if err != nil {
+			return err
+		}
+		pairs[i] = lsmkv.MapPair{Key: key, Value: member}
+	}
+	return g.postings.MapSetMulti(diskKey(p, diskBlockMembers), pairs)
 }
 
 // flushAll writes every memtable to a segment.
@@ -1141,18 +1245,40 @@ func (g *growIndex) row(p uint32, block byte) ([][]byte, error) {
 }
 
 func (g *growIndex) fetchMembers(p uint32, dp *diskPosting) error {
-	values, err := g.row(p, diskBlockMembers)
-	if err != nil {
-		return err
+	var values [][]byte
+	var pairs []lsmkv.MapPair
+	var err error
+	n := 0
+	if g.meta.MapRows {
+		// The pairs come in the order of their keys, the places of the
+		// members: the order they were added in.
+		pairs, err = g.postings.MapList(context.Background(), diskKey(p, diskBlockMembers))
+		if err != nil {
+			return errors.Wrapf(err, "read the members of posting %d", p)
+		}
+		n = len(pairs)
+	} else {
+		if values, err = g.row(p, diskBlockMembers); err != nil {
+			return err
+		}
+		n = len(values)
 	}
 	words := g.meta.ScanCodeWords
-	n := len(values)
 	if n != int(g.size[p]) {
 		return errors.Errorf("the row of posting %d holds %d members, the index counts %d", p, n, g.size[p])
 	}
 	dp.docIDs, dp.codes = resized(dp.docIDs, n), resized(dp.codes, n*words)
 	bytes := 0
-	for i, value := range values {
+	for i := range n {
+		var value []byte
+		if pairs != nil {
+			if key := pairs[i].Key; len(key) != 2 || int(binary.BigEndian.Uint16(key)) != i {
+				return errors.Errorf("STOP: member %d of posting %d has the key % x in the store, not its place", i, p, key)
+			}
+			value = pairs[i].Value
+		} else {
+			value = values[i]
+		}
 		if len(value) != 8*(1+words) {
 			return errors.Errorf("a member of posting %d takes %d bytes, expected %d", p, len(value), 8*(1+words))
 		}
@@ -1605,7 +1731,7 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 		edges, edgeDists = append(edges, uint32(u)), append(edgeDists, dist)
 	}
 	member, list := growMemberValue(docID, scanCode), growEdgesValue(docID, edges)
-	if err := g.postings.SetAdd(diskKey(p, diskBlockMembers), [][]byte{member}); err != nil {
+	if err := g.addMembers(p, int(g.size[p]), [][]byte{member}); err != nil {
 		return errors.Wrapf(err, "write doc %d to posting %d", docID, p)
 	}
 	if err := g.posts.Put(growDocKey(docID), growUint32Value(p)); err != nil {
@@ -2025,7 +2151,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 		if err := g.dropPending(p, true); err != nil {
 			return err
 		}
-		if err := g.dropRow(p); err != nil {
+		if err := g.dropRow(p, n); err != nil {
 			return errors.Wrapf(err, "delete the row of edges of posting %d", p)
 		}
 		g.stats.RowDeletes++
@@ -2035,7 +2161,13 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 			if len(values) == 0 {
 				continue
 			}
-			if err := g.postings.SetAdd(diskKey(first+c, byte(block)), values); err != nil {
+			var err error
+			if byte(block) == diskBlockMembers {
+				err = g.addMembers(first+c, 0, values)
+			} else {
+				err = g.postings.SetAdd(diskKey(first+c, byte(block)), values)
+			}
+			if err != nil {
 				return errors.Wrapf(err, "write row %d of posting %d", block, first+c)
 			}
 			bytes := 0
@@ -2372,8 +2504,10 @@ func (g *growIndex) checkCoverage() error {
 				// Its row of edges went with it, and nothing of it waits.
 				// Next to the members the store may still hold the row,
 				// with the members, until a compaction skips its keys.
+				// In a Map every pair of it was taken out: nothing of it
+				// is read, its members neither.
 				var row []byte
-				if !g.meta.RowsWithMembers {
+				if !g.meta.RowsWithMembers || g.meta.MapRows {
 					var err error
 					if row, err = g.getRow(p); err != nil {
 						return errors.Wrapf(err, "read the row of edges of posting %d", p)
@@ -2381,6 +2515,15 @@ func (g *growIndex) checkCoverage() error {
 				}
 				if row != nil || g.pending[p] != nil {
 					return errors.Errorf("retired posting %d still has a row of edges, or changes waiting", p)
+				}
+				if g.meta.MapRows {
+					members, err := g.postings.MapList(context.Background(), diskKey(p, diskBlockMembers))
+					if err != nil {
+						return errors.Wrapf(err, "read the members of posting %d", p)
+					}
+					if len(members) != 0 {
+						return errors.Errorf("retired posting %d still has %d members in the store", p, len(members))
+					}
 				}
 			}
 			continue
@@ -2523,8 +2666,16 @@ func (g *growIndex) sameAs(s *streamIndex) error {
 // posting in a row, in the order of its members, and the index gets the
 // table that tells where the vector of every doc id is. Without it the
 // vectors file is the one of src, linked.
+//
+// With mapRows the copy of an index that has its rows of edges next to the
+// members is written over a Map (growMeta.MapRows), whatever the bucket of
+// src is: the same postings, with the bucket as the one difference.
 func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *growIndex, dir string, orderVectors bool,
+	mapRows bool,
 ) (err error) {
+	if mapRows && !src.meta.RowsWithMembers {
+		return errors.New("the copy goes over a Map only if the index has its rows of edges next to the members")
+	}
 	if entries, err := os.ReadDir(dir); err != nil {
 		return err
 	} else if len(entries) > 0 {
@@ -2554,6 +2705,7 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 	}
 
 	dst := &growIndex{dir: dir, logger: logger, provider: src.provider, meta: src.meta}
+	dst.meta.MapRows = src.meta.MapRows || mapRows
 	if err := dst.openStore(ctx, growOpen{}); err != nil {
 		return err
 	}
@@ -2631,7 +2783,7 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 				slot++
 			}
 		}
-		if err := dst.postings.SetAdd(diskKey(p, diskBlockMembers), members); err != nil {
+		if err := dst.addMembers(p, 0, members); err != nil {
 			return errors.Wrapf(err, "write the members of posting %d", p)
 		}
 		if src.consolidated() {

@@ -14,6 +14,7 @@ package postingedge
 import (
 	"context"
 	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -70,12 +72,38 @@ func newGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, thre
 // consolidate is positive: the changes a row of edges is written after.
 func newGrowFixtureWith(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int) *growFixture {
 	t.Helper()
-	return newGrowFixtureRows(t, total, base, dims, cosine, bits, threshold, consolidate, false)
+	return newGrowFixtureRows(t, total, base, dims, cosine, bits, threshold, consolidate, growRowsOwnBucket)
 }
 
-// newGrowFixtureRows is newGrowFixtureWith, with the rows of edges in the
-// bucket of postings, next to the members, when withMembers is set (v5.3).
-func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int, withMembers bool,
+// growRows tells where an index with consolidated edges keeps its rows of
+// edges.
+type growRows int
+
+const (
+	// growRowsOwnBucket has them in a bucket of their own (v5.1).
+	growRowsOwnBucket growRows = iota
+	// growRowsInSet has them in the bucket of postings, next to the members,
+	// and that bucket a Set (v5.3).
+	growRowsInSet
+	// growRowsInMap has them next to the members too, in a Map (v5.4).
+	growRowsInMap
+)
+
+func (r growRows) String() string {
+	switch r {
+	case growRowsOwnBucket:
+		return "rows in a bucket of their own"
+	case growRowsInSet:
+		return "rows next to the members, in a Set"
+	case growRowsInMap:
+		return "rows next to the members, in a Map"
+	}
+	return "rows nowhere"
+}
+
+// newGrowFixtureRows is newGrowFixtureWith, with the rows of edges where rows
+// tells.
+func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int, rows growRows,
 ) *growFixture {
 	t.Helper()
 	ctx := context.Background()
@@ -111,7 +139,8 @@ func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, 
 
 	f.dir = t.TempDir()
 	cfg := growConfig{
-		keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7, consolidate: consolidate, rowsWithMembers: withMembers,
+		keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7, consolidate: consolidate,
+		rowsWithMembers: rows != growRowsOwnBucket, mapRows: rows == growRowsInMap,
 	}
 	require.NoError(t, writeGrowIndex(ctx, testLogger(), f.dir, st, cfg, f.provider, vectorOf))
 	f.twin, err = newStreamIndex(index, total, streamConfig{threshold: threshold, inverse: true, seed: 7, followGraph: true}, vectorOf)
@@ -507,25 +536,29 @@ func TestGrowIndexErrors(t *testing.T) {
 // a bucket written anew, and with that the exact vectors in posting order.
 // With a value per list of edges, as v5.0 stores them, and with the rows of
 // edges consolidated, as v5.1 does: the combined control lays that one out.
+// With the rows next to the members, in a Set (v5.3) and in a Map (v5.4), and
+// the copy of the index of a Set written over a Map: the gate of v5.4.
 func TestGrowReorganized(t *testing.T) {
 	tests := []struct {
 		name        string
 		consolidate int
-		withMembers bool
+		rows        growRows
 	}{
 		{name: "a value per list of edges"},
 		{name: "the rows of edges consolidated", consolidate: 8},
-		{name: "the rows of edges next to the members", consolidate: 8, withMembers: true},
+		{name: "the rows of edges next to the members", consolidate: 8, rows: growRowsInSet},
+		{name: "the rows of edges next to the members, in a Map", consolidate: 8, rows: growRowsInMap},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) { growReorganizedCase(t, tt.consolidate, tt.withMembers) })
+		t.Run(tt.name, func(t *testing.T) { growReorganizedCase(t, tt.consolidate, tt.rows) })
 	}
 }
 
-func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
+func growReorganizedCase(t *testing.T, consolidate int, rows growRows) {
 	ctx := context.Background()
 	const total, base, dims = 2000, 1000, 64
-	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, consolidate, withMembers)
+	withMembers := rows != growRowsOwnBucket
+	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, consolidate, rows)
 	for f.inserted < total {
 		difference, err := f.insert(ctx)
 		require.NoError(t, err)
@@ -537,7 +570,7 @@ func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
 	if consolidate > 0 {
 		// What waits in memory is not on disk yet: it is written first.
 		require.NotEmpty(t, f.g.pending)
-		require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, t.TempDir(), false), "waiting in memory")
+		require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, t.TempDir(), false, false), "waiting in memory")
 		require.NoError(t, f.g.flushPending())
 		require.Empty(t, f.g.pending)
 	}
@@ -548,17 +581,36 @@ func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
 	tests := []struct {
 		name  string
 		order bool
+		// toMap writes the copy over a Map, whatever the bucket of the index.
+		toMap bool
 	}{
 		{name: "one segment"},
 		{name: "one segment and the vectors in posting order", order: true},
 	}
+	if !withMembers {
+		// Only an index with its rows next to the members goes over a Map.
+		require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, t.TempDir(), true, true), "only if the index has its rows of edges next to the members")
+	} else {
+		tests = append(tests, struct {
+			name  string
+			order bool
+			toMap bool
+		}{name: "over a Map, and the vectors in posting order", order: true, toMap: true})
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			require.NoError(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order))
+			require.NoError(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order, tt.toMap))
 			cell, err := openGrowIndex(ctx, testLogger(), dir, f.provider, f.uc, growOpen{})
 			require.NoError(t, err)
 			defer func() { require.NoError(t, cell.close(ctx)) }()
+			inMap := rows == growRowsInMap || tt.toMap
+			require.Equal(t, inMap, cell.meta.MapRows)
+			wantStrategy := lsmkv.StrategySetCollection
+			if inMap {
+				wantStrategy = lsmkv.StrategyMapCollection
+			}
+			require.Equal(t, wantStrategy, cell.postings.Strategy(), "the bucket of postings")
 
 			segments := 0
 			entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketPostings))
@@ -618,7 +670,7 @@ func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
 				require.NoError(t, err, "query %d", i)
 				require.Empty(t, difference, "query %d", i)
 			}
-			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order), "is not empty")
+			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order, tt.toMap), "is not empty")
 
 			if !tt.order {
 				require.Nil(t, cell.slotOf)
@@ -644,7 +696,7 @@ func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
 			}
 			require.Equal(t, uint32(total), next)
 			require.ErrorContains(t, cell.insert(ctx, 0, f.all[0]), "does not grow")
-			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), cell, t.TempDir(), false), "laid out again already")
+			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), cell, t.TempDir(), false, false), "laid out again already")
 		})
 	}
 }
@@ -655,19 +707,18 @@ func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
 // edges are written whole after so many changes, when a posting splits and
 // when the index closes, and nothing else writes an edge. With the rows in a
 // bucket of their own (v5.1) and with them in the bucket of postings, next
-// to the members (v5.3), where writing a row again takes the old one out.
+// to the members: in a Set (v5.3), where writing a row again takes the old
+// one out, and in a Map (v5.4), where the new row replaces it and a retired
+// posting is taken out pair by pair.
 func TestGrowConsolidatedEqualsMemory(t *testing.T) {
-	for _, withMembers := range []bool{false, true} {
-		name := "rows in a bucket of their own"
-		if withMembers {
-			name = "rows next to the members"
-		}
-		t.Run(name, func(t *testing.T) { growConsolidatedCases(t, withMembers) })
+	for _, rows := range []growRows{growRowsOwnBucket, growRowsInSet, growRowsInMap} {
+		t.Run(rows.String(), func(t *testing.T) { growConsolidatedCases(t, rows) })
 	}
 }
 
-func growConsolidatedCases(t *testing.T, withMembers bool) {
+func growConsolidatedCases(t *testing.T, rows growRows) {
 	ctx := context.Background()
+	withMembers := rows != growRowsOwnBucket
 	tests := []struct {
 		name string
 		// k is the changes a row of edges is written after.
@@ -693,7 +744,7 @@ func growConsolidatedCases(t *testing.T, withMembers bool) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const total, base, dims = 2200, 1000, 64
-			f := newGrowFixtureRows(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, tt.k, withMembers)
+			f := newGrowFixtureRows(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, tt.k, rows)
 			if tt.leveled {
 				f.leveled = true
 				f.reopen(t)
@@ -701,7 +752,7 @@ func growConsolidatedCases(t *testing.T, withMembers bool) {
 			require.Equal(t, !withMembers, f.g.edges != nil, "the bucket of rows of edges")
 			require.True(t, f.g.consolidated())
 			f.same(t, "the base")
-			var rows, atClose int
+			var written, atClose int
 			for f.inserted < total {
 				at := f.inserted
 				difference, err := f.insert(ctx)
@@ -716,7 +767,7 @@ func growConsolidatedCases(t *testing.T, withMembers bool) {
 				}
 				if done == tt.reopenAt {
 					f.same(t, "before closing, with changes waiting")
-					rows += f.g.stats.RowWritesFull + f.g.stats.RowWritesSplit
+					written += f.g.stats.RowWritesFull + f.g.stats.RowWritesSplit
 					f.reopen(t)
 					require.Empty(t, f.g.pending, "an index that was closed has nothing waiting")
 					f.same(t, "opened again")
@@ -729,7 +780,7 @@ func growConsolidatedCases(t *testing.T, withMembers bool) {
 			if tt.k < 100 {
 				assert.Positive(t, f.g.stats.RowWritesFull, "rows are written after %d changes", tt.k)
 				assert.Positive(t, f.g.stats.PendingPeak)
-				if withMembers {
+				if rows == growRowsInSet {
 					assert.Positive(t, f.g.stats.RowTombstones.N, "a row written again takes the old one out")
 				} else {
 					assert.Zero(t, f.g.stats.RowTombstones.N)
@@ -740,6 +791,15 @@ func growConsolidatedCases(t *testing.T, withMembers bool) {
 			}
 			if tt.threshold < 100 {
 				assert.Positive(t, f.g.stats.RowWritesSplit)
+			}
+			if rows == growRowsInMap && tt.reopenAt == 0 {
+				// Every pair of a retired posting was taken out: its
+				// members, more than the threshold, and its row.
+				splits := int64(f.g.stats.Splits)
+				assert.Equal(t, splits > 0, f.g.stats.RetireTombstones.N > 0)
+				assert.GreaterOrEqual(t, f.g.stats.RetireTombstones.N, splits*int64(tt.threshold+2))
+			} else if rows != growRowsInMap {
+				assert.Zero(t, f.g.stats.RetireTombstones.N)
 			}
 			assert.Zero(t, f.g.stats.InverseTombs.N, "no list is taken out of a row value by value")
 			for p, pend := range f.g.pending {
@@ -764,13 +824,40 @@ func growConsolidatedCases(t *testing.T, withMembers bool) {
 			require.NoError(t, err)
 			f.same(t, "compacted")
 			if tt.k > 1 {
-				assert.Positive(t, atClose+rows, "rows are written")
+				assert.Positive(t, atClose+written, "rows are written")
 			}
 			// No list lives in the bucket of postings. With the rows of
 			// edges next to the members, the key of the lists of a live
 			// posting holds its row, one value. A retired one holds
 			// nothing after the compaction, which skips its keys.
 			for p := range uint32(f.g.meta.Postings) {
+				if rows == growRowsInMap {
+					// In a Map the key of the row of a live posting holds
+					// one pair, the row, and that of its members a pair
+					// each, keyed by their places. A retired one holds
+					// nothing, compacted or not: its pairs were taken out.
+					pairs, err := f.g.postings.MapList(ctx, diskKey(p, diskBlockEdges))
+					require.NoError(t, err)
+					members, err := f.g.postings.MapList(ctx, diskKey(p, diskBlockMembers))
+					require.NoError(t, err)
+					if f.g.retired[p] {
+						require.Empty(t, pairs, "posting %d", p)
+						require.Empty(t, members, "posting %d", p)
+						continue
+					}
+					require.Len(t, pairs, 1, "posting %d", p)
+					require.Equal(t, growRowPairKey, pairs[0].Key)
+					var row growBlock
+					require.NoError(t, row.decode(pairs[0].Value), "posting %d", p)
+					require.Len(t, row.ids, int(f.g.size[p]), "posting %d", p)
+					require.Len(t, members, int(f.g.size[p]), "posting %d", p)
+					for at, member := range members {
+						key, err := growMemberPairKey(at)
+						require.NoError(t, err)
+						require.Equal(t, key, member.Key, "member %d of posting %d", at, p)
+					}
+					continue
+				}
 				lists, err := f.g.postings.SetList(diskKey(p, diskBlockEdges))
 				require.NoError(t, err)
 				if withMembers && !f.g.retired[p] {
@@ -860,16 +947,17 @@ func TestGrowRowCount(t *testing.T) {
 	tests := []struct {
 		name        string
 		consolidate int
-		withMembers bool
+		rows        growRows
 	}{
 		{name: "a value per list of edges"},
 		{name: "the rows of edges consolidated", consolidate: 8},
-		{name: "the rows of edges next to the members", consolidate: 8, withMembers: true},
+		{name: "the rows of edges next to the members", consolidate: 8, rows: growRowsInSet},
+		{name: "the rows of edges next to the members, in a Map", consolidate: 8, rows: growRowsInMap},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const total, base, dims, k = 1600, 1000, 64, 10
-			f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, tt.consolidate, tt.withMembers)
+			f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, tt.consolidate, tt.rows)
 			for f.inserted < total {
 				difference, err := f.insert(ctx)
 				require.NoError(t, err)
@@ -956,10 +1044,11 @@ func TestGrowRowCount(t *testing.T) {
 func TestGrowRowsNextToMembersStop(t *testing.T) {
 	ctx := context.Background()
 	const total, base, dims = 1100, 1000, 64
-	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, 4, true)
+	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, 4, growRowsInSet)
 	g := f.g
 	require.Nil(t, g.edges)
 	require.True(t, g.meta.RowsWithMembers)
+	require.False(t, g.meta.MapRows)
 	require.NoDirExists(t, filepath.Join(f.dir, diskStoreDir, growBucketEdges))
 
 	// A row written again leaves one row, and the count of what it took out.
@@ -1003,4 +1092,158 @@ func TestGrowRowsNextToMembersStop(t *testing.T) {
 		keys: total, neighbors: f.uc.Edges, threshold: 60, seed: 7, rowsWithMembers: true,
 	}, f.provider, func(id uint64) []float32 { return f.all[id] })
 	require.ErrorContains(t, err, "only with consolidated edges")
+}
+
+// With the bucket of postings a Map (v5.4) the row of edges of a posting is
+// one pair, and writing it again replaces it, with no tombstone, across
+// flushes and compactions. A store that holds another pair under the key of
+// the row stops whatever reads it, and so does a member that is not at its
+// place. A retired posting leaves nothing to read. And the format is told
+// apart when the index is written: it needs the rows next to the members.
+func TestGrowMapRowsStop(t *testing.T) {
+	ctx := context.Background()
+	const total, base, dims = 1300, 1000, 64
+	f := newGrowFixtureRows(t, total, base, dims, false, 64, 60, 4, growRowsInMap)
+	g := f.g
+	require.Nil(t, g.edges)
+	require.True(t, g.meta.RowsWithMembers)
+	require.True(t, g.meta.MapRows)
+	require.Equal(t, lsmkv.StrategyMapCollection, g.postings.Strategy())
+	require.NoDirExists(t, filepath.Join(f.dir, diskStoreDir, growBucketEdges))
+
+	// A row written again leaves one row, the last, and no tombstone: in the
+	// memtable, in a segment, in two, and compacted.
+	p := uint32(0)
+	old, err := g.getRow(p)
+	require.NoError(t, err)
+	require.NotNil(t, old)
+	var row growBlock
+	require.NoError(t, row.decode(old))
+	changed := slices.Clone(old)
+	changed[len(changed)-1] ^= 1
+	// What the bucket takes on disk tells whether a row that was replaced is
+	// still there: nothing reads the versions of a pair one by one.
+	onDisk := func() int64 {
+		size, err := sizeOnDisk(filepath.Join(f.dir, diskStoreDir, growBucketPostings))
+		require.NoError(t, err)
+		return size
+	}
+	_, err = g.compactAll()
+	require.NoError(t, err)
+	before := onDisk()
+	require.NoError(t, g.putRow(p, old, old))
+	require.NoError(t, g.flushAll())
+	require.Equal(t, before, onDisk(), "the same row written again writes nothing")
+	steps := []struct {
+		name  string
+		write []byte
+		then  func() error
+	}{
+		{name: "in the memtable", write: changed, then: func() error { return nil }},
+		{name: "flushed", write: old, then: g.flushAll},
+		{name: "flushed again", write: changed, then: g.flushAll},
+		{name: "compacted", write: old, then: func() error { _, err := g.compactAll(); return err }},
+	}
+	was := old
+	for _, step := range steps {
+		require.NoError(t, g.putRow(p, was, step.write), step.name)
+		require.NoError(t, step.then(), step.name)
+		got, err := g.getRow(p)
+		require.NoError(t, err, step.name)
+		require.Equal(t, step.write, got, step.name)
+		was = step.write
+	}
+	require.Less(t, onDisk(), before+int64(len(old)), "compacted, the store holds the last row and none it replaced")
+	require.Zero(t, g.stats.RowTombstones.N)
+	f.same(t, "with the row of a posting written five times")
+
+	// Another pair under the key of the row: the store holds two.
+	stray := lsmkv.MapPair{Key: []byte{7}, Value: changed}
+	require.NoError(t, g.postings.MapSet(diskKey(p, diskBlockEdges), stray))
+	_, err = g.getRow(p)
+	require.ErrorContains(t, err, "STOP: the store holds 2 pairs for the row of edges of posting 0")
+	var dp diskPosting
+	require.ErrorContains(t, g.fetchLists(p, &dp), "STOP: the store holds 2 pairs")
+	// And one pair that is not the row's.
+	require.NoError(t, g.postings.MapDeleteKey(diskKey(p, diskBlockEdges), growRowPairKey))
+	_, err = g.getRow(p)
+	require.ErrorContains(t, err, "STOP: the store holds 1 pairs for the row of edges of posting 0, the first with key 07")
+	require.NoError(t, g.postings.MapDeleteKey(diskKey(p, diskBlockEdges), stray.Key))
+	got, err := g.getRow(p)
+	require.NoError(t, err)
+	require.Nil(t, got, "with its pair taken out the posting has no row")
+	require.NoError(t, g.putRow(p, nil, old))
+	got, err = g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, old, got)
+
+	// A member that is not at its place: the first one taken out and one more
+	// added at the end leave as many members, none of them at place 0.
+	require.NoError(t, g.fetchMembers(p, &dp))
+	n := len(dp.docIDs)
+	firstKey, err := growMemberPairKey(0)
+	require.NoError(t, err)
+	members, err := g.postings.MapList(ctx, diskKey(p, diskBlockMembers))
+	require.NoError(t, err)
+	require.Len(t, members, n)
+	require.Equal(t, firstKey, members[0].Key)
+	first := slices.Clone(members[0].Value)
+	lastKey, err := growMemberPairKey(n)
+	require.NoError(t, err)
+	require.NoError(t, g.postings.MapDeleteKey(diskKey(p, diskBlockMembers), firstKey))
+	require.ErrorContains(t, g.fetchMembers(p, &dp), "the index counts")
+	require.NoError(t, g.postings.MapSet(diskKey(p, diskBlockMembers), lsmkv.MapPair{Key: lastKey, Value: first}))
+	require.ErrorContains(t, g.fetchMembers(p, &dp), "STOP: member 0 of posting 0 has the key 00 01 in the store, not its place")
+	require.NoError(t, g.postings.MapDeleteKey(diskKey(p, diskBlockMembers), lastKey))
+	require.NoError(t, g.postings.MapSet(diskKey(p, diskBlockMembers), lsmkv.MapPair{Key: firstKey, Value: first}))
+	require.NoError(t, g.fetchMembers(p, &dp))
+	f.same(t, "with the members of a posting as they were")
+
+	// A row that does not fit the value of a pair, and a member past the keys.
+	require.ErrorContains(t, g.putRow(p, old, make([]byte, math.MaxUint16)), "takes less than 65535")
+	_, err = growMemberPairKey(math.MaxUint16 + 1)
+	require.ErrorContains(t, err, "holds up to 65535")
+	_, err = growMemberPairKey(-1)
+	require.Error(t, err)
+
+	// Postings split, and of a retired one nothing is read, before any
+	// compaction and after: its pairs were taken out one by one.
+	for f.inserted < total {
+		difference, err := f.insert(ctx)
+		require.NoError(t, err)
+		require.Empty(t, difference)
+	}
+	require.Positive(t, g.stats.Splits)
+	require.NoError(t, g.flushPending())
+	retired := 0
+	nothingOfRetired := func(at string) {
+		retired = 0
+		for q := range uint32(g.meta.Postings) {
+			if !g.retired[q] {
+				continue
+			}
+			retired++
+			for _, block := range []byte{diskBlockMembers, diskBlockEdges} {
+				pairs, err := g.postings.MapList(ctx, diskKey(q, block))
+				require.NoError(t, err)
+				require.Empty(t, pairs, "%s: row %d of retired posting %d", at, block, q)
+			}
+		}
+	}
+	nothingOfRetired("in the memtable")
+	require.Equal(t, int(g.stats.Splits), retired)
+	require.GreaterOrEqual(t, g.stats.RetireTombstones.N, int64(retired*(60+2)), "a tombstone for every pair of a retired posting")
+	require.NoError(t, g.flushAll())
+	nothingOfRetired("flushed")
+	_, err = g.compactAll()
+	require.NoError(t, err)
+	nothingOfRetired("compacted")
+	f.same(t, "at the end")
+
+	// The Map is of the format with the rows next to the members.
+	st := f.index.state.Load()
+	err = writeGrowIndex(ctx, testLogger(), t.TempDir(), st, growConfig{
+		keys: total, neighbors: f.uc.Edges, threshold: 60, seed: 7, consolidate: 4, mapRows: true,
+	}, f.provider, func(id uint64) []float32 { return f.all[id] })
+	require.ErrorContains(t, err, "is a Map only with the rows of edges next to the members")
 }
