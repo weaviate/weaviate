@@ -36,6 +36,10 @@ import (
 // looks at whether anybody waits to write.
 const layoutStep = 256
 
+// maintenanceFlushEvery is how many postings or vectors a pass that writes to
+// the store goes through between two flushes of the index.
+const maintenanceFlushEvery = 256
+
 // startMaintenance starts the goroutine. With noMaintenance there is none,
 // and whoever set it calls the work itself.
 func (p *Persistent) startMaintenance() {
@@ -89,7 +93,7 @@ func (p *Persistent) wakeMaintenance() {
 func (p *Persistent) Settle(ctx context.Context) error {
 	for {
 		p.mu.RLock()
-		due := !p.closed && p.failed == nil && p.g != nil && (p.g.cleanDue() ||
+		due := !p.closed && p.failed == nil && p.g != nil && (p.g.cleanDue() || p.g.refreshDue() ||
 			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load())
 		p.mu.RUnlock()
 		if !due {
@@ -102,13 +106,22 @@ func (p *Persistent) Settle(ctx context.Context) error {
 }
 
 // maintain does what is due, one thing after another: first the deleted
-// vectors leave, and then the vectors that are left are laid out.
+// vectors leave, then the edges that are old are built again, and then the
+// vectors are laid out.
 func (p *Persistent) maintain(ctx context.Context) error {
 	p.mu.RLock()
 	due := !p.closed && p.failed == nil && p.g != nil && p.g.cleanDue()
 	p.mu.RUnlock()
 	if due {
 		if err := p.clean(ctx); err != nil {
+			return err
+		}
+	}
+	p.mu.RLock()
+	due = !p.closed && p.failed == nil && p.g != nil && p.g.refreshDue()
+	p.mu.RUnlock()
+	if due {
+		if err := p.refresh(ctx); err != nil {
 			return err
 		}
 	}

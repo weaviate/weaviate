@@ -182,6 +182,10 @@ type growMeta struct {
 	// postings when it was last laid out. Those past them are in the order
 	// they came.
 	VectorsLaidOut int `json:"vectorsLaidOut,omitempty"`
+	// RefreshedAt is how many vectors the index held when the last refresh of
+	// its edges started, or when it was written: the next one is due when it
+	// holds twice as many (grow_refresh.go).
+	RefreshedAt int `json:"refreshedAt,omitempty"`
 	// Merges counts the postings that joined another after a cleanup of the
 	// deleted vectors (grow_clean.go). A merge changes no edge, so from the
 	// first one on a vector may have an edge to another of its own posting,
@@ -445,6 +449,12 @@ type growIndex struct {
 	// cleaned counts what the passes over the deleted vectors did
 	// (grow_clean.go).
 	cleaned growCleanStats
+	// builtAt is, by doc id, how many vectors the index held when the edges
+	// of each were last built, built the file that holds it, and refreshed
+	// what the refreshes of edges did (grow_refresh.go).
+	builtAt   []uint32
+	built     *os.File
+	refreshed growRefreshStats
 	// insertEF, when positive, is the ef of the search of an insert for its
 	// edges. Without it that search runs with the ef of the index, as the
 	// queries do.
@@ -479,6 +489,9 @@ type growPlan struct {
 	// assignTime and searchTime are what the centroid graph and the search
 	// of the neighbors took.
 	assignTime, searchTime time.Duration
+	// selfMissing, in the plan of a refresh, tells that the search of the
+	// vector did not return the vector itself.
+	selfMissing bool
 }
 
 func newGrowPlan() *growPlan {
@@ -767,6 +780,15 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 			return err
 		}
 	}
+	// The edges of every vector of the base are those of the base.
+	builtAt := make([]uint32, cfg.keys)
+	for _, docID := range store.docIDs {
+		builtAt[docID] = uint32(n)
+	}
+	if err := writeBuilt(path(growBuiltFile), builtAt); err != nil {
+		return errors.Wrap(err, "write when the edges were built")
+	}
+	g.meta.RefreshedAt = n
 	if slotOf != nil {
 		if err := writeSlots(path(growSlotsName(g.meta.VectorGen)), slotOf); err != nil {
 			return errors.Wrap(err, "write where the vectors are")
@@ -1122,6 +1144,9 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	for p, size := range g.size {
 		g.retired[p] = size == 0
 	}
+	if err := g.openBuilt(); err != nil {
+		return nil, err
+	}
 	if g.marks != nil {
 		// The marks of the deleted vectors, which are still in their postings
 		// and in the map. A search scores such a member and follows its
@@ -1252,7 +1277,7 @@ func (g *growIndex) release(ctx context.Context) error {
 	if g.lsm != nil {
 		keep(g.closeStore(ctx))
 	}
-	for _, file := range []*os.File{g.vectors, g.slots, g.centroids} {
+	for _, file := range []*os.File{g.vectors, g.slots, g.built, g.centroids} {
 		if file != nil {
 			keep(file.Close())
 		}
@@ -1617,6 +1642,11 @@ func (g *growIndex) extend(keys int) error {
 		}
 		g.slotOf = slotOf
 	}
+	if g.builtAt != nil {
+		builtAt := make([]uint32, keys)
+		copy(builtAt, g.builtAt)
+		g.builtAt = builtAt
+	}
 	old := g.st.side
 	side := &sidecar{
 		codeWords: old.codeWords, codes: make([]uint64, keys*old.codeWords), postingOf: make([]uint32, keys),
@@ -1887,6 +1917,10 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 	g.live[docID] = true
 	g.size[p]++
 	g.meta.Live++
+	// Its edges are those of the index as it is with it.
+	if err := g.setBuilt(docID, g.held()); err != nil {
+		return err
+	}
 	g.stats.Inserted++
 	g.lastPosting, g.lastEdges = p, edges
 	g.stats.WriteTime += time.Since(clock)

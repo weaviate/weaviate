@@ -118,8 +118,10 @@ type Persistent struct {
 	// hold before a pass is tried again after one that failed.
 	layouts         atomic.Int64
 	layoutNotBefore atomic.Int64
-	// cleans counts the passes over the deleted vectors that ended.
-	cleans atomic.Int64
+	// cleans counts the passes over the deleted vectors that ended, and
+	// refreshes those that built edges again.
+	cleans    atomic.Int64
+	refreshes atomic.Int64
 }
 
 const (
@@ -525,7 +527,7 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 			return errors.Wrapf(err, "add vector of id %d", ids[i])
 		}
 	}
-	if p.g != nil && p.g.layoutDue() {
+	if p.g != nil && (p.g.layoutDue() || p.g.refreshDue()) {
 		p.wakeMaintenance()
 	}
 	return nil

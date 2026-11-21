@@ -49,6 +49,7 @@ func (p *Persistent) clean(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	written := 0
 	for done := false; !done; {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -70,6 +71,17 @@ func (p *Persistent) clean(ctx context.Context) error {
 		if done, stopped, err = p.cleanPosting(ctx, pass); err != nil || stopped {
 			return err
 		}
+		// Nobody flushes after what the index writes by itself, as a shard
+		// does after a request: the pass hands its writes to the system as
+		// it goes.
+		if written++; written%maintenanceFlushEvery == 0 {
+			if err := p.Flush(); err != nil {
+				return err
+			}
+		}
+	}
+	if err := p.Flush(); err != nil {
+		return err
 	}
 	p.cleans.Add(1)
 	p.mu.RLock()

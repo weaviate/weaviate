@@ -588,6 +588,9 @@ func (g *growIndex) forget(p uint32, docID uint64, member []byte) error {
 		}
 		g.slotOf[docID] = diskNoSlot
 	}
+	if err := g.setBuilt(docID, 0); err != nil {
+		return err
+	}
 	g.live[docID], g.deleted[docID] = false, false
 	g.st.side.postingOf[docID] = unplaced
 	g.size[p]--

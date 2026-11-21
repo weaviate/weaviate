@@ -116,11 +116,13 @@ func TestPersistentMaintenanceNextToEverything(t *testing.T) {
 				return errors.Wrapf(err, "add doc %d", next)
 			}
 			if next%3 == 0 {
+				// Deleted for the searches once the delete has returned: it
+				// waits for whoever is writing.
 				gone := uint64(next - 150)
-				deleted[gone].Store(true)
 				if err := f.index.Delete(gone); err != nil {
 					return err
 				}
+				deleted[gone].Store(true)
 			}
 		}
 		return nil

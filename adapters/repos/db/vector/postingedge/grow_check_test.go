@@ -194,7 +194,39 @@ func (g *growIndex) checkCoverage() error {
 	if err := g.checkWaiting(); err != nil {
 		return err
 	}
+	if err := g.checkBuilt(); err != nil {
+		return err
+	}
 	return g.checkSlots()
+}
+
+// checkBuilt checks that the index knows when the edges of every vector it
+// holds were built, of no other, and that the file says what the memory does.
+func (g *growIndex) checkBuilt() error {
+	if g.built == nil {
+		return errors.New("the index does not keep when the edges of its vectors were built")
+	}
+	if len(g.builtAt) != len(g.live) {
+		return errors.Errorf("the edges of %d doc ids have a time, with %d doc ids", len(g.builtAt), len(g.live))
+	}
+	raw, err := os.ReadFile(filepath.Join(g.dir, growBuiltFile))
+	if err != nil {
+		return err
+	}
+	for docID, live := range g.live {
+		built := g.builtAt[docID]
+		if live != (built > 0) {
+			return errors.Errorf("doc %d is live: %v, and its edges were built with %d vectors", docID, live, built)
+		}
+		onDisk := uint32(0)
+		if 4*docID+4 <= len(raw) {
+			onDisk = binary.LittleEndian.Uint32(raw[4*docID:])
+		}
+		if onDisk != built {
+			return errors.Errorf("the edges of doc %d were built with %d vectors in memory and %d on disk", docID, built, onDisk)
+		}
+	}
+	return nil
 }
 
 // checkWaiting checks, in an index that keeps what waits of its edges in a
