@@ -123,7 +123,7 @@ var (
 		"and write the second round next to -bench.out as <name>-repeat.json: a stretch of points taken while the machine was slow shows "+
 		"when the two rounds are set against each other (TestCellReport -bench.report.cells.repeats), and not in the passes of a point")
 
-	benchStreamTrain = flag.Bool("bench.streamtrain", false, "postingedge, full mode: hand the train set to the index straight from the dataset files "+
+	benchStreamTrain = flag.Bool("bench.streamtrain", false, "postingedge, full mode, and the halo and disk benchmarks: hand the train set to the index straight from the dataset files "+
 		"and load the copy the benchmark reads from once the index is built. An index holds a copy of every vector while it builds, "+
 		"and a large train set does not fit in memory twice")
 

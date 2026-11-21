@@ -180,6 +180,70 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## 10M en disco: wiki-dpr 10M con el camino de lectura de v4.0 (2026-11-21)
+
+**Estado: pre-registrado el 21 a las 11:43, antes de construir nada a 10M y antes de ningún dato suyo. Cabe, liberando lo que se dice abajo.** El experimento, las celdas, la configuración de HFresh y las dos condiciones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás de v5.4 y de las medidas de parámetros.
+
+### El encargo (del usuario)
+
+- **10M en disco, si cabe.** Comprobar primero el espacio y decir qué haría falta liberar.
+- **Si cabe:** wiki-dpr 10M con el camino de lectura de v4.0. Nuestras dos celdas, la de códigos de ruteo en RAM y la del halo, frente a HFresh configurado como en un nodo, en su mejor configuración a 0.95 y a 0.99, en serie y de 8 en 8.
+- **Pre-registro:** la ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, y nuestras cargas por query no crecen más de un 15 % frente a 1M.
+- **Reportar también RAM y disco.**
+
+### El espacio (*mío*, comprobado el 21 a las 11:40)
+
+**No cabía, y cabe liberando cosas que son mías.** El disco interno y el volumen de los bancos comparten el espacio libre.
+
+| | GB |
+|---|---|
+| libre a las 11:38, con v5.4 y la otra sesión escribiendo | 18 |
+| lo que pide el 10M, en régimen | unos 116 |
+| lo que pide en su pico, mientras HFresh compacta | unos 135 |
+
+- **Lo que pide, por partes:** el fichero de vectores de entrenamiento, 30.7 GB, que hay que sacar otra vez del hdf5 porque se borró el 18 para hacer sitio; nuestras dos celdas, 44 GB (30.7 de vectores, compartidos, unos 2 del store de la celda de ruteo y unos 12 del halo, que guarda 16 códigos de 64 bytes por vector); y HFresh, unos 41 GB (31 de objetos, 9 de postings), con hasta 60 mientras compacta.
+- **Lo ya liberado, 64 GB:** 58 GB de directorios temporales de Go, 8 804 directorios de más de dos días en `GOTMPDIR`, restos de builds y tests interrumpidos desde junio; y las celdas de v4.1, 6.3 GB, de un experimento cerrado y descartado. Libres ahora: 76 GB.
+- **Lo que se libera al cerrar v5.4, solo hasta que quepa y por este orden:** los índices de 1M de rondas cerradas, que se rehacen en dos a cinco horas cada uno:
+  1. v5.0 y v5.1, 25 GB;
+  2. los índices crecidos de v5.3 y de v5.4, 13 GB, que ya tienen su copia reorganizada;
+  3. la caché de compilación de Go, 24 GB, con las dos sesiones sin compilar; se rehace sola;
+  4. el índice de la puerta y los reorganizados de v5.4 y de v5.3, 19 GB.
+- **Lo que no se toca:** la celda en lote de v4.0 y el HFresh de 1M como en un nodo, que son la referencia de cada sesión a 1M.
+- **Lo que no toco sin el usuario,** y que haría falta si lo anterior no bastara: los índices guardados de otras rondas en `~/tmp` (`hfresh-filtered` y `hfresh-edges`, 19 GB cada uno; `recall-study`, 9 GB; `crq1train` y `seededbench`, 4 GB cada uno), las cachés de otro proyecto que hay allí (unos 50 GB) y los datasets (63 GB).
+- **El pico se evita con el orden:** HFresh se construye primero, con solo los vectores de entrenamiento en disco. Nuestras celdas van después, y el fichero de entrenamiento se borra en cuanto están escritas.
+
+### Cómo lo aplico (*mío*)
+
+- **El dataset:** wiki-dpr 10M, 10 000 000 de vectores de 768d normalizados, 1 000 queries, coseno, k = 10, con su verdad exacta.
+- **Nuestro índice:** el lote de 10M de v1.4 y v1.6: S = 236, P = 320, rescate 256, código completo, que aquí son 768 bits. Se construye una vez, y sobre él se escriben las dos celdas con el formato de v4.0, sin tocarlo:
+  - **ruteo en RAM:** los códigos de ruteo de 512 bits en memoria, y en disco los miembros con su código completo, las aristas y los vectores;
+  - **halo:** nada por vector en memoria; los códigos de 512 bits de los extremos van en disco, junto a las aristas.
+- **El rescore de nuestras celdas es el automático a 768 bits.** Hoy la regla da 200. Si la medida de la regla del rescore, que va antes, deja otra ancla, se usa esa y se dice. El arnés busca primero con 64 y, si 0.99 no se alcanza, con el automático: a 768 bits con 64 el techo queda en 0.982, así que los dos puntos de cada celda salen con el automático.
+- **HFresh, como en un nodo:** el de esta rama con su configuración por defecto, construido con el arnés de v4.0; su grafo de centroides limpio, como lo deja el ciclo de un shard; y el presupuesto del limitador de admisión, 20 para una query sola. El objeto es solo el vector, que es un suelo para su rescore.
+  - **Su mejor configuración a 0.95 y a 0.99** es la que menos lee del store para ese recall, entre searchProbe y rescore 64, 100, 200 y 350, como a 1M.
+  - **En serie y de 8 en 8:** con sus postings leídos uno a uno, que es el producto, y de ocho en ocho, que no lo es.
+- **Seis curvas,** cada una en su proceso, en dos rondas, en caliente y en frío, con 1 y 8 threads: las cuatro de HFresh y nuestras dos celdas. 1 000 queries por pasada en caliente y las 500 primeras en frío.
+- **La referencia a 1M de las cargas:** las mismas dos celdas escritas con el mismo arnés sobre wiki-dpr 1M (S = 236, P = 256, rescate 64, como en v1.4), con el mismo rescore. Sirve además de ensayo de la corrida entera. No se cronometra.
+- **Las dos condiciones:**
+  1. **La ventaja en frío:** el p50 en frío a 0.95 con 1 thread de HFresh de 8 en 8, entre el de la celda, en la primera ronda: 3 o más. Se aplica a cada una de las dos celdas, y el pre-registro se cumple si lo cumplen las dos.
+  2. **Las cargas:** las cargas por query de la celda a 10M, en su punto de 0.95, entre las de la misma celda a 1M en el suyo: 1.15 o menos. A 0.99 se reporta, sin umbral. Las dos celdas cargan lo mismo: es una condición, no dos.
+  - **Por debajo de un 10 % entre dos índices es un empate.**
+- **Lo que se reporta además:** RAM (heap tras abrir y huella del proceso) y disco (store, vectores y total) de las seis curvas; las lecturas y los bytes por query; las razones frente a HFresh en serie; y todo ello junto a la sesión de 1M de dbpedia como en un nodo, sin mezclarlo: es otro dataset y otra dimensión.
+- **Condiciones de la sesión:** las de siempre: la máquina despierta, 15 minutos sin teclado ni trackpad, nada compilando ni corriendo de la otra sesión, dos rondas y la actividad de cada tramo. Una curva que derive o coincida con actividad se marca y se repite.
+- **Si algo no cabe o no acaba** antes del resumen del domingo por la tarde, se dice lo que haya: las celdas escritas y contadas sin cronometrar valen por sí solas para la segunda condición.
+- **Lo que no mide:** inserts, deletes ni nada del camino de escritura a 10M; otro dataset; 1536d a 10M; Linux; ni HFresh con objetos de verdad.
+- **Lo que el binario añade:** en ficheros de test, que el arnés de disco y el del halo puedan pasar los vectores al índice desde el fichero, como ya hace el banco en lote, porque 10M de vectores no caben dos veces en memoria; y un script. Nada en el índice.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **Nuestras cargas a 0.95:** entre un 8 y un 25 % más que a 1M. La segunda condición no la doy por hecha: es la que más dudo.
+- **La ventaja en frío a 0.95 frente a HFresh de 8 en 8:** entre 3.5 y 5 veces la celda de ruteo, y entre 2.5 y 3.5 el halo. A 1M de dbpedia fueron 4.1 y 3.1, y el halo es el que puede quedarse corto.
+- **Frente a HFresh en serie:** más de 12 veces la celda de ruteo.
+- **HFresh a 0.99:** llega, y le sale muy caro: más de 150 ms en frío en serie.
+- **RAM:** cerca de 1 GB la celda de ruteo, de los que 640 MB son los códigos; unos 250 MB el halo; y entre 0.6 y 1 GB HFresh.
+- **Disco:** 33 GB la celda de ruteo y 43 la del halo, con sus vectores; 41 GB HFresh.
+- **El build de nuestro índice a 10M:** entre cuatro y seis horas, sin la caché de particiones, que se borró.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4.** Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.

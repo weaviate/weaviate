@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
@@ -151,13 +152,21 @@ type haloBench struct {
 // with the build flags of the benchmarks and the search defaults.
 func newHaloBench(t *testing.T, id string) *haloBench {
 	ctx := context.Background()
-	data := loadBenchData(t, *benchDatasetDir, *benchLimit, *benchQueries, *benchK, false)
+	// With -bench.streamtrain the index takes the train set straight from
+	// the dataset files, and the copy the benchmark reads is loaded once the
+	// index is built: an index holds a copy of every vector while it builds,
+	// and a large train set does not fit in memory twice.
+	stream := *benchStreamTrain
+	if stream {
+		require.Zero(t, *benchLimit, "-bench.streamtrain reads the whole train set")
+	}
+	data := loadBenchData(t, *benchDatasetDir, *benchLimit, *benchQueries, *benchK, stream)
 	if *benchLimit > 0 {
 		data.neighbors = bruteNeighbors(data, streamTruthDepth)
 	}
 	require.NotNil(t, data.neighbors, "the ground truth is drawn from the shipped one")
 	data.truth = liveTruth(t, data, nil, *benchK)
-	n := len(data.train)
+	n := data.rows
 	logger := logrus.New()
 	logger.SetLevel(logrus.InfoLevel)
 
@@ -182,15 +191,32 @@ func newHaloBench(t *testing.T, id string) *haloBench {
 	}, uc)
 	require.NoError(t, err)
 	const chunk = 10000
-	for from := 0; from < n; from += chunk {
-		to := min(from+chunk, n)
-		ids := make([]uint64, to-from)
+	add := func(from int, vectors [][]float32) error {
+		ids := make([]uint64, len(vectors))
 		for i := range ids {
 			ids[i] = uint64(from + i)
 		}
-		require.NoError(t, index.AddBatch(ctx, ids, data.train[from:to]))
+		return index.AddBatch(ctx, ids, vectors)
+	}
+	if stream {
+		// Unit length first, as loadBenchData leaves the train set: the
+		// index then holds the same bits either way.
+		require.NoError(t, testinghelpers.ReadRawTrainChunks(data.dir, chunk, func(first int, vectors [][]float32) error {
+			for _, vector := range vectors {
+				distancer.NormalizeInPlace(vector)
+			}
+			return add(first, vectors)
+		}))
+	} else {
+		for from := 0; from < n; from += chunk {
+			require.NoError(t, add(from, data.train[from:min(from+chunk, n)]))
+		}
 	}
 	require.NoError(t, index.Build(ctx))
+	if stream {
+		data.loadTrain(t)
+		require.Len(t, data.train, n)
+	}
 	b := &haloBench{
 		t: t, ctx: ctx, logger: logger, data: data, uc: uc, efs: parseInts(t, *benchHaloEFs), index: index,
 		built: index.state.Load(), build: time.Since(begin),
