@@ -32,9 +32,9 @@ import (
 // So the index asks: once enough has been written since the last time, it
 // has the store compact the left-over segments of the bucket whatever their
 // sizes (lsmkv.Bucket.CompactLeftOverSegmentsOfAnySize), which the cycles of
-// the store then do, and takes the request back when the bucket is one
-// segment. The cycles are those of the node: the index only looks, every
-// mergeCheckEvery, at whether they are done.
+// the store then do, once: the request ends when the oldest segment has been
+// written again with what followed it. The cycles are those of the node: the
+// index only looks, every mergeCheckEvery, at whether they are done.
 
 // mergeCheckEvery is how often what runs in the background looks at whether
 // the bucket of postings is due to be left as one segment, or has been.
@@ -58,10 +58,17 @@ func (g *growIndex) beginMerge() {
 	g.merging, g.sinceMerge = true, 0
 }
 
-// endMerge takes the request back, if the store is done with it, and tells
-// whether it was.
+// endMerge ends the request, if the store is done with it, and tells whether
+// it was. The store is done when the bucket is one segment, or when it has
+// written the oldest segment again with what followed it, which ends the
+// request on its side: what was flushed meanwhile stays apart until the next
+// one, so that the bucket is written whole once for every request and no
+// more.
 func (g *growIndex) endMerge() bool {
-	if !g.merging || g.postings.SegmentCount() > 1 {
+	if !g.merging {
+		return false
+	}
+	if g.postings.SegmentCount() > 1 && g.postings.CompactingLeftOverSegmentsOfAnySize() {
 		return false
 	}
 	g.postings.CompactLeftOverSegmentsOfAnySize(false)
