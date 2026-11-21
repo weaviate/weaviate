@@ -33,10 +33,31 @@ import (
 func (db *DB) GetUnclassified(ctx context.Context, className string,
 	properties []string, propsToReturn []string, filter *filters.LocalFilter,
 ) ([]search.Result, error) {
-	propsToReturnTmp := append(properties, propsToReturn...)
-	props := make(search.SelectProperties, len(propsToReturnTmp))
-	for i, prop := range propsToReturnTmp {
-		props[i] = search.SelectProperty{Name: prop}
+	// The classifier writes every object returned here back with a full put
+	// (batchWriter -> BatchPutObjects), so each object must be loaded with all
+	// of its properties: any property not selected would be deleted from the
+	// stored object (weaviate/weaviate#3836).
+	class := db.schemaGetter.ReadOnlyClass(className)
+	if class == nil {
+		return nil, fmt.Errorf("class %q not found in schema", className)
+	}
+	props := make(search.SelectProperties, 0, len(class.Properties))
+	selected := make(map[string]struct{}, len(class.Properties))
+	addProp := func(name string) {
+		if _, ok := selected[name]; ok {
+			return
+		}
+		selected[name] = struct{}{}
+		props = append(props, search.SelectProperty{Name: name})
+	}
+	for _, prop := range class.Properties {
+		addProp(prop.Name)
+	}
+	for _, prop := range properties {
+		addProp(prop)
+	}
+	for _, prop := range propsToReturn {
+		addProp(prop)
 	}
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, className, properties,
 		filters.OperatorEqual, 0)

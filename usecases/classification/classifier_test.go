@@ -120,6 +120,39 @@ func Test_Classifier_KNN(t *testing.T) {
 		})
 	})
 
+	// kNN classifies by vector similarity alone, so basedOnProperties is
+	// optional (weaviate/weaviate#3836).
+	t.Run("with valid data and no basedOnProperties", func(t *testing.T) {
+		sg := &fakeSchemaGetter{schema: testSchema()}
+		repo := newFakeClassificationRepo()
+		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
+		classifier := New(sg, repo, vectorRepo, mocks.NewMockAuthorizer(), newNullLogger(), nil)
+
+		params := models.Classification{
+			Class:              "Article",
+			ClassifyProperties: []string{"exactCategory", "mainCategory"},
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
+		}
+
+		class, err := classifier.Schedule(context.Background(), nil, params)
+		require.NoError(t, err)
+		require.NotNil(t, class)
+		assert.Equal(t, TypeKNN, class.Type)
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			got, err := classifier.Get(context.Background(), nil, class.ID)
+			require.NoError(c, err)
+			require.NotNil(c, got)
+			assert.Equal(c, models.ClassificationStatusCompleted, got.Status)
+		}, 5*time.Second, 50*time.Millisecond)
+
+		checkRef(t, vectorRepo, "06a1e824-889c-4649-97f9-1ed3fa401d8e", "exactCategory", idCategoryFoodAndDrink)
+		checkRef(t, vectorRepo, "75ba35af-6a08-40ae-b442-3bec69b355f9", "exactCategory", idCategoryPolitics)
+		checkRef(t, vectorRepo, "069410c3-4b9e-4f68-8034-32a066cb7997", "mainCategory", idMainCategoryPoliticsAndSociety)
+	})
+
 	t.Run("when errors occur during classification", func(t *testing.T) {
 		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()

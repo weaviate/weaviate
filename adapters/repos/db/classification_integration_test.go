@@ -15,8 +15,10 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -24,13 +26,16 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -38,52 +43,7 @@ import (
 )
 
 func TestClassifications(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger, "node1")
-
-	t.Run("importing classification schema", func(t *testing.T) {
-		for _, class := range classificationTestSchema() {
-			err := migrator.AddClass(context.Background(), class)
-			require.Nil(t, err)
-		}
-	})
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: classificationTestSchema()}}
+	repo, _ := newClassificationTestRepo(t)
 
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
@@ -455,5 +415,128 @@ func classificationTestArticles() search.Results {
 				"description": "French Fries are more common in Belgium and the US than in France",
 			},
 		},
+	}
+}
+
+// newClassificationTestRepo starts a real single-node DB with the
+// classification test schema imported and returns it with its schema getter.
+func newClassificationTestRepo(t *testing.T) (*DB, *fakeSchemaGetter) {
+	t.Helper()
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := local.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
+	migrator := NewMigrator(repo, logger, "node1")
+
+	for _, class := range classificationTestSchema() {
+		require.Nil(t, migrator.AddClass(context.Background(), class))
+	}
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: classificationTestSchema()}}
+
+	return repo, schemaGetter
+}
+
+// TestClassificationKNN_PreservesObjectData runs a real kNN classification
+// against the real DB and checks that classifying an object only adds the
+// classified references and never drops any other stored data. The classifier
+// writes the objects it fetched back with a full put, so anything the fetch did
+// not load would be deleted (weaviate/weaviate#3836).
+func TestClassificationKNN_PreservesObjectData(t *testing.T) {
+	cases := []struct {
+		name              string
+		basedOnProperties []string
+	}{
+		{name: "basedOnProperties set", basedOnProperties: []string{"description"}},
+		{name: "basedOnProperties nil", basedOnProperties: nil},
+		{name: "basedOnProperties empty", basedOnProperties: []string{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo, schemaGetter := newClassificationTestRepo(t)
+
+			for _, res := range classificationTestCategories() {
+				require.NoError(t, repo.PutObject(ctx, res.Object(), res.Vector, nil, nil, nil, 0))
+			}
+
+			// every article also carries "name", which is neither classified
+			// nor based on, so nothing in the classification asks for it
+			articles := classificationTestArticles()
+			for i := range articles {
+				articles[i].Schema.(map[string]interface{})["name"] = "name of " + articles[i].ID.String()
+				require.NoError(t, repo.PutObject(ctx, articles[i].Object(), articles[i].Vector, nil, nil, nil, 0))
+			}
+
+			classificationRepo, err := classifications.NewRepo(t.TempDir(), logrus.New())
+			require.NoError(t, err)
+			classifier := classification.New(schemaGetter, classificationRepo, repo,
+				mocks.NewMockAuthorizer(), logrus.New(), nil)
+
+			scheduled, err := classifier.Schedule(ctx, nil, models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  tc.basedOnProperties,
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings:           map[string]interface{}{"k": json.Number("1")},
+			})
+			require.NoError(t, err)
+
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				got, err := classifier.Get(ctx, nil, scheduled.ID)
+				require.NoError(c, err)
+				require.NotNil(c, got)
+				assert.Equal(c, models.ClassificationStatusCompleted, got.Status, "error: %s", got.Error)
+			}, 10*time.Second, 50*time.Millisecond)
+
+			props := search.SelectProperties{
+				{Name: "description"}, {Name: "name"}, {Name: "exactCategory"}, {Name: "mainCategory"},
+			}
+			for _, want := range articles {
+				got, err := repo.Object(ctx, "Article", want.ID, props, additional.Properties{Vector: true}, nil, "")
+				require.NoError(t, err)
+				require.NotNil(t, got, "article %s", want.ID)
+
+				wantSchema := want.Schema.(map[string]interface{})
+				gotSchema := got.Schema.(map[string]interface{})
+				assert.Equal(t, wantSchema["description"], gotSchema["description"], "description of %s", want.ID)
+				assert.Equal(t, wantSchema["name"], gotSchema["name"], "name of %s", want.ID)
+				assert.Equal(t, want.Vector, got.Vector, "vector of %s", want.ID)
+				assert.NotEmpty(t, gotSchema["exactCategory"], "exactCategory of %s", want.ID)
+				assert.NotEmpty(t, gotSchema["mainCategory"], "mainCategory of %s", want.ID)
+			}
+		})
 	}
 }

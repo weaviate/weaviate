@@ -38,23 +38,76 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: class must be set"),
 		},
 
+		// basedOnProperties is optional for every type except
+		// text2vec-contextionary-contextual (weaviate/weaviate#3836)
 		{
-			name: "missing basedOnProperty (nil)",
+			name: "valid with basedOnProperty",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory"},
+			},
+		},
+		{
+			name: "missing basedOnProperty (nil), default type",
 			input: models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  nil,
 				ClassifyProperties: []string{"exactCategory"},
 			},
-			expectedError: fmt.Errorf("invalid classification: basedOnProperties must have at least one property"),
 		},
 		{
-			name: "missing basedOnProperty (len=0)",
+			name: "missing basedOnProperty (len=0), default type",
 			input: models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  []string{},
 				ClassifyProperties: []string{"exactCategory"},
 			},
-			expectedError: fmt.Errorf("invalid classification: basedOnProperties must have at least one property"),
+		},
+		{
+			name: "missing basedOnProperty, type knn",
+			input: models.Classification{
+				Class:              "Article",
+				ClassifyProperties: []string{"exactCategory"},
+				Type:               TypeKNN,
+			},
+		},
+		{
+			name: "missing basedOnProperty, type zeroshot",
+			input: models.Classification{
+				Class:              "Article",
+				ClassifyProperties: []string{"exactCategory"},
+				Type:               TypeZeroShot,
+			},
+		},
+		{
+			name: "missing basedOnProperty (nil), type text2vec-contextionary-contextual",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  nil,
+				ClassifyProperties: []string{"exactCategory"},
+				Type:               TypeContextual,
+			},
+			expectedError: fmt.Errorf("invalid classification: basedOnProperties must have at least one property for type 'text2vec-contextionary-contextual'"),
+		},
+		{
+			name: "missing basedOnProperty (len=0), type text2vec-contextionary-contextual",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{},
+				ClassifyProperties: []string{"exactCategory"},
+				Type:               TypeContextual,
+			},
+			expectedError: fmt.Errorf("invalid classification: basedOnProperties must have at least one property for type 'text2vec-contextionary-contextual'"),
+		},
+		{
+			name: "missing basedOnProperty, type knn, still validates classifyProperties",
+			input: models.Classification{
+				Class:              "Article",
+				ClassifyProperties: []string{"doesNotExist"},
+				Type:               TypeKNN,
+			},
+			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'doesNotExist' does not exist"),
 		},
 
 		{
@@ -181,7 +234,11 @@ func Test_ValidateUserInput(t *testing.T) {
 			fsg := &fakeSchemaGetter{schema: testSchema()}
 			validator := NewValidator(func(name string) (*models.Class, error) { return fsg.ReadOnlyClass(name), nil }, test.input)
 			err := validator.Do()
-			assert.ErrorAs(t, err, &test.expectedError)
+			if test.expectedError == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, test.expectedError.Error())
 		})
 	}
 }
