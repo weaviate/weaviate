@@ -50,9 +50,9 @@ type growFixture struct {
 	// batchOfOne inserts every vector on disk as a batch of one (v5.2),
 	// which is the same insert.
 	batchOfOne bool
-	// keepPending opens the index on disk so that it keeps in a bucket what
-	// waits of its edges.
-	keepPending bool
+	// how is how the index on disk is opened, but for its compaction: whether
+	// it keeps in a bucket what waits of its edges, and whether it deletes.
+	how growOpen
 	// written is what the twin wrote for its last insert.
 	written struct {
 		docID   uint64
@@ -93,12 +93,12 @@ func newGrowFixtureFormat(t *testing.T, total, base, dims int, cosine bool, bits
 	t.Helper()
 	ctx := context.Background()
 	f := &growFixture{
-		all:         clusteredVectors(total, dims, 12, 4107),
-		queries:     clusteredVectors(40, dims, 12, 4108),
-		provider:    distancer.NewL2SquaredProvider(),
-		uc:          smallConfig(),
-		inserted:    base,
-		keepPending: format.open.keepPending,
+		all:      clusteredVectors(total, dims, 12, 4107),
+		queries:  clusteredVectors(40, dims, 12, 4108),
+		provider: distancer.NewL2SquaredProvider(),
+		uc:       smallConfig(),
+		inserted: base,
+		how:      format.open,
 	}
 	f.uc.Distance, f.uc.EF = "l2-squared", 48
 	if cosine {
@@ -149,8 +149,9 @@ func newGrowFixtureFormat(t *testing.T, total, base, dims int, cosine bool, bits
 // open opens the index on disk and gives its graph to the twin.
 func (f *growFixture) open(t *testing.T) {
 	t.Helper()
-	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc,
-		growOpen{leveled: f.leveled, keepPending: f.keepPending})
+	how := f.how
+	how.leveled = f.leveled
+	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc, how)
 	require.NoError(t, err)
 	g.work = &SearchStats{}
 	f.g = g

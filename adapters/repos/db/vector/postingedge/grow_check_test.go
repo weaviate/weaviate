@@ -171,7 +171,9 @@ func (g *growIndex) checkCoverage() error {
 				if int(endpoint) >= keys || !g.live[endpoint] {
 					return errors.Errorf("doc %d has an edge to doc %d, which is not live", docID, endpoint)
 				}
-				if mapped[endpoint] == p {
+				// A merge of two postings leaves the edges between them
+				// as they were.
+				if mapped[endpoint] == p && g.meta.Merges == 0 {
 					return errors.Errorf("doc %d has an edge into its own posting %d, to doc %d", docID, p, endpoint)
 				}
 			}

@@ -81,10 +81,20 @@ func (p *Persistent) wakeMaintenance() {
 	}
 }
 
-// maintain does what is due, one thing after another.
+// maintain does what is due, one thing after another: first the deleted
+// vectors leave, and then the vectors that are left are laid out.
 func (p *Persistent) maintain(ctx context.Context) error {
 	p.mu.RLock()
-	due := !p.closed && p.failed == nil && p.g != nil && p.g.layoutDue() &&
+	due := !p.closed && p.failed == nil && p.g != nil && p.g.cleanDue()
+	p.mu.RUnlock()
+	if due {
+		if err := p.clean(ctx); err != nil {
+			return err
+		}
+	}
+
+	p.mu.RLock()
+	due = !p.closed && p.failed == nil && p.g != nil && p.g.layoutDue() &&
 		int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
 	slots := int64(0)
 	if due {

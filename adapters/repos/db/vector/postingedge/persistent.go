@@ -118,6 +118,8 @@ type Persistent struct {
 	// hold before a pass is tried again after one that failed.
 	layouts         atomic.Int64
 	layoutNotBefore atomic.Int64
+	// cleans counts the passes over the deleted vectors that ended.
+	cleans atomic.Int64
 }
 
 const (
@@ -759,6 +761,9 @@ func (p *Persistent) Delete(ids ...uint64) error {
 			return errors.Wrapf(err, "delete doc %d", id)
 		}
 		p.dirty = p.dirty || marked
+	}
+	if p.g != nil && p.g.cleanDue() {
+		p.wakeMaintenance()
 	}
 	return nil
 }

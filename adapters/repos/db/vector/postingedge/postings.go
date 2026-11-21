@@ -247,6 +247,9 @@ type codec interface {
 	// withBits returns the codec over the same quantizer whose codes keep
 	// only the first bits sign bits.
 	withBits(bits int) (codec, error)
+	// between estimates the distance between two vectors from their codes,
+	// with no vector read.
+	between(a, b []uint64) (float32, error)
 }
 
 // fullCodec is the centered 1-bit quantizer as it is: one sign bit per
@@ -261,6 +264,10 @@ func (c fullCodec) NewEstimator(query []float32) codeEstimator {
 
 func (c fullCodec) withBits(bits int) (codec, error) {
 	return newCappedCodec(c.CenteredBinaryRotationalQuantizer, bits)
+}
+
+func (c fullCodec) between(a, b []uint64) (float32, error) {
+	return c.DistanceBetweenCompressedVectors(a, b)
 }
 
 // cappedCodec keeps only the first sign bits of every code. The estimates
@@ -288,6 +295,15 @@ func (c cappedCodec) NewEstimator(query []float32) codeEstimator {
 
 func (c cappedCodec) Stats() compressionhelpers.CompressionStats {
 	return c.quantizer.Stats()
+}
+
+// between is the distance of the quantizer between two of its codes, over the
+// sign bits the codes keep: it takes the angle between two vectors from the
+// share of their sign bits that differ, which the first bits of a rotation
+// estimate as all of them do, with more noise. The norms it needs are in the
+// header of a capped code as they are in that of a full one.
+func (c cappedCodec) between(a, b []uint64) (float32, error) {
+	return c.quantizer.DistanceBetweenCompressedVectors(a, b)
 }
 
 func (c cappedCodec) withBits(bits int) (codec, error) {

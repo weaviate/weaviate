@@ -182,6 +182,11 @@ type growMeta struct {
 	// postings when it was last laid out. Those past them are in the order
 	// they came.
 	VectorsLaidOut int `json:"vectorsLaidOut,omitempty"`
+	// Merges counts the postings that joined another after a cleanup of the
+	// deleted vectors (grow_clean.go). A merge changes no edge, so from the
+	// first one on a vector may have an edge to another of its own posting,
+	// which no insert and no split ever leaves: a search skips it.
+	Merges int `json:"merges,omitempty"`
 }
 
 // growIO counts reads or writes: how many, and their bytes.
@@ -437,6 +442,9 @@ type growIndex struct {
 	// scratchPostings the postings the scratch of a search has room for.
 	deletedCount    int
 	scratchPostings int
+	// cleaned counts what the passes over the deleted vectors did
+	// (grow_clean.go).
+	cleaned growCleanStats
 	// insertEF, when positive, is the ef of the search of an insert for its
 	// edges. Without it that search runs with the ef of the index, as the
 	// queries do.
@@ -1343,6 +1351,18 @@ func (g *growIndex) fetchMembers(p uint32, dp *diskPosting) error {
 	}
 	words := g.meta.ScanCodeWords
 	n := len(values)
+	if n != int(g.size[p]) {
+		// A member that a cleanup took out (grow_clean.go) is under a
+		// tombstone until the store compacts it away, and the row as the
+		// store holds it has more values than the posting has members: it
+		// is read again with its tombstones resolved, which keeps the order
+		// of those that are left. Without a cleanup the two counts are the
+		// same, and this is not on the way of a search.
+		if values, err = g.postings.SetList(diskKey(p, diskBlockMembers)); err != nil {
+			return errors.Wrapf(err, "read row %d of posting %d", diskBlockMembers, p)
+		}
+		n = len(values)
+	}
 	if n != int(g.size[p]) {
 		return errors.Errorf("the row of posting %d holds %d members, the index counts %d", p, n, g.size[p])
 	}

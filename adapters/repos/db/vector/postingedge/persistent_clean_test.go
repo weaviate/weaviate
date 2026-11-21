@@ -1,0 +1,225 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package postingedge
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+)
+
+// marked tells how many vectors of the index are marked deleted and still in
+// their postings.
+func (f *persistentFixture) marked() int {
+	f.index.mu.RLock()
+	defer f.index.mu.RUnlock()
+	return f.index.g.deletedCount
+}
+
+// Once enough of its vectors are deleted the index takes them out for good,
+// by itself: in the background, next to whatever else it does. Nothing is
+// left marked, no deleted vector is held or returned, the index is covered
+// and finds what is left as well as before, and it opens again as it was. A
+// doc id that left can be given again, and is then the new vector.
+func TestPersistentCleansItsDeletes(t *testing.T) {
+	ctx := context.Background()
+	const k = 10
+	const total = persistentBase + 900
+	f := newPersistentFixture(t, total)
+	f.add(t, 0, total)
+	deleted := map[uint64]bool{}
+	held := func(id uint64) bool { return !deleted[id] }
+
+	// Under the share that makes a pass due, the deleted vectors stay marked.
+	for id := uint64(0); id < 30; id++ {
+		require.NoError(t, f.index.Delete(id))
+		deleted[id] = true
+	}
+	require.NoError(t, f.index.maintain(ctx))
+	require.Equal(t, 30, f.marked(), "a pass is not due under %.0f %% of the vectors", 100*growCleanShare)
+	require.Zero(t, f.index.cleans.Load())
+
+	for id := uint64(30); id < total; id += 6 {
+		require.NoError(t, f.index.Delete(id))
+		deleted[id] = true
+	}
+	require.Eventually(t, func() bool { return f.index.cleans.Load() >= 1 && f.marked() == 0 }, 30*time.Second,
+		5*time.Millisecond, "the deleted vectors leave once they are %.0f %% of the index", 100*growCleanShare)
+	f.covered(t, "cleaned")
+	f.vectorsIntact(t, "cleaned")
+	f.index.mu.RLock()
+	live := f.index.g.meta.Live
+	f.index.mu.RUnlock()
+	require.Equal(t, total-len(deleted), live, "what the index holds is what was not deleted")
+	for id := range uint64(total) {
+		require.Equal(t, held(id), f.index.ContainsDoc(id), "doc %d", id)
+	}
+	assert.Greater(t, f.recall(t, total, k, held), 0.9)
+	before := f.answers(t, k)
+
+	f.restart(t)
+	assert.Equal(t, before, f.answers(t, k), "the same answers")
+	for id := range uint64(total) {
+		require.Equal(t, held(id), f.index.ContainsDoc(id), "doc %d, opened again", id)
+	}
+	f.covered(t, "opened again")
+
+	// A doc id that left is given again, with the vector of another doc.
+	const again, other = 36, total - 1
+	require.True(t, deleted[again])
+	require.NoError(t, f.index.Delete(other))
+	require.NoError(t, f.index.Add(ctx, again, f.vectors[other]))
+	require.True(t, f.index.ContainsDoc(again))
+	ids, _, err := f.index.SearchByVector(ctx, f.vectors[other], 1, nil)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{again}, ids, "the vector doc %d was given last is found under it", again)
+	f.normalized[again] = distancer.Normalize(f.vectors[other])
+	f.vectorsIntact(t, "a doc id given again")
+	f.covered(t, "a doc id given again")
+}
+
+// The cleanup of the deleted vectors and the layout of the vectors run in the
+// background next to searches, inserts and deletes, and what they leave is
+// the index: covered, every vector the one it was given, no deleted vector
+// returned at any moment, and the same after it is opened again.
+func TestPersistentMaintenanceNextToEverything(t *testing.T) {
+	ctx := context.Background()
+	const k = 10
+	const total = 2*persistentBase + 400
+	f := newPersistentFixture(t, total)
+	f.add(t, 0, persistentBase+200)
+
+	var deleted [total]atomic.Bool
+	var stop atomic.Bool
+	eg := enterrors.NewErrorGroupWrapper(testLogger())
+	eg.Go(func() error {
+		defer stop.Store(true)
+		for next := persistentBase + 200; next < total; next++ {
+			if err := f.index.Add(ctx, uint64(next), f.vectors[next]); err != nil {
+				return errors.Wrapf(err, "add doc %d", next)
+			}
+			if next%3 == 0 {
+				gone := uint64(next - 150)
+				deleted[gone].Store(true)
+				if err := f.index.Delete(gone); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	for range 3 {
+		eg.Go(func() error {
+			for q := 0; !stop.Load(); q++ {
+				// A doc deleted before the search started is not in its answer.
+				var gone [total]bool
+				for id := range gone {
+					gone[id] = deleted[id].Load()
+				}
+				ids, _, err := f.index.SearchByVector(ctx, f.queries[q%len(f.queries)], k, nil)
+				if err != nil {
+					return errors.Wrapf(err, "query %d", q)
+				}
+				for _, id := range ids {
+					if gone[id] {
+						return errors.Errorf("query %d returned doc %d, which was deleted", q, id)
+					}
+				}
+			}
+			return nil
+		})
+	}
+	require.NoError(t, eg.Wait())
+	require.Positive(t, f.index.cleans.Load(), "the deleted vectors were taken out on the way")
+	require.Positive(t, f.index.layouts.Load(), "the vectors were laid out on the way")
+
+	// What is left to do is done, and the index is whole.
+	require.NoError(t, f.index.maintain(ctx))
+	require.NoError(t, f.index.clean(ctx))
+	require.Zero(t, f.marked())
+	f.covered(t, "at the end")
+	f.vectorsIntact(t, "at the end")
+	held := func(id uint64) bool { return !deleted[id].Load() }
+	for id := range uint64(total) {
+		require.Equal(t, held(id), f.index.ContainsDoc(id), "doc %d", id)
+	}
+	assert.Greater(t, f.recall(t, total, k, held), 0.9)
+	before := f.answers(t, k)
+	f.restart(t)
+	assert.Equal(t, before, f.answers(t, k), "the same answers")
+	f.covered(t, "opened again")
+	f.vectorsIntact(t, "opened again")
+}
+
+// A pass over the deleted vectors that is told to stop stops between two
+// postings, where what there is is an index, and the next one ends what it
+// left. One over an index that is shut down does nothing. And an index of the
+// first version, with a value per list of edges, keeps its deleted vectors
+// marked: nothing takes them out.
+func TestPersistentCleanStops(t *testing.T) {
+	ctx := context.Background()
+	const k = 10
+	const total = persistentBase + 600
+
+	t.Run("told to stop", func(t *testing.T) {
+		f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noMaintenance = true })
+		f.add(t, 0, total)
+		deleted := map[uint64]bool{}
+		for id := uint64(0); id < total; id += 4 {
+			require.NoError(t, f.index.Delete(id))
+			deleted[id] = true
+		}
+		held := func(id uint64) bool { return !deleted[id] }
+		stopped, cancel := context.WithCancel(ctx)
+		cancel()
+		require.ErrorIs(t, f.index.clean(stopped), context.Canceled)
+		require.Equal(t, len(deleted), f.marked())
+		f.covered(t, "after a pass that was told to stop")
+		assert.Greater(t, f.recall(t, total, k, held), 0.9)
+
+		require.NoError(t, f.index.clean(ctx))
+		require.Zero(t, f.marked())
+		require.Equal(t, int64(1), f.index.cleans.Load())
+		f.covered(t, "cleaned")
+		assert.Greater(t, f.recall(t, total, k, held), 0.9)
+
+		index := f.index
+		f.close(t)
+		require.NoError(t, index.clean(ctx), "a pass over an index that is shut down does nothing")
+		f.open(t)
+		f.covered(t, "opened again")
+	})
+
+	t.Run("an index of the first version", func(t *testing.T) {
+		f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.listEdges = true })
+		f.add(t, 0, total)
+		deleted := map[uint64]bool{}
+		for id := uint64(0); id < total; id += 4 {
+			require.NoError(t, f.index.Delete(id))
+			deleted[id] = true
+		}
+		require.NoError(t, f.index.maintain(ctx))
+		require.Zero(t, f.index.cleans.Load())
+		require.Equal(t, len(deleted), f.marked(), "its deleted vectors stay marked")
+		require.ErrorContains(t, f.index.clean(ctx), "a value per list")
+		f.covered(t, "marked")
+		assert.Greater(t, f.recall(t, total, k, func(id uint64) bool { return !deleted[id] }), 0.9)
+	})
+}
