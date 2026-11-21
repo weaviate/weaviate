@@ -916,6 +916,25 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 - **A 1M no ha corrido nada con los ciclos puestos.** El arnés abre el índice sin ellos y limpia el grafo a mano antes de medir, como los experimentos. Cuántos centroides borrados acumula un índice entre dos pases, y qué le cuestan a una búsqueda, no está medido.
 - **Por el shard:** el test de extremo a extremo abre el índice con los ciclos del shard, pero no comprueba que el grafo quede limpio.
 
+### Pieza 7: el modo `none`. Sin empezar
+
+**Qué pide.** `rq.cacheMode: "none"`: ningún código por vector en RAM. Hoy quedan 64 B por vector, el código de ruteo de 512 bits, y una clase con `none` se rechaza al crearla.
+
+**Lo que hay.** El camino de lectura de v4.0 sobre un índice que no crece (`disk.go`, `scoreHalo`): el código de cada endpoint viaja en el posting que lleva a él, el halo. Su referencia: a 1M, 35 MB de heap frente a 106 MB, y de 1.3 a 1.6 veces la latencia en frío del modo de ruteo.
+
+**Lo que falta, que es llevar el halo al camino de escritura** (*mío, sin empezar y sin comprobar contra el código*):
+
+1. **Formato:** la fila de aristas de un posting, y lo que espera de ella, llevan el código de ruteo de cada endpoint.
+2. **Insert:** los códigos de sus vecinos tienen que salir de las filas que su búsqueda ya cargó, y el suyo entra en el halo de cada posting que recibe una arista inversa hacia él.
+3. **Split:** el halo de cada mitad se rehace con el del posting que se parte, sin leer nada más.
+4. **Limpieza:** el código del sustituto está en el halo del posting del vector que se va, y la distancia entre dos códigos deja de leerse de la RAM.
+5. **Refresco y fusión,** como el insert y el split.
+6. **Lectura:** la búsqueda del índice que crece puntúa los endpoints con el halo, no con los códigos residentes.
+
+- **«Nada en RAM» no es cero:** por vector quedan el posting al que pertenece (4 B) y los bits de vivo y de borrado.
+- **Lo que cuesta en disco:** 64 B por arista, unos 570 B por vector con 8.8 aristas, antes de quitar los endpoints repetidos dentro de un posting. Cada reescritura de fila pesa más.
+- **Por qué no la he empezado:** toca el formato, la búsqueda y las cuatro escrituras del índice, cada una con su test de equivalencia y una corrida a 1M. No cabe en lo que queda de esta noche sin dejar a medias las verificaciones de las piezas 3 a 6, que van antes.
+
 ### Pieza 5: una caída a mitad de una escritura
 
 **El problema.** Una escritura del índice son muchas: un insert pone un miembro en una fila, una entrada en el mapa, un código de ruteo, las distancias de sus aristas, cambios en las listas de sus vecinos, su vector en un fichero y su slot en otro; y si su posting se parte, dos filas más, una entrada de mapa por miembro y dos centroides. Cada bucket tiene su log, que llega al sistema cuando se llena su buffer. Un proceso que muere en medio deja unas escrituras y otras no, y lo que queda no es un índice: hasta ahora no abría.
