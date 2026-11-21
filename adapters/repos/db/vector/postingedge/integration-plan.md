@@ -713,3 +713,168 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Sin verificar a escala, del hito 1:**
 
 - **Nada a 1M a través del shard,** ni latencia, ni inserts por segundo con la máquina sola.
+
+## 7. Hito 2 de la integración (desde el 2026-11-21)
+
+*Encargo del usuario del 21 a las 11:10: siete piezas, por orden, cada una con sus tests y una verificación a 1M sin cronometrar contra el número del prototipo. Las tres primeras van primero y enteras. Donde esta sección choca con la 6, manda esta. Lo marcado como mío lo decidí al escribirlo y es provisional.*
+
+| pieza | qué | código y tests | verificación a 1M |
+|---|---|---|---|
+| 1 | Formato de v5.3 y reorganización de fondo | hechos | cumple: 2.00 lecturas por carga con el bucket en un segmento |
+| 2 | Limpieza de deletes: sustitución local y fusión | hechos | sin hacer |
+| 3 | Refresco de aristas al doblar | hechos | sin hacer |
+| 4 | Cálculo de inserts en los workers compartidos | hechos | sin hacer |
+| 5 | Durabilidad a mitad de un insert, y base en segundo plano | sin empezar | |
+| 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | sin hacer |
+| 7 | Modo `none`, con el halo en la escritura | sin empezar | |
+
+### Lo que el índice hace por su cuenta, y cómo (*mío*)
+
+Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos maneras:
+
+- **En línea con las escrituras.** Mientras hay una pasada de refresco o de limpieza en marcha, cada insert paga un paso de ella después de sus propias escrituras, y cada delete un paso de la limpieza. La pasada acaba así en un número acotado de escrituras, lleguen como lleguen.
+- **De fondo, en una goroutine del índice,** que hace una cosa cada vez: acaba las pasadas cuando las escrituras paran, reordena los vectores, y cada 2 s mira si toca pedir el bucket de postings en un segmento. No es una cola del scheduler del nodo: la pieza 4 llevó a los workers del nodo el cálculo de los inserts, y este trabajo sigue aquí.
+- **Por qué en línea.** La primera versión del refresco iba solo de fondo, tomando el cerrojo de escritura entre dos lotes de inserts. Con inserts continuos refrescaba un par de vectores por lote de cien: la pasada no acababa nunca, y la reordenación de vectores esperaba detrás de ella. Lo vi en la prueba pequeña del arnés, no en un test.
+- **`Settle`** hace todo lo pendiente y vuelve cuando no queda nada. Lo usan los tests que comparan respuestas antes y después de un reinicio.
+- **Nadie hace `Flush` detrás de este trabajo,** como lo hace el shard detrás de una petición. Las pasadas que escriben en el store vuelcan el índice cada 256 pasos y al acabar.
+
+### Pieza 1: formato de v5.3 y reorganización
+
+**Qué hay.** Un índice nuevo escribe su base con las aristas de cada posting en una fila, en el bucket de los postings y junto a sus miembros, reescrita cada 64 cambios (K = 64, como v5.3). Va detrás de `growEdges`: `growRows`, que deja de ser código de test (`grow_rows.go`).
+
+- **Lo que espera en memoria está también en un bucket** (`postingedge_pending_<id>`, *mío*). En los experimentos los cambios que esperan a su fila viven solo en memoria y se escriben al cerrar. Un shard hace `Flush` tras cada petición y puede morir sin cerrar: sin ese bucket, lo que deja un `Flush` no es el índice, y los miembros nuevos se quedan sin aristas. Cada cambio se escribe ahí al hacerse y sale cuando su fila está escrita. Ninguna búsqueda lo lee.
+  - **La fila se entrega al sistema antes de que sus cambios salgan del bucket.** Cada bucket tiene su log, que se escribe cuando se llena. Un proceso muerto con los borrados de uno en disco y la fila todavía en la memoria del otro dejaba miembros sin aristas. Lo cazó un test con una pasada de fondo entre el `Flush` y la copia de los ficheros; tiene su test propio (`TestGrowRowIsHandedBeforeItsChangesLeave`), que falla sin el arreglo.
+  - **Al cerrar no se escribe ninguna fila:** lo que espera sigue en su bucket y vuelve al abrir.
+- **Los vectores exactos van por slot** (*mío*): `vectors-<gen>.f32` con los vectores seguidos y `slots-<gen>.u32` con el slot de cada doc id. Un vector que entra toma el slot siguiente.
+  - **El fichero ya no tiene huecos** por los doc ids que nunca se dieron: ocupa lo que ocupan los vectores que hay, más los de los borrados hasta la reordenación siguiente.
+  - **Reordenar** es escribir los dos ficheros de la generación siguiente, con los vectores de cada posting seguidos, y nombrar esa generación en el meta. Hasta ese momento el índice son los dos ficheros viejos, enteros. Los de cualquier otra generación se borran al abrir.
+  - **Corre junto a búsquedas e inserts:** copia de 256 en 256 vectores con el cerrojo de una búsqueda, entrega el fichero al disco sin ningún cerrojo, y solo su final excluye a los demás, para copiar lo que entró mientras tanto y cambiar los ficheros.
+  - **Cuándo:** cuando los vectores que han entrado desde la última vez son tantos como los que se ordenaron entonces, es decir, cada vez que el índice dobla (*mío*). En el peor momento la mitad de los vectores está en orden de llegada. Reescribe el fichero entero cada vez: al crecer, el doble de lo que ocupa al final.
+  - **Pide el doble de disco de los vectores mientras dura.** Si falla, el índice sigue con los ficheros que tenía y no lo reintenta hasta crecer un 10 % más.
+- **«El bucket en un segmento» no sale solo de la compactación del store, y lo pide el índice** (*mío*, y toca `lsmkv`). Mi primera decisión fue dejarlo a la compactación forzada de HFresh, con la que se abre el bucket. La verificación a 1M la desmintió: tres segmentos y 3.67 lecturas por carga, también tras compactar hasta que el store no encontró nada más (abajo).
+  - **Por qué:** el store compacta dos segmentos del mismo nivel, y dos sueltos de niveles distintos solo si tienen tamaños parecidos (`isSimilarSegmentSizes`). El segmento grande se queda junto a los pequeños que llegan después, con las filas viejas y sus lápidas dentro.
+  - **Lo que añado a `lsmkv`:** `Bucket.CompactLeftOverSegmentsOfAnySize`, un interruptor por bucket que, mientras está puesto, deja compactar un par suelto sea cual sea su tamaño. Los ciclos del store dejan entonces el bucket en un segmento. Apagado, todo sigue como estaba; ningún otro bucket lo usa. Con su test en `lsmkv`.
+  - **Cuándo lo pide el índice:** cuando lo escrito desde la última vez llega al 10 % de sus vectores (*mío*), y lo retira cuando el bucket es un segmento. Cada vez reescribe el bucket entero, unos 290 MB a 1M.
+  - **La otra salida, sin tocar `lsmkv`,** era copiar todas las filas a un bucket nuevo volcado una vez y cambiarlo por el viejo, como hace la copia de los experimentos. Pide la memtable entera en RAM, o llegar a un segmento por la misma compactación que no llega, y poner al día lo escrito mientras se copia. No la escribí.
+- **Un índice del hito 1 se abre como lo que es:** un valor por lista y los vectores en la posición de su doc id. Ni se reordena ni se limpia. Se refresca, porque el refresco va por la interfaz.
+
+**Tests.** Idéntico al gemelo en memoria en cada insert, con slots y con el bucket de lo que espera, con una reordenación de una vez y otra repartida sobre doscientos inserts con postings partiéndose debajo, y cerrado y abierto con cambios esperando (`TestGrowSlotsAndPendingEqualMemory`). Una copia de los ficheros tras un `sync` abre como el índice que era, y sin el bucket no (`TestGrowOpensWhatASyncLeft`). Una pasada que no acaba, parada o muerta, deja el índice como estaba. Una tabla de slots que haría leer otro vector, o ninguno, no abre y dice por qué. Por el índice del shard, con `-race`: la reordenación sola al doblar, junto a búsquedas, inserts y deletes, y un índice de la primera versión.
+
+**Verificación a 1M** (*21 de noviembre, de 15:34 a 17:21; código de `d30e5a7c64`; sin cronometrar, con otras corridas en la máquina; resultado en `testdata/bench/integration-m2/piece1-dbpedia-1m.json`, con su log al lado*). La corrida B con el formato nuevo: base de 10 000, 980 000 inserts de uno en uno, y las mismas etapas, más lo que lee el store por carga.
+
+| | corrida B, formato de v5.0 | pieza 1, formato de v5.3 |
+|---|---|---|
+| postings repartidos y splits | 8 167 y 4 062 | 8 117 y 4 037 |
+| cobertura | completa | completa |
+| ef 21: recall y cargas | 0.9509 y 19.74 | 0.9515 y 19.70 |
+| ef 158: recall y cargas | 0.9904 y 72.18 | 0.9905 y 72.11 |
+| por insert: cargas y aristas inversas | 61.6 y 4.60 | 61.7 y 4.59 |
+| con el 30 % borrado, ef 21 | 0.9566 y 24.49 | 0.9565 y 24.31 |
+| con el 30 % borrado, ef 158 | 0.9923 y 92.17 | 0.9921 y 92.00 |
+
+- **Es el mismo índice:** recall, cargas y trabajo por insert quedan dentro de lo que se separan dos corridas iguales. El formato cambia dónde están las cosas, no qué son.
+- **Reabierto, devuelve lo mismo,** crecido y con el 30 % borrado: ninguna de las 5 000 queries cambia, en ningún ef.
+- **Abrir tarda 2.6 y 2.8 s,** con la máquina ocupada, frente a 0.3 s en la corrida B: lee los 115 000 cambios que esperan y la tabla de slots. No es una medida de tiempo.
+- **Seis reordenaciones de fondo al crecer,** una por doblado, de 20 000 a 640 000 vectores: 1.26 millones de vectores reescritos para 990 000. Al acabar, 640 000 están en orden de posting y 350 000 en orden de llegada.
+
+**Lo que lee el store por carga,** que es el número de v5.3: 2.00 lecturas y 67 KB con el bucket en un segmento.
+
+| estado | segmentos | lecturas por carga | KB por carga |
+|---|---|---|---|
+| v5.3, compactado (referencia) | 1 | 2.00 | 67.3 |
+| v5.3, como lo dejan los ciclos (referencia) | 4 | 5.67 | 143.3 |
+| pieza 1, como lo dejan los ciclos | 3 | 3.67 | 77.4 |
+| pieza 1, compactado hasta que el store no encuentra más | 3 | 3.67 | 77.4 |
+| pieza 1, con el bucket pedido en un segmento | 1 | 2.00 | 65.1 a 65.5 |
+
+- **Sin el interruptor no cumplía, y no por el formato:** el store no deja el bucket en un segmento. Compactar hasta el final no cambió nada, porque los tres segmentos son de niveles distintos y tamaños dispares. Es lo que cuenta el punto de arriba, y de ahí sale el interruptor de `lsmkv`.
+- **Con el interruptor cumple** (*21 de noviembre, de 18:40 a 18:45; código de `16742dc04e`; resultado en `piece1-one-segment-dbpedia-1m.json`*). El índice que dejó la corrida, con el 30 % marcado como borrado, se abrió tal cual. El arnés pidió el bucket en un segmento como lo pide el índice, y dos rondas de la compactación del store lo dejaron en uno: de 286 a 250 MB.
+  - **2.00 lecturas por carga en los seis ef,** y 65 KB, frente a 67.3 de v5.3. Antes de pedirlo, 3.67 lecturas y 77 KB, las de la corrida.
+  - **Ninguna de las 5 000 queries cambia de respuesta,** en ningún ef, entre antes y después.
+  - **Lo que esta medida no cubre:** que el índice lo pida por su cuenta mientras crece, con la regla del 10 %. Eso lo ve la corrida de la pieza 3, que crece con todo encendido.
+- **Lee menos que la referencia sin compactar** (77 KB frente a 143). La validación de v5.3 creció con la compactación por niveles y esta con la forzada de HFresh; que esa sea la causa no está comprobado.
+
+**Lo que escribe y ocupa:**
+
+- **Filas de aristas:** 89 179 escritas, 0.95 GB, y 81 105 lápidas, 0.86 GB. v5.3 midió 84 336 y 76 994.
+- **El bucket de lo que espera:** 5.48 millones de cambios escritos, 0.45 GB entregados al store. En disco, 69 MB al acabar.
+- **En memoria esperan, en su máximo,** 115 094 listas, 9.1 MB.
+- **Disco, según `du`:** 6.4 GB. Los vectores, 6.08 GB justos para 990 000, sin huecos. Los buckets: postings 286 MB, distancias de aristas 136, códigos de ruteo 124, mapa 83, lo que espera 69, marcas de borrado 17.
+- **Inserts:** 162 por segundo desde la base, sin cronometrar y con otras corridas en la máquina. La corrida B dio 67 con la máquina mucho más cargada: no se comparan.
+
+**Sin verificar todavía de la pieza 1:**
+
+- **Cuánto escribe de más el store por dejar el bucket en un segmento** cada vez que lo escrito llega al 10 %: cada vez reescribe el bucket entero. La corrida de la pieza 3 lo cuenta.
+- **La latencia en frío con los vectores en orden de posting.** Es lo que la reordenación compra, y esta verificación no cronometra.
+- **Los inserts por segundo con la máquina sola,** y lo que cuesta el bucket de lo que espera.
+- **Una reordenación a 1M bajo inserts:** las seis corrieron, y la mayor copió 640 000 vectores; no está contado cuánto tardó cada una ni cuánto frenó a los inserts.
+
+### Pieza 2: limpieza de deletes
+
+**Qué hay.** La pasada de la celda B de v6.2, en disco (`grow_clean.go`). Saca del índice los vectores que estaban marcados cuando empezó, en tres pasos, posting a posting:
+
+1. **Sustitución.** Cada arista de un vector que se queda y que lleva a uno que se va recibe un sustituto: de la lista del que se va, el más cercano al vector por la distancia entre sus dos códigos, que esté vivo, fuera de su posting y que no tenga ya. Sin sustituto, la arista se quita. No hay búsquedas.
+2. **Eliminación.** Cada posting se reescribe sin los que se van. Tras el paso 1 ninguna lista lleva a ellos, así que entre dos postings lo que hay en disco es un índice.
+3. **Fusión.** Un posting que queda por debajo de 177 miembros se une al de centroide más cercano si los dos caben en el umbral de split (177 de 360, escalado con el umbral).
+
+- **Lo que el disco añade a lo medido en memoria** (*mío*): el índice guarda la distancia exacta de cada arista, que usan las aristas inversas de los inserts. La de un sustituto se calcula leyendo los dos vectores: una distancia exacta por arista sustituida.
+- **La distancia entre dos códigos** es la del cuantizador sobre los bits de signo que el código guarda. El prototipo la tenía solo con el código completo en RAM; el índice del shard tiene 512 bits, y la usa sobre esos (`codec.between`). El ángulo se estima igual con los primeros bits, con más ruido. Lo que eso cambia en la elección del sustituto lo dice la verificación a 1M, no un test.
+- **Un miembro que se va sale de la fila de su posting con una lápida.** Hasta que el store la compacta, la fila guarda más valores que miembros tiene el posting, y se lee resolviendo lápidas. Sin limpieza las dos cuentas coinciden y la lectura es la de siempre. Lo que cuesta esa lectura no está medido.
+- **Una fusión no toca aristas,** como en el prototipo: desde la primera, un vector puede tener una arista a otro de su propio posting, que una búsqueda salta.
+- **Un doc id que se fue queda libre** y se puede dar otra vez.
+- **Cuándo:** cuando los marcados llegan al 3 % de los vectores, las rondas del churn de v6.2 (*mío*). Los que se borran durante una pasada esperan a la siguiente, que solo arranca si vuelven a ser el 3 %.
+- **Un índice del hito 1, con un valor por lista, no se limpia:** sigue con la marca sola.
+
+**Tests.** La pasada en disco, sin fusiones, es la del gemelo en memoria: se van los mismos vectores, cada arista recibe el mismo sustituto, y los dos índices son el mismo antes, después y a lo largo de los inserts que siguen, que leen las distancias guardadas para los sustitutos (`TestGrowCleanEqualsMemory`, seis casos, con rondas, reaperturas y compactación). Las fusiones van por invariantes y no contra el gemelo: los dos comparten el grafo de centroides, y las fusiones del gemelo cambian el vecino más cercano que vería el disco. Una pasada cortada entre dos pasos deja un índice, y la siguiente lo acaba. Por el índice del shard, con `-race`: la limpieza sola, junto a búsquedas, inserts y deletes, y un doc id dado otra vez.
+
+### Pieza 3: refresco de aristas al doblar
+
+**Qué hay.** El refresco de v2.4, en disco (`grow_refresh.go`). El índice guarda, por doc id, cuántos vectores tenía cuando se construyeron sus aristas por última vez (`built.u32`): la base con la base, un insert con los que había con él, un refresco con los de entonces. Cuando el índice tiene el doble de los que tenía al empezar el refresco anterior, una pasada refresca los vectores con aristas de la mitad o menos.
+
+- **Refrescar un vector es repetir el paso de aristas de su insert:** la búsqueda, que entra por su propio posting y solo lee, y después su lista y su sitio en las listas de sus vecinos. El vector no se mueve.
+- **Va en línea:** un vector refrescado por insert mientras la pasada dura. Una pasada toma como mucho la mitad del índice, así que acaba cuando el índice ha crecido la mitad.
+- **Lo que cuesta:** al crecer de 10 000 a 1M son unos 630 000 refrescos para 980 000 inserts. Cada uno es la búsqueda de un insert.
+- **Un vector marcado como borrado no se refresca,** y uno que se fue no tiene fecha.
+
+**Tests.** El refresco en disco es el del gemelo en memoria: en cada doblado están viejos los mismos vectores, cada refresco encuentra los mismos vecinos, escribe la misma lista y entra en las mismas listas, y los dos índices siguen siendo el mismo (`TestGrowRefreshEqualsMemory`, con las dos formas de guardar aristas, dos doblados y una reapertura entre ellos). Por el índice del shard, con `-race`: cuántos vectores refresca cada insert y dónde acaba cada pasada, una pasada que la cierra el fondo tras una reapertura, y junto a búsquedas, inserts y deletes.
+
+### Pieza 4: el cálculo de los inserts en los workers del nodo
+
+**Qué hay.** Varios llamadores de `AddBatch` a la vez, que es como llegan los inserts a un índice del shard: los workers compartidos del nodo traen cada uno una parte de lo que hay en la cola, y las goroutines de un import también. Con la base construida, la búsqueda de cada insert corre en la goroutine que llama, junto a las de los demás y junto a las queries, y solo las escrituras van de una en una. Es el reparto de v5.2.
+
+- **Ventanas de cuatro** (*mío*): un llamador busca para cuatro vectores suyos y después los escribe. Con ocho llamadores, la búsqueda de un insert no ve unos treinta y dos que aún no han escrito, que es el lote de 32 que midió v5.2. Con otro número de workers el lote efectivo es otro.
+- **Lo que se escribió entre la búsqueda y la escritura se vuelve a mirar.** Cada escritura lleva un número de orden, y el plan de un insert guarda el de su búsqueda:
+  - **Un posting que se partió** desde entonces: el insert vuelve a elegir posting, como ya hacía el lote de v5.2.
+  - **Una lista de aristas que otra escritura cambió** desde entonces: se lee otra vez en lugar de usar la que guardó la búsqueda.
+  - **Un vector que salió del índice** desde entonces (una pasada de limpieza): la búsqueda se repite entera, con el cerrojo de escritura.
+- **Un doc id se da una vez:** de dos llamadores que lo traen a la vez, el segundo recibe el rechazo de siempre.
+- **Lo que el índice hace por su cuenta sigue en su goroutine** y en línea con las escrituras. No está en una cola del scheduler del nodo.
+
+**Tests.** Ocho llamadores con deletes y búsquedas a la vez, con `-race`: el índice comprueba lista a lista que nada de lo que una escritura toma de su búsqueda está viejo (10 921 listas comprobadas, 3 565 releídas y 33 postings elegidos otra vez en una pasada del test), y al final el índice está entero, con cada vector el que se le dio, y devuelve lo mismo reabierto (`TestPersistentAddsFromSeveralCallers`). El mismo doc id desde cuatro llamadores. Y por debajo, que un plan cuya lista cambió después de su búsqueda escribe sobre la lista nueva (`TestGrowPlansWriteAfterOtherWrites`, que falla si se quita la comprobación).
+
+### Pieza 6: el grafo de centroides
+
+**Qué hay.** El grafo de centroides es un HNSW, y lo mantienen los ciclos del nodo que mantienen cualquier HNSW. El shard le pasa los dos, con el límite de log del grafo de centroides de HFresh:
+
+- **El ciclo de tombstones** saca del grafo, del todo, el centroide de cada posting que se partió o se fusionó. Hasta ahora se quedaban como nodos borrados para siempre: uno por split. El arnés de los experimentos los limpiaba a mano antes de medir.
+- **El ciclo de los commit logs** condensa y combina los ficheros del log del grafo, que antes crecía sin límite.
+- **Cada cuánto:** el ciclo de tombstones de un HNSW corre como mucho una vez cada 300 s por grafo, su valor por defecto. No lo he cambiado.
+
+**Un bug, encontrado al cablearlo, arreglado.** El grafo leía los centroides del slice del índice desde goroutines que no tienen ningún cerrojo suyo, mientras un split sustituye ese slice con el índice bloqueado.
+
+- **Quién leía así:** la goroutine que llena la caché del grafo al abrirlo, que existe desde el hito 1, y desde esta pieza el ciclo de tombstones del nodo.
+- **Qué podía pasar:** una lectura del slice a medio sustituir. En la práctica el grafo tiene los centroides en su caché y casi nunca los pide; el detector de carreras no lo veía por las pasadas enteras del índice.
+- **El arreglo:** el grafo lee de una copia que se publica cada vez que los centroides cambian y que nadie escribe (`centroidIndex.publish`). Con su test (`TestCentroidGraphReadsItsCentroidsWhileTheyGrow`), que con el código anterior hace saltar el detector de carreras.
+
+**Tests.** Con los ciclos, un pase del de tombstones deja el grafo sin ningún centroide borrado, el índice encuentra lo mismo y abre igual; sin ellos se quedan todos, uno por split (`TestPersistentKeepsItsCentroidGraph`). Los dos ciclos corriendo sin parar junto a inserts, deletes con sus fusiones y búsquedas, con el índice reabierto a la mitad y el log partido en ficheros pequeños, con `-race` (`TestPersistentCentroidGraphIsKeptWhileTheIndexWrites`).
+
+**Sin verificar de la pieza 6:**
+
+- **A 1M no ha corrido nada con los ciclos puestos.** El arnés abre el índice sin ellos y limpia el grafo a mano antes de medir, como los experimentos. Cuántos centroides borrados acumula un índice entre dos pases, y qué le cuestan a una búsqueda, no está medido.
+- **Por el shard:** el test de extremo a extremo abre el índice con los ciclos del shard, pero no comprueba que el grafo quede limpio.
+
+### Durabilidad: lo que estas piezas dejan para la pieza 5
+
+- **Una caída a mitad de una pasada no tiene recuperación,** como a mitad de un insert. Una pasada de limpieza quita un vector de cinco buckets, y cada bucket escribe su log por su cuenta.
+- **El meta se escribe con un rename, sin `fsync`.**
+- **El refresco anota la fecha de las aristas de un vector antes de que su lista nueva esté entregada al sistema.** Tras una caída el vector puede quedar con la lista vieja y la fecha nueva, hasta el doblado siguiente. El volcado cada 256 pasos lo acota.

@@ -1,0 +1,663 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "queries": 5000,
+  "k": 10,
+  "base": 10000,
+  "userConfig": {
+    "distance": "cosine",
+    "ef": 20,
+    "efConstruction": 160,
+    "maxPostingSizeKB": 0,
+    "rq": {
+      "rescoreLimit": -1,
+      "cacheMode": "routing"
+    }
+  },
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237381,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 8117,
+    "splits": 4037,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 8,
+    "vectorsLaidOut": 990000
+  },
+  "gomaxprocs": 10,
+  "baseSeconds": 1.092781459,
+  "insertsAfterTheBase": 980000,
+  "insertSeconds": 6059.240187732,
+  "insertsPerSecond": 161.7364503860043,
+  "stretches": [
+    {
+      "inserted": 74800,
+      "seconds": 301.694605959,
+      "perSecond": 215.86373272032247,
+      "postingsGivenOut": 585
+    },
+    {
+      "inserted": 113300,
+      "seconds": 601.701505875,
+      "perSecond": 128.33077828550398,
+      "postingsGivenOut": 891
+    },
+    {
+      "inserted": 161600,
+      "seconds": 902.123454792,
+      "perSecond": 160.7740437376449,
+      "postingsGivenOut": 1303
+    },
+    {
+      "inserted": 217800,
+      "seconds": 1202.2723715,
+      "perSecond": 187.24066124683893,
+      "postingsGivenOut": 1753
+    },
+    {
+      "inserted": 269500,
+      "seconds": 1502.659432167,
+      "perSecond": 172.11154380038298,
+      "postingsGivenOut": 2173
+    },
+    {
+      "inserted": 319600,
+      "seconds": 1802.699918084,
+      "perSecond": 166.9775907028657,
+      "postingsGivenOut": 2591
+    },
+    {
+      "inserted": 363300,
+      "seconds": 2103.269040584,
+      "perSecond": 145.3909590852276,
+      "postingsGivenOut": 2945
+    },
+    {
+      "inserted": 407800,
+      "seconds": 2403.689233625,
+      "perSecond": 148.12597303879707,
+      "postingsGivenOut": 3339
+    },
+    {
+      "inserted": 453200,
+      "seconds": 2704.155568292,
+      "perSecond": 151.0985779996502,
+      "postingsGivenOut": 3699
+    },
+    {
+      "inserted": 496100,
+      "seconds": 3004.507408084,
+      "perSecond": 142.83270089063754,
+      "postingsGivenOut": 4079
+    },
+    {
+      "inserted": 544100,
+      "seconds": 3304.64573325,
+      "perSecond": 159.92653552452722,
+      "postingsGivenOut": 4461
+    },
+    {
+      "inserted": 590800,
+      "seconds": 3604.703180542,
+      "perSecond": 155.63696490828357,
+      "postingsGivenOut": 4871
+    },
+    {
+      "inserted": 635000,
+      "seconds": 3904.948368084,
+      "perSecond": 147.21311415599007,
+      "postingsGivenOut": 5247
+    },
+    {
+      "inserted": 683500,
+      "seconds": 4205.086252459,
+      "perSecond": 161.59251076357089,
+      "postingsGivenOut": 5625
+    },
+    {
+      "inserted": 733600,
+      "seconds": 4505.338602584,
+      "perSecond": 166.86035065576755,
+      "postingsGivenOut": 6037
+    },
+    {
+      "inserted": 782900,
+      "seconds": 4805.77474875,
+      "perSecond": 164.0948897156295,
+      "postingsGivenOut": 6359
+    },
+    {
+      "inserted": 831500,
+      "seconds": 5106.232448625,
+      "perSecond": 161.75383743884422,
+      "postingsGivenOut": 6777
+    },
+    {
+      "inserted": 879500,
+      "seconds": 5406.355136709,
+      "perSecond": 159.935230119294,
+      "postingsGivenOut": 7175
+    },
+    {
+      "inserted": 926600,
+      "seconds": 5706.652526167,
+      "perSecond": 156.84476004521625,
+      "postingsGivenOut": 7591
+    },
+    {
+      "inserted": 973600,
+      "seconds": 6007.27413125,
+      "perSecond": 156.34283139297193,
+      "postingsGivenOut": 7989
+    },
+    {
+      "inserted": 990000,
+      "seconds": 6113.530564917,
+      "perSecond": 154.34392476754783,
+      "postingsGivenOut": 8117
+    }
+  ],
+  "stats": {
+    "inserted": 980000,
+    "splits": 4037,
+    "splitsFailed": 0,
+    "inverseChecks": 8492842,
+    "inverseEdges": 4502925,
+    "inversePostings": 3188691,
+    "inverseListReads": 0,
+    "searchLoads": 60445161,
+    "searchRounds": 14866698,
+    "searchRows": {
+      "n": 120890322,
+      "bytes": 3832603298224
+    },
+    "searchVectors": {
+      "n": 62720000,
+      "bytes": 385351680000
+    },
+    "inverseDistReads": {
+      "n": 7241187,
+      "bytes": 273715088
+    },
+    "inverseVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowReads": {
+      "n": 8074,
+      "bytes": 357251897
+    },
+    "splitVectorReads": {
+      "n": 1457385,
+      "bytes": 8954173440
+    },
+    "memberRow": {
+      "n": 980000,
+      "bytes": 203840000
+    },
+    "memberMap": {
+      "n": 980000,
+      "bytes": 3920000
+    },
+    "memberRouting": {
+      "n": 980000,
+      "bytes": 70560000
+    },
+    "memberVector": {
+      "n": 980000,
+      "bytes": 6021120000
+    },
+    "ownEdges": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownDists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseLists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowWrites": {
+      "n": 1457385,
+      "bytes": 303136080
+    },
+    "splitMapWrites": {
+      "n": 1457385,
+      "bytes": 5829540
+    },
+    "splitCentroidWrites": {
+      "n": 8074,
+      "bytes": 49606656
+    },
+    "storeSearchReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeInverseReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSplitReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWrites": {
+      "n": 89179,
+      "bytes": 949205467
+    },
+    "rowWritesFull": 81105,
+    "rowWritesSplit": 8074,
+    "rowWritesClose": 0,
+    "rowReads": {
+      "n": 81105,
+      "bytes": 856040194
+    },
+    "rowTombstones": {
+      "n": 81105,
+      "bytes": 856040194
+    },
+    "rowDistWrites": {
+      "n": 4723090,
+      "bytes": 190106236
+    },
+    "rowDeletes": 4037,
+    "storeRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "pendingPeakMembers": 115094,
+    "pendingPeakBytes": 9124888,
+    "pendingPeakPostings": 4005,
+    "pendingLogWrites": {
+      "n": 5482925,
+      "bytes": 451429725
+    },
+    "layouts": 6,
+    "layoutVectors": 1261600,
+    "assignNs": 124949903551,
+    "searchNs": 5602049990105,
+    "writeNs": 182376944744,
+    "inverseNs": 71486437543,
+    "splitNs": 32548987161,
+    "cycleNs": 34475,
+    "rowNs": 27312424747,
+    "searchPhaseNs": 0,
+    "applyPhaseNs": 0
+  },
+  "dirBytes": 6867130090,
+  "stages": [
+    {
+      "name": "grown",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8117,
+      "splits": 4037,
+      "coverage": "complete",
+      "postingSegments": 2,
+      "vectorGen": 7,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 640000,
+      "layoutsSinceOpened": 6,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95154,
+          "loads": 19.7028,
+          "rounds": 4.676,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 158,
+          "recall": 0.99046,
+          "loads": 72.106,
+          "rounds": 17.7766,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 20,
+          "recall": 0.9495,
+          "loads": 19.1684,
+          "rounds": 4.5424,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 40,
+          "recall": 0.971,
+          "loads": 29.1514,
+          "rounds": 7.038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 80,
+          "recall": 0.98346,
+          "loads": 45.6164,
+          "rounds": 11.1542,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 160,
+          "recall": 0.99056,
+          "loads": 72.722,
+          "rounds": 17.9306,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        }
+      ]
+    },
+    {
+      "name": "grown, opened again",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8117,
+      "splits": 4037,
+      "coverage": "complete",
+      "reopenSeconds": 2.615932541,
+      "postingSegments": 3,
+      "vectorGen": 7,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 640000,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95154,
+          "loads": 19.7028,
+          "rounds": 4.676,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6678340134397143,
+          "storeBytesPerLoad": 79311.74486874962
+        },
+        {
+          "ef": 158,
+          "recall": 0.99046,
+          "loads": 72.106,
+          "rounds": 17.7766,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6634038776246083,
+          "storeBytesPerLoad": 78859.75361828419
+        },
+        {
+          "ef": 20,
+          "recall": 0.9495,
+          "loads": 19.1684,
+          "rounds": 4.5424,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.667755263871789,
+          "storeBytesPerLoad": 79307.83985100478
+        },
+        {
+          "ef": 40,
+          "recall": 0.971,
+          "loads": 29.1514,
+          "rounds": 7.038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.669820317377553,
+          "storeBytesPerLoad": 79383.54098259432
+        },
+        {
+          "ef": 80,
+          "recall": 0.98346,
+          "loads": 45.6164,
+          "rounds": 11.1542,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6679396006699343,
+          "storeBytesPerLoad": 79204.93397988443
+        },
+        {
+          "ef": 160,
+          "recall": 0.99056,
+          "loads": 72.722,
+          "rounds": 17.9306,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6633123401446603,
+          "storeBytesPerLoad": 78853.64699265697
+        }
+      ]
+    },
+    {
+      "name": "grown, compacted and laid out",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8117,
+      "splits": 4037,
+      "coverage": "complete",
+      "postingSegments": 3,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 1,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95154,
+          "loads": 19.7028,
+          "rounds": 4.676,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6678340134397143,
+          "storeBytesPerLoad": 79311.74486874962
+        },
+        {
+          "ef": 158,
+          "recall": 0.99046,
+          "loads": 72.106,
+          "rounds": 17.7766,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6634038776246083,
+          "storeBytesPerLoad": 78859.75361828419
+        },
+        {
+          "ef": 20,
+          "recall": 0.9495,
+          "loads": 19.1684,
+          "rounds": 4.5424,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.667755263871789,
+          "storeBytesPerLoad": 79307.83985100478
+        },
+        {
+          "ef": 40,
+          "recall": 0.971,
+          "loads": 29.1514,
+          "rounds": 7.038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.669820317377553,
+          "storeBytesPerLoad": 79383.54098259432
+        },
+        {
+          "ef": 80,
+          "recall": 0.98346,
+          "loads": 45.6164,
+          "rounds": 11.1542,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6679396006699343,
+          "storeBytesPerLoad": 79204.93397988443
+        },
+        {
+          "ef": 160,
+          "recall": 0.99056,
+          "loads": 72.722,
+          "rounds": 17.9306,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6633123401446603,
+          "storeBytesPerLoad": 78853.64699265697
+        }
+      ]
+    },
+    {
+      "name": "deleted",
+      "held": 693000,
+      "deleted": 297000,
+      "postingsGivenOut": 8117,
+      "splits": 4037,
+      "coverage": "complete",
+      "postingSegments": 3,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 1,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95654,
+          "loads": 24.3102,
+          "rounds": 5.8278,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3.669579024442415,
+          "storeBytesPerLoad": 79402.93032554236
+        },
+        {
+          "ef": 158,
+          "recall": 0.9921,
+          "loads": 92.002,
+          "rounds": 22.7506,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3.661255190104563,
+          "storeBytesPerLoad": 78675.49684137301
+        },
+        {
+          "ef": 20,
+          "recall": 0.95482,
+          "loads": 23.6826,
+          "rounds": 5.6708,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3.6694535228395533,
+          "storeBytesPerLoad": 79393.06200332734
+        },
+        {
+          "ef": 40,
+          "recall": 0.97526,
+          "loads": 36.6844,
+          "rounds": 8.9212,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3.6692054388241324,
+          "storeBytesPerLoad": 79292.39692621387
+        },
+        {
+          "ef": 80,
+          "recall": 0.98656,
+          "loads": 57.8884,
+          "rounds": 14.2222,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3.665594488705855,
+          "storeBytesPerLoad": 79008.51858748903
+        },
+        {
+          "ef": 160,
+          "recall": 0.9922,
+          "loads": 92.856,
+          "rounds": 22.9642,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3.661301369863014,
+          "storeBytesPerLoad": 78672.69766735591
+        }
+      ]
+    },
+    {
+      "name": "deleted, opened again",
+      "held": 693000,
+      "deleted": 297000,
+      "postingsGivenOut": 8117,
+      "splits": 4037,
+      "coverage": "complete",
+      "reopenSeconds": 2.807612458,
+      "postingSegments": 3,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95654,
+          "loads": 24.3102,
+          "rounds": 5.8278,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.669579024442415,
+          "storeBytesPerLoad": 79402.93032554236
+        },
+        {
+          "ef": 158,
+          "recall": 0.9921,
+          "loads": 92.002,
+          "rounds": 22.7506,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.661255190104563,
+          "storeBytesPerLoad": 78675.49684137301
+        },
+        {
+          "ef": 20,
+          "recall": 0.95482,
+          "loads": 23.6826,
+          "rounds": 5.6708,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6694535228395533,
+          "storeBytesPerLoad": 79393.06200332734
+        },
+        {
+          "ef": 40,
+          "recall": 0.97526,
+          "loads": 36.6844,
+          "rounds": 8.9212,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.6692054388241324,
+          "storeBytesPerLoad": 79292.39692621387
+        },
+        {
+          "ef": 80,
+          "recall": 0.98656,
+          "loads": 57.8884,
+          "rounds": 14.2222,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.665594488705855,
+          "storeBytesPerLoad": 79008.51858748903
+        },
+        {
+          "ef": 160,
+          "recall": 0.9922,
+          "loads": 92.856,
+          "rounds": 22.9642,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.661301369863014,
+          "storeBytesPerLoad": 78672.69766735591
+        }
+      ]
+    }
+  ]
+}

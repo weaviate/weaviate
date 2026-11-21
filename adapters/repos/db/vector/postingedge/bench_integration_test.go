@@ -146,7 +146,11 @@ type integrationStage struct {
 	// generation, the vectors it holds and how many of them are in the order
 	// of their postings. Layouts counts the passes over the vectors that
 	// ended since the index was opened.
-	Segments       int                `json:"postingSegments"`
+	Segments int `json:"postingSegments"`
+	// AsOneSegment counts the times the index asked for its bucket of
+	// postings as one segment and got it, since it was opened: each of them
+	// had the store write the bucket again, whole.
+	AsOneSegment   int                `json:"postingBucketAsOneSegment"`
 	VectorGen      int                `json:"vectorGen,omitempty"`
 	Slots          int                `json:"vectorSlots,omitempty"`
 	VectorsLaidOut int                `json:"vectorsLaidOut,omitempty"`
@@ -455,7 +459,7 @@ func TestIntegrationScale(t *testing.T) {
 		stage := integrationStage{
 			Name: name, Held: g.meta.Live - g.deletedCount, Deleted: deleted, Postings: g.meta.Postings,
 			Splits: g.meta.Splits, Coverage: "complete", ReopenSeconds: reopenTook.Seconds(),
-			Segments: segments(), VectorGen: g.meta.VectorGen, Slots: int(g.nextSlot),
+			Segments: segments(), AsOneSegment: g.merges, VectorGen: g.meta.VectorGen, Slots: int(g.nextSlot),
 			VectorsLaidOut: g.meta.VectorsLaidOut, Layouts: p.layouts.Load(),
 		}
 		cleaned := g.cleanCentroidGraph()
@@ -465,8 +469,9 @@ func TestIntegrationScale(t *testing.T) {
 		p.mu.Unlock()
 		p.writeMu.Unlock()
 		require.NoError(t, cleaned)
-		t.Logf("%s: coverage %s | %d segments of postings, generation %d of the vectors, %d of %d in the order of "+
-			"their postings", name, stage.Coverage, stage.Segments, stage.VectorGen, stage.VectorsLaidOut, stage.Slots)
+		t.Logf("%s: coverage %s | %d segments of postings, left as one %d times since the index was opened | "+
+			"generation %d of the vectors, %d of %d in the order of their postings", name, stage.Coverage, stage.Segments,
+			stage.AsOneSegment, stage.VectorGen, stage.VectorsLaidOut, stage.Slots)
 		for at, ef := range efs {
 			searchUC := uc
 			searchUC.EF = ef
