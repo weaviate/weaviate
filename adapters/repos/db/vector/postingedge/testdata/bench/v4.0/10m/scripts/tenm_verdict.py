@@ -70,7 +70,7 @@ def middle(passes):
 
 
 def measure(result, target, threads, cold):
-    for p in (result or {}).get('points', []):
+    for p in (result or {}).get('points') or []:
         if abs(p['target'] - target) < 1e-9 and p['threads'] == threads:
             return p.get('cold') if cold else middle(p.get('warm'))
     return None
@@ -140,6 +140,15 @@ def cells_table(big, small):
     if not big and not small:
         return
     print('### Nuestras celdas: sus puntos, a 1M y a 10M, sin cronometrar')
+    print()
+    for name, label in CELLS:
+        tried = (cell_of(big, name) or {}).get('tried') or []
+        if len(tried) > 1:
+            print('- **La celda de %s, a 10M, por rescore:** %s.' % (label, '; '.join(
+                'con %d, el mayor recall es %.4f%s' % (t['rescoreLimit'], t['maxRecall'], '' if t['reached'] else ', y no llega a 0.99')
+                for t in tried)))
+    if big and not small:
+        print('- **No hay celdas de 1M con el rescore de las de 10M:** las cargas no se comparan.')
     print()
     print('| celda | corpus | recall | ef | rescore | recall medido | cargas por query | rondas | lecturas del store | '
           'bytes del store | frente a 1M, cargas |')
@@ -331,7 +340,15 @@ def ram_and_disk(results, big, hf_manifest):
 def main():
     d, label, label1m = sys.argv[1], sys.argv[2], sys.argv[3]
     big = load(d, label + '-manifest.json')
-    small = load(d, label1m + '-manifest.json')
+    # The cells of 1M that were searched with the rescore limit of those of
+    # 10M: their manifest carries it in its name.
+    small = None
+    cell = cell_of(big, 'r512')
+    if cell:
+        small = load(d, '%s-r%d-manifest.json' % (label1m, cell['maxRescoreLimit']))
+    if small is None:
+        candidates = sorted(name for name in os.listdir(d) if name.startswith(label1m + '-r') and name.endswith('-manifest.json'))
+        small = load(d, candidates[0]) if candidates and not cell else None
     hf_manifest = load(d, label + '-hfresh-manifest.json')
     reads = load(d, label + '-hfresh-reads.json')
     results = {(r, c): load(d, '%s-%s-%s.json' % (label, r, c)) for r in ROUNDS for c, _, _ in CURVES}

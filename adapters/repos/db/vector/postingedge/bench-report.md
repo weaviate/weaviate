@@ -253,6 +253,20 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Ya no hay fichero de entrenamiento que borrar,** y el orden deja de importar para el disco. HFresh va primero igualmente.
 - **Lo demás no cambia.**
 
+### Enmienda 2 (15:40 del 21, antes de construir nada a 10M): lo que enseñó el ensayo a 1M
+
+**Motivo.** El ensayo de la corrida entera sobre 1M de wiki-dpr, que no es un dato salvo sus dos celdas, acabó a las 14:15. Enseñó tres cosas que cambian cómo se corre el 10M, y la medida de la regla del rescore dejó una cuarta.
+
+- **HFresh a 768d no llega a 0.99 con rescore 350.** A 1M su techo es 0.9755 con 350, 0.958 con 200, 0.913 con 100 y 0.873 con 64: su código es de 1 bit por dimensión, 768 bits aquí. Con la rejilla pre-registrada no tendría configuración a 0.99.
+  - **La rejilla de rescore de HFresh pasa a ser 200, 350, 500, 800, 1 200 y 2 000.** 64 y 100 salen: a 1M no llegan ni a 0.95. Si con 2 000 tampoco llegara a 0.99, se dice hasta dónde llega y con qué coste, y sus dos curvas de 0.99 no se cronometran.
+  - **Al construir se barre solo con 350,** que es una comprobación; la rejilla entera se barre sobre el índice limpio, que es de donde salen sus mejores configuraciones.
+- **El rescore de nuestras celdas es 150,** el ancla que deja hoy la medida de la regla del rescore (abajo, «Parámetros»): a 1M cruza 0.99 en ef 198.
+  - **Con una escalera, por si a 10M no bastara:** si con 150 la celda no llega a 0.99, se busca con 200 y después con 400, y se usa el primero que llegue. Se dice cuál. El arnés lo hace ahora en la misma corrida: sin eso, un 150 corto a 10M dejaría la celda sin punto de 0.99 y obligaría a construir otra vez.
+  - **Las celdas de 1M con las que se comparan las cargas son las de ese mismo rescore.** Las de 200 son las del ensayo; las de 150 se escriben antes del 10M.
+- **Dos builds de 1M no dan las mismas cargas.** Las dos veces que el ensayo construyó el índice de 1M, con rescore 200, la celda cruzó 0.95 en ef 26 con 18.41 cargas y en ef 28 con 19.26: un 4.6 % de diferencia. La segunda condición, la del 15 %, lleva ese ruido del lado de 1M, y se lee con él.
+- **El script de tablas fallaba** con una curva de HFresh sin punto que cronometrar. Arreglado.
+- **Lo demás no cambia:** las seis curvas, las dos condiciones y la sesión.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4.** Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.

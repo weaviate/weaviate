@@ -64,6 +64,9 @@ var (
 		"budget from the admission limiter of a node, with its defaults, asking for twice GOMAXPROCS as a shard does "+
 		"for a vector search, instead of the fixed -bench.diskbudget: a query alone is granted all it asks for, and "+
 		"queries at once share the budget of the node")
+	benchDiskRescores = flag.String("bench.diskrescores", "", "with TestDiskWrite: more rescore limits, in ascending "+
+		"order and separated by commas, to look for the points of a cell with when 0.99 is out of reach with that of "+
+		"the index and with -bench.halorescore. The first one that reaches it is the cell's")
 	benchDiskPasses = flag.Int("bench.diskpasses", 3, "with TestDiskTimed: the timed warm passes of every point")
 	benchDiskHeap   = flag.String("bench.diskheap", "", "with TestDiskTimed: the file the heap profile of the process "+
 		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed. "+
@@ -180,8 +183,20 @@ type diskCellManifest struct {
 	MaxRecall       float64     `json:"maxRecall"`
 	MaxRescoreLimit int         `json:"maxRescoreLimit"`
 	Points          []diskPoint `json:"points"`
+	// Tried is every rescore limit the points were looked for with, in
+	// order, and the best recall of each: the last one is MaxRescoreLimit
+	// unless none reached 0.99.
+	Tried []diskRescoreTry `json:"tried,omitempty"`
 	// Files is what the cell takes on disk, by what it is.
 	Files map[string]int64 `json:"files"`
+}
+
+// diskRescoreTry is one rescore limit the points of a cell were looked for
+// with.
+type diskRescoreTry struct {
+	RescoreLimit int     `json:"rescoreLimit"`
+	MaxRecall    float64 `json:"maxRecall"`
+	Reached      bool    `json:"reached"`
 }
 
 type diskManifest struct {
@@ -397,12 +412,29 @@ func TestDiskWrite(t *testing.T) {
 		}
 		cell.MaxRescoreLimit = rescore
 		cell.Points, cell.MaxRecall = diskOperatingPoints(b, spec.Name, rescore, margin)
-		if last := cell.Points[len(cell.Points)-1]; spec.Rescore == 0 && !last.Reached && *benchHaloRescore > b.uc.RescoreLimit {
-			t.Logf("cell %s: the best recall is %.4f with rescore %d: looked for again with %d",
-				spec.Name, cell.MaxRecall, b.uc.RescoreLimit, *benchHaloRescore)
-			again, best := diskOperatingPoints(b, spec.Name, *benchHaloRescore, margin)
-			if again[len(again)-1].Reached {
-				cell.Points, cell.MaxRecall, cell.MaxRescoreLimit = again, best, *benchHaloRescore
+		reached := cell.Points[len(cell.Points)-1].Reached
+		cell.Tried = []diskRescoreTry{{RescoreLimit: rescore, MaxRecall: cell.MaxRecall, Reached: reached}}
+		if spec.Rescore == 0 {
+			// A ladder: the limit of -bench.halorescore and then those of
+			// -bench.diskrescores, each only if it is wider than the one
+			// before and 0.99 is still out of reach.
+			ladder := []int{*benchHaloRescore}
+			if *benchDiskRescores != "" {
+				ladder = append(ladder, parseInts(t, *benchDiskRescores)...)
+			}
+			widest := rescore
+			for _, next := range ladder {
+				if reached || next <= widest {
+					continue
+				}
+				t.Logf("cell %s: the best recall is %.4f with rescore %d: looked for again with %d",
+					spec.Name, cell.Tried[len(cell.Tried)-1].MaxRecall, widest, next)
+				again, best := diskOperatingPoints(b, spec.Name, next, margin)
+				widest, reached = next, again[len(again)-1].Reached
+				cell.Tried = append(cell.Tried, diskRescoreTry{RescoreLimit: next, MaxRecall: best, Reached: reached})
+				if reached {
+					cell.Points, cell.MaxRecall, cell.MaxRescoreLimit = again, best, next
+				}
 			}
 		}
 

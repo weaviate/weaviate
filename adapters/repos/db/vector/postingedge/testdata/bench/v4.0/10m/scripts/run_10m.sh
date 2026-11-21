@@ -30,7 +30,14 @@
 #            testdata/bench/v4.0/10m.
 #   WORK     where the binaries and the logs go. Default: $OUT/work.
 #   RESCORE  the rescore limit of the cells: the automatic one at 768 bits.
-#            Default 200.
+#            Default 150.
+#   LADDER   more rescore limits, in ascending order and separated by commas,
+#            a cell is looked for with if 0.99 is out of reach with RESCORE.
+#            Default 200,400.
+#   HF_RESCORES_BUILD, HF_RESCORES  the rescore limits the HFresh index is
+#            swept with when it is built, which is only a check, and once it
+#            is cleaned, which is where its best configurations come from.
+#            Default 350 and 200,350,500,800,1200,2000.
 #   PROBE, RESCUE  the build probe and the rescue limit of the build of 10M.
 #            Default 320 and 256, as in v1.4.
 #   COLD     volume (DISK is on an APFS volume of its own, VOLUME_DEV mounted
@@ -46,7 +53,9 @@
 #   QUERIES (1000) and COLDQ (500): the queries of a warm pass and the cold
 #            queries of every point.
 #   EXTRA_PE, EXTRA_HF  more flags for the two binaries in the untimed stages.
-#   LABEL, LABEL1M  the names of the files. A smoke over the dataset of 1M:
+#   LABEL, LABEL1M  the names of the files. Those of the cells of 1M carry
+#            their rescore limit besides: $LABEL1M-r$RESCORE. A smoke over
+#            the dataset of 1M:
 #            DATASET=$DATASET1M LABEL=smoke PROBE=256 RESCUE=64 COLDQ=40
 #
 # It must not be edited while it runs.
@@ -64,7 +73,10 @@ COLD="${COLD:-none}"
 IDLE="${IDLE:-0}"
 ROUNDS="${ROUNDS:-n1 n2}"
 READERS="${READERS:-8}"
-RESCORE="${RESCORE:-200}"
+RESCORE="${RESCORE:-150}"
+LADDER="${LADDER:-200,400}"
+HF_RESCORES_BUILD="${HF_RESCORES_BUILD:-350}"
+HF_RESCORES="${HF_RESCORES:-200,350,500,800,1200,2000}"
 PROBE="${PROBE:-320}"
 RESCUE="${RESCUE:-256}"
 ALL_CURVES="hfresh-best95 hfresh-best95-par hfresh-best99 hfresh-best99-par r512 halo512"
@@ -116,28 +128,30 @@ stage_bin() {
   cp "$PE" "$PEU" && cp "$HF" "$HFU" || exit 1
 }
 
-# write_cells <dataset> <dir> <manifest> <log> <probe> <rescue>: one batch
-# build and its two cells
+# write_cells <dataset> <dir> <manifest> <log> <probe> <rescue> <ladder>: one
+# batch build and its two cells
 write_cells() {
   # shellcheck disable=SC2086
   (cd "$PKG" && "$PEU" -test.run 'TestDiskWrite$' -test.timeout 0 -test.v -bench.dataset "$1" \
     -bench.queries "$QUERIES" -bench.posting 236 -bench.probe "$5" -bench.rescue "$6" -bench.streamtrain \
-    -bench.halorescore "$RESCORE" -bench.diskdir "$2" -bench.diskcells "${CELLS// /,}" -bench.diskmanifest "$3" \
-    ${EXTRA_PE:-} > "$4" 2>&1)
+    -bench.halorescore "$RESCORE" -bench.diskrescores "$7" -bench.diskdir "$2" -bench.diskcells "${CELLS// /,}" \
+    -bench.diskmanifest "$3" ${EXTRA_PE:-} > "$4" 2>&1)
   lines "$4" "built|train set loaded|cell |index |STOP"
   passed "$4"
 }
 
 stage_pe1m() {
   date "+== %Y-%m-%d %H:%M the two cells over 1M, into $DISK/pe-1m, untimed"
-  write_cells "$DATASET1M" "$DISK/pe-1m" "$OUT/$LABEL1M-manifest.json" "$WORK/$LABEL1M-write.log" 256 64 \
-    || { echo "== the cells of 1M did not pass: see $WORK/$LABEL1M-write.log"; exit 1; }
+  # The cells of 1M are searched with one rescore limit, that of the cells
+  # of 10M they are read against: no ladder.
+  write_cells "$DATASET1M" "$DISK/pe-1m" "$OUT/$LABEL1M-r$RESCORE-manifest.json" "$WORK/$LABEL1M-r$RESCORE-write.log" 256 64 "" \
+    || { echo "== the cells of 1M did not pass: see $WORK/$LABEL1M-r$RESCORE-write.log"; exit 1; }
   stage_verdict
 }
 
 stage_pe() {
   date "+== %Y-%m-%d %H:%M the batch build and its two cells, into $PE_DISK, untimed"
-  write_cells "$DATASET" "$PE_DISK" "$PE_MANIFEST" "$WORK/$LABEL-write.log" "$PROBE" "$RESCUE" \
+  write_cells "$DATASET" "$PE_DISK" "$PE_MANIFEST" "$WORK/$LABEL-write.log" "$PROBE" "$RESCUE" "$LADDER" \
     || { echo "== the cells did not pass: see $WORK/$LABEL-write.log"; exit 1; }
   stage_verdict
 }
@@ -147,7 +161,8 @@ stage_hfresh() {
   # shellcheck disable=SC2086
   (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HFU" -test.run 'TestHFreshDiskBuild$' -test.timeout 0 -test.v \
     -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$HF_SRC" \
-    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-build-manifest.json" ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-build.log" 2>&1)
+    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-build-manifest.json" -bench.hfresh.rescores "$HF_RESCORES_BUILD" \
+    ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-build.log" 2>&1)
   lines "$WORK/$LABEL-hfresh-build.log" "bench_disk_test"
   passed "$WORK/$LABEL-hfresh-build.log" || { echo "== the hfresh stage did not pass: see $WORK/$LABEL-hfresh-build.log"; exit 1; }
 }
@@ -161,7 +176,7 @@ stage_clean() {
   (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HFU" -test.run 'TestHFreshDiskClean$' -test.timeout 0 -test.v \
     -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$HF_DIR" \
     -bench.hfresh.manifest "$OUT/$LABEL-hfresh-build-manifest.json" -bench.hfresh.out "$OUT/$LABEL-hfresh-manifest.json" \
-    ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-clean.log" 2>&1)
+    -bench.hfresh.rescores "$HF_RESCORES" ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-clean.log" 2>&1)
   lines "$WORK/$LABEL-hfresh-clean.log" "bench_disk_test"
   passed "$WORK/$LABEL-hfresh-clean.log" || { echo "== the clean stage did not pass: see $WORK/$LABEL-hfresh-clean.log"; exit 1; }
 }
