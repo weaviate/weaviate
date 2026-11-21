@@ -37,13 +37,15 @@ func TestVectorIndexArtifactsFor_CoversEveryArtifact(t *testing.T) {
 		"hfresh_shared_vectors_vec",        // hfresh shared metadata
 		"vectors_compressed_vec_centroids", // hfresh's nested centroids HNSW
 		// postingedge: its postings, its tables by doc id, the marks of its
-		// deleted vectors, and the vectors it gathers before its first build
+		// deleted vectors, the vectors it gathers before its first build, and
+		// the changes to its edges that wait for their rows
 		"postingedge_postings_vectors_vec",
 		"postingedge_map_vectors_vec",
 		"postingedge_routing_vectors_vec",
 		"postingedge_edgedists_vectors_vec",
 		"postingedge_deleted_vectors_vec",
 		"postingedge_staging_vectors_vec",
+		"postingedge_pending_vectors_vec",
 	}, got.LSMBuckets)
 
 	assert.ElementsMatch(t, []string{

@@ -69,6 +69,13 @@ const (
 // several times on the way to a few thousand.
 func newPersistentFixture(t *testing.T, n int) *persistentFixture {
 	t.Helper()
+	return newPersistentFixtureWith(t, n, nil)
+}
+
+// newPersistentFixtureWith is newPersistentFixture with the config of the
+// index changed before it first opens.
+func newPersistentFixtureWith(t *testing.T, n int, change func(cfg *PersistentConfig)) *persistentFixture {
+	t.Helper()
 	all := latentVectors(n+60, persistentDims, 9101)
 	f := &persistentFixture{
 		root:     t.TempDir(),
@@ -93,6 +100,9 @@ func newPersistentFixture(t *testing.T, n int) *persistentFixture {
 		DistanceProvider: f.provider,
 		BaseSize:         persistentBase,
 		Seed:             7,
+	}
+	if change != nil {
+		change(&f.cfg)
 	}
 	f.open(t)
 	t.Cleanup(func() {
@@ -285,10 +295,37 @@ func (f *persistentFixture) keptAside(t *testing.T) int {
 // it.
 func (f *persistentFixture) covered(t *testing.T, at string) {
 	t.Helper()
+	// Nothing of the index runs next to the check: not what it does in the
+	// background either.
+	f.index.writeMu.Lock()
+	defer f.index.writeMu.Unlock()
+	f.index.mu.Lock()
+	defer f.index.mu.Unlock()
 	g := f.index.g
 	require.NotNil(t, g, at)
 	require.NoError(t, g.cleanCentroidGraph(), at)
 	require.NoError(t, g.checkCoverage(), at)
+}
+
+// vectorsIntact checks that the index reads, for every doc it holds, the
+// vector it was given, normalized.
+func (f *persistentFixture) vectorsIntact(t *testing.T, at string) {
+	t.Helper()
+	f.index.mu.RLock()
+	defer f.index.mu.RUnlock()
+	g := f.index.g
+	require.NotNil(t, g, at)
+	var raw []byte
+	var vector []float32
+	for docID, held := range g.live {
+		if !held {
+			continue
+		}
+		var err error
+		raw, vector, err = g.exact(uint64(docID), raw, vector)
+		require.NoError(t, err, "%s: doc %d", at, docID)
+		require.Equal(t, f.normalized[docID], vector, "%s: the vector of doc %d", at, docID)
+	}
 }
 
 // An index without vectors answers every call a shard makes of an empty
@@ -1074,7 +1111,7 @@ func TestPersistentStopsAfterAFailedWrite(t *testing.T) {
 	// finds its edges, writes its member and its edges, and fails writing
 	// its vector.
 	g := f.index.g
-	readOnly, err := os.Open(filepath.Join(g.dir, diskVectorFile))
+	readOnly, err := os.Open(filepath.Join(g.dir, growVectorsName(g.meta.VectorGen)))
 	require.NoError(t, err)
 	require.NoError(t, g.vectors.Close())
 	g.vectors = readOnly

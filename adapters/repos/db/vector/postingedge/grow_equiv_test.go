@@ -50,6 +50,9 @@ type growFixture struct {
 	// batchOfOne inserts every vector on disk as a batch of one (v5.2),
 	// which is the same insert.
 	batchOfOne bool
+	// keepPending opens the index on disk so that it keeps in a bucket what
+	// waits of its edges.
+	keepPending bool
 	// written is what the twin wrote for its last insert.
 	written struct {
 		docID   uint64
@@ -78,13 +81,24 @@ func newGrowFixtureWith(t *testing.T, total, base, dims int, cosine bool, bits, 
 func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int, withMembers bool,
 ) *growFixture {
 	t.Helper()
+	return newGrowFixtureFormat(t, total, base, dims, cosine, bits, threshold,
+		growConfig{consolidate: consolidate, rowsWithMembers: withMembers})
+}
+
+// newGrowFixtureFormat is newGrowFixture with the format of the index on disk
+// taken from the given config: its edges, whether its vectors have slots, and
+// whether what waits of its edges is kept in a bucket.
+func newGrowFixtureFormat(t *testing.T, total, base, dims int, cosine bool, bits, threshold int, format growConfig,
+) *growFixture {
+	t.Helper()
 	ctx := context.Background()
 	f := &growFixture{
-		all:      clusteredVectors(total, dims, 12, 4107),
-		queries:  clusteredVectors(40, dims, 12, 4108),
-		provider: distancer.NewL2SquaredProvider(),
-		uc:       smallConfig(),
-		inserted: base,
+		all:         clusteredVectors(total, dims, 12, 4107),
+		queries:     clusteredVectors(40, dims, 12, 4108),
+		provider:    distancer.NewL2SquaredProvider(),
+		uc:          smallConfig(),
+		inserted:    base,
+		keepPending: format.open.keepPending,
 	}
 	f.uc.Distance, f.uc.EF = "l2-squared", 48
 	if cosine {
@@ -110,9 +124,8 @@ func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, 
 	}
 
 	f.dir = t.TempDir()
-	cfg := growConfig{
-		keys: total, neighbors: f.uc.Edges, threshold: threshold, seed: 7, consolidate: consolidate, rowsWithMembers: withMembers,
-	}
+	cfg := format
+	cfg.keys, cfg.neighbors, cfg.threshold, cfg.seed = total, f.uc.Edges, threshold, 7
 	require.NoError(t, writeGrowIndex(ctx, testLogger(), f.dir, st, cfg, f.provider, vectorOf))
 	f.twin, err = newStreamIndex(index, total, streamConfig{threshold: threshold, inverse: true, seed: 7, followGraph: true}, vectorOf)
 	require.NoError(t, err)
@@ -136,7 +149,8 @@ func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, 
 // open opens the index on disk and gives its graph to the twin.
 func (f *growFixture) open(t *testing.T) {
 	t.Helper()
-	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc, growOpen{leveled: f.leveled})
+	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc,
+		growOpen{leveled: f.leveled, keepPending: f.keepPending})
 	require.NoError(t, err)
 	g.work = &SearchStats{}
 	f.g = g

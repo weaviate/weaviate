@@ -56,8 +56,15 @@ import (
 // posting and goes on routing, and no search returns it (growIndex.remove).
 // Nothing takes it out, so the space and the work of a deleted vector stay.
 //
-// Nothing runs in the background. The first build, the search of an insert
-// for its edges, a split: all of it runs inside the insert that needs it.
+// The first build, the search of an insert for its edges, a split: all of it
+// runs inside the insert that needs it. One thing runs in the background, in
+// a goroutine of the index (persistent_maintenance.go): the exact vectors are
+// written again in the order of their postings every time the index doubles.
+//
+// The base is written with the edges of a posting in one row next to its
+// members (v5.3) and the exact vectors by slot. An index that was written
+// before, with a value per list of edges and the vectors at their doc ids,
+// opens as what it is and stays so.
 //
 // What it does not do says so with an error: a filtered search, a search by
 // distance, a backup. Multi-vectors and distances other than cosine are
@@ -98,6 +105,16 @@ type Persistent struct {
 	// the store is not known to be an index, so nothing reads it or adds to
 	// it after that.
 	failed error
+
+	// What runs in the background (persistent_maintenance.go): wake tells it
+	// to look for work, stopMaintenance ends it and waits for it.
+	wake            chan struct{}
+	stopMaintenance func()
+	// layouts counts the passes over the vectors that ended, for whoever
+	// waits for one, and layoutNotBefore is how many vectors the file must
+	// hold before a pass is tried again after one that failed.
+	layouts         atomic.Int64
+	layoutNotBefore atomic.Int64
 }
 
 const (
@@ -125,6 +142,9 @@ const (
 	maxAutoRescoreLimit = 1600
 	// keysStep is what the room for doc ids grows by, at least.
 	keysStep = 1 << 12
+	// DefaultConsolidate is how many changes to the edges of a posting wait
+	// before its row of edges is written again: the K of v5.1 and v5.3.
+	DefaultConsolidate = 64
 
 	growBucketPrefix = "postingedge_grow_"
 )
@@ -148,6 +168,14 @@ type PersistentConfig struct {
 	BaseSize int
 	// Seed makes the base and the splits reproducible.
 	Seed uint64
+
+	// listEdges has the base written as the first version of the index wrote
+	// it: a value per list of edges, and the exact vectors at their doc ids.
+	// Only the tests set it, to have an index of then to open.
+	listEdges bool
+	// noMaintenance leaves out what runs in the background, for the tests
+	// that call it themselves.
+	noMaintenance bool
 }
 
 func (c *PersistentConfig) validate() error {
@@ -241,6 +269,7 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 	default:
 		return nil, errors.Wrap(statErr, "look for the meta of the index")
 	}
+	p.startMaintenance()
 	return p, nil
 }
 
@@ -255,7 +284,12 @@ func (p *Persistent) stagingName() string {
 }
 
 func (p *Persistent) growOpen() growOpen {
-	return growOpen{store: p.store, makeOptions: p.cfg.MakeBucketOptions, names: p.bucketName, deletes: true}
+	return growOpen{
+		store: p.store, makeOptions: p.cfg.MakeBucketOptions, names: p.bucketName, deletes: true,
+		// A shard flushes its indexes and may stop without closing them:
+		// what waits in memory of the edges is on disk too.
+		keepPending: true,
+	}
 }
 
 func (p *Persistent) openStaging(ctx context.Context) error {
@@ -486,6 +520,9 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 			return errors.Wrapf(err, "add vector of id %d", ids[i])
 		}
 	}
+	if p.g != nil && p.g.layoutDue() {
+		p.wakeMaintenance()
+	}
 	return nil
 }
 
@@ -658,6 +695,12 @@ func (p *Persistent) buildBase(ctx context.Context) (err error) {
 	cfg := growConfig{
 		keys: keysFor(slices.Max(ids)), neighbors: buildConfig.Edges, threshold: threshold, seed: p.cfg.Seed,
 		open: p.growOpen(),
+	}
+	if !p.cfg.listEdges {
+		// The format the experiments left as the candidate (v5.3): the edges
+		// of a posting in one row, next to its members, and the vectors by
+		// slot, so that they can be laid out again as the index grows.
+		cfg.consolidate, cfg.rowsWithMembers, cfg.slots = DefaultConsolidate, true, true
 	}
 	if err := writeGrowIndex(ctx, p.logger, p.dir, st, cfg, p.provider, vectorOf); err != nil {
 		if discarded := p.discardBase(ctx); discarded != nil {
@@ -985,6 +1028,8 @@ func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, staging
 // buckets leave the store: the index that opens them next gives them to it
 // again.
 func (p *Persistent) Shutdown(ctx context.Context) error {
+	// What runs in the background ends first: it takes the locks below.
+	p.stopMaintenance()
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	p.mu.Lock()
@@ -995,6 +1040,7 @@ func (p *Persistent) Shutdown(ctx context.Context) error {
 // Drop releases the index and, unless keepFiles is set, removes its directory
 // and its buckets.
 func (p *Persistent) Drop(ctx context.Context, keepFiles bool) error {
+	p.stopMaintenance()
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	p.mu.Lock()

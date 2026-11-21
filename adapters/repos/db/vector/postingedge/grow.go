@@ -48,7 +48,11 @@ import (
 //	mean.f32       the mean of the quantizer
 //	centroids.f32  the centroid of every posting id given out, retired ones too
 //	centroids/     the centroid graph, with its commit log
-//	vectors.f32    the exact vector of doc id d at position d
+//	vectors.f32    the exact vector of doc id d at position d; or, in an
+//	               index whose vectors have slots (growMeta.VectorGen),
+//	               vectors-<gen>.f32, the vectors one after another in the
+//	               order they were laid out or came in, and slots-<gen>.u32,
+//	               where the vector of every doc id is (grow_layout.go)
 //	lsm/           four buckets of the store:
 //
 //	  postings  strategy Set, the one of HFresh's postings. Two rows per
@@ -71,7 +75,13 @@ import (
 //	            posting, in the map and among the routing codes.
 //
 // The edges are reached through growEdges (grow_edges.go): the row of edges
-// above is the one of v5.0, and the tests have another.
+// above is the one of v5.0, and grow_rows.go has the other, one value with
+// the lists of all the members of a posting, with one bucket more where it is
+// asked for:
+//
+//	  pending   strategy Replace: doc id -> the list of edges of a member that
+//	            changed since the row of its posting was written, with its
+//	            distances. Read when the index opens, and never by a search.
 //
 // In memory: the routing codes, the posting map, the marks of the deleted
 // vectors, the centroids and their graph. One writer: inserts run one after
@@ -85,9 +95,8 @@ import (
 // index in their names (growOpen.store). The experiments give it none, and
 // it opens one of its own under lsm/, as above.
 //
-// What checks an index, compares it with its twin in memory or lays it out
-// again is with the tests (grow_check_test.go), and so are the consolidated
-// edges of v5.1 and v5.3 (grow_rows_test.go).
+// What checks an index, compares it with its twin in memory or writes a copy
+// of it laid out again is with the tests (grow_check_test.go).
 
 const (
 	growFormatVersion  = 1
@@ -103,13 +112,20 @@ const (
 	// Replace, doc id -> one byte. A deleted vector keeps its place in its
 	// posting, in the map and among the routing codes: only the mark tells.
 	growBucketDeleted = "postingedge_grow_deleted"
+	// growBucketPending holds, where the index is asked to keep them
+	// (growOpen.keepPending), the changes to the consolidated edges that wait
+	// in memory: strategy Replace, doc id -> its list and the distances of
+	// its edges, in the format growPendingFormat tells.
+	growBucketPending = "postingedge_grow_pending"
+	growPendingFormat = 1
 	// growScratchSpare is the postings the scratch of a search has room for
 	// beyond twice those there are, in an index whose doc ids have no bound.
 	growScratchSpare = 1024
 	// growSlotsFile, when an index has it, tells where the exact vector of
-	// every doc id is in its vectors file. Only an index that was laid out
-	// again has one (reorganizeGrowIndex): one that grows keeps the vector
-	// of doc id d at position d.
+	// every doc id is in its vectors file. Only a copy of an index laid out
+	// again by the experiments has one (reorganizeGrowIndex), and it does
+	// not grow. An index that grows keeps the vector of doc id d at position
+	// d, or has a table of slots of its own (growMeta.VectorGen).
 	growSlotsFile = "slots.u32"
 	// growCycleEvery is how many inserts go between two calls to the flush
 	// and compaction cycles of the store, which nothing runs in the
@@ -153,6 +169,19 @@ type growMeta struct {
 	// miembros"). A Set cannot replace a value: writing the row again takes
 	// the old one out, with a tombstone that carries it, and adds the new.
 	RowsWithMembers bool `json:"rowsWithMembers,omitempty"`
+	// VectorGen, when positive, tells that the exact vectors have slots: the
+	// vector of a doc id is wherever the table of slots says, and not at the
+	// position of its doc id. A vector that comes in takes the next slot, so
+	// the file has no holes for the doc ids that were never given, and the
+	// vectors can be written again in the order of their postings while the
+	// index grows (grow_layout.go). The number is the generation of the two
+	// files, vectors-<gen>.f32 and slots-<gen>.u32: laying the vectors out
+	// again writes the next one, and the meta is what says which is current.
+	VectorGen int `json:"vectorGen,omitempty"`
+	// VectorsLaidOut is how many vectors the file held in the order of their
+	// postings when it was last laid out. Those past them are in the order
+	// they came.
+	VectorsLaidOut int `json:"vectorsLaidOut,omitempty"`
 }
 
 // growIO counts reads or writes: how many, and their bytes.
@@ -232,6 +261,13 @@ type growStats struct {
 	PendingPeak      int64  `json:"pendingPeakMembers"`
 	PendingPeakBytes int64  `json:"pendingPeakBytes"`
 	PendingPeakPosts int    `json:"pendingPeakPostings"`
+	// PendingLog counts the changes written to the bucket of what waits,
+	// where the index keeps one.
+	PendingLog growIO `json:"pendingLogWrites"`
+	// Layouts counts the times the vectors were laid out again, and
+	// LayoutVectors the vectors those wrote.
+	Layouts       int   `json:"layouts,omitempty"`
+	LayoutVectors int64 `json:"layoutVectors,omitempty"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	SearchTime  time.Duration `json:"searchNs"`
@@ -314,12 +350,15 @@ type growIndex struct {
 	deleted []bool
 	// edgeStore keeps the edges of the postings (growEdges): every list as a
 	// value of the bucket of postings (growLists), unless the meta asks for
-	// consolidated edges, which only the tests have.
+	// consolidated edges (growRows).
 	edgeStore growEdges
 	// edges is the bucket of the rows of edges, nil unless the edges are
-	// consolidated, and pending what waits of every posting. Only a store of
-	// consolidated edges touches them, and touched below.
+	// consolidated in a bucket of their own, and pending what waits of every
+	// posting. waiting is the bucket that holds what waits too, nil unless
+	// the index was opened to keep it. Only a store of consolidated edges
+	// touches them, and touched below.
 	edges          *lsmkv.Bucket
+	waiting        *lsmkv.Bucket
 	pending        map[uint32]*growPending
 	pendingMembers int64
 	pendingBytes   int64
@@ -332,8 +371,16 @@ type growIndex struct {
 	live []bool   // by doc id
 	size []uint32 // by posting: its members
 	// slotOf, when set, is the position of the exact vector of every doc id
-	// in the vectors file. Such an index is searched, and does not grow.
-	slotOf []uint32
+	// in the vectors file, diskNoSlot for a doc id without one. frozen tells
+	// that it is the table of a copy laid out by the experiments, which is
+	// searched and does not grow. Otherwise it is the table of an index whose
+	// vectors have slots (growMeta.VectorGen): slots is its file, where a
+	// vector that comes in writes its own, and nextSlot the slot the next
+	// one takes.
+	slotOf   []uint32
+	frozen   bool
+	slots    *os.File
+	nextSlot uint32
 	// retired tells the postings that were split. The compaction of the
 	// store asks, from wherever it runs.
 	retiredMu sync.RWMutex
@@ -525,6 +572,13 @@ type growOpen struct {
 	// deletes opens the bucket of the marks of the deleted vectors. An index
 	// opened without it has none and deletes nothing.
 	deletes bool
+	// keepPending has an index with consolidated edges write every change
+	// that waits in memory to a bucket too, as it is made, and read them
+	// back when it opens: what a sync leaves on disk is then the whole
+	// index. Without it what waits is written when the index closes, and an
+	// index that did not close has lost it: the experiments, which close
+	// every index they grow.
+	keepPending bool
 }
 
 // growBlock is a row of edges decoded: the members it has a list of, in its
@@ -551,6 +605,9 @@ type growConfig struct {
 	// rowsWithMembers has those rows in the bucket of postings, next to the
 	// members (growMeta.RowsWithMembers).
 	rowsWithMembers bool
+	// slots gives the exact vectors slots (growMeta.VectorGen): the base is
+	// written with the vectors of every posting in a row.
+	slots bool
 	// open says where the buckets of the index go: the zero value is a store
 	// of its own under dir.
 	open growOpen
@@ -608,6 +665,16 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		Neighbors: cfg.neighbors, Threshold: cfg.threshold, Seed: cfg.seed, Postings: postings, Live: n,
 		Consolidate: cfg.consolidate, RowsWithMembers: cfg.rowsWithMembers,
 	}
+	var slotOf []uint32
+	if cfg.slots {
+		// The base is laid out as it is written: its vectors go in the order
+		// of its postings.
+		g.meta.VectorGen, g.meta.VectorsLaidOut = 1, n
+		slotOf = make([]uint32, cfg.keys)
+		for i := range slotOf {
+			slotOf[i] = diskNoSlot
+		}
+	}
 	path := func(name string) string { return filepath.Join(dir, name) }
 	if err := writeArray(path(diskMeanFile), 4, putFloat32, quantizer.Data().Mean); err != nil {
 		return errors.Wrap(err, "write the mean of the quantizer")
@@ -630,7 +697,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 			err = errors.Wrap(shut, "close the store")
 		}
 	}()
-	if g.vectors, err = os.OpenFile(path(diskVectorFile), os.O_RDWR|os.O_CREATE, 0o644); err != nil {
+	if g.vectors, err = os.OpenFile(path(growVectorsName(g.meta.VectorGen)), os.O_RDWR|os.O_CREATE, 0o644); err != nil {
 		return err
 	}
 	defer func() {
@@ -640,6 +707,7 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 	}()
 
 	raw := make([]byte, 4*st.dims)
+	written := uint32(0)
 	var dists []float32
 	var edges []uint32
 	for p := range postings {
@@ -672,7 +740,12 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 			for i, x := range vector {
 				putFloat32(raw[4*i:], x)
 			}
-			if _, err := g.vectors.WriteAt(raw, int64(docID)*int64(len(raw))); err != nil {
+			at := docID
+			if slotOf != nil {
+				at, slotOf[docID] = uint64(written), written
+				written++
+			}
+			if _, err := g.vectors.WriteAt(raw, int64(at)*int64(len(raw))); err != nil {
 				return errors.Wrapf(err, "write the vector of doc %d", docID)
 			}
 		}
@@ -686,8 +759,12 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 			return err
 		}
 	}
-	// The file has room for every key: a vector is read at its doc id.
-	if err := g.vectors.Truncate(int64(cfg.keys) * int64(len(raw))); err != nil {
+	if slotOf != nil {
+		if err := writeSlots(path(growSlotsName(g.meta.VectorGen)), slotOf); err != nil {
+			return errors.Wrap(err, "write where the vectors are")
+		}
+	} else if err := g.vectors.Truncate(int64(cfg.keys) * int64(len(raw))); err != nil {
+		// The file has room for every key: a vector is read at its doc id.
 		return err
 	}
 	if err := g.flushAll(); err != nil {
@@ -801,15 +878,20 @@ func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 
 	g.edgeStore = growLists{g}
 	if g.meta.Consolidate > 0 {
-		if newGrowRows == nil {
-			return failed(errors.New("the index has consolidated edges, which only the experiments read: " +
-				"the index reads a list of edges per member"))
+		if !g.meta.RowsWithMembers {
+			if err := open(growBucketEdges, makeOptions(lsmkv.StrategyReplace, common...)); err != nil {
+				return failed(err)
+			}
+			g.edges = store.Bucket(g.bucketName(growBucketEdges))
 		}
-		rows, err := newGrowRows(ctx, g, store, common)
-		if err != nil {
-			return failed(err)
+		if opts.keepPending {
+			if err := open(growBucketPending, makeOptions(lsmkv.StrategyReplace, common...)); err != nil {
+				return failed(err)
+			}
+			g.waiting = store.Bucket(g.bucketName(growBucketPending))
 		}
-		g.edgeStore = rows
+		g.pending = make(map[uint32]*growPending)
+		g.edgeStore = growRows{g}
 	}
 	return nil
 }
@@ -952,13 +1034,18 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if g.centroids, err = os.OpenFile(path(diskCentroidFile), os.O_RDWR, 0o644); err != nil {
 		return nil, errors.Wrap(err, "open the centroids")
 	}
-	if g.vectors, err = os.OpenFile(path(diskVectorFile), os.O_RDWR, 0o644); err != nil {
+	if g.vectors, err = os.OpenFile(path(growVectorsName(meta.VectorGen)), os.O_RDWR, 0o644); err != nil {
 		return nil, errors.Wrap(err, "open the vectors")
 	}
-	if _, err := os.Stat(path(growSlotsFile)); err == nil {
+	if meta.VectorGen > 0 {
+		if err := g.openSlots(); err != nil {
+			return nil, err
+		}
+	} else if _, err := os.Stat(path(growSlotsFile)); err == nil {
 		if g.slotOf, err = readArray(path(growSlotsFile), 4, meta.Keys, binary.LittleEndian.Uint32); err != nil {
 			return nil, errors.Wrap(err, "read where the vectors are")
 		}
+		g.frozen = true
 	}
 	if err := g.openStore(ctx, opts); err != nil {
 		return nil, err
@@ -1016,6 +1103,13 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if coded != live {
 		return nil, errors.Errorf("%d routing codes for %d docs", coded, live)
 	}
+	if meta.VectorGen > 0 {
+		for docID, held := range g.live {
+			if held && g.slotOf[docID] == diskNoSlot {
+				return nil, errors.Errorf("doc %d is in the map and has no vector in the file", docID)
+			}
+		}
+	}
 	g.retired = make([]bool, meta.Postings)
 	for p, size := range g.size {
 		g.retired[p] = size == 0
@@ -1060,6 +1154,12 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	g.sums = make([]float64, meta.Dims)
 	g.own = newGrowPlan()
 	g.kept, g.keptAt, g.captured = g.own.kept, g.own.keptAt, g.own.captured
+	if g.consolidated() {
+		// What waited when the index was last synced, where it keeps it.
+		if err := g.loadPending(); err != nil {
+			return nil, err
+		}
+	}
 
 	g.ix, err = New(Config{
 		ID:                           "grow",
@@ -1113,7 +1213,12 @@ func (g *growIndex) close(ctx context.Context) error {
 		}
 	}
 	if g.st != nil && g.st.centroids != nil && g.lsm != nil && g.ix != nil {
-		keep(g.flushPending())
+		if g.waiting == nil {
+			// What waits in memory of the edges is nowhere else. Where it
+			// is kept in a bucket it goes on waiting there, as it does
+			// through every sync, and no row is written for closing.
+			keep(g.flushPending())
+		}
 		keep(g.sync())
 	}
 	keep(g.release(ctx))
@@ -1139,7 +1244,7 @@ func (g *growIndex) release(ctx context.Context) error {
 	if g.lsm != nil {
 		keep(g.closeStore(ctx))
 	}
-	for _, file := range []*os.File{g.vectors, g.centroids} {
+	for _, file := range []*os.File{g.vectors, g.slots, g.centroids} {
 		if file != nil {
 			keep(file.Close())
 		}
@@ -1478,11 +1583,19 @@ func (g *growIndex) extend(keys int) error {
 	if keys <= g.meta.Keys {
 		return nil
 	}
-	if g.slotOf != nil {
+	if g.frozen {
 		return errors.New("the index was laid out again to be searched: it does not grow")
 	}
 	if keys > maxVectors {
 		return errors.Errorf("room for %d doc ids, the index addresses up to %d", keys, maxVectors)
+	}
+	if g.slotOf != nil {
+		slotOf := make([]uint32, keys)
+		copy(slotOf, g.slotOf)
+		for i := g.meta.Keys; i < keys; i++ {
+			slotOf[i] = diskNoSlot
+		}
+		g.slotOf = slotOf
 	}
 	old := g.st.side
 	side := &sidecar{
@@ -1567,7 +1680,7 @@ func (g *growIndex) holds(docID uint64) bool {
 
 // insertable tells whether the index can take a vector under a doc id.
 func (g *growIndex) insertable(docID uint64, vector []float32) error {
-	if g.slotOf != nil {
+	if g.frozen {
 		return errors.New("the index was laid out again to be searched: it does not grow")
 	}
 	if docID >= uint64(len(g.live)) {
@@ -1730,8 +1843,19 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 	for i, x := range vector {
 		putFloat32(raw[4*i:], x)
 	}
-	if _, err := g.vectors.WriteAt(raw, int64(docID)*int64(len(raw))); err != nil {
+	// At the position of its doc id, or, where the vectors have slots, in the
+	// next one, which its table then tells.
+	at := docID
+	if g.meta.VectorGen > 0 {
+		at = uint64(g.nextSlot)
+	}
+	if _, err := g.vectors.WriteAt(raw, int64(at)*int64(len(raw))); err != nil {
 		return errors.Wrapf(err, "write the vector of doc %d", docID)
+	}
+	if g.meta.VectorGen > 0 {
+		if err := g.takeSlot(docID); err != nil {
+			return err
+		}
 	}
 	g.stats.MemberRow.add(1, len(member))
 	g.stats.MemberMap.add(1, 4)

@@ -13,7 +13,6 @@ package postingedge
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"math"
 	"slices"
@@ -27,30 +26,17 @@ import (
 // consolidadas" and "v5.3: la fila de aristas en un valor, junto a la de
 // miembros"): the edges of a posting as one row, written whole, with the
 // changes since it was written waiting in memory. It is the other way of
-// keeping the edges behind growEdges, next to the one the index has
-// (growLists, a value per list, v5.0). It stays with the tests while the
-// experiments decide between the two: an index opened outside them has no
-// way to read it.
+// keeping the edges behind growEdges, next to a value per list (growLists,
+// v5.0), and the one the index a shard opens is written with: the row in the
+// bucket of the postings, next to the members (v5.3), which is what a search
+// reads least from disk for.
 //
 // What waits in memory is in the index itself (growIndex.pending), which is
-// where the benchmarks read it.
-
-func init() {
-	newGrowRows = func(ctx context.Context, g *growIndex, store *lsmkv.Store, options []lsmkv.BucketOption,
-	) (growEdges, error) {
-		if !g.meta.RowsWithMembers {
-			name := g.bucketName(growBucketEdges)
-			err := store.CreateOrLoadBucket(ctx, name,
-				append([]lsmkv.BucketOption{lsmkv.WithStrategy(lsmkv.StrategyReplace)}, options...)...)
-			if err != nil {
-				return nil, errors.Wrapf(err, "open the bucket %s", name)
-			}
-			g.edges = store.Bucket(name)
-		}
-		g.pending = make(map[uint32]*growPending)
-		return growRows{g}, nil
-	}
-}
+// where the benchmarks read it. Where the index is asked to (growOpen.
+// keepPending) every change that waits is in a bucket too, from the moment it
+// is made until the row that holds it is written: what a sync leaves on disk
+// is then the whole index, and an index that opens finds what waited when it
+// closed, or when it stopped. No search reads that bucket.
 
 // growRows keeps the edges of every posting in one row (growEdges).
 type growRows struct {
@@ -58,10 +44,71 @@ type growRows struct {
 }
 
 func (r growRows) buckets() []*lsmkv.Bucket {
-	if r.g.edges == nil {
+	var buckets []*lsmkv.Bucket
+	if r.g.edges != nil {
+		buckets = append(buckets, r.g.edges)
+	}
+	if r.g.waiting != nil {
+		buckets = append(buckets, r.g.waiting)
+	}
+	return buckets
+}
+
+// growPendingValue is a change that waits, as its bucket holds it: a byte
+// that tells the format, the list, and the distance of every edge of it.
+func growPendingValue(list []uint32, dists []float32) []byte {
+	value := make([]byte, 1+4*len(list)+4*len(dists))
+	value[0] = growPendingFormat
+	for i, endpoint := range list {
+		binary.LittleEndian.PutUint32(value[1+4*i:], endpoint)
+	}
+	at := 1 + 4*len(list)
+	for i, dist := range dists {
+		putFloat32(value[at+4*i:], dist)
+	}
+	return value
+}
+
+func growPendingDecode(value []byte) (list []uint32, dists []float32, err error) {
+	if len(value) < 1 || value[0] != growPendingFormat || (len(value)-1)%8 != 0 {
+		return nil, nil, errors.Errorf("a change to the edges that waits takes %d bytes, or is of another format", len(value))
+	}
+	n := (len(value) - 1) / 8
+	list, dists = make([]uint32, n), make([]float32, n)
+	for i := range n {
+		list[i] = binary.LittleEndian.Uint32(value[1+4*i:])
+		dists[i] = getFloat32(value[1+4*n+4*i:])
+	}
+	return list, dists, nil
+}
+
+// loadPending reads what waited when the index was last synced back into
+// memory, by the posting the map has every member in now. The changes of a
+// posting are counted as one per member that waits: how many times each list
+// changed is not kept.
+func (g *growIndex) loadPending() error {
+	if g.waiting == nil {
 		return nil
 	}
-	return []*lsmkv.Bucket{r.g.edges}
+	side := g.st.side
+	err := growScan(g.waiting, func(key, value []byte) error {
+		if len(key) != 4 {
+			return errors.Errorf("a change to the edges that waits with a key of %d bytes", len(key))
+		}
+		docID := binary.BigEndian.Uint32(key)
+		if int(docID) >= len(g.live) || !g.live[docID] {
+			return errors.Errorf("a change to the edges of doc %d waits, and the doc is not in the map", docID)
+		}
+		list, dists, err := growPendingDecode(value)
+		if err != nil {
+			return errors.Wrapf(err, "doc %d", docID)
+		}
+		g.keepPending(side.postingOf[docID], uint64(docID), list, dists)
+		return nil
+	})
+	// No insert has changed anything yet.
+	g.touched = g.touched[:0]
+	return errors.Wrap(err, "read the changes to the edges that waited")
 }
 
 // writePosting writes the row of a posting that has none. From a split it is
@@ -101,15 +148,13 @@ func (r growRows) join(p uint32, dp *diskPosting) error {
 // other changes of its posting. It is the first change of an insert.
 func (r growRows) add(p uint32, docID uint64, edges []uint32, dists []float32) error {
 	r.g.touched = r.g.touched[:0]
-	r.g.setPending(p, docID, edges, dists)
-	return nil
+	return r.g.setPending(p, docID, edges, dists)
 }
 
 // replace leaves the new list waiting in memory, with its distances, until
 // the row of its posting is written.
 func (r growRows) replace(p uint32, docID uint64, _, updated []uint32, dists []float32) error {
-	r.g.setPending(p, docID, updated, dists)
-	return nil
+	return r.g.setPending(p, docID, updated, dists)
 }
 
 // distsOf returns the distances of the edges of a member of posting p: the
@@ -328,8 +373,22 @@ func (g *growIndex) joinRows(p uint32, dp *diskPosting) error {
 }
 
 // setPending leaves the list of a member of posting p, and the distances of
-// its edges, waiting in memory: a change of the posting.
-func (g *growIndex) setPending(p uint32, docID uint64, list []uint32, dists []float32) {
+// its edges, waiting in memory: a change of the posting. Where what waits is
+// kept in a bucket, it is written there first.
+func (g *growIndex) setPending(p uint32, docID uint64, list []uint32, dists []float32) error {
+	if g.waiting != nil {
+		value := growPendingValue(list, dists)
+		if err := g.waiting.Put(growDocKey(docID), value); err != nil {
+			return errors.Wrapf(err, "write the change to the edges of doc %d", docID)
+		}
+		g.stats.PendingLog.add(1, len(value))
+	}
+	g.keepPending(p, docID, list, dists)
+	return nil
+}
+
+// keepPending is setPending in memory alone.
+func (g *growIndex) keepPending(p uint32, docID uint64, list []uint32, dists []float32) {
 	pend := g.pending[p]
 	if pend == nil {
 		pend = &growPending{lists: make(map[uint64][]uint32), dists: make(map[uint64][]float32)}
@@ -356,7 +415,8 @@ func (g *growIndex) setPending(p uint32, docID uint64, list []uint32, dists []fl
 
 // dropPending forgets what waits of posting p. With its distances written
 // first, which is what a split and the writing of a row want: the lists then
-// are in a row on disk.
+// are in a row on disk. Only then do they leave the bucket of what waits,
+// where they are kept in one: a change is in it, in a row, or in both.
 func (g *growIndex) dropPending(p uint32, writeDists bool) error {
 	pend := g.pending[p]
 	if pend == nil {
@@ -369,6 +429,13 @@ func (g *growIndex) dropPending(p uint32, writeDists bool) error {
 				return errors.Wrapf(err, "write the distances of the edges of doc %d", docID)
 			}
 			g.stats.RowDists.add(1, len(value))
+		}
+	}
+	if g.waiting != nil {
+		for _, docID := range pend.order {
+			if err := g.waiting.Delete(growDocKey(docID)); err != nil {
+				return errors.Wrapf(err, "take the change to the edges of doc %d out of those that wait", docID)
+			}
 		}
 	}
 	g.pendingMembers -= int64(len(pend.order))

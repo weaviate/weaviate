@@ -12,7 +12,6 @@
 package postingedge
 
 import (
-	"context"
 	"encoding/binary"
 
 	"github.com/pkg/errors"
@@ -26,12 +25,12 @@ import (
 // index reaches them only through here.
 //
 // Two ways of keeping them were measured. growLists, below, is the one of
-// v5.0 and the one the index has: every list is a value of its own in the
-// bucket of postings, and a change is a new value and a tombstone of the old
-// one, handed to the store at once. The other consolidates the lists of a
-// posting into one row that is written whole, with the changes since then
-// waiting in memory (v5.1 and v5.3): it lives with the tests
-// (grow_rows_test.go) until the experiments decide between the two.
+// v5.0: every list is a value of its own in the bucket of postings, and a
+// change is a new value and a tombstone of the old one, handed to the store
+// at once. The other consolidates the lists of a posting into one row that is
+// written whole, with the changes since then waiting in memory (v5.1 and
+// v5.3, growRows in grow_rows.go). The meta of an index says which it was
+// written with (growMeta.Consolidate), and it is opened with that one.
 //
 // The distances of the edges of every member, which only the inserts read,
 // are in a bucket of the index by doc id in both (growIndex.dists). A store
@@ -68,11 +67,6 @@ type growEdges interface {
 	// flush writes whatever waits in memory.
 	flush() error
 }
-
-// newGrowRows gives an index the store of consolidated edges, when its meta
-// asks for one. Only the tests set it (grow_rows_test.go).
-var newGrowRows func(ctx context.Context, g *growIndex, store *lsmkv.Store, options []lsmkv.BucketOption,
-) (growEdges, error)
 
 // growLists keeps every list of edges as a value of its own in the row of
 // edges of its posting, in the bucket of postings (v5.0): the doc id of the

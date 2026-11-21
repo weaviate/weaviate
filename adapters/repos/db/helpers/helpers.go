@@ -154,6 +154,9 @@ const (
 	PostingEdgeBucketEdgeDists = "edgedists"
 	PostingEdgeBucketDeleted   = "deleted"
 	PostingEdgeBucketStaging   = "staging"
+	// PostingEdgeBucketPending holds the changes to the edges of a posting
+	// that wait for its row of edges to be written again.
+	PostingEdgeBucketPending = "pending"
 )
 
 // PostingEdgeBucketName is the name of one of the LSM buckets of a
@@ -168,6 +171,7 @@ func PostingEdgeBucketNames(indexID string) []string {
 	kinds := []string{
 		PostingEdgeBucketPostings, PostingEdgeBucketMap, PostingEdgeBucketRouting,
 		PostingEdgeBucketEdgeDists, PostingEdgeBucketDeleted, PostingEdgeBucketStaging,
+		PostingEdgeBucketPending,
 	}
 	names := make([]string, len(kinds))
 	for i, kind := range kinds {

@@ -189,6 +189,81 @@ func (g *growIndex) checkCoverage() error {
 			return errors.Errorf("live doc %d is in %d postings", docID, count[docID])
 		}
 	}
+	if err := g.checkWaiting(); err != nil {
+		return err
+	}
+	return g.checkSlots()
+}
+
+// checkWaiting checks, in an index that keeps what waits of its edges in a
+// bucket, that the bucket holds what waits in memory and nothing else: the
+// same members, each with the same list and the same distances.
+func (g *growIndex) checkWaiting() error {
+	if g.waiting == nil {
+		return nil
+	}
+	inBucket := int64(0)
+	err := growScan(g.waiting, func(key, value []byte) error {
+		docID := uint64(binary.BigEndian.Uint32(key))
+		if docID >= uint64(len(g.live)) || !g.live[docID] {
+			return errors.Errorf("a change to the edges of doc %d waits on disk, and the doc is not live", docID)
+		}
+		p := g.st.side.postingOf[docID]
+		pend := g.pending[p]
+		if pend == nil {
+			return errors.Errorf("a change to the edges of doc %d waits on disk, and nothing of posting %d waits in memory", docID, p)
+		}
+		list, dists, err := growPendingDecode(value)
+		if err != nil {
+			return err
+		}
+		inMemory, waits := pend.lists[docID]
+		if !waits || !slices.Equal(inMemory, list) || !slices.Equal(pend.dists[docID], dists) {
+			return errors.Errorf("doc %d has the edges %v waiting on disk, and %v in memory (waiting: %v)", docID, list, inMemory, waits)
+		}
+		inBucket++
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if inBucket != g.pendingMembers {
+		return errors.Errorf("%d changes to the edges wait on disk, and %d in memory", inBucket, g.pendingMembers)
+	}
+	return nil
+}
+
+// checkSlots checks, in an index whose vectors have slots, that every live
+// doc has one of its own, under the next one to give, and that the table on
+// disk is the one in memory.
+func (g *growIndex) checkSlots() error {
+	if g.meta.VectorGen == 0 {
+		return nil
+	}
+	if len(g.slotOf) != len(g.live) {
+		return errors.Errorf("a table of %d slots for %d doc ids", len(g.slotOf), len(g.live))
+	}
+	raw, err := os.ReadFile(filepath.Join(g.dir, growSlotsName(g.meta.VectorGen)))
+	if err != nil {
+		return err
+	}
+	taken := make(map[uint32]int, g.meta.Live)
+	for docID, live := range g.live {
+		slot := g.slotOf[docID]
+		if !live {
+			continue
+		}
+		if slot == diskNoSlot || slot >= g.nextSlot {
+			return errors.Errorf("live doc %d has the slot %d, with %d given", docID, slot, g.nextSlot)
+		}
+		if other, twice := taken[slot]; twice {
+			return errors.Errorf("docs %d and %d share the slot %d", other, docID, slot)
+		}
+		taken[slot] = docID
+		if 4*docID+4 > len(raw) || binary.LittleEndian.Uint32(raw[4*docID:]) != slot+1 {
+			return errors.Errorf("doc %d has the slot %d in memory and another on disk", docID, slot)
+		}
+	}
 	return nil
 }
 
@@ -271,8 +346,11 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 	} else if len(entries) > 0 {
 		return errors.Errorf("%s is not empty", dir)
 	}
-	if src.slotOf != nil {
+	if src.frozen {
 		return errors.New("the index was laid out again already")
+	}
+	if src.meta.VectorGen > 0 {
+		return errors.New("the vectors of the index have slots: it lays them out again itself (growIndex.layOut)")
 	}
 	if len(src.pending) > 0 {
 		return errors.Errorf("%d postings have changes to their edges waiting in memory: they are written first", len(src.pending))

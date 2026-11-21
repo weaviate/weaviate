@@ -222,6 +222,7 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 				"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed",
 				"postingedge_postings_main", "postingedge_map_main", "postingedge_routing_main",
 				"postingedge_edgedists_main", "postingedge_deleted_main", "postingedge_staging_main",
+				"postingedge_pending_main",
 			},
 			dirs: []string{
 				"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d",
@@ -235,6 +236,7 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 				"hfresh_postings_vectors_title", "hfresh_shared_vectors_title", "vectors_compressed_title_centroids",
 				"postingedge_postings_vectors_title", "postingedge_map_vectors_title", "postingedge_routing_vectors_title",
 				"postingedge_edgedists_vectors_title", "postingedge_deleted_vectors_title", "postingedge_staging_vectors_title",
+				"postingedge_pending_vectors_title",
 			},
 			dirs: []string{
 				"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d",
