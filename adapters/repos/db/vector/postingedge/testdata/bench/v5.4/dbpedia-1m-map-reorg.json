@@ -1,0 +1,118 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "queries": 5000,
+  "k": 10,
+  "seconds": {
+    "one segment, vectors in posting order": 35.975886916
+  },
+  "states": [
+    {
+      "name": "as it is",
+      "dir": "/Volumes/v40bench/v54/grown",
+      "equal": "the same as the index as it is",
+      "files": {
+        "centroidVectors": 47874048,
+        "centroids": 1546844,
+        "postingedge_grow_edgedists": 93187332,
+        "postingedge_grow_map": 62169276,
+        "postingedge_grow_postings": 300843554,
+        "postingedge_grow_routing": 129489320
+      },
+      "segments": {
+        "postingedge_grow_edgedists": 1,
+        "postingedge_grow_map": 1,
+        "postingedge_grow_postings": 2,
+        "postingedge_grow_routing": 2
+      },
+      "vectorBytes": 6082560000,
+      "points": [
+        {
+          "target": 0.95,
+          "reached": true,
+          "ef": 21,
+          "recall": 0.9514,
+          "compared": 5000,
+          "loads": 19.6012,
+          "rounds": 4.6508,
+          "storeReads": 66.3838,
+          "storeBytes": 1561403.5022,
+          "memberBytes": 1042656.8672,
+          "edgeBytes": 223770.415,
+          "modelBytes": 1246376.1886,
+          "rescored": 64,
+          "segments": 0
+        },
+        {
+          "target": 0.99,
+          "reached": true,
+          "ef": 164,
+          "recall": 0.99,
+          "compared": 5000,
+          "loads": 73.3186,
+          "rounds": 18.08,
+          "storeReads": 248.4948,
+          "storeBytes": 5814173.4516,
+          "memberBytes": 3877596.6528,
+          "edgeBytes": 836004.2876,
+          "modelBytes": 4639031.774,
+          "rescored": 64,
+          "segments": 0
+        }
+      ]
+    },
+    {
+      "name": "one segment, vectors in posting order",
+      "dir": "/Volumes/v40bench/v54/ordered",
+      "equal": "the same as the index as it is",
+      "files": {
+        "centroidVectors": 47874048,
+        "centroids": 1546844,
+        "postingedge_grow_edgedists": 93187332,
+        "postingedge_grow_map": 62169276,
+        "postingedge_grow_postings": 261263064,
+        "postingedge_grow_routing": 129489276
+      },
+      "segments": {
+        "postingedge_grow_edgedists": 1,
+        "postingedge_grow_map": 1,
+        "postingedge_grow_postings": 1,
+        "postingedge_grow_routing": 1
+      },
+      "vectorBytes": 6082560000,
+      "points": [
+        {
+          "target": 0.95,
+          "reached": true,
+          "ef": 21,
+          "recall": 0.9514,
+          "compared": 5000,
+          "loads": 19.6012,
+          "rounds": 4.6508,
+          "storeReads": 39.2024,
+          "storeBytes": 1342559.7408,
+          "memberBytes": 1042656.8672,
+          "edgeBytes": 223770.415,
+          "modelBytes": 1246376.1886,
+          "rescored": 64,
+          "segments": 0
+        },
+        {
+          "target": 0.99,
+          "reached": true,
+          "ef": 164,
+          "recall": 0.99,
+          "compared": 5000,
+          "loads": 73.3186,
+          "rounds": 18.08,
+          "storeReads": 146.6372,
+          "storeBytes": 4996754.6072,
+          "memberBytes": 3877596.6528,
+          "edgeBytes": 836004.2876,
+          "modelBytes": 4639031.774,
+          "rescored": 64,
+          "segments": 0
+        }
+      ]
+    }
+  ]
+}

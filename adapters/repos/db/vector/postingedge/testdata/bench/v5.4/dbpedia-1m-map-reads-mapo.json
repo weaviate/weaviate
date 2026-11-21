@@ -1,0 +1,90 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "dir": "/Volumes/v40bench/v54/ordered",
+  "queries": 500,
+  "k": 10,
+  "consolidate": 64,
+  "vectorsInPostingOrder": true,
+  "batch": 10,
+  "drop": "ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' \u003e /dev/null 2\u003e\u00261 \u0026\u0026 ok=1 \u0026\u0026 break; sleep 2; done; [ $ok = 1 ] \u0026\u0026 diskutil mount 'disk3s7' \u003e /dev/null",
+  "files": {
+    "centroidVectors": 47874048,
+    "centroids": 1546844,
+    "postingedge_grow_edgedists": 93187332,
+    "postingedge_grow_map": 62169276,
+    "postingedge_grow_postings": 261263064,
+    "postingedge_grow_routing": 129489276
+  },
+  "segments": {
+    "postingedge_grow_edgedists": 1,
+    "postingedge_grow_map": 1,
+    "postingedge_grow_postings": 1,
+    "postingedge_grow_routing": 1
+  },
+  "points": [
+    {
+      "target": 0.95,
+      "ef": 21,
+      "queries": 500,
+      "loads": 18.816,
+      "storeMembersReads": 1,
+      "storeMembersBytes": 57147.025829081635,
+      "storeEdgesReads": 1,
+      "storeEdgesBytes": 11546.253932823129,
+      "disk": [
+        {
+          "first": "members",
+          "membersPageins": 4.214604591836735,
+          "membersBytes": 95172.78911564626,
+          "edgesPageins": 0.6130952380952381,
+          "edgesBytes": 12228.78911564626,
+          "restPageins": 0,
+          "restBytes": 1196883.968,
+          "batches": 50
+        },
+        {
+          "first": "edges",
+          "membersPageins": 3.2788052721088436,
+          "membersBytes": 57356.19047619047,
+          "edgesPageins": 1.5488945578231292,
+          "edgesBytes": 69431.72789115646,
+          "restPageins": 0,
+          "restBytes": 1196916.736,
+          "batches": 50
+        }
+      ]
+    },
+    {
+      "target": 0.99,
+      "ef": 164,
+      "queries": 500,
+      "loads": 72.766,
+      "storeMembersReads": 1,
+      "storeMembersBytes": 56743.87153340846,
+      "storeEdgesReads": 1,
+      "storeEdgesBytes": 11473.228430860567,
+      "disk": [
+        {
+          "first": "members",
+          "membersPageins": 3.8320644256933183,
+          "membersBytes": 82359.06219937884,
+          "edgesPageins": 0.5313195723277355,
+          "edgesBytes": 10528.486381002116,
+          "restPageins": 0,
+          "restBytes": 1216184.32,
+          "batches": 50
+        },
+        {
+          "first": "edges",
+          "membersPageins": 2.976664925926944,
+          "membersBytes": 49441.10557128329,
+          "edgesPageins": 1.3867190720941098,
+          "edgesBytes": 60250.59175988786,
+          "restPageins": 0,
+          "restBytes": 1216151.552,
+          "batches": 50
+        }
+      ]
+    }
+  ]
+}

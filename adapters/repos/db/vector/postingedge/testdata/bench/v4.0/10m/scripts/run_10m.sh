@@ -263,7 +263,7 @@ wait_quiet() {
   [ "$OS" = Darwin ] || return 0
   if [ "$IDLE" -gt 0 ]; then
     date "+== %Y-%m-%d %H:%M waiting for $IDLE s without keyboard or trackpad"
-    until ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test|pe-[a-z]*\.test' > /dev/null \
+    until ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test|pe-[a-z0-9]*\.test' > /dev/null \
       && ! pgrep -f 'pkg/tool/[a-z0-9_]*/(compile|link|asm)|golangci-lint|go-build[0-9]*/b[0-9]*/[^ ]*\.test' > /dev/null \
       && [ "$(hid_idle)" -ge "$IDLE" ]; do
       sleep 60

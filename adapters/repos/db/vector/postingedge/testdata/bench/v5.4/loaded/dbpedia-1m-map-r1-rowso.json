@@ -1,0 +1,38 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 990000,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 7762,
+    "splits": 3671,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true
+  },
+  "queries": 5000,
+  "k": 10,
+  "budget": 8,
+  "gomaxprocs": 10,
+  "access": "mmap",
+  "drop": "ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' \u003e /dev/null 2\u003e\u00261 \u0026\u0026 ok=1 \u0026\u0026 break; sleep 2; done; [ $ok = 1 ] \u0026\u0026 diskutil mount 'disk3s7' \u003e /dev/null",
+  "heapBytes": 179142656,
+  "footprintBytes": 379994112,
+  "files": {
+    "centroidVectors": 47689728,
+    "centroids": 1514308,
+    "postingedge_grow_edgedists": 93170356,
+    "postingedge_grow_map": 62169276,
+    "postingedge_grow_postings": 255283575,
+    "postingedge_grow_routing": 129489276
+  },
+  "points": null
+}

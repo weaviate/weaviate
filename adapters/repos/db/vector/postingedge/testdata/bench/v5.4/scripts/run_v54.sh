@@ -129,7 +129,7 @@ wait_quiet() {
       date "+== %Y-%m-%d %H:%M waiting for $IDLE s without keyboard or trackpad"
     fi
     until { [ "$NIGHT" != 1 ] || [ "$IN_SESSION" = 1 ] || in_window 2300 0300; } \
-      && ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test|run_v40_disk\.sh|run_v50_timed\.sh|pe-[a-z]*\.test' > /dev/null \
+      && ! pgrep -f 'postingedge-v[0-9a-z]*\.test|hfresh-v[0-9a-z]*\.test|hnsw-work\.test|run_v40_disk\.sh|run_v50_timed\.sh|pe-[a-z0-9]*\.test' > /dev/null \
       && ! pgrep -f 'pkg/tool/[a-z0-9_]*/(compile|link|asm)|golangci-lint|go-build[0-9]*/b[0-9]*/[^ ]*\.test' > /dev/null \
       && [ "$(hid_idle)" -ge "$IDLE" ]; do
       sleep 60
