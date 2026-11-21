@@ -322,8 +322,10 @@ func (p *Persistent) growOpen() growOpen {
 	return growOpen{
 		store: p.store, makeOptions: p.cfg.MakeBucketOptions, names: p.bucketName, deletes: true,
 		// A shard flushes its indexes and may stop without closing them:
-		// what waits in memory of the edges is on disk too.
+		// what waits in memory of the edges is on disk too. And it may die
+		// in the middle of a write: every write goes through the journal.
 		keepPending: true,
+		journal:     true,
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
 			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
@@ -948,27 +950,38 @@ func (p *Persistent) mark(ids []uint64) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	marks := 0
+	if p.g != nil {
+		// The marks of a call are one write of the index.
+		err := p.g.step(func() error {
+			for _, id := range ids {
+				marked, err := p.g.remove(id)
+				if err != nil {
+					return errors.Wrapf(err, "delete doc %d", id)
+				}
+				if marked {
+					marks++
+					p.dirty = true
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			// What the index has in memory is not what is on disk.
+			p.failed = err
+			return 0, err
+		}
+		return marks, nil
+	}
 	for _, id := range ids {
-		if p.g == nil {
-			if _, staged := p.staged[id]; !staged {
-				continue
-			}
-			// Nothing leads to a vector that is kept aside: it goes for good.
-			if err := p.staging.Delete(growDocKey(id)); err != nil {
-				return marks, errors.Wrapf(err, "delete doc %d", id)
-			}
-			delete(p.staged, id)
-			p.dirty = true
+		if _, staged := p.staged[id]; !staged {
 			continue
 		}
-		marked, err := p.g.remove(id)
-		if err != nil {
+		// Nothing leads to a vector that is kept aside: it goes for good.
+		if err := p.staging.Delete(growDocKey(id)); err != nil {
 			return marks, errors.Wrapf(err, "delete doc %d", id)
 		}
-		if marked {
-			marks++
-			p.dirty = true
-		}
+		delete(p.staged, id)
+		p.dirty = true
 	}
 	return marks, nil
 }

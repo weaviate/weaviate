@@ -128,7 +128,7 @@ func (g *growIndex) openBuilt() error {
 func (g *growIndex) setBuilt(docID uint64, held int) error {
 	var entry [4]byte
 	binary.LittleEndian.PutUint32(entry[:], uint32(held))
-	if _, err := g.built.WriteAt(entry[:], int64(docID)*4); err != nil {
+	if err := g.writeFile(growTargetBuilt, entry[:], int64(docID)*4); err != nil {
 		return errors.Wrapf(err, "write when the edges of doc %d were built", docID)
 	}
 	g.builtAt[docID] = uint32(held)
@@ -206,6 +206,11 @@ func (g *growIndex) planRefresh(ctx context.Context, plan *growPlan, docID uint6
 // vector stays where it is. A vector that left the index since its search is
 // left alone.
 func (g *growIndex) applyRefresh(plan *growPlan) error {
+	return g.step(func() error { return g.applyRefreshWrites(plan) })
+}
+
+// applyRefreshWrites is applyRefresh, inside its step.
+func (g *growIndex) applyRefreshWrites(plan *growPlan) error {
 	docID, vector := plan.docID, plan.vector
 	if !g.holds(docID) {
 		return nil
@@ -338,9 +343,14 @@ func (r *growRefresh) nextStale() (uint64, bool) {
 
 // finish ends the pass: the next one is due when the index holds twice what
 // it held when this one started. Nobody else writes the index meanwhile.
-func (r *growRefresh) finish() {
-	r.g.meta.RefreshedAt = r.held
-	r.g.refreshed.Passes++
+func (r *growRefresh) finish() error {
+	// A step that writes nothing but the meta: an index that opens over the
+	// journal knows that the pass ended.
+	return r.g.step(func() error {
+		r.g.meta.RefreshedAt = r.held
+		r.g.refreshed.Passes++
+		return nil
+	})
 }
 
 // refreshStale refreshes every vector that is stale now, one after another by
@@ -360,6 +370,8 @@ func (g *growIndex) refreshStale(ctx context.Context) error {
 			return errors.Wrapf(err, "refresh the edges of doc %d", docID)
 		}
 	}
-	pass.finish()
+	if err := pass.finish(); err != nil {
+		return err
+	}
 	return nil
 }

@@ -873,8 +873,29 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 - **A 1M no ha corrido nada con los ciclos puestos.** El arnés abre el índice sin ellos y limpia el grafo a mano antes de medir, como los experimentos. Cuántos centroides borrados acumula un índice entre dos pases, y qué le cuestan a una búsqueda, no está medido.
 - **Por el shard:** el test de extremo a extremo abre el índice con los ciclos del shard, pero no comprueba que el grafo quede limpio.
 
-### Durabilidad: lo que estas piezas dejan para la pieza 5
+### Pieza 5: una caída a mitad de una escritura
 
-- **Una caída a mitad de una pasada no tiene recuperación,** como a mitad de un insert. Una pasada de limpieza quita un vector de cinco buckets, y cada bucket escribe su log por su cuenta.
-- **El meta se escribe con un rename, sin `fsync`.**
-- **El refresco anota la fecha de las aristas de un vector antes de que su lista nueva esté entregada al sistema.** Tras una caída el vector puede quedar con la lista vieja y la fecha nueva, hasta el doblado siguiente. El volcado cada 256 pasos lo acota.
+**El problema.** Una escritura del índice son muchas: un insert pone un miembro en una fila, una entrada en el mapa, un código de ruteo, las distancias de sus aristas, cambios en las listas de sus vecinos, su vector en un fichero y su slot en otro; y si su posting se parte, dos filas más, una entrada de mapa por miembro y dos centroides. Cada bucket tiene su log, que llega al sistema cuando se llena su buffer. Un proceso que muere en medio deja unas escrituras y otras no, y lo que queda no es un índice: hasta ahora no abría.
+
+**Qué hay: un diario de operaciones delante de los buckets** (`grow_journal.go`, *mío*).
+
+- **Un paso** es una escritura entera del índice: un insert con su split, las marcas de borrado de una llamada, un paso de la pasada de limpieza, el refresco de un vector.
+- **Mientras el paso corre, sus escrituras esperan en memoria,** donde el propio paso las lee. Al acabar se añaden al diario como un registro, con el meta que el índice tiene después, en una sola escritura al sistema. Solo entonces van a los buckets y a los ficheros.
+- **Al abrir, el índice aplica otra vez los registros del diario,** lo que no cambia nada donde ya estaban aplicados, y descarta un registro que no esté entero: ese paso no ocurrió. Tras una caída el índice es el que era después del último paso con su registro escrito.
+- **El diario se vacía** cuando lo que cuenta ha llegado al sistema por su camino: en cada `Flush` del shard, antes de cambiar de generación de vectores, y por su cuenta si pasa de 64 MB.
+- **El grafo de centroides no va en el diario.** Tiene su propio commit log, que una caída puede dejar por delante o por detrás del índice, o con un centroide sin enlaces. Un fichero marca que el grafo ha cambiado desde el último vaciado, y un índice que abre con la marca reconstruye el grafo desde los centroides. El grafo que sale no es el de antes enlace a enlace.
+- **Lo que cuesta:** cada escritura va dos veces, al diario y a su bucket. En el test son unos 6.8 KB de diario por paso, con vectores de 64 dimensiones; a 1536 dimensiones el vector solo son 6 KB. Sin medir a 1M.
+
+**Lo que no cubre:**
+
+- **La caída de la máquina.** El diario protege de la muerte del proceso, que es lo que pierde los buffers de los logs. Contra un corte de corriente da lo que dan los logs del store, que tampoco se sincronizan.
+- **El meta sigue escribiéndose con un rename, sin `fsync`.**
+- **Un insert que falla al entregar sus escrituras** (disco lleno, por ejemplo) ya tiene su registro en el diario: el índice se para, y al reabrir ese insert está hecho, aunque quien lo pidió recibió un error.
+- **La construcción de la base** no pasa por el diario: no tiene meta hasta que está entera, y una base a medias se descarta al abrir, como antes.
+
+**Tests.** El formato del diario: los registros vuelven enteros y en orden, y de un registro cortado en cualquier byte, o con un byte cambiado, no vuelve nada y los anteriores sí. Por el índice: una copia del directorio en cada punto donde un proceso puede morir al acabar un paso (antes de su registro, después, y tras entregar cada escritura), 487 copias por caso; cada una abre como el índice de antes del paso o como el de después, comparados por todo lo que tienen (`TestGrowOpensWhatACrashLeft`, con inserts, splits, marcas, y la pasada de limpieza con sus fusiones). Sin escribir el registro, el test falla en el primer insert: la copia no abre. Por el índice del shard: 179 caídas a lo largo de lotes, marcas, la limpieza y el refresco en línea; cada copia abre con todo lo de las llamadas anteriores, con los primeros vectores del lote que estaba entrando y ninguno suelto, responde y sigue aceptando inserts (`TestPersistentOpensWhatACrashLeft`). Todos los tests del formato del shard corren ahora con el diario puesto, los de equivalencia con el gemelo en memoria también.
+
+**Sin verificar de la pieza 5:**
+
+- **A 1M:** que el índice crecido con el diario es el mismo, cuánto escribe el diario por insert, y una muerte de verdad del proceso (`kill -9`) a mitad de los inserts, reabierta.
+- **La base en segundo plano,** que es la otra mitad de la pieza: sin empezar.

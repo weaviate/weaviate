@@ -50,7 +50,7 @@ func (g *growIndex) checkCoverage() error {
 		mapped[i] = unplaced
 	}
 	inMap := 0
-	err := growScan(g.posts, func(key, value []byte) error {
+	err := growScan(g.posts.Bucket, func(key, value []byte) error {
 		docID := binary.BigEndian.Uint32(key)
 		if int(docID) >= keys {
 			return errors.Errorf("the map on disk holds doc %d, past the %d keys", docID, keys)
@@ -75,7 +75,7 @@ func (g *growIndex) checkCoverage() error {
 	}
 	coded := 0
 	words := st.side.codeWords
-	err = growScan(g.routing, func(key, value []byte) error {
+	err = growScan(g.routing.Bucket, func(key, value []byte) error {
 		docID := binary.BigEndian.Uint32(key)
 		if int(docID) >= keys || !g.live[docID] {
 			return errors.Errorf("a routing code on disk for doc %d, which is not live", docID)
@@ -237,7 +237,7 @@ func (g *growIndex) checkWaiting() error {
 		return nil
 	}
 	inBucket := int64(0)
-	err := growScan(g.waiting, func(key, value []byte) error {
+	err := growScan(g.waiting.Bucket, func(key, value []byte) error {
 		docID := uint64(binary.BigEndian.Uint32(key))
 		if docID >= uint64(len(g.live)) || !g.live[docID] {
 			return errors.Errorf("a change to the edges of doc %d waits on disk, and the doc is not live", docID)
@@ -417,7 +417,9 @@ func reorganizeGrowIndex(ctx context.Context, logger logrus.FieldLogger, src *gr
 	}()
 	// Nothing is flushed until everything is written: the store only
 	// flushes when its cycles are called, and nothing calls them here.
-	for _, buckets := range [][2]*lsmkv.Bucket{{src.posts, dst.posts}, {src.routing, dst.routing}, {src.dists, dst.dists}} {
+	for _, buckets := range [][2]*lsmkv.Bucket{
+		{src.posts.Bucket, dst.posts.Bucket}, {src.routing.Bucket, dst.routing.Bucket}, {src.dists.Bucket, dst.dists.Bucket},
+	} {
 		err := growScan(buckets[0], func(key, value []byte) error {
 			return buckets[1].Put(slices.Clone(key), slices.Clone(value))
 		})

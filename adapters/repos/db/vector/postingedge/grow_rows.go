@@ -46,10 +46,10 @@ type growRows struct {
 func (r growRows) buckets() []*lsmkv.Bucket {
 	var buckets []*lsmkv.Bucket
 	if r.g.edges != nil {
-		buckets = append(buckets, r.g.edges)
+		buckets = append(buckets, r.g.edges.Bucket)
 	}
 	if r.g.waiting != nil {
-		buckets = append(buckets, r.g.waiting)
+		buckets = append(buckets, r.g.waiting.Bucket)
 	}
 	return buckets
 }
@@ -91,7 +91,7 @@ func (g *growIndex) loadPending() error {
 		return nil
 	}
 	side := g.st.side
-	err := growScan(g.waiting, func(key, value []byte) error {
+	err := growScan(g.waiting.Bucket, func(key, value []byte) error {
 		if len(key) != 4 {
 			return errors.Errorf("a change to the edges that waits with a key of %d bytes", len(key))
 		}

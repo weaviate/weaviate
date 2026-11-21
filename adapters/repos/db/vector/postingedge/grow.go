@@ -347,15 +347,24 @@ type growIndex struct {
 	shared bool
 	names  func(bucket string) string
 	// opened has the names of the buckets the index opened in its store.
-	opened   []string
-	postings *lsmkv.Bucket
-	posts    *lsmkv.Bucket
-	routing  *lsmkv.Bucket
-	dists    *lsmkv.Bucket
+	opened []string
+	// journal, when the index keeps one, takes every write of the index
+	// before its buckets and its files do (grow_journal.go). graphMarked
+	// tells that the mark of a graph that changed is on disk, and recovered
+	// what the index found of its journal when it was opened.
+	journal     *growJournal
+	graphMarked bool
+	recovered   growRecovered
+	// The buckets of the index, as its writes see them (growBucket): what a
+	// step writes waits in the journal until the step ends.
+	postings *growBucket
+	posts    *growBucket
+	routing  *growBucket
+	dists    *growBucket
 	// marks is the bucket of the marks of the deleted vectors, nil in an
 	// index opened without deletes, and deleted those marks by doc id, the
 	// ones a search reads (state.deleted).
-	marks   *lsmkv.Bucket
+	marks   *growBucket
 	deleted []bool
 	// edgeStore keeps the edges of the postings (growEdges): every list as a
 	// value of the bucket of postings (growLists), unless the meta asks for
@@ -366,8 +375,8 @@ type growIndex struct {
 	// posting. waiting is the bucket that holds what waits too, nil unless
 	// the index was opened to keep it. Only a store of consolidated edges
 	// touches them, and touched below.
-	edges          *lsmkv.Bucket
-	waiting        *lsmkv.Bucket
+	edges          *growBucket
+	waiting        *growBucket
 	pending        map[uint32]*growPending
 	pendingMembers int64
 	pendingBytes   int64
@@ -632,6 +641,11 @@ type growOpen struct {
 	// cycles are the cycles of the node that keep the centroid graph: none
 	// in the experiments.
 	cycles centroidCycles
+	// journal has every write of the index go through its journal
+	// (grow_journal.go), so that what a process that dies leaves on disk is
+	// the index as it was after its last whole write. An index opened
+	// without it still reads the journal it finds, and then has none.
+	journal bool
 }
 
 // growBlock is a row of edges decoded: the members it has a list of, in its
@@ -932,10 +946,13 @@ func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 			return failed(err)
 		}
 	}
-	g.postings, g.posts = store.Bucket(g.bucketName(growBucketPostings)), store.Bucket(g.bucketName(growBucketMap))
-	g.routing, g.dists = store.Bucket(g.bucketName(growBucketRouting)), store.Bucket(g.bucketName(growBucketDists))
+	bucket := func(target growTarget, name string) *growBucket {
+		return g.bucketOf(target, store.Bucket(g.bucketName(name)))
+	}
+	g.postings, g.posts = bucket(growTargetPostings, growBucketPostings), bucket(growTargetMap, growBucketMap)
+	g.routing, g.dists = bucket(growTargetRouting, growBucketRouting), bucket(growTargetDists, growBucketDists)
 	if opts.deletes {
-		g.marks = store.Bucket(g.bucketName(growBucketDeleted))
+		g.marks = bucket(growTargetDeleted, growBucketDeleted)
 	}
 
 	g.edgeStore = growLists{g}
@@ -944,13 +961,13 @@ func (g *growIndex) openStore(ctx context.Context, opts growOpen) error {
 			if err := open(growBucketEdges, makeOptions(lsmkv.StrategyReplace, common...)); err != nil {
 				return failed(err)
 			}
-			g.edges = store.Bucket(g.bucketName(growBucketEdges))
+			g.edges = bucket(growTargetEdges, growBucketEdges)
 		}
 		if opts.keepPending {
 			if err := open(growBucketPending, makeOptions(lsmkv.StrategyReplace, common...)); err != nil {
 				return failed(err)
 			}
-			g.waiting = store.Bucket(g.bucketName(growBucketPending))
+			g.waiting = bucket(growTargetPending, growBucketPending)
 		}
 		g.pending = make(map[uint32]*growPending)
 		g.edgeStore = growRows{g}
@@ -982,9 +999,9 @@ func (g *growIndex) bucketName(bucket string) string {
 }
 
 func (g *growIndex) buckets() []*lsmkv.Bucket {
-	buckets := []*lsmkv.Bucket{g.postings, g.posts, g.routing, g.dists}
+	buckets := []*lsmkv.Bucket{g.postings.Bucket, g.posts.Bucket, g.routing.Bucket, g.dists.Bucket}
 	if g.marks != nil {
-		buckets = append(buckets, g.marks)
+		buckets = append(buckets, g.marks.Bucket)
 	}
 	return append(buckets, g.edgeStore.buckets()...)
 }
@@ -1045,6 +1062,19 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err := json.Unmarshal(raw, &g.meta); err != nil {
 		return nil, errors.Wrap(err, "parse the meta")
 	}
+	// What the journal holds happened after that meta was written: the index
+	// is the one of its last record.
+	journaled, err := readGrowJournal(path(growJournalFile))
+	if err != nil {
+		return nil, err
+	}
+	if len(journaled) > 0 {
+		last := journaled[len(journaled)-1].meta
+		g.meta = growMeta{}
+		if err := json.Unmarshal(last, &g.meta); err != nil {
+			return nil, errors.Wrap(err, "parse the meta of the last record of the journal")
+		}
+	}
 	meta := &g.meta
 	switch {
 	case meta.Version != growFormatVersion:
@@ -1060,6 +1090,11 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		}
 	}()
 
+	// The writes of the journal to the files of the index, before any of
+	// them is read.
+	if err := replayGrowFiles(dir, meta, journaled); err != nil {
+		return nil, err
+	}
 	mean, err := readArray(path(diskMeanFile), 4, meta.Dims, getFloat32)
 	if err != nil {
 		return nil, errors.Wrap(err, "read the mean of the quantizer")
@@ -1112,6 +1147,16 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err := g.openStore(ctx, opts); err != nil {
 		return nil, err
 	}
+	// And its writes to the buckets, before any of them is read.
+	for r := range journaled {
+		for e := range journaled[r].entries {
+			if entry := &journaled[r].entries[e]; entry.kind != growEntryFile {
+				if err := g.hand(entry); err != nil {
+					return nil, errors.Wrapf(err, "write again record %d of the journal", r)
+				}
+			}
+		}
+	}
 
 	// What stays in memory, read from its buckets: the posting map, and with
 	// it who is live and how large every posting is, and the routing codes.
@@ -1124,7 +1169,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	}
 	g.live, g.size = make([]bool, meta.Keys), make([]uint32, meta.Postings)
 	live := 0
-	err = growScan(g.posts, func(key, value []byte) error {
+	err = growScan(g.posts.Bucket, func(key, value []byte) error {
 		if len(key) != 4 || len(value) != 4 {
 			return errors.Errorf("an entry of the posting map with a key of %d bytes and a value of %d", len(key), len(value))
 		}
@@ -1144,7 +1189,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		return nil, errors.Errorf("the map holds %d docs, the meta says %d are live", live, meta.Live)
 	}
 	coded := 0
-	err = growScan(g.routing, func(key, value []byte) error {
+	err = growScan(g.routing.Bucket, func(key, value []byte) error {
 		words := meta.RoutingCodeWords
 		if len(key) != 4 || len(value) != 8*words {
 			return errors.Errorf("a routing code with a key of %d bytes and a value of %d", len(key), len(value))
@@ -1188,7 +1233,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		// and in the map. A search scores such a member and follows its
 		// edges, so that it goes on routing, and never returns it.
 		g.deleted = make([]bool, meta.Keys)
-		err = growScan(g.marks, func(key, _ []byte) error {
+		err = growScan(g.marks.Bucket, func(key, _ []byte) error {
 			if len(key) != 4 {
 				return errors.Errorf("a mark of a deleted vector with a key of %d bytes", len(key))
 			}
@@ -1241,6 +1286,9 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err != nil {
 		return nil, errors.Wrap(err, "configure the search")
 	}
+	if err := g.openJournal(ctx, opts, len(journaled)); err != nil {
+		return nil, err
+	}
 	return g, nil
 }
 
@@ -1269,7 +1317,14 @@ func (g *growIndex) sync() error {
 			return errors.Wrap(err, "write the log of a bucket")
 		}
 	}
-	return g.writeMeta()
+	if err := g.writeMeta(); err != nil {
+		return err
+	}
+	// Everything the journal tells is now in the system by its own way.
+	if err := g.emptyJournal(); err != nil {
+		return err
+	}
+	return g.graphSynced()
 }
 
 // close syncs the index and releases what it holds. It must not run next to
@@ -1318,6 +1373,9 @@ func (g *growIndex) release(ctx context.Context) error {
 			keep(file.Close())
 		}
 	}
+	if g.journal != nil && g.journal.file != nil {
+		keep(g.journal.file.Close())
+	}
 	return first
 }
 
@@ -1354,7 +1412,7 @@ func (g *growIndex) exact(docID uint64, raw []byte, into []float32) ([]byte, []f
 		}
 		slot = uint64(g.slotOf[docID])
 	}
-	if _, err := g.vectors.ReadAt(raw, int64(slot)*int64(4*dims)); err != nil {
+	if err := g.readFile(growTargetVectors, raw, int64(slot)*int64(4*dims)); err != nil {
 		return raw, into, errors.Wrapf(err, "read the vector of doc %d", docID)
 	}
 	if cap(into) < dims {
@@ -1760,6 +1818,8 @@ func (g *growIndex) remove(docID uint64) (bool, error) {
 	if docID >= uint64(len(g.live)) || !g.live[docID] || g.deleted[docID] {
 		return false, nil
 	}
+	// One write: a step of its own, unless whoever called marks several in
+	// one.
 	if err := g.marks.Put(growDocKey(docID), []byte{1}); err != nil {
 		return false, errors.Wrapf(err, "write the mark of doc %d", docID)
 	}
@@ -1873,6 +1933,11 @@ func (g *growIndex) plan(ctx context.Context, plan *growPlan, docID uint64, vect
 // its edges, the inverse edges, the split and, with consolidated edges, the
 // rows that are due. One at a time, in the order of the inserts.
 func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
+	return g.step(func() error { return g.applyWrites(ctx, plan) })
+}
+
+// applyWrites is apply, inside its step.
+func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
 	st := g.st
 	docID, vector := plan.docID, plan.vector
 	// A neighbor that was marked deleted since the search is not one.
@@ -1949,7 +2014,7 @@ func (g *growIndex) apply(ctx context.Context, plan *growPlan) error {
 	if g.meta.VectorGen > 0 {
 		at = uint64(g.nextSlot)
 	}
-	if _, err := g.vectors.WriteAt(raw, int64(at)*int64(len(raw))); err != nil {
+	if err := g.writeFile(growTargetVectors, raw, int64(at)*int64(len(raw))); err != nil {
 		return errors.Wrapf(err, "write the vector of doc %d", docID)
 	}
 	if g.meta.VectorGen > 0 {
@@ -2388,10 +2453,13 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 			putFloat32(rawMeans[4*(c*st.dims+i):], x)
 		}
 	}
-	if _, err := g.centroids.WriteAt(rawMeans, int64(first)*int64(4*st.dims)); err != nil {
+	if err := g.writeFile(growTargetCentroids, rawMeans, int64(first)*int64(4*st.dims)); err != nil {
 		return errors.Wrap(err, "write the centroids of the halves")
 	}
 	g.stats.SplitCentroid.add(2, len(rawMeans))
+	if err := g.graphChanges(); err != nil {
+		return err
+	}
 	centroids := st.centroids
 	centroids.vectors = append(centroids.vectors, means[0], means[1])
 	centroids.publish()

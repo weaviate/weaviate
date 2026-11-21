@@ -161,6 +161,9 @@ func (g *growIndex) retirePosting(p uint32) error {
 	if err := g.edgeStore.retire(p); err != nil {
 		return err
 	}
+	if err := g.graphChanges(); err != nil {
+		return err
+	}
 	if err := g.st.centroids.graph.Delete(uint64(p)); err != nil {
 		return errors.Wrapf(err, "delete the centroid of posting %d", p)
 	}
@@ -260,7 +263,21 @@ func (c *growClean) room() {
 
 // step takes the pass further by up to the given number of postings, and
 // tells whether it is done.
-func (c *growClean) step(ctx context.Context, postings int) (bool, error) {
+func (c *growClean) step(ctx context.Context, postings int) (done bool, err error) {
+	if c.gathers() {
+		return c.advanceBy(ctx, postings)
+	}
+	// What it writes of the postings of a step is one step of the index.
+	err = c.g.step(func() error {
+		var err error
+		done, err = c.advanceBy(ctx, postings)
+		return err
+	})
+	return done && err == nil, err
+}
+
+// advanceBy is step, inside the step of the index of those that write.
+func (c *growClean) advanceBy(ctx context.Context, postings int) (bool, error) {
 	c.room()
 	// A step that reads does not go on into those that write: whoever
 	// drives the pass holds the index otherwise for them.
@@ -598,7 +615,7 @@ func (g *growIndex) forget(p uint32, docID uint64, member []byte) error {
 	}
 	if g.slots != nil {
 		var none [4]byte
-		if _, err := g.slots.WriteAt(none[:], int64(docID)*4); err != nil {
+		if err := g.writeFile(growTargetSlots, none[:], int64(docID)*4); err != nil {
 			return errors.Wrapf(err, "free the slot of the vector of doc %d", docID)
 		}
 		g.slotOf[docID] = diskNoSlot

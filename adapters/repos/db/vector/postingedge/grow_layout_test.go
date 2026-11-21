@@ -23,9 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// shardFormat is the format the index a shard opens writes its base with.
+// shardFormat is the format the index a shard opens writes its base with,
+// opened as a shard opens it: with what waits of its edges in a bucket, and
+// with every write through its journal.
 func shardFormat(consolidate int) growConfig {
-	return growConfig{consolidate: consolidate, rowsWithMembers: true, slots: true, open: growOpen{keepPending: true}}
+	return growConfig{
+		consolidate: consolidate, rowsWithMembers: true, slots: true, open: growOpen{keepPending: true, journal: true},
+	}
 }
 
 // vectorsIntact checks that the index reads, for every doc it holds, the

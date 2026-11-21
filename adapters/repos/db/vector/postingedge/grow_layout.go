@@ -163,7 +163,7 @@ func (g *growIndex) takeSlot(docID uint64) error {
 	}
 	var entry [4]byte
 	binary.LittleEndian.PutUint32(entry[:], g.nextSlot+1)
-	if _, err := g.slots.WriteAt(entry[:], int64(docID)*4); err != nil {
+	if err := g.writeFile(growTargetSlots, entry[:], int64(docID)*4); err != nil {
 		return errors.Wrapf(err, "write where the vector of doc %d is", docID)
 	}
 	g.slotOf[docID] = g.nextSlot
@@ -338,6 +338,13 @@ func (l *growLayout) finish() (err error) {
 		return errors.Wrap(err, "open where the vectors are")
 	}
 
+	// The journal tells of the files of the generation that ends: it is
+	// emptied before another takes over, with everything it tells handed to
+	// the system.
+	if err := g.sync(); err != nil {
+		_ = slots.Close()
+		return err
+	}
 	// The meta is what says which generation is the index's.
 	oldGen, oldLaidOut := g.meta.VectorGen, g.meta.VectorsLaidOut
 	g.meta.VectorGen, g.meta.VectorsLaidOut = l.gen, int(laidOut)

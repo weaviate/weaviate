@@ -183,6 +183,14 @@ type integrationResult struct {
 	DirBytes     int64                `json:"dirBytes"`
 	// Refreshed is what the refreshes of edges did while the index grew.
 	Refreshed growRefreshStats `json:"refreshed"`
+	// JournalRecords and JournalBytes are what the index appended to its
+	// journal while it grew: a record for every write of it. Recovered is
+	// what an index that a run before left found when it was opened: the
+	// records of its journal it applied again, and whether it built its
+	// centroid graph again.
+	JournalRecords int64          `json:"journalRecords"`
+	JournalBytes   int64          `json:"journalBytes"`
+	Recovered      *growRecovered `json:"recovered,omitempty"`
 	// Reference, after a churn, is the meta of the index built in batch from
 	// the vectors that were left.
 	Reference *growMeta          `json:"referenceMeta,omitempty"`
@@ -394,6 +402,9 @@ func TestIntegrationScale(t *testing.T) {
 			// What the index does in the background writes its meta too.
 			p.mu.RLock()
 			result.Meta, result.Stats, result.Refreshed = p.g.meta, p.g.stats, p.g.refreshed
+			if journal := p.g.journal; journal != nil {
+				result.JournalRecords, result.JournalBytes = journal.records, journal.bytes
+			}
 			p.mu.RUnlock()
 			write()
 			t.Logf("%d of %d in (%.1f %%): %.0f inserts a second in this stretch, %.0f since the base | %d postings "+
@@ -581,8 +592,11 @@ func TestIntegrationScale(t *testing.T) {
 			}
 		}
 		truth, fallbacks := liveTruthOf(t, data, live, k)
-		t.Logf("an index a run before left: %d vectors held of %d, %d queries of the ground truth by brute force",
-			n-deleted, n, fallbacks)
+		recovered := g.recovered
+		result.Recovered = &recovered
+		t.Logf("an index a run before left: %d vectors held of %d, %d queries of the ground truth by brute force | "+
+			"opened, it applied %d records of its journal again, and built its centroid graph again: %v",
+			n-deleted, n, fallbacks, recovered.Records, recovered.GraphRebuilt)
 		left := measure("as it was left", truth, live, deleted, nil, "", 0)
 		p.mu.Lock()
 		if !g.merging {

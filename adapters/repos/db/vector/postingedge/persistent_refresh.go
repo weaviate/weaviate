@@ -79,7 +79,10 @@ func (p *Persistent) refreshStep(ctx context.Context) (bool, error) {
 	if !found {
 		// The pass is done: the next is due when the index holds twice what
 		// it held when this one started.
-		pass.finish()
+		if err := pass.finish(); err != nil {
+			p.failed = err
+			return false, err
+		}
 		p.refreshing = nil
 		p.dirty = true
 		p.refreshes.Add(1)
