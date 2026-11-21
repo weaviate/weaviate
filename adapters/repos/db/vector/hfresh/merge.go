@@ -93,9 +93,10 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 		return h.setPostingVectorIDs(ctx, postingID, newPosting)
 	}
 
-	vectorSet := make(map[uint64]struct{})
-	for _, v := range p {
-		vectorSet[v.ID()] = struct{}{}
+	// The first nine bytes identify a vector and its version.
+	vectorSet := make(map[[9]byte]struct{}, len(newPosting))
+	for _, v := range newPosting {
+		vectorSet[[9]byte(v[:9])] = struct{}{}
 	}
 
 	// get posting centroid
@@ -177,7 +178,9 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				if version.Deleted() || version.Version() > v.Version().Version() {
 					continue
 				}
-				if _, exists := vectorSet[v.ID()]; exists {
+				key := [9]byte(v[:9])
+				key[8] = byte(version)
+				if _, exists := vectorSet[key]; exists {
 					continue // Skip duplicate vectors
 				}
 				newPosting = newPosting.AddVector(v)
@@ -186,10 +189,10 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 			// delete the smallest posting and update the large posting
 			smallID, largeID := postingID, candidateID
-			smallPosting := p
+			smallPosting := newPosting[:prevLen]
 			if prevLen > candidateLen {
 				smallID, largeID = candidateID, postingID
-				smallPosting = candidate
+				smallPosting = newPosting[prevLen:]
 			}
 
 			// mark the small posting as deleted in the SPTAG
