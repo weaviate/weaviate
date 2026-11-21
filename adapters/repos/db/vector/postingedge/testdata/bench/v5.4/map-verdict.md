@@ -4,10 +4,24 @@ Sustituye a v5.3 como formato si cumple las cuatro: reorganizado, a 0.95 y con 1
 
 | condición | medido | hacía falta | |
 |---|---|---|---|
-| en frío, v5.4 reorganizado entre el lote | sin cronometrar | 1.20 o menos | |
-| en caliente, v5.4 reorganizado entre el lote | sin cronometrar | 1.25 o menos | |
+| en frío, v5.4 reorganizado entre el lote | 4.11 ms entre 3.71: 1.11x | 1.20 o menos | **sí** |
+| en caliente, v5.4 reorganizado entre el lote | 1.14 ms entre 0.92: 1.23x | 1.25 o menos | **sí** |
 | lo que el store escribe al crecer | 11.78 GB | 10 GB o menos | **no** |
 | sin compactar, lo que lee una carga entre lo que usa | 1.573 | 1.5 o menos | **no** |
+
+**No sustituye a v5.3, tal como se pre-registró: no cumple las cuatro condiciones.**
+
+| ronda | | v5.4, reorganizado, ms | el lote | entre el lote | v5.3, reorganizado | entre el lote | el índice de v5.3 sobre un Map | entre el lote |
+|---|---|---|---|---|---|---|---|---|
+| r1 | en frío | 4.11 | 3.71 | 1.11x | 4.10 | 1.11x | 4.05 | 1.09x |
+| r1 | en caliente | 1.14 | 0.92 | 1.23x | 1.12 | 1.21x | 1.17 | 1.26x |
+| r2 | en frío | 4.12 | 3.62 | 1.14x | 4.01 | 1.11x | 4.07 | 1.13x |
+| r2 | en caliente | 1.17 | 0.90 | 1.29x | 1.11 | 1.23x | 1.16 | 1.28x |
+
+- **v5.4 reorganizado, frente a v5.3 reorganizado, en frío:** 1.00 veces, +0.2 %: un empate.
+- **v5.4 reorganizado, frente a v5.3 reorganizado, en caliente:** 1.02 veces, +2.0 %: un empate.
+- **El índice de v5.3 sobre un Map, frente al mismo sobre su Set, en frío:** 0.99 veces, −1.2 %: un empate.
+- **El índice de v5.3 sobre un Map, frente al mismo sobre su Set, en caliente:** 1.04 veces, +4.4 %: un empate.
 
 ### La puerta: el índice de v5.3, reorganizado sobre un Map, sin cronometrar
 
@@ -197,6 +211,91 @@ Las 500 primeras queries, de una en una, con las filas de cada carga leídas una
 - **El resto de la query** es su rescore, que lee los vectores con lecturas posicionales y no con page-ins.
 - **Con las filas leídas a la vez,** como en las curvas, las dos lecturas de una carga se solapan: lo que se cuenta aquí es cuánto disco toca cada fila, no cuánto espera la ronda.
 
-### La sesión cronometrada
+### Latencia, primera ronda
 
-Sin cronometrar todavía.
+**Recall 0.95, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.4, reorganizado | ef 21 | 4.11 | 10.01 | 15.21 | 203 | 12.25 | 24.98 | 35.83 | 496 |
+| v5.3, reorganizado | ef 21 | 4.10 | 10.33 | 15.79 | 204 | 12.21 | 25.52 | 34.45 | 496 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 3.71 | 8.39 | 13.20 | 230 | 11.85 | 23.53 | 30.89 | 528 |
+| el índice de v5.3, reorganizado sobre un Map (mía) | ef 21 | 4.05 | 10.03 | 15.53 | 208 | 12.18 | 25.65 | 35.08 | 492 |
+
+**Recall 0.95, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.4, reorganizado | ef 21 | 1.14 | 3.86 | 6.02 | 649 | 1.64 | 5.56 | 8.59 | 3 610 |
+| v5.3, reorganizado | ef 21 | 1.12 | 3.87 | 5.96 | 664 | 1.55 | 5.22 | 7.84 | 3 862 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 21 | 0.92 | 2.98 | 4.44 | 820 | 1.29 | 4.25 | 6.38 | 4 647 |
+| el índice de v5.3, reorganizado sobre un Map (mía) | ef 21 | 1.17 | 4.02 | 6.18 | 638 | 1.64 | 5.56 | 8.41 | 3 626 |
+
+**Recall 0.99, en frío:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.4, reorganizado | ef 164 | 9.90 | 30.91 | 45.19 | 78 | 25.66 | 61.46 | 76.26 | 217 |
+| v5.3, reorganizado | ef 151 | 9.41 | 29.40 | 42.59 | 83 | 25.03 | 60.80 | 73.54 | 225 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 8.91 | 27.60 | 39.19 | 86 | 23.02 | 57.13 | 70.99 | 234 |
+| el índice de v5.3, reorganizado sobre un Map (mía) | ef 151 | 9.46 | 30.04 | 43.40 | 82 | 24.09 | 59.03 | 72.37 | 228 |
+
+**Recall 0.99, en caliente:**
+
+| índice | punto | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|---|
+| v5.4, reorganizado | ef 164 | 3.90 | 13.32 | 19.58 | 194 | 5.52 | 18.83 | 27.69 | 1 099 |
+| v5.3, reorganizado | ef 151 | 3.63 | 12.36 | 17.85 | 209 | 4.73 | 16.36 | 24.03 | 1 263 |
+| escrito en lote (v4.0, 512 bits en RAM) | ef 187 | 3.23 | 10.99 | 16.01 | 233 | 4.35 | 14.53 | 21.60 | 1 390 |
+| el índice de v5.3, reorganizado sobre un Map (mía) | ef 151 | 3.75 | 12.72 | 18.49 | 201 | 5.25 | 18.30 | 26.11 | 1 147 |
+
+**Cada índice entre la celda en lote,** por el p50:
+
+| índice | estado | 0.95, 1 thread | 0.95, 8 threads | 0.99, 1 thread | 0.99, 8 threads |
+|---|---|---|---|---|---|
+| v5.4, reorganizado | en frío | 1.11x | 1.03x | 1.11x | 1.11x |
+| v5.4, reorganizado | en caliente | 1.23x | 1.27x | 1.21x | 1.27x |
+| v5.3, reorganizado | en frío | 1.11x | 1.03x | 1.06x | 1.09x |
+| v5.3, reorganizado | en caliente | 1.21x | 1.19x | 1.12x | 1.09x |
+| el índice de v5.3, reorganizado sobre un Map (mía) | en frío | 1.09x | 1.03x | 1.06x | 1.05x |
+| el índice de v5.3, reorganizado sobre un Map (mía) | en caliente | 1.26x | 1.27x | 1.16x | 1.21x |
+
+**De la latencia media a 0.95 con 1 thread, en frío,** y lo que cuesta traer cada fila, por carga:
+
+| índice | media, ms | traer los bloques | scan y ruteo | rescore | cargas | fila de miembros, µs | fila de aristas, µs |
+|---|---|---|---|---|---|---|---|
+| v5.4, reorganizado | 4.93 | 2.38 | 0.80 | 1.61 | 18.82 | 299.4 | 238.4 |
+| v5.3, reorganizado | 4.90 | 2.35 | 0.81 | 1.59 | 18.73 | 290.6 | 245.1 |
+| escrito en lote (v4.0, 512 bits en RAM) | 4.35 | 1.97 | 0.65 | 1.59 | 17.83 | 265.7 | 219.6 |
+| el índice de v5.3, reorganizado sobre un Map (mía) | 4.80 | 2.31 | 0.80 | 1.54 | 18.73 | 294.8 | 235.5 |
+
+**De la latencia media a 0.95 con 1 thread, en caliente,** y lo que cuesta traer cada fila, por carga:
+
+| índice | media, ms | traer los bloques | scan y ruteo | rescore | cargas | fila de miembros, µs | fila de aristas, µs |
+|---|---|---|---|---|---|---|---|
+| v5.4, reorganizado | 1.54 | 0.46 | 0.83 | 0.13 | 19.60 | 21.4 | 9.6 |
+| v5.3, reorganizado | 1.51 | 0.42 | 0.83 | 0.14 | 19.50 | 15.8 | 10.8 |
+| escrito en lote (v4.0, 512 bits en RAM) | 1.22 | 0.30 | 0.67 | 0.14 | 18.59 | 14.2 | 7.0 |
+| el índice de v5.3, reorganizado sobre un Map (mía) | 1.57 | 0.48 | 0.84 | 0.14 | 19.50 | 21.7 | 9.5 |
+
+### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| v5.4, reorganizado | 17:21 a 17:27 | 17:44 a 17:50 | no | −3.2 % (0.95, 8 threads, en frío: 12.25 y 11.86 ms) | — |
+| v5.3, reorganizado | 17:27 a 17:33 | 17:50 a 17:56 | no | +3.1 % (0.99, 8 threads, en caliente: 4.73 y 4.88 ms) | — |
+| escrito en lote (v4.0, 512 bits en RAM) | 17:33 a 17:38 | 17:56 a 18:01 | no | −2.6 % (0.95, 1 thread, en frío: 3.71 y 3.62 ms) | — |
+| el índice de v5.3, reorganizado sobre un Map (mía) | 17:38 a 17:44 | 18:01 a 18:07 | no | −2.1 % (0.95, 8 threads, en frío: 12.18 y 11.93 ms) | — |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+### RAM residente al buscar
+
+| índice | heap en uso tras abrir | huella del proceso |
+|---|---|---|
+| v5.4, reorganizado | 179.45 MB | 380.68 MB |
+| v5.3, reorganizado | 179.23 MB | 379.50 MB |
+| escrito en lote (v4.0, 512 bits en RAM) | 145.87 MB | 288.06 MB |
+| el índice de v5.3, reorganizado sobre un Map (mía) | 179.26 MB | 379.65 MB |
+

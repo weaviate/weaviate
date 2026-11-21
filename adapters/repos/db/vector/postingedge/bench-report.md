@@ -164,6 +164,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
     - **Repetido de noche y sin actividad (del 20 al 21):** 663 por segundo con 8 buscadores y 505 con 4, 3.60 y 2.74 veces los 184 del insert de siempre. El número limpio es 3.6 veces; el 3.76 llevaba un denominador medido con actividad.
 - **Aristas consolidadas (v5.1, del 19 y el 20): no sirve, por su criterio.** La fila de aristas de un posting en un solo valor, escrita cada K cambios. En caliente cierra un 55 % de la distancia con el lote, 1.21 veces donde v5.0 queda a 1.45. En frío no mejora a v5.0: 1.41 a 1.47 veces el lote, sin que sepa todavía por qué. El control combinado, del 20, lo explica y lo mide reorganizado: su fila de aristas, sola en su bucket, es una lectura de disco aparte (6.15 page-ins por carga frente a 5.74 de v5.0). Reorganizado cumple en caliente, 1.20 veces el lote, y falla en frío por cuatro milésimas, 1.2045.
 - **La fila de aristas en un valor, junto a los miembros (v5.3, del 20): es el formato candidato, reorganizado.** A 0.95 con 1 thread queda a 1.10 veces el lote en frío y a 1.21 en caliente, con los límites en 1.20 y 1.25: el frío de v5.0 reorganizado y el caliente de v5.1. Lo que cuesta es escribirlo: quitar la fila vieja de un Set es una lápida que lleva la fila entera, el store escribe 17.1 GB al crecer (9.4 en v5.0) y, entre compactaciones, una carga lee más del doble de lo que usa. Sin medir: otra forma de reescribir la fila.
+- **La misma disposición sobre un bucket Map (v5.4, del 21): no sustituye a v5.3.** Cumple en frío y en caliente, 1.11 y 1.23 veces el lote, en empate con v5.3. No cumple lo escrito, 11.78 GB con el límite en 10, ni lo leído sin compactar, 1.57 veces lo que usa con el límite en 1.5. Frente a v5.3 escribe un 31 % menos. Lo que sobra ya no es la lápida: es que las filas comparten bucket con los miembros y se reescriben con ellos.
 - **Deletes (v6.0, v6.1, v6.2 y v6.2b, del 19 y el 20), en memoria y en conteos.** Con la marca sola el índice aguanta el 10 % borrado. La limpieza en dos fases de v6.1 cumple con el 30 % en una pasada y fallaba en un churn. En v6.2, sustituir cada arista muerta por un vecino de la lista del borrado, elegido con una distancia entre dos códigos, cumple en el churn sin ninguna búsqueda: −0.0004 de recall, +2.7 % de cargas a 0.95 y +1.8 % a 0.99. En v6.2b aguanta treinta rondas, con el 90 % de la base renovado (−0.0011, +1.6 % y −1.3 % en la ronda 30), y entra con el 30 % borrado por regiones. Sin medir: todo en disco, donde cada pasada reescribe todos los postings.
 - **Antes de compactar, la basura pesa un 34.5 % más de bytes por carga** y 1.75 veces las lecturas, con la política por niveles.
 - **El store escribe de 7 a 17 veces lo que guarda,** con cualquiera de sus dos políticas.
@@ -391,7 +392,7 @@ Son los dos pendientes de `integration-plan.md`, sección 4. Todo lo medido es c
 
 ## v5.4: la disposición de v5.3 sobre un bucket Map (2026-11-21)
 
-**Estado: pre-registrado el 21 a las 10:45, antes de compilar nada de esta ronda y antes de ningún dato suyo.** El mecanismo, la corrección, lo que se mide, la sesión, la lectura y la condición de parada son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
+**Estado: cerrado el 21 a las 18:07. No sustituye a v5.3, por la lectura como está escrita: cumple en frío (1.11 veces el lote) y en caliente (1.23), y no cumple lo escrito (11.78 GB, con el límite en 10) ni lo leído sin compactar (1.57 veces lo que usa, con el límite en 1.5). Frente a v5.3 escribe un 31 % menos y empata en latencia. Abajo, «Paso 2, segunda parte», «Paso 3» y «Veredicto de v5.4».** Pre-registrado el 21 a las 10:45, antes de compilar nada de esta ronda y antes de ningún dato suyo. El mecanismo, la corrección, lo que se mide, la sesión, la lectura y la condición de parada son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío.
 
 ### De dónde sale
 
@@ -563,6 +564,93 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 4. **Dejar v5.3 como está** y pagar su escritura: 17.1 GB al crecer y, entre compactaciones, 2.2 a 2.6 veces lo que una carga usa.
 
 *Lo que yo haría, a falta del resto de v5.4:* la primera. Es la más pequeña, y separa las dos cosas que este experimento junta: cómo se reemplaza la fila, que el Map resuelve, y cómo se leen los miembros, que el Map encarece.
+
+### Paso 2, segunda parte: la validación y el crecimiento a 1M (2026-11-21, de 11:27 a 16:33)
+
+**Estado: hecha, entera. La validación pasa. Las dos condiciones que no dependen del reloj no se cumplen: el store escribe 11.78 GB al crecer, y volcado sin compactar una carga lee 1.57 veces lo que usa.** Binario de `ee4cd877e0`. Datos en `testdata/bench/v5.4/`; tablas completas en `map-verdict.md`. Corrió de día, con las medidas de parámetros, el ensayo del 10M y la otra sesión en la máquina: nada de este paso es un tiempo.
+
+- **La validación, que era stop: pasa.** Idéntico al gemelo en cada uno de los 891 000 inserts, y en cada checkpoint, del 20 al 100 %, con cobertura completa. Al final, 7 794 postings y 3 687 splits. Cerrado y abierto otra vez, devuelve lo mismo que el gemelo en las 5 000 queries de sus dos puntos. Ningún stop: ninguna clave devolvió dos filas ni un miembro fuera de su posición.
+- **El índice reorganizado devuelve lo mismo que el índice tal cual,** y lee 2.00 veces del store y 68.7 KB por carga.
+
+**Lo que el store lee por carga,** a 0.95, en los tres estados en que la validación lo deja:
+
+| estado del store | v5.0 | K = 64 de v5.1 | v5.3, en un Set | **v5.4, en un Map** |
+|---|---|---|---|---|
+| como lo dejan los ciclos | 1.457 | 0.863 | 2.249 | **1.381**, con 6.53 lecturas y 87.0 KB |
+| volcado, sin compactar | 1.487 | 1.058 | 2.613 | **1.573**, con 8.25 lecturas y 99.1 KB |
+| compactado | 1.105 | 1.057 | 1.057 | **1.082**, con 2.00 lecturas y 68.2 KB |
+
+- **La condición es la segunda fila: 1.573, con el límite en 1.5. No se cumple, por poco.** Frente a v5.3 son 99 KB donde eran 166: lo que sobra son las versiones viejas de la fila, una por segmento, ya sin sus lápidas.
+- **En el primer estado el store cuenta de menos** en los cuatro: lo que está en el memtable no pasa por él.
+
+**Lo que el store escribió al crecer el índice de las curvas:**
+
+| índice | el store escribió | postings: log de escritura | postings: compactación | los demás buckets |
+|---|---|---|---|---|
+| v5.0, un valor por cambio | 9.43 GB | 1.33 | 6.17 | 1.93 |
+| K = 64 de v5.1, filas en su bucket | 7.74 GB | 0.53 | 2.84 | 4.37 |
+| v5.3, filas junto a los miembros, en un Set | 17.08 GB | 2.25 | 13.02 | 1.80 |
+| **v5.4, filas junto a los miembros, en un Map** | **11.78 GB** | 1.54 | 8.44 | 1.80 |
+
+- **11.78 GB, con el límite en 10: no se cumple.** Es un 31 % menos que v5.3 y un 25 % más que v5.0.
+- **El log de escritura sale como esperaba:** 1.54 GB, con cada fila escrita una vez.
+- **Lo que no vi es la compactación:** 8.44 GB, donde los miembros solos son 2.84. Las filas, 85 MB vivos, se reescriben cada vez que la compactación reescribe los miembros con los que comparten bucket. En su propio bucket costaban unos 1.7 GB.
+- **Retirar postings par a par no pesa:** 1 335 116 lápidas de clave, 8 MB en total.
+
+**Lo que una carga trae del disco en frío,** a 0.95, reorganizado: 4.83 page-ins y 107.4 KB leyendo primero los miembros, donde v5.3 reorganizado trae 4.75 y 105.9 KB. La fila de aristas viene detrás de los miembros igual que en v5.3: 0.61 page-ins y 12.2 KB.
+
+### Paso 3: la sesión cronometrada (2026-11-21, de 17:21 a 18:07)
+
+**Estado: hecha, a la segunda. Cuatro curvas en dos rondas, ninguna marcada. v5.4 reorganizado queda a 1.11 veces el lote en frío y a 1.23 en caliente: cumple las dos, y empata con v5.3 reorganizado.** Binario de `ee4cd877e0`. Datos en `testdata/bench/v5.4/dbpedia-1m-map-r1-*.json` y `-r2-*.json`.
+
+**El primer intento no vale, y fue culpa de mi puerta.** Arrancó a las 16:34 con una verificación a 1M de la sesión de integración todavía viva: su binario se llamaba `pe-piece1.test`, y la puerta solo esperaba a los `pe-` seguidos de letras. Además, esa sesión corrió tests del paquete de 16:35 a 16:39 por un error suyo, del que avisó ella misma. Lo paré a las 16:40, tras una curva. Lo que midió está apartado en `testdata/bench/v5.4/loaded/` y no entra en ninguna tabla. Las puertas de v5.4 y del 10M reconocen ahora esos nombres (`ba6184ff2e`).
+
+**La sesión que vale** arrancó a las 17:21, cuando esa verificación terminó, con el marcador arriba desde las 16:41 y sin teclado ni trackpad en ningún tramo. La otra sesión dice que no compiló ni corrió nada con el marcador arriba; no lo he podido comprobar por mi cuenta, porque vacié la caché de compilación de Go a las 20:33 para hacer sitio al 10M.
+
+| a 0.95, 1 thread, p50 | ronda 1, en frío | entre el lote | en caliente | entre el lote | ronda 2, en frío | en caliente |
+|---|---|---|---|---|---|---|
+| **v5.4, reorganizado** | 4.11 ms | **1.11x** | 1.14 ms | **1.23x** | 1.14x | 1.29x |
+| v5.3, reorganizado | 4.10 ms | 1.11x | 1.12 ms | 1.21x | 1.11x | 1.23x |
+| el índice de v5.3, sobre un Map (*mía*) | 4.05 ms | 1.09x | 1.17 ms | 1.26x | 1.13x | 1.28x |
+| el lote | 3.71 ms | | 0.92 ms | | | |
+
+- **En frío, v5.4 y v5.3 empatan:** 4.11 y 4.10 ms.
+- **En caliente, v5.4 queda un 2.0 % por encima de v5.3,** un empate por la regla, y dentro del 1.25 en la primera ronda. En la segunda sale a 1.29: el lote bajó a 0.90 ms y v5.4 subió a 1.17. Está en el borde, como proyectaba la puerta.
+- **La cuarta curva dice lo mismo con los postings iguales:** sobre el Map, 1.17 ms en caliente donde sobre el Set son 1.12, un 4.5 % más.
+- **De dónde sale, por carga y en caliente:** la fila de miembros cuesta 21.4 µs por el Map y 15.8 por el Set; la de aristas, 9.6 frente a 10.8. Traer los bloques de una query pasa de 0.42 a 0.46 ms.
+- **A 0.99 y con 8 threads, en caliente,** v5.4 queda a 1.21 y 1.27 veces el lote, donde v5.3 queda a 1.12 y 1.09: ahí la diferencia es mayor.
+- **Deriva:** la mayor entre rondas es un 3.2 %.
+
+### Veredicto de v5.4
+
+**No sustituye a v5.3, tal como se pre-registró: cumple dos de las cuatro condiciones.**
+
+| condición | medido | límite | |
+|---|---|---|---|
+| en frío, reorganizado, entre el lote | 1.11 | 1.20 | sí |
+| en caliente, reorganizado, entre el lote | 1.23 | 1.25 | sí |
+| lo que el store escribe al crecer | 11.78 GB | 10 GB | no |
+| sin compactar, lo que lee una carga entre lo que usa | 1.57 | 1.5 | no |
+
+- **Lo que el Map compra frente a v5.3:** un 31 % menos de escritura, 11.78 GB frente a 17.08, y un 40 % menos de bytes leídos entre compactaciones, 99 KB por carga frente a 166.
+- **Lo que cuesta:** un 2 % más de latencia en caliente a 0.95, que es un empate, y más con 8 threads y a 0.99; 6 bytes más por miembro en disco; y un tope de 949 miembros por posting mientras la fila sea un solo par.
+- **La elección que deja, que es del usuario:** v5.4 escribe menos y lee algo más lento en caliente; v5.3 lee algo más rápido y escribe más. Ninguno baja de 10 GB. El único que baja, K = 64 de v5.1 con las filas en su bucket, pierde el frío.
+- **Por qué no baja de 10 GB:** no es la lápida, que ya no existe. Es que las filas comparten bucket con los miembros, y cada compactación de los miembros las reescribe. Junto a los miembros en disco y lejos de ellos en la compactación son dos cosas que un solo bucket no da a la vez.
+- **Lo que yo haría** (*mío*): quedarme con la disposición de v5.3 y v5.4 para leer, que es la que cumple en frío y en caliente, y tratar lo escrito como un problema de la compactación del bucket y no del formato de la fila. La lectura cruda de los miembros de un Map, la primera de las opciones de la puerta, quitaría el coste en caliente de v5.4; no toca lo escrito.
+
+**Lo esperado y lo medido:**
+
+| | esperaba | medido | |
+|---|---|---|---|
+| la puerta, lo que cuenta el store | 68.5 KB, 1.075 | 68.6 KB, 1.077 | sí |
+| la puerta, en caliente | de un 1 a un 6 % más lento | un 4.5 %, en la sesión limpia | sí |
+| lo que el store escribe | de 7.5 a 9.5 GB | 11.78 GB | fuera, por arriba |
+| sin compactar | de 1.35 a 1.65 | 1.57 | sí, del lado malo del límite |
+| en frío, reorganizado | de 1.08 a 1.14 | 1.11 | sí |
+| en caliente, reorganizado | de 1.21 a 1.29 | 1.23, y 1.29 en la segunda ronda | sí |
+| cumple lo escrito y el frío | | el frío sí; lo escrito no | a medias |
+
+- **Me equivoqué en lo escrito:** conté las filas como si su bucket fuera suyo, y lo comparten.
 
 ## v6.2b: churn largo y borrado por regiones (2026-11-20)
 

@@ -572,6 +572,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
   - **La disposición en disco a la que apuntar es esa.** El almacenamiento de aristas sigue detrás de su interfaz.
   - **La forma de escribirla, todavía no:** reescribir la fila con una lápida de Set hace que el store escriba 17.1 GB al crecer, casi el doble que v5.0, y que entre compactaciones una carga lea de 2.2 a 2.6 veces lo que usa.
   - **En marcha como v5.4** (*encargo del usuario del 21*): la misma disposición con un bucket Map, donde la fila se reemplaza por su clave, sin lápida que lleve la fila. La otra opción, un Set de `lsmkv` que admita reemplazar sin una lápida por valor, queda sin escribir.
+  - **v5.4, cerrado el 21: no sustituye a v5.3.** Sobre un Map la misma disposición cumple en frío y en caliente (1.11 y 1.23 veces el lote), escribe 11.78 GB donde v5.3 escribe 17.08, y no baja de los 10 GB ni de 1.5 veces lo leído sin compactar (1.57). Lo que sobra es de compartir bucket con los miembros, no de la lápida. La pieza 1 del hito 2 sigue con el formato de v5.3.
 
 **Diferencias del índice integrado frente a v5.0:**
 
