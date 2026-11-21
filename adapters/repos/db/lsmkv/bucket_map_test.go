@@ -248,3 +248,87 @@ func TestMapSetDoesNotAllocatePerWrite(t *testing.T) {
 		})
 	}
 }
+
+// twelveBytePairJourney writes one pair, alone in its row, and reads it back
+// from the memtable, from a flushed segment, after a compaction and through a
+// cursor.
+func twelveBytePairJourney(t *testing.T, pair MapPair) {
+	t.Helper()
+	ctx := context.Background()
+	rowKey := []byte("row")
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyMapCollection), WithForceCompaction(true))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, b.Shutdown(ctx)) }()
+	require.Equal(t, 12, pair.Size(), "the pair takes 12 bytes encoded")
+	assertPair := func(t *testing.T) {
+		t.Helper()
+		got, err := b.MapList(ctx, rowKey)
+		require.NoError(t, err)
+		require.Equal(t, []MapPair{pair}, got)
+	}
+
+	require.NoError(t, b.MapSet(rowKey, pair))
+	t.Run("memtable", assertPair)
+
+	require.NoError(t, b.FlushAndSwitch())
+	t.Run("flushed segment", assertPair)
+
+	// another row, so that there is a second segment to compact with
+	require.NoError(t, b.MapSet([]byte("other row"), MapPair{Key: []byte("k"), Value: []byte("v")}))
+	require.NoError(t, b.FlushAndSwitch())
+	t.Run("compaction", func(t *testing.T) {
+		compacted, err := b.disk.compactOnce(ctx)
+		require.NoError(t, err)
+		require.True(t, compacted)
+		assertPair(t)
+	})
+
+	t.Run("cursor", func(t *testing.T) {
+		c, err := b.MapCursor()
+		require.NoError(t, err)
+		defer c.Close()
+		for k, pairs := c.First(ctx); k != nil; k, pairs = c.Next(ctx) {
+			if bytes.Equal(k, rowKey) {
+				require.Equal(t, []MapPair{pair}, pairs)
+				return
+			}
+		}
+		require.Fail(t, "the cursor did not return the row")
+	})
+}
+
+// A map pair that takes 12 bytes encoded and carries a value must be read
+// back from a segment. MapList takes a pair of 12 bytes for a tombstone
+// written without its flag (issue 4125): such a tombstone has a key of 8
+// bytes and no value, so a pair with a value is never one.
+func TestMapPairOfTwelveEncodedBytesWithValue_BucketJourney(t *testing.T) {
+	tests := []struct {
+		name             string
+		keyLen, valueLen int
+	}{
+		{name: "a key of 1 byte and a value of 7", keyLen: 1, valueLen: 7},
+		{name: "a key of 2 bytes and a value of 6", keyLen: 2, valueLen: 6},
+		{name: "a key of 4 bytes and a value of 4", keyLen: 4, valueLen: 4},
+		{name: "a key of 7 bytes and a value of 1", keyLen: 7, valueLen: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			twelveBytePairJourney(t, MapPair{
+				Key:   bytes.Repeat([]byte{0x11}, tt.keyLen),
+				Value: bytes.Repeat([]byte{0x22}, tt.valueLen),
+			})
+		})
+	}
+}
+
+// KNOWN FAILURE, pinned on purpose: a pair with a key of 8 bytes and an empty
+// value, written with MapSet, is read from a segment as a tombstone and
+// disappears from MapList. It has the bytes of a tombstone that lost its flag
+// (issue 4125), which MapList still has to read as one, and nothing in the
+// segment tells the two apart. A fix needs a decision: which buckets may hold
+// such tombstones. Until then this test stays red.
+func TestMapPairWithKeyOfEightBytesAndNoValue_BucketJourney(t *testing.T) {
+	twelveBytePairJourney(t, MapPair{Key: bytes.Repeat([]byte{0x11}, 8), Value: []byte{}})
+}
