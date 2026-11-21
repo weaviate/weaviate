@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -75,6 +76,10 @@ var (
 		"HH:MM, past which the run stops inserting, closes the index and fails, so that nothing of it is alive later")
 	benchIntegrationReopen = flag.Bool("bench.integrationreopen", true, "with TestIntegrationScale: after each "+
 		"stage the index and its store are closed, opened again from disk and measured again")
+	benchIntegrationReads = flag.Bool("bench.integrationreads", true, "with TestIntegrationScale and "+
+		"-bench.integrationreopen: once opened again the store reads with pread and counts what it reads, a load of "+
+		"a posting is told in reads and bytes of the store, and the index is measured once more with its store "+
+		"compacted until it finds nothing to compact and its vectors laid out again")
 )
 
 type integrationPoint struct {
@@ -85,9 +90,14 @@ type integrationPoint struct {
 	// AskedTwice counts the queries whose answer, asked a second time in the
 	// same stage, was another one.
 	AskedTwice int `json:"queriesAnsweredOtherwiseTheSecondTime"`
-	// Reopened, in a stage over the index closed and opened again, counts the
-	// queries whose answer is not the one of the stage before it.
+	// Reopened, in a stage that is compared with the one before it, counts the
+	// queries whose answer is not the one they had there: over the index
+	// closed and opened again, or compacted and laid out again.
 	Reopened *int `json:"queriesAnsweredOtherwiseAfterReopening,omitempty"`
+	// StoreReads and StoreBytes are what the store read for a load of a
+	// posting, its two rows, where the store counts.
+	StoreReads float64 `json:"storeReadsPerLoad,omitempty"`
+	StoreBytes float64 `json:"storeBytesPerLoad,omitempty"`
 }
 
 type integrationStage struct {
@@ -100,8 +110,18 @@ type integrationStage struct {
 	// ReopenSeconds, in a stage over the index closed and opened again, is
 	// how long opening its store and the index took. It is not a timing: the
 	// machine is not alone.
-	ReopenSeconds float64            `json:"reopenSeconds,omitempty"`
-	Points        []integrationPoint `json:"points"`
+	ReopenSeconds float64 `json:"reopenSeconds,omitempty"`
+	// Segments is how many segments the bucket of postings has on disk.
+	// VectorGen, Slots and VectorsLaidOut tell of the file of vectors: its
+	// generation, the vectors it holds and how many of them are in the order
+	// of their postings. Layouts counts the passes over the vectors that
+	// ended since the index was opened.
+	Segments       int                `json:"postingSegments"`
+	VectorGen      int                `json:"vectorGen,omitempty"`
+	Slots          int                `json:"vectorSlots,omitempty"`
+	VectorsLaidOut int                `json:"vectorsLaidOut,omitempty"`
+	Layouts        int64              `json:"layoutsSinceOpened"`
+	Points         []integrationPoint `json:"points"`
 }
 
 type integrationStretch struct {
@@ -172,27 +192,47 @@ func TestIntegrationScale(t *testing.T) {
 	)
 	uc := ent.NewDefaultUserConfig()
 	closed := true
+	// The store has its metrics from the first one that opens: it keeps one
+	// observer of its reads for the whole process. It counts only what it
+	// reads with pread, which is how it reads once counting is set.
+	metrics, err := diskStoreMetrics()
+	require.NoError(t, err)
+	counting := false
 	// open opens the store and the index over it: empty the first time, and
 	// after a shut what the ones before left on disk.
 	open := func() {
 		flush = cyclemanager.NewCallbackGroup("flush", logger, 1)
 		compaction = cyclemanager.NewCallbackGroup("compaction", logger, 1)
 		var err error
-		store, err = lsmkv.New(filepath.Join(dir, "lsm"), dir, logger, nil, nil, compaction,
+		store, err = lsmkv.New(filepath.Join(dir, "lsm"), dir, logger, metrics, nil, compaction,
 			cyclemanager.NewCallbackGroupNoop(), flush)
 		require.NoError(t, err)
+		makeOptions := lsmkv.MakeBucketOptions(lsmkv.MakeRegularBucketOptions)
+		if counting {
+			makeOptions = func(strategy string, custom ...lsmkv.BucketOption) []lsmkv.BucketOption {
+				return lsmkv.MakeRegularBucketOptions(strategy, append(custom, lsmkv.WithPread(true))...)
+			}
+		}
 		p, err = Open(PersistentConfig{
-			ID:               "main",
-			ShardName:        "integration",
-			ClassName:        "Integration",
-			RootPath:         dir,
-			Logger:           logger,
-			DistanceProvider: distancer.NewCosineDistanceProvider(),
-			BaseSize:         *benchIntegrationBase,
-			Seed:             1,
+			ID:                "main",
+			ShardName:         "integration",
+			ClassName:         "Integration",
+			RootPath:          dir,
+			Logger:            logger,
+			DistanceProvider:  distancer.NewCosineDistanceProvider(),
+			MakeBucketOptions: makeOptions,
+			BaseSize:          *benchIntegrationBase,
+			Seed:              1,
 		}, uc, store)
 		require.NoError(t, err)
 		closed = false
+	}
+	// segments counts the segments of the bucket of postings on disk.
+	segments := func() int {
+		found, err := filepath.Glob(filepath.Join(dir, "lsm",
+			helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketPostings, "main"), "segment-*.db"))
+		require.NoError(t, err)
+		return len(found)
 	}
 	cycle := func() {
 		never := func() bool { return false }
@@ -273,11 +313,15 @@ func TestIntegrationScale(t *testing.T) {
 			if insertTime > 0 {
 				result.PerSecond = float64(afterBase) / insertTime.Seconds()
 			}
+			// What the index does in the background writes its meta too.
+			p.mu.RLock()
 			result.Meta, result.Stats = p.g.meta, p.g.stats
+			p.mu.RUnlock()
 			write()
 			t.Logf("%d of %d in (%.1f %%): %.0f inserts a second in this stretch, %.0f since the base | %d postings "+
-				"given out, %d splits", inserted, n, 100*float64(inserted)/float64(n), stretch.PerSecond, result.PerSecond,
-				p.g.meta.Postings, p.g.meta.Splits)
+				"given out, %d splits | %d passes over the vectors, %d of %d in the order of their postings", inserted, n,
+				100*float64(inserted)/float64(n), stretch.PerSecond, result.PerSecond, result.Meta.Postings,
+				result.Meta.Splits, p.layouts.Load(), result.Meta.VectorsLaidOut, result.Meta.Live)
 			lastLog, lastInserted = time.Now(), inserted
 		}
 	}
@@ -298,16 +342,21 @@ func TestIntegrationScale(t *testing.T) {
 	// and returns how long opening them took. What the index holds must be
 	// what it held.
 	reopen := func(name string) time.Duration {
+		// What it does in the background ends first: it writes the meta too.
+		p.stopMaintenance()
 		meta, deletedCount := g.meta, g.deletedCount
 		shut()
+		counting = *benchIntegrationReads
 		clock := time.Now()
 		open()
 		took := time.Since(clock)
 		reopened = true
 		require.NotNil(t, p.g, "STOP: %s: the index opened again has no base", name)
 		g = p.g
+		p.mu.RLock()
 		assert.Equal(t, meta, g.meta, "%s: the meta of the index opened again", name)
 		assert.Equal(t, deletedCount, g.deletedCount, "%s: the deleted vectors of the index opened again", name)
+		p.mu.RUnlock()
 		t.Logf("%s: the store and the index closed and opened again in %s, with other runs on the machine: %d vectors, "+
 			"%d of them deleted, %d postings given out", name, took.Round(time.Millisecond), g.meta.Live, g.deletedCount,
 			g.meta.Postings)
@@ -316,28 +365,40 @@ func TestIntegrationScale(t *testing.T) {
 	// measure takes the recall of the index at every ef, through the search
 	// of a shard, and what a query loads, from the search under it, and
 	// returns the answers at every ef. No answer may hold a vector that live
-	// leaves out: nil is all of them. With the answers of the stage before a
-	// reopening, it counts the queries the index opened again answers
-	// otherwise.
-	measure := func(name string, truth [][]uint64, live []bool, deleted int, before [][][]uint64,
+	// leaves out: nil is all of them. With the answers of the stage before,
+	// it counts the queries the index answers otherwise than it did there,
+	// which was before what since tells.
+	measure := func(name string, truth [][]uint64, live []bool, deleted int, before [][][]uint64, since string,
 		reopenTook time.Duration,
 	) [][][]uint64 {
+		answers := make([][][]uint64, 0, len(efs))
+		// Nothing of the index runs next to the check of its coverage, not
+		// what it does in the background either.
+		p.writeMu.Lock()
+		p.mu.Lock()
 		stage := integrationStage{
 			Name: name, Held: g.meta.Live - g.deletedCount, Deleted: deleted, Postings: g.meta.Postings,
 			Splits: g.meta.Splits, Coverage: "complete", ReopenSeconds: reopenTook.Seconds(),
+			Segments: segments(), VectorGen: g.meta.VectorGen, Slots: int(g.nextSlot),
+			VectorsLaidOut: g.meta.VectorsLaidOut, Layouts: p.layouts.Load(),
 		}
-		answers := make([][][]uint64, 0, len(efs))
-		require.NoError(t, g.cleanCentroidGraph())
+		cleaned := g.cleanCentroidGraph()
 		if err := g.checkCoverage(); err != nil {
 			stage.Coverage = err.Error()
 		}
-		t.Logf("%s: coverage %s", name, stage.Coverage)
+		p.mu.Unlock()
+		p.writeMu.Unlock()
+		require.NoError(t, cleaned)
+		t.Logf("%s: coverage %s | %d segments of postings, generation %d of the vectors, %d of %d in the order of "+
+			"their postings", name, stage.Coverage, stage.Segments, stage.VectorGen, stage.VectorsLaidOut, stage.Slots)
 		for at, ef := range efs {
 			searchUC := uc
 			searchUC.EF = ef
 			require.NoError(t, p.UpdateUserConfig(searchUC, func() {}))
 			var hits, loads, rounds, next, returned, askedTwice atomic.Int64
 			answered := make([][]uint64, len(data.queries))
+			readsBefore, bytesBefore, err := diskStoreReads()
+			require.NoError(t, err)
 			eg := enterrors.NewErrorGroupWrapper(logger)
 			for range 8 {
 				eg.Go(func() error {
@@ -364,7 +425,10 @@ func TestIntegrationScale(t *testing.T) {
 						}
 						answered[q] = ids
 						stats := &diskSearchStats{}
+						// As the search of a shard holds the index.
+						p.mu.RLock()
 						again, _, err := g.search(ctx, data.queries[q], k, stats)
+						p.mu.RUnlock()
 						if err != nil {
 							return err
 						}
@@ -386,6 +450,17 @@ func TestIntegrationScale(t *testing.T) {
 			}
 			t.Logf("%s, ef %d: recall %.4f, %.2f loads a query in %.2f rounds, %d of %d queries answered otherwise the "+
 				"second time", name, ef, point.Recall, point.Loads, point.Rounds, point.AskedTwice, len(data.queries))
+			if counting && loads.Load() > 0 {
+				// Every query was searched twice, and loaded the same both
+				// times: the store read for twice the loads counted.
+				readsAfter, bytesAfter, err := diskStoreReads()
+				require.NoError(t, err)
+				searched := 2 * float64(loads.Load())
+				point.StoreReads = float64(readsAfter-readsBefore) / searched
+				point.StoreBytes = float64(bytesAfter-bytesBefore) / searched
+				t.Logf("%s, ef %d: the store read %.2f times and %.2f KB for a load", name, ef, point.StoreReads,
+					point.StoreBytes/1024)
+			}
 			if before != nil {
 				changed := 0
 				for q := range answered {
@@ -394,18 +469,20 @@ func TestIntegrationScale(t *testing.T) {
 					}
 				}
 				point.Reopened = &changed
-				t.Logf("%s, ef %d: %d of %d queries answered otherwise than before the index was closed", name, ef,
-					changed, len(data.queries))
+				t.Logf("%s, ef %d: %d of %d queries answered otherwise than before %s", name, ef, changed,
+					len(data.queries), since)
 			}
 			stage.Points = append(stage.Points, point)
 			answers = append(answers, answered)
 		}
 		require.NoError(t, p.UpdateUserConfig(uc, func() {}))
 		result.Stages = append(result.Stages, stage)
+		p.mu.RLock()
 		result.Meta = g.meta
 		if !reopened {
 			result.Stats = g.stats
 		}
+		p.mu.RUnlock()
 		write()
 		require.Equal(t, "complete", stage.Coverage, "STOP: the coverage of the index, %s", name)
 		return answers
@@ -417,10 +494,33 @@ func TestIntegrationScale(t *testing.T) {
 	t.Logf("grown: %d vectors, %d postings given out, %d splits, %.1f GB in its directory", g.meta.Live,
 		g.meta.Postings, g.meta.Splits, float64(result.DirBytes)/1e9)
 	truth := liveTruth(t, data, nil, k)
-	grown := measure("grown", truth, nil, 0, nil, 0)
+	grown := measure("grown", truth, nil, 0, nil, "", 0)
 	if *benchIntegrationReopen {
 		took := reopen("grown")
-		measure("grown, opened again", truth, nil, 0, grown, took)
+		again := measure("grown, opened again", truth, nil, 0, grown, "the index was closed", took)
+		if *benchIntegrationReads {
+			// What a node that is left alone gets to: every memtable flushed,
+			// the store compacted until it finds nothing more to compact,
+			// and the vectors in the order of their postings.
+			for name, bucket := range store.GetBucketsByName() {
+				require.NoError(t, bucket.FlushAndSwitch(), "flush the bucket %s", name)
+			}
+			rounds := 0
+			for compaction.CycleCallback(func() bool { return false }) {
+				rounds++
+			}
+			passes := p.layouts.Load()
+			p.mu.RLock()
+			due := g.meta.VectorGen > 0 && g.meta.VectorsLaidOut < int(g.nextSlot)
+			p.mu.RUnlock()
+			if due {
+				clock := time.Now()
+				require.NoError(t, p.layOut(ctx))
+				t.Logf("the vectors laid out again in %s, with other runs on the machine", time.Since(clock).Round(time.Second))
+			}
+			t.Logf("compacted in %d rounds, and %d passes over the vectors", rounds, p.layouts.Load()-passes)
+			measure("grown, compacted and laid out", truth, nil, 0, again, "it was compacted and laid out", 0)
+		}
 	}
 
 	if *benchIntegrationDelete > 0 {
@@ -448,7 +548,7 @@ func TestIntegrationScale(t *testing.T) {
 		}
 		truth, fallbacks := liveTruthOf(t, data, live, k)
 		t.Logf("the ground truth of the vectors that are left: %d queries by brute force", fallbacks)
-		after := measure("deleted", truth, live, len(victims), nil, 0)
+		after := measure("deleted", truth, live, len(victims), nil, "", 0)
 		if *benchIntegrationReopen {
 			took := reopen("deleted")
 			// Every doc id, against what was deleted before the index closed.
@@ -460,7 +560,7 @@ func TestIntegrationScale(t *testing.T) {
 			}
 			assert.Zero(t, wrong, "deleted, opened again: doc ids held that were deleted, or deleted ones held")
 			t.Logf("deleted, opened again: %d of %d doc ids are held or not against what was deleted", wrong, n)
-			measure("deleted, opened again", truth, live, len(victims), after, took)
+			measure("deleted, opened again", truth, live, len(victims), after, "the index was closed", took)
 		}
 	}
 }

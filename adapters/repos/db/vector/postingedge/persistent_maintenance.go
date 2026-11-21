@@ -110,6 +110,9 @@ func (p *Persistent) maintain(ctx context.Context) error {
 // came in since it started and swaps the files. If it fails, or the index is
 // shut down first, the index keeps the files it had.
 func (p *Persistent) layOut(ctx context.Context) error {
+	// One pass at a time: two would write the files of the same generation.
+	p.passMu.Lock()
+	defer p.passMu.Unlock()
 	p.mu.RLock()
 	if p.closed || p.failed != nil || p.g == nil {
 		p.mu.RUnlock()

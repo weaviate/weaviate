@@ -110,6 +110,9 @@ type Persistent struct {
 	// to look for work, stopMaintenance ends it and waits for it.
 	wake            chan struct{}
 	stopMaintenance func()
+	// passMu lets one pass of maintenance over the index run at a time,
+	// whoever calls it. It is taken before the two locks above.
+	passMu sync.Mutex
 	// layouts counts the passes over the vectors that ended, for whoever
 	// waits for one, and layoutNotBefore is how many vectors the file must
 	// hold before a pass is tried again after one that failed.
