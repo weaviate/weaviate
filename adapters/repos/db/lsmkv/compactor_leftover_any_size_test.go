@@ -134,22 +134,34 @@ func TestCompactionOfLeftOverSegmentsOfAnySize(t *testing.T) {
 			compact()
 			if !tt.force {
 				require.Equal(t, 2, bucket.SegmentCount(), "nothing is asked of a bucket that keeps its left-over segments")
+				require.True(t, bucket.CompactingLeftOverSegmentsOfAnySize(), "and the request stays as it was left")
 				check("asked for any size")
 				return
 			}
 			require.Equal(t, 1, bucket.SegmentCount(), "asked to, the bucket ends as one segment")
 			check("one segment")
 
-			// Switched off, a small segment that comes next stays apart.
-			bucket.CompactLeftOverSegmentsOfAnySize(false)
+			// The request was for one pass: it ended when the large segment
+			// was written again, and a small segment that comes next stays
+			// apart, with nobody taking the request back.
+			require.False(t, bucket.CompactingLeftOverSegmentsOfAnySize(),
+				"the request ends once the oldest segment is written again")
 			put(101, small)
 			written[101] = true
 			drop(8, large)
 			gone[8] = true
 			require.NoError(t, bucket.FlushAndSwitch())
 			compact()
-			require.Equal(t, 2, bucket.SegmentCount(), "switched off, the large segment stays apart again")
-			check("switched off")
+			require.Equal(t, 2, bucket.SegmentCount(), "the large segment is not written again for what came after")
+			check("after the request")
+
+			// A request that is taken back before the store gets to it does
+			// nothing.
+			bucket.CompactLeftOverSegmentsOfAnySize(true)
+			require.True(t, bucket.CompactingLeftOverSegmentsOfAnySize())
+			bucket.CompactLeftOverSegmentsOfAnySize(false)
+			compact()
+			require.Equal(t, 2, bucket.SegmentCount(), "taken back, nothing is compacted")
 
 			// And it reads the same after it is opened again.
 			require.NoError(t, bucket.Shutdown(ctx))

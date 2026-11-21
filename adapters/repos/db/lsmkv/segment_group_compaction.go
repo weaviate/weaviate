@@ -387,6 +387,9 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 		sg.metrics.ObserveCompactionDuration(sg.strategy, time.Since(start))
 	}()
 
+	// read before the candidates are picked: a request that comes while a
+	// compaction runs is not ended by it
+	anySize := sg.compactLeftOverOfAnySize.Load()
 	pair, level := sg.findCompactionCandidates()
 	if pair == nil {
 		// nothing to do
@@ -616,6 +619,15 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 
 	if err := replacer.switchInMemory(); err != nil {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if anySize && pair[0] == 0 {
+		// The oldest segment of the group, which is its largest, was written
+		// again with what followed it: the request to compact left-over
+		// segments of any size is done, and ends here. Left on, it would have
+		// that segment written again for every small one that is flushed
+		// next. See Bucket.CompactLeftOverSegmentsOfAnySize.
+		sg.compactLeftOverOfAnySize.Store(false)
 	}
 
 	if strategy == segmentindex.StrategyInverted {
