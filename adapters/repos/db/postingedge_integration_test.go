@@ -335,6 +335,9 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 
 	before := make([][]strfmt.UUID, len(corpus.queries))
 	t.Run("restarted, the class is as it was", func(t *testing.T) {
+		// What the index does in the background with the deleted vectors and
+		// with its own vectors is done before its answers are taken.
+		require.NoError(t, index(t, repo).Settle(ctx))
 		for i, query := range corpus.queries {
 			before[i] = search(t, repo, query, k)
 		}
@@ -586,6 +589,13 @@ func TestPostingEdge_NamedVectors(t *testing.T) {
 		}
 	}
 
+	// What each index does in the background is done before its answers are
+	// taken.
+	require.NoError(t, postingEdgeTestShard(t, repo).ForEachVectorIndex(func(name string, vectorIndex VectorIndex) error {
+		found, isPostingEdge := vectorIndex.(*postingedge.Persistent)
+		require.True(t, isPostingEdge, "the vector index %q is a %T", name, vectorIndex)
+		return found.Settle(ctx)
+	}))
 	before := map[string][][]strfmt.UUID{}
 	for _, name := range names {
 		got, recall := answers(t, repo, name)

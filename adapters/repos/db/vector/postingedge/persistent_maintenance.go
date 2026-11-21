@@ -81,6 +81,26 @@ func (p *Persistent) wakeMaintenance() {
 	}
 }
 
+// Settle does whatever maintenance is due now and returns once nothing is:
+// for whoever needs the index to stay as it is for a while, which what runs in
+// the background does not promise. It runs in the goroutine of the caller, one
+// pass at a time with the one of the index. Whatever the index is given next
+// may make more work due.
+func (p *Persistent) Settle(ctx context.Context) error {
+	for {
+		p.mu.RLock()
+		due := !p.closed && p.failed == nil && p.g != nil && (p.g.cleanDue() ||
+			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load())
+		p.mu.RUnlock()
+		if !due {
+			return nil
+		}
+		if err := p.maintain(ctx); err != nil {
+			return err
+		}
+	}
+}
+
 // maintain does what is due, one thing after another: first the deleted
 // vectors leave, and then the vectors that are left are laid out.
 func (p *Persistent) maintain(ctx context.Context) error {

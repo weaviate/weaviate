@@ -230,6 +230,11 @@ func (f *persistentFixture) truth(t *testing.T, query []float32, n, k int, held 
 // answers returns what the index returns for every query of the fixture.
 func (f *persistentFixture) answers(t *testing.T, k int) [][]uint64 {
 	t.Helper()
+	if !f.cfg.noMaintenance {
+		// What the index does in the background is done first: its answers
+		// are then those it gives until it is written to again.
+		require.NoError(t, f.index.Settle(context.Background()))
+	}
 	out := make([][]uint64, len(f.queries))
 	for i, query := range f.queries {
 		ids, dists, err := f.index.SearchByVector(context.Background(), query, k, nil)
@@ -530,7 +535,9 @@ func TestPersistentDeletes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newPersistentFixture(t, max(tt.total, 1))
+			// Nothing takes the marked vectors out here: what the index does
+			// with them later is in TestPersistentCleansItsDeletes.
+			f := newPersistentFixtureWith(t, max(tt.total, 1), func(cfg *PersistentConfig) { cfg.noMaintenance = true })
 			f.add(t, 0, tt.added)
 			require.NoError(t, f.index.Delete(tt.deleted...))
 			require.NoError(t, f.index.Delete(tt.deleted...), "deleted again")
@@ -556,8 +563,8 @@ func TestPersistentDeletes(t *testing.T) {
 				f.covered(t, "after the deletes")
 			}
 
-			// A deleted vector does not come back by adding it again: its
-			// doc id is spent.
+			// A deleted vector does not come back by adding it again: while
+			// it is marked in its posting, its doc id is taken.
 			for _, id := range tt.deleted {
 				if id >= uint64(tt.added) {
 					continue
