@@ -93,10 +93,10 @@ func (p *Persistent) wakeMaintenance() {
 func (p *Persistent) Settle(ctx context.Context) error {
 	for {
 		p.mu.RLock()
-		due := !p.closed && p.failed == nil && p.g != nil && (p.g.cleanDue() || p.g.refreshDue() ||
+		due := !p.closed && p.failed == nil && p.g != nil && (p.g.cleanDue() ||
 			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load())
 		p.mu.RUnlock()
-		if !due {
+		if !due && !p.refreshOn() {
 			return nil
 		}
 		if err := p.maintain(ctx); err != nil {
@@ -117,10 +117,7 @@ func (p *Persistent) maintain(ctx context.Context) error {
 			return err
 		}
 	}
-	p.mu.RLock()
-	due = !p.closed && p.failed == nil && p.g != nil && p.g.refreshDue()
-	p.mu.RUnlock()
-	if due {
+	if p.refreshOn() {
 		if err := p.refresh(ctx); err != nil {
 			return err
 		}

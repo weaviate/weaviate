@@ -122,6 +122,9 @@ type Persistent struct {
 	// refreshes those that built edges again.
 	cleans    atomic.Int64
 	refreshes atomic.Int64
+	// refreshing is the refresh of the edges that is on, nil when there is
+	// none. Whoever holds writeMu reads and writes it.
+	refreshing *growRefresh
 }
 
 const (
@@ -526,8 +529,13 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 		if err := p.add(ctx, ids[i], distancer.Normalize(vec)); err != nil {
 			return errors.Wrapf(err, "add vector of id %d", ids[i])
 		}
+		// While the edges of the oldest vectors are being built again, every
+		// insert pays its share of it.
+		if err := p.refreshInLine(ctx); err != nil {
+			return errors.Wrapf(err, "refresh edges after the vector of id %d", ids[i])
+		}
 	}
-	if p.g != nil && (p.g.layoutDue() || p.g.refreshDue()) {
+	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.g.refreshDue()) {
 		p.wakeMaintenance()
 	}
 	return nil

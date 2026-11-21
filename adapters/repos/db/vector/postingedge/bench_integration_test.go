@@ -172,6 +172,8 @@ type integrationResult struct {
 	Stretches    []integrationStretch `json:"stretches"`
 	Stats        growStats            `json:"stats"`
 	DirBytes     int64                `json:"dirBytes"`
+	// Refreshed is what the refreshes of edges did while the index grew.
+	Refreshed growRefreshStats `json:"refreshed"`
 	// Reference, after a churn, is the meta of the index built in batch from
 	// the vectors that were left.
 	Reference *growMeta          `json:"referenceMeta,omitempty"`
@@ -358,13 +360,15 @@ func TestIntegrationScale(t *testing.T) {
 			}
 			// What the index does in the background writes its meta too.
 			p.mu.RLock()
-			result.Meta, result.Stats = p.g.meta, p.g.stats
+			result.Meta, result.Stats, result.Refreshed = p.g.meta, p.g.stats, p.g.refreshed
 			p.mu.RUnlock()
 			write()
 			t.Logf("%d of %d in (%.1f %%): %.0f inserts a second in this stretch, %.0f since the base | %d postings "+
-				"given out, %d splits | %d passes over the vectors, %d of %d in the order of their postings", inserted, n,
+				"given out, %d splits | %d passes over the vectors, %d of %d in the order of their postings | %d "+
+				"refreshes of edges ended, %d vectors refreshed", inserted, n,
 				100*float64(inserted)/float64(n), stretch.PerSecond, result.PerSecond, result.Meta.Postings,
-				result.Meta.Splits, p.layouts.Load(), result.Meta.VectorsLaidOut, result.Meta.Live)
+				result.Meta.Splits, p.layouts.Load(), result.Meta.VectorsLaidOut, result.Meta.Live, p.refreshes.Load(),
+				result.Refreshed.Refreshed)
 			lastLog, lastInserted = time.Now(), inserted
 		}
 	}
@@ -689,6 +693,18 @@ func TestIntegrationScale(t *testing.T) {
 		return
 	}
 
+	// What the index does in the background is done before it is measured:
+	// the refresh of its edges that the last doubling left running, and its
+	// vectors laid out if that is due.
+	settling := time.Now()
+	require.NoError(t, p.Settle(ctx))
+	p.mu.RLock()
+	result.Refreshed = g.refreshed
+	p.mu.RUnlock()
+	t.Logf("settled in %s, with other runs on the machine: %d refreshes of edges ended, %d vectors refreshed with %d "+
+		"loads, %d lists changed and %d inverse edges entered", time.Since(settling).Round(time.Second),
+		p.refreshes.Load(), result.Refreshed.Refreshed, result.Refreshed.SearchLoads, result.Refreshed.ListsChanged,
+		result.Refreshed.InverseEdges)
 	require.NoError(t, p.Flush())
 	result.DirBytes, err = sizeOnDisk(dir)
 	require.NoError(t, err)
@@ -741,10 +757,18 @@ func TestIntegrationScale(t *testing.T) {
 			}
 			require.NoError(t, p.Delete(ids...))
 		}
+		// The pass that takes the deleted vectors out, which runs in the
+		// background once enough are marked, is done before they are measured.
+		require.NoError(t, p.Settle(ctx))
 		require.NoError(t, p.Flush())
 		cycle()
-		t.Logf("deleted %d vectors, %d %% of them, in %s", len(victims), *benchIntegrationDelete,
-			time.Since(begin).Round(time.Second))
+		p.mu.RLock()
+		cleaned, marked := g.cleaned, g.deletedCount
+		p.mu.RUnlock()
+		t.Logf("deleted %d vectors, %d %% of them, in %s with the passes that took them out: %d taken out and %d left "+
+			"marked, %d edges with a substitute and %d without, %d merges", len(victims), *benchIntegrationDelete,
+			time.Since(begin).Round(time.Second), cleaned.Removed, marked, cleaned.Substituted, cleaned.Without,
+			cleaned.Merges)
 		for _, id := range victims[:1000] {
 			require.False(t, p.ContainsDoc(uint64(id)), "doc %d was deleted", id)
 		}

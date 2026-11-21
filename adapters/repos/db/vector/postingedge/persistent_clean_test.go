@@ -60,8 +60,19 @@ func TestPersistentCleansItsDeletes(t *testing.T) {
 		require.NoError(t, f.index.Delete(id))
 		deleted[id] = true
 	}
-	require.Eventually(t, func() bool { return f.index.cleans.Load() >= 1 && f.marked() == 0 }, 30*time.Second,
+	// A pass takes out the vectors that were marked when it started: those
+	// deleted under it wait for the next, which is due only if they are
+	// enough.
+	due := func() bool {
+		f.index.mu.RLock()
+		defer f.index.mu.RUnlock()
+		return f.index.g.cleanDue()
+	}
+	require.Eventually(t, func() bool { return f.index.cleans.Load() >= 1 && !due() }, 30*time.Second,
 		5*time.Millisecond, "the deleted vectors leave once they are %.0f %% of the index", 100*growCleanShare)
+	require.Less(t, f.marked(), len(deleted)/2, "most of them left")
+	require.NoError(t, f.index.clean(ctx))
+	require.Zero(t, f.marked(), "a pass takes out every vector that is marked")
 	f.covered(t, "cleaned")
 	f.vectorsIntact(t, "cleaned")
 	f.index.mu.RLock()
