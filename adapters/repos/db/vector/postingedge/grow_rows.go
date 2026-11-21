@@ -432,6 +432,21 @@ func (g *growIndex) dropPending(p uint32, writeDists bool) error {
 		}
 	}
 	if g.waiting != nil {
+		// The row that holds these changes and their distances are handed to
+		// the system before the changes leave the bucket of what waits: every
+		// bucket has a log of its own, written when it fills, and a process
+		// that died with the row still in one and the deletes already out of
+		// the other would leave members without edges.
+		rows := g.postings
+		if g.edges != nil {
+			rows = g.edges
+		}
+		if err := rows.WriteWAL(); err != nil {
+			return errors.Wrap(err, "write the log of the rows of edges")
+		}
+		if err := g.dists.WriteWAL(); err != nil {
+			return errors.Wrap(err, "write the log of the distances of the edges")
+		}
 		for _, docID := range pend.order {
 			if err := g.waiting.Delete(growDocKey(docID)); err != nil {
 				return errors.Wrapf(err, "take the change to the edges of doc %d out of those that wait", docID)

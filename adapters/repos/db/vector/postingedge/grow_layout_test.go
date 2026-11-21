@@ -260,6 +260,56 @@ func TestGrowOpensWhatASyncLeft(t *testing.T) {
 	}
 }
 
+// A row of edges is handed to the system before the changes it holds leave
+// the bucket of what waits. Every bucket has a log of its own, written when
+// it fills: here the log of what waits is written right after a row is, and
+// that of the rows is not, as when the first fills before the second. An
+// index opened from a copy of the files as they are then is whole. With the
+// deletes on disk and the row still in memory, the members that waited would
+// have no edges.
+func TestGrowRowIsHandedBeforeItsChangesLeave(t *testing.T) {
+	ctx := context.Background()
+	const total, base, dims = 1400, 1000, 64
+	// Rows are written only when a posting splits, and none does: every
+	// change of the inserts waits.
+	f := newGrowFixtureFormat(t, total, base, dims, false, 64, 400, shardFormat(1<<20))
+	for f.inserted < total {
+		_, err := f.insert(ctx)
+		require.NoError(t, err)
+	}
+	g := f.g
+	require.NoError(t, g.sync())
+	require.NotEmpty(t, g.pending)
+	rows := 0
+	for p := range uint32(g.meta.Postings) {
+		if g.pending[p] == nil {
+			continue
+		}
+		require.NoError(t, g.writeRow(p, &rows))
+		require.Nil(t, g.pending[p])
+	}
+	require.Positive(t, rows)
+	require.Empty(t, g.pending)
+	require.NoError(t, g.waiting.WriteWAL())
+
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(dir, os.DirFS(f.dir)))
+	c, err := openGrowIndex(ctx, testLogger(), dir, f.provider, f.uc, growOpen{keepPending: true})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, c.release(ctx)) }()
+	require.Empty(t, c.pending, "what waited is in the rows")
+	require.NoError(t, c.cleanCentroidGraph())
+	require.NoError(t, c.checkCoverage())
+	for i, query := range f.queries {
+		wantIDs, wantDists, err := g.search(ctx, query, 10, nil)
+		require.NoError(t, err)
+		ids, dists, err := c.search(ctx, query, 10, nil)
+		require.NoError(t, err)
+		require.Equal(t, wantIDs, ids, "query %d", i)
+		require.Equal(t, wantDists, dists, "query %d", i)
+	}
+}
+
 // A pass over the vectors that did not end leaves the index as it was: what
 // it wrote is removed when it is told to stop, and when the index opens next
 // if nobody told it. So are the files of a generation that was left behind.
