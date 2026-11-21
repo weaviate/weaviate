@@ -89,6 +89,9 @@ var (
 		"the share of the base deleted and inserted in every round")
 	benchIntegrationWriters = flag.Int("bench.integrationwriters", 1, "with TestIntegrationScale: how many callers "+
 		"add to the index at once while it grows, a batch of a hundred vectors each (v5.2)")
+	benchIntegrationCycles = flag.Bool("bench.integrationcycles", false, "with TestIntegrationScale: the index is "+
+		"given the cycles of a node that keep an HNSW graph, for the graph over its centroids, called with those of "+
+		"the store; a stage is then measured with the graph as they left it, and not cleaned by hand first")
 	benchIntegrationReuse = flag.Bool("bench.integrationreuse", false, "with TestIntegrationScale: "+
 		"-bench.integrationdir holds an index a run before left, which is opened as it is, with nothing put in: it "+
 		"is measured as the cycles left it and again with its bucket of postings as one segment")
@@ -147,6 +150,9 @@ type integrationStage struct {
 	// of their postings. Layouts counts the passes over the vectors that
 	// ended since the index was opened.
 	Segments int `json:"postingSegments"`
+	// DeletedCentroids is how many centroids of postings that were split or
+	// merged the graph still held, deleted, when the stage started.
+	DeletedCentroids int `json:"deletedCentroidsInTheGraph"`
 	// AsOneSegment counts the times the index asked for its bucket of
 	// postings as one segment and got it, since it was opened: each of them
 	// had the store write the bucket again, whole.
@@ -239,9 +245,10 @@ func TestIntegrationScale(t *testing.T) {
 	}
 
 	var (
-		flush, compaction cyclemanager.CycleCallbackGroup
-		store             *lsmkv.Store
-		p                 *Persistent
+		flush, compaction      cyclemanager.CycleCallbackGroup
+		tombstones, commitLogs cyclemanager.CycleCallbackGroup
+		store                  *lsmkv.Store
+		p                      *Persistent
 	)
 	uc := ent.NewDefaultUserConfig()
 	closed := true
@@ -275,7 +282,7 @@ func TestIntegrationScale(t *testing.T) {
 				return lsmkv.MakeRegularBucketOptions(strategy, append(custom, lsmkv.WithPread(true))...)
 			}
 		}
-		p, err = Open(PersistentConfig{
+		cfg := PersistentConfig{
 			ID:                "main",
 			ShardName:         "integration",
 			ClassName:         "Integration",
@@ -286,7 +293,16 @@ func TestIntegrationScale(t *testing.T) {
 			BaseSize:          baseSize,
 			Seed:              1,
 			noMaintenance:     churn > 0 || reuse,
-		}, uc, store)
+		}
+		if *benchIntegrationCycles {
+			// As a shard gives them, with the limit of the commit log of the
+			// centroid graph of HFresh at the default of a node.
+			tombstones = cyclemanager.NewCallbackGroup("tombstones", logger, 1)
+			commitLogs = cyclemanager.NewCallbackGroup("commitlogs", logger, 1)
+			cfg.TombstoneCallbacks, cfg.CommitLogCallbacks = tombstones, commitLogs
+			cfg.CommitLogThreshold = 100 << 20
+		}
+		p, err = Open(cfg, uc, store)
 		require.NoError(t, err)
 		closed = false
 	}
@@ -301,6 +317,12 @@ func TestIntegrationScale(t *testing.T) {
 		never := func() bool { return false }
 		flush.CycleCallback(never)
 		compaction.CycleCallback(never)
+		if tombstones != nil {
+			// The graph takes its deleted centroids out at most once every
+			// few minutes, however often the cycle is called.
+			tombstones.CycleCallback(never)
+			commitLogs.CycleCallback(never)
+		}
 	}
 	shut := func() {
 		if closed {
@@ -479,7 +501,15 @@ func TestIntegrationScale(t *testing.T) {
 			Segments: segments(), AsOneSegment: g.merges, VectorGen: g.meta.VectorGen, Slots: int(g.nextSlot),
 			VectorsLaidOut: g.meta.VectorsLaidOut, Layouts: p.layouts.Load(),
 		}
-		cleaned := g.cleanCentroidGraph()
+		graphStats, err := g.st.centroids.graph.Stats()
+		require.NoError(t, err)
+		stage.DeletedCentroids = graphStats.NumTombstones
+		var cleaned error
+		if tombstones == nil {
+			// Nothing keeps the graph: it is cleaned before it is measured,
+			// as the experiments do.
+			cleaned = g.cleanCentroidGraph()
+		}
 		if err := g.checkCoverage(); err != nil {
 			stage.Coverage = err.Error()
 		}
@@ -487,8 +517,9 @@ func TestIntegrationScale(t *testing.T) {
 		p.writeMu.Unlock()
 		require.NoError(t, cleaned)
 		t.Logf("%s: coverage %s | %d segments of postings, left as one %d times since the index was opened | "+
-			"generation %d of the vectors, %d of %d in the order of their postings", name, stage.Coverage, stage.Segments,
-			stage.AsOneSegment, stage.VectorGen, stage.VectorsLaidOut, stage.Slots)
+			"generation %d of the vectors, %d of %d in the order of their postings | %d deleted centroids in the graph",
+			name, stage.Coverage, stage.Segments, stage.AsOneSegment, stage.VectorGen, stage.VectorsLaidOut, stage.Slots,
+			stage.DeletedCentroids)
 		for at, ef := range efs {
 			searchUC := uc
 			searchUC.EF = ef
