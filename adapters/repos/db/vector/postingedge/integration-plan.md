@@ -622,14 +622,14 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **En lo demás:** a ef 158 el recall queda a 0.0002 o menos, y las cargas a menos de un 0.7 % en los dos puntos.
 - **Por qué sube a ef 21 no está comprobado.** La búsqueda es la misma función con los mismos parámetros: ef del grafo de centroides 8, rescore de 64, ef de inserción 160. Queda la base distinta.
 
-**Diferencia abierta frente a v5.0: el recall a ef 21** (*anotada el 21 de noviembre; decisión del usuario: no se investiga ahora*).
+**El recall a ef 21 frente a v5.0: cerrado** (*decisión del usuario, 21 de noviembre a las 12:15: «Cinco corridas del mismo algoritmo ya se separan 0.0014 entre sí, así que no había nada que explicar»*).
 
-- **La diferencia:** 0.9523 en el índice integrado frente a 0.9504 y 0.9509 en los dos de v5.0, con las mismas cargas, 19.63. A ef 158 coincide todo.
-- **Hipótesis, sin comprobar: el orden de la base.** El índice integrado la construye con los vectores en orden de doc id, y v5.0 en orden de llegada. Es otra base, con los mismos 420 postings.
-- **El ruido entre corridas ya medido, según la sesión de experimentos:** cinco índices crecidos del 10 al 100 % con el mismo insert, desde una base en lote de 99 000 en orden de llegada, dan a ef 21 0.9502 (la validación de v5.3), 0.9504 y 0.9509 (v5.0), 0.9513 y 0.9516 (los dos N = 1 de v5.2).
+- **Lo que había:** 0.9523 en el índice integrado frente a 0.9504 y 0.9509 en los dos de v5.0, con las mismas cargas, 19.63. A ef 158 coincide todo.
+- **El ruido entre corridas, según la sesión de experimentos:** cinco índices crecidos del 10 al 100 % con el mismo insert, desde una base en lote de 99 000, dan a ef 21 0.9502 (la validación de v5.3), 0.9504 y 0.9509 (v5.0), 0.9513 y 0.9516 (los dos N = 1 de v5.2).
   - Son 0.0014 entre corridas del mismo algoritmo: el margen de 0.001 que se daba por ruido era corto.
-  - El 0.9523 queda 0.0007 por encima de la mayor. Eso no explica la diferencia y no descarta la hipótesis.
-- **Qué la cerraría:** una corrida del índice integrado con la base en orden de llegada, de unas dos horas.
+  - El 0.9523 queda 0.0007 por encima de la mayor.
+- **No se corrió nada por esto.** La hipótesis del orden de la base, doc id frente a orden de llegada, queda sin comprobar y sin hacer falta.
+- **La corrida B da 0.9509 a ef 21,** dentro de esas cinco.
 
 **Tras borrar el 30 % al azar,** 297 000 de 990 000, por `Delete` como los borra un shard:
 
@@ -659,8 +659,57 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
   - Los vectores de centroide: 48 MB.
   - El binario de la corrida era anterior a `a5a487d98f`: su store llevaba además los 573 MB de los vectores apartados.
 
-**Sin verificar a escala:**
+### Verificación a 1M, corrida B: la base por defecto de 10 000, y reapertura
 
-- **Reabrir el índice de 1M.** El índice de la corrida A se borró sin reabrirlo: una sesión cronometrada no dejaba compilar el modo de reapertura. Irá como una etapa más de la corrida B.
-- **La corrida B,** con la base por defecto de 10 000: cuánto deriva el índice al crecer cien veces sin refresco.
+*21 de noviembre, de 10:43 a 14:53. En conteos, sin cronometrar, con cuatro o cinco corridas de experimentos en la máquina. Código de `8f54557d02`: el del hito 1 más las etapas de reapertura del arnés. Resultado en `testdata/bench/integration-m1/dbpedia-1m-base10000.json`, con su log al lado.*
+
+- **Qué es:** la corrida A con la base que tiene una clase creada sin tocar nada. El índice guarda aparte los 10 000 primeros vectores, construye con ellos 43 postings y crece 99 veces por inserts, sin refresco de aristas.
+- **Lo que añade el arnés:** tras medir el índice crecido, y otra vez con el 30 % borrado, cierra el índice y su store, los abre de disco y mide de nuevo. Cada búsqueda se pide dos veces en cada etapa, para no tomar por efecto de la reapertura una respuesta que cambie sola.
+
+**La deriva: base de 10 000 frente a base de 99 000,** a igual ef:
+
+| ef | base 10 000: recall | cargas | base 99 000: recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 20 | 0.9489 | 19.19 | 0.9504 | 19.08 | −0.0015 | +0.6 % |
+| 21 | 0.9509 | 19.74 | 0.9523 | 19.63 | −0.0014 | +0.5 % |
+| 40 | 0.9713 | 29.32 | 0.9713 | 28.97 | 0.0000 | +1.2 % |
+| 80 | 0.9840 | 45.81 | 0.9841 | 45.33 | −0.0001 | +1.0 % |
+| 158 | 0.9904 | 72.18 | 0.9902 | 71.64 | +0.0002 | +0.7 % |
+| 160 | 0.9904 | 72.80 | 0.9903 | 72.29 | +0.0001 | +0.7 % |
+
+- **Crecer cien veces sin refresco deriva poco:** entre un 0.5 % y un 1.2 % más de cargas a igual ef, y un recall a 0.0015 o menos, que es lo que se separan dos corridas del mismo algoritmo.
+- **Frente a los dos índices de v5.0** (0.9504 y 0.9509 a ef 21 con 19.63 y 19.54 cargas; 0.9900 y 0.9901 a ef 158 con 72.09 y 71.91): el recall coincide, y las cargas quedan un 0.6 % y un 1.0 % por encima a ef 21, y un 0.1 % y un 0.4 % a ef 158.
+- **Postings repartidos y splits:** 8 167 y 4 062, frente a 7 766 y 3 673 con la base de 99 000. Los postings vivos son casi los mismos, 4 105 frente a 4 093: la base pequeña pasa por más splits para llegar al mismo sitio.
+- **Por insert:** 61.6 cargas y 4.60 aristas inversas, frente a 62.7 y 4.58.
+- **Cobertura completa.**
+- **No hay otra diferencia con v5.0 que anotar.**
+- **Esta deriva es la referencia de la pieza 3 del hito 2,** el refresco de aristas al doblar: lo que el refresco puede recuperar aquí es, como mucho, ese 1 % de cargas.
+
+**Reabierto a 1M:**
+
+- **Devuelve lo mismo:** ninguna de las 5 000 queries cambia su respuesta, en ninguno de los seis ef, ni con el índice crecido ni con el 30 % borrado. Tampoco cambia ninguna al pedirla dos veces sobre el mismo índice abierto.
+- **El meta y el número de borrados son los de antes de cerrar,** y con el 30 % borrado los 990 000 doc ids están como se dejaron: ninguno de más ni de menos.
+- **Abrir el store y el índice:** 0.28 y 0.29 s, con la máquina ocupada. No es una medida de tiempo.
+
+**Tras borrar el 30 % al azar,** sobre el índice ya reabierto:
+
+| ef | antes: recall | cargas | después: recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 20 | 0.9489 | 19.19 | 0.9550 | 23.74 | +0.0061 | +23.7 % |
+| 21 | 0.9509 | 19.74 | 0.9566 | 24.49 | +0.0057 | +24.1 % |
+| 40 | 0.9713 | 29.32 | 0.9749 | 36.74 | +0.0036 | +25.3 % |
+| 80 | 0.9840 | 45.81 | 0.9869 | 58.02 | +0.0029 | +26.6 % |
+| 158 | 0.9904 | 72.18 | 0.9923 | 92.17 | +0.0019 | +27.7 % |
+| 160 | 0.9904 | 72.80 | 0.9924 | 93.02 | +0.0020 | +27.8 % |
+
+- **Como en la corrida A:** ningún borrado devuelto en 30 000 búsquedas, el recall sube y las cargas suben entre un 24 % y un 28 %.
+
+**Lo demás que dejó la corrida:**
+
+- **La base de 10 000 se construyó en 3 s,** dentro del insert que la completó.
+- **Inserts:** 67 por segundo desde la base, con la máquina a más de 50 de carga. No es una medida.
+- **Disco:** 6.3 GB según `du`, 8.3 GB aparentes. Con `a5a487d98f` ya no queda el bucket de los vectores apartados.
+
+**Sin verificar a escala, del hito 1:**
+
 - **Nada a 1M a través del shard,** ni latencia, ni inserts por segundo con la máquina sola.

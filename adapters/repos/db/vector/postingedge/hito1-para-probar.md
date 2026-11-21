@@ -52,7 +52,7 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 
 ## Con qué te vas a encontrar
 
-- **Hasta 10 000 vectores la búsqueda es exacta,** leyendo todos los vectores en cada query. Al llegar a 10 000 el índice construye sus postings, **dentro del insert que los completa:** esa petición tarda lo que tarde el build, y las búsquedas esperan mientras tanto. Con 10 000 vectores no está medido; con 99 000 de 1536 dimensiones fueron 1 min 19 s.
+- **Hasta 10 000 vectores la búsqueda es exacta,** leyendo todos los vectores en cada query. Al llegar a 10 000 el índice construye sus postings, **dentro del insert que los completa:** esa petición tarda lo que tarde el build, y las búsquedas esperan mientras tanto. Con 10 000 vectores de 1536 dimensiones fueron unos 3 s; con 99 000, 1 min 19 s.
 - **Un borrado no libera nada.** El vector se marca, deja de devolverse y sigue en su sitio. Con muchos borrados las búsquedas trabajan más para el mismo recall.
 - **Un update gasta sitio:** es un borrado más un insert.
 - **Los inserts van de uno en uno** y son lentos: unos 180 por segundo a 1M y 1536 dimensiones en un M1 Max, medido en los experimentos con la máquina sola. Cada insert bloquea las búsquedas un momento, mientras escribe.
@@ -65,7 +65,20 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 
 *dbpedia-openai, 990 000 vectores de 1536 dimensiones, 5 000 queries, k = 10. El índice integrado, crecido desde vacío por inserts, sin el shard alrededor. En conteos, sin cronometrar.*
 
-**Con la base por defecto de 10 000, que es lo que vas a usar tú: PENDIENTE.** Es la corrida que dice cuánto se degrada el índice al crecer cien veces desde su base sin refresco. Hasta que esté, los números de abajo no son los de una clase creada sin tocar nada.
+**Con la base por defecto de 10 000, que es lo que vas a usar tú** (medido el 21 de noviembre): el índice crece 99 veces desde su base, sin refresco de aristas.
+
+| ef | recall | postings leídos por query | con la base de 99 000: recall | postings |
+|---|---|---|---|---|
+| 20 | 0.9489 | 19.2 | 0.9504 | 19.1 |
+| 21 | 0.9509 | 19.7 | 0.9523 | 19.6 |
+| 40 | 0.9713 | 29.3 | 0.9713 | 29.0 |
+| 80 | 0.9840 | 45.8 | 0.9841 | 45.3 |
+| 158 | 0.9904 | 72.2 | 0.9902 | 71.6 |
+| 160 | 0.9904 | 72.8 | 0.9903 | 72.3 |
+
+- **Crecer cien veces desde 10 000 casi no cuesta:** el recall a igual ef queda a 0.0015 o menos del de la base de 99 000, que es lo que se separan dos corridas iguales, y cada búsqueda lee entre un 0.5 % y un 1.2 % más de postings.
+- **Cobertura completa,** con 4 062 splits por el camino.
+- **Cerrado y abierto otra vez a 1M, devuelve lo mismo:** ninguna de las 5 000 queries cambia su respuesta, en ninguno de los seis ef. Abrir tarda 0.3 s, con la máquina ocupada.
 
 **Con la base forzada a 99 000 por un gancho de test,** que es el camino que midieron los experimentos:
 
@@ -75,15 +88,17 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 | 158 | 0.9902 | 71.6 | 0.9900 y 0.9901 | 72.1 y 71.9 |
 
 - **El índice integrado es el de los experimentos:** los mismos postings leídos, los mismos splits (3 673 frente a 3 663 y 3 684) y cobertura completa.
-- **El recall a ef 21 sale 0.0014 y 0.0018 por encima,** algo más que el ruido esperado de 0.001. No hay explicación comprobada.
+- **El recall a ef 21 no es una diferencia:** cinco corridas del mismo algoritmo en los experimentos dan entre 0.9502 y 0.9516, 0.0014 de una a otra, y el 0.9523 queda 0.0007 por encima de la mayor.
 
-**Tras borrar el 30 % al azar:**
+**Tras borrar el 30 % al azar,** con las dos bases:
 
-- **Ningún borrado vuelve en los resultados,** en 30 000 búsquedas.
-- **El recall a igual ef no baja:** sube entre 0.002 y 0.005.
+- **Ningún borrado vuelve en los resultados,** en 30 000 búsquedas con cada base. Con la de 10 000, tampoco tras cerrar y abrir: los 990 000 doc ids están como se dejaron.
+- **El recall a igual ef no baja:** sube entre 0.002 y 0.006.
 - **Cada búsqueda lee entre un 23 % y un 28 % más de postings,** porque los borrados siguen en su sitio.
 
-**Sin medir a 1M:** reabrir el índice, nada a través del shard, la latencia, y los inserts por segundo con la máquina sola.
+**Sin medir a 1M:** nada a través del shard, la latencia, y los inserts por segundo con la máquina sola.
+
+*Estos números son del código del hito 1. La rama lleva ya piezas del hito 2, que cambian el formato en disco y quitan los borrados; lo que cambie para quien prueba se anota aquí al cerrar cada una.*
 
 ## Qué viene en el hito 2
 
