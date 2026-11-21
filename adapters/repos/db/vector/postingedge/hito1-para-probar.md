@@ -98,8 +98,22 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 
 **Sin medir a 1M:** nada a través del shard, la latencia, y los inserts por segundo con la máquina sola.
 
-*Estos números son del código del hito 1. La rama lleva ya piezas del hito 2, que cambian el formato en disco y quitan los borrados; lo que cambie para quien prueba se anota aquí al cerrar cada una.*
+*Estos números son del código del hito 1. La rama lleva ya piezas del hito 2; lo que cambian para quien prueba está en la sección siguiente.*
 
-## Qué viene en el hito 2
+## Lo que cambia con el hito 2
 
-Limpieza de borrados, refresco de aristas, tareas de fondo (el build de la base entre ellas), el formato definitivo en disco y el modo sin códigos en RAM.
+*Estado de la rama el 21 de noviembre. Cada punto dice si está verificado a 1M o solo por tests.*
+
+- **El formato en disco es otro. Un índice creado con el código del hito 1 se abre y funciona como era,** con búsquedas e inserts, pero no recibe ni la limpieza de borrados ni la reordenación de vectores. Para tener el formato nuevo hay que volver a importar.
+  - *Verificado a 1M:* con el formato nuevo el índice es el mismo (0.9515 de recall y 19.7 postings leídos a ef 21; 0.9905 y 72.1 a ef 158), y devuelve lo mismo reabierto.
+- **El índice trabaja ahora por su cuenta,** sin que nadie se lo pida: parte en línea con los inserts y los deletes, que tardan algo más mientras hay una pasada en marcha, y parte en una goroutine suya cuando las escrituras paran.
+- **Un borrado ya libera sitio.** Cuando los vectores marcados llegan al 3 % del índice, una pasada los saca, repara las aristas que llevaban a ellos y fusiona los postings que quedan pequeños. Hasta entonces siguen marcados, como antes.
+  - *Verificado solo por tests.* La corrida a 1M está en marcha.
+- **Las aristas de los vectores más viejos se rehacen cada vez que el índice dobla su tamaño.** Mientras dura una de esas pasadas, cada insert rehace además las aristas de un vector viejo: cuesta más o menos como otro insert.
+  - *Verificado solo por tests.*
+- **Varios inserts a la vez:** si llegan por varias goroutines (un import con varios workers), sus búsquedas corren en paralelo y solo sus escrituras van de una en una.
+  - *Verificado solo por tests, y no por el shard.* **Con `ASYNC_INDEXING` sigue sin probar.**
+- **El fichero de vectores se reescribe entero cada vez que el índice dobla,** para dejar juntos los vectores de cada posting. Mientras dura pide el doble de disco de los vectores: 12 GB por millón a 1536 dimensiones.
+- **Abrir tarda más:** 2.6 s a 1M con la máquina ocupada, frente a 0.3 s.
+
+**Lo que sigue igual que en el hito 1:** la base se construye dentro del insert que la completa; no hay recuperación tras una caída a mitad de una escritura, y ahora tampoco a mitad de una de las pasadas del índice; `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».
