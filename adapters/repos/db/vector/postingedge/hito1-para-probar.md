@@ -108,7 +108,10 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
   - *Verificado a 1M:* con el formato nuevo el índice es el mismo (0.9515 de recall y 19.7 postings leídos a ef 21; 0.9905 y 72.1 a ef 158), y devuelve lo mismo reabierto.
 - **El índice trabaja ahora por su cuenta,** sin que nadie se lo pida: parte en línea con los inserts y los deletes, que tardan algo más mientras hay una pasada en marcha, y parte en una goroutine suya cuando las escrituras paran.
 - **Un borrado ya libera sitio.** Cuando los vectores marcados llegan al 3 % del índice, una pasada los saca, repara las aristas que llevaban a ellos y fusiona los postings que quedan pequeños. Hasta entonces siguen marcados, como antes.
-  - *Verificado solo por tests.* La corrida a 1M está en marcha.
+  - *Verificado a 1M:* tras diez rondas de borrar el 3 % e insertar otros tantos, el índice queda como uno construido de una vez con los vectores que quedan: el recall a igual ef a 0.0011 o menos, y entre un 1 y un 2 % más de postings leídos. *Sin verificar a 1M:* que el índice arranque la pasada por su cuenta, que hasta ahora solo está en los tests.
+  - El fichero de vectores no encoge al sacar los borrados: su sitio se recupera cuando el índice dobla.
+- **Una caída del proceso a mitad de una escritura ya no deja el índice sin abrir.** Cada escritura pasa antes por un diario, y al abrir el índice vuelve a ser el de después de la última escritura entera. No cubre un corte de corriente.
+  - *Verificado solo por tests,* con copias de los ficheros en cada punto donde el proceso puede morir.
 - **Las aristas de los vectores más viejos se rehacen cada vez que el índice dobla su tamaño.** Mientras dura una de esas pasadas, cada insert rehace además las aristas de un vector viejo: cuesta más o menos como otro insert.
   - *Verificado solo por tests.*
 - **Varios inserts a la vez:** si llegan por varias goroutines (un import con varios workers), sus búsquedas corren en paralelo y solo sus escrituras van de una en una.
@@ -116,4 +119,4 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 - **El fichero de vectores se reescribe entero cada vez que el índice dobla,** para dejar juntos los vectores de cada posting. Mientras dura pide el doble de disco de los vectores: 12 GB por millón a 1536 dimensiones.
 - **Abrir tarda más:** 2.6 s a 1M con la máquina ocupada, frente a 0.3 s.
 
-**Lo que sigue igual que en el hito 1:** la base se construye dentro del insert que la completa; no hay recuperación tras una caída a mitad de una escritura, y ahora tampoco a mitad de una de las pasadas del índice; `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».
+**Lo que sigue igual que en el hito 1:** la base se construye dentro del insert que la completa; `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».

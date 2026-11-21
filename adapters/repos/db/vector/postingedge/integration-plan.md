@@ -721,10 +721,10 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | pieza | qué | código y tests | verificación a 1M |
 |---|---|---|---|
 | 1 | Formato de v5.3 y reorganización de fondo | hechos | cumple: 2.00 lecturas por carga con el bucket en un segmento |
-| 2 | Limpieza de deletes: sustitución local y fusión | hechos | sin hacer |
-| 3 | Refresco de aristas al doblar | hechos | sin hacer |
+| 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote |
+| 3 | Refresco de aristas al doblar | hechos | corriendo desde el 21 a las 21:21 |
 | 4 | Cálculo de inserts en los workers compartidos | hechos | sin hacer |
-| 5 | Durabilidad a mitad de un insert, y base en segundo plano | sin empezar | |
+| 5 | Durabilidad a mitad de un insert, y base en segundo plano | el diario, hecho; la base en segundo plano, sin hacer | sin hacer |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | sin hacer |
 | 7 | Modo `none`, con el halo en la escritura | sin empezar | |
 
@@ -826,6 +826,42 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 - **Un índice del hito 1, con un valor por lista, no se limpia:** sigue con la marca sola.
 
 **Tests.** La pasada en disco, sin fusiones, es la del gemelo en memoria: se van los mismos vectores, cada arista recibe el mismo sustituto, y los dos índices son el mismo antes, después y a lo largo de los inserts que siguen, que leen las distancias guardadas para los sustitutos (`TestGrowCleanEqualsMemory`, seis casos, con rondas, reaperturas y compactación). Las fusiones van por invariantes y no contra el gemelo: los dos comparten el grafo de centroides, y las fusiones del gemelo cambian el vecino más cercano que vería el disco. Una pasada cortada entre dos pasos deja un índice, y la siguiente lo acaba. Por el índice del shard, con `-race`: la limpieza sola, junto a búsquedas, inserts y deletes, y un doc id dado otra vez.
+
+**Verificación a 1M: cumple** (*21 de noviembre, de 18:54 a 21:19; código de `cfc9eb8e75`; sin cronometrar, con el build de 10M en la máquina; resultado en `testdata/bench/integration-m2/piece2-churn-dbpedia-1m.json`, con su log al lado*). El churn de v6.2 sobre el índice integrado, en disco: una base de 760 000 vectores construida en lote, y diez rondas que borran al azar el 3 % de ella (22 800), insertan otros tantos nuevos y pasan la limpieza. Al final se mide en la malla de ef de v6.2 hasta 320, reabierto, y junto a un índice cuya base es el lote de los 760 000 vectores que quedan, construido y leído por el mismo código.
+
+| | criterio | prototipo, celda B | integrado |
+|---|---|---|---|
+| peor recall a igual ef, contra el lote | −0.005 o mejor | −0.0004 en ef 20 | −0.0011 en ef 10 |
+| cargas a 0.95, contra el lote | +15 % o menos | +2.7 % | +3.1 % (17.33 frente a 16.82) |
+| cargas a 0.99, contra el lote | +10 % o menos | +1.8 % | −3.2 % (63.20 frente a 65.27) |
+| aristas con sustituto | | 94.4 % | 94.5 % (1 815 917 de 1 921 562) |
+| fusiones | | 677 | 674 |
+| aristas por vector, de la ronda 1 a la 10 | | 8.84 | de 8.85 a 8.83 |
+| postings vivos al final | | 3 191 | 3 186 |
+| distancias entre códigos por borrado | | 62.8 | 59.4 |
+
+| ef | recall, con churn | recall, lote | cargas, con churn | cargas, lote |
+|---|---|---|---|---|
+| 10 | 0.9217 | 0.9228 | 12.09 | 11.89 |
+| 20 | 0.9517 | 0.9527 | 17.64 | 17.30 |
+| 40 | 0.9719 | 0.9711 | 26.74 | 26.25 |
+| 80 | 0.9838 | 0.9831 | 41.65 | 41.18 |
+| 160 | 0.9909 | 0.9901 | 66.32 | 65.61 |
+| 320 | 0.9946 | 0.9939 | 107.81 | 106.35 |
+
+- **Las tres condiciones entran con margen,** y las diferencias con el lote son del tamaño del suelo de ruido de v6.1 y v6.2 (0.0012 de recall, 1.1 % de cargas a 0.95 y 3.0 % a 0.99). El −3.2 % a 0.99 no es una mejora: a igual ef el índice con churn carga entre un 1.1 y un 1.9 % más, y cruza 0.99 un poco antes.
+- **La pasada hace lo que hacía en memoria:** las mismas fusiones, la misma fracción de aristas sustituidas y las mismas aristas por vector, ronda a ronda.
+- **Reabierto, devuelve lo mismo:** ninguna de las 5 000 queries cambia, en ningún ef.
+- **Lo que el disco añade,** por vector borrado: 8.0 distancias exactas, una por arista sustituida, y 14.8 lecturas de vectores para calcularlas.
+- **Una diferencia con el prototipo que no es de esta pieza, y que no he perseguido:** las cargas absolutas no son las suyas. El lote de 760 000 da aquí 16.82 cargas a 0.95 y 65.27 a 0.99; el de v6.2, en memoria, 9.41 y 44.52. El índice con churn y su lote se mueven juntos, así que el criterio, que es relativo, no cambia. La corrida no dice de dónde sale: los prototipos de v6.x median en memoria, y el índice integrado es el de disco de v5.0, que a 1M da 19.6 cargas a 0.95.
+- **El fichero de vectores no encoge con la limpieza:** al final tiene 988 000 slots para 760 000 vectores, 6.4 GB frente a los 4.8 GB del lote. Los slots de los borrados se recuperan en la reordenación siguiente, que no tocó: el índice no dobló.
+
+**Sin verificar de la pieza 2:**
+
+- **La limpieza en línea con las escrituras, a 1M.** En esta corrida las pasadas las llama el arnés, una por ronda, como en el protocolo de v6.2. Que el índice las arranque solo al 3 % y las pague en línea está en los tests, y a 1M en la etapa de borrado de la corrida de la pieza 4.
+- **El churn largo y el borrado por regiones de v6.2b.**
+- **Lo que cuesta leer una fila con lápidas de miembros** hasta que el store la compacta.
+- **Nada cronometrado:** ni lo que tarda una pasada con la máquina sola, ni lo que frena a los inserts.
 
 ### Pieza 3: refresco de aristas al doblar
 
