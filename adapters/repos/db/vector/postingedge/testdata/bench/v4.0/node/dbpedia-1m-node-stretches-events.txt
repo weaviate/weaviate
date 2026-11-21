@@ -14,3 +14,5 @@
 == n2, hfresh-best99-par: from 2026-11-19 23:55:13, 477 s
 == n2, r512: from 2026-11-20 00:03:11, 295 s
 == n2, halo512: from 2026-11-20 00:08:07, 358 s
+== night, hfresh-best95-par: from 2026-11-20 23:00:48, 216 s
+== night, hfresh-best99: from 2026-11-20 23:04:25, 605 s

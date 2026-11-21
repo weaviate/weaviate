@@ -128,6 +128,6 @@ Lo que leen las dos celdas, del manifiesto de v4.0:
 ### Deriva entre rondas y actividad
 
 - **Ninguna mediana se movió más de un 10 % entre rondas,** de 32.
-- **La sesión:** 12 tramos, de 2026-11-19 23:00:58 a 2026-11-20 00:14:06.
+- **La sesión:** 14 tramos, de 2026-11-19 23:00:58 a 2026-11-20 23:14:31.
 - **Tramos con teclado o trackpad:** n1 hfresh-best95-par, n1 hfresh-best99.
 - **Tramos con eventos de energía o de actividad:** n1 hfresh-best95-par (2), n1 hfresh-best99 (1), n1 hfresh-best99-par (1).

@@ -472,7 +472,7 @@ Un nodo reparte dos recursos entre todos sus índices. El índice tiene que usar
 - **El mantenimiento corre dentro del insert, sin cola.** En v5.0 y v5.1 el split, el refresco y la escritura de filas los hace el propio insert. Con una cola compartida, el ritmo de inserts y lo que hay pendiente dependen de cuántos workers le toquen al índice: sin medir.
 - **El rescore sí lo mira,** como el de HFresh.
 - **Los buscadores de los inserts en paralelo (v5.2, cerrado el 20)** son goroutines del benchmark, 4 u 8 para un solo índice. En producto salen de esos mismos workers compartidos, y con más índices en el nodo le tocan menos a cada uno.
-  - **Lo medido, que es el mejor caso:** 3.0 veces los inserts por segundo con 4 buscadores y 3.76 con 8, en tandas de 32, sin perder calidad a igual ef. El aplicador único no es el límite, 0.30 ms por insert. El límite es que ocho búsquedas a la vez tardan un 54 % más cada una.
+  - **Lo medido, que es el mejor caso:** 2.74 veces los inserts por segundo con 4 buscadores y 3.60 con 8, en tandas de 32, sin perder calidad a igual ef. Es la medida de la noche del 20, sin actividad; de día salieron 3.0 y 3.76. El aplicador único no es el límite, 0.29 ms por insert. El límite es que ocho búsquedas a la vez tardan un 55 % más cada una.
 
 Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en `bench-report.md`, «Los recursos compartidos del nodo».
 

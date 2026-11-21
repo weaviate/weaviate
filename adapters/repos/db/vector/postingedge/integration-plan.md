@@ -108,7 +108,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - **Durabilidad.** Qué queda escrito cuando `Add` devuelve, y qué se recupera tras una caída. Con las aristas consolidadas de v5.1, los cambios pendientes viven en memoria hasta que se escribe la fila. En v5.0 cada cambio se entrega al store al momento.
 - **La reorganización en segundo plano.** El índice crecido solo cumple el criterio de latencia en frío con el bucket de postings en un segmento y los vectores en orden de posting (1.07 veces el lote, frente a 1.33 tal cual). `lsmkv` no llega solo a un segmento. No está diseñada ni medida.
-- **Inserts y búsquedas a la vez.** Todo lo medido tiene un escritor y ninguna búsqueda mientras escribe. v5.2 pone en paralelo las búsquedas de los propios inserts: 3.76 veces con 8 buscadores, con el aplicador en un 19 % del tiempo. Las queries mientras se inserta siguen sin medir.
+- **Inserts y búsquedas a la vez.** Todo lo medido tiene un escritor y ninguna búsqueda mientras escribe. v5.2 pone en paralelo las búsquedas de los propios inserts: 3.6 veces con 8 buscadores, en la medida limpia de la noche del 20, con el aplicador en un 19 % del tiempo. Las queries mientras se inserta siguen sin medir.
 - **Deletes en disco, y el halo en el camino de inserts.** Los deletes de v6.0 son en memoria y en conteos.
 - **El estado residente del índice en lote como algo que se actualiza.** v4.0 lo lee de ficheros planos escritos una vez. El formato que crece ya lo tiene en buckets.
 
@@ -496,7 +496,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 - El split, el refresco, la limpieza y la reorganización, como tareas de una cola del scheduler del nodo.
 - **El paso de cálculo de los inserts, en esos mismos workers** (`queue.Scheduler`, `GOMAXPROCS − 1` para todos los índices del nodo). El insert ya está partido en cálculo y aplicador desde el hito 1, así que este paso cambia quién ejecuta el cálculo y no su forma.
-  - **Lo medido es el mejor caso:** con 4 y con 8 buscadores propios de un solo índice, 3.0 y 3.76 veces los inserts por segundo de uno, en tandas de 32. Ocho búsquedas a la vez tardan un 54 % más cada una. Con los workers repartidos entre índices le tocan menos a cada uno. *La medida limpia de N = 1, 4 y 8, de noche y sin actividad, está en cola para la noche del 20.*
+  - **Lo medido es el mejor caso:** con 4 y con 8 buscadores propios de un solo índice, 2.74 y 3.60 veces los inserts por segundo de uno, en tandas de 32: 505 y 663 frente a 184. Es la medida limpia, de la noche del 20 y sin actividad; de día salieron 3.0 y 3.76, con el denominador medido con actividad. Ocho búsquedas a la vez tardan un 55 % más cada una. Con los workers repartidos entre índices le tocan menos a cada uno.
 - La limpieza medida es la de v6.2: quitar los borrados sustituyendo cada arista muerta por un vecino de la lista del borrado, y fusionar por debajo de 177 vivos si la suma no pasa de T. Cumple sin búsquedas en un churn de treinta rondas del 3 % (v6.2b) y con el 30 % borrado por regiones. Cada pasada toca todos los postings: falta medir lo que cuesta en disco y decidir cada cuánto pasa.
 - Las cargas de una ronda, dentro del presupuesto de la query.
 - **Antes de este paso, ninguna medida vale como medida de un nodo.**
@@ -535,7 +535,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Lo que está en vuelo y puede mover este plan:**
 
 - **v4.1,** el scan con los códigos en RAM, cerrado el 20: el modo `scan` no es una opción a 1M y 1536d. Descartado y fuera de la lista de parámetros.
-- **v5.2,** inserts con búsquedas en paralelo, cerrado el 20: 634 inserts por segundo con 8 buscadores, 3.76 veces los 169 de un escritor en la misma sesión. No llega a las 4 veces de su criterio. HFresh, con un escritor y sus workers de fondo, hace 2 089.
+- **v5.2,** inserts con búsquedas en paralelo, cerrado el 20: 634 inserts por segundo con 8 buscadores, 3.76 veces los 169 de un escritor en la misma sesión. No llega a las 4 veces de su criterio. Repetido de noche y sin actividad: 663 con 8 buscadores, 3.60 veces los 184 de un escritor, que es el número limpio. HFresh, con un escritor y sus workers de fondo, hace 2 089.
 - **La sesión de la noche del 19,** con HFresh configurado como un nodo, hecha: en frío a 0.95 con 1 thread, 51.96 ms de HFresh frente a 3.54 del modo de ruteo y 4.76 del halo. Son los números de referencia frente a HFresh.
 - **El control combinado,** cerrado el 20: el índice de aristas consolidadas con K = 64, reorganizado, cumple en caliente (1.20 veces el lote) y no en frío (1.2045, con el límite en 1.20). No es el formato candidato. El de v5.0 reorganizado cumple al revés: 1.10 en frío y 1.34 en caliente.
 - **v5.3,** cerrado el 20: la fila de aristas en un valor, en el bucket de los miembros y junto a ellos, tiene las dos mitades. Reorganizado es el formato candidato: 1.10 veces el lote en frío y 1.21 en caliente, a 0.95 con 1 thread.

@@ -198,6 +198,6 @@ Una curva es una opción si a 0.95 en frío queda a 1.20 veces o menos de la cel
 
 - **Medianas que se movieron más de un 10 % entre rondas** (1 de 104):
   - scan con 768 bits, rescore 800, presupuesto de un nodo, a 0.99 con 8 threads, en frío: 49.35 → 60.29 ms (+22.2 %)
-- **La sesión:** 28 tramos, de 2026-11-20 04:11:05 a 2026-11-20 06:39:16.
+- **La sesión:** 31 tramos, de 2026-11-20 04:11:05 a 2026-11-20 23:32:00.
 - **Tramos con teclado o trackpad:** r2 node-s512r800, r2 node-s768r200.
 - **Tramos con eventos de energía o de actividad:** r2 node-s512r800 (2).
