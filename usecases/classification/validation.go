@@ -92,9 +92,16 @@ func (v *Validator) knnTypeFeasibility() {
 	}
 }
 
+// basedOnProperties validates the text properties a classification is based
+// on. Only text2vec-contextionary-contextual reads them (it scores the words
+// of the based-on property), so only that type requires one. knn and zeroshot
+// classify by vector similarity and ignore the field, so it is optional there
+// (weaviate/weaviate#3836); if it is set anyway, it is still validated.
 func (v *Validator) basedOnProperties(class *models.Class) {
 	if len(v.subject.BasedOnProperties) == 0 {
-		v.errors.Addf("basedOnProperties must have at least one property")
+		if v.typeText2vecContextionaryContextual() {
+			v.errors.Addf("basedOnProperties must have at least one property for type '%s'", TypeContextual)
+		}
 		return
 	}
 
