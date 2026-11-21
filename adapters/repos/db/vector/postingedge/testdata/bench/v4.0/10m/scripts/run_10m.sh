@@ -37,7 +37,11 @@
 #   HF_RESCORES_BUILD, HF_RESCORES  the rescore limits the HFresh index is
 #            swept with when it is built, which is only a check, and once it
 #            is cleaned, which is where its best configurations come from.
-#            Default 350 and 200,350,500,800,1200,2000.
+#            Default 350 and 200,350,800,1200,2000.
+#   HF_MAXPROBE  the widest searchProbe of those sweeps. Default 4096: a
+#            configuration that needs more reads more than 4 096 postings a
+#            query, and the searches of a sweep that reads every posting of
+#            10M do not fit in memory.
 #   PROBE, RESCUE  the build probe and the rescue limit of the build of 10M.
 #            Default 320 and 256, as in v1.4.
 #   COLD     volume (DISK is on an APFS volume of its own, VOLUME_DEV mounted
@@ -76,7 +80,8 @@ READERS="${READERS:-8}"
 RESCORE="${RESCORE:-150}"
 LADDER="${LADDER:-200,400}"
 HF_RESCORES_BUILD="${HF_RESCORES_BUILD:-350}"
-HF_RESCORES="${HF_RESCORES:-200,350,500,800,1200,2000}"
+HF_RESCORES="${HF_RESCORES:-200,350,800,1200,2000}"
+HF_MAXPROBE="${HF_MAXPROBE:-4096}"
 PROBE="${PROBE:-320}"
 RESCUE="${RESCUE:-256}"
 ALL_CURVES="hfresh-best95 hfresh-best95-par hfresh-best99 hfresh-best99-par r512 halo512"
@@ -161,7 +166,7 @@ stage_hfresh() {
   # shellcheck disable=SC2086
   (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HFU" -test.run 'TestHFreshDiskBuild$' -test.timeout 0 -test.v \
     -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$HF_SRC" \
-    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-build-manifest.json" -bench.hfresh.rescores "$HF_RESCORES_BUILD" \
+    -bench.hfresh.manifest "$OUT/$LABEL-hfresh-build-manifest.json" -bench.hfresh.rescores "$HF_RESCORES_BUILD" -bench.hfresh.maxprobe "$HF_MAXPROBE" \
     ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-build.log" 2>&1)
   lines "$WORK/$LABEL-hfresh-build.log" "bench_disk_test"
   passed "$WORK/$LABEL-hfresh-build.log" || { echo "== the hfresh stage did not pass: see $WORK/$LABEL-hfresh-build.log"; exit 1; }
@@ -176,7 +181,7 @@ stage_clean() {
   (cd "$REPO/adapters/repos/db/vector/hfresh" && "$HFU" -test.run 'TestHFreshDiskClean$' -test.timeout 0 -test.v \
     -bench.hfresh.dataset "$DATASET" -bench.hfresh.queries "$QUERIES" -bench.hfresh.dir "$HF_DIR" \
     -bench.hfresh.manifest "$OUT/$LABEL-hfresh-build-manifest.json" -bench.hfresh.out "$OUT/$LABEL-hfresh-manifest.json" \
-    -bench.hfresh.rescores "$HF_RESCORES" ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-clean.log" 2>&1)
+    -bench.hfresh.rescores "$HF_RESCORES" -bench.hfresh.maxprobe "$HF_MAXPROBE" ${EXTRA_HF:-} > "$WORK/$LABEL-hfresh-clean.log" 2>&1)
   lines "$WORK/$LABEL-hfresh-clean.log" "bench_disk_test"
   passed "$WORK/$LABEL-hfresh-clean.log" || { echo "== the clean stage did not pass: see $WORK/$LABEL-hfresh-clean.log"; exit 1; }
 }

@@ -100,6 +100,10 @@ var (
 		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed")
 	diskRescores = flag.String("bench.hfresh.rescores", "64,100,200,350", "with TestHFreshDiskBuild: the rescore limits "+
 		"searchProbe is swept with, to find for every recall the configuration that reads the least")
+	diskMaxProbe = flag.Int("bench.hfresh.maxprobe", 0, "with TestHFreshDiskBuild and TestHFreshDiskClean: the widest "+
+		"searchProbe of the sweep, 0 for all the postings of the index. Over a large index a search that reads every "+
+		"posting is a scan of the whole corpus for every query, and several at once do not fit in memory: a "+
+		"configuration that needs more than this many postings is told as not reached")
 	diskReads = flag.String("bench.hfresh.reads", "", "what TestHFreshDiskCount left, for TestHFreshDiskTimed: the reads "+
 		"of every configuration and the one that reads the least for every recall")
 	diskReaders = flag.Int("bench.hfresh.readers", 1, "with TestHFreshDiskTimed: the postings of a search that are read "+
@@ -936,10 +940,15 @@ func diskSweep(t *testing.T, b *diskBench, manifest *diskManifestFile, queries [
 	// default rescore limit the whole grid is measured: it is up to which
 	// recall the index gets.
 	var grid []int
-	for probe := 16; probe < int(manifest.Postings); probe *= 2 {
+	widest := int(manifest.Postings)
+	if *diskMaxProbe > 0 && *diskMaxProbe < widest {
+		widest = *diskMaxProbe
+		t.Logf("the sweep stops at searchProbe %d of the %d postings", widest, manifest.Postings)
+	}
+	for probe := 16; probe < widest; probe *= 2 {
 		grid = append(grid, probe)
 	}
-	grid = append(grid, int(manifest.Postings))
+	grid = append(grid, widest)
 	var rescores []int
 	for _, field := range strings.Split(*diskRescores, ",") {
 		rescore, err := strconv.Atoi(strings.TrimSpace(field))

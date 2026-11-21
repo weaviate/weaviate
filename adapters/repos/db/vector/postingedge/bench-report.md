@@ -269,6 +269,18 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El script de tablas fallaba** con una curva de HFresh sin punto que cronometrar. Arreglado.
 - **Lo demás no cambia:** las seis curvas, las dos condiciones y la sesión.
 
+### Enmienda 3 (21:25 del 21): el primer build de HFresh a 10M murió en su barrido, y lo que cambia
+
+**Qué pasó.** La cadena del 10M empezó a las 18:13. HFresh se construyó entero: 10 000 000 de vectores en 34 min 42 s, más 27 min 28 s de mantenimiento, 146 822 postings y 5.02 entradas por vector. A las 21:17 su proceso murió sin mensaje en medio del barrido de comprobación, al pasar de searchProbe 32 768 a 65 536. No dejó manifiesto, así que el índice hay que construirlo otra vez. De nuestro índice no se había construido nada.
+
+- **Por qué, hasta donde sé:** el barrido subía searchProbe hasta todos los postings. A 10M eso es leer el corpus entero en cada query, y el arnés lanza diez a la vez: no cabe en memoria. No encontré el registro del sistema que lo confirme.
+- **Lo que ese barrido dejó medido antes de morir,** con rescore 350, sobre el índice sin limpiar: 0.95 con searchProbe 219, 0.99 con searchProbe 8 634, y 0.9910 con 32 768. **A 10M HFresh sí llega a 0.99 con su rescore por defecto,** leyendo 8 634 postings por query. A 1M no llegaba: su techo con 350 era 0.9755. No sé explicar la diferencia.
+- **El barrido de searchProbe se corta en 4 096.** Una configuración que necesite más lee más de 4 096 postings por query; si alguna otra llega a 0.99 por debajo, que es lo que se espera con más rescore, esa es la mejor y el corte no cambia nada. Si ninguna llegara por debajo de 4 096, se dice, y se vuelve a barrer más arriba con las queries de una en una.
+- **La rejilla de rescore de HFresh queda en 200, 350, 800, 1 200 y 2 000.** Un solo valor, 350, llevó dos horas de barrido; con ocho la noche no alcanza. Salen 500, 3 200 y 5 000: con 350 ya llega a 0.99, así que los valores por encima de 2 000 no hacen falta.
+- **Nuestro índice se construye a la vez que HFresh se limpia y se cuenta,** para recuperar parte del tiempo. Nada de eso se cronometra.
+- **Disco:** HFresh ocupa 37 GB en régimen y llegó a unos 61 GiB al construirse. Para que quepa nuestro índice se borran los índices de v5.4, que ya está cerrado, y las celdas de 1M, cuyos puntos están en sus manifiestos. La caché de compilación de Go se vació a las 20:33.
+- **Lo demás no cambia:** las seis curvas, las dos condiciones y la sesión.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: medido el 21, de 11:37 a 13:55. `ef` dinámico: no hace falta un factor por k; basta el mínimo de 20 y que `ef` no baje de k, y lo que k = 100 necesita es rescore, 4 veces k. Regla del rescore: el ancla a 768 bits baja de 200 a 150. Abajo, «Resultados» y «Las dos reglas que propongo».** Pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4. Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
