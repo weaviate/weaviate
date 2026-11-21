@@ -244,6 +244,15 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Disco:** 33 GB la celda de ruteo y 43 la del halo, con sus vectores; 41 GB HFresh.
 - **El build de nuestro índice a 10M:** entre cuatro y seis horas, sin la caché de particiones, que se borró.
 
+### Enmienda 1 (11:46 del 21, antes de construir nada): los vectores de entrenamiento se leen en su sitio
+
+**Motivo.** Al ir a sacar otra vez del hdf5 el fichero de entrenamiento vi que no hace falta: en el hdf5 los 10M de vectores son un solo bloque de `float32`, sin trocear ni comprimir, que empieza en el byte 2 048. El lector de datasets de los bancos lee ahora ese bloque donde está, con una línea más en el `meta.txt` del dataset y un enlace al hdf5 (`testinghelpers`, con su test). Los tres primeros vectores, el 999 999 y el último coinciden byte a byte con lo esperado: los del subconjunto de 1M, y norma 1.
+
+- **El dataset de la corrida** es un directorio nuevo, `wikidpr-10m-e5-inplace.bin`, con enlaces al hdf5 y a las queries y la verdad del de siempre. Un binario anterior a este cambio no encuentra en él su fichero de entrenamiento y falla, en vez de leer bytes desplazados.
+- **Lo que cambia en las cuentas:** el 10M pide unos 85 GB en régimen, no 116, y unos 104 en el pico de HFresh. Con los 73 GB libres de ahora faltan los 25 de v5.0 y v5.1, y poco más.
+- **Ya no hay fichero de entrenamiento que borrar,** y el orden deja de importar para el disco. HFresh va primero igualmente.
+- **Lo demás no cambia.**
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4.** Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.

@@ -162,7 +162,7 @@ func TestReadRawVectorsAcrossChunks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "train.f32")
 	require.NoError(t, os.WriteFile(path, raw, 0o644))
 
-	vectors, err := readRawVectors(path, rows, dims)
+	vectors, err := readRawVectors(path, 0, rows, dims)
 	require.NoError(t, err)
 	require.Len(t, vectors, rows)
 	for r, vec := range vectors {
@@ -293,6 +293,86 @@ func TestReadRawTrainChunksFails(t *testing.T) {
 
 	t.Run("no meta.txt", func(t *testing.T) {
 		err := ReadRawTrainChunks(t.TempDir(), 2, func(int, [][]float32) error { return nil })
+		require.Error(t, err)
+	})
+}
+
+// A dataset whose train rows live inside another file, at an offset that
+// meta.txt gives, reads as the same dataset with a train.f32 of its own:
+// whole, truncated, without its train rows and chunk by chunk. And it never
+// falls back to a train.f32.
+func TestReadRawDatasetWithEmbeddedTrain(t *testing.T) {
+	const train, test, offset = 7, 4, 2048
+	plain := t.TempDir()
+	writeRawDataset(t, plain, train, test, "neighbors 4 2\ntest 4 3\ntrain 7 3\n")
+	rows, err := os.ReadFile(filepath.Join(plain, "train.f32"))
+	require.NoError(t, err)
+
+	// The file that holds the rows: something before them and something after.
+	holder := filepath.Join(t.TempDir(), "holder.bin")
+	contents := make([]byte, offset, offset+len(rows)+100)
+	for i := range contents {
+		contents[i] = 0xAB
+	}
+	contents = append(contents, rows...)
+	contents = append(contents, make([]byte, 100)...)
+	require.NoError(t, os.WriteFile(holder, contents, 0o644))
+
+	embedded := t.TempDir()
+	writeRawDataset(t, embedded, train, test, "neighbors 4 2\ntest 4 3\ntrain 7 3\ntrain_offset 2048 0\n")
+	require.NoError(t, os.Remove(filepath.Join(embedded, "train.f32")))
+	require.NoError(t, os.Symlink(holder, filepath.Join(embedded, "train.embedded")))
+
+	tests := []struct {
+		name       string
+		trainLimit int
+	}{
+		{name: "the whole train set"},
+		{name: "a truncated train set", trainLimit: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want, err := ReadRawDataset(plain, tt.trainLimit, test)
+			require.NoError(t, err)
+			got, err := ReadRawDataset(embedded, tt.trainLimit, test)
+			require.NoError(t, err)
+			assert.Equal(t, want.Train, got.Train)
+			assert.Equal(t, want.Queries, got.Queries)
+			assert.Equal(t, want.Neighbors, got.Neighbors)
+			assert.Equal(t, want.TrainRows, got.TrainRows)
+		})
+	}
+
+	t.Run("chunk by chunk", func(t *testing.T) {
+		queries, err := ReadRawQueries(embedded, test)
+		require.NoError(t, err)
+		require.Nil(t, queries.Train)
+		require.Equal(t, train, queries.TrainRows)
+		want, err := ReadRawDataset(plain, 0, test)
+		require.NoError(t, err)
+		var got [][]float32
+		require.NoError(t, ReadRawTrainChunks(embedded, 3, func(first int, chunk [][]float32) error {
+			require.Equal(t, len(got), first)
+			got = append(got, chunk...)
+			return nil
+		}))
+		assert.Equal(t, want.Train, got)
+	})
+
+	t.Run("no train.embedded, and a train.f32 that must not be read", func(t *testing.T) {
+		dir := t.TempDir()
+		writeRawDataset(t, dir, train, test, "neighbors 4 2\ntest 4 3\ntrain 7 3\ntrain_offset 2048 0\n")
+		_, err := ReadRawDataset(dir, 0, test)
+		require.ErrorContains(t, err, "train.embedded")
+		err = ReadRawTrainChunks(dir, 3, func(int, [][]float32) error { return nil })
+		require.ErrorContains(t, err, "train.embedded")
+	})
+
+	t.Run("an offset past the end of the file", func(t *testing.T) {
+		dir := t.TempDir()
+		writeRawDataset(t, dir, train, test, "neighbors 4 2\ntest 4 3\ntrain 7 3\ntrain_offset 999999 0\n")
+		require.NoError(t, os.Symlink(holder, filepath.Join(dir, "train.embedded")))
+		_, err := ReadRawDataset(dir, 0, test)
 		require.Error(t, err)
 	})
 }

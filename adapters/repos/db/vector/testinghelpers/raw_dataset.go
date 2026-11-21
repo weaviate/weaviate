@@ -31,6 +31,13 @@ import (
 // first) and a meta.txt that gives their shapes, one "<name> <rows> <cols>"
 // line per file ("train 990000 1536", "test 10000 1536", "neighbors 10000
 // 100").
+//
+// The train rows may live inside another file instead, so that a train set
+// of tens of gigabytes that some file already holds as one block of float32
+// rows is not written a second time: a line "train_offset <bytes> 0" in
+// meta.txt tells that they are read from the file train.embedded of the
+// directory, a link to that file as a rule, starting at that byte. There is
+// no train.f32 then, and none is looked for.
 type RawDataset struct {
 	Name string
 	Dims int
@@ -77,12 +84,13 @@ func readRawDataset(dir string, trainLimit, queryLimit int, withTrain bool) (*Ra
 		rows = trainLimit
 	}
 	if withTrain {
-		if data.Train, err = readRawVectors(filepath.Join(dir, "train.f32"), rows, data.Dims); err != nil {
+		path, offset := rawTrainSource(dir, shapes)
+		if data.Train, err = readRawVectors(path, offset, rows, data.Dims); err != nil {
 			return nil, err
 		}
 	}
 	queries := min(queryLimit, test[0])
-	if data.Queries, err = readRawVectors(filepath.Join(dir, "test.f32"), queries, data.Dims); err != nil {
+	if data.Queries, err = readRawVectors(filepath.Join(dir, "test.f32"), 0, queries, data.Dims); err != nil {
 		return nil, err
 	}
 
@@ -127,14 +135,43 @@ func readRawShapes(path string) (map[string][2]int, error) {
 	return shapes, scanner.Err()
 }
 
-// readRawVectors reads rows vectors into one backing array. Each returned
-// vector is capped at its own length, so appending to one cannot run into the
-// next.
-func readRawVectors(path string, rows, dims int) ([][]float32, error) {
+// rawTrainSource tells where the train rows of the dataset in dir are: the
+// file and the byte they start at. It is train.f32, from its start, unless
+// meta.txt has a train_offset line: then it is train.embedded, from that
+// byte.
+func rawTrainSource(dir string, shapes map[string][2]int) (path string, offset int64) {
+	embedded, ok := shapes["train_offset"]
+	if !ok {
+		return filepath.Join(dir, "train.f32"), 0
+	}
+	return filepath.Join(dir, "train.embedded"), int64(embedded[0])
+}
+
+// openRawAt opens a file of rows at the byte they start at.
+func openRawAt(path string, offset int64) (*os.File, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		file.Close()
+		return nil, errors.Errorf("%s: rows that start at byte %d", path, offset)
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		file.Close()
+		return nil, errors.Wrapf(err, "seek %s", path)
+	}
+	return file, nil
+}
+
+// readRawVectors reads rows vectors, which start at the byte offset of the
+// file, into one backing array. Each returned vector is capped at its own
+// length, so appending to one cannot run into the next.
+func readRawVectors(path string, offset int64, rows, dims int) ([][]float32, error) {
 	if rows == 0 || dims == 0 {
 		return nil, errors.Errorf("%s: nothing to read (%d rows of %d dimensions)", path, rows, dims)
 	}
-	file, err := os.Open(path)
+	file, err := openRawAt(path, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -174,14 +211,14 @@ func ReadRawTrainChunks(dir string, chunkRows int, fn func(first int, chunk [][]
 		return err
 	}
 	rows, dims := shapes["train"][0], shapes["train"][1]
-	path := filepath.Join(dir, "train.f32")
+	path, offset := rawTrainSource(dir, shapes)
 	if rows == 0 || dims == 0 {
 		return errors.Errorf("%s: nothing to read (%d rows of %d dimensions)", path, rows, dims)
 	}
 	if chunkRows < 1 {
 		return errors.Errorf("%s: cannot read in chunks of %d rows", path, chunkRows)
 	}
-	file, err := os.Open(path)
+	file, err := openRawAt(path, offset)
 	if err != nil {
 		return err
 	}
