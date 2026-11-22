@@ -724,7 +724,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote. Arrancada por el índice, tras borrar el 30 %: −6.3 % de cargas a 0.99 frente a antes de borrar |
 | 3 | Refresco de aristas al doblar | hechos | cumple: −9.0 % de cargas a 0.99 contra el lote. Sin refresco, −9.7 %: el refresco no se nota |
 | 4 | Cálculo de inserts en los workers compartidos | hechos | hecho, en conteos: con ocho llamadores el índice es el de uno. Los inserts por segundo de v5.2 no se comparan: nada cronometrado |
-| 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | a medias: con el diario el índice es el mismo, y escribe 10.8 KB por insert. Falta el `kill -9` a 1M |
+| 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | hecho: con el diario el índice es el mismo, y escribe 10.8 KB por insert. Muerto con `kill -9` a mitad de los inserts, lo que deja abre entero |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | hecho: 40 centroides borrados en el grafo tras 4 056 splits |
 | 7 | Modo `none`, con el halo en la escritura | hechos | sin hacer: solo una pasada de 30 000 vectores |
 
@@ -1175,9 +1175,19 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **La base de 10 000 se construyó de fondo en 2 s.**
 - **Reabierto,** ninguna respuesta cambia, y el diario está vacío tras el flush.
 
+**Una muerte de verdad del proceso, con el dataset de 1M** (22 de noviembre, de 10:13 a 10:28; código de `0f982dc354`; `piece5-killed-growing-dbpedia-1m.*` y `piece5-killed-opened-dbpedia-1m.*`).
+
+- **Qué es:** el índice crece de su base por defecto con ocho llamadores, y a los 15 minutos el proceso recibe `SIGKILL`, sin cerrar nada y sin más flush que los de cada petición. Otro proceso abre lo que quedó en disco, tal cual.
+- **Lo que quedó:** 180 485 vectores, con un diario de 1 MB y la marca de que el grafo de centroides había cambiado.
+- **Los logs de cuatro buckets del store estaban cortados** (postings, mapa, códigos de ruteo y lo que espera de las aristas): `lsmkv` avisa al abrir de que cada uno acaba a medias y de que puede haber perdido lo último. Es lo que el diario cubre.
+- **Al abrir, el índice aplicó otra vez 191 registros de su diario y reconstruyó el grafo de centroides.**
+- **Cobertura completa:** los 180 485 vectores, cada uno en un posting, con su código, sus aristas, sus distancias y su vector. 1 447 postings repartidos tras 702 splits.
+- **Responde:** 0.9709 de recall a ef 21 y 0.9963 a ef 158 sobre los vectores que tiene, lo mismo las dos veces que se pide cada query. Con el bucket compactado después, ninguna de las 1 000 queries cambia.
+
 **Sin verificar de la pieza 5:**
 
-- **Una muerte de verdad del proceso a 1M** (`kill -9` a mitad de los inserts, y reabrir). Está preparada y no ha corrido: el marcador de la sesión cronometrada se puso antes. En pequeño, con 30 000 vectores, sí.
+- **Que no falte ningún insert ya respondido.** El proceso que muere no apunta cuáles respondió, así que la corrida dice que lo que quedó es un índice entero, no que tenga todo lo que se dio por hecho. Eso lo comprueban los tests, con copias de los ficheros en cada punto.
+- **Una muerte durante la limpieza de borrados o la reordenación de vectores, a esta escala.** La de la corrida cayó en inserts con refresco.
 - **Lo que el diario frena a los inserts:** nada cronometrado.
 - **La base en segundo plano, a 1M y por el shard:** el arnés espera a la base antes de seguir, para que sus corridas se comparen con las anteriores; el test de extremo a extremo pasa, y no mira qué ocurre mientras se construye.
 - **Lo que tarda una búsqueda con miles de vectores apartados:** los lee todos del bucket en cada query, como antes de la base. Con una base grande y muchos inserts durante su construcción puede ser lento un rato.
