@@ -726,7 +726,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | 4 | Cálculo de inserts en los workers compartidos | hechos | hecho, en conteos: con ocho llamadores el índice es el de uno. Los inserts por segundo de v5.2 no se comparan: nada cronometrado |
 | 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | hecho: con el diario el índice es el mismo, y escribe 10.8 KB por insert. Muerto con `kill -9` a mitad de los inserts, lo que deja abre entero |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | hecho: 40 centroides borrados en el grafo tras 4 056 splits |
-| 7 | Modo `none`, con el halo en la escritura | hechos | sin hacer: solo una pasada de 30 000 vectores |
+| 7 | Modo `none`, con el halo en la escritura | hechos | cumple: 3.00 lecturas por carga, como v4.0, con 208 KB frente a 183 (+14 %); 0 MB de códigos en memoria; abierto con los códigos, ninguna respuesta cambia |
 
 ### Lo que el índice hace por su cuenta, y cómo (*mío*)
 
@@ -1134,9 +1134,57 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Lecturas por carga:** 5.04 y 187 KB tal como quedó; 3.12 y 182 KB con el bucket compactado.
 - **Lo que no dice,** como en la pieza 5: si falta algún insert ya respondido.
 
+**Verificación a 1M.**
+
+*22 de noviembre, de 10:46 a 13:38. En conteos, sin cronometrar. Código de `0f982dc354`. Resultado en `testdata/bench/integration-m2/piece7-none-dbpedia-1m.json`, con su log al lado.*
+
+- **Qué es:** la corrida de las piezas 4, 5 y 6 con la clase en `none`: de 10 000 a 990 000 con ocho llamadores, el diario y los ciclos del nodo; medida, reabierta, compactada y reordenada; abierta después con los códigos en memoria sobre los mismos ficheros; y con el 30 % borrado.
+- **Corrió con el refresco al doblar encendido,** que era el default del código entonces: 420 003 vectores refrescados. Empezó antes de que el usuario decidiera apagarlo, el 22 hacia las 10:00.
+- **La referencia del prototipo** es la celda de halo de v4.0, en lote, a dbpedia 1M (`testdata/bench/v4.0/dbpedia-1m-disk-manifest.json` en `feat/posting-edge-index`): 3.00 lecturas y 182.8 KB por carga, y 34.5 MB residentes frente a los 105.7 de la celda de ruteo.
+
+**Veredicto: cumple.**
+
+| | `none`, compactado | v4.0, halo en lote | el mismo índice abierto con los códigos en memoria |
+|---|---|---|---|
+| lecturas del store por carga | 3.00 | 3.00 | 2.00 |
+| KB por carga | 207 a 210 | 182.8 | 65 |
+| códigos de ruteo en memoria | 0 MB | | 89.1 MB |
+| queries que cambian de respuesta, de 5 000, en ocho ef | | | 0 |
+
+- **Una carga lee las tres filas de una vez, como en v4.0,** y un 14 % más de bytes. *Lectura mía, sin comprobar:* son las entradas de más que un halo acumula hasta que se reescribe, hasta la mitad de lo que sus aristas necesitan.
+- **Los 89.1 MB son el array de códigos por doc id** que el modo `routing` tiene, con sitio para 1 237 381 claves, a 72 B cada una. El heap no se puede leer del arnés, que tiene el dataset en memoria: la comparación con los 34.5 y 105.7 MB de v4.0 queda sin hacer.
+- **Recién crecido, sin compactar:** 5.6 lecturas y 239 a 243 KB por carga.
+
+**El índice es el de `routing`,** frente a la corrida de las piezas 4, 5 y 6, que es la misma con los códigos en memoria:
+
+| ef | `none`: recall | cargas | `routing`: recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 10 | 0.9170 | 12.96 | 0.9170 | 13.05 | 0.0000 | −0.6 % |
+| 20 | 0.9519 | 19.18 | 0.9507 | 19.16 | +0.0011 | +0.1 % |
+| 21 | 0.9536 | 19.73 | 0.9523 | 19.68 | +0.0013 | +0.2 % |
+| 40 | 0.9727 | 29.26 | 0.9710 | 29.29 | +0.0017 | −0.1 % |
+| 80 | 0.9843 | 45.79 | 0.9840 | 45.93 | +0.0003 | −0.3 % |
+| 158 | 0.9910 | 72.39 | 0.9906 | 72.59 | +0.0005 | −0.3 % |
+| 160 | 0.9911 | 73.01 | 0.9906 | 73.19 | +0.0005 | −0.2 % |
+| 320 | 0.9946 | 117.95 | 0.9940 | 118.22 | +0.0005 | −0.2 % |
+
+- **Dentro de lo que se separan dos corridas:** a 0.95 son 18.85 cargas frente a 19.03, y a 0.99, 68.27 frente a 70.23. Frente al lote de la pieza 3, +3.5 % a 0.95 y −12.8 % a 0.99.
+- **8 185 postings repartidos tras 4 071 splits,** frente a 8 155 y 4 056. Cobertura completa en todas las etapas, con el halo. Reabierto, ninguna respuesta cambia.
+
+**Tras borrar el 30 %:** 282 200 sacados y 14 800 marcados, 2 435 019 aristas con sustituto y 106 875 sin él, 1 122 fusiones. A 0.95 son 17.69 cargas frente a 17.93 en `routing`, y a 0.99, 66.16 frente a 65.81.
+
+- **Una diferencia que describo y no he perseguido:** aquí, recién borrado, una carga lee 3.00 veces y unos 256 KB, con el bucket ya en un segmento. En `routing` eran 6.00 veces y 716 KB, con dos segmentos. *Lectura mía, sin comprobar:* esta corrida reabre el índice dos veces antes de borrar, y un índice que abre cuenta todo lo que tiene como escrito, así que pide su bucket en un segmento enseguida.
+
+**Lo que cuesta escribir los halos, a 1M:**
+
+- **9 206 089 entradas añadidas** (700 MB), **16 250 halos escritos enteros** (1.44 GB: 8 142 mitades de splits y 8 108 reescritos por haber crecido) y **4 886 865 valores quitados** (953 MB de lápidas).
+- **22 820 051 códigos leídos del bucket de ruteo,** unos 23 por insert contando refrescos y limpieza.
+- **El diario escribió 13.97 GB,** frente a 10.57 en `routing`: un 32 % más. El índice ocupa 7.5 GB, frente a 6.8.
+- **Inserts:** 103 por segundo de media, frente a 107. No es una medida.
+
 **Sin verificar de la pieza 7:**
 
-- **El índice crecido entero a 1M.** La corrida está en marcha desde el 22 a las 10:46: crecer de la base por defecto con `none`, medir, reabrir, compactar, abrir el mismo índice con los códigos en memoria para contar las queries que cambian de respuesta, y borrar el 30 %.
+- **El heap del índice,** que es lo que v4.0 medía: aquí solo los bytes de códigos.
 - **La latencia.** La referencia de v4.0 es de 1.3 a 1.6 veces la latencia en frío del modo de ruteo, con 35 MB de heap frente a 106. Aquí no hay nada cronometrado, y el heap no se puede leer del arnés, que tiene el dataset en memoria: lo que da es los bytes de códigos que el índice tiene.
 - **Cuánto pesa a 1M reescribir los halos:** cada vez se escribe el halo entero y una lápida por cada valor que tenía. El umbral, la mitad de lo necesario, es mío y está sin medir.
 - **Las lecturas de códigos del bucket de ruteo en frío:** 16 por insert, en la parte que corre en paralelo, y unas 60 por vector que la limpieza saca.

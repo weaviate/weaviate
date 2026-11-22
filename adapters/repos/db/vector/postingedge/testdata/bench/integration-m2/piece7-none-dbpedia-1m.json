@@ -1,0 +1,978 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "queries": 5000,
+  "k": 10,
+  "base": 10000,
+  "userConfig": {
+    "distance": "cosine",
+    "ef": 20,
+    "efConstruction": 160,
+    "maxPostingSizeKB": 0,
+    "rq": {
+      "rescoreLimit": -1,
+      "cacheMode": "none"
+    }
+  },
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237381,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 8185,
+    "splits": 4071,
+    "splitsFailed": 0,
+    "live": 707800,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 8,
+    "vectorsLaidOut": 990000,
+    "refreshedAt": 640000,
+    "merges": 1122,
+    "halo": true
+  },
+  "gomaxprocs": 10,
+  "baseSeconds": 1.027013708,
+  "insertsAfterTheBase": 980000,
+  "insertSeconds": 9527.111207233,
+  "insertsPerSecond": 102.86433932417859,
+  "stretches": [
+    {
+      "inserted": 66000,
+      "seconds": 302.027592583,
+      "perSecond": 186.27973168593437,
+      "postingsGivenOut": 503
+    },
+    {
+      "inserted": 104400,
+      "seconds": 604.313979958,
+      "perSecond": 127.03203878316926,
+      "postingsGivenOut": 825
+    },
+    {
+      "inserted": 154800,
+      "seconds": 908.020890875,
+      "perSecond": 165.9496252850632,
+      "postingsGivenOut": 1219
+    },
+    {
+      "inserted": 184400,
+      "seconds": 1208.53377275,
+      "perSecond": 98.49840773285132,
+      "postingsGivenOut": 1477
+    },
+    {
+      "inserted": 213200,
+      "seconds": 1508.879619375,
+      "perSecond": 95.88960058482468,
+      "postingsGivenOut": 1713
+    },
+    {
+      "inserted": 259600,
+      "seconds": 1813.601954833,
+      "perSecond": 152.26997546849583,
+      "postingsGivenOut": 2091
+    },
+    {
+      "inserted": 304400,
+      "seconds": 2116.934920625,
+      "perSecond": 147.6926533702089,
+      "postingsGivenOut": 2459
+    },
+    {
+      "inserted": 335600,
+      "seconds": 2419.187353167,
+      "perSecond": 103.22504749017696,
+      "postingsGivenOut": 2767
+    },
+    {
+      "inserted": 359600,
+      "seconds": 2723.15949825,
+      "perSecond": 78.954759239972,
+      "postingsGivenOut": 2959
+    },
+    {
+      "inserted": 382800,
+      "seconds": 3024.448825083,
+      "perSecond": 77.00253147404092,
+      "postingsGivenOut": 3115
+    },
+    {
+      "inserted": 406000,
+      "seconds": 3332.524439,
+      "perSecond": 75.30633174334824,
+      "postingsGivenOut": 3305
+    },
+    {
+      "inserted": 431600,
+      "seconds": 3634.50917475,
+      "perSecond": 84.77260642325292,
+      "postingsGivenOut": 3537
+    },
+    {
+      "inserted": 472400,
+      "seconds": 3940.348907083,
+      "perSecond": 133.40334222283226,
+      "postingsGivenOut": 3885
+    },
+    {
+      "inserted": 511600,
+      "seconds": 4244.493359625,
+      "perSecond": 128.88626133531295,
+      "postingsGivenOut": 4205
+    },
+    {
+      "inserted": 550800,
+      "seconds": 4546.335313833,
+      "perSecond": 129.86946574726664,
+      "postingsGivenOut": 4549
+    },
+    {
+      "inserted": 589200,
+      "seconds": 4847.756771875,
+      "perSecond": 127.39652601824588,
+      "postingsGivenOut": 4819
+    },
+    {
+      "inserted": 627600,
+      "seconds": 5153.543903083,
+      "perSecond": 125.57770030956064,
+      "postingsGivenOut": 5155
+    },
+    {
+      "inserted": 654000,
+      "seconds": 5456.9264565,
+      "perSecond": 87.01895810440428,
+      "postingsGivenOut": 5381
+    },
+    {
+      "inserted": 674800,
+      "seconds": 5762.836465458,
+      "perSecond": 67.99393867823133,
+      "postingsGivenOut": 5555
+    },
+    {
+      "inserted": 695600,
+      "seconds": 6070.9041925,
+      "perSecond": 67.51775964894102,
+      "postingsGivenOut": 5719
+    },
+    {
+      "inserted": 715600,
+      "seconds": 6372.067067917,
+      "perSecond": 66.40934979652289,
+      "postingsGivenOut": 5883
+    },
+    {
+      "inserted": 735600,
+      "seconds": 6673.815146458,
+      "perSecond": 66.28054755108892,
+      "postingsGivenOut": 6035
+    },
+    {
+      "inserted": 755600,
+      "seconds": 6977.929891375,
+      "perSecond": 65.76481519552507,
+      "postingsGivenOut": 6227
+    },
+    {
+      "inserted": 775600,
+      "seconds": 7282.849345125,
+      "perSecond": 65.59122161867894,
+      "postingsGivenOut": 6393
+    },
+    {
+      "inserted": 795600,
+      "seconds": 7589.658883292,
+      "perSecond": 65.18714899318708,
+      "postingsGivenOut": 6539
+    },
+    {
+      "inserted": 814800,
+      "seconds": 7890.261425583,
+      "perSecond": 63.871837945898456,
+      "postingsGivenOut": 6675
+    },
+    {
+      "inserted": 834000,
+      "seconds": 8191.346001292,
+      "perSecond": 63.769539435262544,
+      "postingsGivenOut": 6841
+    },
+    {
+      "inserted": 864400,
+      "seconds": 8497.662732292,
+      "perSecond": 99.2438969859449,
+      "postingsGivenOut": 7059
+    },
+    {
+      "inserted": 898800,
+      "seconds": 8797.946300083,
+      "perSecond": 114.558548647357,
+      "postingsGivenOut": 7353
+    },
+    {
+      "inserted": 933200,
+      "seconds": 9102.118018083,
+      "perSecond": 113.09420485815211,
+      "postingsGivenOut": 7685
+    },
+    {
+      "inserted": 966000,
+      "seconds": 9404.175187333,
+      "perSecond": 108.58888378046612,
+      "postingsGivenOut": 7971
+    },
+    {
+      "inserted": 990000,
+      "seconds": 9617.107793792,
+      "perSecond": 112.71196204321828,
+      "postingsGivenOut": 8185
+    }
+  ],
+  "stats": {
+    "inserted": 980000,
+    "splits": 4071,
+    "splitsFailed": 0,
+    "inverseChecks": 8580317,
+    "inverseEdges": 4530013,
+    "inverseAlready": 1961071,
+    "inversePostings": 3311133,
+    "inverseListReads": 520711,
+    "searchLoads": 60701228,
+    "searchRounds": 14930843,
+    "searchRows": {
+      "n": 182103684,
+      "bytes": 12153790996244
+    },
+    "searchVectors": {
+      "n": 62720000,
+      "bytes": 385351680000
+    },
+    "inverseDistReads": {
+      "n": 8955393,
+      "bytes": 351567532
+    },
+    "inverseVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowReads": {
+      "n": 12213,
+      "bytes": 1010406869
+    },
+    "splitVectorReads": {
+      "n": 1469659,
+      "bytes": 9029584896
+    },
+    "memberRow": {
+      "n": 980000,
+      "bytes": 203840000
+    },
+    "memberMap": {
+      "n": 980000,
+      "bytes": 3920000
+    },
+    "memberRouting": {
+      "n": 980000,
+      "bytes": 70560000
+    },
+    "memberVector": {
+      "n": 980000,
+      "bytes": 6021120000
+    },
+    "ownEdges": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownDists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseLists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowWrites": {
+      "n": 1469659,
+      "bytes": 305689072
+    },
+    "splitMapWrites": {
+      "n": 1469659,
+      "bytes": 5878636
+    },
+    "splitCentroidWrites": {
+      "n": 8142,
+      "bytes": 50024448
+    },
+    "storeSearchReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeInverseReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSplitReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWrites": {
+      "n": 98129,
+      "bytes": 1084404775
+    },
+    "rowWritesFull": 89987,
+    "rowWritesSplit": 8142,
+    "rowWritesClose": 0,
+    "rowReads": {
+      "n": 89987,
+      "bytes": 986678924
+    },
+    "rowTombstones": {
+      "n": 89987,
+      "bytes": 986678924
+    },
+    "rowDistWrites": {
+      "n": 5242801,
+      "bytes": 217161796
+    },
+    "rowDeletes": 4071,
+    "storeRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "pendingPeakMembers": 115044,
+    "pendingPeakBytes": 9535176,
+    "pendingPeakPostings": 4025,
+    "pendingLogWrites": {
+      "n": 6055871,
+      "bytes": 512803519
+    },
+    "layouts": 6,
+    "layoutVectors": 1874756,
+    "haloAdded": {
+      "n": 9206089,
+      "bytes": 699662764
+    },
+    "haloRows": {
+      "n": 16250,
+      "bytes": 1444040964
+    },
+    "haloReads": {
+      "n": 404,
+      "bytes": 87205820
+    },
+    "routingReads": {
+      "n": 22820051,
+      "bytes": 1643043672
+    },
+    "haloTrims": 8108,
+    "haloTrimmed": {
+      "n": 4886865,
+      "bytes": 952904644
+    },
+    "assignNs": 102472901943,
+    "searchNs": 7158300042841,
+    "writeNs": 37367524226,
+    "inverseNs": 75641444011,
+    "splitNs": 28199196278,
+    "cycleNs": 145708,
+    "rowNs": 15159082489,
+    "searchPhaseNs": 0,
+    "applyPhaseNs": 0,
+    "plansReassigned": 179,
+    "staleLists": 519675
+  },
+  "dirBytes": 7474740454,
+  "refreshed": {
+    "passes": 6,
+    "refreshed": 420003,
+    "selfMissing": 0,
+    "listsChanged": 398863,
+    "edgesBefore": 3508105,
+    "edgesAfter": 3960117,
+    "edgesKept": 2448567,
+    "searchLoads": 25953371,
+    "searchRounds": 6383576,
+    "vectorReads": 27300195,
+    "inverseChecks": 1915699,
+    "inverseEdges": 146995
+  },
+  "journalRecords": 1400009,
+  "journalBytes": 13966950520,
+  "stages": [
+    {
+      "name": "grown",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8185,
+      "splits": 4071,
+      "coverage": "complete",
+      "postingSegments": 2,
+      "deletedCentroidsInTheGraph": 65,
+      "postingBucketAsOneSegment": 13,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 7,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 948640,
+      "layoutsSinceOpened": 6,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95358,
+          "loads": 19.7316,
+          "rounds": 4.684,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 158,
+          "recall": 0.99104,
+          "loads": 72.3874,
+          "rounds": 17.848,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 10,
+          "recall": 0.91696,
+          "loads": 12.9626,
+          "rounds": 2.9918,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 20,
+          "recall": 0.95186,
+          "loads": 19.178,
+          "rounds": 4.5456,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 40,
+          "recall": 0.97268,
+          "loads": 29.2632,
+          "rounds": 7.067,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 80,
+          "recall": 0.98432,
+          "loads": 45.7896,
+          "rounds": 11.1986,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 160,
+          "recall": 0.99112,
+          "loads": 73.0106,
+          "rounds": 18.0038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        },
+        {
+          "ef": 320,
+          "recall": 0.99456,
+          "loads": 117.951,
+          "rounds": 29.238,
+          "queriesAnsweredOtherwiseTheSecondTime": 0
+        }
+      ]
+    },
+    {
+      "name": "grown, opened again",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8185,
+      "splits": 4071,
+      "coverage": "complete",
+      "reopenSeconds": 1.737533,
+      "postingSegments": 2,
+      "deletedCentroidsInTheGraph": 65,
+      "postingBucketAsOneSegment": 0,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 7,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 948640,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95358,
+          "loads": 19.7316,
+          "rounds": 4.684,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.6195544203207035,
+          "storeBytesPerLoad": 248233.43672079305
+        },
+        {
+          "ef": 158,
+          "recall": 0.99104,
+          "loads": 72.3874,
+          "rounds": 17.848,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.608738537369764,
+          "storeBytesPerLoad": 247304.2770841334
+        },
+        {
+          "ef": 10,
+          "recall": 0.91696,
+          "loads": 12.9626,
+          "rounds": 2.9918,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.616203539413389,
+          "storeBytesPerLoad": 246253.6453952139
+        },
+        {
+          "ef": 20,
+          "recall": 0.95186,
+          "loads": 19.178,
+          "rounds": 4.5456,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.619365940139743,
+          "storeBytesPerLoad": 248148.83306914172
+        },
+        {
+          "ef": 40,
+          "recall": 0.97268,
+          "loads": 29.2632,
+          "rounds": 7.067,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.619576806364307,
+          "storeBytesPerLoad": 249219.45056589847
+        },
+        {
+          "ef": 80,
+          "recall": 0.98432,
+          "loads": 45.7896,
+          "rounds": 11.1986,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.614628649300278,
+          "storeBytesPerLoad": 248639.60083075633
+        },
+        {
+          "ef": 160,
+          "recall": 0.99112,
+          "loads": 73.0106,
+          "rounds": 18.0038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.608511640775449,
+          "storeBytesPerLoad": 247277.20826290976
+        },
+        {
+          "ef": 320,
+          "recall": 0.99456,
+          "loads": 117.951,
+          "rounds": 29.238,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 5.599172537748726,
+          "storeBytesPerLoad": 245097.26923892126
+        }
+      ]
+    },
+    {
+      "name": "grown, compacted and laid out",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8185,
+      "splits": 4071,
+      "coverage": "complete",
+      "postingSegments": 1,
+      "deletedCentroidsInTheGraph": 65,
+      "postingBucketAsOneSegment": 1,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 1,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95358,
+          "loads": 19.7316,
+          "rounds": 4.684,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 214261.66699101948
+        },
+        {
+          "ef": 158,
+          "recall": 0.99104,
+          "loads": 72.3874,
+          "rounds": 17.848,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 213733.79766091888
+        },
+        {
+          "ef": 10,
+          "recall": 0.91696,
+          "loads": 12.9626,
+          "rounds": 2.9918,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 212671.26386681685
+        },
+        {
+          "ef": 20,
+          "recall": 0.95186,
+          "loads": 19.178,
+          "rounds": 4.5456,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 214218.26988215663
+        },
+        {
+          "ef": 40,
+          "recall": 0.97268,
+          "loads": 29.2632,
+          "rounds": 7.067,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 215166.27994204324
+        },
+        {
+          "ef": 80,
+          "recall": 0.98432,
+          "loads": 45.7896,
+          "rounds": 11.1986,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 214821.87557436622
+        },
+        {
+          "ef": 160,
+          "recall": 0.99112,
+          "loads": 73.0106,
+          "rounds": 18.0038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 213725.52001490194
+        },
+        {
+          "ef": 320,
+          "recall": 0.99456,
+          "loads": 117.951,
+          "rounds": 29.238,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 211983.65232850928
+        }
+      ]
+    },
+    {
+      "name": "grown, compacted and laid out, opened with its codes in memory",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 8185,
+      "splits": 4071,
+      "coverage": "complete",
+      "reopenSeconds": 2.433137084,
+      "postingSegments": 1,
+      "deletedCentroidsInTheGraph": 65,
+      "postingBucketAsOneSegment": 0,
+      "routingCodesInMemoryBytes": 89091432,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95358,
+          "loads": 19.7316,
+          "rounds": 4.684,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66891.43594031908
+        },
+        {
+          "ef": 158,
+          "recall": 0.99104,
+          "loads": 72.3874,
+          "rounds": 17.848,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66491.17567698246
+        },
+        {
+          "ef": 10,
+          "recall": 0.91696,
+          "loads": 12.9626,
+          "rounds": 2.9918,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66956.50866338544
+        },
+        {
+          "ef": 20,
+          "recall": 0.95186,
+          "loads": 19.178,
+          "rounds": 4.5456,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66897.79833142142
+        },
+        {
+          "ef": 40,
+          "recall": 0.97268,
+          "loads": 29.2632,
+          "rounds": 7.067,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66798.47997484896
+        },
+        {
+          "ef": 80,
+          "recall": 0.98432,
+          "loads": 45.7896,
+          "rounds": 11.1986,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66649.41602896727
+        },
+        {
+          "ef": 160,
+          "recall": 0.99112,
+          "loads": 73.0106,
+          "rounds": 18.0038,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66487.73944057438
+        },
+        {
+          "ef": 320,
+          "recall": 0.99456,
+          "loads": 117.951,
+          "rounds": 29.238,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 2,
+          "storeBytesPerLoad": 66258.56912785818
+        }
+      ]
+    },
+    {
+      "name": "deleted",
+      "held": 693000,
+      "deleted": 297000,
+      "postingsGivenOut": 8185,
+      "splits": 4071,
+      "coverage": "complete",
+      "postingSegments": 1,
+      "deletedCentroidsInTheGraph": 0,
+      "postingBucketAsOneSegment": 0,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95508,
+          "loads": 18.815,
+          "rounds": 4.4562,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 262474.54078129155
+        },
+        {
+          "ef": 158,
+          "recall": 0.99062,
+          "loads": 68.684,
+          "rounds": 16.9224,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 261815.62974200686
+        },
+        {
+          "ef": 10,
+          "recall": 0.9218,
+          "loads": 12.541,
+          "rounds": 2.888,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 260737.59928235388
+        },
+        {
+          "ef": 20,
+          "recall": 0.95316,
+          "loads": 18.2646,
+          "rounds": 4.3186,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 262371.45885483397
+        },
+        {
+          "ef": 40,
+          "recall": 0.97288,
+          "loads": 27.7978,
+          "rounds": 6.701,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 263391.4568706876
+        },
+        {
+          "ef": 80,
+          "recall": 0.98442,
+          "loads": 43.4632,
+          "rounds": 10.6172,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 263130.853862578
+        },
+        {
+          "ef": 160,
+          "recall": 0.99078,
+          "loads": 69.2728,
+          "rounds": 17.0696,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 261790.31672460187
+        },
+        {
+          "ef": 320,
+          "recall": 0.99488,
+          "loads": 112.293,
+          "rounds": 27.824,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 259941.81686302798
+        }
+      ]
+    },
+    {
+      "name": "deleted, opened again",
+      "held": 693000,
+      "deleted": 297000,
+      "postingsGivenOut": 8185,
+      "splits": 4071,
+      "coverage": "complete",
+      "reopenSeconds": 2.141648625,
+      "postingSegments": 1,
+      "deletedCentroidsInTheGraph": 0,
+      "postingBucketAsOneSegment": 0,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 8,
+      "vectorSlots": 990000,
+      "vectorsLaidOut": 990000,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95508,
+          "loads": 18.815,
+          "rounds": 4.4562,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 262474.54078129155
+        },
+        {
+          "ef": 158,
+          "recall": 0.99062,
+          "loads": 68.684,
+          "rounds": 16.9224,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 261815.62974200686
+        },
+        {
+          "ef": 10,
+          "recall": 0.9218,
+          "loads": 12.541,
+          "rounds": 2.888,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 260737.59928235388
+        },
+        {
+          "ef": 20,
+          "recall": 0.95316,
+          "loads": 18.2646,
+          "rounds": 4.3186,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 262371.45885483397
+        },
+        {
+          "ef": 40,
+          "recall": 0.97288,
+          "loads": 27.7978,
+          "rounds": 6.701,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 263391.4568706876
+        },
+        {
+          "ef": 80,
+          "recall": 0.98442,
+          "loads": 43.4632,
+          "rounds": 10.6172,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 263130.853862578
+        },
+        {
+          "ef": 160,
+          "recall": 0.99078,
+          "loads": 69.2728,
+          "rounds": 17.0696,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 261790.31672460187
+        },
+        {
+          "ef": 320,
+          "recall": 0.99488,
+          "loads": 112.293,
+          "rounds": 27.824,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3,
+          "storeBytesPerLoad": 259941.81686302798
+        }
+      ]
+    }
+  ]
+}
