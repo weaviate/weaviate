@@ -861,7 +861,7 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Sin verificar de la pieza 2:**
 
-- **Lo que queda de una fila tras la compactación que el índice pide,** después de un borrado grande. Recién borrado el 30 %, una carga lee 6 veces y 716 KB (abajo, «La limpieza arrancada por el índice»).
+- **Cuánto dura lo que cuesta un borrado grande hasta que el store compacta.** Recién borrado el 30 %, una carga lee 6 veces y 716 KB; con el bucket compactado, 2 veces y 63 KB (abajo, «La limpieza arrancada por el índice»). Lo que tarda un nodo de uno a otro no está medido.
 - **El churn largo y el borrado por regiones de v6.2b.**
 - **Lo que cuesta leer una fila con lápidas de miembros** hasta que el store la compacta.
 - **Nada cronometrado:** ni lo que tarda una pasada con la máquina sola, ni lo que frena a los inserts.
@@ -887,7 +887,8 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 - **Ningún borrado devuelto,** cobertura completa, y reabierto ninguna respuesta cambia y los 990 000 doc ids están como se dejaron.
 - **Recién borrado, una carga lee 6.00 veces y de 712 a 719 KB del store.** Antes de borrar eran 2.00 y 65 KB: once veces los bytes.
   - **Por qué:** cada pasada reescribe la fila de aristas de casi todos los postings dos veces, al sustituir y al sacar, y cada reescritura deja en el store la fila nueva y una lápida que lleva la vieja. Con una pasada cada 3 % son unas doce pasadas, y lo que dejan se lee entero en cada carga hasta que el store lo compacta. El bucket de postings pasó de medio GB a 1.7 GB.
-  - **Lo que no dice:** qué queda cuando el store compacta. El arnés no deja correr los ciclos del store mientras borra, y solo uno después; en un nodo corren solos, y el índice pide su bucket en un segmento cuando se ha escrito un 10 %. *Sin medir. El índice de la corrida sigue en disco para medirlo.*
+  - **Compactado, vuelve a lo de antes.** Sobre ese mismo índice, abierto tal como quedó (`piece2-deleted-one-segment-dbpedia-1m.json`): se pide el bucket de postings en un segmento, el store lo hace en una ronda, y una carga lee 2.00 veces y 63 KB. Ninguna de las 5 000 queries cambia su respuesta, en ninguno de los ocho ef. El bucket baja de 1.7 GB a 175 MB.
+  - **Lo que no dice:** cuánto tarda un nodo en llegar ahí. En esta medida la compactación la pide el arnés; en un nodo los ciclos del store corren solos y el índice pide su bucket en un segmento cuando se ha escrito un 10 % de lo que tiene. Mientras tanto las búsquedas leen esas once veces. *Sin medir.*
 - **Tardó 58 s,** con otras corridas en la máquina. No es una medida.
 
 ### Pieza 3: refresco de aristas al doblar
