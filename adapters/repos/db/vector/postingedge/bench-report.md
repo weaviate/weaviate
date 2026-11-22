@@ -637,6 +637,15 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 
 - **El heap queda por encima de lo que esperaba,** 3.0 a 3.6 GB. El de v1.4 se midió de otra forma: la diferencia entre el heap antes y después de construir.
 
+#### Enmienda 3 (00:05 del 23): la celda centrada se repite, porque una curva derivó
+
+**Motivo.** La segunda cadena acabó a las 00:03 con las dos celdas cronometradas, sin teclado ni trackpad y sin el Mac dormido en ningún tramo. En la celda centrada, el frío a 0.95 se separa un 14.6 % entre rondas: 3.775 ms de p50 en la primera y 3.223 en la segunda. Por la regla de siempre, un 10 % o más marca la curva, y se repite. Las demás curvas se separan un 3.7 % como mucho.
+
+- **Se repite la celda centrada entera,** en su propio proceso: build, puntos, espera y dos rondas, igual que antes. Como el índice no se guarda, va con otro build, y sus puntos pueden caer en otro ef.
+- **La celda por defecto no se repite:** su mayor diferencia entre rondas es un 2.9 %.
+- **Se reportan las dos ejecuciones de la celda centrada,** sin escoger una.
+- **Cabe antes de las 08:30:** acabará hacia la 01:00.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: medido el 21, de 11:37 a 13:55. `ef` dinámico: no hace falta un factor por k; basta el mínimo de 20 y que `ef` no baje de k, y lo que k = 100 necesita es rescore, 4 veces k. Regla del rescore: el ancla a 768 bits baja de 200 a 150. Abajo, «Resultados» y «Las dos reglas que propongo».** Pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4. Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
