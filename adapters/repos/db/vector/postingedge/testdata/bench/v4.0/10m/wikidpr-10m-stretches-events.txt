@@ -1,0 +1,12 @@
+== n1, hfresh-best95: from 2026-11-22 06:15:17, 649 s
+== n1, hfresh-best95-par: from 2026-11-22 06:26:07, 615 s
+== n1, hfresh-best99: from 2026-11-22 06:36:22, 1334 s
+== n1, hfresh-best99-par: from 2026-11-22 06:58:37, 1108 s
+== n1, r512: from 2026-11-22 07:17:06, 361 s
+== n1, halo512: from 2026-11-22 07:23:08, 333 s
+== n2, hfresh-best95: from 2026-11-22 07:28:42, 660 s
+== n2, hfresh-best95-par: from 2026-11-22 07:39:43, 627 s
+== n2, hfresh-best99: from 2026-11-22 07:50:10, 1340 s
+== n2, hfresh-best99-par: from 2026-11-22 08:12:30, 1117 s
+== n2, r512: from 2026-11-22 08:31:08, 362 s
+== n2, halo512: from 2026-11-22 08:37:11, 336 s

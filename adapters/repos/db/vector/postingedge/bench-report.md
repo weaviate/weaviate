@@ -281,12 +281,14 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Disco:** HFresh ocupa 37 GB en régimen y llegó a unos 61 GiB al construirse. A las 21:22 hay 98 GB libres con el índice fallido todavía en disco, así que de entrada solo se borra ese. Si antes de construir nuestro índice quedan menos de 46 GB, se borran por este orden los índices de v5.4, que ya está cerrado, las celdas de 1M, cuyos puntos están en sus manifiestos, y el índice ordenado de v5.3. La caché de compilación de Go se vació a las 20:33.
 - **Lo demás no cambia:** las seis curvas, las dos condiciones y la sesión.
 
-### Enmienda 4 (08:50 del 22, con la sesión cronometrada acabada y antes de compilar nada más): nuestras celdas se cronometraron con rescore 64, no con 150
+### Enmienda 4 (08:46 del 22, con la sesión cronometrada acabada y antes de compilar nada más): nuestras celdas se cronometraron con rescore 64, no con 150
 
 **Qué pasó.** La enmienda 2 decía que el rescore de nuestras celdas sería 150. El arnés no hace eso: busca primero los puntos con el rescore del índice, 64, y solo sube la escalera si con él no llega a 0.99. A 1M con 64 no llegaba (techo 0.9815) y subía a 150, por eso el ensayo no lo enseñó. A 10M con 64 sí llega, en ef 315, y las celdas se quedaron con 64. El fallo es mío: la regla del arnés es anterior a la enmienda y no la releí.
 
+*Corregido a las 09:00: el pre-registro sí decía la regla («el arnés busca primero con 64 y, si 0.99 no se alcanza, con el automático»). Lo que falló fue lo que daba por hecho a continuación, que a 768 bits con 64 el techo quedaría en 0.982, como a 1M. El arnés siguió lo escrito.*
+
 - **Lo cronometrado vale, y es con rescore 64.** Las dos celdas de 10M se buscaron y se cronometraron con 64: 0.95 en ef 29 y 0.99 en ef 315. Cada tabla lo dice.
-- **Las cargas de 10M se leen contra unas celdas de 1M con rescore 64,** que no había. Se escriben desde las 08:45, sin cronometrar, sobre un tercer build de 1M. A 1M con 64 no hay punto de 0.99; la segunda condición es a 0.95.
+- **Las cargas de 10M se leen contra unas celdas de 1M con rescore 64,** que no había. Se escriben desde las 08:44, sin cronometrar, sobre un tercer build de 1M. A 1M con 64 no hay punto de 0.99; la segunda condición es a 0.95.
 - **Se añade la medida con 150 sobre el mismo índice de 10M.** 150 es el valor que da a 768 bits la regla automática propuesta en «Parámetros».
   - **Los puntos se buscan sobre las celdas en disco,** con un test nuevo, `TestDiskPoints`. El recall sale de las búsquedas sobre el índice en disco contra la verdad del manifiesto, con la misma malla de ef. No hay gemelo en memoria con el que comparar resultado a resultado, porque construirlo otra vez lleva 3 h 49 min; esa comparación ya pasó con 64 sobre las mismas celdas.
   - **Sin cronometrar:** ef, cargas, lecturas y bytes del store por query a 0.95 y a 0.99.
@@ -294,6 +296,235 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Cómo se lee la primera condición:** con las dos configuraciones, cada una contra el HFresh de 8 en 8 de su propia sesión. Se da por cumplida solo si se cumple con las dos. Si se cumple con una sola, se dice con cuál.
 - **Lo que espero, antes de medir:** con 150 a 0.95, algo menos de cargas (ef 27 o 28) y 86 lecturas de vector más por query. En frío eso debería costar entre un 30 y un 80 % más que con 64. La ventaja frente a HFresh de 8 en 8 quedaría entre 5 y 7 veces en la celda de códigos en RAM y entre 3 y 4.5 en la de halo. A 0.99 con 150, entre 70 y 100 cargas donde con 64 son 141.58.
 - **Una cosa que no sé explicar, y que comparten los dos índices:** a 10M los dos llegan a 0.99 con menos rescore que a 1M. El nuestro llega con 64, y a 1M su techo con 64 era 0.9815. HFresh llega con 350, y a 1M su techo con 350 era 0.9755. Hipótesis, sin comprobar: con diez veces más vectores los vecinos verdaderos están más cerca de la query y el código los separa mejor del resto.
+
+### Resultados (2026-11-22): las dos condiciones se cumplen, con nuestras celdas en rescore 64
+
+**Estado: cronometrado el 22 de 06:15 a 08:42, en dos rondas y sin ninguna curva marcada.** Las tablas son las de `testdata/bench/v4.0/10m/tenm-verdict.md`. Las mismas celdas con rescore 150 van en el apartado siguiente.
+
+- **Primera condición, se cumple en las dos celdas.** En frío a 0.95 con 1 thread, HFresh de 8 en 8 tarda 35.62 ms de p50. La celda de códigos de ruteo en RAM tarda 4.02 y la de halo 6.57: 8.86 y 5.42 veces, con el umbral en 3.
+- **Segunda condición, se cumple.** A 0.95 la celda carga 21.25 postings por query a 10M y 22.56 a 1M: un 5.8 % menos, con el umbral en un 15 % más. Las dos con rescore 64.
+  - **Lleva el ruido del lado de 1M.** Es el tercer build de 1M, y dos builds de 1M se separaron un 4.6 % en cargas.
+- **Qué configuración lleva cada índice:**
+  - **Nuestras celdas, rescore 64:** el primero que llega a 0.99 a 10M (enmienda 4). A 0.95 cruza en ef 29 y a 0.99 en ef 315. No se buscó su mejor configuración.
+  - **HFresh, la que menos lee del store para cada recall:** rescore 350 con searchProbe 261 a 0.95, y rescore 1 200 con searchProbe 2 212 a 0.99. Su barrido de searchProbe paraba en 4 096 (enmienda 3).
+
+#### Las dos condiciones
+
+La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por el p50 con 1 thread de la primera ronda, en cada una de las dos celdas; y las cargas por query a 0.95 no crecen más de un 15 % frente a 1M.
+
+| condición | medido | hacía falta | |
+|---|---|---|---|
+| en frío a 0.95, HFresh de 8 en 8 entre la celda de códigos de ruteo en RAM | 35.62 ms entre 4.02: 8.86x | 3 o más | **sí** |
+| en frío a 0.95, HFresh de 8 en 8 entre la celda de halo | 35.62 ms entre 6.57: 5.42x | 3 o más | **sí** |
+| cargas por query a 0.95, a 10M entre las de 1M | 21.25 entre 22.56: 0.942, −5.8 % | 1.15 o menos | **sí** |
+
+**El pre-registro se cumple: las dos condiciones, en las dos celdas.**
+
+#### Nuestras celdas: sus puntos, a 1M y a 10M, sin cronometrar
+
+
+| celda | corpus | recall | ef | rescore | recall medido | cargas por query | rondas | lecturas del store | bytes del store | frente a 1M, cargas |
+|---|---|---|---|---|---|---|---|---|---|---|
+| códigos de ruteo en RAM | 1M | 0.95 | 36 | 64 | 0.9508 | 22.56 | 5.39 | 45.1 | 0.86 MB |  |
+| códigos de ruteo en RAM | 10M | 0.95 | 29 | 64 | 0.9520 | 21.25 | 5.06 | 42.5 | 0.87 MB | 0.942, −5.8 % |
+| códigos de ruteo en RAM | 1M | 0.99 | no llega: el mayor es 0.9815 | | | | | | | |
+| códigos de ruteo en RAM | 10M | 0.99 | 315 | 64 | 0.9900 | 141.58 | 35.14 | 283.2 | 5.72 MB |  |
+| halo | 1M | 0.95 | 36 | 64 | 0.9508 | 22.56 | 5.39 | 67.7 | 3.58 MB |  |
+| halo | 10M | 0.95 | 29 | 64 | 0.9520 | 21.25 | 5.06 | 63.7 | 4.02 MB | 0.942, −5.8 % |
+| halo | 1M | 0.99 | no llega: el mayor es 0.9815 | | | | | | | |
+| halo | 10M | 0.99 | 315 | 64 | 0.9900 | 141.58 | 35.14 | 424.7 | 27.29 MB |  |
+
+| celda | corpus | postings | aristas | store | vectores | residente en RAM | build, s |
+|---|---|---|---|---|---|---|---|
+| códigos de ruteo en RAM | 1M | 4 238 | 9 739 724 | 0.15 GB | 3.07 GB | 93.9 MB | 481 |
+| halo | 1M | 4 238 | 9 739 724 | 0.59 GB | 3.07 GB | 21.9 MB | 481 |
+| códigos de ruteo en RAM | 10M | 42 373 | 114 091 246 | 1.59 GB | 30.72 GB | 940.0 MB | 13 653 |
+| halo | 10M | 42 373 | 114 091 246 | 7.31 GB | 30.72 GB | 220.0 MB | 13 653 |
+
+#### HFresh a 10M, como en un nodo, sin cronometrar
+
+- **El índice:** 10 000 000 vectores de 768 dimensiones, 146 926 postings, 50 229 862 entradas, 5.02 por vector; postings de 135 a 407 entradas de 113 bytes. Réplicas 4, maxPostingSizeKB 48, RQ de 1 bits.
+- **El build:** 2 893 s de inserts y 1 842 de mantenimiento.
+- **El grafo de centroides, limpio:** de 294 087 nodos, 147 301 de ellos borrados, a 146 786.
+- **En disco:** 39.28 GB. objects, 32.13 GB; hfresh_postings_hfresh, 6.18 GB; hfresh_shared_hfresh, 0.65 GB; vectors_compressed, 0.26 GB; centroids, 0.07 GB
+
+| configuración | recall | searchProbe | rescore | recall medido | postings leídos | bytes de postings | lecturas de rescore | lecturas por query | |
+|---|---|---|---|---|---|---|---|---|---|
+| default | — | 256 | 350 | 0.9497 | 392.2 | 10.85 MB | 350 | 742.2 |  |
+| r200@0.95 | 0.95 | 402 | 200 | 0.9501 | 616.6 | 17.03 MB | 200 | 816.6 |  |
+| r350@0.95 | 0.95 | 261 | 350 | 0.9500 | 399.9 | 11.06 MB | 350 | 749.9 | **la mejor** |
+| r800@0.95 | 0.95 | 229 | 800 | 0.9500 | 350.8 | 9.70 MB | 800 | 1150.8 |  |
+| r800@0.99 | 0.99 | 2595 | 800 | 0.9900 | 3998.6 | 109.86 MB | 800 | 4798.6 |  |
+| r1200@0.95 | 0.95 | 228 | 1200 | 0.9502 | 349.3 | 9.66 MB | 1200 | 1549.3 |  |
+| r1200@0.99 | 0.99 | 2212 | 1200 | 0.9900 | 3407.8 | 93.65 MB | 1200 | 4607.8 | **la mejor** |
+| r2000@0.95 | 0.95 | 227 | 2000 | 0.9500 | 347.7 | 9.62 MB | 2000 | 2347.7 |  |
+| r2000@0.99 | 0.99 | 2145 | 2000 | 0.9900 | 3304.7 | 90.82 MB | 2000 | 5304.7 |  |
+
+#### Latencia, primera ronda
+
+**Recall 0.95, en frío:**
+
+| índice | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | 92.62 | 120.22 | 126.39 | 11 | 194.40 | 259.24 | 279.91 | 37 |
+| HFresh, postings de 8 en 8 | 35.62 | 40.61 | 42.03 | 28 | 182.57 | 285.15 | 366.68 | 38 |
+| posting-edge, códigos de ruteo en RAM | 4.02 | 8.86 | 13.32 | 218 | 11.15 | 19.98 | 25.78 | 547 |
+| posting-edge, halo | 6.57 | 16.42 | 26.50 | 128 | 18.49 | 37.79 | 52.25 | 308 |
+
+**Recall 0.95, en caliente:**
+
+| índice | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | 18.45 | 21.15 | 23.13 | 55 | 79.34 | 123.24 | 169.33 | 97 |
+| HFresh, postings de 8 en 8 | 17.16 | 19.57 | 21.35 | 59 | 79.23 | 125.93 | 166.17 | 96 |
+| posting-edge, códigos de ruteo en RAM | 1.17 | 3.55 | 5.79 | 666 | 1.62 | 4.51 | 7.59 | 3 901 |
+| posting-edge, halo | 1.82 | 5.88 | 10.18 | 418 | 2.60 | 8.65 | 14.39 | 2 327 |
+
+**Recall 0.99, en frío:**
+
+| índice | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | 595.74 | 794.92 | 826.93 | 2 | 886.94 | 1252.01 | 1291.06 | 8 |
+| HFresh, postings de 8 en 8 | 176.00 | 217.68 | 224.85 | 6 | 879.64 | 1251.84 | 1393.93 | 8 |
+| posting-edge, códigos de ruteo en RAM | 16.21 | 50.74 | 72.49 | 48 | 33.97 | 80.25 | 102.80 | 147 |
+| posting-edge, halo | 31.43 | 108.52 | 159.12 | 24 | 76.72 | 194.09 | 254.94 | 63 |
+
+**Recall 0.99, en caliente:**
+
+| índice | 1 thread: p50, ms | p95 | p99 | QPS | 8 threads: p50, ms | p95 | p99 | QPS |
+|---|---|---|---|---|---|---|---|---|
+| HFresh, postings uno a uno | 87.91 | 96.89 | 100.37 | 11 | 359.31 | 509.31 | 566.08 | 22 |
+| HFresh, postings de 8 en 8 | 78.48 | 88.28 | 91.43 | 13 | 360.94 | 521.66 | 622.19 | 22 |
+| posting-edge, códigos de ruteo en RAM | 6.64 | 25.06 | 35.15 | 109 | 8.67 | 31.53 | 45.31 | 666 |
+| posting-edge, halo | 10.90 | 42.48 | 61.11 | 65 | 15.75 | 61.51 | 87.45 | 356 |
+
+**HFresh entre cada celda,** cuántas veces el p50 de la celda:
+
+| recall | HFresh | celda | en frío, 1 thread | en frío, 8 threads | en caliente, 1 thread | en caliente, 8 threads |
+|---|---|---|---|---|---|---|
+| 0.95 | postings uno a uno | códigos de ruteo en RAM | 23.04x | 17.44x | 15.83x | 48.94x |
+| 0.95 | postings uno a uno | halo | 14.10x | 10.51x | 10.13x | 30.53x |
+| 0.95 | postings de 8 en 8 | códigos de ruteo en RAM | 8.86x | 16.38x | 14.72x | 48.87x |
+| 0.95 | postings de 8 en 8 | halo | 5.42x | 9.87x | 9.42x | 30.49x |
+| 0.99 | postings uno a uno | códigos de ruteo en RAM | 36.74x | 26.11x | 13.24x | 41.42x |
+| 0.99 | postings uno a uno | halo | 18.95x | 11.56x | 8.07x | 22.82x |
+| 0.99 | postings de 8 en 8 | códigos de ruteo en RAM | 10.86x | 25.90x | 11.82x | 41.61x |
+| 0.99 | postings de 8 en 8 | halo | 5.60x | 11.47x | 7.20x | 22.92x |
+
+#### Las curvas: dos rondas, deriva y actividad
+
+| curva | ronda 1 | ronda 2 | teclado o trackpad | mayor diferencia de p50 entre rondas | marca |
+|---|---|---|---|---|---|
+| HFresh, postings uno a uno, a 0.95 | 11-22 06:15 a 06:26 | 11-22 07:28 a 07:39 | no | +1.4 % (0.95, 8 threads, en caliente: 79.34 y 80.42 ms) | — |
+| HFresh, postings de 8 en 8, a 0.95 | 11-22 06:26 a 06:36 | 11-22 07:39 a 07:50 | no | +1.2 % (0.95, 1 thread, en caliente: 17.16 y 17.37 ms) | — |
+| HFresh, postings uno a uno, a 0.99 | 11-22 06:36 a 06:58 | 11-22 07:50 a 08:12 | no | +1.6 % (0.99, 8 threads, en caliente: 359.31 y 365.06 ms) | — |
+| HFresh, postings de 8 en 8, a 0.99 | 11-22 06:58 a 07:17 | 11-22 08:12 a 08:31 | no | −4.1 % (0.99, 8 threads, en frío: 879.64 y 843.83 ms) | — |
+| posting-edge, códigos de ruteo en RAM | 11-22 07:17 a 07:23 | 11-22 08:31 a 08:37 | no | +1.9 % (0.95, 1 thread, en caliente: 1.17 y 1.19 ms) | — |
+| posting-edge, halo | 11-22 07:23 a 07:28 | 11-22 08:37 a 08:42 | no | −2.4 % (0.95, 8 threads, en frío: 18.49 y 18.04 ms) | — |
+
+- **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
+- **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
+
+#### RAM y disco de los seis procesos
+
+| índice | heap en uso tras abrir | huella del proceso | en disco |
+|---|---|---|---|
+| HFresh, postings uno a uno, a 0.95 | 422.2 MB | 1073.4 MB | 39.28 GB |
+| HFresh, postings de 8 en 8, a 0.95 | 415.4 MB | 1077.8 MB | 39.28 GB |
+| HFresh, postings uno a uno, a 0.99 | 414.2 MB | 1065.4 MB | 39.28 GB |
+| HFresh, postings de 8 en 8, a 0.99 | 414.2 MB | 1065.3 MB | 39.28 GB |
+| posting-edge, códigos de ruteo en RAM | 956.4 MB | 1777.9 MB | 33.25 GB |
+| posting-edge, halo | 236.4 MB | 466.9 MB | 38.25 GB |
+
+- **El heap lleva lo del arnés:** las queries y el manifiesto.
+
+#### Lo que se ve
+
+- **A 0.95 leemos siete veces menos.** La celda de ruteo hace 106.5 lecturas por query (42.5 del store y 64 de rescore) y la de halo 127.7. HFresh hace 749.9: 399.9 postings y 350 de rescore. En bytes son 1.07 MB, 4.22 MB y 12.15 MB.
+- **Nuestras cargas no crecen con el corpus; las lecturas de HFresh sí.** En el ensayo a 1M de wiki-dpr, su mejor configuración a 0.95 hacía 454.6 lecturas por query (searchProbe 103). A 10M hace 749.9 (searchProbe 261): un 65 % más.
+- **Leer de 8 en 8 le quita a HFresh 2.6 veces en frío con 1 thread,** de 92.62 a 35.62 ms. Con 8 threads no le quita nada: 194.40 y 182.57 ms.
+- **Frente a HFresh como es el producto, con sus postings uno a uno:** 23.0 veces la celda de ruteo y 14.1 la de halo, en frío a 0.95 con 1 thread.
+- **En caliente a 0.95 con 1 thread:** 17.16 ms de HFresh de 8 en 8 frente a 1.17 y 1.82. Son 14.7 y 9.4 veces.
+- **Con 8 threads HFresh casi no da más queries:** en caliente a 0.95 pasa de 55 a 97 QPS. La celda de ruteo pasa de 666 a 3 901 y la de halo de 418 a 2 327.
+- **A 0.99 HFresh llega, y le sale muy caro.** Lee 4 608 veces del store por query, 97 MB. En frío tarda 595.74 ms en serie y 176.00 de 8 en 8, donde la celda de ruteo tarda 16.21 y la de halo 31.43.
+- **RAM, heap tras abrir:** 956 MB la celda de ruteo, 236 MB la de halo y de 414 a 422 MB HFresh. Las tres cifras llevan las queries y el manifiesto del arnés.
+- **Disco:** 33.25 GB la celda de ruteo y 38.25 GB la de halo, de los que 30.72 son los vectores. HFresh ocupa 39.28 GB, de los que 32.13 son sus objetos.
+- **El build de nuestro índice es 2.9 veces el de HFresh:** 3 h 49 min frente a 79 min, que son 48 de inserts y 31 de mantenimiento. Los dos corrieron con la otra sesión usando la máquina, así que valen como orden de magnitud.
+
+#### Lo esperado y lo medido
+
+| | esperado | medido |
+|---|---|---|
+| cargas a 0.95 frente a 1M | de +8 a +25 % | −5.8 % |
+| ventaja en frío a 0.95 frente a HFresh de 8 en 8, celda de ruteo | de 3.5 a 5 veces | 8.86 |
+| lo mismo, celda de halo | de 2.5 a 3.5 veces | 5.42 |
+| frente a HFresh en serie, celda de ruteo | más de 12 veces | 23.04 |
+| HFresh a 0.99 en frío y en serie | más de 150 ms | 595.74 ms |
+| RAM de la celda de ruteo, de la de halo y de HFresh | cerca de 1 GB, unos 250 MB, de 0.6 a 1 GB | 956 MB, 236 MB, de 414 a 422 MB |
+| disco de la celda de ruteo, de la de halo y de HFresh | 33, 43 y 41 GB | 33.25, 38.25 y 39.28 GB |
+| build de nuestro índice | de cuatro a seis horas | 3 h 49 min |
+
+- **Me quedé corto con la ventaja en frío,** casi a la mitad. Tomé las cifras de dbpedia a 1M (4.1 y 3.1 veces) y no conté con que las lecturas de HFresh crecen con el corpus y las nuestras no.
+- **Las cargas las esperaba al alza y bajan.** Parte es el rescore: con 64, a 1M la celda necesita ef 36 para 0.95 y a 10M le basta ef 29. Con rescore 150 suben un 7.6 %, de 19.24 a 20.70 (apartado siguiente).
+- **El halo ocupa menos de lo esperado:** 7.31 GB de store, donde contaba unos 12.
+
+#### Lo que no es comparable, y lo que no se midió
+
+- **Junto a la sesión de 1M de dbpedia como en un nodo, sin mezclar:** allí, en frío a 0.95 y con HFresh en serie, fueron 14.7 y 10.9 veces. Aquí son 23.0 y 14.1. Es otro dataset y otra dimensión, así que la diferencia no se lee como el efecto de pasar de 1M a 10M.
+- **El objeto de HFresh es solo el vector,** un suelo para su rescore. Con objetos de verdad cada lectura de rescore trae más bytes.
+- **Los números absolutos del Mac no valen para producción.** Vale la comparación.
+- **Actividad durante la sesión:** yo no toqué la máquina entre las 04:20 y las 08:42. La sesión de integración tenía una corrida suya en marcha, que acabó a las 06:14, un minuto antes de empezar la sesión; después cerró un turno de texto. Dice que no compiló, probó ni hizo commit desde que se puso el marcador, a las 04:14.
+- **Sin medir:** inserts, deletes y todo el camino de escritura a 10M; 1536d a 10M; Linux; y HFresh con searchProbe por encima de 4 096.
+
+### Las mismas celdas con rescore 150 (2026-11-22, enmienda 4): las dos condiciones se cumplen también
+
+**Estado: los puntos, sin cronometrar, a las 08:49; cronometrado el 22 de 08:55 a 09:38, en dos rondas y sin ninguna curva marcada.** Las tablas enteras están en `testdata/bench/v4.0/10m/r150/tenm-verdict.md`. En ese directorio, los dos manifiestos de HFresh y el de las celdas de 1M son copias de los de arriba.
+
+- **Primera condición, se cumple con 150.** En frío a 0.95 con 1 thread, HFresh de 8 en 8 tarda 35.86 ms, la celda de ruteo 5.20 y la de halo 7.55: 6.90 y 4.75 veces, con el umbral en 3.
+- **Con las dos configuraciones se cumple,** cada una contra el HFresh de su sesión, que es como la enmienda 4 decía que se leería.
+- **Segunda condición, se cumple con 150.** A 0.95, 20.70 cargas a 10M frente a 19.24 a 1M: un 7.6 % más, con el umbral en un 15 %. A 0.99, que no tiene umbral, un 18.4 % más: 88.87 frente a 75.07.
+- **El test nuevo reproduce exactos los puntos escritos con 64** antes de buscar nada: 0.9520 con 21.25 cargas y 0.9900 con 141.58, en las dos celdas.
+
+**Los puntos a 10M, por rescore, sin cronometrar.** Las lecturas por query son las del store más las de rescore.
+
+| rescore | recall | ef | cargas por query | lecturas por query, celda de ruteo | lecturas por query, celda de halo |
+|---|---|---|---|---|---|
+| 64 | 0.95 | 29 | 21.25 | 106.5 | 127.7 |
+| 150 | 0.95 | 28 | 20.70 | 191.4 | 212.1 |
+| 64 | 0.99 | 315 | 141.58 | 347.2 | 488.7 |
+| 150 | 0.99 | 177 | 88.87 | 327.7 | 416.6 |
+
+**Latencia con 1 thread, p50 en ms de la primera ronda, por rescore.** Cada columna es de su sesión. HFresh de 8 en 8 está en las dos y sirve de control.
+
+| | rescore 64, sesión de las 06:15 | rescore 150, sesión de las 08:55 | diferencia |
+|---|---|---|---|
+| HFresh de 8 en 8, 0.95 en frío | 35.62 | 35.86 | +0.7 % |
+| HFresh de 8 en 8, 0.95 en caliente | 17.16 | 17.42 | +1.5 % |
+| celda de ruteo, 0.95 en frío | 4.02 | 5.20 | +29 % |
+| celda de ruteo, 0.95 en caliente | 1.17 | 1.30 | +11 % |
+| celda de ruteo, 0.99 en frío | 16.21 | 12.22 | −25 % |
+| celda de ruteo, 0.99 en caliente | 6.64 | 4.42 | −33 % |
+| celda de halo, 0.95 en frío | 6.57 | 7.55 | +15 % |
+| celda de halo, 0.95 en caliente | 1.82 | 1.87 | +3 % |
+| celda de halo, 0.99 en frío | 31.43 | 21.92 | −30 % |
+| celda de halo, 0.99 en caliente | 10.90 | 6.90 | −37 % |
+
+- **A 10M, 64 es mejor a 0.95 y 150 es mejor a 0.99.** A 0.95, 150 añade 86 lecturas de vector por query y casi no quita cargas. A 0.99 quita un 37 % de las cargas.
+- **Las dos sesiones se pueden leer juntas:** HFresh de 8 en 8 se repite a un 0.7 % en frío y a un 1.5 % en caliente. El +3 % del halo en caliente a 0.95 es un empate.
+- **Los tiempos de 0.99 con 150 van sin cociente frente a HFresh:** sus curvas de 0.99 no se repitieron en esta sesión.
+- **Para la regla del rescore:** a 768 bits la regla propuesta da 150, que a 1M hace falta para llegar a 0.99. A 10M basta 64, que a 0.95 es un 29 % más rápido en frío. La regla no mira el tamaño del corpus. Con dos tamaños medidos no propongo otra: queda anotado en el plan.
+
+**Lo que esperaba en la enmienda 4, y lo medido:**
+
+| | esperado | medido |
+|---|---|---|
+| ef a 0.95 con 150 | 27 o 28 | 28 |
+| coste en frío a 0.95 frente a 64 | de +30 a +80 % | +29 % la celda de ruteo, +15 % la de halo |
+| ventaja frente a HFresh de 8 en 8, celda de ruteo | de 5 a 7 veces | 6.90 |
+| lo mismo, celda de halo | de 3 a 4.5 veces | 4.75 |
+| cargas a 0.99 con 150 | de 70 a 100 | 88.87 |
+
+- **Actividad mía durante esta sesión, declarada:** a las 08:55, con la primera curva recién empezada (HFresh de 8 en 8, ronda 1), una edición de texto de este informe y una consulta de procesos. Entre las 08:56 y las 08:58, un mensaje a la sesión de integración y su respuesta, sin compilar ni probar nada. Esa curva se separa de su segunda ronda un 2.3 % como mucho.
 
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
