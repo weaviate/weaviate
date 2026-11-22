@@ -20,6 +20,7 @@
 | en frío a 0.99 | 16.21 y 31.43 ms; HFresh 595.74, o 176.00 de 8 en 8: llega, y le sale muy caro | 10M |
 | RAM y disco | 956 MB y 33 GB la celda de ruteo; 236 MB y 38 GB la de halo; 415 MB y 39 GB HFresh | 10M |
 | en memoria frente a HNSW | la mitad del heap; HNSW da 2.0 veces el QPS a 0.95 y empata a 0.99 | 10M, 768d |
+| frente a HNSW con RQ de 1 bit y los vectores en disco, en frío a 0.95 | por defecto, HNSW tarda 7.71 ms, 1.9 veces la celda de ruteo; centrado, 3.2 a 4.1 ms, un empate, y a 0.99 unos 8 ms frente a 12.22. HNSW usa 4.8 GB de heap, cinco veces la celda de ruteo | 10M |
 | inserts en disco | el índice crecido es el gemelo en memoria; reorganizado, 1.10 veces el lote en frío y 1.21 en caliente | 1M |
 | velocidad de insert | 184 por segundo con un escritor, 663 con 8 búsquedas a la vez; HFresh, 2 089 | 1M |
 | deletes, en memoria | 30 rondas de churn con el 90 % de la base renovado: −0.0011 de recall, +1.6 % de cargas | 1M |
@@ -645,6 +646,68 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 - **La celda por defecto no se repite:** su mayor diferencia entre rondas es un 2.9 %.
 - **Se reportan las dos ejecuciones de la celda centrada,** sin escoger una.
 - **Cabe antes de las 08:30:** acabará hacia la 01:00.
+
+#### Resultados (23 de noviembre, de 23:33 a 00:30)
+
+**Estado: cronometrado.** Tres procesos: la celda por defecto (23:33 a 23:36 sus rondas), la centrada (23:58 a 00:03) y la centrada otra vez (00:26 a 00:30). Ningún tramo con teclado ni trackpad, y el Mac no se durmió. Datos en `testdata/bench/v4.0/10m/hnsw/`.
+
+**Con 1 thread, p50 en ms, ronda 1 / ronda 2.** El presupuesto de cada query lo da el limitador de admisión.
+
+| celda | recall | ef | vectores leídos por query | en caliente | en frío |
+|---|---|---|---|---|---|
+| por defecto, sin centrar | 0.95 | 177 | 177 | 1.78 / 1.77 | 7.71 / 7.48 |
+| por defecto, sin centrar | 0.99 | no llega: 0.9884 con ef 2 048 | | | |
+| centrada (*mía*) | 0.95 | 46 | 46 | 0.56 / 0.54 | **3.78 / 3.22, marcada** |
+| centrada | 0.99 | 292 | 292 | 2.45 / 2.48 | 8.04 / 7.88 |
+| centrada, otra vez | 0.95 | 46 | 46 | 0.55 / 0.54 | **4.08 / 3.22, marcada** |
+| centrada, otra vez | 0.99 | 323 | 323 | 2.72 / 2.70 | 8.33 / 8.42 |
+
+- **El frío a 0.95 de la celda centrada deriva las dos veces, y siempre igual:** la primera ronda sale más lenta (3.78 y 4.08 ms) y la segunda da lo mismo en las dos ejecuciones (3.22 y 3.22). Es la primera curva que se cronometra tras el build. *Lectura mía, sin comprobar:* lo que el sistema hace justo después de un build de 22 minutos que deja 14 GB residentes. Las demás curvas se separan un 3.7 % como mucho.
+- **HNSW lee del disco tantos vectores como su ef, no 512.** Con el ef por debajo del límite de rescore, el rescore lee los ef candidatos de la búsqueda.
+- **Sin centrar, la configuración por defecto no llega a 0.99** a 10M con ef 2 048, y para 0.95 pide ef 177, cuatro veces el de la centrada.
+
+**RAM y disco.**
+
+| | heap en uso, el índice construido y recogido | huella del proceso | de ello, códigos | en disco |
+|---|---|---|---|---|
+| por defecto | 4 764 MB | 6 954 MB | 992 MB | 30.72 GB de vectores, más el grafo y los códigos, no medidos |
+| centrada | 4 869 y 4 859 MB | 7 115 y 7 107 MB | 992 MB | lo mismo |
+
+- **El heap lleva las queries y la verdad, como el de las celdas,** y nada de los vectores.
+- **La huella incluye lo que el build dejó sin devolver.** Las celdas y HFresh se midieron recién abiertos, no tras construir: la comparable es el heap.
+- **El build:** 27 min 19 s sin centrar; 22 min 1 s y 21 min 46 s centrado. El de nuestro índice tardó 3 h 49 min.
+
+**Frente a las celdas y a HFresh, en otras sesiones.** Las celdas no derivan entre rondas: la de códigos en RAM da 4.02 y 3.95 ms en frío a 0.95.
+
+| en frío, 1 thread, p50 | 0.95 | 0.99 | heap |
+|---|---|---|---|
+| HNSW por defecto | 7.71 | no llega | 4.76 GB |
+| HNSW centrado | 3.78 a 4.08 en la ronda 1, 3.22 en la 2 | 7.88 a 8.42 | 4.86 GB |
+| posting-edge, códigos en RAM, rescore 64 | 4.02 | 16.21 | 0.96 GB |
+| posting-edge, códigos en RAM, rescore 150 | 5.20 | 12.22 | 0.96 GB |
+| posting-edge, halo, rescore 64 | 6.57 | 31.43 | 0.24 GB |
+| HFresh de 8 en 8 | 35.62 | 176.00 | 0.42 GB |
+
+- **Sin centrar, HNSW es 1.9 veces más lento en frío a 0.95 que la celda de códigos en RAM,** y 1.2 veces más que la de halo. En caliente, 1.78 ms frente a 1.17 y 1.82.
+- **Centrado, HNSW empata en frío a 0.95 con la celda de códigos en RAM en la primera ronda,** y es un 18 % más rápido en la segunda (3.22 frente a 3.95). En caliente es dos veces más rápido: 0.55 ms frente a 1.17.
+- **A 0.99, HNSW centrado es el más rápido en frío:** unos 8 ms, frente a 12.22 de la celda de códigos en RAM con rescore 150 y 16.21 con 64. En caliente, 2.5 a 2.7 ms frente a 4.42 y 6.64.
+- **Lo que paga HNSW es memoria:** 4.8 GB de heap a 10M, cinco veces la celda de códigos en RAM, veinte veces la de halo y once veces HFresh. Es el grafo en memoria; los códigos son 1 GB.
+- **No es la misma sesión.** HFresh de 8 en 8 se repitió entre las dos sesiones del 22 a menos de un 2 %, pero no en esta. Las tres sesiones usan el mismo volumen, el mismo protocolo de frío y las mismas queries.
+
+**Lo esperado y lo medido:**
+
+| | esperado | medido |
+|---|---|---|
+| 0.95 sin centrar | ef de 40 a 100 | ef 177 |
+| 0.99 sin centrar | puede no alcanzarse | no se alcanza: 0.9884 |
+| centrada, 0.95 y 0.99 | ef de 40 a 80, y de 250 a 450 | ef 46, y 292 y 323 |
+| vectores leídos por query | unos 512 | el ef: de 46 a 323 |
+| heap | de 3.0 a 3.6 GB | de 4.76 a 4.87 GB |
+| 0.95 en caliente y en frío, sin centrar | de 1 a 2.5 ms y de 6 a 20 | 1.78 y 7.71 |
+| en frío a 0.95, frente a las celdas | más lento que las dos | sin centrar, sí; centrado, empata con la de códigos en RAM y gana a la de halo |
+| build | de 30 a 60 minutos | 27 sin centrar, 22 centrado |
+
+- **Me equivoqué en lo que lee:** daba por hecho que el rescore leía siempre su límite. Lee el ef, que a 0.95 es mucho menos.
 
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
