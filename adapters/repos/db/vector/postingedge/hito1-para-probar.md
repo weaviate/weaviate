@@ -102,7 +102,7 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 
 ## Lo que cambia con el hito 2
 
-*Estado de la rama el 21 de noviembre. Cada punto dice si está verificado a 1M o solo por tests.*
+*Estado de la rama el 22 de noviembre. Cada punto dice si está verificado a 1M o solo por tests.*
 
 - **El formato en disco es otro. Un índice creado con el código del hito 1 se abre y funciona como era,** con búsquedas e inserts, pero no recibe ni la limpieza de borrados ni la reordenación de vectores. Para tener el formato nuevo hay que volver a importar.
   - *Verificado a 1M:* con el formato nuevo el índice es el mismo (0.9515 de recall y 19.7 postings leídos a ef 21; 0.9905 y 72.1 a ef 158), y devuelve lo mismo reabierto.
@@ -113,7 +113,8 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 - **Una caída del proceso a mitad de una escritura ya no deja el índice sin abrir.** Cada escritura pasa antes por un diario, y al abrir el índice vuelve a ser el de después de la última escritura entera. No cubre un corte de corriente.
   - *Verificado solo por tests,* con copias de los ficheros en cada punto donde el proceso puede morir.
 - **Las aristas de los vectores más viejos se rehacen cada vez que el índice dobla su tamaño.** Mientras dura una de esas pasadas, cada insert rehace además las aristas de un vector viejo: cuesta más o menos como otro insert.
-  - *Verificado solo por tests.*
+  - *Verificado a 1M* (22 de noviembre): creciendo de 10 000 a 990 000, el índice lee a 0.99 de recall un 9 % menos de postings que uno construido de una vez (71.2 frente a 78.3), y a 0.95 un 5 % más (19.2 frente a 18.2). Reabierto devuelve lo mismo.
+  - **Pero sin rehacer aristas sale igual:** la corrida del hito 1, que no las rehacía, da los mismos números (0.9509 y 19.7 a ef 21, 0.9904 y 72.2 a ef 158, frente a 0.9511 y 19.6, 0.9902 y 72.2). Rehacerlas costó un 42 % más de búsqueda al insertar. Si se queda puesto está por decidir.
 - **Varios inserts a la vez:** si llegan por varias goroutines (un import con varios workers), sus búsquedas corren en paralelo y solo sus escrituras van de una en una.
   - *Verificado solo por tests.* **Con `ASYNC_INDEXING` ya hay un test por el shard:** importar, buscar, borrar, actualizar y reiniciar con unos miles de vectores. A escala no está probado.
 - **El fichero de vectores se reescribe entero cada vez que el índice dobla,** para dejar juntos los vectores de cada posting. Mientras dura pide el doble de disco de los vectores: 12 GB por millón a 1536 dimensiones.

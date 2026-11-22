@@ -722,7 +722,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 |---|---|---|---|
 | 1 | Formato de v5.3 y reorganización de fondo | hechos | cumple: 2.00 lecturas por carga con el bucket en un segmento |
 | 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote |
-| 3 | Refresco de aristas al doblar | hechos | corriendo desde el 21 a las 21:21 |
+| 3 | Refresco de aristas al doblar | hechos | cumple: −9.0 % de cargas a 0.99 contra el lote. Sin refresco, −9.7 %: el refresco no se nota |
 | 4 | Cálculo de inserts en los workers compartidos | hechos | sin hacer |
 | 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | sin hacer |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | sin hacer |
@@ -872,10 +872,90 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 - **Refrescar un vector es repetir el paso de aristas de su insert:** la búsqueda, que entra por su propio posting y solo lee, y después su lista y su sitio en las listas de sus vecinos. El vector no se mueve.
 - **Va en línea:** un vector refrescado por insert mientras la pasada dura. Una pasada toma como mucho la mitad del índice, así que acaba cuando el índice ha crecido la mitad.
-- **Lo que cuesta:** al crecer de 10 000 a 1M son unos 630 000 refrescos para 980 000 inserts. Cada uno es la búsqueda de un insert.
+- **Lo que cuesta:** un refresco es la búsqueda de un insert. Al crecer de 10 000 a 1M son 420 033 refrescos para 980 000 inserts, medidos abajo. Aquí puse «unos 630 000» antes de medirlo, y estaba mal.
 - **Un vector marcado como borrado no se refresca,** y uno que se fue no tiene fecha.
+- **Diferencia con v2.4, que sale de ir en línea** (*mío*): v2.4 refresca cada tanda de una vez, con los inserts parados, y todos sus vectores quedan con la fecha del doblado, así que vuelven a estar viejos en el siguiente. Aquí cada vector se fecha con los que hay cuando le toca, que ya son más que al empezar la pasada, y en el doblado siguiente no llega a «la mitad o menos». Un vector se refresca así cada dos doblados y no en cada uno. Fechar con el comienzo de la pasada daría el calendario de v2.4; no lo he hecho ni medido.
 
 **Tests.** El refresco en disco es el del gemelo en memoria: en cada doblado están viejos los mismos vectores, cada refresco encuentra los mismos vecinos, escribe la misma lista y entra en las mismas listas, y los dos índices siguen siendo el mismo (`TestGrowRefreshEqualsMemory`, con las dos formas de guardar aristas, dos doblados y una reapertura entre ellos). Por el índice del shard, con `-race`: cuántos vectores refresca cada insert y dónde acaba cada pasada, una pasada que la cierra el fondo tras una reapertura, y junto a búsquedas, inserts y deletes.
+
+**Verificación a 1M: la corrida B repetida con refresco, y el lote.**
+
+*21 de noviembre, de 21:21 a 03:05, y el lote el 22 de 03:05 a 03:24. En conteos, sin cronometrar, con el build de 10M de HFresh en la máquina (carga de 150). Código de `33f154afa0`, el de las piezas 1 a 3, antes del diario. Resultados en `testdata/bench/integration-m2/piece3-refresh-dbpedia-1m.json` y `piece3-batch-dbpedia-1m.json`, con sus logs al lado.*
+
+- **Qué es:** el índice crece de su base por defecto de 10 000 a 990 000, 99 veces, con un llamador y con todo lo que hace por su cuenta puesto: refresco en línea, reordenación de vectores y la petición del bucket en un segmento. No se borra nada.
+- **El lote** es el mismo código con los 990 000 vectores como base, construida de una vez: 4 195 postings. No había un lote del índice integrado a este tamaño.
+- **Lectura,** como en v2.4: las cargas a 0.95 y a 0.99 se leen entre dos puntos de la malla de ef 10, 20, 40, 80, 160 y 320, más los dos ef de la corrida B, 21 y 158.
+
+**Veredicto, por el criterio: cumple.** A 0.99 el índice crecido con refresco carga 71.23 postings y el lote 78.25: un 9.0 % menos, donde el criterio pedía +10 % o menos.
+
+| ef | crecido con refresco: recall | cargas | lote: recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 10 | 0.9168 | 13.01 | 0.9177 | 12.23 | −0.0010 | +6.4 % |
+| 20 | 0.9497 | 19.04 | 0.9492 | 17.97 | +0.0004 | +6.0 % |
+| 21 | 0.9511 | 19.61 | 0.9510 | 18.51 | +0.0001 | +5.9 % |
+| 40 | 0.9710 | 29.25 | 0.9691 | 27.51 | +0.0019 | +6.3 % |
+| 80 | 0.9834 | 45.72 | 0.9816 | 42.93 | +0.0017 | +6.5 % |
+| 158 | 0.9902 | 72.16 | 0.9888 | 67.97 | +0.0014 | +6.2 % |
+| 160 | 0.9904 | 72.81 | 0.9890 | 68.55 | +0.0015 | +6.2 % |
+| 320 | 0.9940 | 117.60 | 0.9934 | 110.80 | +0.0006 | +6.1 % |
+
+| | crecido con refresco | crecido sin refresco (corrida B) | base de 99 000 (corrida A) | lote |
+|---|---|---|---|---|
+| cargas a 0.95 | 19.18 (+5.3 %) | 19.50 (+7.1 %) | fuera de su malla | 18.21 |
+| cargas a 0.99 | 71.23 (−9.0 %) | 70.68 (−9.7 %) | 70.86 (−9.5 %) | 78.25 |
+| cruza 0.99 entre | ef 80 y 158 | ef 80 y 158 | ef 80 y 158 | ef 160 y 320 |
+
+Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin refresco, con su malla de entonces (ef 20, 21, 40, 80, 158 y 160).
+
+- **A igual ef, el crecido carga un 6 % más que el lote,** como en v2.4 (allí de un 5.7 a un 6.9 %): es lo de la partición.
+- **Y tiene más recall que el lote de ef 40 a 160,** de 0.0014 a 0.0019. En v2.4 tenía el mismo. Por eso a 0.99 queda por debajo del lote y no un 7.8 % por encima.
+- **Ese −9.0 % depende de dónde cae 0.99 en la malla.** El crecido lo cruza entre ef 80 y 158, y el lote entre 160 y 320, un tramo de 42 cargas donde la lectura es una recta. A ef 160 el lote está en 0.9890 con 68.55 cargas.
+
+**El refresco no se nota en esta medida.** Es lo que no esperaba, y lo describo sin haberlo perseguido:
+
+| ef | con refresco: recall | cargas | sin refresco (corrida B): recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 20 | 0.9497 | 19.04 | 0.9489 | 19.19 | +0.0008 | −0.8 % |
+| 21 | 0.9511 | 19.61 | 0.9509 | 19.74 | +0.0002 | −0.7 % |
+| 40 | 0.9710 | 29.25 | 0.9713 | 29.32 | −0.0004 | −0.2 % |
+| 80 | 0.9834 | 45.72 | 0.9840 | 45.81 | −0.0006 | −0.2 % |
+| 158 | 0.9902 | 72.16 | 0.9904 | 72.18 | −0.0001 | 0.0 % |
+| 160 | 0.9904 | 72.81 | 0.9904 | 72.80 | 0.0000 | 0.0 % |
+
+- **Las dos corridas dan lo mismo,** dentro de lo que se separan dos corridas del mismo algoritmo (0.0015 de recall en el hito 1). El criterio lo cumple también el índice sin refresco, por el mismo margen.
+- **El refresco sí hizo su trabajo sobre las listas,** y como en v2.4:
+
+| | integrado | v2.4 |
+|---|---|---|
+| pasadas | 6, al llegar a 20 000, 40 000, 80 000, 160 000, 320 000 y 640 000 | 3 tandas, con 200 000, 400 000 y 800 000 |
+| vectores refrescados | 420 033 (10, 10, 30, 50, 110 y 210 mil) | 700 000 |
+| refrescos por insert | 0.43 | 0.79 |
+| listas que cambian | 94.8 % | 92.8 % |
+| aristas propias, antes → después | 8.34 → 9.36 | 8.57 → 9.44 |
+| aristas propias conservadas | 5.85 | 6.34 |
+| aristas inversas escritas por refresco | 0.34 | 0.27 |
+| cargas de posting por refresco | 61.0 | 21.6 |
+
+- **Lo que costó:** 25.6 millones de cargas de posting, sobre los 60.5 millones de los inserts. Un 42 % más de búsqueda en el camino de escritura.
+- **Lo que v2.2 medía sin refresco no aparece aquí.** Allí, en memoria, crecer diez veces sin refrescar dejaba el índice de un 17.9 a un 32 % por encima del lote a 0.99, con menos recall que él a igual ef. Aquí, sin refrescar, el índice tiene más recall que su lote a igual ef desde ef 40. No sé cuál de las dos cosas cambia, si el crecido o el lote: el lote integrado no se había medido a 990 000.
+- **Las cargas absolutas tampoco son las de v2.4,** como ya pasó en la pieza 2: el lote da aquí 18.21 cargas a 0.95 y 78.25 a 0.99, y el de v2.0, en memoria, 10.06 y 52.78.
+- **Decisión que queda para el usuario:** si el refresco se queda puesto. Con estos números no compra nada medible y cuesta un 42 % más de búsqueda al escribir. No lo he quitado.
+
+**Lo demás que dejó la corrida:**
+
+- **Cobertura completa,** y 8 145 postings repartidos tras 4 051 splits, frente a 8 167 y 4 062 de la corrida B.
+- **Reabierto a 1M devuelve lo mismo:** ninguna de las 5 000 queries cambia su respuesta, en ninguno de los ocho ef.
+- **Lecturas por carga, al acabar de crecer:** 3.22, con 73 KB, con el bucket en 2 segmentos. Compactado y reordenado después: 2.00 y 65.5 KB, como en la pieza 1, y ninguna respuesta cambia.
+- **El índice pidió su bucket en un segmento 13 veces mientras crecía,** y las 13 lo consiguió. El binario es anterior al cambio que hace de cada petición una sola pasada.
+- **Reordenación de vectores:** 6 pasadas mientras crecía, 1.6 millones de vectores escritos; al acabar, 819 708 de 990 000 en el orden de sus postings.
+- **Inserts:** 49 por segundo desde la base, con la máquina a 150 de carga. No es una medida. La corrida B dio 67 con otra carga.
+- **Disco:** 6.8 GB.
+
+**Sin verificar de la pieza 3:**
+
+- **Por qué el refresco no se nota,** y si se notaría con el calendario de v2.4, fechando con el comienzo de la pasada.
+- **El recall de arista por cohorte,** que es con lo que v2.4 mira cómo envejecen las listas: el arnés del índice integrado no lo mide.
+- **Nada cronometrado:** lo que el refresco frena a los inserts con la máquina sola.
 
 ### Pieza 4: el cálculo de los inserts en los workers del nodo
 
