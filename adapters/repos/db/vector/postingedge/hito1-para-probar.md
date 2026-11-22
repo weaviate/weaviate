@@ -129,6 +129,6 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 
 - **`rq.cacheMode: "none"` ya se puede poner al crear la clase.** El índice no tiene entonces ningún código de sus vectores en memoria: quedan unos 12 B por vector en lugar de 84. A cambio cada posting lleva en disco los códigos de los vectores a los que llevan sus aristas, y una búsqueda lee tres filas por posting en lugar de dos, con unas 2.6 veces los bytes (160 KB frente a 62 por posting en una prueba de 30 000 vectores).
   - **El modo no se cambia en una clase que ya existe.**
-  - *Verificado solo por tests,* también por el shard, y con una pasada de 30 000 vectores: el mismo índice abierto con los códigos en memoria responde exactamente lo mismo. *Sin verificar a 1M, y sin ninguna medida de latencia.*
+  - *Verificado por tests,* también por el shard, y con una pasada de 30 000 vectores: el mismo índice abierto con los códigos en memoria responde exactamente lo mismo. Y con el dataset de 1M, el proceso muerto con `kill -9` a los 15 minutos de un import deja un índice que abre entero, con el halo de cada posting completo. *Sin verificar todavía: el índice crecido entero a 1M. Sin ninguna medida de latencia.*
 
 **Lo que sigue igual que en el hito 1:** todo lo de «Qué falla por diseño».

@@ -1125,9 +1125,18 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Lo que se escribe en halos,** en 27 000 inserts y la limpieza del 30 %: 204 100 entradas añadidas (15.5 MB), 470 halos enteros (31 MB; 220 de splits y 250 reescritos) y 121 215 lápidas de valores quitados (23 MB). Unos 2.6 KB por insert, donde el vector son 6 KB.
 - **Lecturas de códigos del bucket de ruteo:** 687 017, unas 25 por insert contando refrescos y limpieza.
 
+**Una muerte del proceso en modo `none`, con el dataset de 1M** (22 de noviembre, de 10:29 a 10:45; código de `0f982dc354`; `piece7-killed-growing-dbpedia-1m.*` y `piece7-killed-opened-dbpedia-1m.*`). Es la de la pieza 5, con la clase en `none`.
+
+- **Lo que quedó tras el `SIGKILL` a los 15 minutos:** 154 088 vectores, con los logs de los mismos cuatro buckets cortados a medias.
+- **Al abrir:** 88 registros del diario aplicados otra vez, y el grafo de centroides reconstruido.
+- **Cobertura completa, con el halo:** cada endpoint de cada arista está en el halo de su posting, con el código que el índice guarda de él. 1 239 postings repartidos tras 598 splits, y 0 MB de códigos en memoria.
+- **Responde:** 0.9727 de recall a ef 21 y 0.9964 a ef 158 sobre lo que tiene. Con el bucket compactado después, ninguna de las 1 000 queries cambia.
+- **Lecturas por carga:** 5.04 y 187 KB tal como quedó; 3.12 y 182 KB con el bucket compactado.
+- **Lo que no dice,** como en la pieza 5: si falta algún insert ya respondido.
+
 **Sin verificar de la pieza 7:**
 
-- **Nada a 1M.** La corrida está preparada: crecer de la base por defecto con `none`, medir, reabrir, compactar, y abrir el mismo índice con los códigos en memoria para contar las queries que cambian de respuesta. Va detrás de la de las piezas 4, 5 y 6.
+- **El índice crecido entero a 1M.** La corrida está en marcha desde el 22 a las 10:46: crecer de la base por defecto con `none`, medir, reabrir, compactar, abrir el mismo índice con los códigos en memoria para contar las queries que cambian de respuesta, y borrar el 30 %.
 - **La latencia.** La referencia de v4.0 es de 1.3 a 1.6 veces la latencia en frío del modo de ruteo, con 35 MB de heap frente a 106. Aquí no hay nada cronometrado, y el heap no se puede leer del arnés, que tiene el dataset en memoria: lo que da es los bytes de códigos que el índice tiene.
 - **Cuánto pesa a 1M reescribir los halos:** cada vez se escribe el halo entero y una lápida por cada valor que tenía. El umbral, la mitad de lo necesario, es mío y está sin medir.
 - **Las lecturas de códigos del bucket de ruteo en frío:** 16 por insert, en la parte que corre en paralelo, y unas 60 por vector que la limpieza saca.

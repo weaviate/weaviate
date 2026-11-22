@@ -1,0 +1,374 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "queries": 1000,
+  "k": 10,
+  "base": 10000,
+  "userConfig": {
+    "distance": "cosine",
+    "ef": 20,
+    "efConstruction": 160,
+    "maxPostingSizeKB": 0,
+    "rq": {
+      "rescoreLimit": -1,
+      "cacheMode": "none"
+    }
+  },
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237381,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 1239,
+    "splits": 598,
+    "splitsFailed": 0,
+    "live": 154088,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 4,
+    "vectorsLaidOut": 118552,
+    "refreshedAt": 80000,
+    "halo": true
+  },
+  "gomaxprocs": 10,
+  "baseSeconds": 0,
+  "insertsAfterTheBase": 0,
+  "insertSeconds": 0,
+  "insertsPerSecond": 0,
+  "stretches": null,
+  "stats": {
+    "inserted": 0,
+    "splits": 0,
+    "splitsFailed": 0,
+    "inverseChecks": 0,
+    "inverseEdges": 0,
+    "inversePostings": 0,
+    "inverseListReads": 0,
+    "searchLoads": 0,
+    "searchRounds": 0,
+    "searchRows": {
+      "n": 0,
+      "bytes": 0
+    },
+    "searchVectors": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberRow": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberMap": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberRouting": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberVector": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownEdges": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownDists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseLists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitMapWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitCentroidWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSearchReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeInverseReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSplitReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWritesFull": 0,
+    "rowWritesSplit": 0,
+    "rowWritesClose": 0,
+    "rowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowDeletes": 0,
+    "storeRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "pendingPeakMembers": 0,
+    "pendingPeakBytes": 0,
+    "pendingPeakPostings": 0,
+    "pendingLogWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloAdded": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloRows": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "routingReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloTrims": 0,
+    "haloTrimmed": {
+      "n": 0,
+      "bytes": 0
+    },
+    "assignNs": 0,
+    "searchNs": 0,
+    "writeNs": 0,
+    "inverseNs": 0,
+    "splitNs": 0,
+    "cycleNs": 0,
+    "rowNs": 0,
+    "searchPhaseNs": 0,
+    "applyPhaseNs": 0
+  },
+  "dirBytes": 0,
+  "refreshed": {
+    "passes": 0,
+    "refreshed": 0,
+    "selfMissing": 0,
+    "listsChanged": 0,
+    "edgesBefore": 0,
+    "edgesAfter": 0,
+    "edgesKept": 0,
+    "searchLoads": 0,
+    "searchRounds": 0,
+    "vectorReads": 0,
+    "inverseChecks": 0,
+    "inverseEdges": 0
+  },
+  "journalRecords": 0,
+  "journalBytes": 0,
+  "recovered": {
+    "journalRecords": 88,
+    "graphRebuilt": true
+  },
+  "stages": [
+    {
+      "name": "as it was left",
+      "held": 154088,
+      "deleted": 835912,
+      "postingsGivenOut": 1239,
+      "splits": 598,
+      "coverage": "complete",
+      "postingSegments": 2,
+      "deletedCentroidsInTheGraph": 0,
+      "postingBucketAsOneSegment": 0,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 4,
+      "vectorSlots": 154088,
+      "vectorsLaidOut": 118552,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.9727,
+          "loads": 14.766,
+          "rounds": 3.444,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 5.039347148855478,
+          "storeBytesPerLoad": 191525.0004063389
+        },
+        {
+          "ef": 158,
+          "recall": 0.9964,
+          "loads": 52.46,
+          "rounds": 12.865,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 5.048475028593214,
+          "storeBytesPerLoad": 189680.14165078156
+        },
+        {
+          "ef": 20,
+          "recall": 0.9708,
+          "loads": 14.412,
+          "rounds": 3.356,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 5.0397585345545375,
+          "storeBytesPerLoad": 191500.30439911186
+        },
+        {
+          "ef": 40,
+          "recall": 0.9859,
+          "loads": 21.596,
+          "rounds": 5.15,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 5.042368957214299,
+          "storeBytesPerLoad": 191678.9685589924
+        },
+        {
+          "ef": 80,
+          "recall": 0.9929,
+          "loads": 33.282,
+          "rounds": 8.071,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 5.04726278468842,
+          "storeBytesPerLoad": 191275.427227931
+        },
+        {
+          "ef": 160,
+          "recall": 0.9964,
+          "loads": 52.952,
+          "rounds": 12.988,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "storeReadsPerLoad": 5.049044417585738,
+          "storeBytesPerLoad": 189664.86142166491
+        }
+      ]
+    },
+    {
+      "name": "the bucket of postings as one segment",
+      "held": 154088,
+      "deleted": 835912,
+      "postingsGivenOut": 1239,
+      "splits": 598,
+      "coverage": "complete",
+      "postingSegments": 1,
+      "deletedCentroidsInTheGraph": 0,
+      "postingBucketAsOneSegment": 1,
+      "routingCodesInMemoryBytes": 0,
+      "vectorGen": 4,
+      "vectorSlots": 154088,
+      "vectorsLaidOut": 118552,
+      "layoutsSinceOpened": 0,
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.9727,
+          "loads": 14.766,
+          "rounds": 3.444,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.1186509548963834,
+          "storeBytesPerLoad": 186546.64011919274
+        },
+        {
+          "ef": 158,
+          "recall": 0.9964,
+          "loads": 52.46,
+          "rounds": 12.865,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.1215783454060237,
+          "storeBytesPerLoad": 184570.0003049943
+        },
+        {
+          "ef": 20,
+          "recall": 0.9708,
+          "loads": 14.412,
+          "rounds": 3.356,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.119067443796836,
+          "storeBytesPerLoad": 186524.2287676936
+        },
+        {
+          "ef": 40,
+          "recall": 0.9859,
+          "loads": 21.596,
+          "rounds": 5.15,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.1196980922393034,
+          "storeBytesPerLoad": 186747.51278014446
+        },
+        {
+          "ef": 80,
+          "recall": 0.9929,
+          "loads": 33.282,
+          "rounds": 8.071,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.1217775374076076,
+          "storeBytesPerLoad": 186182.70837089117
+        },
+        {
+          "ef": 160,
+          "recall": 0.9964,
+          "loads": 52.952,
+          "rounds": 12.988,
+          "queriesAnsweredOtherwiseTheSecondTime": 0,
+          "queriesAnsweredOtherwiseAfterReopening": 0,
+          "storeReadsPerLoad": 3.121789545248527,
+          "storeBytesPerLoad": 184531.96205997886
+        }
+      ]
+    }
+  ]
+}
