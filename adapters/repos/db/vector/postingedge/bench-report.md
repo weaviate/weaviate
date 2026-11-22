@@ -583,7 +583,7 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 
 - **Actividad mía durante esta sesión, declarada:** a las 08:55, con la primera curva recién empezada (HFresh de 8 en 8, ronda 1), una edición de texto de este informe y una consulta de procesos. Entre las 08:56 y las 08:58, un mensaje a la sesión de integración y su respuesta, sin compilar ni probar nada. Esa curva se separa de su segunda ronda un 2.3 % como mucho.
 
-### HNSW con RQ de 1 bit a 10M, con los vectores en disco (pre-registro, 22 a las 21:40)
+### HNSW con RQ de 1 bit a 10M, con los vectores en disco (pre-registro, 22 a las 21:29)
 
 **Estado: pre-registrado antes de compilar nada.** El encargo es del usuario, del 22 por la noche; lo que deja abierto lo fijo yo, marcado como *mío*.
 
