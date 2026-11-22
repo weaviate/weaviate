@@ -53,7 +53,7 @@ func persistentOpensWhatACrashLeft(t *testing.T, cacheMode string) {
 	ctx := context.Background()
 	const k = 10
 	const total = 2*persistentBase + 150
-	f := newPersistentFixtureMode(t, total, cacheMode, func(cfg *PersistentConfig) { cfg.noBackground = true })
+	f := newPersistentFixtureMode(t, total, cacheMode, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
 	f.add(t, 0, persistentBase+100)
 	require.NoError(t, f.index.Flush())
 

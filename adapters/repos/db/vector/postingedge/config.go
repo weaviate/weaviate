@@ -113,8 +113,8 @@ type UserConfig struct {
 	BuildProbe    int `json:"buildProbe"`
 	RescueLimit   int `json:"rescueLimit"`
 	TrainingLimit int `json:"trainingLimit"`
-	// EntryPostings, LoadBatch, EF and RescoreLimit apply per search and can
-	// be updated at any time.
+	// EntryPostings, LoadBatch, EF, RescoreLimit and RescorePerK apply per
+	// search and can be updated at any time.
 	EntryPostings int `json:"entryPostings"`
 	LoadBatch     int `json:"loadBatch"`
 	// EF is the quality knob: the search stops when the best known unloaded
@@ -122,6 +122,10 @@ type UserConfig struct {
 	// raised to k.
 	EF           int `json:"ef"`
 	RescoreLimit int `json:"rescoreLimit"`
+	// RescorePerK, when positive, has a search for k results rescore at
+	// least this many times k candidates, where RescoreLimit is fewer. 0
+	// leaves k the only floor. A RescoreLimit of 0, no rescore, stays.
+	RescorePerK int `json:"rescorePerK,omitempty"`
 	// SourceMargin cuts the expansion: only the edges of the scanned vectors
 	// within this distance of the stop threshold are followed. Vectors
 	// further from the query rarely link to anything the search still
@@ -198,6 +202,9 @@ func (u UserConfig) Validate() error {
 	}
 	if u.RescoreLimit < 0 {
 		ec.Addf("rescoreLimit must not be negative, got %d", u.RescoreLimit)
+	}
+	if u.RescorePerK < 0 {
+		ec.Addf("rescorePerK must not be negative, got %d", u.RescorePerK)
 	}
 	// Written so that NaN fails too.
 	if !(u.SourceMargin >= 0) && u.SourceMargin != SourceMarginAuto {

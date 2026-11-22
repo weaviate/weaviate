@@ -189,7 +189,7 @@ func (ix *Index) searchFrom(ctx context.Context, vector []float32, k int, allow 
 
 	query := ix.normalized(vector)
 	ef := max(int(ix.ef.Load()), k)
-	rescoreLimit := int(ix.rescoreLimit.Load())
+	rescoreLimit := ix.rescoreLimitFor(k)
 	entries := int(ix.entryPostings.Load())
 	batch := int(ix.loadBatch.Load())
 	margin := math.Float32frombits(ix.sourceMargin.Load())

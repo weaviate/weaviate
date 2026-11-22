@@ -403,6 +403,53 @@ func TestGrowCompactionDropsWhatNothingReads(t *testing.T) {
 	f.same(t, "compacted")
 }
 
+// A search rescores max(rescoreLimit, k) candidates, and at least
+// rescorePerK times k where that is set: the automatic rescore limit of the
+// index a shard opens asks for four times k (searchConfig). With no rescore
+// it stays without. So in the index that grows on disk and in the one in
+// memory, which share the rule.
+func TestRescorePerK(t *testing.T) {
+	ctx := context.Background()
+	f := newGrowFixture(t, 1400, 1000, 64, false, 64, 60)
+	for f.inserted < 1400 {
+		difference, err := f.insert(ctx)
+		require.NoError(t, err)
+		require.Empty(t, difference)
+	}
+	tests := []struct {
+		name           string
+		limit, perK, k int
+		wantRescored   int
+	}{
+		{name: "the limit, with no floor of k", limit: 30, k: 10, wantRescored: 30},
+		{name: "four times k, over the limit", limit: 30, perK: 4, k: 10, wantRescored: 40},
+		{name: "the limit, over four times k", limit: 30, perK: 4, k: 5, wantRescored: 30},
+		{name: "four times a larger k", limit: 30, perK: 4, k: 15, wantRescored: 60},
+		{name: "k, over the limit", limit: 30, k: 50, wantRescored: 50},
+		{name: "no rescore", limit: 0, perK: 4, k: 10, wantRescored: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := f.uc
+			uc.RescoreLimit, uc.RescorePerK = tt.limit, tt.perK
+			require.NoError(t, uc.Validate())
+			f.g.ix.storeSearchConfig(uc)
+			f.twin.ix.storeSearchConfig(uc)
+			for i, query := range f.queries[:5] {
+				stats := &diskSearchStats{}
+				ids, _, err := f.g.search(ctx, query, tt.k, stats)
+				require.NoError(t, err)
+				require.Len(t, ids, tt.k, "query %d", i)
+				assert.Equal(t, tt.wantRescored, stats.Rescored, "query %d, on disk", i)
+				var memory SearchStats
+				_, _, err = f.twin.ix.search(ctx, query, tt.k, nil, &memory)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantRescored, memory.Rescored, "query %d, in memory", i)
+			}
+		})
+	}
+}
+
 // checkCoverage reads the store, and tells when what is there is not an
 // index: every break below is made in the store, behind the index's back.
 func TestGrowCoverageCatches(t *testing.T) {

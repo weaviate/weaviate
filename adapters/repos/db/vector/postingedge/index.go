@@ -56,6 +56,7 @@ type Index struct {
 	// The search-time tunables, readable without a lock.
 	ef            atomic.Int64
 	rescoreLimit  atomic.Int64
+	rescorePerK   atomic.Int64
 	entryPostings atomic.Int64
 	loadBatch     atomic.Int64
 	sourceMargin  atomic.Uint32 // the bits of a float32
@@ -147,9 +148,21 @@ func New(cfg Config, uc UserConfig) (*Index, error) {
 	return ix, nil
 }
 
+// rescoreLimitFor is the rescore limit of a search for k results: the one of
+// the index, raised to RescorePerK times k where that is more. A limit of 0,
+// no rescore, stays 0.
+func (ix *Index) rescoreLimitFor(k int) int {
+	limit := int(ix.rescoreLimit.Load())
+	if perK := int(ix.rescorePerK.Load()); limit > 0 && perK > 0 {
+		limit = max(limit, perK*k)
+	}
+	return limit
+}
+
 func (ix *Index) storeSearchConfig(uc UserConfig) {
 	ix.ef.Store(int64(uc.EF))
 	ix.rescoreLimit.Store(int64(uc.RescoreLimit))
+	ix.rescorePerK.Store(int64(uc.RescorePerK))
 	ix.entryPostings.Store(int64(uc.EntryPostings))
 	ix.loadBatch.Store(int64(uc.LoadBatch))
 	margin := uc.SourceMargin
@@ -334,7 +347,7 @@ func (ix *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	}
 	if ix.pending == nil {
 		built, next := ix.uc, parsed
-		next.EF, next.RescoreLimit = built.EF, built.RescoreLimit
+		next.EF, next.RescoreLimit, next.RescorePerK = built.EF, built.RescoreLimit, built.RescorePerK
 		next.EntryPostings, next.LoadBatch = built.EntryPostings, built.LoadBatch
 		next.SourceMargin = built.SourceMargin
 		if next != built {

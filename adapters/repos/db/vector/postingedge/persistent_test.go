@@ -995,21 +995,49 @@ func TestAutoRescoreLimit(t *testing.T) {
 	tests := []struct {
 		scanBits, want int
 	}{
-		// The row of the plan, "El valor automático de rq.rescoreLimit".
-		{384, 1600},
-		{512, 675},
-		{768, 200},
-		{1024, 85},
+		// The row of the plan, "El valor automático de rq.rescoreLimit": the
+		// larger of 64 and 150 x (768 / bits)^3.
+		{384, 1200},
+		{512, 507},
+		{768, 150},
+		{1024, 64},
 		{1536, 64},
 		{3072, 64},
 		// Under 384 bits the rule has no measurement behind it, and stops.
-		{64, 1600},
-		{256, 1600},
+		{64, 1200},
+		{256, 1200},
 		// While there is no code yet.
 		{0, 64},
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, autoRescoreLimit(tt.scanBits), "%d bits", tt.scanBits)
+	}
+}
+
+// A class with the automatic rescore limit has its searches rescore at least
+// four times their k; one with a limit of its own has k as the only floor.
+func TestSearchConfigRescore(t *testing.T) {
+	tests := []struct {
+		name             string
+		rescoreLimit     int
+		scanBits         int
+		wantLimit, wantK int
+	}{
+		{name: "automatic, 1536 bits", rescoreLimit: ent.RescoreLimitAuto, scanBits: 1536, wantLimit: 64, wantK: 4},
+		{name: "automatic, 768 bits", rescoreLimit: ent.RescoreLimitAuto, scanBits: 768, wantLimit: 150, wantK: 4},
+		{name: "automatic, no code yet", rescoreLimit: ent.RescoreLimitAuto, wantLimit: 64, wantK: 4},
+		{name: "a limit of its own", rescoreLimit: 300, scanBits: 1536, wantLimit: 300},
+		{name: "no rescore", rescoreLimit: 0, scanBits: 1536, wantLimit: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := ent.NewDefaultUserConfig()
+			uc.RQ.RescoreLimit = tt.rescoreLimit
+			in := searchConfig(uc, tt.scanBits)
+			assert.Equal(t, tt.wantLimit, in.RescoreLimit)
+			assert.Equal(t, tt.wantK, in.RescorePerK)
+			require.NoError(t, in.Validate())
+		})
 	}
 }
 

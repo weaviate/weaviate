@@ -418,7 +418,7 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 	if f.ef > 0 {
 		ef = max(f.ef, k)
 	}
-	rescoreLimit := int(ix.rescoreLimit.Load())
+	rescoreLimit := ix.rescoreLimitFor(k)
 	entries := int(ix.entryPostings.Load())
 	batch := int(ix.loadBatch.Load())
 	margin := math.Float32frombits(ix.sourceMargin.Load())

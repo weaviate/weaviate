@@ -175,7 +175,14 @@ const (
 	// 1536 bits nor over what the rule gives at 384, the narrowest code
 	// there is a figure for.
 	minAutoRescoreLimit = 64
-	maxAutoRescoreLimit = 1600
+	// autoRescoreAnchor is the automatic rescore limit at 768 bits, which
+	// grows with the cube of how much shorter the code is, and
+	// maxAutoRescoreLimit what that gives at 384 bits: under them nothing was
+	// measured. autoRescorePerK has a query rescore at least four times the
+	// results it asks for.
+	autoRescoreAnchor   = 150
+	maxAutoRescoreLimit = 1200
+	autoRescorePerK     = 4
 	// keysStep is what the room for doc ids grows by, at least.
 	keysStep = 1 << 12
 	// DefaultConsolidate is how many changes to the edges of a posting wait
@@ -218,6 +225,13 @@ type PersistentConfig struct {
 	// it: a value per list of edges, and the exact vectors at their doc ids.
 	// Only the tests set it, to have an index of then to open.
 	listEdges bool
+	// refreshEdges has the index build again the edges of its oldest vectors
+	// every time it doubles (persistent_refresh.go). It is off by default, by
+	// the user's decision of 2026-11-22: measured at 1M it bought nothing
+	// that growing without it did not have, for 42 % more search on the way
+	// in (integration-plan.md, section 7, piece 3). The code stays, and only
+	// the tests and the experiments turn it on.
+	refreshEdges bool
 	// noMaintenance leaves out everything the index does by itself, in the
 	// background and in line with its writes, for the tests and the
 	// experiments that call it themselves. noBackground leaves out only what
@@ -463,24 +477,27 @@ func searchConfig(uc ent.UserConfig, scanBits int) UserConfig {
 	in.EF = uc.EF
 	in.RescoreLimit = uc.RQ.RescoreLimit
 	if in.RescoreLimit == ent.RescoreLimitAuto {
-		in.RescoreLimit = autoRescoreLimit(scanBits)
+		// What a query rescores is the larger of the rule and four times
+		// its k, which only a query knows.
+		in.RescoreLimit, in.RescorePerK = autoRescoreLimit(scanBits), autoRescorePerK
 	}
 	return in
 }
 
 // autoRescoreLimit is the rescore limit of an index that was given none, by
 // the width of the code its postings are scanned by: the larger of 64 and
-// 200 x (768 / bits)^3, which is what leaves a recall of 0.99 within reach of
-// ef alone on the two datasets there are curves for (integration-plan.md, "El
-// valor automático de rq.rescoreLimit"). The rule is a proposal: its anchor,
-// 200 at 768 bits, falls between two measured points. Under 384 bits there is
-// no measurement at all and the rule grows without bound, so it stops there.
+// 150 x (768 / bits)^3, the rule the user settled on 2026-11-22
+// (integration-plan.md, "El valor automático de rq.rescoreLimit"). 150 at 768
+// bits leaves a recall of 0.99 within reach of ef alone at 1M and at 10M, and
+// the rule has no term for the size of the index. Under 384 bits there is no
+// measurement at all and the rule grows without bound, so it stops at what it
+// gives there. A query raises it to four times its k (searchConfig).
 func autoRescoreLimit(scanBits int) int {
 	if scanBits <= 0 {
 		return minAutoRescoreLimit
 	}
 	ratio := 768 / float64(scanBits)
-	limit := math.Ceil(200 * ratio * ratio * ratio)
+	limit := math.Ceil(autoRescoreAnchor * ratio * ratio * ratio)
 	return int(min(max(limit, minAutoRescoreLimit), maxAutoRescoreLimit))
 }
 
@@ -758,7 +775,7 @@ func (p *Persistent) payInLine(ctx context.Context, id uint64) error {
 // wakeIfDue tells what runs in the background that there is work, if there
 // is. The caller holds writeMu.
 func (p *Persistent) wakeIfDue() {
-	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.g.refreshDue() || p.cleaning != nil ||
+	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.refreshDue() || p.cleaning != nil ||
 		len(p.staged) > 0) {
 		p.wakeMaintenance()
 	}

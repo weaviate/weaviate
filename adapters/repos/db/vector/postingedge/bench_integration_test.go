@@ -96,6 +96,9 @@ var (
 		"TestIntegrationScale: the rq.cacheMode of the class, routing or none. With none the index keeps no code in "+
 		"memory, and once it has grown it is opened with them too, over the same files, to count the queries it then "+
 		"answers otherwise")
+	benchIntegrationRefresh = flag.Bool("bench.integrationrefresh", false, "with TestIntegrationScale: the index "+
+		"builds again the edges of its oldest vectors every time it doubles, which it does not by default. The runs "+
+		"of milestone 2 up to piece 7 had it on: it was the default of the code then")
 	benchIntegrationReuse = flag.Bool("bench.integrationreuse", false, "with TestIntegrationScale: "+
 		"-bench.integrationdir holds an index a run before left, which is opened as it is, with nothing put in: it "+
 		"is measured as the cycles left it and again with its bucket of postings as one segment")
@@ -179,12 +182,15 @@ type integrationStretch struct {
 }
 
 type integrationResult struct {
-	Dataset      string               `json:"dataset"`
-	Vectors      int                  `json:"vectors"`
-	Queries      int                  `json:"queries"`
-	K            int                  `json:"k"`
-	Base         int                  `json:"base"`
-	UserConfig   ent.UserConfig       `json:"userConfig"`
+	Dataset    string         `json:"dataset"`
+	Vectors    int            `json:"vectors"`
+	Queries    int            `json:"queries"`
+	K          int            `json:"k"`
+	Base       int            `json:"base"`
+	UserConfig ent.UserConfig `json:"userConfig"`
+	// RefreshEdges tells that the index refreshed the edges of its oldest
+	// vectors as it doubled.
+	RefreshEdges bool                 `json:"refreshEdges"`
 	Meta         growMeta             `json:"meta"`
 	Procs        int                  `json:"gomaxprocs"`
 	BaseSeconds  float64              `json:"baseSeconds"`
@@ -301,6 +307,7 @@ func TestIntegrationScale(t *testing.T) {
 			BaseSize:          baseSize,
 			Seed:              1,
 			noMaintenance:     churn > 0 || reuse,
+			refreshEdges:      *benchIntegrationRefresh,
 		}
 		if *benchIntegrationCycles {
 			// As a shard gives them, with the limit of the commit log of the
@@ -346,7 +353,8 @@ func TestIntegrationScale(t *testing.T) {
 
 	result := &integrationResult{
 		Dataset: data.name, Vectors: n, Queries: len(data.queries), K: k, Base: p.cfg.BaseSize, UserConfig: uc,
-		Procs: runtime.GOMAXPROCS(0),
+		RefreshEdges: p.cfg.refreshEdges,
+		Procs:        runtime.GOMAXPROCS(0),
 	}
 	write := func() {
 		raw, err := json.MarshalIndent(result, "", "  ")

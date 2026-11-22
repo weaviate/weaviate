@@ -19,7 +19,10 @@ import (
 
 // The refresh of the edges of the index a shard opens (grow_refresh.go):
 // every time the index doubles, the vectors whose edges were built when it
-// held half of what it holds now, or less, have them built again.
+// held half of what it holds now, or less, have them built again. It is off
+// unless the index is opened with it (PersistentConfig.refreshEdges): the
+// index then never starts a pass, and keeps the dates of the edges of its
+// vectors all the same, so that one opened with it later knows which are old.
 //
 // A pass refreshes one vector at a time, as a vector is inserted: its search
 // next to the searches, and then its writes with nobody else in. It is one
@@ -55,7 +58,7 @@ func (p *Persistent) refreshStep(ctx context.Context) (bool, error) {
 	}
 	var err error
 	if p.refreshing == nil {
-		if !g.refreshDue() {
+		if !p.refreshDue() {
 			p.mu.RUnlock()
 			return false, nil
 		}
@@ -102,6 +105,12 @@ func (p *Persistent) refreshStep(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// refreshDue tells whether a pass of the refresh is due: never, with the
+// refresh off.
+func (p *Persistent) refreshDue() bool {
+	return p.cfg.refreshEdges && p.g != nil && p.g.refreshDue()
+}
+
 // refreshInLine has an insert pay its share of the pass that is on. The
 // caller holds writeMu.
 func (p *Persistent) refreshInLine(ctx context.Context) error {
@@ -109,7 +118,7 @@ func (p *Persistent) refreshInLine(ctx context.Context) error {
 		return nil
 	}
 	for range refreshPerInsert {
-		if p.g == nil || p.refreshing == nil && !p.g.refreshDue() {
+		if p.g == nil || p.refreshing == nil && !p.refreshDue() {
 			return nil
 		}
 		// What it writes is not left halfway because whoever asked for the
@@ -159,5 +168,5 @@ func (p *Persistent) refreshOn() bool {
 	defer p.writeMu.Unlock()
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return !p.closed && p.failed == nil && p.g != nil && (p.refreshing != nil || p.g.refreshDue())
+	return !p.closed && p.failed == nil && p.g != nil && (p.refreshing != nil || p.refreshDue())
 }
