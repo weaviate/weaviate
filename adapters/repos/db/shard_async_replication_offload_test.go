@@ -39,7 +39,7 @@ func haltForOffloadWithStaleSnapshot(t *testing.T, ctx context.Context, s *Shard
 	s.asyncReplicationRWMux.RUnlock()
 	require.NoError(t, serErr)
 
-	require.NoError(t, s.HaltForTransfer(ctx, true, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, true))
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()), "offloading halt must not dump a .ht")
 	s.asyncReplicationRWMux.RLock()
 	require.Nil(t, s.hashtree, "offloading halt must nil the hashtree")

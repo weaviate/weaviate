@@ -674,6 +674,7 @@ func (f *Finder) LocalNodeName() string {
 func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (int, error) {
 	shard := plan.Shard
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	c.skipReachabilityCheck = true
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
 	results, _ := c.pull(ctx, plan, func(ctx context.Context, host string, _ bool) (int, error) {
@@ -713,7 +714,7 @@ func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (
 // If we can't calculate the mode, we fallback to median. We can only calculate
 // the true median for an odd-numbered set. If a set has even number of elemets
 // of which none is a mode, then the median would be calculated as an average,
-// which is not contained in the set. In that case we pick the lower value of
+// which is not contained in the set. In that case we pick the higher value of
 // the two "candidate" values.
 func reconcile(counts []int) int {
 	var mode int

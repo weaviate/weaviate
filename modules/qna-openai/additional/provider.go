@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
+	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 type AdditionalProperty interface {
@@ -42,13 +43,13 @@ func New(answerProvider AdditionalProperty) *GraphQLAdditionalArgumentsProvider 
 
 func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-	additionalProperties["answer"] = p.getAnswer()
+	additionalProperties[additionalprovider.PropertyAnswer] = p.getAnswer()
 	return additionalProperties
 }
 
 func (p *GraphQLAdditionalArgumentsProvider) getAnswer() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		GraphQLNames:           []string{"answer"},
+		GraphQLNames:           []string{additionalprovider.PropertyAnswer},
 		GraphQLFieldFunction:   p.answerProvider.AdditionalFieldFn,
 		GraphQLExtractFunction: p.answerProvider.ExtractAdditionalFn,
 		SearchFunctions: modulecapabilities.AdditionalSearch{

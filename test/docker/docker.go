@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"time"
@@ -183,7 +184,8 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 	stoppedHostname := stoppedNode.name
 	var survivorURI string
 	for i, c := range d.containers {
-		if i != nodeIndex {
+		// Sidecars such as MinIO have an HTTP endpoint too, but no /v1/nodes.
+		if i != nodeIndex && strings.HasPrefix(c.name, "weaviate") {
 			if uri, ok := c.endpoints[HTTP]; ok {
 				survivorURI = uri.uri
 				break
@@ -198,7 +200,10 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 				return fmt.Errorf("StopAt[%s]: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %w)",
 					stoppedHostname, survivorURI, pollCtx.Err())
 			}
-			if !isNodeHealthy(survivorURI, stoppedHostname) {
+			if !isNodeHealthy(pollCtx, survivorURI, stoppedHostname) {
+				if pollCtx.Err() != nil {
+					continue // cut off by the timeout, not detected as down
+				}
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -211,8 +216,13 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 // isNodeHealthy checks whether a node is reported as HEALTHY via /v1/nodes on
 // a surviving node. Returns false if the node is missing, unhealthy, or the
 // request fails.
-func isNodeHealthy(survivorURI, nodeName string) bool {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes", survivorURI))
+func isNodeHealthy(ctx context.Context, survivorURI, nodeName string) bool {
+	u := url.URL{Scheme: "http", Host: survivorURI, Path: "/v1/nodes"}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false
 	}

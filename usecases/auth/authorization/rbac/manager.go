@@ -66,8 +66,11 @@ type Manager struct {
 // New builds the RBAC manager. namespaces must be non-nil when namespacesEnabled is
 // true, because the first namespace-qualified class reads its state.
 // configureAuthorizer refuses to boot without it.
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
-	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
+func New(raftDir string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
+	if !rbacConf.Enabled {
+		rbacConf = rbacconf.Config{}
+	}
+	csbin, err := Init(rbacConf, raftDir, authNconf, namespacesEnabled, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -170,9 +173,6 @@ func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 				return fmt.Errorf("AddNamedPolicy: %w", err)
 			}
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -354,9 +354,6 @@ func (m *Manager) RemovePermissions(roleName string, permissions []*authorizatio
 	if !changed {
 		return nil
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -401,9 +398,6 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 	if !changed {
 		return nil
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -431,9 +425,6 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 		if _, err := m.casbin.AddRoleForUser(user, conv.PrefixRoleName(role)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -510,9 +501,6 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 		if _, err := m.casbin.DeleteRoleForUser(userName, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("DeleteRoleForUser: %w", err)
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -682,6 +670,150 @@ func MergeSnapshots(a, b []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ReplaceDynamicUserAssignments returns backup with its dynamic-user role
+// assignments swapped for target's.
+//
+// A dynamic-user row is a g-row (role assignment) whose subject is "db:<id>".
+// The id is not the role placeholder and is not in staticAPIKeyUsers.
+//
+// The result keeps every backup p-row (permission) and every backup g-row that
+// is not a dynamic-user row. It then adds each target dynamic-user row whose
+// role is live. A role is live if it is built in, or if a kept row defines or
+// assigns it. Target rows for other roles are dropped: they would bring the
+// role back as an empty role.
+//
+// An empty backup is returned unchanged. The result keeps backup's Version and
+// Namespaces.
+func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []string) ([]byte, error) {
+	if len(backup) == 0 {
+		return backup, nil
+	}
+
+	var sb, st snapshot
+	if err := json.Unmarshal(backup, &sb); err != nil {
+		return nil, fmt.Errorf("replace dynamic user assignments: decode backup: %w", err)
+	}
+	// Manager.Snapshot returns an empty blob when RBAC holds no store.
+	if len(target) > 0 {
+		if err := json.Unmarshal(target, &st); err != nil {
+			return nil, fmt.Errorf("replace dynamic user assignments: decode target: %w", err)
+		}
+	}
+
+	isDynamicUserRow := dynamicUserRowClassifier(staticAPIKeyUsers)
+
+	live := make(map[string]struct{}, len(authorization.BuiltInRoles))
+	for _, r := range authorization.BuiltInRoles {
+		live[conv.PrefixRoleName(r)] = struct{}{}
+	}
+	for _, p := range sb.Policy {
+		if len(p) > 0 {
+			live[p[0]] = struct{}{}
+		}
+	}
+	var groupingPolicy [][]string
+	for _, g := range sb.GroupingPolicy {
+		if _, ok := isDynamicUserRow(g); ok {
+			continue
+		}
+		groupingPolicy = append(groupingPolicy, g)
+		if len(g) > 1 {
+			live[g[1]] = struct{}{}
+		}
+	}
+	for _, g := range st.GroupingPolicy {
+		if _, ok := isDynamicUserRow(g); len(g) < 2 || !ok {
+			continue
+		}
+		if _, ok := live[g[1]]; ok {
+			groupingPolicy = append(groupingPolicy, g)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         sb.Policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        sb.Version,
+		Namespaces:     sb.Namespaces,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// DropMissingDynamicUserAssignments returns blob minus each dynamic-user row
+// that current does not hold. A row matches only when every field is equal.
+// All other rows are kept, so the result is a subset of blob.
+//
+// An empty blob is returned unchanged. An empty current drops every dynamic-user
+// row. The result keeps blob's Version and Namespaces.
+func DropMissingDynamicUserAssignments(blob, current []byte, staticAPIKeyUsers []string) ([]byte, error) {
+	if len(blob) == 0 {
+		return blob, nil
+	}
+
+	var sb, sc snapshot
+	if err := json.Unmarshal(blob, &sb); err != nil {
+		return nil, fmt.Errorf("drop missing dynamic user assignments: decode blob: %w", err)
+	}
+	// Manager.Snapshot returns an empty blob when RBAC holds no store.
+	if len(current) > 0 {
+		if err := json.Unmarshal(current, &sc); err != nil {
+			return nil, fmt.Errorf("drop missing dynamic user assignments: decode current: %w", err)
+		}
+	}
+
+	present := make(map[string]struct{}, len(sc.GroupingPolicy))
+	for _, g := range sc.GroupingPolicy {
+		present[fmt.Sprintf("%q", g)] = struct{}{}
+	}
+	isDynamicUserRow := dynamicUserRowClassifier(staticAPIKeyUsers)
+	var groupingPolicy [][]string
+	for _, g := range sb.GroupingPolicy {
+		if _, ok := isDynamicUserRow(g); ok {
+			if _, ok := present[fmt.Sprintf("%q", g)]; !ok {
+				continue
+			}
+		}
+		groupingPolicy = append(groupingPolicy, g)
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         sb.Policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        sb.Version,
+		Namespaces:     sb.Namespaces,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// dynamicUserRowClassifier returns a function that takes a g-row. When the row
+// assigns a role to a dynamic user, it returns that user's id and true.
+// A subject that does not parse is never a dynamic user.
+func dynamicUserRowClassifier(staticAPIKeyUsers []string) func(g []string) (string, bool) {
+	static := make(map[string]struct{}, len(staticAPIKeyUsers))
+	for _, u := range staticAPIKeyUsers {
+		static[u] = struct{}{}
+	}
+	return func(g []string) (string, bool) {
+		if len(g) == 0 {
+			return "", false
+		}
+		user, prefix, err := conv.GetUserAndPrefix(g[0])
+		if err != nil || prefix != string(authentication.AuthTypeDb) || user == conv.InternalPlaceHolder {
+			return "", false
+		}
+		if _, ok := static[user]; ok {
+			return "", false
+		}
+		return user, true
+	}
+}
+
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
 //
 // Only the prefixes the strip has to resolve are candidates: role names, resource paths,
@@ -761,7 +893,39 @@ type snapshot struct {
 // come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
-	// snapshot isn't always initialized, e.g. when RBAC is disabled
+	return m.buildSnapshot(roles, nil)
+}
+
+// ScopedSnapshot is [Manager.Snapshot] minus the dynamic-user role assignments
+// of users not in forUsers. A backup that carries only some dynamic users calls
+// it, so every carried assignment belongs to a carried user.
+//
+// forUsers holds user ids in the dynamic-user store's form: "ns1:alice" matches
+// the subject "db:ns1:alice". An empty forUsers drops every dynamic-user
+// assignment. All p-rows and all other g-rows are kept.
+func (m *Manager) ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error) {
+	if m == nil {
+		return []byte{}, nil
+	}
+	isDynamicUserRow := dynamicUserRowClassifier(StaticAPIKeyUsers(m.authNconf))
+	carried := make(map[string]struct{}, len(forUsers))
+	for _, u := range forUsers {
+		carried[u] = struct{}{}
+	}
+	return m.buildSnapshot(roles, func(g []string) bool {
+		user, ok := isDynamicUserRow(g)
+		if !ok {
+			return true
+		}
+		_, ok = carried[user]
+		return ok
+	})
+}
+
+// buildSnapshot encodes the rows that [Manager.Snapshot] selects for roles.
+// If keepGrouping is non-nil, each g-row it returns false for is dropped.
+// The drop happens before the namespace list is computed.
+func (m *Manager) buildSnapshot(roles []string, keepGrouping func(g []string) bool) ([]byte, error) {
 	if m == nil {
 		return []byte{}, nil
 	}
@@ -803,6 +967,15 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
+	}
+	if keepGrouping != nil {
+		var kept [][]string
+		for _, g := range groupingPolicy {
+			if keepGrouping(g) {
+				kept = append(kept, g)
+			}
+		}
+		groupingPolicy = kept
 	}
 
 	// Use a buffer to stream the JSON encoding
@@ -850,8 +1023,10 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 		snapshot = stripped
 	}
 
-	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
-	// hold would fail the next load, or load as rows the snapshot never had.
+	// Like the strip above, refuse before ClearPolicy. A node rolled back to a
+	// release that still writes policy.csv saves these rows there. A row the CSV
+	// can't hold fails that release's next load, or loads as rows the snapshot
+	// never had.
 	if err := validateStorableRows("p", snapshot.Policy); err != nil {
 		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
@@ -863,11 +1038,14 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 }
 
 // RestoreRaftSnapshot replaces the policy store with a RAFT snapshot. It drops
-// and logs each row the policy file cannot store, since refusing the snapshot
-// keeps the node from starting or catching up. Dropping a row only removes a grant.
+// and logs each row a rolled-back release could not store in policy.csv.
+// Refusing the snapshot would keep the node from starting or catching up, and
+// dropping a row only removes a grant.
 func (m *Manager) RestoreRaftSnapshot(b []byte) error {
-	// don't overwrite with empty snapshot to avoid overwriting recovery from file
-	// with a non-existent RBAC snapshot when coming from old versions
+	// Snapshots from releases before RAFT carried RBAC, and from earlier
+	// releases running with RBAC disabled, have no RBAC field, and Store.Restore
+	// skips them. This return treats an empty b the same way, so roles seeded
+	// from policy.csv stay.
 	if m == nil || len(b) == 0 || m.casbin == nil {
 		return nil
 	}
@@ -904,6 +1082,13 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
 
+	// ClearPolicy clears the model but not the role manager, so links for
+	// assignments the snapshot lacks still grant access until this rebuild. It
+	// runs before the V0 upgrade, which reads the links.
+	if err := m.casbin.BuildRoleLinks(); err != nil {
+		return fmt.Errorf("build role links: %w", err)
+	}
+
 	if snapshot.Version == SnapshotVersionV0 {
 		if err := upgradePoliciesFrom129(m.casbin, true); err != nil {
 			return fmt.Errorf("upgrade policies: %w", err)
@@ -919,13 +1104,8 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		return fmt.Errorf("apply env config: %w", err)
 	}
 
-	// Load the policies to ensure they are in memory
-	if err := m.casbin.LoadPolicy(); err != nil {
-		return fmt.Errorf("load policies: %w", err)
-	}
-
 	// Invalidate the cache so the first Enforce() after the lock is released
-	// evaluates against the freshly loaded policies. ClearPolicy() is not
+	// evaluates against the restored policies. ClearPolicy() is not
 	// overridden by SyncedCachedEnforcer and does not invalidate on its own.
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)

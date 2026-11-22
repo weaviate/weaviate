@@ -48,6 +48,7 @@ type Manager struct {
 	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 	inflightDrainer              func(ctx context.Context, class, shard string) error
 	inflightDrainFailuresCounter prometheus.Counter
+	planChanged                  func()
 
 	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
 	// shutdown (the drain otherwise retries until the op is drained or terminal).
@@ -93,6 +94,20 @@ func (m *Manager) SetNodeReachedStateSubmitter(
 
 func (m *Manager) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
 	m.inflightDrainer = fn
+}
+
+// SetPlanChanged installs fn. CreateRebalancePlan, StopRebalancePlan and
+// DeleteRebalancePlan call fn after the FSM accepts their change. They never
+// call it for a refused or malformed command. fn runs inside the FSM apply, so
+// it must not block.
+func (m *Manager) SetPlanChanged(fn func()) {
+	m.planChanged = fn
+}
+
+func (m *Manager) notifyPlanChanged() {
+	if m.planChanged != nil {
+		m.planChanged()
+	}
 }
 
 // broadcastNodeReachedState submits a node-reached-state command async so
@@ -283,6 +298,65 @@ func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.StoreSchemaVersion(req)
 }
 
+func (m *Manager) CreateRebalancePlan(c *cmd.ApplyRequest) error {
+	req := &CreatePlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if err := m.replicationFSM.CreatePlan(req); err != nil {
+		return err
+	}
+	m.notifyPlanChanged()
+	return nil
+}
+
+// CompleteRebalancePlanning applies a planning run's outcome. logTerm is the
+// Raft term of the log entry carrying c.
+func (m *Manager) CompleteRebalancePlanning(logTerm uint64, c *cmd.ApplyRequest) error {
+	req := &CompletePlanningRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.CompletePlanning(logTerm, req)
+}
+
+func (m *Manager) StopRebalancePlan(c *cmd.ApplyRequest) error {
+	req := &StopPlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if err := m.replicationFSM.StopPlan(req); err != nil {
+		return err
+	}
+	m.notifyPlanChanged()
+	return nil
+}
+
+func (m *Manager) DeleteRebalancePlan(c *cmd.ApplyRequest) error {
+	req := &DeletePlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if err := m.replicationFSM.DeletePlan(req); err != nil {
+		return err
+	}
+	m.notifyPlanChanged()
+	return nil
+}
+
+// GetRebalancePlan returns the stored plan as JSON. The request carries no sub-command.
+func (m *Manager) GetRebalancePlan(*cmd.QueryRequest) ([]byte, error) {
+	plan, ok := m.replicationFSM.GetPlan()
+	if !ok {
+		return nil, ErrPlanNotFound
+	}
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal rebalance plan %q: %w", plan.ID, err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
@@ -457,15 +531,14 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
 
-		for _, physical := range state.Physical {
-			if physical.Name == subCommand.Shard {
-				shards = map[string][]string{
-					physical.Name: append([]string(nil), physical.BelongsToNodes...),
-				}
-				return nil
-			}
+		physical, ok := state.Physical[subCommand.Shard]
+		if !ok {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
 		}
-		return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+		shards = map[string][]string{
+			subCommand.Shard: append([]string(nil), physical.BelongsToNodes...),
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, wrapClassNotFoundErr(err, subCommand.Collection)

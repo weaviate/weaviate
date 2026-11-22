@@ -146,6 +146,12 @@ func (ic *classSettings) Validate() error {
 	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
+	if err := modulecomponents.ValidateGoogleProjectID(ic.ProjectID()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleModel(ic.Model()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 
 	model := ic.Model()
 	if ic.ApiEndpoint() != DefaultAIStudioEndpoint {

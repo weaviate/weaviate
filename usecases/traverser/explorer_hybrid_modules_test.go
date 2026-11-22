@@ -98,7 +98,8 @@ type hybridSearchCase struct {
 	hybrid searchparams.HybridSearch
 }
 
-// hybridSearches returns a hybrid search for each kind of vector leg.
+// hybridSearches returns a hybrid search for each source of the vector of the
+// vector search: a vector, nearVector and nearText.
 func hybridSearches() []hybridSearchCase {
 	vector := []float32{0.1, 0.2, 0.3}
 	return []hybridSearchCase{
@@ -111,7 +112,7 @@ func hybridSearches() []hybridSearchCase {
 			Query: "q", Alpha: 0.5,
 			NearTextParams: &searchparams.NearTextParams{Values: []string{"q"}},
 		}},
-		{name: "nearText sub-search without a keyword leg", hybrid: searchparams.HybridSearch{
+		{name: "nearText sub-search without a BM25 search", hybrid: searchparams.HybridSearch{
 			Query: "q", Alpha: 1,
 			NearTextParams: &searchparams.NearTextParams{Values: []string{"q"}},
 		}},
@@ -120,13 +121,13 @@ func hybridSearches() []hybridSearchCase {
 
 // runHybridGet runs a hybrid Get for a page of 5 against a store of 20
 // objects. It returns the module calls and the additional properties that
-// each vector leg passed to the store.
+// each vector search passed to the store.
 func runHybridGet(t *testing.T, hybrid searchparams.HybridSearch, moduleParams map[string]any,
-) (calls []string, legs []additional.Properties) {
+) (calls []string, vectorSearches []additional.Properties) {
 	t.Helper()
 	searcher := &fakeVectorSearcher{}
 	searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
-		legs = append(legs, params.AdditionalProperties)
+		vectorSearches = append(vectorSearches, params.AdditionalProperties)
 		return page(makeHybridVectorResults(20), params.Pagination), nil
 	}
 	searcher.sparseObjectSearchFn = func(params dto.GetParams) ([]*storobj.Object, []float32, error) {
@@ -144,11 +145,11 @@ func runHybridGet(t *testing.T, hybrid searchparams.HybridSearch, moduleParams m
 	_, err := explorer.GetClass(context.Background(), params)
 
 	require.NoError(t, err)
-	return provider.calls, legs
+	return provider.calls, vectorSearches
 }
 
 // The additional properties of the modules run once, on the fused results
-// of a hybrid search, whatever the vector leg is.
+// of a hybrid search, whatever the source of the vector is.
 func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 	moduleParams := []struct {
 		name   string
@@ -173,18 +174,18 @@ func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 	}
 }
 
-// The vector leg passes the module params to the store and asks it for the
+// The vector search passes the module params to the store and asks it for the
 // object vectors. The store copies the stored interpretation of
 // text2vec-contextionary only when the module params ask for it, and the
 // modules on the fused results may need the vectors.
-func TestExplorerHybridVectorLegPassesModuleParamsToStore(t *testing.T) {
+func TestExplorerHybridVectorSearchPassesModuleParamsToStore(t *testing.T) {
 	for _, s := range hybridSearches() {
 		t.Run(s.name, func(t *testing.T) {
-			_, legs := runHybridGet(t, s.hybrid, map[string]any{"interpretation": true})
+			_, vectorSearches := runHybridGet(t, s.hybrid, map[string]any{"interpretation": true})
 
-			require.Len(t, legs, 1)
-			assert.Equal(t, map[string]any{"interpretation": true}, legs[0].ModuleParams)
-			assert.True(t, legs[0].Vector)
+			require.Len(t, vectorSearches, 1)
+			assert.Equal(t, map[string]any{"interpretation": true}, vectorSearches[0].ModuleParams)
+			assert.True(t, vectorSearches[0].Vector)
 		})
 	}
 }

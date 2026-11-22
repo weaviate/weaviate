@@ -16,9 +16,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 func (p *commitloggerParser) doRoaringSet() error {
@@ -114,16 +117,9 @@ func (prs *commitlogParserRoaringSet) parseNodeV1(commitType CommitType) error {
 }
 
 func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
-	lenBuf := make([]byte, 8)
-	if _, err := io.ReadFull(reader, lenBuf); err != nil {
-		return errors.Wrap(err, "read segment len")
-	}
-	segmentLen := binary.LittleEndian.Uint64(lenBuf)
-
-	segBuf := make([]byte, segmentLen)
-	copy(segBuf, lenBuf)
-	if _, err := io.ReadFull(reader, segBuf[8:]); err != nil {
-		return errors.Wrap(err, "read segment contents")
+	segBuf, err := readSegmentRecord(reader)
+	if err != nil {
+		return err
 	}
 
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
@@ -140,16 +136,9 @@ func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 }
 
 func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
-	lenBuf := make([]byte, 8)
-	if _, err := io.ReadFull(reader, lenBuf); err != nil {
-		return errors.Wrap(err, "read segment len")
-	}
-	segmentLen := binary.LittleEndian.Uint64(lenBuf)
-
-	segBuf := make([]byte, segmentLen)
-	copy(segBuf, lenBuf)
-	if _, err := io.ReadFull(reader, segBuf[8:]); err != nil {
-		return errors.Wrap(err, "read segment contents")
+	segBuf, err := readSegmentRecord(reader)
+	if err != nil {
+		return err
 	}
 
 	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
@@ -159,5 +148,63 @@ func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}
 
+	return nil
+}
+
+// maxRecordPrealloc caps the buffer a record's length field sizes before any of
+// the record is read. A v0 record has no checksum, so that length can be
+// garbage; a longer record grows the buffer only as its bytes arrive.
+const maxRecordPrealloc = 16 << 20
+
+// readSegmentRecord reads one length-prefixed SegmentNode or SegmentNodeList and
+// checks that the lengths inside it stay within it. Their decoders slice by
+// those lengths unchecked, so a damaged record would otherwise panic and fail
+// the whole bucket instead of ending the replay at this record.
+func readSegmentRecord(reader io.Reader) ([]byte, error) {
+	var lenBuf [8]byte
+	if _, err := io.ReadFull(reader, lenBuf[:]); err != nil {
+		return nil, errors.Wrap(err, "read segment len")
+	}
+	segmentLen := binary.LittleEndian.Uint64(lenBuf[:])
+	if segmentLen < 8 || segmentLen > math.MaxInt {
+		return nil, fmt.Errorf("invalid segment len %d", segmentLen)
+	}
+
+	total := int(segmentLen)
+	segBuf := make([]byte, 8, min(total, maxRecordPrealloc))
+	copy(segBuf, lenBuf[:])
+	for len(segBuf) < total {
+		start := len(segBuf)
+		chunk := min(total-start, maxRecordPrealloc)
+		segBuf = slices.Grow(segBuf, chunk)[:start+chunk]
+		if _, err := io.ReadFull(reader, segBuf[start:]); err != nil {
+			return nil, errors.Wrap(err, "read segment contents")
+		}
+	}
+
+	if err := checkSegmentLayout(segBuf); err != nil {
+		return nil, fmt.Errorf("segment of len %d: %w", segmentLen, err)
+	}
+	return segBuf, nil
+}
+
+// checkSegmentLayout checks the layout SegmentNode and SegmentNodeList share
+// after the total length: uint64-prefixed additions, uint64-prefixed deletions,
+// uint32-prefixed key.
+func checkSegmentLayout(segBuf []byte) error {
+	rw := byteops.NewReadWriter(segBuf)
+	rw.MoveBufferToAbsolutePosition(8)
+	for _, field := range [2]string{"additions", "deletions"} {
+		lenBytes, err := rw.ReadBytesFromBufferChecked(8)
+		if err != nil {
+			return fmt.Errorf("read %s len: %w", field, err)
+		}
+		if err := rw.SkipChecked(binary.LittleEndian.Uint64(lenBytes)); err != nil {
+			return fmt.Errorf("read %s: %w", field, err)
+		}
+	}
+	if _, err := rw.ReadBytesFromBufferWithUint32LengthIndicatorChecked(); err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
 	return nil
 }

@@ -29,13 +29,12 @@ const migrationClusterReconcileInterval = time.Minute
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
 // task namespace. ok=false means "not installed", which licenses no discard.
-type MigrationLocalTaskSource func() ([]*distributedtask.Task, bool)
+type MigrationLocalTaskSource func(shard string) ([]distributedtask.TaskStatusEntry, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
 
-// migrationClusterReconciler decides this node's undecided migration records
-// against the leader's reindex task list.
+// migrationClusterReconciler decides undecided records against the leader's tasks, and re-checks unsure load overrides against this node's tasks.
 type migrationClusterReconciler struct {
 	db *DB
 
@@ -63,7 +62,7 @@ func (r *migrationClusterReconciler) samplers() (unresolved, shuttingDown *logru
 }
 
 // SetTaskSources and the periodic pass run on different goroutines, so the
-// sources are guarded; periodicOnce starts the pass on the first call only.
+// sources are guarded.
 func (r *migrationClusterReconciler) SetTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
@@ -175,7 +174,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 			if store == nil || len(store.Unreadable()) > 0 {
 				return nil
 			}
-			if store.HasUndecided() {
+			if store.HasUndecided() || store.overridesUnsure.Load() {
 				names = append(names, name)
 			}
 			return nil
@@ -187,7 +186,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 	return found
 }
 
-func (r *migrationClusterReconciler) LocalTasks() ([]*distributedtask.Task, bool) {
+func (r *migrationClusterReconciler) LocalTasks(group string) ([]distributedtask.TaskStatusEntry, bool) {
 	source := func() MigrationLocalTaskSource {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
@@ -197,7 +196,7 @@ func (r *migrationClusterReconciler) LocalTasks() ([]*distributedtask.Task, bool
 	if source == nil {
 		return nil, false
 	}
-	return source()
+	return source(group)
 }
 
 // clusterTasksBounded puts a timeout on the leader query alone, so an

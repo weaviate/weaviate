@@ -47,6 +47,12 @@ func (d diskUse) String() string {
 		float64(d.avail)/float64(GB))
 }
 
+// DiskUse reports the total and free bytes of the disk holding the data root.
+func (db *DB) DiskUse() (total, free uint64) {
+	du := db.getDiskUse(db.config.RootPath)
+	return du.total, du.free
+}
+
 // resourceScanInterval is how often scanResourceUsage checks disk and memory use.
 const resourceScanInterval = 500 * time.Millisecond
 
@@ -313,6 +319,21 @@ func (db *DB) markShardReady(name string, shard ShardLike) bool {
 		return false
 	}
 	return true
+}
+
+// liftHeldShard makes a held shard writable once its retry worked, unless a READONLY set since
+// replaced the hold's. Under pressure it hands the shard to the scan's recovery instead.
+func (db *DB) liftHeldShard(shard ShardLike) error {
+	db.resourceScanState.transition.RLock()
+	defer db.resourceScanState.transition.RUnlock()
+
+	status, reason := storagestate.StatusReady, statusReasonManualUpdate
+	if db.resourceScanState.isReadOnly.Load() {
+		status, reason = storagestate.StatusReadOnly, statusReasonResourcePressure
+	}
+	return shard.UpdateStatusIf(func(current ShardStatus) bool {
+		return current.Status == storagestate.StatusReadOnly && current.Reason == statusReasonMirrorUnarmed
+	}, status.String(), reason)
 }
 
 // reconcileShardResourcePressure applies the current read-only flag to a shard

@@ -86,6 +86,8 @@ type fakeGRPCReplicationServer struct {
 	lastCompareDigestsReq atomic.Pointer[pb.CompareDigestsRequest]
 	lastDigestsInRangeReq atomic.Pointer[pb.DigestObjectsInRangeRequest]
 
+	countObjectsErr error
+
 	compareRootsMultiErr     error
 	compareRootsMultiHandler func(*pb.CompareHashTreeRootsMultiRequest) (*pb.CompareHashTreeRootsMultiResponse, error)
 	compareRootsMultiCalls   atomic.Int32
@@ -290,6 +292,13 @@ func (f *fakeGRPCReplicationServer) DigestObjects(_ context.Context, req *pb.Dig
 	assert.Equal(f.t, "S1", req.GetShard())
 
 	return &pb.DigestObjectsResponse{Digests: f.digestResponse}, nil
+}
+
+func (f *fakeGRPCReplicationServer) CountObjects(context.Context, *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
+	if f.countObjectsErr != nil {
+		return nil, f.countObjectsErr
+	}
+	return &pb.CountObjectsResponse{Count: 7}, nil
 }
 
 func (f *fakeGRPCReplicationServer) OverwriteObjects(_ context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {

@@ -22,8 +22,7 @@ import (
 )
 
 // TestCreatePaths_StripClientSetSearchableBlockmax pins that a client-set
-// SearchableBlockmax is nilled on every create path (only read-repair should
-// seed it) — asserted on the property that reaches schemaManager, not the
+// SearchableBlockmax is nilled on every create path, asserted on the property that reaches schemaManager, not the
 // returned class.
 func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 	ctx := context.Background()
@@ -55,7 +54,6 @@ func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 		fake.On("AddClass", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 			stored = args.Get(0).(*models.Class)
 		}).Return(nil)
-		fake.On("CollectionsCountFromLeader", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.NoError(t, err)

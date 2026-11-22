@@ -13,12 +13,16 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -29,10 +33,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -526,43 +534,55 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 		db:        stubDBWithNoLiveReindex(),
 	}
 
+	shardStaging := backup.NewShardStaging(stagingRoot, shardName, 255)
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, shardStaging, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
-	// Helper to get inode number.
+	entries, err := os.ReadDir(shardStaging.Dir)
+	require.NoError(t, err)
+	require.Len(t, entries, len(sd.Files))
+	for _, e := range entries {
+		assert.False(t, e.IsDir(), "the shard's staging dir must hold no subdirectory, found %s", e.Name())
+	}
+	for _, relPath := range sd.Files {
+		assert.FileExists(t, backup.StagedFilePath(shardStaging, relPath))
+	}
+
 	getIno := func(path string) uint64 {
 		t.Helper()
 		info, err := os.Stat(path)
 		require.NoError(t, err)
 		return info.Sys().(*syscall.Stat_t).Ino
 	}
+	// staged maps a file of the live shard to the path its staged copy or link sits at.
+	staged := func(src string) string {
+		t.Helper()
+		relPath, err := filepath.Rel(rootDir, src)
+		require.NoError(t, err)
+		return backup.StagedFilePath(shardStaging, relPath)
+	}
 
 	// Mutable files: different inodes (copied).
 	walSrc := filepath.Join(bucketDir, "segment-123.wal")
-	walDst := filepath.Join(stagingRoot, indexID, shardName, "lsm", "objects", "segment-123.wal")
+	walDst := staged(walSrc)
 	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied, not hard-linked")
 
 	metaSrc := filepath.Join(shardDir, "meta.db")
-	metaDst := filepath.Join(stagingRoot, indexID, shardName, "meta.db")
-	assert.NotEqual(t, getIno(metaSrc), getIno(metaDst), "meta.db should be copied, not hard-linked")
+	assert.NotEqual(t, getIno(metaSrc), getIno(staged(metaSrc)), "meta.db should be copied, not hard-linked")
 
 	clSrc := filepath.Join(clDir, "1709203456")
-	clDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203456")
-	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied, not hard-linked")
+	assert.NotEqual(t, getIno(clSrc), getIno(staged(clSrc)), "non-condensed commitlog should be copied, not hard-linked")
 
 	stateDBSrc := filepath.Join(shardDir, shardmeta.FileName)
-	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, shardmeta.FileName)
-	assert.NotEqual(t, getIno(stateDBSrc), getIno(stateDBDst), "index.db should be copied, not hard-linked")
+	assert.NotEqual(t, getIno(stateDBSrc), getIno(staged(stateDBSrc)), "index.db should be copied, not hard-linked")
 
 	// Immutable files: same inodes (hard-linked).
 	segSrc := filepath.Join(bucketDir, "segment-0001.db")
-	segDst := filepath.Join(stagingRoot, indexID, shardName, "lsm", "objects", "segment-0001.db")
-	assert.Equal(t, getIno(segSrc), getIno(segDst), "segment should be hard-linked, not copied")
+	assert.Equal(t, getIno(segSrc), getIno(staged(segSrc)), "segment should be hard-linked, not copied")
 
 	condensedSrc := filepath.Join(clDir, "1709203400.condensed")
-	condensedDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203400.condensed")
-	assert.Equal(t, getIno(condensedSrc), getIno(condensedDst), "condensed commitlog should be hard-linked, not copied")
+	assert.Equal(t, getIno(condensedSrc), getIno(staged(condensedSrc)), "condensed commitlog should be hard-linked, not copied")
 
 	// Modify source WAL after backup — staging copy should be unaffected.
 	require.NoError(t, os.WriteFile(walSrc, []byte("modified-wal-data"), 0o644))
@@ -571,138 +591,68 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	assert.Equal(t, walContent, stagedWAL, "staged WAL copy should not reflect post-backup source modifications")
 }
 
-func TestBackupProtectedShardsBlockActivation(t *testing.T) {
-	logger, _ := tlog.NewNullLogger()
-	rootDir := t.TempDir()
-	ctx := context.Background()
-	className := "MyClass"
-
-	newTestIndex := func() *Index {
-		return &Index{
-			Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
-			getSchema: &fakeSchemaGetter{
-				schema: schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{{Class: className}},
-					},
-				},
-			},
-			logger:           logger,
-			backupLock:       esync.NewKeyRWLocker(),
-			shardCreateLocks: esync.NewKeyRWLocker(),
-			closingCtx:       context.Background(),
-			db:               stubDBWithNoLiveReindex(),
-		}
+func TestBackupInactiveShardWithNoLocalData(t *testing.T) {
+	tests := []struct {
+		name         string
+		makeShardDir bool
+	}{
+		// A FROZEN or OFFLOADED tenant has no shard dir.
+		{name: "missing shard dir"},
+		// ensureShardDir leaves an empty one for a tenant that was never written.
+		{name: "empty shard dir", makeShardDir: true},
 	}
-
-	t.Run("initLocalShardWithForcedLoading blocked by protection", func(t *testing.T) {
-		idx := newTestIndex()
-		shardName := "tenant1"
-
-		idx.backupProtectedShards.Store(shardName, struct{}{})
-
-		class := &models.Class{Class: className}
-		err := idx.initLocalShardWithForcedLoading(ctx, class, shardName, true, false, callerUserRequest)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "protected for backup")
-	})
-
-	t.Run("getOptInitLocalShard blocked by protection", func(t *testing.T) {
-		idx := newTestIndex()
-		shardName := "tenant2"
-
-		idx.backupProtectedShards.Store(shardName, struct{}{})
-
-		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true, callerUserRequest)
-		defer release()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "protected for backup")
-	})
-
-	t.Run("getOptInitLocalShard skips check when ensureInit is false", func(t *testing.T) {
-		idx := newTestIndex()
-		shardName := "tenant3"
-
-		idx.backupProtectedShards.Store(shardName, struct{}{})
-
-		// With ensureInit=false, the function returns nil shard without error
-		// (the protection check is never reached).
-		shard, release, err := idx.getOptInitLocalShard(ctx, shardName, false, callerUserRequest)
-		defer release()
-		require.NoError(t, err)
-		assert.Nil(t, shard)
-	})
-
-	t.Run("ReleaseBackup clears protections and releases locks", func(t *testing.T) {
-		idx := newTestIndex()
-		shards := []string{"shardA", "shardB", "shardC"}
-
-		// Simulate what backupShardWithoutHardlinks does: hold lock + set flag.
-		for _, name := range shards {
-			idx.backupLock.Lock(name)
-			idx.backupProtectedShards.Store(name, struct{}{})
-		}
-		// Set backup state so ReleaseBackup has something to reset.
-		idx.lastBackup.Store(&BackupState{BackupID: "test-backup", InProgress: true})
-
-		err := idx.ReleaseBackup(ctx, "test-backup")
-		require.NoError(t, err)
-
-		// Verify all protection flags are cleared.
-		for _, name := range shards {
-			_, protected := idx.backupProtectedShards.Load(name)
-			assert.False(t, protected, "shard %s should no longer be protected", name)
-		}
-
-		// Verify all backupLock.Locks were released by confirming RLock succeeds.
-		for _, name := range shards {
-			done := make(chan struct{})
-			go func() {
-				idx.backupLock.RLock(name)
-				idx.backupLock.RUnlock(name)
-				close(done)
-			}()
-			select {
-			case <-done:
-				// Lock was released.
-			case <-time.After(time.Second):
-				t.Fatalf("RLock on %s should succeed after ReleaseBackup", name)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			const shardName = "tenant1"
+			stagingRoot := filepath.Join(rootDir, "staging")
+			require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
+			idx := &Index{
+				Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
+				getSchema: &fakeSchemaGetter{},
+				db:        stubDBWithNoLiveReindex(),
 			}
-		}
+			if tt.makeShardDir {
+				require.NoError(t, os.MkdirAll(shardPath(idx.path(), shardName), 0o755))
+			}
 
-		// The protection flag is cleared and the lock is released. Combined with the
-		// subtests above (which prove the flag blocks activation), this proves that
-		// activation is no longer blocked after ReleaseBackup.
-	})
+			shardStaging := backup.NewShardStaging(stagingRoot, shardName, 255)
+			var sd backup.ShardDescriptor
+			err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, shardStaging, newReindexGate(idx.db, reindexGateMaxAge))
+			require.ErrorIs(t, err, errShardNoLocalData)
+			require.NoDirExists(t, shardStaging.Dir)
+		})
+	}
 }
 
-func TestBackupFrozenShardOmitted(t *testing.T) {
+func TestBackupInactiveShardSkipsUnchangedBase(t *testing.T) {
 	rootDir := t.TempDir()
-	shardName := "frozen_tenant"
-	// Do NOT create shard directory — simulates a FROZEN tenant with no local files.
+	className, shardName := "TestClass", "cold-tenant"
+	idx := newDescriptorTestIndex(t, rootDir, className, nil)
+	createColdShardFiles(t, rootDir, className, shardName)
 
+	segRel := filepath.Join(indexID(schema.ClassName(className)), shardName, "lsm", "objects", "segment-0001.db")
+	info, err := os.Stat(filepath.Join(rootDir, segRel))
+	require.NoError(t, err)
+	base := []backup.ShardAndID{{
+		BackupID: "base-backup",
+		ShardDesc: &backup.BaseShardDescriptor{
+			Name:          shardName,
+			BigFilesChunk: map[string]backup.BigFileInfo{segRel: {Size: info.Size(), ModifiedAt: info.ModTime()}},
+		},
+	}}
 	stagingRoot := filepath.Join(rootDir, "staging")
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
+	shardStaging := backup.NewShardStaging(stagingRoot, shardName, 255)
 
-	idx := &Index{
-		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
-		getSchema: &fakeSchemaGetter{},
-		db:        stubDBWithNoLiveReindex(),
+	var sd backup.ShardDescriptor
+	require.NoError(t, idx.backupInactiveShardWithHardlinks(shardName, &sd, base, shardStaging, newReindexGate(idx.db, reindexGateMaxAge)))
+
+	assert.NotContains(t, sd.Files, segRel)
+	assert.Equal(t, []backup.IncrementalBackupInfo{{File: segRel}}, sd.IncrementalBackupInfo.FilesPerBackup["base-backup"])
+	for _, relPath := range append([]string{segRel}, sd.Files...) {
+		assert.FileExists(t, backup.StagedFilePath(shardStaging, relPath))
 	}
-
-	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
-		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
-		require.Error(t, err)
-		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
-	})
-
-	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
-		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
-		require.Error(t, err)
-		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
-	})
 }
 
 // newDescriptorTestIndex creates a minimal Index wired up for testing Index.descriptor.
@@ -773,7 +723,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -798,62 +748,102 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
 }
 
-func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
+func TestBackupUnloadedLazyShardStagedFlat(t *testing.T) {
 	rootDir := t.TempDir()
-	className := "TestClass"
-	ctx := context.Background()
-
+	className, name := "TestClass", "lazy-tenant"
 	shardState := NewMultiTenantShardingStateBuilder().
-		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		AddTenant(name, models.TenantActivityStatusHOT).
 		WithReplicationFactor(1).
 		Build()
-
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
-
-	// Create COLD shard files including HNSW commitlogs.
-	shardDir := filepath.Join(rootDir, indexID(schema.ClassName(className)), "cold-tenant")
-	createColdShardFiles(t, rootDir, className, "cold-tenant")
-
-	clDir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
-	require.NoError(t, os.MkdirAll(clDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203456"), []byte("commitlog"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
+	createColdShardFiles(t, rootDir, className, name)
+	lazy := NewLazyLoadShard(context.Background(), nil, name, idx, &models.Class{Class: className},
+		nil, nil, nil, nil, false, nil)
+	idx.shards.Store(name, lazy)
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
-	require.NoError(t, err)
+	require.NoError(t, idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge)))
+	require.False(t, lazy.isLoaded(), "the backup must read the unloaded shard from disk")
+
 	require.Len(t, desc.Shards, 1)
-
-	stagingDir := desc.StagingDir
-	require.DirExists(t, stagingDir)
-
-	getIno := func(path string) uint64 {
-		t.Helper()
-		info, err := os.Stat(path)
-		require.NoError(t, err)
-		return info.Sys().(*syscall.Stat_t).Ino
+	require.NotEmpty(t, desc.Shards[0].Files)
+	shardStaging := backup.NewShardStaging(desc.StagingDir, name, desc.StagingNameMax)
+	for _, relPath := range desc.Shards[0].Files {
+		assert.FileExists(t, backup.StagedFilePath(shardStaging, relPath))
 	}
+}
 
-	idxID := indexID(schema.ClassName(className))
-	bucketDir := filepath.Join(shardDir, "lsm", "objects")
+// stubFSNameMax makes fsNameMax return limit and err until t ends. It returns
+// the path fsNameMax was last called with.
+func stubFSNameMax(t *testing.T, limit int, err error) *string {
+	t.Helper()
+	orig := fsNameMax
+	t.Cleanup(func() { fsNameMax = orig })
+	var calledWith string
+	fsNameMax = func(dir string) (int, error) {
+		calledWith = dir
+		return limit, err
+	}
+	return &calledWith
+}
 
-	// Mutable files: different inodes (copied).
-	walSrc := filepath.Join(bucketDir, "segment-123.wal")
-	walDst := filepath.Join(stagingDir, idxID, "cold-tenant", "lsm", "objects", "segment-123.wal")
-	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied")
+func TestDescriptorCutsToDetectedNameMax(t *testing.T) {
+	const className, name = "TestClass", "cold-tenant"
+	// Its staged name is 144 bytes.
+	segRel := filepath.Join(indexID(className), name, "lsm",
+		"property_productDescriptionText_searchable", "segment-1730812345678901234.l0.s4.db")
+	sum := sha256.Sum256([]byte(segRel))
+	segHash := hex.EncodeToString(sum[:])
 
-	clSrc := filepath.Join(clDir, "1709203456")
-	clDst := filepath.Join(stagingDir, idxID, "cold-tenant", "main.hnsw.commitlog.d", "1709203456")
-	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied")
+	tests := []struct {
+		name        string
+		fsLimit     int
+		fsErr       error
+		wantErr     string
+		wantNameMax int
+		wantNameLen int
+	}{
+		{name: "limit read", fsLimit: 143, wantNameMax: 143, wantNameLen: 143},
+		{name: "limit shorter than the hash", fsLimit: 63, wantErr: "at most 63 bytes"},
+		{name: "limit query fails", fsErr: errors.New("statfs failed"), wantNameMax: 255, wantNameLen: 144},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(name, models.TenantActivityStatusCOLD).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+			createColdShardFiles(t, rootDir, className, name)
+			segPath := filepath.Join(rootDir, segRel)
+			require.NoError(t, os.MkdirAll(filepath.Dir(segPath), 0o755))
+			require.NoError(t, os.WriteFile(segPath, []byte("seg-data"), 0o644))
+			limitReadOn := stubFSNameMax(t, tt.fsLimit, tt.fsErr)
 
-	// Immutable files: same inodes (hard-linked).
-	segSrc := filepath.Join(bucketDir, "segment-0001.db")
-	segDst := filepath.Join(stagingDir, idxID, "cold-tenant", "lsm", "objects", "segment-0001.db")
-	assert.Equal(t, getIno(segSrc), getIno(segDst), "segment should be hard-linked")
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, desc.StagingDir, *limitReadOn)
+			assert.Equal(t, tt.wantNameMax, desc.StagingNameMax)
 
-	condensedSrc := filepath.Join(clDir, "1709203400.condensed")
-	condensedDst := filepath.Join(stagingDir, idxID, "cold-tenant", "main.hnsw.commitlog.d", "1709203400.condensed")
-	assert.Equal(t, getIno(condensedSrc), getIno(condensedDst), "condensed commitlog should be hard-linked")
+			entries, err := os.ReadDir(filepath.Join(desc.StagingDir, name))
+			require.NoError(t, err)
+			var stagedName string
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), segHash) {
+					stagedName = e.Name()
+				}
+			}
+			assert.Len(t, stagedName, tt.wantNameLen)
+			_, err = desc.ShardFileSource(name).Stat(segRel)
+			require.NoError(t, err, "the uploader must resolve the name the writer staged")
+		})
+	}
 }
 
 func TestDescriptorAllFrozenTenants(t *testing.T) {
@@ -872,7 +862,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -898,7 +888,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil, nil)
+	err := idx.descriptor(context.Background(), "backup-2", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -918,7 +908,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil, nil)
+	err := idx.descriptor(ctx, backupID, &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -928,6 +918,44 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
 	assert.NoDirExists(t, stagingDir, "staging dir should be removed after ReleaseBackup")
 	assert.Nil(t, idx.lastBackup.Load(), "backup state should be reset")
+}
+
+func TestReleaseBackupForeignHalt(t *testing.T) {
+	t.Run("a halt held by another operation survives the release", func(t *testing.T) {
+		ctx := context.Background()
+		index, shard := newSharedHaltTestShard(t)
+
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
+		defer func() { require.NoError(t, shard.resumeMaintenanceCycles(ctx)) }()
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+
+		assert.EqualValues(t, 1, shard.haltForTransferCount.Load())
+		assert.False(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
+			"vector maintenance must stay paused for the operation that halted the shard")
+		assert.False(t, shard.cycleCallbacks.geoPropsCombinedCallbacksCtrl.IsActive(),
+			"geo maintenance must stay paused for the operation that halted the shard")
+	})
+}
+
+func TestBackupableHardlinkPreflight(t *testing.T) {
+	t.Run("an unsupported filesystem refuses before any class is checked", func(t *testing.T) {
+		t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+		const className = "ClassA"
+		builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(1)
+		builder.AddTenant("cold-tenant", models.TenantActivityStatusCOLD)
+		db := backupTestDBWithColdTenants(t, []string{className}, []string{"cold-tenant"}, builder.Build())
+		var fetches atomic.Int64
+		db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+			fetches.Add(1)
+			return makeActivityBuilder(nil)()
+		})
+
+		err := db.Backupable(context.Background(), []string{className, "MissingClass"})
+		require.ErrorContains(t, err, "backup requires a filesystem that supports hard links")
+		assert.NotContains(t, err.Error(), "doesn't exist", "the refusal must precede the per-class checks")
+		assert.Zero(t, fetches.Load(), "the refusal must precede the reindex gate")
+	})
 }
 
 // TestDescriptorHotTenants verifies that descriptor() correctly backs up HOT
@@ -967,8 +995,8 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
 		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
-			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ backup.ShardStaging, _ reindexGate) ([]string, error) {
 				sd.Name = name
 				sd.Node = "node1"
 				return files, nil
@@ -982,7 +1010,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -1022,6 +1050,62 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 }
 
+func TestDescriptorWrapsNameTooLong(t *testing.T) {
+	const className, shardName = "TestClass", "hot-tenant"
+	nameTooLong := &os.PathError{Op: "link", Path: "staged", Err: syscall.ENAMETOOLONG}
+	tests := []struct {
+		name        string
+		fsLimit     int
+		fsErr       error
+		snapshotErr error
+		want        []string
+		wantAbsent  string
+	}{
+		{
+			name: "limit read", fsLimit: 143, snapshotErr: nameTooLong,
+			want: []string{"staged names cut to 143 bytes, the limit read on"},
+		},
+		{
+			name: "limit above 255", fsLimit: 1024, snapshotErr: nameTooLong,
+			want: []string{"staged names cut to 255 bytes, the limit read on"},
+		},
+		{
+			name: "limit query fails", fsErr: errors.New("statfs failed"), snapshotErr: nameTooLong,
+			want: []string{"staged names cut to 255 bytes because the name limit of", "could not be read"},
+		},
+		{
+			name: "other error", fsLimit: 143, snapshotErr: errors.New("out of disk"),
+			wantAbsent: "staged names cut",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusHOT).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+			mockShard := NewMockShardLike(t)
+			mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
+			mockShard.EXPECT().
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil, tt.snapshotErr)
+			idx.shards.Store(shardName, mockShard)
+			stubFSNameMax(t, tt.fsLimit, tt.fsErr)
+
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
+			require.ErrorIs(t, err, tt.snapshotErr)
+			for _, want := range tt.want {
+				assert.ErrorContains(t, err, want)
+			}
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, err.Error(), tt.wantAbsent)
+			}
+		})
+	}
+}
+
 // Asserts shardCreateLocks is released before CreateBackupSnapshot so concurrent
 // queries (via Index.getOptInitLocalShard) don't stall for the snapshot duration.
 // See weaviate/0-weaviate-issues#234.
@@ -1047,8 +1131,8 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 		close(releaseCalled)
 	}, nil)
 	mockShard.EXPECT().
-		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ backup.ShardStaging, _ reindexGate) ([]string, error) {
 			sd.Name = shardName
 			sd.Node = "node1"
 			close(snapshotStarted)
@@ -1063,7 +1147,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), 255, newReindexGate(idx.db, reindexGateMaxAge))
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -1140,8 +1224,8 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}
 			}, nil)
 			mockShard.EXPECT().
-				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ backup.ShardStaging, _ reindexGate) ([]string, error) {
 					if tt.snapshotErr != nil {
 						return nil, tt.snapshotErr
 					}
@@ -1162,7 +1246,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), 255, newReindexGate(idx.db, reindexGateMaxAge))
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -1174,6 +1258,47 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				"backupLock must be unlocked before the shard reference is dropped")
 		})
 	}
+}
+
+// TestBackupLoadedShardStatsStagedBase pins that a loaded shard's base files
+// are compared against the staged files, which the live tree may already differ from.
+func TestBackupLoadedShardStatsStagedBase(t *testing.T) {
+	const className, shardName = "TestClass", "test-shard"
+	snapshotFile := "objects/segment-0001.db"
+	data := []byte("seg-data")
+	modTime := time.Unix(1_700_000_000, 0)
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+	idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
+	mockShard.EXPECT().
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ *backup.ShardDescriptor, s backup.ShardStaging, _ reindexGate) ([]string, error) {
+			require.NoError(t, os.Mkdir(s.Dir, 0o755))
+			staged := backup.StagedFilePath(s, snapshotFile)
+			require.NoError(t, os.WriteFile(staged, data, 0o644))
+			require.NoError(t, os.Chtimes(staged, modTime, modTime))
+			return []string{snapshotFile}, nil
+		})
+	idx.shards.Store(shardName, mockShard)
+
+	baseDescrs := []*backup.BaseClassDescriptor{{
+		BackupID: "base-backup",
+		Shards: []backup.BaseShardDescriptor{{
+			Name:          shardName,
+			BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: int64(len(data)), ModifiedAt: modTime}},
+		}},
+	}}
+	sd, err := idx.backupShardWithHardlinks(context.Background(), shardName, baseDescrs, t.TempDir(), 255,
+		newReindexGate(idx.db, reindexGateMaxAge))
+	require.NoError(t, err)
+
+	assert.Empty(t, sd.Files)
+	assert.Equal(t, []backup.IncrementalBackupInfo{{File: snapshotFile}}, sd.IncrementalBackupInfo.FilesPerBackup["base-backup"])
 }
 
 // Asserts both locks are released on the preventShutdown error path — guards
@@ -1195,7 +1320,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), 255, newReindexGate(idx.db, reindexGateMaxAge))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 
@@ -1347,5 +1472,298 @@ func TestDB_ShardReplicas(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, replicas)
 		assert.Contains(t, err.Error(), "failed to read sharding state")
+	})
+}
+
+// Regression: a task-list fetch per shard, then per collection, scaled backup
+// time with tenant and collection count. COLD tenants take the inactive-shard
+// path; HOT ones halt each loaded shard.
+func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
+	classes := []string{"ClassA", "ClassB", "ClassC"}
+	tenants := []string{"tenant-1", "tenant-2", "tenant-3"}
+
+	for _, status := range []string{models.TenantActivityStatusCOLD, models.TenantActivityStatusHOT} {
+		for _, tc := range []struct {
+			name    string
+			live    map[[2]string]bool
+			refused bool
+		}{
+			{name: "no reindex running"},
+			{name: "reindex running on one tenant", live: map[[2]string]bool{{"ClassB", "tenant-2"}: true}, refused: true},
+		} {
+			t.Run(status+"/"+tc.name, func(t *testing.T) {
+				// One replica per node puts every tenant on this node.
+				builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
+				for _, name := range tenants {
+					builder.AddTenant(name, status)
+				}
+				var db *DB
+				if status == models.TenantActivityStatusCOLD {
+					db = backupTestDBWithColdTenants(t, classes, tenants, builder.Build())
+				} else {
+					db = backupTestDBWithLoadedShards(t, classes, builder.Build())
+				}
+
+				var fetches atomic.Int64
+				db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+					fetches.Add(1)
+					return makeActivityBuilder(tc.live)()
+				})
+
+				err := db.Backupable(context.Background(), classes)
+				if tc.refused {
+					require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.EqualValues(t, 1, fetches.Load(), "Backupable")
+
+				fetches.Store(0)
+				var descs []backup.ClassDescriptor
+				for d := range db.BackupDescriptors(context.Background(), "backup-1", classes, nil, nil) {
+					descs = append(descs, d)
+				}
+				if tc.refused {
+					require.NotEmpty(t, descs)
+					require.ErrorIs(t, descs[len(descs)-1].Error, backup.ErrBackupBlockedByInFlightReindex)
+				} else {
+					require.Len(t, descs, len(classes))
+					for _, d := range descs {
+						require.NoError(t, d.Error)
+						require.Len(t, d.Shards, len(tenants))
+						require.NoError(t, db.ReleaseBackup(context.Background(), "backup-1", d.Name))
+					}
+				}
+				assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
+			})
+		}
+	}
+}
+
+func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
+	const className = "ClassA"
+	// One shard's refusal is about 600 characters; ten sampled names fit in the rest.
+	const maxErrLen = 2000
+	tenants := make([]string, 1000)
+	everyTenant := map[[2]string]bool{}
+	builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
+	for i := range tenants {
+		tenants[i] = fmt.Sprintf("tenant-%04d", i)
+		everyTenant[[2]string{className, tenants[i]}] = true
+		builder.AddTenant(tenants[i], models.TenantActivityStatusCOLD)
+	}
+	db := backupTestDBWithColdTenants(t, []string{className}, tenants, builder.Build())
+
+	for _, tc := range []struct {
+		name      string
+		lookup    ShardReindexActivityLookupBuilder
+		wantErr   error
+		wantCount string
+		wantFirst string
+	}{
+		{
+			name:      "reindex running on every tenant",
+			lookup:    makeActivityBuilder(everyTenant),
+			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
+			wantCount: "1000 of 1000 shards",
+			wantFirst: "tenant-0000",
+		},
+		{
+			name:      "reindex running on one tenant",
+			lookup:    makeActivityBuilder(map[[2]string]bool{{className, "tenant-0500"}: true}),
+			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
+			wantCount: "1 of 1000 shards blocked (tenant-0500)",
+			wantFirst: "tenant-0500",
+		},
+		{
+			name:      "task manager unreachable",
+			lookup:    unreachableActivityBuilder,
+			wantErr:   ErrReindexGateUnavailable,
+			wantCount: "1000 of 1000 shards",
+			wantFirst: "tenant-0000",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db.SetShardReindexActivityLookup(tc.lookup)
+
+			err := db.Backupable(context.Background(), []string{className})
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Contains(t, err.Error(), tc.wantCount)
+			assert.Contains(t, err.Error(), fmt.Sprintf("shard %q", tc.wantFirst))
+			assert.Less(t, len(err.Error()), maxErrLen)
+		})
+	}
+}
+
+func backupTestDBWithColdTenants(t *testing.T, classes, tenants []string, state *sharding.State) *DB {
+	t.Helper()
+	logger, _ := tlog.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+	for _, className := range classes {
+		rootDir := t.TempDir()
+		for _, name := range tenants {
+			createColdShardFiles(t, rootDir, className, name)
+		}
+		idx := newDescriptorTestIndex(t, rootDir, className, state)
+		idx.db = db
+		db.indices[indexID(schema.ClassName(className))] = idx
+	}
+	return db
+}
+
+func backupTestDBWithLoadedShards(t *testing.T, classNames []string, state *sharding.State) *DB {
+	t.Helper()
+	var classes []*models.Class
+	for _, className := range classNames {
+		classes = append(classes, &models.Class{
+			Class:               className,
+			MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: true},
+			VectorIndexConfig:   enthnsw.UserConfig{Skip: true},
+			InvertedIndexConfig: invertedConfig(),
+		})
+	}
+	db := openTestDatabase(t, t.TempDir(), state, monitoring.GetMetrics(), nil, nil, classes...)
+	t.Cleanup(func() { require.NoError(t, db.Shutdown(context.Background())) })
+	for _, className := range classNames {
+		idx := db.GetIndex(schema.ClassName(className))
+		require.NotNil(t, idx)
+		for _, name := range state.AllPhysicalShards() {
+			require.NoError(t, idx.LoadLocalShardForTenantAdd(context.Background(), name))
+			// An unloaded shard would take the inactive-shard path.
+			if lazy, ok := idx.shards.Load(name).(*LazyLoadShard); ok {
+				_, _, err := lazy.loadIfCold(context.Background())
+				require.NoError(t, err)
+			}
+		}
+	}
+	return db
+}
+
+// snapshotHookIndex runs onSnapshot before SnapshotMutableFiles. CreateBackupSnapshot
+// calls it after a successful halt and before its deferred resume.
+type snapshotHookIndex struct {
+	VectorIndex
+	onSnapshot func()
+}
+
+func (i *snapshotHookIndex) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
+	i.onSnapshot()
+	return i.VectorIndex.SnapshotMutableFiles(ctx, basePath, dstFor)
+}
+
+// newResumeFailingBackupShard returns a shard whose backup snapshot fails to
+// resume. While halted, the snapshot adds a target-node override, an
+// async-replication enable that the halt skips. It then unregisters the vector
+// maintenance callbacks, so the resume fails with ErrorCallbackNotFound.
+func newResumeFailingBackupShard(t *testing.T) (*Index, *Shard) {
+	t.Helper()
+	ctx := context.Background()
+	index, shard := newSharedHaltTestShard(t)
+	// A single replica at factor 1: the override alone enables async replication.
+	index.schemaReader.(*local.MockSchemaReader).EXPECT().ShardReplicas(mock.Anything, mock.Anything).
+		Return([]string{"node1"}, nil).Maybe()
+	index.asyncReplicationScheduler = newSchedulerForUnitTest(t)
+	index.replicationConfigLock.Lock()
+	index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+	index.replicationConfigLock.Unlock()
+
+	var names []string
+	var inner VectorIndex
+	require.NoError(t, shard.ForEachVectorIndex(func(name string, vi VectorIndex) error {
+		names, inner = append(names, name), vi
+		return nil
+	}))
+	require.Len(t, names, 1)
+	shard.setVectorIndex(names[0], &snapshotHookIndex{VectorIndex: inner, onSnapshot: func() {
+		require.NoError(t, shard.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   index.Config.ClassName.String(),
+			ShardID:        shard.name,
+			SourceNode:     "nodeA",
+			TargetNode:     "nodeB",
+			UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+		}))
+		require.False(t, asyncReplicationInstalled(shard), "the enable must be skipped while halted")
+		require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+	}})
+	return index, shard
+}
+
+// failBackupSnapshotResume runs a backup snapshot whose halt succeeds and whose
+// resume fails, leaving the shard at halt count 0 with resumeIncomplete set.
+func failBackupSnapshotResume(t *testing.T, index *Index, shard *Shard) error {
+	t.Helper()
+	stagingRoot := backupStagingDir(index.Config.RootPath, "backup-1", index.Config.ClassName)
+	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
+	_, err := shard.CreateBackupSnapshot(context.Background(), &backup.ShardDescriptor{}, backup.NewShardStaging(stagingRoot, shard.Name(), 255),
+		newReindexGate(index.db, reindexGateMaxAge))
+	require.Zero(t, shard.haltForTransferCount.Load())
+	require.True(t, shard.resumeIncomplete.Load())
+	return err
+}
+
+// reregisterVectorCallbacks registers the vector maintenance callbacks again as
+// inactive, the state the halt left them in, so only a resume can activate them.
+func reregisterVectorCallbacks(s *Shard) {
+	cc := s.cycleCallbacks
+	cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
+		s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+			"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
+		s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+			"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+}
+
+func TestCreateBackupSnapshot(t *testing.T) {
+	t.Run("a failed resume fails the snapshot", func(t *testing.T) {
+		index, shard := newResumeFailingBackupShard(t)
+
+		err := failBackupSnapshotResume(t, index, shard)
+		require.ErrorContains(t, err, "resume maintenance after backup snapshot")
+		require.ErrorIs(t, err, cyclemanager.ErrorCallbackNotFound)
+	})
+}
+
+func TestReleaseBackupResumeRetry(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("an incomplete resume is retried and re-applies the skipped enable", func(t *testing.T) {
+		index, shard := newResumeFailingBackupShard(t)
+		require.Error(t, failBackupSnapshotResume(t, index, shard))
+		require.False(t, asyncReplicationInstalled(shard), "a failed resume must not re-apply")
+		reregisterVectorCallbacks(shard)
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+
+		require.Zero(t, shard.haltForTransferCount.Load())
+		require.False(t, shard.resumeIncomplete.Load())
+		require.True(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(), "the retry must restart vector maintenance")
+		require.True(t, asyncReplicationInstalled(shard), "the retry must re-apply the skipped enable")
+	})
+
+	t.Run("an incomplete resume under another operation's halt is left to that operation", func(t *testing.T) {
+		index, shard := newResumeFailingBackupShard(t)
+		require.Error(t, failBackupSnapshotResume(t, index, shard))
+		reregisterVectorCallbacks(shard)
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+
+		require.EqualValues(t, 1, shard.haltForTransferCount.Load(), "the release must not end another operation's halt")
+		require.True(t, shard.resumeIncomplete.Load())
+		require.False(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
+			"vector maintenance must stay paused for the operation that halted the shard")
+
+		// The holder's own resume completes the unfinished one.
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.False(t, shard.resumeIncomplete.Load())
+	})
+
+	t.Run("a cold lazy shard stays cold", func(t *testing.T) {
+		index, loaded := newSharedHaltTestShard(t)
+		cold := NewLazyLoadShard(ctx, nil, "cold", index, loaded.class, index.centralJobQueue,
+			nil, index.shardLoadLimiter, index.shardReindexer, false, index.bitmapBufPool)
+		index.shards.Store("cold", cold)
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+		require.False(t, cold.isLoaded(), "the release must not load the shard")
 	})
 }

@@ -17,8 +17,6 @@ import (
 	additional "github.com/weaviate/weaviate/entities/additional"
 	aggregation "github.com/weaviate/weaviate/entities/aggregation"
 
-	atomic "sync/atomic"
-
 	backup "github.com/weaviate/weaviate/entities/backup"
 
 	config "github.com/weaviate/weaviate/entities/schema/config"
@@ -753,9 +751,9 @@ func (_c *MockShardLike_CreateAsyncCheckpoint_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, stagingRoot
-func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-	ret := _m.Called(ctx, sd, stagingRoot)
+// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, shardStaging, gate
+func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error) {
+	ret := _m.Called(ctx, sd, shardStaging, gate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateBackupSnapshot")
@@ -763,19 +761,19 @@ func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.Sh
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string) ([]string, error)); ok {
-		return rf(ctx, sd, stagingRoot)
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) ([]string, error)); ok {
+		return rf(ctx, sd, shardStaging, gate)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string) []string); ok {
-		r0 = rf(ctx, sd, stagingRoot)
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) []string); ok {
+		r0 = rf(ctx, sd, shardStaging, gate)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, string) error); ok {
-		r1 = rf(ctx, sd, stagingRoot)
+	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) error); ok {
+		r1 = rf(ctx, sd, shardStaging, gate)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -791,14 +789,15 @@ type MockShardLike_CreateBackupSnapshot_Call struct {
 // CreateBackupSnapshot is a helper method to define mock.On call
 //   - ctx context.Context
 //   - sd *backup.ShardDescriptor
-//   - stagingRoot string
-func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, stagingRoot interface{}) *MockShardLike_CreateBackupSnapshot_Call {
-	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, stagingRoot)}
+//   - shardStaging backup.ShardStaging
+//   - gate reindexGate
+func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, shardStaging interface{}, gate interface{}) *MockShardLike_CreateBackupSnapshot_Call {
+	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, shardStaging, gate)}
 }
 
-func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string)) *MockShardLike_CreateBackupSnapshot_Call {
+func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate)) *MockShardLike_CreateBackupSnapshot_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(string))
+		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(backup.ShardStaging), args[3].(reindexGate))
 	})
 	return _c
 }
@@ -808,7 +807,7 @@ func (_c *MockShardLike_CreateBackupSnapshot_Call) Return(_a0 []string, _a1 erro
 	return _c
 }
 
-func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, string) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
+func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, backup.ShardStaging, reindexGate) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1825,17 +1824,17 @@ func (_c *MockShardLike_GetStatusReason_Call) RunAndReturn(run func() string) *M
 	return _c
 }
 
-// HaltForTransfer provides a mock function with given fields: ctx, offloading, inactivityTimeout
-func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
-	ret := _m.Called(ctx, offloading, inactivityTimeout)
+// HaltForTransfer provides a mock function with given fields: ctx, offloading
+func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool) error {
+	ret := _m.Called(ctx, offloading)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HaltForTransfer")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, bool, time.Duration) error); ok {
-		r0 = rf(ctx, offloading, inactivityTimeout)
+	if rf, ok := ret.Get(0).(func(context.Context, bool) error); ok {
+		r0 = rf(ctx, offloading)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1851,14 +1850,13 @@ type MockShardLike_HaltForTransfer_Call struct {
 // HaltForTransfer is a helper method to define mock.On call
 //   - ctx context.Context
 //   - offloading bool
-//   - inactivityTimeout time.Duration
-func (_e *MockShardLike_Expecter) HaltForTransfer(ctx interface{}, offloading interface{}, inactivityTimeout interface{}) *MockShardLike_HaltForTransfer_Call {
-	return &MockShardLike_HaltForTransfer_Call{Call: _e.mock.On("HaltForTransfer", ctx, offloading, inactivityTimeout)}
+func (_e *MockShardLike_Expecter) HaltForTransfer(ctx interface{}, offloading interface{}) *MockShardLike_HaltForTransfer_Call {
+	return &MockShardLike_HaltForTransfer_Call{Call: _e.mock.On("HaltForTransfer", ctx, offloading)}
 }
 
-func (_c *MockShardLike_HaltForTransfer_Call) Run(run func(ctx context.Context, offloading bool, inactivityTimeout time.Duration)) *MockShardLike_HaltForTransfer_Call {
+func (_c *MockShardLike_HaltForTransfer_Call) Run(run func(ctx context.Context, offloading bool)) *MockShardLike_HaltForTransfer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(bool), args[2].(time.Duration))
+		run(args[0].(context.Context), args[1].(bool))
 	})
 	return _c
 }
@@ -1868,7 +1866,7 @@ func (_c *MockShardLike_HaltForTransfer_Call) Return(_a0 error) *MockShardLike_H
 	return _c
 }
 
-func (_c *MockShardLike_HaltForTransfer_Call) RunAndReturn(run func(context.Context, bool, time.Duration) error) *MockShardLike_HaltForTransfer_Call {
+func (_c *MockShardLike_HaltForTransfer_Call) RunAndReturn(run func(context.Context, bool) error) *MockShardLike_HaltForTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2138,97 +2136,6 @@ func (_c *MockShardLike_ListBackupFiles_Call) Return(_a0 []string, _a1 error) *M
 
 func (_c *MockShardLike_ListBackupFiles_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor) ([]string, error)) *MockShardLike_ListBackupFiles_Call {
 	_c.Call.Return(run)
-	return _c
-}
-
-// ListReplicaSnapshotFiles provides a mock function with given fields: ctx, stagingRoot
-func (_m *MockShardLike) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	ret := _m.Called(ctx, stagingRoot)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListReplicaSnapshotFiles")
-	}
-
-	var r0 []string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
-		return rf(ctx, stagingRoot)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
-		r0 = rf(ctx, stagingRoot)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, stagingRoot)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_ListReplicaSnapshotFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReplicaSnapshotFiles'
-type MockShardLike_ListReplicaSnapshotFiles_Call struct {
-	*mock.Call
-}
-
-// ListReplicaSnapshotFiles is a helper method to define mock.On call
-//   - ctx context.Context
-//   - stagingRoot string
-func (_e *MockShardLike_Expecter) ListReplicaSnapshotFiles(ctx interface{}, stagingRoot interface{}) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	return &MockShardLike_ListReplicaSnapshotFiles_Call{Call: _e.mock.On("ListReplicaSnapshotFiles", ctx, stagingRoot)}
-}
-
-func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) Run(run func(ctx context.Context, stagingRoot string)) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) Return(_a0 []string, _a1 error) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_ListReplicaSnapshotFiles_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockShardLike_ListReplicaSnapshotFiles_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// MayResetTransferInactivityTimer provides a mock function with no fields
-func (_m *MockShardLike) MayResetTransferInactivityTimer() {
-	_m.Called()
-}
-
-// MockShardLike_MayResetTransferInactivityTimer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MayResetTransferInactivityTimer'
-type MockShardLike_MayResetTransferInactivityTimer_Call struct {
-	*mock.Call
-}
-
-// MayResetTransferInactivityTimer is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) MayResetTransferInactivityTimer() *MockShardLike_MayResetTransferInactivityTimer_Call {
-	return &MockShardLike_MayResetTransferInactivityTimer_Call{Call: _e.mock.On("MayResetTransferInactivityTimer")}
-}
-
-func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Run(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Return() *MockShardLike_MayResetTransferInactivityTimer_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) RunAndReturn(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
-	_c.Run(run)
 	return _c
 }
 
@@ -4256,17 +4163,17 @@ func (_c *MockShardLike_commitReplication_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// drop provides a mock function with given fields: keepFiles
-func (_m *MockShardLike) drop(keepFiles bool) error {
-	ret := _m.Called(keepFiles)
+// drop provides a mock function with no fields
+func (_m *MockShardLike) drop() error {
+	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for drop")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(bool) error); ok {
-		r0 = rf(keepFiles)
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -4280,14 +4187,13 @@ type MockShardLike_drop_Call struct {
 }
 
 // drop is a helper method to define mock.On call
-//   - keepFiles bool
-func (_e *MockShardLike_Expecter) drop(keepFiles interface{}) *MockShardLike_drop_Call {
-	return &MockShardLike_drop_Call{Call: _e.mock.On("drop", keepFiles)}
+func (_e *MockShardLike_Expecter) drop() *MockShardLike_drop_Call {
+	return &MockShardLike_drop_Call{Call: _e.mock.On("drop")}
 }
 
-func (_c *MockShardLike_drop_Call) Run(run func(keepFiles bool)) *MockShardLike_drop_Call {
+func (_c *MockShardLike_drop_Call) Run(run func()) *MockShardLike_drop_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(bool))
+		run()
 	})
 	return _c
 }
@@ -4297,7 +4203,7 @@ func (_c *MockShardLike_drop_Call) Return(_a0 error) *MockShardLike_drop_Call {
 	return _c
 }
 
-func (_c *MockShardLike_drop_Call) RunAndReturn(run func(bool) error) *MockShardLike_drop_Call {
+func (_c *MockShardLike_drop_Call) RunAndReturn(run func() error) *MockShardLike_drop_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4591,6 +4497,53 @@ func (_c *MockShardLike_isReadOnly_Call) Return(_a0 error) *MockShardLike_isRead
 }
 
 func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockShardLike_isReadOnly_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// migrationMirrorRegistry provides a mock function with no fields
+func (_m *MockShardLike) migrationMirrorRegistry() *migrationMirrorRegistry {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationMirrorRegistry")
+	}
+
+	var r0 *migrationMirrorRegistry
+	if rf, ok := ret.Get(0).(func() *migrationMirrorRegistry); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*migrationMirrorRegistry)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_migrationMirrorRegistry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationMirrorRegistry'
+type MockShardLike_migrationMirrorRegistry_Call struct {
+	*mock.Call
+}
+
+// migrationMirrorRegistry is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) migrationMirrorRegistry() *MockShardLike_migrationMirrorRegistry_Call {
+	return &MockShardLike_migrationMirrorRegistry_Call{Call: _e.mock.On("migrationMirrorRegistry")}
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) Run(run func()) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) Return(_a0 *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) RunAndReturn(run func() *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5080,9 +5033,9 @@ func (_c *MockShardLike_updateMultiVectorIndexesIgnoreDelete_Call) RunAndReturn(
 	return _c
 }
 
-// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property, payloadReads
-func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64) {
-	_m.Called(ctx, eg, property, payloadReads)
+// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property, counts
+func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts) {
+	_m.Called(ctx, eg, property, counts)
 }
 
 // MockShardLike_updatePropertyBuckets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'updatePropertyBuckets'
@@ -5094,14 +5047,14 @@ type MockShardLike_updatePropertyBuckets_Call struct {
 //   - ctx context.Context
 //   - eg *errors.ErrorGroupWrapper
 //   - property *models.Property
-//   - payloadReads *atomic.Int64
-func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}, payloadReads interface{}) *MockShardLike_updatePropertyBuckets_Call {
-	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property, payloadReads)}
+//   - counts *migrationSweepCounts
+func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}, counts interface{}) *MockShardLike_updatePropertyBuckets_Call {
+	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property, counts)}
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property), args[3].(*atomic.Int64))
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property), args[3].(*migrationSweepCounts))
 	})
 	return _c
 }
@@ -5111,7 +5064,7 @@ func (_c *MockShardLike_updatePropertyBuckets_Call) Return() *MockShardLike_upda
 	return _c
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *atomic.Int64)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Run(run)
 	return _c
 }
@@ -5265,7 +5218,8 @@ func (_c *MockShardLike_updateVectorIndexesIgnoreDelete_Call) RunAndReturn(run f
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

@@ -35,7 +35,7 @@ func startDynUserRaft(t *testing.T, userID string) (*Raft, context.Context, *api
 	dynUser, err := apikey.NewDBUser(t.TempDir(), false, m.logger, m.cfg.NamespacesController)
 	require.NoError(t, err)
 	m.cfg.DynamicUserController = dynUser
-	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(m.replicationFSM)
 	m.store = &s
 	srv, ctx, cleanup := startSingleNodeRaft(t, m)

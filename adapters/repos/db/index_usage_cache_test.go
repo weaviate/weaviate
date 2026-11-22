@@ -17,15 +17,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -247,4 +251,88 @@ func markSavedShardUsage(t *testing.T, indexPath, shardName string) {
 	saved := readSavedShardUsage(t, indexPath, shardName)
 	saved.ShardUsage.ObjectsCount = savedObjectsCount
 	writeSavedShardUsage(t, indexPath, shardName, saved)
+}
+
+// TestUnloadedShardUsageNotSavedWhileMappingLocked pins that a cold reading taken
+// while a load holds the shard's metadata is reported but not saved: it locates
+// the vector files by the naming rule, which a rebuilt index does not follow, and
+// a saved reading is served until the vector configs change.
+func TestUnloadedShardUsageNotSavedWhileMappingLocked(t *testing.T) {
+	ctx := context.Background()
+	tenantName := "test-tenant"
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+		namedVectors: map[string]models.VectorConfig{
+			"title": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		},
+		generatedIDs: true,
+	})
+	t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+	require.NoError(t, err)
+	require.Len(t, usage.Shards, 1)
+	assert.False(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
+
+	require.NoError(t, metadata.Close())
+	usage, err = index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+	require.NoError(t, err)
+	require.Len(t, usage.Shards, 1)
+	assert.True(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
+}
+
+// TestUnloadedShardUsageReportedWhenMappingUnreadable pins that a cold tenant
+// whose mapping cannot be read is reported by the naming rule, not saved, and
+// does not fail the report of the other tenants of the collection.
+func TestUnloadedShardUsageReportedWhenMappingUnreadable(t *testing.T) {
+	ctx := context.Background()
+	tenantName := "test-tenant"
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+		namedVectors: map[string]models.VectorConfig{
+			"title": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		},
+	})
+	t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	require.NoError(t, metadata.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingFormatVersionKey), []byte("99")))
+	require.NoError(t, metadata.Close())
+
+	usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+	require.NoError(t, err)
+	require.Len(t, usage.Shards, 1)
+	assert.Len(t, usage.Shards[0].NamedVectors, 2)
+	assert.False(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
+}
+
+// TestUnloadedVectorStateWhileMetadataLocked pins that once the mapping read
+// found a load holding the shard's metadata, a dynamic vector's state is not
+// read from the same file: each read would wait out the lock timeout.
+func TestUnloadedVectorStateWhileMetadataLocked(t *testing.T) {
+	ctx := context.Background()
+	tenantName := "test-tenant"
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+		namedVectors: map[string]models.VectorConfig{
+			"title": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		},
+	})
+	t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	t.Cleanup(func() { metadata.Close() })
+
+	dynamicCfg := dynamicent.NewDefaultUserConfig()
+	start := time.Now()
+	state, cacheable := index.unloadedVectorState(tenantName, "dyn", "vectors_dyn", true,
+		models.VectorConfig{VectorIndexType: dynamicCfg.IndexType(), VectorIndexConfig: dynamicCfg},
+		shardusage.VectorsMetrics{})
+	assert.Less(t, time.Since(start), 500*time.Millisecond, "no wait on the held lock")
+	assert.False(t, cacheable)
+	assert.False(t, state.dynamicUpgraded)
 }

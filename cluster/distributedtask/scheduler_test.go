@@ -81,6 +81,60 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Empty(t, h.listManagerTasks(t))
 }
 
+// Every task's first start line shows however many start at once; only relaunches are sampled.
+func TestSchedulerLogsEveryTasksFirstStart(t *testing.T) {
+	defer leaktest.Check(t)()
+	const relaunching = "relaunching-namespace"
+	h := newTestHarness(t)
+	h.registeredProviders[relaunching] = exitingTaskProvider{newTestTaskProvider(t, nil)}
+	h = h.init(t)
+	h.startScheduler(t)
+	defer h.Close()
+
+	const tasks = 7
+	for i := range tasks {
+		addTaskWithUnits(t, h, h.tasksNamespace, fmt.Sprintf("task-%d", i), 1, []string{"u-1"})
+	}
+	h.advanceClock(h.schedulerTickInterval)
+	for range tasks {
+		recvWithTimeout(t, h.provider.startedCh)
+	}
+
+	require.Eventually(t, func() bool {
+		starts := 0
+		for _, e := range h.loggerHook.AllEntries() {
+			if e.Message == "started distributed task execution" {
+				starts++
+			}
+		}
+		return starts == tasks
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// A task that is no longer started leaves the set while it is still listed, before any provider cleanup runs.
+	for i := range tasks {
+		completeUnit(t, h, h.tasksNamespace, fmt.Sprintf("task-%d", i), 1, h.localNodeID, "u-1")
+	}
+	h.advanceClock(h.schedulerTickInterval)
+	require.Eventually(t, func() bool {
+		h.scheduler.mu.Lock()
+		defer h.scheduler.mu.Unlock()
+		return len(h.scheduler.startLogged[h.tasksNamespace]) == 0
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// A task whose handle exits on every tick logs its first start and at most 5 relaunches a window.
+	addTaskWithUnits(t, h, relaunching, "relaunched", 1, []string{"u-1"})
+	for range 8 {
+		h.advanceClock(h.schedulerTickInterval)
+	}
+	starts := 0
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Message == "started distributed task execution" && e.Data["taskID"] == "relaunched" {
+			starts++
+		}
+	}
+	require.Equal(t, 1+5, starts)
+}
+
 func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -366,6 +420,22 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	}
 }
 
+// Startup keeps the local state of every listed task: a finished barrier task can still owe swaps.
+func TestKeepLocalStateOfListedTasksOnStartup(t *testing.T) {
+	desc := TaskDescriptor{ID: "1", Version: 7}
+	provider := newTestTaskProvider(t, []TaskDescriptor{desc})
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: provider}
+	h = h.init(t)
+	defer h.Close()
+
+	task := withUnits(&Task{Namespace: h.tasksNamespace, TaskDescriptor: desc, Status: TaskStatusFinished},
+		map[string]*Unit{"su-1": {ID: "su-1", NodeID: h.localNodeID, Status: UnitStatusCompleted}})
+	h.scheduler.bootstrapProviders(map[string]map[TaskDescriptor]*Task{h.tasksNamespace: {desc: task}})
+
+	require.Len(t, provider.cleanedUpCh, 0)
+}
+
 func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -572,6 +642,9 @@ type testHarness struct {
 	testProviders         []*testTaskProvider
 	localTaskInspector    LocalTaskInspector
 
+	conflictDetectors       map[string]ConflictDetector
+	schemaMutationDetectors map[string]SchemaMutationDetector
+
 	manager   *Manager
 	scheduler *Scheduler
 
@@ -619,16 +692,16 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	}
 
 	h.manager = NewManager(ManagerParameters{
-		Clock:            h.clock,
-		CompletedTaskTTL: h.completedTaskTTL,
-		Logger:           h.logger,
+		Logger:                  h.logger,
+		ConflictDetectors:       h.conflictDetectors,
+		SchemaMutationDetectors: h.schemaMutationDetectors,
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
 		TaskLister:         h.manager,
 		TaskCleaner:        h.cleaner,
-		TaskFinalizer:      newDirectFinalizer(t, h.manager),
+		TaskFinalizer:      newDirectFinalizer(t, h.manager, h.clock),
 		AckRecorder:        h.ackRecorder,
 		LocalTaskInspector: h.localTaskInspector,
 		Providers:          h.registeredProviders,
@@ -661,10 +734,11 @@ func (h *testHarness) Close() {
 type directFinalizer struct {
 	t       *testing.T
 	manager *Manager
+	clock   clockwork.Clock
 }
 
-func newDirectFinalizer(t *testing.T, manager *Manager) *directFinalizer {
-	return &directFinalizer{t: t, manager: manager}
+func newDirectFinalizer(t *testing.T, manager *Manager, clock clockwork.Clock) *directFinalizer {
+	return &directFinalizer{t: t, manager: manager, clock: clock}
 }
 
 func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namespace, taskID string, taskVersion uint64) error {
@@ -672,7 +746,7 @@ func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namesp
 		Namespace:             namespace,
 		Id:                    taskID,
 		Version:               taskVersion,
-		FinalizedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+		FinalizedAtUnixMillis: d.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -682,7 +756,7 @@ func (d *directFinalizer) MarkDistributedTaskFailed(_ context.Context, namespace
 		Id:                 taskID,
 		Version:            taskVersion,
 		Error:              errMsg,
-		FailedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+		FailedAtUnixMillis: d.clock.Now().UnixMilli(),
 	}))
 }
 
@@ -1281,17 +1355,7 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	startedDesc := TaskDescriptor{ID: "started", Version: 4}
 
 	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		task := &Task{
-			TaskDescriptor: d,
-			Status:         status,
-			Units:          map[string]*Unit{},
-		}
-		// Add one unit per group so Task.Groups() yields each group.
-		for i, g := range groups {
-			id := fmt.Sprintf("u-%d", i)
-			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
-		}
-		return task
+		return withUnits(&Task{TaskDescriptor: d, Status: status}, unitPerGroup(groups))
 	}
 
 	snapshot := map[string]map[TaskDescriptor]*Task{
@@ -1315,15 +1379,9 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	require.True(t, s.perTaskState[cancelledDesc].completedCallbackFired,
 		"Cancelled task must be pre-marked as completed-callback-fired")
 
-	// All groups of terminal tasks: marked as fired.
-	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g1"],
-		"Finished task's g1 must be pre-marked")
-	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g2"],
-		"Finished task's g2 must be pre-marked")
-	require.True(t, s.perTaskState[failedDesc].groupCallbackFired[""],
-		"Failed task's implicit group must be pre-marked")
-	require.True(t, s.perTaskState[cancelledDesc].groupCallbackFired["g1"],
-		"Cancelled task's g1 must be pre-marked")
+	for _, desc := range []TaskDescriptor{finishedDesc, failedDesc, cancelledDesc} {
+		require.Equal(t, map[string]struct{}{}, s.perTaskState[desc].swapPending, desc.ID)
+	}
 
 	// Started task: NOT marked. Its callbacks must still fire when it
 	// transitions to terminal.
@@ -1392,16 +1450,7 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 	})
 
 	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		task := &Task{
-			TaskDescriptor: d,
-			Status:         status,
-			Units:          map[string]*Unit{},
-		}
-		for i, g := range groups {
-			id := fmt.Sprintf("u-%d", i)
-			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
-		}
-		return task
+		return withUnits(&Task{TaskDescriptor: d, Status: status}, unitPerGroup(groups))
 	}
 
 	snapshot := map[string]map[TaskDescriptor]*Task{
@@ -1423,14 +1472,14 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 	// done: LocalCallbacksDone=true → pre-marked normally.
 	require.True(t, s.perTaskState[doneDesc].completedCallbackFired,
 		"done task MUST be pre-marked")
-	require.True(t, s.perTaskState[doneDesc].groupCallbackFired["g1"],
-		"done task's g1 MUST be pre-marked")
+	require.Equal(t, map[string]struct{}{}, s.perTaskState[doneDesc].swapPending,
+		"done task has no group left to act on")
 
 	// failed: hook NOT consulted; pre-marked normally.
 	require.True(t, s.perTaskState[failedDesc].completedCallbackFired,
 		"failed task MUST be pre-marked — the recovery-aware hook only applies to FINISHED tasks")
-	require.True(t, s.perTaskState[failedDesc].groupCallbackFired["g1"],
-		"failed task's g1 MUST be pre-marked")
+	require.Equal(t, map[string]struct{}{}, s.perTaskState[failedDesc].swapPending,
+		"failed task has no group left to act on")
 }
 
 // TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged
@@ -1453,13 +1502,12 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 		TaskCleaner:        nil,
 	})
 
-	task := &Task{
+	task := withUnits(&Task{
 		TaskDescriptor: finishedDesc,
 		Status:         TaskStatusFinished,
-		Units: map[string]*Unit{
-			"u-0": {ID: "u-0", GroupID: "g1", NodeID: "node-a"},
-		},
-	}
+	}, map[string]*Unit{
+		"u-0": {ID: "u-0", GroupID: "g1", NodeID: "node-a"},
+	})
 	snapshot := map[string]map[TaskDescriptor]*Task{
 		"ns": {finishedDesc: task},
 	}
@@ -1469,7 +1517,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 	s.mu.Unlock()
 
 	require.True(t, s.perTaskState[finishedDesc].completedCallbackFired)
-	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g1"])
+	require.Equal(t, map[string]struct{}{}, s.perTaskState[finishedDesc].swapPending)
 }
 
 // TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked pins the
@@ -1492,9 +1540,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 // pre-mark filter (status == FINISHED || FAILED || CANCELLED) is what
 // keeps them out of the pre-mark; this test pins that filter.
 //
-// preparationCallbackFired and preparationAckEmitted maps must also stay empty for
-// non-terminal barrier tasks so the next tick can populate them in
-// PHASE A / PHASE A.5.
+// Non-terminal barrier tasks get no state, so the next tick fills their pending sets.
 func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) {
 	preparingDesc := TaskDescriptor{ID: "preparing-task", Version: 1}
 	swappingDesc := TaskDescriptor{ID: "swapping-task", Version: 2}
@@ -1521,17 +1567,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 	})
 
 	mkBarrierTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		task := &Task{
-			TaskDescriptor:          d,
-			Status:                  status,
-			NeedsPreparationBarrier: true,
-			Units:                   map[string]*Unit{},
-		}
-		for i, g := range groups {
-			id := fmt.Sprintf("u-%d", i)
-			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
-		}
-		return task
+		return withUnits(&Task{TaskDescriptor: d, Status: status, NeedsPreparationBarrier: true}, unitPerGroup(groups))
 	}
 
 	snapshot := map[string]map[TaskDescriptor]*Task{
@@ -1562,12 +1598,10 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
 	require.True(t, finished.completedCallbackFired,
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
-	require.True(t, finished.groupCallbackFired["g1"],
-		"FINISHED barrier task's group must be pre-marked")
-	require.True(t, finished.preparationCallbackFired["g1"],
-		"FINISHED barrier task's PHASE A flag must be pre-marked — both phases already cleared the ack barrier pre-restart")
-	require.True(t, finished.preparationAckEmitted,
-		"FINISHED barrier task's PreparationCompleteAck must be pre-marked as emitted")
+	require.Nil(t, finished.swapPending,
+		"a terminal barrier task's swaps are refilled from what RAFT says this node still owes")
+	require.Equal(t, map[string]struct{}{}, finished.prepPending,
+		"FINISHED barrier task has no group left to prepare — both phases already cleared the ack barrier pre-restart")
 	require.True(t, finished.postCompletionAckEmitted,
 		"FINISHED barrier task's PostCompletionAck must be pre-marked as emitted")
 }
@@ -1589,10 +1623,9 @@ func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
 	desc := TaskDescriptor{ID: "barrier-task", Version: 1}
 	s.perTaskState[desc] = &taskSchedulerState{
 		completedCallbackFired:           true,
-		groupCallbackFired:               map[string]bool{"g1": true},
-		preparationCallbackFired:         map[string]bool{"g1": true},
+		swapPending:                      map[string]struct{}{"g1": {}},
+		prepPending:                      map[string]struct{}{"g1": {}},
 		postCompletionAckEmitted:         true,
-		preparationAckEmitted:            true,
 		postCompletionGroupErrors:        map[string]error{"g1": nil},
 		preparationCompletionGroupErrors: map[string]error{"g1": nil},
 	}
@@ -1919,30 +1952,29 @@ func TestSchedulerTick_UnrecognizedStatusGaugeSurvivesAFailingList(t *testing.T)
 type alwaysFailingAckRecorder struct{}
 
 func (alwaysFailingAckRecorder) RecordDistributedTaskPostCompletionAck(
-	context.Context, string, string, uint64, string, bool, string,
+	context.Context, string, string, uint64, string, string, bool, string,
 ) error {
 	return errors.New("raft unavailable")
 }
 
 func (alwaysFailingAckRecorder) RecordDistributedTaskPreparationCompleteAck(
-	context.Context, string, string, uint64, string, bool, string,
+	context.Context, string, string, uint64, string, string, bool, string,
 ) error {
 	return errors.New("raft unavailable")
 }
 
-// Pins: each steady-state reporter samples on its own budget. Both
-// re-report every tick until something outside the scheduler clears the
-// condition, so on the shared budget they crowd out the one-off errors it
-// exists for — measured against a cleanup error site that keeps failing.
+// Pins: each steady-state reporter samples on its own budget, so none crowds out one-off error logs.
 func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
+		level   logrus.Level
 		warn    string
 		prepare func(h *testHarness)
 		arm     func(t *testing.T, h *testHarness)
 	}{
 		{
 			name:    "unrecognized status",
+			level:   logrus.WarnLevel,
 			warn:    "unrecognized status",
 			prepare: func(*testHarness) {},
 			arm: func(t *testing.T, h *testHarness) {
@@ -1951,8 +1983,9 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "post-completion ack failure",
-			warn: "post-completion ack",
+			name:  "post-completion ack failure",
+			level: logrus.WarnLevel,
+			warn:  "post-completion ack",
 			prepare: func(h *testHarness) {
 				prov := newUnitAwareTestProvider(t)
 				h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
@@ -1967,6 +2000,19 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 				completeUnit(t, h, h.tasksNamespace, "swapping", 10, h.localNodeID, "u-1")
 				require.Equal(t, TaskStatusSwapping,
 					h.manager.tasks[h.tasksNamespace]["swapping"].Status)
+			},
+		},
+		{
+			name:  "task relaunch",
+			level: logrus.InfoLevel,
+			warn:  "started distributed task execution",
+			prepare: func(h *testHarness) {
+				prov := exitingTaskProvider{newTestTaskProvider(t, nil)}
+				h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+			},
+			arm: func(t *testing.T, h *testHarness) {
+				// Its handle exits at once while its unit stays open, so every tick relaunches it.
+				addTaskWithUnits(t, h, h.tasksNamespace, "waiting", 10, []string{"u-1"})
 			},
 		},
 	} {
@@ -1998,7 +2044,7 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 			var warns, cleanupErrors int
 			for _, e := range h.loggerHook.AllEntries() {
 				switch {
-				case e.Level == logrus.WarnLevel && strings.Contains(e.Message, tc.warn):
+				case e.Level == tc.level && strings.Contains(e.Message, tc.warn):
 					warns++
 				case e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "failed to clean up distributed task"):
 					cleanupErrors++
@@ -2010,6 +2056,20 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 				"the persistent cleanup failure must get the shared sampler's whole budget")
 		})
 	}
+}
+
+type exitingTaskProvider struct{ *testTaskProvider }
+
+func (exitingTaskProvider) StartTask(*Task) (TaskHandle, error) { return exitedHandle{}, nil }
+
+type exitedHandle struct{}
+
+func (exitedHandle) Terminate() {}
+
+func (exitedHandle) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
 }
 
 // localTaskInspectorStub stands in for this node's own FSM copies of
@@ -2238,4 +2298,19 @@ func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testin
 		"the operator has to be told the verb is refused, not left to find out")
 	require.Contains(t, warned, "the nodes that do recognize the status",
 		"the only exit is a terminal state written by a node that can classify the status")
+}
+
+// Ack error (stored in the RAFT log) must not grow with the number of failing groups.
+func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
+	groupErrs := map[string]error{"succeeded": nil}
+	for i := range 1000 {
+		groupErrs[fmt.Sprintf("tenant-%04d", i)] = errors.New("swap failed")
+	}
+	success, msg := (&Scheduler{}).joinGroupErrors(groupErrs)
+
+	require.False(t, success)
+	require.Less(t, len(msg), 1000)
+	require.Contains(t, msg, "1000 group(s) failed")
+	require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
+	require.Contains(t, msg, "(and 990 more)")
 }

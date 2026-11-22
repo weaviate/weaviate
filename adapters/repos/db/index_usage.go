@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +28,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
@@ -441,19 +444,26 @@ type unloadedVectorState struct {
 	dynamicUpgraded       bool
 }
 
-// unloadedVectorState reads the state of one target vector of an unloaded shard.
-// Whether quantized vectors exist is taken from the vector metrics rather than read
-// again, as the walk that produced them already sized the compressed bucket.
-func (i *Index) unloadedVectorState(shardName, targetVector string,
+// unloadedVectorState reads the state of one target vector of an unloaded shard,
+// whose files are named by indexID. Whether quantized vectors exist is taken from
+// the vector metrics rather than read again, as the walk that produced them already
+// sized the compressed bucket. cacheable is false when a load held the shard's
+// metadata and the state could not be read. metadataLocked skips reads of the
+// metadata a load is known to hold, which would each wait for the lock timeout.
+func (i *Index) unloadedVectorState(shardName, targetVector, indexID string, metadataLocked bool,
 	vectorConfig models.VectorConfig, vectorMetrics shardusage.VectorsMetrics,
-) unloadedVectorState {
-	state := unloadedVectorState{
-		quantizedVectorsExist: vectorMetrics.QuantizedVectorsExist(targetVector),
+) (state unloadedVectorState, cacheable bool) {
+	state = unloadedVectorState{
+		quantizedVectorsExist: vectorMetrics.QuantizedVectorsExist(indexID),
 	}
+	if metadataLocked {
+		return state, false
+	}
+	cacheable = true
 	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
-		upgraded, err := dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
-			vectorIndexID(targetVector))
+		upgraded, err := dynamic.UpgradedOnDisk(shardPath(i.path(), shardName), indexID)
 		if err != nil {
+			cacheable = !shardmeta.IsLocked(err)
 			i.logger.WithFields(logrus.Fields{
 				"class":         i.Config.ClassName.String(),
 				"shard":         shardName,
@@ -462,7 +472,7 @@ func (i *Index) unloadedVectorState(shardName, targetVector string,
 		}
 		state.dynamicUpgraded = upgraded
 	}
-	return state
+	return state, cacheable
 }
 
 // unloadedVectorUsage builds the usage entry of one target vector of an unloaded
@@ -568,6 +578,20 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
+	// one shard's unreadable mapping must not fail the whole collection's report
+	indexIDs, locked, err := unloadedVectorIndexStorageIDs(shardPath(i.path(), shardName), slices.Collect(maps.Keys(vectorConfigs)))
+	cacheable := !locked && err == nil
+	if !cacheable {
+		reason := "a load holds the vector index mapping"
+		if err != nil {
+			reason = err.Error()
+		}
+		i.logger.WithFields(logrus.Fields{
+			"class": i.Config.ClassName.String(),
+			"shard": shardName,
+		}).Warnf("reporting vector state by the naming rule and not caching it: %s", reason)
+	}
+
 	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
@@ -576,7 +600,8 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		// under-counts multi-vectors with varying token counts
 		uncompressedVectorSize += uint64(scan.Raw.Count) * uint64(scan.Raw.Dimensions) * 4
 
-		state := i.unloadedVectorState(shardName, targetVector, vectorConfig, vectorMetrics)
+		state, stateCacheable := i.unloadedVectorState(shardName, targetVector, indexIDs[targetVector], locked, vectorConfig, vectorMetrics)
+		cacheable = cacheable && stateCacheable
 		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, scan.Reported, state)
 		if err != nil {
 			return nil, err
@@ -597,6 +622,9 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		IndexStorageBytes:     indexUsage,
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorMetrics.StorageBytes),
 		NamedVectors:          namedVectors,
+	}
+	if !cacheable {
+		return shardUsage, nil
 	}
 	saved, err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage,
 		vectorConfigsFingerprint, usageGeneration)

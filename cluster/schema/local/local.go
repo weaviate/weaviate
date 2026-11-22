@@ -57,6 +57,9 @@ type ClassReader interface {
 	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
 	// ReadSchema calls reader for every class with its version.
 	ReadSchema(reader func(models.Class, uint64)) error
+	// CollectionsCount counts the locally stored classes. An empty namespace counts
+	// the whole cluster; a non-empty one restricts the count to that namespace.
+	CollectionsCount(namespace string) int
 }
 
 // AliasReader reads collection aliases.

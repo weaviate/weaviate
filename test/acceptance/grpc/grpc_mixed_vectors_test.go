@@ -63,7 +63,8 @@ func TestGRPC_MixedVectors(t *testing.T) {
 					Property: "title",
 					Aggregation: &pb.AggregateRequest_Aggregation_Text_{
 						Text: &pb.AggregateRequest_Aggregation_Text{
-							Count: true,
+							Count:         true,
+							TopOccurences: true,
 						},
 					},
 				},

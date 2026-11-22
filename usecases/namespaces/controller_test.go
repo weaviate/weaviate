@@ -539,14 +539,14 @@ func TestController_Update(t *testing.T) {
 				if tc.seedState != "" {
 					got := c.Get("customer1")
 					require.Len(t, got, 1)
-					assert.Equal(t, "node-1", got[0].Primary(), "rejected Update must not mutate the stored HomeNodes")
+					assert.Equal(t, []string{"node-1"}, got[0].HomeNodes, "rejected Update must not mutate the stored HomeNodes")
 				}
 				return
 			}
 			require.NoError(t, err)
 			got := c.Get("customer1")
 			require.Len(t, got, 1)
-			assert.Equal(t, tc.input.Primary(), got[0].Primary())
+			assert.Equal(t, tc.input.HomeNodes, got[0].HomeNodes)
 		})
 	}
 }
@@ -760,7 +760,7 @@ func TestController_List(t *testing.T) {
 
 func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-a"}}, createIndex))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-c", "node-a", "node-b"}}, createIndex))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-b"}}, createIndex))
 	require.NoError(t, c.ChangeState("customer2", cmd.NamespaceStateSuspended, StateChange{AppliedIndex: flipIndex}))
 
@@ -779,8 +779,8 @@ func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	got := restored.Get("customer1", "customer2")
 	require.Len(t, got, 2)
 	byName := map[string]cmd.Namespace{got[0].Name: got[0], got[1].Name: got[1]}
-	assert.Equal(t, "node-a", byName["customer1"].Primary())
-	assert.Equal(t, "node-b", byName["customer2"].Primary())
+	assert.Equal(t, []string{"node-c", "node-a", "node-b"}, byName["customer1"].HomeNodes)
+	assert.Equal(t, []string{"node-b"}, byName["customer2"].HomeNodes)
 
 	// So must the state and the index of the flip that set it.
 	assert.Equal(t, cmd.NamespaceStateSuspended, byName["customer2"].State)

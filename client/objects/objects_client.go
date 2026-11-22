@@ -577,7 +577,7 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 /*
 ObjectsList lists objects
 
-Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (`class`) parameter to specify which collection's objects to list, otherwise, returns an empty list.
+Retrieves a list of data objects from the collection named in the `class` parameter. By default, objects are returned in reverse order of creation. <br/><br/>**Note**: Calling this endpoint without `class` is deprecated and will be removed in a future version. Without `class`, it lists objects across all collections. Some cluster configurations do not support a request without `class`.
 */
 func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsListOK, error) {
 	// TODO: Validate the params before sending

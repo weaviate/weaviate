@@ -256,7 +256,7 @@ func TestBackupRestoreRolesAndUsersPropagationAndRestart(t *testing.T) {
 // A snapshot per change makes a restarting node install the snapshot instead
 // of replaying the log. Only this test proves restored roles survive that
 // path: without the RAFT entry, a node booting from a snapshot rebuilds the
-// old role state and SavePolicy writes it back to disk.
+// old role state.
 func TestBackupRestoreRolesAndUsersSurvivesSnapshotRestart(t *testing.T) {
 	compose, down := newCluster(t, map[string]string{
 		"RAFT_SNAPSHOT_THRESHOLD": "1",

@@ -67,6 +67,15 @@ func ValidateNamespacePrefix(principal *models.Principal, namespacesEnabled bool
 	return nil
 }
 
+// ValidateAliasTarget rejects class unless it is in alias's namespace, so a
+// caller reading through alias stays in that namespace.
+func ValidateAliasTarget(alias, class string) error {
+	if NamespaceFromQualified(alias) != NamespaceFromQualified(class) {
+		return fmt.Errorf("alias %q and its target class %q are in different namespaces", alias, class)
+	}
+	return nil
+}
+
 // ShortNameMaxLength caps the raw (pre-qualification) name length for
 // namespaced principals. The cap is computed from the maximum namespace
 // length and the maximum class name length so it stays constant regardless

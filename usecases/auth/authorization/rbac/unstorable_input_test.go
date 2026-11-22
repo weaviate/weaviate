@@ -32,8 +32,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// newManagerAt opens a Manager on the policy file under dir. Calling it again
-// with the same dir acts as a restart, because Init re-reads policy.csv.
 func newManagerAt(t *testing.T, dir string) (*Manager, error) {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -47,16 +45,26 @@ var (
 	adminRole = conv.PrefixRoleName(authorization.Admin)
 )
 
-// requireRestartWithoutAdmin restarts on dir and checks the policy file still
-// loads and does not make attacker admin.
-func requireRestartWithoutAdmin(t *testing.T, dir string) *Manager {
+// requireRestartWithoutAdmin restarts from a snapshot of m. It checks that the
+// snapshot holds only rows the previous release's policy file can store, since
+// that release writes them to the file after a rollback, and that the restart
+// does not make attacker admin.
+func requireRestartWithoutAdmin(t *testing.T, m *Manager) *Manager {
 	t.Helper()
-	m, err := newManagerAt(t, dir)
-	require.NoError(t, err, "policy.csv must still load after the rejected write")
-	roles, err := m.casbin.GetRolesForUser(attacker)
+	blob, err := m.Snapshot()
+	require.NoError(t, err)
+	var s snapshot
+	require.NoError(t, json.Unmarshal(blob, &s))
+	require.NoError(t, validateStorableRows("p", s.Policy), "a refused row must not reach the snapshot")
+	require.NoError(t, validateStorableRows("g", s.GroupingPolicy), "a refused row must not reach the snapshot")
+
+	restarted, err := newManagerAt(t, freshPolicyDir(t))
+	require.NoError(t, err)
+	restarted = restartFrom(t, m, restarted)
+	roles, err := restarted.casbin.GetRolesForUser(attacker)
 	require.NoError(t, err)
 	assert.NotContains(t, roles, adminRole, "a stored value must not make attacker admin after a restart")
-	return m
+	return restarted
 }
 
 func TestUpsertRejectsRowsPolicyFileCannotStore(t *testing.T) {
@@ -77,8 +85,7 @@ func TestUpsertRejectsRowsPolicyFileCannotStore(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := freshPolicyDir(t)
-			m, err := newManagerAt(t, dir)
+			m, err := newManagerAt(t, freshPolicyDir(t))
 			require.NoError(t, err)
 			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
 				"incumbent": {{Resource: "namespaces/ok", Verb: authorization.READ, Domain: authorization.NamespacesDomain}},
@@ -94,12 +101,11 @@ func TestUpsertRejectsRowsPolicyFileCannotStore(t *testing.T) {
 			assert.NotContains(t, roles, "good", "a refused upsert must store none of its roles")
 			assert.NotContains(t, roles, "evil", "a refused upsert must store none of its roles")
 
-			// The next write saves the whole model, so a refused row left in memory
-			// would reach policy.csv here.
+			// A refused row left in memory would reach the snapshot the restart takes.
 			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
 				"later": {{Resource: "namespaces/later", Verb: authorization.READ, Domain: authorization.NamespacesDomain}},
 			}))
-			restarted := requireRestartWithoutAdmin(t, dir)
+			restarted := requireRestartWithoutAdmin(t, m)
 			roles, err = restarted.GetRoles()
 			require.NoError(t, err)
 			assert.Contains(t, roles, "incumbent")
@@ -127,8 +133,7 @@ func TestAddRolesForUserRejectsSubjectsPolicyFileCannotStore(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := freshPolicyDir(t)
-			m, err := newManagerAt(t, dir)
+			m, err := newManagerAt(t, freshPolicyDir(t))
 			require.NoError(t, err)
 
 			err = m.AddRolesForUser(tt.subject, []string{authorization.Viewer})
@@ -137,10 +142,9 @@ func TestAddRolesForUserRejectsSubjectsPolicyFileCannotStore(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotContains(t, users, tt.subject, "a refused assignment must not reach the running model")
 
-			// The next write saves the whole model, so a refused row left in memory
-			// would reach policy.csv here.
+			// A refused row left in memory would reach the snapshot the restart takes.
 			require.NoError(t, m.AddRolesForUser("db:later", []string{authorization.Viewer}))
-			requireRestartWithoutAdmin(t, dir)
+			requireRestartWithoutAdmin(t, m)
 		})
 	}
 }
@@ -192,10 +196,10 @@ var unstorableSnapshotRows = []struct {
 	},
 }
 
-// newManagerWithIncumbent opens a Manager on dir holding the role "incumbent".
-func newManagerWithIncumbent(t *testing.T, dir string) *Manager {
+// newManagerWithIncumbent opens a Manager holding the role "incumbent".
+func newManagerWithIncumbent(t *testing.T) *Manager {
 	t.Helper()
-	m, err := newManagerAt(t, dir)
+	m, err := newManagerAt(t, freshPolicyDir(t))
 	require.NoError(t, err)
 	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
 		"incumbent": {{Resource: "namespaces/ok", Verb: authorization.READ, Domain: authorization.NamespacesDomain}},
@@ -219,8 +223,7 @@ func snapshotWith(t *testing.T, policy, grouping [][]string) []byte {
 func TestRestoreRejectsSnapshotPolicyFileCannotStore(t *testing.T) {
 	for _, tt := range unstorableSnapshotRows {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := freshPolicyDir(t)
-			m := newManagerWithIncumbent(t, dir)
+			m := newManagerWithIncumbent(t)
 
 			err := m.Restore(snapshotWith(t, tt.policy, tt.grouping), false)
 			require.ErrorIs(t, err, ErrRestoreRefused)
@@ -230,22 +233,21 @@ func TestRestoreRejectsSnapshotPolicyFileCannotStore(t *testing.T) {
 			assert.Contains(t, roles, "incumbent", "a rejected restore must leave the running state untouched")
 			assert.NotContains(t, roles, "fine", "a rejected restore must leave the running state untouched")
 
-			restarted := requireRestartWithoutAdmin(t, dir)
+			restarted := requireRestartWithoutAdmin(t, m)
 			roles, err = restarted.GetRoles()
 			require.NoError(t, err)
-			assert.Contains(t, roles, "incumbent", "a rejected restore must leave policy.csv untouched")
+			assert.Contains(t, roles, "incumbent", "a rejected restore must leave the state a restart restores untouched")
 		})
 	}
 }
 
 // TestRestoreRaftSnapshotDropsRowsPolicyFileCannotStore checks that a RAFT
 // snapshot restores without the rows the policy file cannot store, logs each
-// one, and leaves a policy file the node restarts from.
+// one, and leaves state the node restarts from.
 func TestRestoreRaftSnapshotDropsRowsPolicyFileCannotStore(t *testing.T) {
 	for _, tt := range unstorableSnapshotRows {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := freshPolicyDir(t)
-			m := newManagerWithIncumbent(t, dir)
+			m := newManagerWithIncumbent(t)
 			logger, hook := test.NewNullLogger()
 			m.logger = logger
 
@@ -273,7 +275,7 @@ func TestRestoreRaftSnapshotDropsRowsPolicyFileCannotStore(t *testing.T) {
 			}
 			assert.Equal(t, len(tt.policy)+len(tt.grouping), dropped, "each dropped row must log one error")
 
-			restarted := requireRestartWithoutAdmin(t, dir)
+			restarted := requireRestartWithoutAdmin(t, m)
 			fineRoles, err := restarted.casbin.GetRolesForUser("db:fine")
 			require.NoError(t, err)
 			assert.Contains(t, fineRoles, conv.PrefixRoleName("fine"), "the storable rows must survive a restart")
@@ -284,8 +286,7 @@ func TestRestoreRaftSnapshotDropsRowsPolicyFileCannotStore(t *testing.T) {
 // TestStorableInputSurvivesRestart checks that characters the loader does not
 // treat specially round-trip.
 func TestStorableInputSurvivesRestart(t *testing.T) {
-	dir := freshPolicyDir(t)
-	m, err := newManagerAt(t, dir)
+	m, err := newManagerAt(t, freshPolicyDir(t))
 	require.NoError(t, err)
 
 	resource := "namespaces/a:b-c_d.e*(f|g)[h]{i}#j k"
@@ -295,8 +296,9 @@ func TestStorableInputSurvivesRestart(t *testing.T) {
 	}))
 	require.NoError(t, m.AddRolesForUser(subject, []string{"fine"}))
 
-	restarted, err := newManagerAt(t, dir)
+	restarted, err := newManagerAt(t, freshPolicyDir(t))
 	require.NoError(t, err)
+	restarted = restartFrom(t, m, restarted)
 	rows, err := restarted.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("fine"))
 	require.NoError(t, err)
 	assert.Equal(t, [][]string{{conv.PrefixRoleName("fine"), resource, authorization.READ, authorization.NamespacesDomain}}, rows)

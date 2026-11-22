@@ -84,8 +84,8 @@ type Handler struct {
 	parser      Parser
 	classGetter *ClassGetter
 
-	// namespacesExister resolves a namespace name to its entity (HomeNode)
-	// for placement; unused on NS-disabled clusters.
+	// namespacesExister resolves a namespace to its HomeNodes. NS-disabled
+	// clusters never call it.
 	namespacesExister namespaces.Exister
 
 	qualifier namespacing.Qualifier
@@ -217,10 +217,13 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 		}
 	}
 
+	ownClasses := namespacing.KeepOwnNamespace(principal, fullSchema.Objects.Classes, func(class *models.Class) string {
+		return namespacing.NamespaceFromQualified(class.Class)
+	})
 	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,
 		principal,
-		fullSchema.Objects.Classes,
+		ownClasses,
 		authorization.READ,
 		func(class *models.Class) string {
 			return authorization.CollectionsMetadata(class.Class)[0]

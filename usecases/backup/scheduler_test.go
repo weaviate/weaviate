@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -169,6 +170,8 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
 			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "no collections, users, or roles: available collections: [Allowed]"},
 			{name: "permitted class not backupable", permitted: []string{"Allowed"}, backupableErr: ErrAny, wantErr: ErrAny.Error()},
+			{name: "permitted class blocked by reindex", permitted: []string{"Allowed"}, backupableErr: fmt.Errorf("Allowed: %w", backup.ErrBackupBlockedByInFlightReindex), wantErr: "exclude that collection"},
+			{name: "reindex check could not run", permitted: []string{"Allowed"}, backupableErr: fmt.Errorf("Allowed: cannot check for a running runtime-reindex task: leader not found (%w)", backup.ErrBackupBlockedByInFlightReindex), wantErr: "otherwise retry later"},
 			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
 			// adminlist refuses a list it does not wholly permit.
 			{name: "authorizer refuses the whole list", authErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, authorization.Backups("Allowed", "Hidden")...)), wantErr: "forbidden", wantForbidden: true},
@@ -760,6 +763,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -767,9 +771,9 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		// In-flight backup: meta has not yet been persisted, so the meta read
-		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
-		// OnStatus then short-circuits on lastOp.
+		// The meta of an in-flight backup is not persisted yet, so authorizeBackupByID
+		// requires the wildcard permission, which the fake authorizer grants, and
+		// OnStatus answers from lastOp.
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
@@ -779,6 +783,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("ActiveStatePartialMeta", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -902,6 +907,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.restorer.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -909,10 +915,12 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		// In-flight restore: meta has not yet been persisted, so the meta read
-		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
-		// OnStatus then short-circuits on lastOp.
+		// The meta of an in-flight restore is not persisted yet and no backup meta
+		// exists, so authorizeBackupByID requires the wildcard permission, which the
+		// fake authorizer grants, and OnStatus answers from lastOp.
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -920,6 +928,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("ActiveStatePartialMeta", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.restorer.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -930,6 +939,8 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		// A status poll racing an in-progress meta write reads a partial file
 		// that fails to unmarshal; authz must tolerate it so the poll succeeds.
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return([]byte("{"), nil)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -945,6 +956,8 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
@@ -958,6 +971,8 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		// default arm maps it to 500 instead of misclassifying as 404.
 		fs := newFakeScheduler(nil)
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.ErrorIs(t, err, ErrAny, "underlying backend error should propagate unwrapped")
 	})
@@ -992,6 +1007,363 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		require.Len(t, calls, 1)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
 	})
+}
+
+// A status poll whose descriptor is missing or partial must not reveal the
+// operation this node runs to a caller who may not read every backup. It must
+// not serve that operation for a bucket or path it does not run under either.
+func TestSchedulerStatusWithoutDescriptor(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		runningID   = "nightly-2026-10-29"
+		runningBkt  = "ops-backups"
+		runningPath = "prod/eu1"
+	)
+	ctx := context.Background()
+	running := reqState{
+		Starttime:      time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC),
+		ID:             runningID,
+		Status:         backup.Transferring,
+		Path:           runningBkt + "/" + runningPath + "/" + runningID,
+		OverrideBucket: runningBkt,
+		OverridePath:   runningPath,
+	}
+
+	ops := []struct {
+		name   string
+		file   string
+		lastOp func(*Scheduler) *backupStat
+		status func(s *Scheduler, id, bucket, path string) (*Status, error)
+	}{
+		{
+			name:   "backup",
+			file:   GlobalBackupFile,
+			lastOp: func(s *Scheduler) *backupStat { return &s.backupper.lastOp },
+			status: func(s *Scheduler, id, bucket, path string) (*Status, error) {
+				return s.BackupStatus(ctx, &models.Principal{Username: "bob"}, backendName, id, bucket, path)
+			},
+		},
+		{
+			name:   "restore",
+			file:   GlobalRestoreFile,
+			lastOp: func(s *Scheduler) *backupStat { return &s.restorer.lastOp },
+			status: func(s *Scheduler, id, bucket, path string) (*Status, error) {
+				return s.RestorationStatus(ctx, &models.Principal{Username: "bob"}, backendName, id, bucket, path)
+			},
+		},
+	}
+
+	cases := []struct {
+		name             string
+		id, bucket, path string
+		descriptor       []byte // nil reads as not found
+		partialFirst     bool   // the first read of descriptor is partial
+		readErr          error
+		denyWildcard     bool
+		wantForbidden    bool
+		wantNotFound     bool
+		wantOtherErr     bool
+	}{
+		{
+			name: "caller without the wildcard permission is forbidden for an unknown id",
+			id:   "x", denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller without the wildcard permission is forbidden for the running id at another path",
+			id:   runningID, path: "nothing-here", denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller without the wildcard permission is forbidden while the descriptor is partial",
+			id:   runningID, bucket: runningBkt, path: runningPath, descriptor: []byte("{"),
+			denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller without the wildcard permission is forbidden on a backend read error",
+			id:   "x", readErr: ErrAny, denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller holding the descriptor's class is served from memory once a partial read heals",
+			id:   runningID, bucket: runningBkt, path: runningPath, partialFirst: true,
+			descriptor: []byte(`{"nodes":{"N1":{"classes":["C1"]}}}`), denyWildcard: true,
+		},
+		{
+			name: "a partial descriptor at another path fails without naming the running operation",
+			id:   runningID, path: "nothing-here", descriptor: []byte("{"), wantOtherErr: true,
+		},
+		{
+			name: "an unknown id is not found",
+			id:   "x", wantNotFound: true,
+		},
+		{
+			name: "the running id at another path is not found",
+			id:   runningID, bucket: runningBkt, path: "nothing-here", wantNotFound: true,
+		},
+		{
+			name: "the running id at another location that shares its home dir is not found",
+			id:   runningID, path: runningBkt + "/" + runningPath, wantNotFound: true,
+		},
+		{
+			name: "the running id in another bucket is not found",
+			id:   runningID, bucket: "other-bucket", path: runningPath, wantNotFound: true,
+		},
+		{
+			name: "the running id at its own bucket and path is served from memory",
+			id:   runningID, bucket: runningBkt, path: runningPath,
+		},
+	}
+
+	for _, op := range ops {
+		for _, tc := range cases {
+			t.Run(op.name+"/"+tc.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				if tc.denyWildcard {
+					fs.auth.(*mocks.FakeAuthorizer).Deny(authorization.Backups()...)
+				}
+				if tc.partialFirst {
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return([]byte("{"), nil).Once()
+				}
+				switch {
+				case tc.readErr != nil:
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return(nil, tc.readErr)
+				case tc.descriptor == nil:
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return(nil, backup.ErrNotFound{})
+				default:
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return(tc.descriptor, nil)
+				}
+				if op.file == GlobalRestoreFile {
+					// Restore status falls back to the backup descriptor.
+					fs.backend.On("GetObject", ctx, tc.id, GlobalBackupFile).Return(nil, backup.ErrNotFound{}).Maybe()
+				}
+				fs.backend.On("GetObject", ctx, tc.id, BackupFile).Return(nil, backup.ErrNotFound{}).Maybe()
+				fs.backend.On("HomeDir", runningBkt, runningPath, runningID).Return(running.Path).Maybe()
+				fs.backend.On("HomeDir", "", runningBkt+"/"+runningPath, runningID).Return(running.Path).Maybe()
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/elsewhere").Maybe()
+				s := fs.scheduler()
+				op.lastOp(s).reqState = running
+
+				st, err := op.status(s, tc.id, tc.bucket, tc.path)
+
+				switch {
+				case tc.wantForbidden:
+					require.ErrorAs(t, err, &authzerrors.Forbidden{})
+				case tc.wantNotFound:
+					require.ErrorAs(t, err, &backup.ErrNotFound{})
+				case tc.wantOtherErr:
+					require.Error(t, err)
+					require.NotErrorAs(t, err, &backup.ErrNotFound{})
+				default:
+					require.NoError(t, err)
+					require.Equal(t, &Status{Path: running.Path, StartedAt: running.Starttime, Status: running.Status}, st)
+					return
+				}
+				require.NotContains(t, err.Error(), running.Path)
+				if tc.bucket != runningBkt && tc.path != runningPath {
+					require.NotContains(t, err.Error(), runningBkt)
+					require.NotContains(t, err.Error(), runningPath)
+				}
+				if tc.id != runningID {
+					require.NotContains(t, err.Error(), runningID)
+				}
+			})
+		}
+	}
+}
+
+// Until its restore descriptor exists, a restore status is authorized against the
+// backup descriptor, as CancelRestore is, so a caller who may read every class of
+// the backup gets 404 or the running restore instead of 403.
+func TestSchedulerRestorationStatusFallsBackToBackupDescriptor(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		id          = "nightly"
+	)
+	ctx := context.Background()
+	descriptor := func(classes ...string) []byte {
+		return marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+			Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: classes}},
+		})
+	}
+	running := reqState{
+		Starttime: time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC),
+		ID:        id,
+		Status:    backup.Transferring,
+		Path:      "bucket/backups/" + id,
+	}
+
+	cases := []struct {
+		name          string
+		restoreDesc   []byte // nil reads as restoreErr, or as not found without one
+		restoreErr    error
+		backupDesc    []byte // nil reads as not found
+		restoring     bool   // this node runs a restore of id
+		wantForbidden bool
+		wantNotFound  bool
+		wantErr       error
+	}{
+		{
+			name:       "a caller who may read the backup gets 404 before any restore",
+			backupDesc: descriptor("C1"), wantNotFound: true,
+		},
+		{
+			name:       "a caller who may read the backup is served the restore before its descriptor exists",
+			backupDesc: descriptor("C1"), restoring: true,
+		},
+		{
+			name:       "a caller who may not read a class of the backup is forbidden",
+			backupDesc: descriptor("C1", "C2"), wantForbidden: true,
+		},
+		{
+			name:        "the restore descriptor's classes take precedence over the backup's",
+			restoreDesc: descriptor("C2"), backupDesc: descriptor("C1"), wantForbidden: true,
+		},
+		{
+			name:       "a caller who may read the backup gets the restore descriptor's read error",
+			restoreErr: ErrAny, backupDesc: descriptor("C1"), wantErr: ErrAny,
+		},
+		{
+			name:          "a caller without the wildcard permission is forbidden when neither descriptor exists",
+			wantForbidden: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			fs.auth.(*mocks.FakeAuthorizer).Deny(append(authorization.Backups(), authorization.Backups("C2")...)...)
+			switch {
+			case tc.restoreDesc != nil:
+				fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(tc.restoreDesc, nil).Maybe()
+			case tc.restoreErr != nil:
+				fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, tc.restoreErr).Maybe()
+			default:
+				fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{}).Maybe()
+			}
+			if tc.backupDesc != nil {
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(tc.backupDesc, nil).Maybe()
+			} else {
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{}).Maybe()
+			}
+			fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{}).Maybe()
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(running.Path).Maybe()
+			s := fs.scheduler()
+			if tc.restoring {
+				s.restorer.lastOp.reqState = running
+			}
+
+			st, err := s.RestorationStatus(ctx, &models.Principal{Username: "bob"}, backendName, id, "", "")
+
+			switch {
+			case tc.wantForbidden:
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			case tc.wantNotFound:
+				require.ErrorAs(t, err, &backup.ErrNotFound{})
+			case tc.wantErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+			default:
+				require.NoError(t, err)
+				require.Equal(t, &Status{Path: running.Path, StartedAt: running.Starttime, Status: running.Status}, st)
+			}
+		})
+	}
+}
+
+// A denial by backup id must read the same whether the backup exists or not,
+// or its text tells the caller which. A backend failure the denial hides is
+// logged for operators.
+func TestSchedulerDenialByIDHidesExistence(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		id          = "nightly"
+	)
+	ctx := context.Background()
+	bob := &models.Principal{Username: "bob"}
+	denyRead := backupsForbidden(bob, authorization.READ).Error() + ": "
+	denyManage := backupsForbidden(bob, authorization.DELETE).Error() + ": "
+	salaries := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+		Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Articles", "Salaries"}}},
+	})
+
+	ops := []struct {
+		name string
+		call func(s *Scheduler) error
+		want string
+	}{
+		{
+			name: "BackupStatus",
+			call: func(s *Scheduler) error {
+				_, err := s.BackupStatus(ctx, bob, backendName, id, "", "")
+				return err
+			},
+			want: denyRead + `backup "nightly" was not found at this location or includes collections you may not read`,
+		},
+		{
+			name: "RestorationStatus",
+			call: func(s *Scheduler) error {
+				_, err := s.RestorationStatus(ctx, bob, backendName, id, "", "")
+				return err
+			},
+			want: denyRead + `no restore of backup "nightly" was found at this location, or it includes collections you may not read`,
+		},
+		{
+			name: "Cancel",
+			call: func(s *Scheduler) error { return s.Cancel(ctx, bob, backendName, id, "", "") },
+			want: denyManage + `backup "nightly" was not found at this location or includes collections you may not manage`,
+		},
+		{
+			name: "CancelRestore",
+			call: func(s *Scheduler) error { return s.CancelRestore(ctx, bob, backendName, id, "", "") },
+			want: denyManage + `no restore of backup "nightly" was found at this location, or it includes collections you may not manage`,
+		},
+	}
+
+	states := []struct {
+		name            string
+		backup, restore []byte // nil reads as readErr, or as not found without one
+		readErr         error
+		wantWarn        bool
+	}{
+		{name: "neither descriptor exists"},
+		{name: "the backup includes Salaries", backup: salaries},
+		{name: "the backup and its restore include Salaries", backup: salaries, restore: salaries},
+		{name: "the descriptors are mid-write", backup: []byte("{"), restore: []byte("{")},
+		{name: "the backend fails to read", readErr: ErrAny, wantWarn: true},
+	}
+
+	for _, op := range ops {
+		for _, st := range states {
+			t.Run(op.name+"/"+st.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				logger, hook := test.NewNullLogger()
+				fs.log = logger
+				fs.auth.(*mocks.FakeAuthorizer).Deny(append(authorization.Backups(), authorization.Backups("Salaries")...)...)
+				for file, desc := range map[string][]byte{GlobalBackupFile: st.backup, GlobalRestoreFile: st.restore, BackupFile: nil} {
+					switch {
+					case desc != nil:
+						fs.backend.On("GetObject", ctx, id, file).Return(desc, nil).Maybe()
+					case st.readErr != nil:
+						fs.backend.On("GetObject", ctx, id, file).Return(nil, st.readErr).Maybe()
+					default:
+						fs.backend.On("GetObject", ctx, id, file).Return(nil, backup.ErrNotFound{}).Maybe()
+					}
+				}
+
+				err := op.call(fs.scheduler())
+
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+				require.EqualError(t, err, op.want)
+				var warned bool
+				for _, e := range hook.AllEntries() {
+					if e.Level == logrus.WarnLevel && strings.Contains(e.Message, ErrAny.Error()) {
+						warned = true
+					}
+				}
+				require.Equal(t, st.wantWarn, warned)
+			})
+		}
+	}
 }
 
 func TestSchedulerCreateBackup(t *testing.T) {
@@ -1187,7 +1559,7 @@ func (a *denyClassAuthorizer) FilterAuthorizedResources(_ context.Context, _ *mo
 
 func TestSchedulerRestoration(t *testing.T) {
 	var (
-		cls         = "MyClass-A"
+		cls         = "MyClassA"
 		nodeA       = "Node-A"
 		nodeB       = "Node-B"
 		any         = mock.Anything
@@ -1387,6 +1759,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		metaWithBase.BaseBackupID = baseID
 		baseMeta := backup.DistributedBackupDescriptor{
 			ID:              baseID,
+			ServerVersion:   meta.ServerVersion,
 			Status:          backup.Success,
 			CompressionType: backup.CompressionGZIP,
 		}
@@ -1614,6 +1987,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			{name: "uncompressed 1.0", version: "1.0", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "uncompressed 1", version: "1", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "flat file structure", version: meta.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+			{name: "unreadable server version", version: meta.Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1648,7 +2022,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			ID:            id,
 			StartedAt:     timePt,
 			Version:       version,
-			ServerVersion: "2",
+			ServerVersion: "2.0",
 			Status:        backup.Success,
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodeName: {Classes: []string{cls}},
@@ -1681,7 +2055,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 					ID:             id,
 					StartedAt:      timePt,
 					Version:        tc.version,
-					ServerVersion:  "2",
+					ServerVersion:  "2.0",
 					Status:         backup.Success,
 					DedupeReplicas: tc.dedupe,
 					Nodes: map[string]*backup.NodeDescriptor{
@@ -1725,13 +2099,54 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success, ServerVersion: "1.23"})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "corrupted")
+	})
+
+	t.Run("RejectEscapingNamesBeforeCanCommit", func(t *testing.T) {
+		const escape = "../../../../bin"
+		classBytes, err := json.Marshal(&models.Class{Class: cls})
+		require.NoError(t, err)
+		tests := []struct {
+			name    string
+			class   string
+			shard   string
+			wantMsg string
+		}{
+			{name: "class name", class: escape, shard: "S1", wantMsg: "not a valid class name"},
+			{name: "shard name", class: cls, shard: escape, wantMsg: "not a valid tenant name"},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				crafted := meta
+				crafted.Nodes = map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{tc.class}}}
+				ssBytes, err := json.Marshal(&sharding.State{
+					Physical: map[string]sharding.Physical{tc.shard: {Name: tc.shard, BelongsToNodes: []string{nodeName}}},
+				})
+				require.NoError(t, err)
+				nodeMeta := backup.BackupDescriptor{ID: id, Status: backup.Success, Classes: []backup.ClassDescriptor{{
+					Name: tc.class, Schema: classBytes, ShardingState: ssBytes,
+				}}}
+
+				fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(crafted), nil)
+				fs.backend.On("GetObject", ctx, id+"/"+nodeName, BackupFile).Return(marshalMeta(nodeMeta), nil)
+				fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).Return(nil, ErrAny)
+				fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				_, err = fs.scheduler().Restore(ctx, nil, &BackupRequest{Backend: backendName, ID: id}, false)
+				require.ErrorContains(t, err, tc.wantMsg)
+				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+			})
+		}
 	})
 
 	t.Run("WrongBackupFile", func(t *testing.T) {
@@ -2724,7 +3139,9 @@ func (f *fakeUserLister) ListAllUsers() []string { return f.users }
 
 // fakeRoleLister is a static RoleLister for scheduler tests. carried records the
 // ids of each BuiltInAssignments call, and oidcCarried the namespaces of each
-// OIDCBuiltInAssignments call.
+// OIDCBuiltInAssignments call. snapshot and snapshotErr are what Snapshot returns.
+// When refreshed is non-nil, the second and later Snapshot calls return it in
+// place of snapshot.
 type fakeRoleLister struct {
 	roles           []string
 	err             error
@@ -2732,6 +3149,12 @@ type fakeRoleLister struct {
 	carried         [][]string
 	oidcAssignments []byte
 	oidcCarried     [][]string
+	snapshot        []byte
+	snapshotErr     error
+	refreshed       []byte
+
+	mu            sync.Mutex
+	snapshotReads int
 }
 
 func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.err }
@@ -2744,6 +3167,16 @@ func (f *fakeRoleLister) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 func (f *fakeRoleLister) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
 	f.oidcCarried = append(f.oidcCarried, namespaces)
 	return f.oidcAssignments, nil
+}
+
+func (f *fakeRoleLister) Snapshot(...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshotReads++
+	if f.snapshotReads > 1 && f.refreshed != nil {
+		return f.refreshed, f.snapshotErr
+	}
+	return f.snapshot, f.snapshotErr
 }
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
@@ -2773,6 +3206,161 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
+}
+
+// roleRows decodes an RBAC snapshot blob into its policy and grouping-policy rows.
+func roleRows(t *testing.T, blob []byte) (policies, grouping [][]string) {
+	t.Helper()
+	var s struct {
+		Policies [][]string `json:"roles_policies"`
+		Grouping [][]string `json:"grouping_policies"`
+	}
+	require.NoError(t, json.Unmarshal(blob, &s))
+	return s.Policies, s.Grouping
+}
+
+// TestRestoreDynamicUserAssignmentsGate checks that Restore replaces the backup's
+// dynamic-user role assignments with the target's exactly when no backup users
+// apply. The backup and target share no dynamic-user row, so the applied roles
+// show whether the replace ran. The replace also drops the carried db:dave row,
+// which shows it runs after the carried assignments are merged in.
+//
+// The target loses db:erin between the request and the dispatch. The replace
+// adds db:erin, so its absence from the applied roles shows the refresh ran at
+// dispatch. When the backup users apply, the applied roles keep db:alice and
+// db:dave. The refreshed target lacks both, so their presence shows no refresh
+// ran in that case.
+func TestRestoreDynamicUserAssignmentsGate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const (
+		backupID = "dynamic-user-gate"
+		node     = "Node-A"
+	)
+	backupRoles := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:alice","role:editor"],["oidc:carol","role:editor"]]}`)
+	carried := []byte(`{"version":1,"grouping_policies":[["db:dave","role:admin"]]}`)
+	target := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"],["db:erin","role:editor"]]}`)
+	refreshedTarget := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"]]}`)
+	policies := [][]string{{"role:editor", "*", "R", "*"}}
+	replaced := [][]string{{"oidc:carol", "role:editor"}, {"db:bob", "role:editor"}}
+	kept := [][]string{{"db:alice", "role:editor"}, {"oidc:carol", "role:editor"}, {"db:dave", "role:admin"}}
+	userBlob := []byte(`{"Version":0,"Data":{"Users":{"alice":{"Id":"alice"}}}}`)
+
+	// Restores that pass the request-time checks succeed.
+	setup := func(t *testing.T, withUsers bool) (*fakeScheduler, *recordingRolesAndUsersRestorer) {
+		t.Helper()
+		meta := backup.DistributedBackupDescriptor{
+			ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success, Leader: node,
+			Nodes:                  map[string]*backup.NodeDescriptor{node: {Classes: []string{"Movies"}}},
+			BuiltInRoleAssignments: carried,
+		}
+		nodeDesc := backup.BackupDescriptor{
+			ID: backupID, Status: backup.Success,
+			Classes:     []backup.ClassDescriptor{{Name: "Movies"}},
+			RbacBackups: backupRoles,
+		}
+		if withUsers {
+			nodeDesc.UserBackups = userBlob
+		}
+		nodeMeta, err := json.Marshal(nodeDesc)
+		require.NoError(t, err)
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.roleLister.snapshot = target
+		fs.roleLister.refreshed = refreshedTarget
+		rec := &recordingRolesAndUsersRestorer{}
+		fs.rolesAndUsers = rec
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{}).Maybe()
+		fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).Return(nodeMeta, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil).Maybe()
+		fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
+			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil).Maybe()
+		fs.client.On("Commit", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		fs.client.On("Status", mock.Anything, mock.Anything, mock.Anything).
+			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).Maybe()
+		return fs, rec
+	}
+	restoreReq := func(usersOption string) *BackupRequest {
+		return &BackupRequest{
+			ID: backupID, Backend: "gcs", Include: []string{"Movies"},
+			UserRestoreOption: usersOption, RbacRestoreOption: models.RestoreConfigRolesOptionsAll,
+		}
+	}
+
+	tests := []struct {
+		name          string
+		usersOption   string
+		withUsers     bool
+		nilUserLister bool
+		wantGrouping  [][]string
+	}{
+		{
+			name:         "usersOptions=noRestore replaces the assignments",
+			usersOption:  models.RestoreConfigUsersOptionsNoRestore,
+			withUsers:    true,
+			wantGrouping: replaced,
+		},
+		{
+			name:          "dynamic users disabled on the target replaces the assignments",
+			usersOption:   models.RestoreConfigUsersOptionsAll,
+			withUsers:     true,
+			nilUserLister: true,
+			wantGrouping:  replaced,
+		},
+		{
+			name:         "a backup without a user snapshot replaces the assignments",
+			usersOption:  models.RestoreConfigUsersOptionsAll,
+			wantGrouping: replaced,
+		},
+		{
+			name:         "users that apply keep the backup's assignments",
+			usersOption:  models.RestoreConfigUsersOptionsAll,
+			withUsers:    true,
+			wantGrouping: kept,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs, rec := setup(t, tt.withUsers)
+			s := fs.scheduler()
+			if tt.nilUserLister {
+				s.userLister = nil
+			}
+
+			_, err := s.Restore(ctx, nil, restoreReq(tt.usersOption), false)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
+				10*time.Second, 10*time.Millisecond, "restore did not finish")
+
+			calls := rec.recorded()
+			require.Len(t, calls, 1)
+			gotPolicies, gotGrouping := roleRows(t, calls[0].roles)
+			assert.ElementsMatch(t, policies, gotPolicies)
+			assert.ElementsMatch(t, tt.wantGrouping, gotGrouping)
+		})
+	}
+
+	t.Run("a target read error is returned unchanged", func(t *testing.T) {
+		fs, _ := setup(t, false)
+		readErr := errors.New("read failed")
+		fs.roleLister.snapshotErr = readErr
+		_, err := fs.scheduler().Restore(ctx, nil, restoreReq(models.RestoreConfigUsersOptionsAll), false)
+		assert.Equal(t, readErr, err)
+		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("an undecodable target is unprocessable", func(t *testing.T) {
+		fs, _ := setup(t, false)
+		fs.roleLister.snapshot = []byte(`not json`)
+		_, err := fs.scheduler().Restore(ctx, nil, restoreReq(models.RestoreConfigUsersOptionsAll), false)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+	})
 }
 
 func marshalCoordinatorMeta(m backup.DistributedBackupDescriptor) []byte {
@@ -4197,6 +4785,7 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 		name     string
 		classes  []string
 		rbacBlob []byte
+		userBlob []byte
 		carried  []byte
 		wantErr  []string
 	}{
@@ -4209,6 +4798,8 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 			name:     "a carried assignment colliding with a node-blob subject",
 			classes:  []string{"ns1:Movies"},
 			rbacBlob: []byte(`{"version":1,"namespaces":["ns2"],"roles_policies":[["role:ns2:editor","*","R","*"]],"grouping_policies":[["db:ns2:alice","role:ns2:editor"]]}`),
+			// Users apply, so the dynamic-user rows above are not replaced with the target's.
+			userBlob: makeUserSnapshot(t, "ns1:alice"),
 			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns1:alice","role:admin"]]}`),
 			wantErr:  []string{"db:ns1:alice", "db:ns2:alice", `strip to the same name "db:alice"`},
 		},
@@ -4237,6 +4828,7 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 				ID:          backupID,
 				Status:      backup.Success,
 				RbacBackups: tt.rbacBlob,
+				UserBackups: tt.userBlob,
 			}
 			for _, class := range tt.classes {
 				nodeMeta.Classes = append(nodeMeta.Classes, backup.ClassDescriptor{Name: class})
@@ -4486,6 +5078,7 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 		rbacBlob   []byte
 		userBlob   []byte
 		carried    []byte
+		target     []byte // the target node's current RBAC snapshot
 		states     map[string]cmd.NamespaceState
 		options    func(req *BackupRequest)
 		wantRoles  []byte // the roles blob applied by an accepted restore
@@ -4525,26 +5118,33 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			},
 		},
 		{
-			// usersOptions=noRestore turns off the users-blob check, so the roles blob
-			// has to catch ns3 on its own. Otherwise the grouping row lands
-			// cluster-wide with no namespace to belong to.
-			name:     "a namespace named only by a role assignment is caught with users off",
+			// usersOptions=noRestore turns off the users-blob check. It also replaces
+			// the backup's dynamic-user rows with the target's before the roles-blob
+			// check. So the check skips the backup's ns3 row and sees the target's ns4 row.
+			name:     "with users off the check reads the target's role assignments",
 			rbacBlob: rbacBlobDBSubject,
 			userBlob: userBlob,
+			target:   []byte(`{"version":1,"grouping_policies":[["db:ns4:carol","role:viewer"]]}`),
 			states:   map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
 			options: func(req *BackupRequest) {
 				req.UserRestoreOption = models.RestoreConfigUsersOptionsNoRestore
 			},
-			wantErr:    []string{"roles", "ns3"},
-			wantNotErr: []string{"ns2"},
+			// The offending row is the target's, so the message must not blame the backup.
+			wantErr:    []string{"the restore would apply roles or users", "roles", "ns4"},
+			wantNotErr: []string{"ns2", "ns3", "backup"},
 		},
 		{
 			// The check runs on the merged blob, so a carried assignment alone is enough.
+			// Users apply, so the carried db:ns3 row is not replaced with the target's.
 			name:     "a namespace named only by a carried assignment is caught",
 			rbacBlob: rbacBlob,
+			userBlob: userBlob,
 			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns3:bob","role:admin"]]}`),
-			states:   map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
-			wantErr:  []string{"roles", "ns3"},
+			states: map[string]cmd.NamespaceState{
+				"ns1": cmd.NamespaceStateActive,
+				"ns2": cmd.NamespaceStateActive,
+			},
+			wantErr: []string{"roles", "ns3"},
 		},
 	}
 
@@ -4569,6 +5169,7 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
 			fs.schema.namespacesEnabled = true
 			fs.namespaces = namespaces.NewMockExisterInState(t, tt.states)
+			fs.roleLister.snapshot = tt.target
 			rec := &recordingRolesAndUsersRestorer{}
 			fs.rolesAndUsers = rec
 			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
@@ -4700,7 +5301,18 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 	t.Run("descriptor skip discards the users blob", func(t *testing.T) {
 		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true}, nil)
 		require.Len(t, calls, 1)
-		assert.Equal(t, blobA, calls[0].roles)
+		// No users apply, so the backup's dynamic-user rows are replaced with the
+		// target's. Neither blobA nor the target has any, so the rows are blobA's.
+		gotPolicies, gotGrouping := roleRows(t, calls[0].roles)
+		wantPolicies, wantGrouping := roleRows(t, blobA)
+		assert.ElementsMatch(t, wantPolicies, gotPolicies)
+		assert.ElementsMatch(t, wantGrouping, gotGrouping)
+		var gotVersion, wantVersion struct {
+			Version int `json:"version"`
+		}
+		require.NoError(t, json.Unmarshal(calls[0].roles, &gotVersion))
+		require.NoError(t, json.Unmarshal(blobA, &wantVersion))
+		assert.Equal(t, wantVersion, gotVersion)
 		assert.Empty(t, calls[0].users)
 	})
 
@@ -5059,7 +5671,9 @@ func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	}{
 		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler) {
 			require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
-			require.True(t, s.backupper.lastOp.get().CancelRequested)
+			// The create can unwind and reset the op before this read.
+			op := s.backupper.lastOp.get()
+			require.True(t, op.CancelRequested || op.ID == "", "cancel was neither recorded on the op nor had the op unwound; op=%+v", op)
 		}},
 		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler) {
 			s.backupper.lastOp.set(backup.Cancelled)

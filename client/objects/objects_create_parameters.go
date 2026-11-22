@@ -76,7 +76,7 @@ type ObjectsCreateParams struct {
 
 	/* Body.
 
-	   The object to be created.
+	   The object to be created. `class` is required.
 	*/
 	Body *models.Object
 

@@ -108,7 +108,9 @@ func TestSnapshot_ConsistentCopy(t *testing.T) {
 	db := openTestDB(t, shardDir)
 	require.NoError(t, db.Namespace("dynamic").Put([]byte("k"), []byte{1}))
 
-	relPath, err := db.Snapshot(base, staging)
+	relPath, err := db.Snapshot(base, func(relPath string) string {
+		return filepath.Join(staging, relPath)
+	})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("cls", "shard1", FileName), relPath)
 
@@ -132,7 +134,9 @@ func TestSnapshot_RejectsEscapeFromStagingDir(t *testing.T) {
 	db := openTestDB(t, shardDir)
 	require.NoError(t, db.Namespace("dynamic").Put([]byte("k"), []byte{1}))
 
-	_, err := db.Snapshot(unrelatedBase, staging)
+	_, err := db.Snapshot(unrelatedBase, func(relPath string) string {
+		return filepath.Join(staging, relPath)
+	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "outside backup base", "must fail via the IsLocal guard, not incidentally")
 

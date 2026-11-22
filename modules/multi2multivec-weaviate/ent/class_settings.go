@@ -13,6 +13,7 @@ package ent
 
 import (
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -58,5 +59,8 @@ func (ic *classSettings) Properties() ([]string, error) {
 }
 
 func (ic *classSettings) Validate() error {
-	return ic.base.ValidateMultiModal(fields)
+	if err := ic.base.ValidateMultiModal(fields); err != nil {
+		return err
+	}
+	return weaviateembed.ValidateBaseURL(ic.BaseURL())
 }

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -648,6 +649,75 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 			} else {
 				assert.Greater(t, len(index.nodes), int(garbage), "without a limit the node loads as before")
 				assert.Greater(t, st.Size(), validSize)
+			}
+		})
+	}
+}
+
+// TestCommitLogCompaction_NodeIDBeyondDocIDCounter pins that the commit
+// logger's compaction applies the same limit as the startup load: a file the
+// running process wrote was never checked by the loader, and converting one
+// that names a garbage node ID sized the node index to it
+// (weaviate/0-weaviate-issues#649).
+func TestCommitLogCompaction_NodeIDBeyondDocIDCounter(t *testing.T) {
+	const counter = 10
+	garbage := uint64(counter + 1<<24 + 1000)
+
+	multivector := ent.MultivectorConfig{Enabled: true}
+	muvera := ent.MultivectorConfig{Enabled: true, MuveraConfig: ent.MuveraConfig{Enabled: true, KSim: 4, DProjections: 16, Repetitions: 10}}
+
+	tests := []struct {
+		name        string
+		multivector ent.MultivectorConfig
+		hfresh      bool
+		wantLimited bool
+	}{
+		{name: "node IDs are document IDs", wantLimited: true},
+		{name: "muvera node IDs are document IDs", multivector: muvera, wantLimited: true},
+		{name: "multivector node IDs are not document IDs", multivector: multivector},
+		{name: "hfresh centroids live where there is no counter", hfresh: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shardDir := t.TempDir()
+			writeDocIDCounterForTest(t, shardDir, counter)
+			cfg := createVectorHnswIndexTestConfig()
+			cfg.RootPath = shardDir
+			if tc.hfresh {
+				cfg.RootPath = filepath.Join(shardDir, helpers.HFreshDirName("main"))
+				cfg.ID = helpers.CentroidsID("main")
+			}
+			cfg.MultiVectorForIDThunk = testMultiVectorForID
+			cfg.Logger, _ = test.NewNullLogger()
+			cfg.MakeCommitLoggerThunk = func(opts ...CommitlogOption) (CommitLogger, error) {
+				return NewCommitLogger(cfg.RootPath, cfg.ID, cfg.Logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+			}
+
+			uc := ent.UserConfig{MaxConnections: 30, EFConstruction: 60, EF: 36, Multivector: tc.multivector}
+			index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+			defer index.Shutdown(context.Background())
+
+			// written after startup and older than the live file, like a log the
+			// running process switched away from
+			path, _ := writeRawCommitLogForTest(t, cfg, func(w *compact.WALWriter) {
+				require.NoError(t, w.WriteAddNode(garbage, 0))
+			})
+			size, err := os.Stat(path)
+			require.NoError(t, err)
+
+			_, err = index.commitLog.(*hnswCommitLogger).compactor.RunCycle(nil)
+			_, statErr := os.Stat(path)
+			if tc.wantLimited {
+				require.ErrorContains(t, err, "beyond the index's limit")
+				require.NoError(t, statErr, "the source must be kept for the next startup to truncate")
+				after, err := os.Stat(path)
+				require.NoError(t, err)
+				assert.Equal(t, size.Size(), after.Size(), "compaction must not change the source")
+			} else {
+				require.NoError(t, err)
+				assert.True(t, os.IsNotExist(statErr), "without a limit the file is converted as before")
 			}
 		})
 	}

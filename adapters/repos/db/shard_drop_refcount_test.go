@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -69,7 +70,7 @@ func dropTestShard(t *testing.T, index *Index) (shard *Shard, release func(), dr
 	t.Cleanup(func() { index.shards.LoadAndDelete(name) })
 
 	ch := make(chan error, 1)
-	go func() { ch <- shard.drop(false) }()
+	go func() { ch <- shard.drop() }()
 
 	// the flag is drainRefsForDrop's first action
 	require.Eventually(t, shard.dropRequested.Load, 10*time.Second, time.Millisecond,
@@ -312,15 +313,16 @@ func TestInFlightObjectReadHoldsOffBucketTeardown(t *testing.T) {
 	iterated := make(chan error, 1)
 
 	go func() {
+		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
+		defer release()
 		var once sync.Once
-		iterated <- index.IterateObjects(context.Background(),
-			func(*Index, ShardLike, *storobj.Object) error {
-				once.Do(func() {
-					close(reading)
-					<-resume
-				})
-				return nil
+		iterated <- bucket.IterateObjects(context.Background(), func(*storobj.Object) error {
+			once.Do(func() {
+				close(reading)
+				<-resume
 			})
+			return nil
+		})
 	}()
 
 	select {

@@ -13,7 +13,12 @@ package distributedtask
 
 import (
 	"context"
+	"maps"
+	"slices"
+	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TaskLister is an interface for listing distributed tasks in the cluster.
@@ -40,16 +45,23 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
-// CollectionExtractor returns the schema-collection a task's payload is
-// bound to ("", false for non-scoped / unparseable). Register via
-// [Manager.RegisterCollectionExtractor] to opt a namespace into
-// [Manager.DeleteTasksForCollection] — closes
-// weaviate/0-weaviate-issues#231.
+// CollectionExtractor feeds only the task-list REST handler until the task header replaces it there too.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
+
+type TaskHeader interface {
+	Collection() string
+}
+
+// HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
+type HeaderDecoder interface {
+	DecodeHeader(payload []byte) (TaskHeader, error)
+}
+
+// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
+type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
-// Same determinism contract as [CollectionExtractor].
 type TargetVectorExtractor func(payload []byte) (collection string, targets []string, ok bool)
 
 // CompletedTaskRetainer is an optional interface a [Provider] implements to
@@ -87,10 +99,6 @@ type TaskFinalizer interface {
 	// [TaskStatusSwapping] for the race this fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 
-	// MarkDistributedTaskFailed transitions SWAPPING → FAILED when
-	// OnTaskCompleted returns a terminal error: permanent
-	// ([ErrTaskCompletionPermanent]) or retry-exhausted transient. errMsg is
-	// recorded on the task (weaviate/0-weaviate-issues#297).
 	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
@@ -107,8 +115,9 @@ type ForceTerminator interface {
 }
 
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
-// to publish one node's OnGroupCompleted result (success or failure)
-// after its callbacks have returned for every local group in a task.
+// to publish one node's OnGroupCompleted result: a success once its
+// callbacks have returned for every local group in a task, a failure as
+// soon as one local group fails.
 // The scheduler gates [TaskFinalizer.MarkDistributedTaskFinalized] on
 // having an ack from every node that has local units in the task, and
 // transitions the task to FAILED if any ack reports failure — which
@@ -129,20 +138,16 @@ type PostCompletionAckRecorder interface {
 		ctx context.Context,
 		namespace, taskID string,
 		taskVersion uint64,
-		nodeID string,
+		groupID, nodeID string,
 		success bool,
 		errMsg string,
 	) error
 
-	// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result via
-	// RAFT and gates the cluster-wide PREPARING → SWAPPING transition. Any
-	// success=false flips the task to FAILED so no node fires its swap.
-	// Idempotent: first ack per (task, node) wins.
 	RecordDistributedTaskPreparationCompleteAck(
 		ctx context.Context,
 		namespace, taskID string,
 		taskVersion uint64,
-		nodeID string,
+		groupID, nodeID string,
 		success bool,
 		errMsg string,
 	) error
@@ -189,9 +194,9 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
-// ConflictDetector is an optional interface providers implement so the
-// [Manager.AddTask] RAFT-apply path can reject a new task whose payload
-// conflicts with an already-running task in the same namespace.
+// ConflictDetector lets the [Manager.AddTask] RAFT-apply path reject a new
+// task whose payload conflicts with an already-running task in the same
+// namespace.
 //
 // Motivation: the REST handler holds a per-(collection, property)
 // in-memory lock and runs [checkReindexConflict] before submitting,
@@ -215,8 +220,6 @@ type Provider interface {
 // (clocks, network, schema, RNG) — different nodes applying the same
 // log entry must reach the same accept/reject decision.
 type ConflictDetector interface {
-	Provider
-
 	// CheckConflict is called under [Manager.mu] before a new task is
 	// appended to the FSM-stored task list. existingTasks is the full
 	// namespace-scoped task list at apply time. Return a non-nil error
@@ -258,44 +261,25 @@ type TerminalCleanupProvider interface {
 	TerminalCleanupDone(task *Task, localNode string) bool
 }
 
-// SchemaMutationDetector is an optional interface providers implement so
-// the schema FSM's UpdateProperty apply path can reject external schema
-// mutations that would race with one of the provider's in-flight tasks.
+// SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
+// UpdateTenants and DeleteTenants apply paths reject a schema mutation that
+// would race with one of a namespace's in-flight tasks.
 //
-// Motivating failure mode: a `change-tokenization` reindex spawns
-// separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
-// running sub-task. That sub-unit FAILs; the sibling filterable
-// sub-unit keeps going and commits its local bucket swap; the
-// per-shard ack barrier sees mixed acks → task FAILED →
-// `flipSemanticMigrationSchema` skipped → schema stays at OLD
-// tokenization while the filterable bucket on disk now holds
-// NEW-tokenized data. Bucket↔schema inversion — same family as the
-// ack-barrier failure mode but triggered by an external schema
-// mutation instead of a crash.
+// Without it, a mutation landing mid-migration can let the FSM apply a
+// schema flip while the migration's own sub-task is still writing,
+// producing a bucket↔schema inversion — same family as the ack-barrier
+// failure mode, triggered externally instead of by a crash.
 //
-// Putting the check inside the schema FSM's UpdateProperty apply makes
-// it RAFT-deterministic: every node sees the same distributed-task FSM
-// snapshot at the same applyIndex and reaches the same accept/reject
-// decision. Symmetric to [ConflictDetector] (which protects in-flight
-// tasks from new conflicting tasks); this protects them from out-of-band
-// schema mutations during their flight.
+// The check runs inside the FSM apply so every node reaches the same
+// accept/reject decision from the same applyIndex. Symmetric to
+// [ConflictDetector] (protects in-flight tasks from new conflicting tasks);
+// this protects them from out-of-band schema mutations during their flight.
 //
-// FSM-determinism contract: CheckPropertyUpdate MUST be a pure function
-// of (className, propertyName, existingTasks). It must not read mutable
-// process state (clocks, network, schema, RNG) — different nodes
-// applying the same log entry must reach the same accept/reject
-// decision.
+// CheckPropertyUpdate MUST be a pure function of (className, propertyName,
+// existingTasks) — no clocks, network, schema, or RNG — so every node
+// applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
-	Provider
-
-	// CheckPropertyUpdate is called under [Manager.mu] from the
-	// schema FSM's UpdateProperty apply path. existingTasks is the
-	// full namespace-scoped task list at apply time. Return a
-	// non-nil error to reject the property update; the error
-	// propagates back to the UpdateProperty caller.
+	// Every method's existingTasks is pre-filtered to className: tasks on a known other collection are dropped.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 
 	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
@@ -304,20 +288,18 @@ type SchemaMutationDetector interface {
 	// because dropping the class wipes every in-flight migration's working dirs.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
-	// CheckTenantMutation is called under [Manager.mu] from the
-	// schema FSM's DeleteTenants / UpdateTenants apply paths when a
-	// transition would make one or more tenants' shards locally
-	// unavailable (DeleteTenants, or UpdateTenants toward OFFLOADED
-	// / FROZEN / OFFLOADING / FREEZING). existingTasks is the full
-	// namespace-scoped task list at apply time. Return a non-nil
-	// error to reject the mutation.
-	//
 	// Today's reindex tasks are class-scoped (their payload names a
 	// collection but not a specific tenant — they apply to whatever
 	// shards exist), so the conservative implementation is "block
 	// every tenant mutation on a class with any in-flight reindex".
 	// A future per-tenant reindex payload could narrow this.
 	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
+}
+
+// CutoverOutcome judges a run's cutover write: did it land, may it still land. Called under [Manager.mu].
+type CutoverOutcome interface {
+	CutoverLanded(task *Task, readClass func(collection string) *models.Class) bool
+	CheckMigrationPropertyUpdate(className, propertyName string, run *Task) error
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
@@ -332,11 +314,19 @@ type SchemaMutationDetector interface {
 // registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
 // function of its arguments.
 type VectorConfigRemovalGate interface {
-	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
-	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
-	// from the FSM state being applied; existingTasks is the namespace-scoped
-	// list at apply time.
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
+}
+
+// VectorConfigRemovalProposeGate is an optional interface a
+// [VectorConfigRemovalGate] also implements to refuse a removal on the leader
+// before the entry is appended. It may be stricter than the apply-time gate:
+// a refusal here reaches no node, so tightening it never makes nodes of
+// different versions disagree on a committed entry.
+type VectorConfigRemovalProposeGate interface {
+	// CheckVectorConfigRemovalAtPropose is called under [Manager.mu] on the
+	// leader; non-nil refuses the propose. Arguments as for
+	// CheckVectorConfigRemoval, read from the leader's current state.
+	CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 
 // RecoveryAwareProvider is an optional interface a provider implements to
@@ -388,8 +378,7 @@ type RecoveryAwareProvider interface {
 // Callback phases:
 //  1. OnGroupCompleted — fires per group as each group's units reach terminal.
 //     PREP-only for barrier tasks; PREP+OVERLAY+SWAP inline otherwise.
-//  2. OnSwapRequested — fires after the cluster-wide PREPARING → SWAPPING
-//     transition. Barrier tasks only; carries OVERLAY+SWAP.
+//  2. OnSwapRequested — OVERLAY+SWAP per decided group this node owes, even after the task ended.
 //  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
@@ -399,9 +388,6 @@ type UnitAwareProvider interface {
 	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 
-	// OnSwapRequested fires after the cluster-wide PREP barrier lifts
-	// (PREPARING → SWAPPING). Barrier tasks only. Non-nil errors feed
-	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
 	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
@@ -493,18 +479,14 @@ const (
 	// ([UnitStatusCompleted] or [UnitStatusFailed]).
 	TaskStatusStarted TaskStatus = "STARTED"
 
-	// TaskStatusPreparing means every unit terminal AND the task uses the
-	// PREP barrier (semantic migrations). Each node is running PREP; the
-	// task transitions to SWAPPING only after every node's PreparationCompleteAck
-	// lands successfully — any failure flips the task to FAILED. Non-barrier
-	// tasks skip this status entirely.
+	// TaskStatusPreparing means every unit is terminal on a PREP-barrier task but
+	// some swaps are undecided. It becomes SWAPPING once every node's
+	// PreparationCompleteAck lands; any failure makes it FAILED. Non-barrier tasks skip it.
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
-	// TaskStatusSwapping means every node is firing its per-shard atomic
-	// swap. The cross-replica stagger window in this phase is bounded by
-	// RAFT propagation latency (sub-second), not PREP duration. The task
-	// transitions to FINISHED only after every node's PostCompletionAck
-	// lands successfully.
+	// TaskStatusSwapping means every node is firing its per-shard swap; a tenant's
+	// replicas can serve different results meanwhile. FINISHED follows once every
+	// node's PostCompletionAck lands.
 	TaskStatusSwapping TaskStatus = "SWAPPING"
 
 	// TaskStatusFinished means the task succeeded on every node AND every
@@ -550,8 +532,7 @@ func (t TaskStatus) IsTerminal() bool {
 // The exact negation of [TaskStatus.IsTerminal], so a status this build
 // does not recognize counts as in flight: reading it as done would admit
 // a second migration onto a property a newer node is still migrating, and
-// let the orphan audit and TTL sweep delete live state. See
-// docs/runtime-reindex.md §4.2.
+// let the TTL sweep delete live state. See docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -574,16 +555,11 @@ func (t TaskStatus) IsRecognized() bool {
 	return false
 }
 
-// IsCancellable is true for the one status [Manager.CancelTask] accepts:
-// STARTED. Past that, some nodes may already have written merged state or
-// renamed bucket directories, so stopping the rest would leave the cluster
-// serving migrated buckets under the pre-migration schema.
-//
 // A literal comparison, not a classification: the FSM apply that reads it
 // must reach the same verdict on every binary that replays the entry,
 // including one that cannot name the status.
 func (t TaskStatus) IsCancellable() bool {
-	return t == TaskStatusStarted
+	return t == TaskStatusStarted || t == TaskStatusPreparing
 }
 
 // IsForceTerminable returns true for {STARTED, PREPARING, SWAPPING}.
@@ -610,6 +586,29 @@ type TaskDescriptor struct {
 	// Version is the version of the task with task ID.
 	// It is used to differentiate between multiple runs of the same task.
 	Version uint64 `json:"version"`
+}
+
+type TaskStatusEntry struct {
+	TaskDescriptor
+	Status       TaskStatus
+	GroupDecided bool
+	PrepAckedBy  []string
+}
+
+// StatusEntryFor answers for one shard (copying all decided groups would be quadratic in tenants).
+func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
+	group := shard
+	if t.hasGroup("") {
+		group = ""
+	}
+	var acked []string
+	for node := range t.PreparedGroups[group] {
+		acked = append(acked, node)
+	}
+	return TaskStatusEntry{
+		TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group),
+		PrepAckedBy: acked,
+	}
 }
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.
@@ -663,27 +662,25 @@ type Task struct {
 	MaxUnitRetries int32 `json:"maxUnitRetries,omitempty"`
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
+	// Whoever replaces it calls [Task.IndexGroups], or group lookups go stale.
 	Units map[string]*Unit `json:"units,omitempty"`
 
-	// PreparationCompletionAcks records per-node PREP-phase confirmations during
-	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
-	// landing with Success=true; any Success=false flips to FAILED. Nil
-	// for tasks that don't opt into the PREP barrier.
-	PreparationCompletionAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
+	groups map[string][]string
 
-	// PostCompletionAcks records per-node confirmations that the node's
-	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
-	// per-strategy OnMigrationComplete) completed successfully. Keys are
-	// node IDs. Populated only after the task transitions to SWAPPING
-	// and only by the [Scheduler] tick firing
-	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
-	// once the local SWAP has returned. The Manager FSM gates the
-	// SWAPPING → FINISHED transition (via
-	// [TaskFinalizer.MarkDistributedTaskFinalized]) on having an ack
-	// from every node with local units; if any ack is
-	// [PostCompletionAck.Success]==false the FSM transitions the task
-	// to FAILED instead.
+	groupCount int
+
+	header TaskHeader
+
+	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
+
+	// SwapDecidedGroups outlives FAILED/CANCELLED: a decided group must swap on every replica or they diverge.
+	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
+
+	SwapsOwed map[string][]string `json:"swapsOwed,omitempty"`
+
+	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
+
+	// PostCompletionAcks records a non-barrier task's per-node completion acks.
 	//
 	// Nil for tasks whose provider does not implement [UnitAwareProvider]
 	// (no OnGroupCompleted to ack).
@@ -708,13 +705,51 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
+// IndexGroups rebuilds the group index.
+func (t *Task) IndexGroups() {
+	groups := map[string][]string{}
+	for id, u := range t.Units {
+		groups[u.GroupID] = append(groups[u.GroupID], id)
+	}
+	t.groups, t.groupCount = groups, len(groups)
+}
+
+// shareGroups reuses held's index when it has as many units (units are only removed).
+func (t *Task) shareGroups(held *Task) {
+	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
+		t.IndexGroups()
+		return
+	}
+	t.groups, t.groupCount = held.groups, held.groupCount
+}
+
+func (t *Task) forgetGroups(groups []string) {
+	for _, group := range groups {
+		if !t.hasGroup(group) {
+			continue
+		}
+		for _, id := range t.groups[group] {
+			delete(t.Units, id)
+		}
+		t.groupCount--
+		delete(t.SwapsOwed, group)
+		delete(t.SwapDecidedGroups, group)
+		delete(t.PreparedGroups, group)
+	}
+}
+
+func (t *Task) hasGroup(group string) bool {
+	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.Units[id] != nil })
+}
+
 func (t *Task) Clone() *Task {
 	clone := *t
 	if t.Units != nil {
+		copies := make([]Unit, 0, len(t.Units))
 		clone.Units = make(map[string]*Unit, len(t.Units))
 		for k, v := range t.Units {
-			uCopy := *v
-			clone.Units[k] = &uCopy
+			copies = append(copies, *v)
+			clone.Units[k] = &copies[len(copies)-1]
 		}
 	}
 	if t.PostCompletionAcks != nil {
@@ -723,13 +758,61 @@ func (t *Task) Clone() *Task {
 			clone.PostCompletionAcks[k] = v
 		}
 	}
-	if t.PreparationCompletionAcks != nil {
-		clone.PreparationCompletionAcks = make(map[string]PostCompletionAck, len(t.PreparationCompletionAcks))
-		for k, v := range t.PreparationCompletionAcks {
-			clone.PreparationCompletionAcks[k] = v
-		}
-	}
+	clone.SwapDecidedGroups = maps.Clone(t.SwapDecidedGroups)
+	// Shallow: paySwap and RecordPreparationCompleteAck replace values, never edit them.
+	clone.SwapsOwed = maps.Clone(t.SwapsOwed)
+	clone.PreparedGroups = maps.Clone(t.PreparedGroups)
+	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
 	return &clone
+}
+
+func (t *Task) decideSwap(group string, at time.Time) {
+	if t.SwapDecidedGroups == nil {
+		t.SwapDecidedGroups = map[string]time.Time{}
+	}
+	t.SwapDecidedGroups[group] = at
+	delete(t.PreparedGroups, group)
+	nodes := t.groupNodes(group)
+	if len(nodes) == 0 {
+		return
+	}
+	if t.SwapsOwed == nil {
+		t.SwapsOwed = map[string][]string{}
+	}
+	t.SwapsOwed[group] = nodes
+}
+
+func (t *Task) paySwap(group, node string) {
+	owed := t.SwapsOwed[group]
+	i := slices.Index(owed, node)
+	if i < 0 {
+		return
+	}
+	if len(owed) == 1 {
+		delete(t.SwapsOwed, group)
+		return
+	}
+	t.SwapsOwed[group] = slices.Delete(slices.Clone(owed), i, i+1)
+}
+
+func (t *Task) SwapOwedBy(group, node string) bool {
+	return slices.Contains(t.SwapsOwed[group], node)
+}
+
+func (t *Task) GroupSwapDecided(groupID string) bool {
+	_, ok := t.SwapDecidedGroups[groupID]
+	return ok
+}
+
+func (t *Task) AllGroupsSwapDecided() bool {
+	return len(t.SwapDecidedGroups) == t.groupCount
+}
+
+func (t *Task) appendError(msg string) {
+	if t.Error != "" {
+		msg = t.Error + "; " + msg
+	}
+	t.Error = msg
 }
 
 // markTerminal stamps status and FinishedAt together so a terminal
@@ -761,37 +844,73 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
+// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.
+func (t *Task) Header() TaskHeader {
+	return t.header
+}
+
+func (t *Task) collection() string {
+	if t.header == nil {
+		return ""
+	}
+	return t.header.Collection()
+}
+
+func (t *Task) OnKnownOtherCollection(collection string) bool {
+	own := t.collection()
+	return own != "" && !strings.EqualFold(own, collection)
+}
+
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
-	seen := map[string]bool{}
-	for _, u := range t.Units {
-		seen[u.GroupID] = true
-	}
-	groups := make([]string, 0, len(seen))
-	for g := range seen {
-		groups = append(groups, g)
+	all := t.groupCount == len(t.groups)
+	groups := make([]string, 0, t.groupCount)
+	for group := range t.groups {
+		if all || t.hasGroup(group) {
+			groups = append(groups, group)
+		}
 	}
 	return groups
 }
 
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
-	for _, u := range t.Units {
-		if u.GroupID != groupID {
-			continue
-		}
-		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+	for _, id := range t.groups[groupID] {
+		if u := t.Units[id]; u != nil && u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
 	}
 	return true
 }
 
+func (t *Task) groupNodes(groupID string) []string {
+	nodes := make([]string, 0, len(t.groups[groupID]))
+	for _, id := range t.groups[groupID] {
+		if u := t.Units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
+			nodes = append(nodes, u.NodeID)
+		}
+	}
+	slices.Sort(nodes)
+	return nodes
+}
+
+func (t *Task) groupSet() map[string]struct{} {
+	set := make(map[string]struct{}, t.groupCount)
+	for _, group := range t.Groups() {
+		set[group] = struct{}{}
+	}
+	return set
+}
+
+func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
+	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.Units[id]; return u != nil && u.NodeID == nodeID })
+}
+
 // LocalGroupUnitIDs returns the IDs of units in the given group assigned to the given node.
 func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 	var ids []string
-	for id, u := range t.Units {
-		if u.GroupID == groupID && u.NodeID == nodeID {
+	for _, id := range t.groups[groupID] {
+		if u := t.Units[id]; u != nil && u.NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}

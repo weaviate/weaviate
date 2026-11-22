@@ -149,7 +149,7 @@ type fakeRepo struct {
 	indices map[string]*fakeIndex
 }
 
-func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) remote.IndexIncomingRepo {
+func (r *fakeRepo) GetIndexForIncomingSharding(_ context.Context, className schema.ClassName) remote.IndexIncomingRepo {
 	idx, ok := r.indices[string(className)]
 	if !ok {
 		return nil

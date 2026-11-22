@@ -188,7 +188,7 @@ func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logger)
 
 	// A reference property whose target class is not in the schema yet is
 	// rejected, and the fixtures cross-link, so retry the rejects until a pass

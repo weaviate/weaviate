@@ -102,9 +102,9 @@ func newHandler(t *testing.T) (*namespaceHandler, *authorization.MockAuthorizer,
 // Cross-endpoint shared behaviors
 // -----------------------------------------------------------------------------
 
-// TestHandlers_Forbidden verifies that every endpoint that gates on
-// authz.Authorize returns the typed Forbidden response for that endpoint
-// when the authorizer denies the request.
+// TestHandlers_Forbidden checks that each endpoint returns its typed Forbidden
+// when Authorize denies. The create and update bodies set both home-node
+// fields, so a check that runs before Authorize answers 422 instead.
 func TestHandlers_Forbidden(t *testing.T) {
 	principal := &models.Principal{}
 	cases := []struct {
@@ -117,7 +117,10 @@ func TestHandlers_Forbidden(t *testing.T) {
 			name:   "create",
 			action: authorization.CREATE,
 			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+				return h.createNamespace(nsops.CreateNamespaceParams{
+					NamespaceID: "customer1", HTTPRequest: req,
+					Body: &models.NamespaceCreateRequest{HomeNode: "node-1", HomeNodes: []string{"node-1", "node-1"}}, //nolint:staticcheck // the deprecated field is exactly what this case pins
+				}, principal)
 			},
 			wantTyped: &nsops.CreateNamespaceForbidden{},
 		},
@@ -128,7 +131,7 @@ func TestHandlers_Forbidden(t *testing.T) {
 				hn := "node-1"
 				return h.updateNamespace(nsops.UpdateNamespaceParams{
 					NamespaceID: "customer1", HTTPRequest: req,
-					Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
+					Body: &models.NamespaceUpdateRequest{HomeNode: &hn, HomeNodes: []string{"node-1", "node-1"}}, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				}, principal)
 			},
 			wantTyped: &nsops.UpdateNamespaceForbidden{},
@@ -194,10 +197,9 @@ func TestHandlers_InvalidNameRejected(t *testing.T) {
 			name:   "update",
 			action: authorization.UPDATE,
 			invoke: func(h *namespaceHandler) middleware.Responder {
-				hn := "node-1"
 				return h.updateNamespace(nsops.UpdateNamespaceParams{
 					NamespaceID: "BadName", HTTPRequest: req,
-					Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
+					Body: &models.NamespaceUpdateRequest{HomeNodes: []string{"node-1"}},
 				}, principal)
 			},
 			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
@@ -417,51 +419,86 @@ func TestCreateNamespace_Created(t *testing.T) {
 	require.NotNil(t, parsed.Payload)
 	assert.Equal(t, "customer1", parsed.Payload.Name)
 	assert.Equal(t, string(cmd.NamespaceStateActive), parsed.Payload.State)
-	assert.Equal(t, "node-1", parsed.Payload.HomeNode)
+	assert.Equal(t, []string{"node-1"}, parsed.Payload.HomeNodes)
 }
 
-// TestCreateNamespace_BodyHomeNode covers operator-supplied home_node: a
-// known storage candidate is accepted and forwarded; an unknown node is
-// rejected with 422 before reaching RAFT.
+// TestCreateNamespace_BodyHomeNode checks that a list of storage candidates, or
+// a deprecated home_node, reaches AddNamespace and comes back in the 201. A
+// refused list is a 422 with no AddNamespace call.
 func TestCreateNamespace_BodyHomeNode(t *testing.T) {
 	principal := &models.Principal{}
+	twoCandidates := []string{"node-1", "node-2"}
 	cases := []struct {
-		name      string
-		homeNode  string
-		setupRaft func(r *mockRaft)
-		wantTyped any
+		name       string
+		homeNode   string // the deprecated home_node
+		homeNodes  []string
+		candidates []string // nil when the handler must not read them
+		wantSent   []string // the HomeNodes AddNamespace receives; nil for a 422
 	}{
 		{
-			name:     "known storage candidate accepted",
-			homeNode: "node-2",
-			setupRaft: func(r *mockRaft) {
-				r.On("StorageCandidates").Return([]string{"node-1", "node-2"})
-				r.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).
-					Return(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}, 0, nil)
-			},
-			wantTyped: &nsops.CreateNamespaceCreated{},
+			name:       "every entry reaches AddNamespace",
+			homeNodes:  []string{"a", "b"},
+			candidates: []string{"a", "b"},
+			wantSent:   []string{"a", "b"},
 		},
 		{
-			name:     "unknown node rejected with 422",
-			homeNode: "node-99",
-			setupRaft: func(r *mockRaft) {
-				r.On("StorageCandidates").Return([]string{"node-1", "node-2"})
-			},
-			wantTyped: &nsops.CreateNamespaceUnprocessableEntity{},
+			name:       "unknown second entry rejected",
+			homeNodes:  []string{"node-1", "node-99"},
+			candidates: twoCandidates,
+		},
+		{
+			name:      "repeated entry rejected",
+			homeNodes: []string{"node-1", "node-1"},
+		},
+		{
+			name:       "deprecated home_node is a one-entry list",
+			homeNode:   "node-2",
+			candidates: twoCandidates,
+			wantSent:   []string{"node-2"},
+		},
+		{
+			name:       "unknown deprecated home_node rejected",
+			homeNode:   "node-99",
+			candidates: twoCandidates,
+		},
+		{
+			name:      "both fields rejected beside a one-entry list",
+			homeNode:  "node-1",
+			homeNodes: []string{"node-1"},
+		},
+		{
+			name:       "deprecated home_node beside an empty list",
+			homeNode:   "node-2",
+			homeNodes:  []string{},
+			candidates: twoCandidates,
+			wantSent:   []string{"node-2"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h, authz, raft := newHandler(t)
 			authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
-			tc.setupRaft(raft)
+			if tc.candidates != nil {
+				raft.On("StorageCandidates").Return(tc.candidates)
+			}
+			if tc.wantSent != nil {
+				raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: tc.wantSent}).
+					Return(cmd.Namespace{Name: "customer1", HomeNodes: tc.wantSent}, 0, nil)
+			}
 
 			res := h.createNamespace(nsops.CreateNamespaceParams{
 				NamespaceID: "customer1",
 				HTTPRequest: req,
-				Body:        &models.NamespaceCreateRequest{HomeNode: tc.homeNode},
+				Body:        &models.NamespaceCreateRequest{HomeNode: tc.homeNode, HomeNodes: tc.homeNodes}, //nolint:staticcheck // the deprecated field is exactly what this case pins
 			}, principal)
-			assert.IsType(t, tc.wantTyped, res)
+			if tc.wantSent == nil {
+				assert.IsType(t, &nsops.CreateNamespaceUnprocessableEntity{}, res)
+				return
+			}
+			parsed, ok := res.(*nsops.CreateNamespaceCreated)
+			require.True(t, ok, "expected 201, got %T", res)
+			assert.Equal(t, tc.wantSent, parsed.Payload.HomeNodes)
+			assert.Equal(t, tc.wantSent[0], parsed.Payload.HomeNode) //nolint:staticcheck // the deprecated field is exactly what this case pins
 		})
 	}
 }
@@ -471,13 +508,14 @@ func TestCreateNamespace_BodyHomeNode(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // TestUpdateNamespace_HomeNodeValidation covers the 422-before-RAFT paths
-// for home_node validation: missing field and unknown node.
+// for home-node validation. The mock panics on any UpdateNamespace call.
 func TestUpdateNamespace_HomeNodeValidation(t *testing.T) {
 	principal := &models.Principal{}
 	cases := []struct {
 		name      string
 		body      *models.NamespaceUpdateRequest
 		setupRaft func(r *mockRaft)
+		wantMsg   string
 	}{
 		{
 			name: "missing body",
@@ -491,11 +529,26 @@ func TestUpdateNamespace_HomeNodeValidation(t *testing.T) {
 			name: "unknown home_node",
 			body: func() *models.NamespaceUpdateRequest {
 				hn := "node-99"
-				return &models.NamespaceUpdateRequest{HomeNode: &hn}
+				return &models.NamespaceUpdateRequest{HomeNode: &hn} //nolint:staticcheck // the deprecated field is exactly what this case pins
 			}(),
 			setupRaft: func(r *mockRaft) {
 				r.On("StorageCandidates").Return([]string{"node-1"})
 			},
+		},
+		{
+			name: "unknown second home_nodes entry",
+			body: &models.NamespaceUpdateRequest{HomeNodes: []string{"node-1", "node-99"}},
+			setupRaft: func(r *mockRaft) {
+				r.On("StorageCandidates").Return([]string{"node-1"})
+			},
+		},
+		{
+			name: "both fields set beside a one-entry list",
+			body: func() *models.NamespaceUpdateRequest {
+				hn := "node-1"
+				return &models.NamespaceUpdateRequest{HomeNode: &hn, HomeNodes: []string{"node-1"}} //nolint:staticcheck // the deprecated field is exactly what this case pins
+			}(),
+			wantMsg: "send only home_nodes",
 		},
 	}
 	for _, tc := range cases {
@@ -509,8 +562,11 @@ func TestUpdateNamespace_HomeNodeValidation(t *testing.T) {
 			res := h.updateNamespace(nsops.UpdateNamespaceParams{
 				NamespaceID: "customer1", HTTPRequest: req, Body: tc.body,
 			}, principal)
-			_, ok := res.(*nsops.UpdateNamespaceUnprocessableEntity)
-			assert.True(t, ok, "expected 422, got %T", res)
+			unproc, ok := res.(*nsops.UpdateNamespaceUnprocessableEntity)
+			require.True(t, ok, "expected 422, got %T", res)
+			if tc.wantMsg != "" {
+				assert.Contains(t, unproc.Payload.Error[0].Message, tc.wantMsg)
+			}
 		})
 	}
 }
@@ -571,44 +627,64 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			raft.On("StorageCandidates").Return([]string{"node-1"})
 			raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}).Return(0, tc.raftErr)
 
-			hn := "node-1"
 			res := h.updateNamespace(nsops.UpdateNamespaceParams{
 				NamespaceID: "customer1", HTTPRequest: req,
-				Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
+				Body: &models.NamespaceUpdateRequest{HomeNodes: []string{"node-1"}},
 			}, principal)
 			assert.IsType(t, tc.wantTyped, res)
 		})
 	}
 }
 
+// TestUpdateNamespace_OK sends a home_nodes list, or the deprecated home_node
+// alone, and checks the list UpdateNamespace receives and the 200 returns.
 func TestUpdateNamespace_OK(t *testing.T) {
-	h, authz, raft := newHandler(t)
-	principal := &models.Principal{}
-	authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("StorageCandidates").Return([]string{"node-1", "node-2"})
-	raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).Return(0, nil)
-	// Handler reads back State from the controller after a successful
-	// update rather than hardcoding active.
-	raft.On("GetNamespaces", "customer1").Return(
-		[]cmd.Namespace{{Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive}}, nil)
+	deprecated := "node-2"
+	cases := []struct {
+		name     string
+		body     *models.NamespaceUpdateRequest
+		wantSent []string
+	}{
+		{
+			name:     "every home_nodes entry is sent",
+			body:     &models.NamespaceUpdateRequest{HomeNodes: []string{"node-1", "node-2"}},
+			wantSent: []string{"node-1", "node-2"},
+		},
+		{
+			name:     "deprecated home_node is a one-entry list",
+			body:     &models.NamespaceUpdateRequest{HomeNode: &deprecated}, //nolint:staticcheck // the deprecated field is exactly what this case pins
+			wantSent: []string{"node-2"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, authz, raft := newHandler(t)
+			principal := &models.Principal{}
+			authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
+			raft.On("StorageCandidates").Return([]string{"node-1", "node-2"})
+			raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: tc.wantSent}).Return(0, nil)
+			// Handler reads back State from the controller after a successful
+			// update rather than hardcoding active.
+			raft.On("GetNamespaces", "customer1").Return(
+				[]cmd.Namespace{{Name: "customer1", HomeNodes: tc.wantSent, State: cmd.NamespaceStateActive}}, nil)
 
-	hn := "node-2"
-	res := h.updateNamespace(nsops.UpdateNamespaceParams{
-		NamespaceID: "customer1", HTTPRequest: req,
-		Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
-	}, principal)
-	parsed, ok := res.(*nsops.UpdateNamespaceOK)
-	require.True(t, ok, "expected 200, got %T", res)
-	require.NotNil(t, parsed.Payload)
-	assert.Equal(t, "customer1", parsed.Payload.Name)
-	assert.Equal(t, "node-2", parsed.Payload.HomeNode)
-	assert.Equal(t, string(cmd.NamespaceStateActive), parsed.Payload.State)
+			res := h.updateNamespace(nsops.UpdateNamespaceParams{
+				NamespaceID: "customer1", HTTPRequest: req, Body: tc.body,
+			}, principal)
+			parsed, ok := res.(*nsops.UpdateNamespaceOK)
+			require.True(t, ok, "expected 200, got %T", res)
+			require.NotNil(t, parsed.Payload)
+			assert.Equal(t, "customer1", parsed.Payload.Name)
+			assert.Equal(t, tc.wantSent, parsed.Payload.HomeNodes)
+			assert.Equal(t, tc.wantSent[0], parsed.Payload.HomeNode) //nolint:staticcheck // the deprecated field is exactly what this case pins
+			assert.Equal(t, string(cmd.NamespaceStateActive), parsed.Payload.State)
+		})
+	}
 }
 
-// TestUpdateNamespace_OK_StateReadFailureLeavesStateEmpty asserts the
-// read-back failure path: when GetNamespaces errors or returns nothing
-// after a successful update, the handler still returns 200 with the
-// caller-supplied HomeNode and an empty State (rather than guessing).
+// TestUpdateNamespace_OK_StateReadFailureLeavesStateEmpty checks that a failed
+// or empty GetNamespaces read after a successful update still answers 200 with
+// the sent HomeNodes and an empty State.
 func TestUpdateNamespace_OK_StateReadFailureLeavesStateEmpty(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -627,15 +703,14 @@ func TestUpdateNamespace_OK_StateReadFailureLeavesStateEmpty(t *testing.T) {
 			raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).Return(0, nil)
 			raft.On("GetNamespaces", "customer1").Return(tc.getResult, tc.getErr)
 
-			hn := "node-2"
 			res := h.updateNamespace(nsops.UpdateNamespaceParams{
 				NamespaceID: "customer1", HTTPRequest: req,
-				Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
+				Body: &models.NamespaceUpdateRequest{HomeNodes: []string{"node-2"}},
 			}, principal)
 			parsed, ok := res.(*nsops.UpdateNamespaceOK)
 			require.True(t, ok, "expected 200, got %T", res)
 			require.NotNil(t, parsed.Payload)
-			assert.Equal(t, "node-2", parsed.Payload.HomeNode)
+			assert.Equal(t, []string{"node-2"}, parsed.Payload.HomeNodes)
 			assert.Empty(t, parsed.Payload.State)
 		})
 	}
@@ -694,7 +769,8 @@ func TestGetNamespace_OK(t *testing.T) {
 			h, authz, raft := newHandler(t)
 			principal := &models.Principal{}
 			authz.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Namespaces("customer1")[0]).Return(nil)
-			raft.On("GetNamespaces", "customer1").Return([]cmd.Namespace{{Name: "customer1", State: tc.nsState}}, nil)
+			raft.On("GetNamespaces", "customer1").Return(
+				[]cmd.Namespace{{Name: "customer1", HomeNodes: []string{"a", "b", "c"}, State: tc.nsState}}, nil)
 
 			res := h.getNamespace(nsops.GetNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 			parsed, ok := res.(*nsops.GetNamespaceOK)
@@ -702,6 +778,8 @@ func TestGetNamespace_OK(t *testing.T) {
 			require.NotNil(t, parsed.Payload)
 			assert.Equal(t, "customer1", parsed.Payload.Name)
 			assert.Equal(t, tc.wantState, parsed.Payload.State)
+			assert.Equal(t, []string{"a", "b", "c"}, parsed.Payload.HomeNodes)
+			assert.Equal(t, "a", parsed.Payload.HomeNode) //nolint:staticcheck // the deprecated field is exactly what this case pins
 		})
 	}
 }
@@ -768,7 +846,7 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 	principal := &models.Principal{}
 	all := []cmd.Namespace{
 		{Name: "customer1", HomeNodes: []string{"node-1"}, State: cmd.NamespaceStateActive},
-		{Name: "customer2", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateDeleting},
+		{Name: "customer2", HomeNodes: []string{"a", "b", "c"}, State: cmd.NamespaceStateDeleting},
 		{Name: "customer3", HomeNodes: []string{"node-3"}, State: cmd.NamespaceStateActive},
 	}
 	raft.On("GetNamespaces").Return(all, nil)
@@ -787,8 +865,9 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 	require.Len(t, parsed.Payload, 1)
 	assert.Equal(t, "customer2", parsed.Payload[0].Name)
 	assert.Equal(t, string(cmd.NamespaceStateDeleting), parsed.Payload[0].State)
-	// HomeNode must round-trip through List, matching Create/Get/Update.
-	assert.Equal(t, "node-2", parsed.Payload[0].HomeNode)
+	// HomeNodes must round-trip through List, matching Create/Get/Update.
+	assert.Equal(t, []string{"a", "b", "c"}, parsed.Payload[0].HomeNodes)
+	assert.Equal(t, "a", parsed.Payload[0].HomeNode) //nolint:staticcheck // the deprecated field is exactly what this case pins
 }
 
 func TestListNamespaces_NoPermissionsReturnsEmpty(t *testing.T) {

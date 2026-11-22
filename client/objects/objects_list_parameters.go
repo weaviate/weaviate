@@ -81,7 +81,7 @@ type ObjectsListParams struct {
 
 	/* Class.
 
-	   The collection from which to query objects.  <br/><br/>Note that if the collection name (`class`) is not provided, the response will not include any objects.
+	   The collection from which to list objects. <br/><br/>**Note**: Omitting `class` is deprecated and will be removed in a future version. Without `class`, the endpoint lists objects across all collections and does not support the `after` cursor. Some cluster configurations do not support a request without `class`.
 	*/
 	Class *string
 

@@ -25,8 +25,12 @@ import (
 )
 
 // const maximumNumberOfGoroutines = 10
+
+// ReRankerClient ranks the values of the rerank property, one score per
+// document, in the order of documents. property is the name of the rerank
+// property; the value of a blob property is its base64 string.
 type ReRankerClient interface {
-	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
 type ReRankerProvider struct {

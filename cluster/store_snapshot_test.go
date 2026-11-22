@@ -32,6 +32,11 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -184,6 +189,67 @@ func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
 	require.Equal(t, distributedtask.UnitStatusCompleted, restored.Units["s1"].Status,
 		"per-unit completion state must survive the round trip")
 	require.Equal(t, distributedtask.UnitStatusPending, restored.Units["s2"].Status)
+}
+
+func TestSnapshotRestoreRBAC(t *testing.T) {
+	// newRBACStore builds a store whose RBAC manager comes from a conf with
+	// Enabled set to enabled.
+	newRBACStore := func(t *testing.T, nodeID string, enabled bool) (*Store, *rbac.Manager) {
+		ms := NewMockStore(t, nodeID, utils.MustGetFreeTCPPort())
+		authZ, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: enabled}, config.Authentication{}, false, nil, ms.logger)
+		require.NoError(t, err)
+		cfg := ms.cfg
+		cfg.RBAC = authZ
+		s := NewFSM(cfg, prometheus.NewPedanticRegistry())
+		s.schemaManager.SetReplicationFSM(ms.replicationFSM)
+		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		return &s, authZ
+	}
+
+	t.Run("a snapshot taken with RBAC disabled restores into an enabled store", func(t *testing.T) {
+		source, _ := newRBACStore(t, "rbac-disabled-source", false)
+		reader := authorization.Policy{Resource: authorization.CollectionsMetadata("Movies")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+		entries := []struct {
+			typ cmd.ApplyRequest_Type
+			sub any
+		}{
+			{cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, &cmd.CreateRolesRequest{
+				Roles: map[string][]authorization.Policy{"reader": {reader}}, Version: cmd.RBACLatestCommandPolicyVersion, RoleCreation: true,
+			}},
+			{cmd.ApplyRequest_TYPE_ADD_ROLES_FOR_USER, &cmd.AddRolesForUsersRequest{
+				User: "db:alice", Roles: []string{"reader"}, Version: cmd.RBACAssignRevokeLatestCommandPolicyVersion,
+			}},
+			{cmd.ApplyRequest_TYPE_ADD_ROLES_FOR_USER, &cmd.AddRolesForUsersRequest{
+				User: "db:bob", Roles: []string{authorization.Admin}, Version: cmd.RBACAssignRevokeLatestCommandPolicyVersion,
+			}},
+		}
+		for _, e := range entries {
+			resp, ok := source.Apply(&raft.Log{Data: cmdAsBytes("", e.typ, e.sub, nil)}).(Response)
+			require.True(t, ok)
+			require.NoError(t, resp.Error)
+		}
+
+		snapshot, err := source.Snapshot()
+		require.NoError(t, err)
+		sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+		require.NoError(t, snapshot.Persist(sink))
+
+		// The restore stands in for the node restarting with RBAC enabled after
+		// the snapshot compacted the entries away.
+		target, authZ := newRBACStore(t, "rbac-enabled-target", true)
+		require.NoError(t, target.init())
+		require.NoError(t, target.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+		roles, err := authZ.GetRoles("reader")
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]authorization.Policy{"reader": {reader}}, roles)
+		require.NoError(t, authZ.Authorize(context.Background(),
+			&models.Principal{Username: "alice", UserType: models.UserTypeInputDb}, authorization.READ, reader.Resource))
+		bobRoles, err := authZ.GetRolesForUserOrGroup("bob", authentication.AuthTypeDb, false)
+		require.NoError(t, err)
+		assert.Contains(t, bobRoles, authorization.Admin)
+	})
 }
 
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store
@@ -475,7 +541,7 @@ func TestSnapshotRestoreNamespacesBeforeDBReload(t *testing.T) {
 	replicationFSM := schema.NewMockreplicationFSM(t)
 	replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
 	replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	ts := NewFSM(cfg, nil, prometheus.NewPedanticRegistry())
+	ts := NewFSM(cfg, prometheus.NewPedanticRegistry())
 	ts.schemaManager.SetReplicationFSM(replicationFSM)
 	require.NoError(t, ts.init())
 	target.parser.On("ParseClass", mock.Anything).Return(nil)

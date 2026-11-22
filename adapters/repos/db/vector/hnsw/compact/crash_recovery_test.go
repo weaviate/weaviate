@@ -1769,3 +1769,121 @@ func TestCrashRecovery_NodeIDBeyondLimitKeepsFileWhenTailCannotBeSaved(t *testin
 	require.Error(t, err)
 	assert.Equal(t, size, fileSizeOf(t, path), "file must not be truncated without a saved copy")
 }
+
+// TestCrashRecovery_NodeIDBeyondLimitFailsCompactionClosed pins the compactor
+// side: a file the running process wrote after startup was never checked by
+// the loader, so compaction must not size the node index to an out-of-limit
+// record or carry it into its output. Compaction fails and keeps the source,
+// and the next load truncates it.
+func TestCrashRecovery_NodeIDBeyondLimitFailsCompactionClosed(t *testing.T) {
+	sortedName := func(ts int64) string { return BuildMergedFilename(ts, ts, FileTypeSorted) }
+	tests := []struct {
+		name string
+		// files are written in order; the garbage record is appended to the last.
+		files []string
+		types []FileType
+	}{
+		{name: "raw file conversion", files: []string{"1000"}, types: []FileType{FileTypeRaw}},
+		{
+			name:  "condensed file conversion",
+			files: []string{BuildMergedFilename(1000, 1000, FileTypeCondensed)},
+			types: []FileType{FileTypeCondensed},
+		},
+		{
+			name:  "sorted file merge",
+			files: []string{sortedName(1000), sortedName(1001)},
+			types: []FileType{FileTypeSorted, FileTypeSorted},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := nodeIDLimitTestDir(t)
+			var last string
+			for i, name := range tc.files {
+				last = filepath.Join(dir, name)
+				writeNodeIDLimitFixture(t, last, tc.types[i])
+			}
+			appendToFile(t, last, walBytes(t, func(w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(nodeIDLimitTestGarbage, 0))
+			}))
+			size := fileSizeOf(t, last)
+			// the live file, which compaction never reads
+			createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {})
+
+			newCompactor := func() *Compactor {
+				cfg := DefaultCompactorConfig(dir)
+				cfg.NodeIDsAreDocIDs = func() bool { return true }
+				return NewCompactor(cfg, quietLogger())
+			}
+
+			_, err := newCompactor().RunCycle(nil)
+			require.ErrorIs(t, err, errNodeIDBeyondLimit, "compaction must fail on an out-of-limit record")
+			assert.Equal(t, size, fileSizeOf(t, last), "source must be kept as it is")
+
+			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), NodeIDsAreDocIDs: true}).Load()
+			require.NoError(t, err)
+			assert.True(t, res.RecoveredFromCrash)
+			assert.Less(t, len(res.State.Graph.Nodes), nodeIDLimitTestGarbage, "node index sized to the garbage ID")
+
+			c := newCompactor()
+			for i := 0; ; i++ {
+				require.Less(t, i, 50, "compaction did not converge")
+				action, err := c.RunCycle(nil)
+				require.NoError(t, err)
+				if action == ActionNone {
+					break
+				}
+			}
+			state := loadGraph(t, dir)
+			assert.Less(t, len(state.Graph.Nodes), nodeIDLimitTestGarbage)
+			for id := 0; id < 10; id++ {
+				require.False(t, effectivelyAbsent(nodeAt(state, id)), "node %d lost", id)
+			}
+		})
+	}
+}
+
+// TestCrashRecovery_NodeIDLimitCompactionControls pins the cases the
+// compactor's limit must not change: indexes whose node IDs are not document
+// IDs, and a counter that grew after the compactor was created, which the
+// compactor must re-read rather than cache.
+func TestCrashRecovery_NodeIDLimitCompactionControls(t *testing.T) {
+	tests := []struct {
+		name             string
+		nodeIDsAreDocIDs func() bool
+		counter          uint64
+	}{
+		{name: "no limit configured"},
+		{name: "node IDs are not document IDs", nodeIDsAreDocIDs: func() bool { return false }},
+		{name: "counter grew past the ID", nodeIDsAreDocIDs: func() bool { return true }, counter: nodeIDLimitTestGarbage},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := nodeIDLimitTestDir(t)
+			path := filepath.Join(dir, "1000")
+			writeNodeIDLimitFixture(t, path, FileTypeRaw)
+			appendToFile(t, path, walBytes(t, func(w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(nodeIDLimitTestGarbage, 0))
+				require.NoError(t, w.WriteAddLinksAtLevel(nodeIDLimitTestGarbage, 0, []uint64{0}))
+			}))
+			createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {})
+
+			cfg := DefaultCompactorConfig(dir)
+			cfg.NodeIDsAreDocIDs = tc.nodeIDsAreDocIDs
+			c := NewCompactor(cfg, quietLogger())
+			if tc.counter > 0 {
+				require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(dir), "indexcount"),
+					binary.LittleEndian.AppendUint64(nil, tc.counter), 0o644))
+			}
+
+			_, err := c.RunCycle(nil)
+			require.NoError(t, err)
+			_, err = os.Stat(path)
+			require.True(t, os.IsNotExist(err), "the raw file must be converted")
+			require.False(t, effectivelyAbsent(nodeAt(loadGraph(t, dir), nodeIDLimitTestGarbage)),
+				"node %d must be kept", nodeIDLimitTestGarbage)
+		})
+	}
+}

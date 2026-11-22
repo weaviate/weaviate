@@ -47,7 +47,7 @@ func NewSearchNearVector(ctx *middleware.Context, handler SearchNearVectorHandle
 
 # Search a collection with near-vector
 
-Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query `vector` is searched against the vector index and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.
+Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query `vector` is searched against the vector index and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.
 */
 type SearchNearVector struct {
 	Context *middleware.Context

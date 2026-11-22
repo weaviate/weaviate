@@ -135,7 +135,7 @@ func grantDataRead(t *testing.T, m *Manager, username string) {
 	t.Helper()
 
 	_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns-gate-role"),
-		"*", authorization.READ, authorization.DataDomain)
+		conv.CasbinData("*", "*"), authorization.READ, authorization.DataDomain)
 	require.NoError(t, err)
 	_, err = m.casbin.AddRoleForUser(
 		conv.UserNameWithTypeFromId(username, authentication.AuthTypeDb),

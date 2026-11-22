@@ -67,7 +67,7 @@ func newSchemaManagerWithModules(t *testing.T) *clusterSchema.SchemaManager {
 	t.Helper()
 	parser := schema.NewParser(fakes.NewFakeClusterState(), vectorindex.ParseAndValidateConfig,
 		acceptAllIndexUpdates{}, endpointModules{}, nil, nil)
-	return clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	return clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 }
 
 func applyRequest(t *testing.T, cmdType command.ApplyRequest_Type, className string, version uint64, subCommand any) *command.ApplyRequest {

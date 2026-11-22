@@ -70,7 +70,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 		// Suppress the inline callback for props under migration; their
 		// target-schema delete double-write is handled by the migration pass.
 		if _, migrating := st.scope.props[prop.Name]; !migrating {
-			if err := s.fireDeleteFromPropertyValueIndex(st, docID, &prop); err != nil {
+			if err := s.fireDeleteFromPropertyValueIndex(st.del, docID, &prop); err != nil {
 				return err
 			}
 		}
