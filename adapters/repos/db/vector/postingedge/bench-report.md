@@ -41,11 +41,14 @@
 
 **La integración** va en `feat/posting-edge-integration`. Según su sesión, sin verificar aquí: hito 1 y piezas 1 a 6 del hito 2 cerradas a 1M; la pieza 7, el modo `none`, escrita y sin cerrar.
 
-**Decisiones abiertas, del usuario.**
+**Decidido por el usuario el 22.**
 
-- **Formato en disco:** v5.3, o v5.4, que escribe un 31 % menos y empata al leer pero no cumple dos de sus cuatro condiciones.
-- **El refresco de aristas al doblar:** en el índice integrado cumple su criterio, pero según su sesión no se nota y cuesta un 42 % más de búsqueda al escribir.
-- **El rescore a 768 bits:** a 10M, 64 es un 29 % más rápido que 150 en frío a 0.95, y 150 un 25 % más rápido a 0.99.
+- **El refresco de aristas al doblar, apagado por defecto** en el índice integrado: allí cumple su criterio, pero según su sesión no se nota y cuesta un 42 % más de búsqueda al escribir.
+- **El rescore a 768 bits queda en 150, sin término de corpus.** A 10M, 64 es un 29 % más rápido en frío a 0.95, y 150 un 25 % más rápido a 0.99.
+
+**Decisión abierta, del usuario.**
+
+- **Formato en disco:** v5.3, o v5.4, que escribe un 31 % menos y empata en frío, pero es más lento en caliente con 8 threads y a 0.99 y no cumple dos de sus cuatro condiciones. *Mi recomendación:* v5.3.
 - **Cuatro PR en borrador a main,** con fallos encontrados por el camino: weaviate/weaviate#13944, #13950, #13964 y #13983.
 
 ## Resumen por versión, al 2026-11-22
