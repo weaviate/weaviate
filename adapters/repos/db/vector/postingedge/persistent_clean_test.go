@@ -184,22 +184,36 @@ func TestPersistentCleansInLineWithItsWrites(t *testing.T) {
 // background next to searches, inserts and deletes, and what they leave is
 // the index: covered, every vector the one it was given, no deleted vector
 // returned at any moment, and the same after it is opened again.
+//
+// The inserts go on until both have run next to them, with vectors to spare:
+// when the background gets to a pass is not the test's to say, and a writer
+// that stopped at a fixed count ended, on a busy machine, before the layout
+// that was due had.
 func TestPersistentMaintenanceNextToEverything(t *testing.T) {
 	ctx := context.Background()
 	const k = 10
-	const total = 2*persistentBase + 400
+	// atLeast is how many vectors go in whatever happens, and total how many
+	// there are for the passes to run next to.
+	const atLeast, total = 2*persistentBase + 400, 6 * persistentBase
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, persistentBase+200)
 
 	var deleted [total]atomic.Bool
 	var stop atomic.Bool
+	// added is how many vectors went in: the doc ids under it.
+	var added atomic.Int64
+	added.Store(persistentBase + 200)
 	eg := enterrors.NewErrorGroupWrapper(testLogger())
 	eg.Go(func() error {
 		defer stop.Store(true)
 		for next := persistentBase + 200; next < total; next++ {
+			if next >= atLeast && f.index.cleans.Load() > 0 && f.index.layouts.Load() > 0 {
+				break
+			}
 			if err := f.index.Add(ctx, uint64(next), f.vectors[next]); err != nil {
 				return errors.Wrapf(err, "add doc %d", next)
 			}
+			added.Store(int64(next) + 1)
 			if next%3 == 0 {
 				// Deleted for the searches once the delete has returned: it
 				// waits for whoever is writing.
@@ -234,8 +248,10 @@ func TestPersistentMaintenanceNextToEverything(t *testing.T) {
 		})
 	}
 	require.NoError(t, eg.Wait())
-	require.Positive(t, f.index.cleans.Load(), "the deleted vectors were taken out on the way")
-	require.Positive(t, f.index.layouts.Load(), "the vectors were laid out on the way")
+	n := int(added.Load())
+	require.Positive(t, f.index.cleans.Load(), "the deleted vectors were taken out on the way, with %d vectors in", n)
+	require.Positive(t, f.index.layouts.Load(), "the vectors were laid out on the way, with %d vectors in", n)
+	t.Logf("%d vectors in when both had run", n)
 
 	// What is left to do is done, and the index is whole.
 	require.NoError(t, f.index.maintain(ctx))
@@ -243,11 +259,11 @@ func TestPersistentMaintenanceNextToEverything(t *testing.T) {
 	require.Zero(t, f.marked())
 	f.covered(t, "at the end")
 	f.vectorsIntact(t, "at the end")
-	held := func(id uint64) bool { return !deleted[id].Load() }
+	held := func(id uint64) bool { return id < uint64(n) && !deleted[id].Load() }
 	for id := range uint64(total) {
 		require.Equal(t, held(id), f.index.ContainsDoc(id), "doc %d", id)
 	}
-	assert.Greater(t, f.recall(t, total, k, held), 0.9)
+	assert.Greater(t, f.recall(t, n, k, held), 0.9)
 	before := f.answers(t, k)
 	f.restart(t)
 	assert.Equal(t, before, f.answers(t, k), "the same answers")
