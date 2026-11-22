@@ -392,6 +392,24 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 ### El valor automático de `rq.rescoreLimit`
 
+**Decidido por el usuario el 22 de noviembre,** con sus palabras: «regla del rescore en 150 a 768 bits, sin término de corpus».
+
+- **El automático es el mayor entre 64, 150 × (768 / bits)³ y 4 × k,** con los bits del código con el que se hace el scan y el k de cada query. Es lo que está en el código desde el 22 (`autoRescoreLimit` y `searchConfig`, en `persistent.go`).
+- **Sin término por el tamaño del índice.** Según la sesión de experimentos, a 10M ya llega con 64 a 0.99, y 150 cumple a 1M y a 10M.
+- **El tope es lo que la regla da a 384 bits, 1 200,** donde antes era 1 600. Por debajo de 384 bits no hay nada medido.
+- **El 4 × k va por query,** que es donde se conoce k. El índice lo guarda como un mínimo por k (`RescorePerK` en la configuración interna) y cada búsqueda toma el mayor entre el límite y 4 × k.
+  - **Sin tope** (*mío*): el tope es de la extrapolación por bits, no de k. Una query con k = 1 000 rescora 4 000 candidatos.
+  - **Solo con el automático.** Un valor explícito se respeta tal cual, con k como único suelo, como ya decía la propuesta de abajo.
+  - **También la búsqueda de un insert,** que pide 16 vecinos: 64, que es el suelo. La de un refresco pide 17: 68.
+- **Lo que cambia de lo medido: nada.** A 1 536 bits, los de dbpedia, la regla anterior y esta dan 64, y con k = 10 el 4 × k son 40: todas las corridas a 1M del hito 2 rescoraron lo mismo que con esta regla.
+
+| bits del scan | 384 | 512 | 768 | 1 024 | 1 536 | 3 072 |
+|---|---|---|---|---|---|---|
+| automático, desde el 22 | 1 200 | 507 | 150 | 64 | 64 | 64 |
+| la propuesta anterior | 1 600 | 675 | 200 | 85 | 64 | 64 |
+
+**Lo que sigue es la propuesta tal como se escribió antes de la decisión.**
+
 **Acordado:** vive en `rq.rescoreLimit`. En el modo `routing` no se acopla a `ef`. Y el automático no puede ser un 64 fijo.
 
 **Lo medido.** El recall tiene un techo que pone el `rescoreLimit`. La tabla da ese techo, el recall a ef 1 024 subiendo solo ef, por los bits del código. Todo con k = 10 y en coseno. Sale de «v1.2, Fase B» y de «v1.4» en `bench-report.md`.
@@ -556,7 +574,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **Las aristas van detrás de una interfaz** (`growEdges`, en `grow_edges.go`). La implementación del índice es la de v5.0, un valor por lista. La consolidada de v5.1 y v5.3 se queda en test (`grow_rows_test.go`) y los arneses la siguen usando.
 - **La configuración pública es nueva y vive en `entities/vectorindex/postingedge`.** El `UserConfig` del paquete del índice no se movió: se queda como configuración interna, con los ajustes de los experimentos.
 - **`rq.cacheMode`:** `routing` funciona, `none` es un valor válido que responde «todavía no disponible», y cualquier otro, también `scan` y un booleano, es desconocido.
-- **`rq.rescoreLimit` automático:** la regla de la sección 4, con un tope en 1 600, lo que da a 384 bits (*mío*). Por debajo no hay medidas y la regla crece sin límite. El insert usa el mismo límite que las queries.
+- **`rq.rescoreLimit` automático:** la regla de la sección 4, con un tope en 1 600, lo que da a 384 bits (*mío*). Por debajo no hay medidas y la regla crece sin límite. El insert usa el mismo límite que las queries. *Desde el 22 la regla es la que decidió el usuario, con el tope en 1 200 (sección 4).*
 - **`maxPostingSizeKB` explícito** hereda el suelo de 192 vectores de HFresh (*mío*). El plan lo dejaba por decidir.
 - **El código de ruteo son 512 bits** donde el código completo es más ancho, y el código completo donde no.
 - **El rescore salta un candidato cuyo vector no se encuentra,** como HNSW y HFresh. Cualquier otro fallo de lectura sigue fallando la búsqueda.
@@ -722,11 +740,23 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 |---|---|---|---|
 | 1 | Formato de v5.3 y reorganización de fondo | hechos | cumple: 2.00 lecturas por carga con el bucket en un segmento |
 | 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote. Arrancada por el índice, tras borrar el 30 %: −6.3 % de cargas a 0.99 frente a antes de borrar |
-| 3 | Refresco de aristas al doblar | hechos | cumple: −9.0 % de cargas a 0.99 contra el lote. Sin refresco, −9.7 %: el refresco no se nota |
+| 3 | Refresco de aristas al doblar | hechos; apagado por defecto desde el 22, por decisión del usuario | cumple: −9.0 % de cargas a 0.99 contra el lote. Sin refresco, −9.7 %: el refresco no se nota |
 | 4 | Cálculo de inserts en los workers compartidos | hechos | hecho, en conteos: con ocho llamadores el índice es el de uno. Los inserts por segundo de v5.2 no se comparan: nada cronometrado |
 | 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | hecho: con el diario el índice es el mismo, y escribe 10.8 KB por insert. Muerto con `kill -9` a mitad de los inserts, lo que deja abre entero |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | hecho: 40 centroides borrados en el grafo tras 4 056 splits |
 | 7 | Modo `none`, con el halo en la escritura | hechos | cumple: 3.00 lecturas por carga, como v4.0, con 208 KB frente a 183 (+14 %); 0 MB de códigos en memoria; abierto con los códigos, ninguna respuesta cambia |
+
+### Decisiones del usuario del 22
+
+Sus palabras, hacia las 10:00: «Decisiones: refresco al doblar apagado por defecto, y regla del rescore en 150 a 768 bits, sin término de corpus».
+
+- **El refresco al doblar (pieza 3) viene apagado.** El código se queda, y no es un parámetro público: la lista de seis no cambia. El índice que lo tiene apagado no empieza ninguna pasada, y sigue apuntando cuándo se construyeron las aristas de cada vector, de modo que encendido más tarde sabe cuáles son viejas.
+  - **Cómo se enciende:** un campo sin exportar de la configuración del índice (`PersistentConfig.refreshEdges`), que ponen los tests y el arnés (`-bench.integrationrefresh`). Un nodo no tiene forma de encenderlo.
+  - **Test:** un índice que dobla dos veces con el default no refresca nada, aunque una pasada estaría debida; el mismo índice abierto con el refresco encendido refresca los vectores viejos y no deja ninguno (`TestPersistentRefreshIsOffByDefault`). Con el refresco encendido por defecto el test falla. Los tests del refresco, y el de lo que deja una caída, lo encienden.
+  - **Las corridas a 1M de las piezas 3 a 7 se hicieron con el refresco encendido,** que era el default del código entonces. La de la pieza 3 lo comparó con la corrida B del hito 1, que no refrescaba, y no se notaba.
+- **La regla del rescore:** el mayor entre 64, 150 × (768 / bits)³ y 4 × k, con el tope en 1 200. El detalle está en la sección 4.
+  - **Tests:** la tabla de la regla (`TestAutoRescoreLimit`), que el automático pide 4 × k y uno explícito no (`TestSearchConfigRescore`), y que las dos búsquedas, la del índice en disco y la de memoria, rescoran el mayor entre el límite y 4 × k, y nada sin rescore (`TestRescorePerK`).
+  - **Las corridas a 1M rescoraron lo mismo que con esta regla:** a 1 536 bits las dos dan 64, y 4 × 10 son 40.
 
 ### Lo que el índice hace por su cuenta, y cómo (*mío*)
 
@@ -964,7 +994,7 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Lo que costó:** 25.6 millones de cargas de posting, sobre los 60.5 millones de los inserts. Un 42 % más de búsqueda en el camino de escritura.
 - **Lo que v2.2 medía sin refresco no aparece aquí.** Allí, en memoria, crecer diez veces sin refrescar dejaba el índice de un 17.9 a un 32 % por encima del lote a 0.99, con menos recall que él a igual ef. Aquí, sin refrescar, el índice tiene más recall que su lote a igual ef desde ef 40. No sé cuál de las dos cosas cambia, si el crecido o el lote: el lote integrado no se había medido a 990 000.
 - **Las cargas absolutas tampoco son las de v2.4,** como ya pasó en la pieza 2: el lote da aquí 18.21 cargas a 0.95 y 78.25 a 0.99, y el de v2.0, en memoria, 10.06 y 52.78.
-- **Decisión que queda para el usuario:** si el refresco se queda puesto. Con estos números no compra nada medible y cuesta un 42 % más de búsqueda al escribir. No lo he quitado.
+- **Decisión que quedaba para el usuario:** si el refresco se queda puesto. Con estos números no compra nada medible y cuesta un 42 % más de búsqueda al escribir. **Decidida el 22: apagado por defecto,** con el código dentro («Decisiones del usuario del 22», arriba).
 
 **Lo demás que dejó la corrida:**
 
