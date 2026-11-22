@@ -136,6 +136,33 @@ func TestDotDistancerLargeVectors(t *testing.T) {
 		assert.Equal(t, float32(math.MaxFloat32), dist)
 	})
 
+	t.Run("mixed-sign cancellation recovers a representable distance", func(t *testing.T) {
+		// The per-component products overflow float32 with opposite signs
+		// (2^140 and -2^140), so a float32-only accumulation would see
+		// Inf + -Inf = NaN; the float64 fallback must recover the exact
+		// cancellable result instead of saturating or going NaN.
+		a := []float32{float32(math.Pow(2, 70)), float32(math.Pow(2, 70)), 1}
+		b := []float32{float32(math.Pow(2, 70)), float32(-math.Pow(2, 70)), 1}
+
+		dist, err := NewDotProductProvider().New(a).Distance(b)
+		require.NoError(t, err)
+		// Dot product is 2^140 - 2^140 + 1 = 1, so the distance is -1.
+		assert.Equal(t, float32(-1), dist)
+
+		control, err := NewDotProductProvider().SingleDist(a, b)
+		require.NoError(t, err)
+		assert.Equal(t, dist, control)
+
+		// The step-by-step path must agree: the clamped per-component
+		// steps (+MaxFloat32, -MaxFloat32, 1) cancel to 1, wrapped to -1.
+		provider := NewDotProductProvider()
+		sum := float32(0.0)
+		for i := range a {
+			sum += provider.Step([]float32{a[i]}, []float32{b[i]})
+		}
+		assert.Equal(t, float32(-1), provider.Wrap(sum))
+	})
+
 	t.Run("step by step with large vectors is finite", func(t *testing.T) {
 		large := []float32{1e20, 1e20}
 		provider := NewDotProductProvider()
