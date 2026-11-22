@@ -609,6 +609,15 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 - **A 0.95, entre 1 y 2.5 ms en caliente y entre 6 y 20 en frío.** En frío, más lento que la celda de códigos en RAM (4.02 ms) y que la de halo (6.57), y más rápido que HFresh de 8 en 8 (35.62).
 - **El build, entre 30 y 60 minutos.** El de v1.4 tardó unos 27 con los vectores en memoria.
 
+#### Enmienda 1 (22:15 del 22, antes de ningún dato de 10M): sin centrado no llega a 0.99, y se añade una celda centrada
+
+**Motivo.** Antes de la corrida probé el arnés sobre 1M de wiki-dpr, con 200 queries, una ronda y un vaciado de caché falso: un ensayo, no un dato. Con la configuración por defecto, sin centrado, HNSW llega a 0.95 solo con ef 796, y no pasa de 0.9640 con ef 2 048. El de v1.4, centrado, llegaba a 0.95 con ef 48 y a 0.99 con ef entre 256 y 394, a 10M. A 10M sin centrado, 0.99 no se alcanzará, y 0.95 puede quedar por encima de ef 2 048.
+
+- **La celda del encargo no cambia:** la configuración por defecto, sin centrado. Va primero, y se reporta primero. Si 0.95 no se alcanza con ef 2 048, se dice hasta dónde llega y no se cronometra nada de ella.
+- **Se añade una segunda celda, *mía*: la misma con los códigos centrados,** que es la configuración del HNSW de v1.4. Mismo fichero de vectores, mismo arnés, en su propio proceso y después de la primera, con su espera de 15 minutos. Es la que puede dar a HNSW un punto en 0.99.
+- **Las dos caben antes de las 08:30:** el ensayo construyó 1M en 1 min 45 s, así que cada celda de 10M debería llevar entre 45 y 75 minutos con su espera. La segunda no empieza después de las 05:30, y ninguna cronometra si su espera acaba después de las 07:35.
+- **Lo que espero de la celda centrada:** 0.95 con ef entre 40 y 80, y 0.99 con ef entre 250 y 450, como v1.4. Lo demás, como en lo esperado de arriba.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: medido el 21, de 11:37 a 13:55. `ef` dinámico: no hace falta un factor por k; basta el mínimo de 20 y que `ef` no baje de k, y lo que k = 100 necesita es rescore, 4 veces k. Regla del rescore: el ancla a 768 bits baja de 200 a 150. Abajo, «Resultados» y «Las dos reglas que propongo».** Pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4. Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
