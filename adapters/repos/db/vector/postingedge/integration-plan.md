@@ -721,11 +721,11 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | pieza | qué | código y tests | verificación a 1M |
 |---|---|---|---|
 | 1 | Formato de v5.3 y reorganización de fondo | hechos | cumple: 2.00 lecturas por carga con el bucket en un segmento |
-| 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote |
+| 2 | Limpieza de deletes: sustitución local y fusión | hechos | cumple: −0.0011 de recall, +3.1 % de cargas a 0.95 y −3.2 % a 0.99 contra el lote. Arrancada por el índice, tras borrar el 30 %: −6.3 % de cargas a 0.99 frente a antes de borrar |
 | 3 | Refresco de aristas al doblar | hechos | cumple: −9.0 % de cargas a 0.99 contra el lote. Sin refresco, −9.7 %: el refresco no se nota |
-| 4 | Cálculo de inserts en los workers compartidos | hechos | sin hacer |
-| 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | sin hacer |
-| 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | sin hacer |
+| 4 | Cálculo de inserts en los workers compartidos | hechos | hecho, en conteos: con ocho llamadores el índice es el de uno. Los inserts por segundo de v5.2 no se comparan: nada cronometrado |
+| 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | a medias: con el diario el índice es el mismo, y escribe 10.8 KB por insert. Falta el `kill -9` a 1M |
+| 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | hecho: 40 centroides borrados en el grafo tras 4 056 splits |
 | 7 | Modo `none`, con el halo en la escritura | sin empezar | |
 
 ### Lo que el índice hace por su cuenta, y cómo (*mío*)
@@ -861,10 +861,34 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Sin verificar de la pieza 2:**
 
-- **La limpieza en línea con las escrituras, a 1M.** En esta corrida las pasadas las llama el arnés, una por ronda, como en el protocolo de v6.2. Que el índice las arranque solo al 3 % y las pague en línea está en los tests, y a 1M en la etapa de borrado de la corrida de la pieza 4.
+- **Lo que queda de una fila tras la compactación que el índice pide,** después de un borrado grande. Recién borrado el 30 %, una carga lee 6 veces y 716 KB (abajo, «La limpieza arrancada por el índice»).
 - **El churn largo y el borrado por regiones de v6.2b.**
 - **Lo que cuesta leer una fila con lápidas de miembros** hasta que el store la compacta.
 - **Nada cronometrado:** ni lo que tarda una pasada con la máquina sola, ni lo que frena a los inserts.
+
+**La limpieza arrancada por el índice, a 1M** (22 de noviembre, en la corrida de las piezas 4, 5 y 6; `piece456-writers-dbpedia-1m.json`).
+
+- **Qué es:** sobre el índice de 990 000 se borra el 30 % al azar, como borra un shard, en lotes. Las pasadas las arranca el índice cada vez que los marcados llegan al 3 %, y cada delete paga su parte.
+- **Lo que hizo:** 282 200 vectores sacados y 14 800 que siguen marcados, el 2.1 %, bajo el umbral de una pasada. 2 440 117 aristas con sustituto y 107 927 sin él (95.8 %; en la celda B de v6.2, 94.4 %). 1 100 fusiones.
+
+| ef | antes de borrar: recall | cargas | tras borrar y limpiar: recall | cargas | diferencia de recall | de cargas | hito 1, sin limpieza: de cargas |
+|---|---|---|---|---|---|---|---|
+| 10 | 0.9170 | 13.05 | 0.9200 | 12.59 | +0.0031 | −3.5 % | |
+| 20 | 0.9507 | 19.16 | 0.9526 | 18.39 | +0.0019 | −4.0 % | +23.7 % |
+| 21 | 0.9523 | 19.68 | 0.9536 | 18.88 | +0.0013 | −4.1 % | +24.1 % |
+| 40 | 0.9710 | 29.29 | 0.9727 | 27.88 | +0.0017 | −4.8 % | +25.3 % |
+| 80 | 0.9840 | 45.93 | 0.9850 | 43.71 | +0.0010 | −4.8 % | +26.6 % |
+| 158 | 0.9906 | 72.59 | 0.9907 | 69.01 | +0.0001 | −4.9 % | +27.7 % |
+| 160 | 0.9906 | 73.19 | 0.9909 | 69.64 | +0.0003 | −4.8 % | +27.8 % |
+| 320 | 0.9940 | 118.22 | 0.9947 | 113.00 | +0.0007 | −4.4 % | |
+
+- **Los borrados ya no cuestan cargas:** a 0.95 son 17.93 frente a 19.03, y a 0.99, 65.81 frente a 70.23. En el hito 1, sin limpieza, subían de un 24 a un 28 %.
+- **No hay lote de los 693 000 que quedan** en esta corrida: la comparación con un lote es la del churn, arriba.
+- **Ningún borrado devuelto,** cobertura completa, y reabierto ninguna respuesta cambia y los 990 000 doc ids están como se dejaron.
+- **Recién borrado, una carga lee 6.00 veces y de 712 a 719 KB del store.** Antes de borrar eran 2.00 y 65 KB: once veces los bytes.
+  - **Por qué:** cada pasada reescribe la fila de aristas de casi todos los postings dos veces, al sustituir y al sacar, y cada reescritura deja en el store la fila nueva y una lápida que lleva la vieja. Con una pasada cada 3 % son unas doce pasadas, y lo que dejan se lee entero en cada carga hasta que el store lo compacta. El bucket de postings pasó de medio GB a 1.7 GB.
+  - **Lo que no dice:** qué queda cuando el store compacta. El arnés no deja correr los ciclos del store mientras borra, y solo uno después; en un nodo corren solos, y el índice pide su bucket en un segmento cuando se ha escrito un 10 %. *Sin medir. El índice de la corrida sigue en disco para medirlo.*
+- **Tardó 58 s,** con otras corridas en la máquina. No es una medida.
 
 ### Pieza 3: refresco de aristas al doblar
 
@@ -975,6 +999,37 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 - **Lo que destapó:** `Settle` volvía sin esperar a una base que se estaba construyendo, un fallo de la pieza 5 de unas horas antes. Arreglado, con su test (`TestPersistentSettleWaitsForItsBase`).
 
+**Verificación a 1M, de las piezas 4, 5 y 6 en una corrida.**
+
+*22 de noviembre, de 03:26 a 06:14. En conteos, sin cronometrar: hasta las 04:20 con mis tests al lado, y con los builds de 10M de los experimentos todo el tiempo. Código de `61ff6246d9`, todo el hito 2 menos la pieza 7. Resultado en `testdata/bench/integration-m2/piece456-writers-dbpedia-1m.json`, con su log al lado.*
+
+- **Qué es:** la corrida de la pieza 3, de 10 000 a 990 000, con ocho llamadores de `AddBatch` a la vez, cada escritura por el diario, la base construida de fondo y los ciclos de un nodo sobre el grafo de centroides. Después se reabre, se compacta y se borra el 30 %.
+
+**Con ocho llamadores el índice es el de uno:**
+
+| ef | ocho llamadores: recall | cargas | un llamador (pieza 3): recall | cargas | diferencia de recall | de cargas |
+|---|---|---|---|---|---|---|
+| 10 | 0.9170 | 13.05 | 0.9168 | 13.01 | +0.0002 | +0.3 % |
+| 20 | 0.9507 | 19.16 | 0.9497 | 19.04 | +0.0011 | +0.6 % |
+| 21 | 0.9523 | 19.68 | 0.9511 | 19.61 | +0.0012 | +0.4 % |
+| 40 | 0.9710 | 29.29 | 0.9710 | 29.25 | +0.0001 | +0.1 % |
+| 80 | 0.9840 | 45.93 | 0.9834 | 45.72 | +0.0007 | +0.5 % |
+| 158 | 0.9906 | 72.59 | 0.9902 | 72.16 | +0.0003 | +0.6 % |
+| 160 | 0.9906 | 73.19 | 0.9904 | 72.81 | +0.0002 | +0.5 % |
+| 320 | 0.9940 | 118.22 | 0.9940 | 117.60 | +0.0001 | +0.5 % |
+
+- **Dentro de lo que se separan dos corridas:** a 0.95 son 19.03 cargas frente a 19.18, y a 0.99, 70.23 frente a 71.23.
+- **Lo que una escritura volvió a leer:** 517 667 listas que otra había cambiado desde su búsqueda, 0.53 por insert, y 171 inserts eligieron posting otra vez porque el suyo se había partido.
+- **Por insert:** 62.0 cargas y 4.64 aristas inversas, frente a 61.7 y 4.62 con un llamador. 8 155 postings repartidos tras 4 056 splits, frente a 8 145 y 4 051.
+- **Cobertura completa,** y reabierto ninguna de las 5 000 queries cambia su respuesta, en ninguno de los ocho ef.
+- **El índice pidió su bucket en un segmento 7 veces mientras crecía,** y las 7 lo consiguió. Con el binario anterior, en la pieza 3, fueron 13: ahora cada petición es una sola pasada.
+- **Inserts por segundo: no hay medida.** Salieron 107 de media, entre 38 y 203 según lo que corría al lado. La referencia de la pieza, los 663 de v5.2 con ocho buscadores, es cronometrada, con la máquina sola, y sin refresco, diario ni reordenación. No se compara con esto, y no lo he ajustado.
+
+**Sin verificar de la pieza 4:**
+
+- **Los inserts por segundo con la máquina sola,** que es la referencia de v5.2.
+- **Con otro número de llamadores,** y a escala por el shard con `ASYNC_INDEXING`: lo que hay por el shard son 3 200 vectores.
+
 ### Pieza 6: el grafo de centroides
 
 **Qué hay.** El grafo de centroides es un HNSW, y lo mantienen los ciclos del nodo que mantienen cualquier HNSW. El shard le pasa los dos, con el límite de log del grafo de centroides de HFresh:
@@ -991,9 +1046,17 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 **Tests.** Con los ciclos, un pase del de tombstones deja el grafo sin ningún centroide borrado, el índice encuentra lo mismo y abre igual; sin ellos se quedan todos, uno por split (`TestPersistentKeepsItsCentroidGraph`). Los dos ciclos corriendo sin parar junto a inserts, deletes con sus fusiones y búsquedas, con el índice reabierto a la mitad y el log partido en ficheros pequeños, con `-race` (`TestPersistentCentroidGraphIsKeptWhileTheIndexWrites`).
 
+**A 1M, con los ciclos puestos** (la corrida de las piezas 4, 5 y 6, arriba):
+
+- **Tras crecer a 990 000, con 4 056 splits, el grafo tenía 40 centroides borrados.** Los otros 4 016 los había sacado el ciclo, que corre como mucho cada 300 s.
+- **Tras borrar el 30 %, con 1 100 fusiones más: ninguno.**
+- **Las medidas de esa corrida son con esos 40 dentro,** sin limpiar el grafo a mano, y dan el recall y las cargas de la corrida que sí lo limpia (la tabla de la pieza 4).
+- **El log del grafo ocupa 5.7 MB al acabar,** con 8 155 centroides repartidos.
+
 **Sin verificar de la pieza 6:**
 
-- **A 1M no ha corrido nada con los ciclos puestos.** El arnés abre el índice sin ellos y limpia el grafo a mano antes de medir, como los experimentos. Cuántos centroides borrados acumula un índice entre dos pases, y qué le cuestan a una búsqueda, no está medido.
+- **Qué le cuestan a una búsqueda muchos centroides borrados,** si el ciclo se retrasa: aquí nunca hubo más de unas decenas al medir.
+- **Cuánto crece el log del grafo sin el ciclo que lo condensa.**
 - **Por el shard:** el test de extremo a extremo abre el índice con los ciclos del shard, pero no comprueba que el grafo quede limpio.
 
 ### Pieza 7: el modo `none`. Sin empezar
@@ -1050,8 +1113,16 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 **Tests de la base.** Con la construcción parada en cada uno de sus puntos: inserts, deletes y búsquedas mientras se construye y con la base ya escrita; el doc id borrado que no se puede volver a dar; las búsquedas junto a los vectores que aún esperan; y una copia de los ficheros en tres momentos (construyendo, con la base escrita, y con cinco vectores tomados), que abierta acaba con los mismos vectores (`TestPersistentBuildsItsBaseInTheBackground`). Falla si la búsqueda no mezcla los apartados, y si las marcas no se llevan al índice. Una construcción que falla y se repite, y un apagado a mitad de la construcción.
 
+**A 1M** (la corrida de las piezas 4, 5 y 6, en la sección de la pieza 4):
+
+- **Con el diario el índice es el mismo:** el recall y las cargas son los de la corrida de la pieza 3, cuyo código es anterior al diario.
+- **Lo que escribe el diario:** 1 400 009 registros, uno por insert, uno por refresco y uno por final de pasada, que suman 10.57 GB. Son 7.5 KB por registro, y 10.8 KB por insert contando sus refrescos. El índice ocupa 6.8 GB: el diario escribió vez y media eso, a trozos de 64 MB como mucho.
+- **La base de 10 000 se construyó de fondo en 2 s.**
+- **Reabierto,** ninguna respuesta cambia, y el diario está vacío tras el flush.
+
 **Sin verificar de la pieza 5:**
 
-- **A 1M:** que el índice crecido con el diario es el mismo, cuánto escribe el diario por insert, y una muerte de verdad del proceso (`kill -9`) a mitad de los inserts, reabierta.
+- **Una muerte de verdad del proceso a 1M** (`kill -9` a mitad de los inserts, y reabrir). Está preparada y no ha corrido: el marcador de la sesión cronometrada se puso antes. En pequeño, con 30 000 vectores, sí.
+- **Lo que el diario frena a los inserts:** nada cronometrado.
 - **La base en segundo plano, a 1M y por el shard:** el arnés espera a la base antes de seguir, para que sus corridas se comparen con las anteriores; el test de extremo a extremo pasa, y no mira qué ocurre mientras se construye.
 - **Lo que tarda una búsqueda con miles de vectores apartados:** los lee todos del bucket en cada query, como antes de la base. Con una base grande y muchos inserts durante su construcción puede ser lento un rato.

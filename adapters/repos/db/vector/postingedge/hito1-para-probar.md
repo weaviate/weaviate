@@ -108,19 +108,23 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
   - *Verificado a 1M:* con el formato nuevo el índice es el mismo (0.9515 de recall y 19.7 postings leídos a ef 21; 0.9905 y 72.1 a ef 158), y devuelve lo mismo reabierto.
 - **El índice trabaja ahora por su cuenta,** sin que nadie se lo pida: parte en línea con los inserts y los deletes, que tardan algo más mientras hay una pasada en marcha, y parte en una goroutine suya cuando las escrituras paran.
 - **Un borrado ya libera sitio.** Cuando los vectores marcados llegan al 3 % del índice, una pasada los saca, repara las aristas que llevaban a ellos y fusiona los postings que quedan pequeños. Hasta entonces siguen marcados, como antes.
-  - *Verificado a 1M:* tras diez rondas de borrar el 3 % e insertar otros tantos, el índice queda como uno construido de una vez con los vectores que quedan: el recall a igual ef a 0.0011 o menos, y entre un 1 y un 2 % más de postings leídos. *Sin verificar a 1M:* que el índice arranque la pasada por su cuenta, que hasta ahora solo está en los tests.
+  - *Verificado a 1M:* tras diez rondas de borrar el 3 % e insertar otros tantos, el índice queda como uno construido de una vez con los vectores que quedan: el recall a igual ef a 0.0011 o menos, y entre un 1 y un 2 % más de postings leídos.
+  - *Verificado a 1M, con el índice arrancando las pasadas* (22 de noviembre): tras borrar el 30 % de 990 000, las búsquedas leen entre un 4 y un 5 % menos de postings que antes de borrar, con algo más de recall. En el hito 1, sin limpieza, leían un 24 a un 28 % más.
+  - **Justo después de un borrado grande las búsquedas leen mucho más del disco:** 6 lecturas y 716 KB por posting, frente a 2 y 65 KB, hasta que el store compacta lo que las pasadas reescribieron. *Sin medir cuánto tarda en volver ni en qué queda.*
   - El fichero de vectores no encoge al sacar los borrados: su sitio se recupera cuando el índice dobla.
 - **Una caída del proceso a mitad de una escritura ya no deja el índice sin abrir.** Cada escritura pasa antes por un diario, y al abrir el índice vuelve a ser el de después de la última escritura entera. No cubre un corte de corriente.
-  - *Verificado solo por tests,* con copias de los ficheros en cada punto donde el proceso puede morir.
+  - *Verificado por tests,* con copias de los ficheros en cada punto donde el proceso puede morir. *A 1M:* con el diario el índice es el mismo, y el diario escribe unos 10.8 KB por insert además de lo que ya se escribía. *Sin verificar a 1M:* matar el proceso de verdad a mitad de un import y reabrir; en pequeño, con 30 000 vectores, sí.
 - **Las aristas de los vectores más viejos se rehacen cada vez que el índice dobla su tamaño.** Mientras dura una de esas pasadas, cada insert rehace además las aristas de un vector viejo: cuesta más o menos como otro insert.
   - *Verificado a 1M* (22 de noviembre): creciendo de 10 000 a 990 000, el índice lee a 0.99 de recall un 9 % menos de postings que uno construido de una vez (71.2 frente a 78.3), y a 0.95 un 5 % más (19.2 frente a 18.2). Reabierto devuelve lo mismo.
   - **Pero sin rehacer aristas sale igual:** la corrida del hito 1, que no las rehacía, da los mismos números (0.9509 y 19.7 a ef 21, 0.9904 y 72.2 a ef 158, frente a 0.9511 y 19.6, 0.9902 y 72.2). Rehacerlas costó un 42 % más de búsqueda al insertar. Si se queda puesto está por decidir.
 - **Varios inserts a la vez:** si llegan por varias goroutines (un import con varios workers), sus búsquedas corren en paralelo y solo sus escrituras van de una en una.
-  - *Verificado solo por tests.* **Con `ASYNC_INDEXING` ya hay un test por el shard:** importar, buscar, borrar, actualizar y reiniciar con unos miles de vectores. A escala no está probado.
+  - *Verificado a 1M* (22 de noviembre), en conteos: con ocho goroutines insertando a la vez el índice es el de una sola (0.9523 y 19.7 a ef 21, 0.9906 y 72.6 a ef 158). *Sin ninguna medida de inserts por segundo.*
+  - **Con `ASYNC_INDEXING` hay un test por el shard:** importar, buscar, borrar, actualizar y reiniciar con unos miles de vectores. A escala por el shard no está probado.
+- **El grafo de centroides ya se limpia solo,** con los ciclos del nodo que limpian cualquier HNSW. *Verificado a 1M:* tras 4 056 splits quedaban 40 centroides borrados en el grafo, y ninguno tras el borrado del 30 %.
 - **El fichero de vectores se reescribe entero cada vez que el índice dobla,** para dejar juntos los vectores de cada posting. Mientras dura pide el doble de disco de los vectores: 12 GB por millón a 1536 dimensiones.
-- **Abrir tarda más:** 2.6 s a 1M con la máquina ocupada, frente a 0.3 s.
+- **Abrir tarda más:** de 2.3 a 2.9 s a 1M con la máquina ocupada, frente a 0.3 s.
 
 - **La base ya no se construye dentro de un insert.** Al llegar a 10 000 vectores el índice la construye de fondo: los inserts siguen entrando y las búsquedas siguen siendo exactas mientras tanto. Los vectores que llegan durante la construcción se buscan de forma exacta hasta que el índice los toma, de uno en uno.
-  - *Verificado solo por tests.*
+  - *Verificado por tests.* En la corrida a 1M la base se construyó de fondo en 2 s; qué pasa con las búsquedas mientras tanto no se mira allí.
 
 **Lo que sigue igual que en el hito 1:** `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».
