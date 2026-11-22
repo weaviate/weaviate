@@ -583,6 +583,32 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 
 - **Actividad mía durante esta sesión, declarada:** a las 08:55, con la primera curva recién empezada (HFresh de 8 en 8, ronda 1), una edición de texto de este informe y una consulta de procesos. Entre las 08:56 y las 08:58, un mensaje a la sesión de integración y su respuesta, sin compilar ni probar nada. Esa curva se separa de su segunda ronda un 2.3 % como mucho.
 
+### HNSW con RQ de 1 bit a 10M, con los vectores en disco (pre-registro, 22 a las 21:40)
+
+**Estado: pre-registrado antes de compilar nada.** El encargo es del usuario, del 22 por la noche; lo que deja abierto lo fijo yo, marcado como *mío*.
+
+**El encargo (del usuario).** HNSW con RQ de 1 bit a 10M de wiki-dpr, en el arnés de v4.0, con los vectores completos en disco y el rescore leído desde ahí, sin float32 en memoria. En frío y en caliente, a 0.95 y a 0.99, con 1 thread, dos rondas y su configuración por defecto (rescore 512). RAM del índice y disco. Sin tocar nuestros índices de 10M. Si no puede acabar antes de las 08:30, no se empieza.
+
+**Cómo lo aplico (*mío*).**
+
+- **La configuración por defecto de una clase con RQ de 1 bit:** 32 conexiones, ef de construcción 128, rescore 512, entrenamiento con 10 000 vectores y sin centrado. El HNSW de v1.4 iba con centrado; este no, y su recall a igual ef puede ser otro.
+- **El build, en el mismo proceso que lo cronometra,** como el de v1.4: sin comprimir hasta el límite de entrenamiento, el paso a comprimido y el resto contra los códigos, con 10 escritores. Cada vector se lee del fichero de disco.
+- **Los vectores, en un fichero de float32 en el volumen de las pruebas** (`/Volumes/v40bench/hnsw10m`, 30.72 GB), escrito una vez desde el hdf5. HNSW los lee con un `pread` por vector, cada vez que reordena, y no guarda ninguno en memoria. El grafo y los códigos están donde HNSW los tiene: en memoria.
+- **El frío, como en `TestDiskTimed`:** lotes de 10 queries, y antes de cada lote se cierra el fichero y se desmonta y monta el volumen. Lo que se enfría son los vectores; el grafo y los códigos siguen en memoria, como en un nodo con el índice abierto. 500 queries en frío y 3 pasadas de 1 000 en caliente por punto. El presupuesto de cada query lo da el limitador de admisión de un nodo, como en la sesión del 10M.
+- **Los dos puntos se buscan sin cronometrar,** con la malla de ef de las celdas y rescore 512. Si 0.99 no se alcanza con ef 2 048, se dice hasta dónde llega y ese punto no se cronometra.
+- **Las dos rondas, una detrás de otra, en el mismo proceso.** El índice no se escribe a disco (sin commit log), así que no puede abrirse en otro proceso como las celdas. Antes de cronometrar se espera a 15 minutos sin teclado ni trackpad, sin otra prueba y sin nada compilando, con el marcador puesto. Si esa espera acabara después de las 07:35, no se cronometra nada.
+- **RAM:** el heap en uso con el índice construido y recogido, sin ningún vector del dataset; lleva además las queries y la verdad, como el de las celdas.
+- **Disco:** el fichero de los vectores, medido. El grafo y los códigos no se escriben en este arnés. En un nodo serían su commit log condensado y el bucket de los códigos, que no mido.
+- **No es la misma sesión que la del 10M.** Las comparaciones con las celdas y con HFresh se leen con eso dicho. HFresh de 8 en 8 se repitió entre las dos sesiones del 22 a un 0.7 % en frío y a un 1.5 % en caliente.
+
+**Lo que espero (*mío*, antes de ningún dato).**
+
+- **0.95 con ef entre 40 y 100.** 0.99 puede no alcanzarse sin centrado; si se alcanza, con ef entre 250 y 600.
+- **Unas 512 lecturas de vector por query:** el rescore lee los 512 candidatos, 1.5 MB.
+- **Heap entre 3.0 y 3.6 GB.** El de v1.4 fue de 3 418 MB.
+- **A 0.95, entre 1 y 2.5 ms en caliente y entre 6 y 20 en frío.** En frío, más lento que la celda de códigos en RAM (4.02 ms) y que la de halo (6.57), y más rápido que HFresh de 8 en 8 (35.62).
+- **El build, entre 30 y 60 minutos.** El de v1.4 tardó unos 27 con los vectores en memoria.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: medido el 21, de 11:37 a 13:55. `ef` dinámico: no hace falta un factor por k; basta el mínimo de 20 y que `ef` no baje de k, y lo que k = 100 necesita es rescore, 4 veces k. Regla del rescore: el ancla a 768 bits baja de 200 a 150. Abajo, «Resultados» y «Las dos reglas que propongo».** Pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4. Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
