@@ -47,7 +47,7 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 | Un backup de una clase con este índice | El backup falla |
 | Otra distancia que no sea `cosine` | La clase no se crea |
 | Multi-vector | La clase no se crea |
-| `rq.cacheMode: "none"` | La clase no se crea: «not available yet» |
+| Cambiar `rq.cacheMode` en una clase que ya existe | El cambio se rechaza: «rq.cacheMode is immutable» |
 | Compresión `pq`, `sq`, `bq`, o `rq` con otros bits | La clase no se crea |
 
 ## Con qué te vas a encontrar
@@ -127,4 +127,8 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
 - **La base ya no se construye dentro de un insert.** Al llegar a 10 000 vectores el índice la construye de fondo: los inserts siguen entrando y las búsquedas siguen siendo exactas mientras tanto. Los vectores que llegan durante la construcción se buscan de forma exacta hasta que el índice los toma, de uno en uno.
   - *Verificado por tests.* En la corrida a 1M la base se construyó de fondo en 2 s; qué pasa con las búsquedas mientras tanto no se mira allí.
 
-**Lo que sigue igual que en el hito 1:** `rq.cacheMode: "none"` no está; y todo lo de «Qué falla por diseño».
+- **`rq.cacheMode: "none"` ya se puede poner al crear la clase.** El índice no tiene entonces ningún código de sus vectores en memoria: quedan unos 12 B por vector en lugar de 84. A cambio cada posting lleva en disco los códigos de los vectores a los que llevan sus aristas, y una búsqueda lee tres filas por posting en lugar de dos, con unas 2.6 veces los bytes (160 KB frente a 62 por posting en una prueba de 30 000 vectores).
+  - **El modo no se cambia en una clase que ya existe.**
+  - *Verificado solo por tests,* también por el shard, y con una pasada de 30 000 vectores: el mismo índice abierto con los códigos en memoria responde exactamente lo mismo. *Sin verificar a 1M, y sin ninguna medida de latencia.*
+
+**Lo que sigue igual que en el hito 1:** todo lo de «Qué falla por diseño».

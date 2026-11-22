@@ -726,7 +726,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 | 4 | Cálculo de inserts en los workers compartidos | hechos | hecho, en conteos: con ocho llamadores el índice es el de uno. Los inserts por segundo de v5.2 no se comparan: nada cronometrado |
 | 5 | Durabilidad a mitad de un insert, y base en segundo plano | hechos | a medias: con el diario el índice es el mismo, y escribe 10.8 KB por insert. Falta el `kill -9` a 1M |
 | 6 | Limpieza del grafo de centroides | hechos, por los ciclos del nodo | hecho: 40 centroides borrados en el grafo tras 4 056 splits |
-| 7 | Modo `none`, con el halo en la escritura | sin empezar | |
+| 7 | Modo `none`, con el halo en la escritura | hechos | sin hacer: solo una pasada de 30 000 vectores |
 
 ### Lo que el índice hace por su cuenta, y cómo (*mío*)
 
@@ -1060,24 +1060,78 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Cuánto crece el log del grafo sin el ciclo que lo condensa.**
 - **Por el shard:** el test de extremo a extremo abre el índice con los ciclos del shard, pero no comprueba que el grafo quede limpio.
 
-### Pieza 7: el modo `none`. Sin empezar
+### Pieza 7: el modo `none`
 
-**Qué pide.** `rq.cacheMode: "none"`: ningún código por vector en RAM. Hoy quedan 64 B por vector, el código de ruteo de 512 bits, y una clase con `none` se rechaza al crearla.
+**Qué hay.** `rq.cacheMode: "none"` ya se acepta: una clase así no tiene en memoria ningún código de sus vectores. El código por el que una búsqueda ordena los postings que aún no ha cargado, el de ruteo de 512 bits, viaja en disco con cada posting que lleva a él: el halo de v4.0, que allí era de un índice que no crecía, mantenido aquí por cada escritura (`grow_halo.go`).
 
-**Lo que hay.** El camino de lectura de v4.0 sobre un índice que no crece (`disk.go`, `scoreHalo`): el código de cada endpoint viaja en el posting que lleva a él, el halo. Su referencia: a 1M, 35 MB de heap frente a 106 MB, y de 1.3 a 1.6 veces la latencia en frío del modo de ruteo.
+- **Qué queda en memoria por vector:** el posting al que pertenece, la fecha de sus aristas y el slot de su vector, 4 B cada uno, y los bits de vivo y de borrado. Unos 12 B, frente a los 84 del modo `routing`, que añade 72 B del código.
+- **El modo se fija al crear la clase y no se cambia,** como ya decía la config: un índice escrito sin halo no se puede abrir sin códigos, y falla diciéndolo.
 
-**Lo que falta, que es llevar el halo al camino de escritura** (*mío, sin empezar y sin comprobar contra el código*):
+**El formato** (*mío*). Una tercera fila por posting en el bucket de postings, junto a la de miembros y la de aristas: una entrada por endpoint, su doc id y su código, 76 B.
 
-1. **Formato:** la fila de aristas de un posting, y lo que espera de ella, llevan el código de ruteo de cada endpoint.
-2. **Insert:** los códigos de sus vecinos tienen que salir de las filas que su búsqueda ya cargó, y el suyo entra en el halo de cada posting que recibe una arista inversa hacia él.
-3. **Split:** el halo de cada mitad se rehace con el del posting que se parte, sin leer nada más.
-4. **Limpieza:** el código del sustituto está en el halo del posting del vector que se va, y la distancia entre dos códigos deja de leerse de la RAM.
-5. **Refresco y fusión,** como el insert y el split.
-6. **Lectura:** la búsqueda del índice que crece puntúa los endpoints con el halo, no con los códigos residentes.
+- **Lo que se cumple tras cada escritura:** para cada arista de un miembro de un posting, el halo de ese posting tiene una entrada de su endpoint, con el código que el índice guarda de él por doc id. Lo comprueba `checkCoverage`, que es lo que miran los tests tras cada paso.
+- **Una escritura añade las entradas que faltan y no quita ninguna,** y la fila se lee tal como el store la tiene, sin resolver nada. Una fila con lápidas pasa en `lsmkv` por un mapa con todos sus valores, que con mil quinientas entradas es más de lo que cuesta el resto de la carga.
+- **Lo que eso deja:**
+  - **Entradas de más,** de endpoints a los que ya no lleva ninguna arista del posting. Cuestan bytes al leer y nada más.
+  - **Entradas repetidas,** de dos escrituras que no saben una de otra. La compactación del store deja una.
+  - **Un doc id que se fue y vuelve con otro vector** tiene otro código, y un posting puede guardar una entrada con el viejo. Los valores de una fila vuelven en el orden en que se añadieron: de dos entradas de un endpoint cuenta la última.
+- **Las entradas de más se van cuando el halo se escribe entero:**
+  - **en las dos mitades de un split;**
+  - **y en un posting que no se parte,** cuando lo añadido a su halo desde la última vez pasa de la mitad de lo que sus aristas necesitan. Se mira al escribir su fila de aristas, que es cuando están a mano todas sus listas.
+  - **Por qué hace falta lo segundo:** en un índice que pierde vectores y recibe otros tantos, los postings no crecen y no se parten, y cada ronda añade entradas a sus halos: de los que llegan y de los sustitutos de los que se van. Sin esto el halo crece sin límite. No lo medí a escala: lo vi razonando sobre el formato, y el test lo reproduce en pequeño (5.65 veces lo necesario tras doce rondas del 10 %).
+- **Un halo escrito entero es un valor que empieza con una marca,** y quien lee la fila olvida en la marca todo lo anterior. Los valores que había se quitan antes, con su lápida, para que una compactación los suelte; hasta entonces el store los sigue devolviendo, y es la marca la que los deja fuera.
+  - **Por qué la marca:** una lectura sin resolver devuelve también lo ya quitado. Sin ella, una escritura daba por presente una entrada que la compactación borraba después. Lo destaparon los tests de equivalencia al primer intento.
+  - **Un plan que guardó el halo de su posting antes de que otra escritura lo reescribiera** lo vuelve a leer: puede tener entradas que ya no están.
+- **Los códigos siguen además en su bucket por doc id,** que es de donde una escritura lee el de un endpoint cuando no están en memoria.
 
-- **«Nada en RAM» no es cero:** por vector quedan el posting al que pertenece (4 B) y los bits de vivo y de borrado.
-- **Lo que cuesta en disco:** 64 B por arista, unos 570 B por vector con 8.8 aristas, antes de quitar los endpoints repetidos dentro de un posting. Cada reescritura de fila pesa más.
-- **Por qué no la he empezado:** toca el formato, la búsqueda y las cuatro escrituras del índice, cada una con su test de equivalencia y una corrida a 1M. No cabe en lo que queda de esta noche sin dejar a medias las verificaciones de las piezas 3 a 6, que van antes.
+**Quién escribe en el halo.**
+
+- **La base:** el halo de cada posting, entero.
+- **Un insert:** los códigos de los endpoints de su lista que el halo de su posting no tiene, y el suyo en el halo de cada posting donde entra como arista inversa. Los de sus vecinos los lee su búsqueda, en la parte que corre junto a otras, y el halo de su posting es el que esa búsqueda ya cargó: lo que va de una en una no lee nada de más.
+- **Un split:** el halo de cada mitad, entero, con las entradas del posting que se parte a las que llevan sus listas.
+- **Un refresco:** como un insert.
+- **La limpieza de borrados:** el código de cada sustituto, en el halo del posting cuya lista lo recibe. La distancia entre dos códigos, que es con lo que elige sustituto, lee los dos del bucket: unas 60 lecturas por vector que se va, en lugar de mirar la memoria.
+- **Una fusión:** las entradas del posting que se une, para las listas que se lleva.
+- **Lo que espera en memoria de las aristas de un posting** no necesita códigos en memoria: el código se escribe en el halo cuando se hace el cambio, no cuando se consolida la fila.
+
+**La búsqueda** lee tres filas por carga en lugar de dos, y puntúa los endpoints de un posting con su halo. Lo demás es el mismo código.
+
+**Tests.**
+
+- **Sin códigos en memoria el índice en disco sigue siendo su gemelo en memoria** en cada insert, con sus splits, reordenaciones y reaperturas; en cada refresco al doblar; y en la limpieza de borrados con sus sustitutos y sus fusiones. Son los tests de equivalencia que ya había, con casos nuevos para este modo y para el halo mantenido con los códigos en memoria (`TestGrowSlotsAndPendingEqualMemory`, `TestGrowRefreshEqualsMemory`, `TestGrowCleanEqualsMemory`, `TestGrowCleanMerges`).
+- **El mismo índice, abierto con códigos y sin ellos sobre los mismos ficheros, responde lo mismo,** y lo que escribe de una manera es un índice de la otra (`TestGrowHaloWithAndWithoutCodes`).
+- **Un doc id que se va y vuelve con otro vector:** el test comprueba que hay postings con el código viejo y el nuevo, que cuenta el nuevo, y que las respuestas son las de tener los códigos en memoria (`TestGrowHaloOfADocGivenAgain`). Dando por presente una entrada solo por su doc id, el test falla.
+- **`checkCoverage` avisa** de una arista cuyo endpoint no está en el halo, de un código que no es el del endpoint, y de un halo en un índice que no lo lleva (`TestGrowHaloCoverageCatches`).
+- **Una caída a mitad de una escritura,** con el halo: las copias del directorio en cada punto abren como el índice de antes o el de después, halo incluido (`TestGrowOpensWhatACrashLeft`, caso nuevo).
+- **El halo no crece sin límite:** doce rondas de borrar el 10 % e insertar otros tantos, en postings que no se parten. Ningún halo pasa de vez y media lo que sus aristas necesitan, el índice sigue siendo su gemelo, y compactado el store tiene de cada halo lo que se lee de él. Sin la reescritura, las mismas rondas dejan 17 de 24 halos por encima (`TestGrowHaloIsWrittenWholeAgain`).
+- **Inserts en lote con halos que se reescriben entre la búsqueda de un plan y su escritura** (`TestGrowHaloThroughBatches`). Si el plan se fía del halo que guardó, el test falla: una búsqueda no encuentra en el halo un endpoint.
+- **Por el índice del shard, en los dos modos:** crecer de vacío con borrados y reinicios, varios llamadores a la vez, el trabajo de fondo junto a búsquedas y escrituras, y lo que deja una caída (`TestPersistentGrowsFromEmpty`, `TestPersistentAddsFromSeveralCallers`, `TestPersistentMaintenanceNextToEverything`, `TestPersistentOpensWhatACrashLeft`).
+- **Un índice escrito con los códigos en memoria no se abre con `none`,** y lo dice; después abre como era (`TestPersistentKeepsItsCacheMode`, `TestGrowHaloErrors`).
+- **Por el shard:** una clase con `none` pasa los mismos pasos que una con `routing`, también con indexación asíncrona (`TestPostingEdge_ThroughAShardWithNoCodesInMemory` y su variante).
+- **Todo el paquete pasa con el detector de carreras,** y los tests por el shard también.
+
+**Lo que cuesta, en una pasada de 30 000 vectores** (dbpedia, 1536 dimensiones, ocho llamadores, con la máquina ocupada; no es la verificación a 1M):
+
+| | `none` | el mismo índice abierto con los códigos en memoria |
+|---|---|---|
+| códigos de ruteo en memoria | 0 MB | 2.7 MB |
+| lecturas del store por carga, compactado | 3.00 | 2.00 |
+| KB leídos por carga, compactado | 158 a 162 | 62 a 63 |
+| queries que cambian de respuesta, de 500, en seis ef | | 0 |
+
+- **El halo son unos 100 KB por posting cargado,** 1.6 veces las otras dos filas juntas.
+- **Sin compactar, recién crecido:** 5.9 lecturas y 212 a 219 KB por carga. Lo que un halo reescrito dejó atrás sigue en el store hasta que compacta.
+- **Tras borrar el 30 % y limpiar, 183 a 189 KB por carga.** Antes de reescribir los halos que crecen eran 210 a 216.
+- **Lo que se escribe en halos,** en 27 000 inserts y la limpieza del 30 %: 204 100 entradas añadidas (15.5 MB), 470 halos enteros (31 MB; 220 de splits y 250 reescritos) y 121 215 lápidas de valores quitados (23 MB). Unos 2.6 KB por insert, donde el vector son 6 KB.
+- **Lecturas de códigos del bucket de ruteo:** 687 017, unas 25 por insert contando refrescos y limpieza.
+
+**Sin verificar de la pieza 7:**
+
+- **Nada a 1M.** La corrida está preparada: crecer de la base por defecto con `none`, medir, reabrir, compactar, y abrir el mismo índice con los códigos en memoria para contar las queries que cambian de respuesta. Va detrás de la de las piezas 4, 5 y 6.
+- **La latencia.** La referencia de v4.0 es de 1.3 a 1.6 veces la latencia en frío del modo de ruteo, con 35 MB de heap frente a 106. Aquí no hay nada cronometrado, y el heap no se puede leer del arnés, que tiene el dataset en memoria: lo que da es los bytes de códigos que el índice tiene.
+- **Cuánto pesa a 1M reescribir los halos:** cada vez se escribe el halo entero y una lápida por cada valor que tenía. El umbral, la mitad de lo necesario, es mío y está sin medir.
+- **Las lecturas de códigos del bucket de ruteo en frío:** 16 por insert, en la parte que corre en paralelo, y unas 60 por vector que la limpieza saca.
+- **Pasar una clase de `routing` a `none`,** que pediría escribir los halos de un índice que no los tiene. No está: el modo no se cambia.
 
 ### Pieza 5: una caída a mitad de una escritura
 
