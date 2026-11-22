@@ -6,53 +6,47 @@
 
 ## Resumen de una página, al 2026-11-22
 
-*Cada cifra sale de las secciones de abajo. El detalle por versión está en «Resumen por versión», a continuación.*
+*Cada cifra sale de las secciones de abajo. El detalle está en «Resumen por versión», a continuación.*
 
-**Qué es.** Un índice de postings de unos 236 vectores, con hasta 16 aristas por vector hacia otros postings. La búsqueda entra por un grafo de centroides y sigue las aristas, ordenando los postings con un código de 512 bits por vector. Ese código vive en RAM (celda de ruteo) o en disco junto a las aristas (celda de halo).
+**Qué es.** Un índice de postings de unos 236 vectores, con hasta 16 aristas por vector hacia otros postings. La búsqueda sigue esas aristas y ordena los postings con un código de 512 bits por vector, que vive en RAM (celda de ruteo) o en disco junto a las aristas (celda de halo).
 
-**Lo medido.**
+**Lo medido.** HFresh va configurado como en un nodo.
 
 | qué | cifra | escala |
 |---|---|---|
-| en memoria frente a HNSW, wiki-dpr 768d | la mitad del heap (0.50x). A 0.95 HNSW da 2.0 veces el QPS; a 0.99, empate | 10M |
-| desde disco frente a HFresh como en un nodo, en frío a 0.95 y 1 thread | 4.02 ms la celda de ruteo y 6.57 la de halo, frente a 92.62 de HFresh: 23.0 y 14.1 veces | 10M, wiki-dpr 768d |
-| lo mismo, con HFresh leyendo sus postings de 8 en 8 | 35.62 ms de HFresh: 8.86 y 5.42 veces. El pre-registro pedía 3 | 10M |
-| lo mismo, en caliente | 1.17 y 1.82 ms frente a 17.16 | 10M |
-| a 0.99, en frío | 16.21 y 31.43 ms frente a 595.74 de HFresh, o 176.00 de 8 en 8: llega, y le sale muy caro | 10M |
-| RAM y disco | 956 MB y 33.25 GB la celda de ruteo; 236 MB y 38.25 GB la de halo; unos 415 MB y 39.28 GB HFresh | 10M |
-| desde disco frente a HFresh, dbpedia 1536d, en frío a 0.95 | 3.54 y 4.76 ms frente a 51.96: 14.7 y 10.9 veces | 1M |
-| inserts en disco | el índice crecido es el gemelo en memoria; reorganizado queda a 1.10 veces el lote en frío y a 1.21 en caliente (formato de v5.3) | 1M |
-| velocidad de insert, un escritor | 184 por segundo, 663 con 8 búsquedas a la vez. HFresh hace 2 089: once veces más | 1M |
-| deletes, en memoria | la sustitución local aguanta 30 rondas de churn con el 90 % de la base renovado: −0.0011 de recall y +1.6 % de cargas a 0.95 | 1M |
-| parámetros | `ef` 20 y nunca menor que k; rescore automático por los bits del código, 150 a 768 bits y 64 a 1 536 | 1M |
+| desde disco, en frío a 0.95 con 1 thread | 4.02 ms la celda de ruteo y 6.57 la de halo; HFresh 92.62: 23.0 y 14.1 veces | 10M, 768d |
+| lo mismo, con HFresh leyendo de 8 en 8 | 35.62 ms: 8.86 y 5.42 veces. El pre-registro pedía 3 | 10M |
+| en caliente a 0.95 | 1.17 y 1.82 ms frente a 17.16 | 10M |
+| en frío a 0.99 | 16.21 y 31.43 ms; HFresh 595.74, o 176.00 de 8 en 8: llega, y le sale muy caro | 10M |
+| RAM y disco | 956 MB y 33 GB la celda de ruteo; 236 MB y 38 GB la de halo; 415 MB y 39 GB HFresh | 10M |
+| en memoria frente a HNSW | la mitad del heap; HNSW da 2.0 veces el QPS a 0.95 y empata a 0.99 | 10M, 768d |
+| inserts en disco | el índice crecido es el gemelo en memoria; reorganizado, 1.10 veces el lote en frío y 1.21 en caliente | 1M |
+| velocidad de insert | 184 por segundo con un escritor, 663 con 8 búsquedas a la vez; HFresh, 2 089 | 1M |
+| deletes, en memoria | 30 rondas de churn con el 90 % de la base renovado: −0.0011 de recall, +1.6 % de cargas | 1M |
 
 **Lo verificado a escala, a 10M.**
 
-- **El camino de lectura en memoria,** frente a HNSW: heap, QPS a 0.95 y a 0.99, y cobertura completa.
-- **El camino de lectura en disco,** frente a HFresh como en un nodo: en frío y en caliente, con 1 y 8 threads, a 0.95 y a 0.99, en dos rondas sin ninguna curva marcada.
-- **Las cargas por query no crecen con el corpus:** 22.56 a 1M y 21.25 a 10M con rescore 64; 19.24 y 20.70 con rescore 150. Las lecturas de HFresh a 0.95 crecen un 65 %, de 454.6 a 749.9.
-- **La ventaja se mantiene con el rescore que da la regla automática:** con 150, 6.90 y 4.75 veces frente a HFresh de 8 en 8.
+- **El camino de lectura en disco,** frente a HFresh: en frío y en caliente, con 1 y 8 threads, a 0.95 y a 0.99, en dos rondas sin ninguna curva marcada. Y el de memoria, frente a HNSW.
+- **Las cargas por query no crecen con el corpus:** 22.56 a 1M y 21.25 a 10M. Las lecturas de HFresh a 0.95 crecen un 65 %.
+- **La ventaja aguanta con el rescore de la regla automática:** con 150 en vez de 64, 6.90 y 4.75 veces frente a HFresh de 8 en 8.
 - **El build en lote:** 3 h 49 min, 2.9 veces el de HFresh.
 
 **Lo que no.**
 
-- **Nada del camino de escritura a 10M:** inserts, splits, reorganización, deletes y churn están medidos a 1M.
-- **Deletes en disco en el prototipo:** solo en memoria y en conteos. La integración los tiene en disco a 1M, según su sesión.
-- **Linux y x86.** Todo es un M1 Max; valen las comparaciones, no los números absolutos.
-- **1536d a 10M en disco, 100M, y otros datasets.** El build en lote es el riesgo principal para 100M.
-- **HFresh con objetos de verdad:** su objeto aquí es solo el vector, un suelo para su rescore.
-- **La regla del rescore por debajo de 768 bits:** es una extrapolación. Falta un barrido con un dataset nativo de 384 o 512 dimensiones antes de publicar el índice.
-- **Búsqueda con filtros,** y k = 100 a 10M.
-- **Sin explicar:** a 10M los dos índices llegan a 0.99 con menos rescore que a 1M (el nuestro con 64, donde a 1M su techo era 0.9815).
+- **Nada del camino de escritura a 10M:** inserts, splits, reorganización, deletes y churn están medidos a 1M, y los deletes del prototipo solo en memoria.
+- **Linux y x86.** Todo es un M1 Max: valen las comparaciones, no los números absolutos.
+- **1536d a 10M en disco, 100M, filtros y HFresh con objetos de verdad.** El build en lote es el riesgo principal para 100M.
+- **La regla del rescore por debajo de 768 bits:** falta un barrido con un dataset nativo de 384 o 512 dimensiones antes de publicar.
+- **Sin explicar:** a 10M los dos índices llegan a 0.99 con menos rescore que a 1M.
 
-**La integración en el paquete** va en otra rama, `feat/posting-edge-integration`, y lo que sigue es lo que dice su sesión, sin verificar aquí: hito 1 y piezas 1 a 6 del hito 2 cerradas a 1M (formato de v5.3 con reorganización de fondo, limpieza de deletes, refresco al doblar, inserts desde varios llamadores, caída a mitad de una escritura y grafo de centroides). La pieza 7, el modo `none`, está escrita y sin cerrar.
+**La integración** va en `feat/posting-edge-integration`. Según su sesión, sin verificar aquí: hito 1 y piezas 1 a 6 del hito 2 cerradas a 1M; la pieza 7, el modo `none`, escrita y sin cerrar.
 
 **Decisiones abiertas, del usuario.**
 
-- **Formato en disco:** v5.3, o v5.4, que escribe un 31 % menos y empata al leer, pero no cumple dos de sus cuatro condiciones.
-- **El refresco de aristas al doblar en el índice integrado:** según su sesión cumple su criterio, pero allí no se nota y cuesta un 42 % más de búsqueda al escribir.
-- **El rescore a 768 bits según el tamaño del corpus:** a 10M, 64 es un 29 % más rápido que 150 en frío a 0.95, y 150 un 25 % más rápido a 0.99.
-- **Cuatro PR en borrador a main** con fallos encontrados por el camino: weaviate/weaviate#13944, #13950, #13964 y #13983. El último deja un caso abierto para el equipo de almacenamiento.
+- **Formato en disco:** v5.3, o v5.4, que escribe un 31 % menos y empata al leer pero no cumple dos de sus cuatro condiciones.
+- **El refresco de aristas al doblar:** en el índice integrado cumple su criterio, pero según su sesión no se nota y cuesta un 42 % más de búsqueda al escribir.
+- **El rescore a 768 bits:** a 10M, 64 es un 29 % más rápido que 150 en frío a 0.95, y 150 un 25 % más rápido a 0.99.
+- **Cuatro PR en borrador a main,** con fallos encontrados por el camino: weaviate/weaviate#13944, #13950, #13964 y #13983.
 
 ## Resumen por versión, al 2026-11-22
 
