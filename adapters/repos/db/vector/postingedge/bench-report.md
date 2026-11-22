@@ -4,9 +4,59 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero en el v1 y el v1.1, en reposo y de noche en el v1.2
 
-## Resumen, al cierre de la sesión de día del 2026-11-18
+## Resumen de una página, al 2026-11-22
 
-*Una página. Cada cifra sale de las secciones de abajo. Con lo de la noche del 19 al 20 añadido el 20 por la mañana. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0) y los inserts en disco (v5.0), del 18, con su control de reorganización, del 19.*
+*Cada cifra sale de las secciones de abajo. El detalle por versión está en «Resumen por versión», a continuación.*
+
+**Qué es.** Un índice de postings de unos 236 vectores, con hasta 16 aristas por vector hacia otros postings. La búsqueda entra por un grafo de centroides y sigue las aristas, ordenando los postings con un código de 512 bits por vector. Ese código vive en RAM (celda de ruteo) o en disco junto a las aristas (celda de halo).
+
+**Lo medido.**
+
+| qué | cifra | escala |
+|---|---|---|
+| en memoria frente a HNSW, wiki-dpr 768d | la mitad del heap (0.50x). A 0.95 HNSW da 2.0 veces el QPS; a 0.99, empate | 10M |
+| desde disco frente a HFresh como en un nodo, en frío a 0.95 y 1 thread | 4.02 ms la celda de ruteo y 6.57 la de halo, frente a 92.62 de HFresh: 23.0 y 14.1 veces | 10M, wiki-dpr 768d |
+| lo mismo, con HFresh leyendo sus postings de 8 en 8 | 35.62 ms de HFresh: 8.86 y 5.42 veces. El pre-registro pedía 3 | 10M |
+| lo mismo, en caliente | 1.17 y 1.82 ms frente a 17.16 | 10M |
+| a 0.99, en frío | 16.21 y 31.43 ms frente a 595.74 de HFresh, o 176.00 de 8 en 8: llega, y le sale muy caro | 10M |
+| RAM y disco | 956 MB y 33.25 GB la celda de ruteo; 236 MB y 38.25 GB la de halo; unos 415 MB y 39.28 GB HFresh | 10M |
+| desde disco frente a HFresh, dbpedia 1536d, en frío a 0.95 | 3.54 y 4.76 ms frente a 51.96: 14.7 y 10.9 veces | 1M |
+| inserts en disco | el índice crecido es el gemelo en memoria; reorganizado queda a 1.10 veces el lote en frío y a 1.21 en caliente (formato de v5.3) | 1M |
+| velocidad de insert, un escritor | 184 por segundo, 663 con 8 búsquedas a la vez. HFresh hace 2 089: once veces más | 1M |
+| deletes, en memoria | la sustitución local aguanta 30 rondas de churn con el 90 % de la base renovado: −0.0011 de recall y +1.6 % de cargas a 0.95 | 1M |
+| parámetros | `ef` 20 y nunca menor que k; rescore automático por los bits del código, 150 a 768 bits y 64 a 1 536 | 1M |
+
+**Lo verificado a escala, a 10M.**
+
+- **El camino de lectura en memoria,** frente a HNSW: heap, QPS a 0.95 y a 0.99, y cobertura completa.
+- **El camino de lectura en disco,** frente a HFresh como en un nodo: en frío y en caliente, con 1 y 8 threads, a 0.95 y a 0.99, en dos rondas sin ninguna curva marcada.
+- **Las cargas por query no crecen con el corpus:** 22.56 a 1M y 21.25 a 10M con rescore 64; 19.24 y 20.70 con rescore 150. Las lecturas de HFresh a 0.95 crecen un 65 %, de 454.6 a 749.9.
+- **La ventaja se mantiene con el rescore que da la regla automática:** con 150, 6.90 y 4.75 veces frente a HFresh de 8 en 8.
+- **El build en lote:** 3 h 49 min, 2.9 veces el de HFresh.
+
+**Lo que no.**
+
+- **Nada del camino de escritura a 10M:** inserts, splits, reorganización, deletes y churn están medidos a 1M.
+- **Deletes en disco en el prototipo:** solo en memoria y en conteos. La integración los tiene en disco a 1M, según su sesión.
+- **Linux y x86.** Todo es un M1 Max; valen las comparaciones, no los números absolutos.
+- **1536d a 10M en disco, 100M, y otros datasets.** El build en lote es el riesgo principal para 100M.
+- **HFresh con objetos de verdad:** su objeto aquí es solo el vector, un suelo para su rescore.
+- **La regla del rescore por debajo de 768 bits:** es una extrapolación. Falta un barrido con un dataset nativo de 384 o 512 dimensiones antes de publicar el índice.
+- **Búsqueda con filtros,** y k = 100 a 10M.
+- **Sin explicar:** a 10M los dos índices llegan a 0.99 con menos rescore que a 1M (el nuestro con 64, donde a 1M su techo era 0.9815).
+
+**La integración en el paquete** va en otra rama, `feat/posting-edge-integration`, y lo que sigue es lo que dice su sesión, sin verificar aquí: hito 1 y piezas 1 a 6 del hito 2 cerradas a 1M (formato de v5.3 con reorganización de fondo, limpieza de deletes, refresco al doblar, inserts desde varios llamadores, caída a mitad de una escritura y grafo de centroides). La pieza 7, el modo `none`, está escrita y sin cerrar.
+
+**Decisiones abiertas, del usuario.**
+
+- **Formato en disco:** v5.3, o v5.4, que escribe un 31 % menos y empata al leer, pero no cumple dos de sus cuatro condiciones.
+- **El refresco de aristas al doblar en el índice integrado:** según su sesión cumple su criterio, pero allí no se nota y cuesta un 42 % más de búsqueda al escribir.
+- **El rescore a 768 bits según el tamaño del corpus:** a 10M, 64 es un 29 % más rápido que 150 en frío a 0.95, y 150 un 25 % más rápido a 0.99.
+- **Cuatro PR en borrador a main** con fallos encontrados por el camino: weaviate/weaviate#13944, #13950, #13964 y #13983. El último deja un caso abierto para el equipo de almacenamiento.
+
+## Resumen por versión, al 2026-11-22
+
+*El detalle del resumen de arriba, versión a versión. Cada cifra sale de las secciones de abajo. Con lo de la noche del 19 al 20 añadido el 20 por la mañana. Incluye la noche del 13 al 14 (v1.6: el kernel de #13880 en los dos brazos, el ef de centroides y una arista por posting de destino), el cambio del ef de centroides a 8 del 16, el streaming en memoria del 16 (v2.0), con el barrido del ef de inserción (v2.1), y el crecimiento desde el 10 % del 17 (v2.2), con su diagnóstico de aristas o partición el refresco de aristas por búsqueda (v2.3) y el refresco al doblar (v2.4), y el punto de operación del halo (v3.0) con su poda (v3.1), y el primer prototipo que lee de disco (v4.0) y los inserts en disco (v5.0), del 18, con su control de reorganización, del 19.*
 
 **Titulares.** wiki-dpr e5, 768d. Ratio = QPS de HNSW (rescoreLimit 512) / QPS de posting-edge (rescoreLimit 200), a igual recall. Sin el kernel de #13880, los rangos de 10M son los dos builds de HNSW de v1.4. Con el kernel, son las dos rondas de un tercer build.
 
@@ -148,7 +198,17 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **RAM a 1M, heap tras abrir:** 145.8 MB con los códigos de 512 bits en RAM, 74.8 MB con todo en disco y 163.3 MB en HFresh. *Desglosado el 19: 40 MB de cada cifra son del arnés y del proceso, y el índice son 106.0, 35.0 y 123.0 MB. Los de HFresh llevan unos 50 MB de centroides borrados que el arnés no limpia y un nodo sí.*
 - **Cinco de las ocho curvas quedaron marcadas,** cuatro por entrada de teclado o trackpad durante la primera ronda y tres por una mediana en caliente con 8 threads que se movió un 13 a un 15 % entre rondas. Se repitieron la noche del 18, y ningún veredicto cambia: las cifras de arriba son las de la repetición, a menos de un 3 % de las de la primera ronda.
 - **Los números absolutos del Mac no valen para producción:** vale la comparación.
-- **Sin medir:** inserts, refresco, deletes y splits en disco; Linux; 10M.
+- **Sin medir:** inserts, refresco, deletes y splits en disco; Linux. El 10M en disco se midió el 22: es el bloque siguiente.
+
+**10M en disco (del 21 y el 22).** wiki-dpr 10M, 768d, con el camino de lectura de v4.0: las dos celdas frente a HFresh como en un nodo, en su mejor configuración de cada recall, con sus postings uno a uno y de 8 en 8. Dos rondas, ninguna curva marcada.
+
+- **Las dos condiciones pre-registradas se cumplen.** En frío a 0.95 con 1 thread, HFresh de 8 en 8 tarda 35.62 ms, la celda de ruteo 4.02 y la de halo 6.57: 8.86 y 5.42 veces, con el umbral en 3. Las cargas a 0.95 son 21.25 a 10M y 22.56 a 1M, con el umbral en un 15 % más.
+- **Frente a HFresh con sus postings uno a uno, que es el producto:** 23.0 y 14.1 veces. En caliente, 17.16 ms frente a 1.17 y 1.82.
+- **A 0.99 HFresh llega, y le sale muy caro:** 4 608 lecturas por query, 595.74 ms en frío en serie y 176.00 de 8 en 8, frente a 16.21 y 31.43.
+- **Las celdas se cronometraron con rescore 64, no con 150:** a 10M, 64 ya llega a 0.99. Con 150, en una segunda sesión, 6.90 y 4.75 veces. A 10M, 64 es mejor a 0.95 y 150 a 0.99.
+- **RAM y disco:** 956 MB y 33.25 GB la celda de ruteo, 236 MB y 38.25 GB la de halo, unos 415 MB y 39.28 GB HFresh.
+- **El primer build de HFresh murió en su barrido,** probablemente por memoria, y se repitió con el barrido de searchProbe cortado en 4 096.
+- **Sin medir:** el camino de escritura a 10M, 1536d a 10M y HFresh por encima de searchProbe 4 096.
 
 **Inserts en disco (v5.0, del 18).** El camino de escritura de v2.x sobre el store de v4.0, con los códigos de ruteo de 512 bits en RAM: dbpedia 1M, del 10 al 100 % por inserts, T = 360, ef de inserción 160, aristas inversas, sin refresco ni deletes. Las aristas van en una fila Set de su posting, un valor por miembro.
 
@@ -183,7 +243,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ## 10M en disco: wiki-dpr 10M con el camino de lectura de v4.0 (2026-11-21)
 
-**Estado: pre-registrado el 21 a las 11:43, antes de construir nada a 10M y antes de ningún dato suyo. Cabe, liberando lo que se dice abajo.** El experimento, las celdas, la configuración de HFresh y las dos condiciones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás de v5.4 y de las medidas de parámetros.
+**Estado: cerrado el 22. Las dos condiciones se cumplen, con nuestras celdas en rescore 64 y también en 150 («Resultados» y el apartado que le sigue, abajo). Pre-registrado el 21 a las 11:43, antes de construir nada a 10M y antes de ningún dato suyo, con cuatro enmiendas.** El experimento, las celdas, la configuración de HFresh y las dos condiciones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás de v5.4 y de las medidas de parámetros.
 
 ### El encargo (del usuario)
 

@@ -458,6 +458,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **El término de 4 × k sale de un punto,** k = 100 a 1 536 bits: con 2 × k el 0.99 queda fuera y con 4 × k entra.
 - **Validada solo a 768 y a 1 536 bits** (*decisión del usuario del 21*). A 768 bits con wiki-dpr 1M y a 1 536 con dbpedia 1M. **Por debajo de 768 bits es una extrapolación** de la forma cúbica: con 512 bits da 506, donde lo medido con códigos capados es que 400 llega a 0.99 solo con ef 640 o más.
 - **Pendiente explícito antes de publicar el índice: un barrido a 1M con un dataset nativo de 384 o 512 dimensiones,** rescore frente a `ef` hasta llegar a 0.99, que diga cuánto rescore pide de verdad. Hoy no hay en disco ninguno de ese tamaño: los únicos de 384d son `custom-fiqa-12k` y `custom-fiqa-48k`, de 12 000 y 48 000 vectores, y el rescore que hace falta crece con el corpus. De 512d no hay ninguno.
+- **A 10M la regla queda del lado seguro** (medido el 22, «10M en disco» en `bench-report.md`). Con 768 bits, 64 llega a 0.99 en ef 315, donde a 1M su techo era 0.9815. Con 150, que es lo que da la regla, la celda de ruteo es un 29 % más lenta en frío a 0.95 que con 64, y un 25 % más rápida a 0.99. La regla no mira el tamaño del corpus. *Propuesta mía:* dejarla como está, porque 150 cumple a 1M y a 10M, y no añadirle el tamaño con solo dos medidos.
 - **El 10M de esta noche corre nuestras celdas con 150,** con 200 y 400 de reserva si no llegara a 0.99: dirá si el ancla depende del tamaño del corpus.
 
 **Qué puntos faltan para fijarla:**
