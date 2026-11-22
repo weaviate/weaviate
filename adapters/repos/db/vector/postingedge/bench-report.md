@@ -647,7 +647,7 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 - **Se reportan las dos ejecuciones de la celda centrada,** sin escoger una.
 - **Cabe antes de las 08:30:** acabará hacia la 01:00.
 
-#### Resultados (23 de noviembre, de 23:33 a 00:30)
+#### Resultados (de las 23:33 del 22 a las 00:30 del 23)
 
 **Estado: cronometrado.** Tres procesos: la celda por defecto (23:33 a 23:36 sus rondas), la centrada (23:58 a 00:03) y la centrada otra vez (00:26 a 00:30). Ningún tramo con teclado ni trackpad, y el Mac no se durmió. Datos en `testdata/bench/v4.0/10m/hnsw/`.
 
