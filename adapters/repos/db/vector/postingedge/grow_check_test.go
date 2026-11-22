@@ -40,8 +40,10 @@ func (g *growIndex) cleanCentroidGraph() error {
 // the one the persisted map gives it, with a routing code; no live posting
 // holds anything else; every member has one list of edges, which lead to
 // live vectors outside its own posting, with a distance each; and the
-// centroid graph holds the live postings and none of the retired ones. It
-// reads every row of the store.
+// centroid graph holds the live postings and none of the retired ones. Where
+// the postings carry their halo, that of every live posting has the endpoint
+// of every edge of its members, with the routing code the index keeps for it.
+// It reads every row of the store.
 func (g *growIndex) checkCoverage() error {
 	st := g.st
 	keys := len(g.live)
@@ -75,19 +77,29 @@ func (g *growIndex) checkCoverage() error {
 	}
 	coded := 0
 	words := st.side.codeWords
+	// The codes as their bucket holds them, which is all an index opened
+	// without them in memory has.
+	onDisk := make([]uint64, keys*words)
 	err = growScan(g.routing.Bucket, func(key, value []byte) error {
 		docID := binary.BigEndian.Uint32(key)
 		if int(docID) >= keys || !g.live[docID] {
 			return errors.Errorf("a routing code on disk for doc %d, which is not live", docID)
 		}
+		if len(value) != 8*words {
+			return errors.Errorf("the routing code of doc %d takes %d bytes on disk", docID, len(value))
+		}
 		for i := range words {
-			if binary.LittleEndian.Uint64(value[8*i:]) != st.side.codes[int(docID)*words+i] {
+			onDisk[int(docID)*words+i] = binary.LittleEndian.Uint64(value[8*i:])
+			if !g.noCodes && onDisk[int(docID)*words+i] != st.side.codes[int(docID)*words+i] {
 				return errors.Errorf("doc %d has another routing code on disk than in memory", docID)
 			}
 		}
 		coded++
 		return nil
 	})
+	if g.noCodes && len(st.side.codes) != 0 {
+		return errors.Errorf("an index opened with no codes in memory holds %d words of them", len(st.side.codes))
+	}
 	if err != nil {
 		return err
 	}
@@ -101,6 +113,7 @@ func (g *growIndex) checkCoverage() error {
 	}
 	count := make([]uint8, keys)
 	var dp diskPosting
+	var halo growHalo
 	for p := range uint32(g.meta.Postings) {
 		if g.retired[p] {
 			if g.size[p] != 0 {
@@ -140,6 +153,25 @@ func (g *growIndex) checkCoverage() error {
 		}
 		if len(dp.docIDs) == 0 {
 			return errors.Errorf("live posting %d is empty", p)
+		}
+		if g.haloed() {
+			if _, err := g.fetchHalo(p, &halo); err != nil {
+				return err
+			}
+			for i, docID := range dp.docIDs {
+				for _, endpoint := range dp.edgesOfMember(i) {
+					code := halo.find(endpoint)
+					if code == nil {
+						return errors.Errorf("doc %d, in posting %d, has an edge to doc %d, which is not in the halo of the posting",
+							docID, p, endpoint)
+					}
+					if int(endpoint) < keys && !slices.Equal(code, onDisk[int(endpoint)*words:(int(endpoint)+1)*words]) {
+						return errors.Errorf("the halo of posting %d has another code for doc %d than the index keeps for it", p, endpoint)
+					}
+				}
+			}
+		} else if values, err := g.postings.SetRawList(diskKey(p, diskBlockHalo)); err != nil || len(values) > 0 {
+			return errors.Errorf("posting %d of an index without halos has %d values of one (%v)", p, len(values), err)
 		}
 		if g.consolidated() {
 			// Its row of edges and what waits hold a list for its members
@@ -316,7 +348,21 @@ func (g *growIndex) sameAs(s *streamIndex) error {
 	if !slices.Equal(g.st.side.postingOf, s.st.side.postingOf) {
 		return errors.New("the posting maps differ")
 	}
-	if !slices.Equal(g.st.side.codes, s.st.side.codes) {
+	if g.noCodes {
+		// The codes of the index are in their bucket alone.
+		for docID, held := range g.live {
+			if !held {
+				continue
+			}
+			code, _, err := g.routingCode(uint64(docID))
+			if err != nil {
+				return err
+			}
+			if !slices.Equal(code, s.st.side.code(uint32(docID))) {
+				return errors.Errorf("the routing code of doc %d differs", docID)
+			}
+		}
+	} else if !slices.Equal(g.st.side.codes, s.st.side.codes) {
 		return errors.New("the routing codes differ")
 	}
 	if !slices.Equal(g.retired, s.retired) {

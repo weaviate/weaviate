@@ -272,6 +272,10 @@ type diskPosting struct {
 	// edges (v5.1), as the store returned it, and row what it decodes to.
 	block []byte
 	row   growBlock
+	// halo is the halo of a posting of the index that grows, where its
+	// search reads it (grow_halo.go): its entries come in the order they
+	// were added, and not sorted as those of haloSlots.
+	halo growHalo
 	// bytes is what the store returned for its blocks.
 	bytes [3]int
 	// took is what the read of each of its blocks took, from asking the
@@ -378,6 +382,9 @@ type fetchedSearch struct {
 	// that leads to them, whose codes take haloWords words.
 	halo      bool
 	haloWords int
+	// grown tells that the halo of a posting is the one of the index that
+	// grows (diskPosting.halo).
+	grown bool
 	// noMembers tells that a posting brings no members block: its members
 	// are in memory.
 	noMembers bool
@@ -441,6 +448,9 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 		blocks++
 		words := f.haloWords
 		search.scoreEndpoints = func(_ *posting, slots []uint32, dists []float32) error {
+			if f.grown {
+				return visiting.halo.score(search.estimator, slots, dists)
+			}
 			return visiting.scoreHalo(search.estimator, words, slots, dists)
 		}
 	}

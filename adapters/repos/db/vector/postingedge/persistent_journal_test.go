@@ -44,10 +44,16 @@ func (f *persistentFixture) openedAt(t *testing.T, root string) *persistentFixtu
 // writes: the pass that takes the deleted vectors out, with its merges, and
 // the refresh of the edges once the index has doubled.
 func TestPersistentOpensWhatACrashLeft(t *testing.T) {
+	for _, cacheMode := range cacheModes {
+		t.Run(cacheMode, func(t *testing.T) { persistentOpensWhatACrashLeft(t, cacheMode) })
+	}
+}
+
+func persistentOpensWhatACrashLeft(t *testing.T, cacheMode string) {
 	ctx := context.Background()
 	const k = 10
 	const total = 2*persistentBase + 150
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
+	f := newPersistentFixtureMode(t, total, cacheMode, func(cfg *PersistentConfig) { cfg.noBackground = true })
 	f.add(t, 0, persistentBase+100)
 	require.NoError(t, f.index.Flush())
 

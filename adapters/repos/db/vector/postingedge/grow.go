@@ -83,8 +83,14 @@ import (
 //	            changed since the row of its posting was written, with its
 //	            distances. Read when the index opens, and never by a search.
 //
-// In memory: the routing codes, the posting map, the marks of the deleted
-// vectors, the centroids and their graph. One writer: inserts run one after
+// And, where the index is written to be opened with no codes in memory
+// (growMeta.Halo, grow_halo.go), a third row per posting in the bucket of
+// postings: the routing code of every vector an edge of the posting leads
+// to, which a search then reads with the other two.
+//
+// In memory: the routing codes, unless the index is opened without them, the
+// posting map, the marks of the deleted vectors, the centroids and their
+// graph. One writer: inserts run one after
 // another, and no search runs next to the writes of an insert, to a delete
 // or to whatever gives the index more room. Whoever owns the index sees to
 // it: the tests by running one thing at a time, and the index a shard opens
@@ -191,6 +197,11 @@ type growMeta struct {
 	// first one on a vector may have an edge to another of its own posting,
 	// which no insert and no split ever leaves: a search skips it.
 	Merges int `json:"merges,omitempty"`
+	// Halo tells that every posting carries, in a third row, the routing
+	// code of the endpoints of its edges (grow_halo.go): what lets the index
+	// be opened with no code in memory (growOpen.noCodes). Every write keeps
+	// it up, whether the index was opened with its codes in memory or not.
+	Halo bool `json:"halo,omitempty"`
 }
 
 // growIO counts reads or writes: how many, and their bytes.
@@ -277,6 +288,21 @@ type growStats struct {
 	// LayoutVectors the vectors those wrote.
 	Layouts       int   `json:"layouts,omitempty"`
 	LayoutVectors int64 `json:"layoutVectors,omitempty"`
+	// Of an index whose postings carry their halo (grow_halo.go): HaloAdded
+	// counts the entries the writes added to the halo of a posting, a value
+	// each, HaloRows the halos written whole, HaloReads those a
+	// write read from the store because the search of its plan had not left
+	// it, and RoutingReads the routing codes read from their bucket by an
+	// index that keeps none in memory.
+	HaloAdded    growIO `json:"haloAdded"`
+	HaloRows     growIO `json:"haloRows"`
+	HaloReads    growIO `json:"haloReads"`
+	RoutingReads growIO `json:"routingReads"`
+	// HaloTrims counts the halos written whole again because too much had
+	// been added to them (trimHalo), and HaloTrimmed the values those took
+	// out, each a tombstone that carries it.
+	HaloTrims   int    `json:"haloTrims"`
+	HaloTrimmed growIO `json:"haloTrimmed"`
 
 	AssignTime  time.Duration `json:"assignNs"`
 	SearchTime  time.Duration `json:"searchNs"`
@@ -339,6 +365,18 @@ type growIndex struct {
 	// st has what a search keeps in memory: the routing codes and the
 	// posting map by doc id, the centroids and their graph.
 	st *state
+	// noCodes tells that the index was opened with no routing code in memory
+	// (growOpen.noCodes): the sidecar of st has the posting map and no codes.
+	// haloAdded counts, by posting, the entries added to its halo since the
+	// index was opened or the halo was last written whole (grow_halo.go), and
+	// haloWholeSeq is the write that last wrote it whole over another
+	// (growIndex.seq), 0 for none since the index was opened: the halo a plan
+	// kept before that write is not the halo any more. noHaloTrim, for the
+	// tests, leaves every halo as it grows.
+	noCodes      bool
+	haloAdded    []uint32
+	haloWholeSeq []uint64
+	noHaloTrim   bool
 
 	lsm *lsmkv.Store
 	// shared tells that the store is not the index's own (growOpen.store):
@@ -530,6 +568,20 @@ type growPlan struct {
 	// seq is the count of the writes the index had applied when the plan
 	// searched (growIndex.seq).
 	seq uint64
+	// Of an index whose postings carry their halo (grow_halo.go): codes has
+	// the routing code of every neighbor, one after another, and codeReads
+	// what was read from their bucket for them. halo is the halo of posting
+	// haloOf as the plan knows it, if haloKept: the one its search read, or
+	// the one its writes read. wantHalo has the search leave it.
+	codes     []uint64
+	codeReads growIO
+	halo      growHalo
+	haloOf    uint32
+	haloKept  bool
+	wantHalo  bool
+	// haloSeq is the count of the writes the index had applied when the halo
+	// was read: one that was written whole since is read again.
+	haloSeq uint64
 }
 
 func newGrowPlan() *growPlan {
@@ -554,6 +606,56 @@ func (p *growPlan) keep(q uint32, dp *diskPosting) {
 	kept.edgeStart = append(kept.edgeStart[:0], dp.edgeStart...)
 	kept.edges = append(kept.edges[:0], dp.edges...)
 	p.keptAt[q] = at
+	if p.wantHalo && q == p.haloOf {
+		p.halo.copyFrom(&dp.halo)
+		p.haloKept = true
+	}
+}
+
+// codeOf returns the routing code the plan read for one of its neighbors.
+func (p *growPlan) codeOf(u uint64, words int) ([]uint64, error) {
+	at := slices.Index(p.neighbors, u)
+	if at < 0 || (at+1)*words > len(p.codes) {
+		return nil, errors.Errorf("the plan of doc %d has no routing code for doc %d", p.docID, u)
+	}
+	return p.codes[at*words : (at+1)*words], nil
+}
+
+// planCodes leaves in the plan the routing code of every neighbor its search
+// returned: what its writes put in the halo of the postings they change. It
+// writes nothing, as the rest of a plan.
+func (g *growIndex) planCodes(plan *growPlan) error {
+	plan.codes, plan.codeReads = plan.codes[:0], growIO{}
+	if !g.haloed() {
+		return nil
+	}
+	for _, u := range plan.neighbors {
+		code, read, err := g.routingCode(u)
+		if err != nil {
+			return err
+		}
+		if read > 0 {
+			plan.codeReads.add(1, read)
+		}
+		plan.codes = append(plan.codes, code...)
+	}
+	return nil
+}
+
+// heldHalo returns the halo of posting p as the plan that is being applied
+// knows it: the one its search left, or, if it left that of another posting
+// or none, the one the store holds now.
+func (g *growIndex) heldHalo(plan *growPlan, p uint32) (*growHalo, error) {
+	if plan.haloKept && plan.haloOf == p && g.haloWholeSeq[p] <= plan.haloSeq {
+		return &plan.halo, nil
+	}
+	bytes, err := g.fetchHalo(p, &plan.halo)
+	if err != nil {
+		return nil, err
+	}
+	g.stats.HaloReads.add(1, bytes)
+	plan.haloOf, plan.haloKept, plan.haloSeq = p, true, g.seq
+	return &plan.halo, nil
 }
 
 func growDocKey(docID uint64) []byte {
@@ -646,6 +748,11 @@ type growOpen struct {
 	// the index as it was after its last whole write. An index opened
 	// without it still reads the journal it finds, and then has none.
 	journal bool
+	// noCodes opens the index with no routing code in memory
+	// (rq.cacheMode "none"): a search scores the endpoints of a posting from
+	// its halo, and a write reads the codes it needs from their bucket. Only
+	// an index whose postings carry their halo opens so (growMeta.Halo).
+	noCodes bool
 }
 
 // growBlock is a row of edges decoded: the members it has a list of, in its
@@ -675,6 +782,9 @@ type growConfig struct {
 	// slots gives the exact vectors slots (growMeta.VectorGen): the base is
 	// written with the vectors of every posting in a row.
 	slots bool
+	// halo has every posting carry the routing code of the endpoints of its
+	// edges (growMeta.Halo).
+	halo bool
 	// open says where the buckets of the index go: the zero value is a store
 	// of its own under dir.
 	open growOpen
@@ -691,6 +801,9 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		// Worded without the verb the experiments had here: the linter of
 		// goroutines reads it as a statement that starts one.
 		return errors.New("the rows of edges are next to the members only with consolidated edges")
+	}
+	if cfg.halo && !cfg.rowsWithMembers {
+		return errors.New("the postings carry their halo only with their rows of edges next to their members")
 	}
 	if st == nil {
 		return ErrNotBuilt
@@ -730,7 +843,16 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		Version: growFormatVersion, Distance: provider.Type(), Dims: st.dims, Keys: cfg.keys,
 		ScanCodeWords: store.codeWords, RoutingBits: routingBits, RoutingCodeWords: st.side.codeWords,
 		Neighbors: cfg.neighbors, Threshold: cfg.threshold, Seed: cfg.seed, Postings: postings, Live: n,
-		Consolidate: cfg.consolidate, RowsWithMembers: cfg.rowsWithMembers,
+		Consolidate: cfg.consolidate, RowsWithMembers: cfg.rowsWithMembers, Halo: cfg.halo,
+	}
+	// The halo of a posting has the code of every endpoint of its edges,
+	// which the base has by slot.
+	var slotOfDoc []uint32
+	if cfg.halo {
+		slotOfDoc = make([]uint32, cfg.keys)
+		for slot, docID := range store.docIDs {
+			slotOfDoc[docID] = uint32(slot)
+		}
 	}
 	var slotOf []uint32
 	if cfg.slots {
@@ -820,6 +942,12 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 			return errors.Wrapf(err, "write the members of posting %d", p)
 		}
 		if err := g.edgeStore.writePosting(uint32(p), store.docIDs[from:to], rowLists, false); err != nil {
+			return err
+		}
+		err := g.writeHalo(uint32(p), rowLists, func(endpoint uint32) ([]uint64, error) {
+			return st.side.code(slotOfDoc[endpoint]), nil
+		})
+		if err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -1159,10 +1287,15 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	}
 
 	// What stays in memory, read from its buckets: the posting map, and with
-	// it who is live and how large every posting is, and the routing codes.
-	side := &sidecar{
-		codeWords: meta.RoutingCodeWords, codes: make([]uint64, meta.Keys*meta.RoutingCodeWords),
-		postingOf: make([]uint32, meta.Keys),
+	// it who is live and how large every posting is, and the routing codes,
+	// unless the index is opened without them.
+	if opts.noCodes && !meta.Halo {
+		return nil, errors.New("the postings of the index do not carry their halo: it opens with its routing codes in memory")
+	}
+	g.noCodes = opts.noCodes
+	side := &sidecar{codeWords: meta.RoutingCodeWords, postingOf: make([]uint32, meta.Keys)}
+	if !g.noCodes {
+		side.codes = make([]uint64, meta.Keys*meta.RoutingCodeWords)
 	}
 	for i := range side.postingOf {
 		side.postingOf[i] = unplaced
@@ -1189,7 +1322,11 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		return nil, errors.Errorf("the map holds %d docs, the meta says %d are live", live, meta.Live)
 	}
 	coded := 0
-	err = growScan(g.routing.Bucket, func(key, value []byte) error {
+	if g.noCodes {
+		// The codes stay in their bucket, which is not read to open.
+		coded = live
+	}
+	err = growScanUnless(g.noCodes, g.routing.Bucket, func(key, value []byte) error {
 		words := meta.RoutingCodeWords
 		if len(key) != 4 || len(value) != 8*words {
 			return errors.Errorf("a routing code with a key of %d bytes and a value of %d", len(key), len(value))
@@ -1221,6 +1358,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	for p, size := range g.size {
 		g.retired[p] = size == 0
 	}
+	g.haloAdded, g.haloWholeSeq = make([]uint32, meta.Postings), make([]uint64, meta.Postings)
 	g.listSeq = make([]uint64, meta.Postings)
 	// How much was written since the bucket of postings was last one
 	// segment is not known to an index that opens: it counts as all of it.
@@ -1290,6 +1428,14 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		return nil, err
 	}
 	return g, nil
+}
+
+// growScanUnless is growScan, or nothing if skip is set.
+func growScanUnless(skip bool, bucket *lsmkv.Bucket, visit func(key, value []byte) error) error {
+	if skip {
+		return nil
+	}
+	return growScan(bucket, visit)
 }
 
 // growScan calls visit with every entry of a bucket of strategy Replace. The
@@ -1532,9 +1678,12 @@ type growRowCount struct {
 // fetchCounting is fetch with the rows read one after another, each counted.
 func (g *growIndex) fetchCounting(round *diskRound, picks []scored) error {
 	c := g.rowCount
-	order := [2]byte{diskBlockMembers, diskBlockEdges}
+	order := []byte{diskBlockMembers, diskBlockEdges}
 	if c.edgesFirst {
-		order = [2]byte{diskBlockEdges, diskBlockMembers}
+		order = []byte{diskBlockEdges, diskBlockMembers}
+	}
+	if g.noCodes {
+		order = append(order, diskBlockHalo)
 	}
 	for i, pick := range picks {
 		p, dp := uint32(pick.id), &round.postings[i]
@@ -1544,10 +1693,13 @@ func (g *growIndex) fetchCounting(round *diskRound, picks []scored) error {
 			if err != nil {
 				return err
 			}
-			if block == diskBlockMembers {
+			switch block {
+			case diskBlockMembers:
 				err = g.fetchMembers(p, dp)
-			} else {
+			case diskBlockEdges:
 				err = g.fetchLists(p, dp)
+			default:
+				dp.bytes[diskBlockHalo], err = g.fetchHalo(p, &dp.halo)
 			}
 			if err != nil {
 				return err
@@ -1578,7 +1730,11 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 		}
 	} else {
 		eg := enterrors.NewErrorGroupWrapper(g.logger)
-		if round.inFlight > 0 && round.inFlight < 2*len(picks) {
+		rows := 2
+		if g.noCodes {
+			rows = 3
+		}
+		if round.inFlight > 0 && round.inFlight < rows*len(picks) {
 			// The budget of the query does not reach to all the rows of the
 			// round at once: they are read as it allows.
 			eg.SetLimit(round.inFlight)
@@ -1592,6 +1748,16 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 			eg.Go(func() error {
 				return timedRead(&dp.took[diskBlockEdges], func() error { return g.fetchLists(p, dp) })
 			})
+			if g.noCodes {
+				// The codes of the endpoints its edges lead to, which are not
+				// in memory.
+				eg.Go(func() error {
+					return timedRead(&dp.took[diskBlockHalo], func() (err error) {
+						dp.bytes[diskBlockHalo], err = g.fetchHalo(p, &dp.halo)
+						return err
+					})
+				})
+			}
 		}
 		if err := eg.Wait(); err != nil {
 			return err
@@ -1611,7 +1777,10 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 }
 
 func (g *growIndex) searcher() *fetchedSearch {
-	return &fetchedSearch{ix: g.ix, st: g.st, rounds: &g.rounds, fetch: g.fetch}
+	return &fetchedSearch{
+		ix: g.ix, st: g.st, rounds: &g.rounds, fetch: g.fetch,
+		halo: g.noCodes, grown: true, haloWords: g.meta.RoutingCodeWords,
+	}
 }
 
 // search is the search of the index, with the postings fetched from the
@@ -1752,10 +1921,11 @@ func (g *growIndex) extend(keys int) error {
 		g.builtAt = builtAt
 	}
 	old := g.st.side
-	side := &sidecar{
-		codeWords: old.codeWords, codes: make([]uint64, keys*old.codeWords), postingOf: make([]uint32, keys),
+	side := &sidecar{codeWords: old.codeWords, postingOf: make([]uint32, keys)}
+	if !g.noCodes {
+		side.codes = make([]uint64, keys*old.codeWords)
+		copy(side.codes, old.codes)
 	}
-	copy(side.codes, old.codes)
 	copy(side.postingOf, old.postingOf)
 	for i := g.meta.Keys; i < keys; i++ {
 		side.postingOf[i] = unplaced
@@ -1910,6 +2080,9 @@ func (g *growIndex) plan(ctx context.Context, plan *growPlan, docID uint64, vect
 	}
 	plan.entry = entry
 	plan.assignTime = time.Since(clock)
+	// The halo of its posting, which its search reads where the index has no
+	// codes in memory.
+	plan.haloOf, plan.haloKept, plan.wantHalo, plan.haloSeq = uint32(entry[0]), false, g.noCodes, g.seq
 
 	clock = time.Now()
 	search := g.searcher()
@@ -1924,6 +2097,9 @@ func (g *growIndex) plan(ctx context.Context, plan *growPlan, docID uint64, vect
 		entry, &plan.searched)
 	if err != nil {
 		return errors.Wrapf(err, "search the neighbors of doc %d", docID)
+	}
+	if err := g.planCodes(plan); err != nil {
+		return err
 	}
 	plan.searchTime = time.Since(clock)
 	return nil
@@ -1954,6 +2130,7 @@ func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
 	g.stats.SearchRounds += searched.Rounds
 	g.stats.SearchRows.add(searched.Blocks, searched.BlockBytes)
 	g.stats.SearchVectors.add(plan.vectorReads, plan.vectorReads*4*g.meta.Dims)
+	g.stats.RoutingReads.add(int(plan.codeReads.N), int(plan.codeReads.Bytes))
 	g.stats.SearchTime += plan.searchTime
 	reads, bytes, err := g.counted()
 	if err != nil {
@@ -2004,6 +2181,11 @@ func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
 	if err := g.edgeStore.add(p, docID, edges, edgeDists); err != nil {
 		return err
 	}
+	// And the codes of the endpoints of its edges that the halo of its
+	// posting does not have yet.
+	if err := g.haloOwn(plan, p, edges); err != nil {
+		return err
+	}
 	raw := make([]byte, 4*len(vector))
 	for i, x := range vector {
 		putFloat32(raw[4*i:], x)
@@ -2026,8 +2208,10 @@ func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
 	g.stats.MemberMap.add(1, 4)
 	g.stats.MemberRouting.add(1, len(routingValue))
 	g.stats.MemberVector.add(1, len(raw))
-	words := st.side.codeWords
-	copy(st.side.codes[int(docID)*words:(int(docID)+1)*words], routingCode)
+	if !g.noCodes {
+		words := st.side.codeWords
+		copy(st.side.codes[int(docID)*words:(int(docID)+1)*words], routingCode)
+	}
 	st.side.postingOf[docID] = p
 	g.live[docID] = true
 	g.size[p]++
@@ -2041,7 +2225,7 @@ func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
 	g.stats.WriteTime += time.Since(clock)
 
 	clock = time.Now()
-	if err := g.enterNeighbors(docID, vector, p, neighbors, dists); err != nil {
+	if err := g.enterNeighbors(docID, vector, routingCode, p, neighbors, dists); err != nil {
 		return err
 	}
 	readsAfter, bytesAfter, err = g.counted()
@@ -2262,8 +2446,11 @@ func (g *growIndex) refresh(ctx context.Context, plan *growPlan) error {
 // distance gives it, and the worst edge goes. Where the streaming index
 // computes the distances of the neighbor's edges again, this reads the ones
 // that were stored with them. dists are the distances of the search from
-// the vector to its neighbors.
-func (g *growIndex) enterNeighbors(docID uint64, vector []float32, p uint32, neighbors []uint64, dists []float32) error {
+// the vector to its neighbors, and code the routing code of the vector, which
+// goes into the halo of every posting where it enters a list.
+func (g *growIndex) enterNeighbors(docID uint64, vector []float32, code []uint64, p uint32, neighbors []uint64,
+	dists []float32,
+) error {
 	var written []uint32
 	for i, u := range neighbors {
 		q := g.st.side.postingOf[u]
@@ -2322,6 +2509,13 @@ func (g *growIndex) enterNeighbors(docID uint64, vector []float32, p uint32, nei
 		if err := g.edgeStore.replace(q, u, edges, updated, updatedDists); err != nil {
 			return err
 		}
+		// Whether the halo of the posting has it already is not known here: a
+		// vector that just came in is in none, and one whose edges are
+		// refreshed enters few lists.
+		err = g.addHalo(q, nil, []uint32{uint32(docID)}, func(int) ([]uint64, error) { return code, nil })
+		if err != nil {
+			return err
+		}
 		// What the insert kept of the posting follows, should the same list
 		// be looked at again. What the other plans of its batch kept of it
 		// does not.
@@ -2356,6 +2550,13 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	g.stats.SplitRows.add(2, dp.bytes[diskBlockMembers]+dp.bytes[diskBlockEdges])
 	if err := g.joinLists(p, &dp); err != nil {
 		return err
+	}
+	if g.haloed() {
+		bytes, err := g.fetchHalo(p, &dp.halo)
+		if err != nil {
+			return err
+		}
+		g.stats.SplitRows.add(1, bytes)
 	}
 	n := len(dp.docIDs)
 	vectors := make([][]float32, n)
@@ -2421,6 +2622,18 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 		if err := g.edgeStore.writePosting(first+c, halfIDs[c], halfLists[c], true); err != nil {
 			return err
 		}
+		// The halo of a half is written whole: of the entries of the posting,
+		// those its lists lead to, each once.
+		err := g.writeHalo(first+c, halfLists[c], func(endpoint uint32) ([]uint64, error) {
+			code := dp.halo.find(endpoint)
+			if code == nil {
+				return nil, errors.Errorf("STOP: doc %d, where an edge of posting %d leads, is not in its halo", endpoint, p)
+			}
+			return code, nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 	if err := g.edgeStore.retire(p); err != nil {
 		return err
@@ -2479,6 +2692,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	g.retiredMu.Unlock()
 	g.size = append(g.size, uint32(sizes[0]), uint32(sizes[1]))
 	g.size[p] = 0
+	g.haloAdded, g.haloWholeSeq = append(g.haloAdded, 0, 0), append(g.haloWholeSeq, 0, 0)
 	g.meta.Postings += 2
 	g.meta.Splits++
 	g.stats.Splits++

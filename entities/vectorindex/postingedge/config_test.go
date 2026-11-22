@@ -61,6 +61,11 @@ func TestParseAndValidateConfig(t *testing.T) {
 			},
 		},
 		{
+			name:  "no codes in memory",
+			input: object("rq", object("cacheMode", "none")),
+			want:  with(func(u *UserConfig) { u.RQ.CacheMode = "none" }),
+		},
+		{
 			name:  "every parameter, as a schema read from disk gives numbers",
 			input: object("ef", json.Number("64"), "efConstruction", json.Number("16"), "maxPostingSizeKB", json.Number("8")),
 			want: with(func(u *UserConfig) {
@@ -96,9 +101,7 @@ func TestParseAndValidateConfig(t *testing.T) {
 		{name: "hamming", input: object("distance", "hamming"), wantErr: `unsupported distance "hamming"`},
 		{name: "no distance at all", input: object("distance", ""), wantErr: `unsupported distance ""`},
 
-		// The cache mode: routing works, none is not there yet, and there is
-		// no other.
-		{name: "none", input: object("rq", object("cacheMode", "none")), wantErr: `rq.cacheMode "none" is not available yet`},
+		// The cache mode: routing and none, and there is no other.
 		{name: "scan", input: object("rq", object("cacheMode", "scan")), wantErr: `unknown rq.cacheMode "scan": the values are "routing" and "none"`},
 		{name: "another word", input: object("rq", object("cacheMode", "all")), wantErr: `unknown rq.cacheMode "all"`},
 		{name: "in other letters", input: object("rq", object("cacheMode", "Routing")), wantErr: `unknown rq.cacheMode "Routing"`},
@@ -232,7 +235,7 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 		},
 		{
 			name: "the cache mode", initial: initial, updated: with(func(u *UserConfig) { u.RQ.CacheMode = "none" }),
-			wantErr: "not available yet",
+			wantErr: `rq.cacheMode is immutable: attempted change from "routing" to "none"`,
 		},
 		{
 			name: "an ef the index cannot have", initial: initial, updated: with(func(u *UserConfig) { u.EF = 0 }),

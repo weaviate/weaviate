@@ -152,6 +152,11 @@ func (g *growIndex) rewriteRow(p uint32, old []byte, ids []uint64, lists [][]uin
 	if err := g.putRow(p, old, block); err != nil {
 		return errors.Wrapf(err, "write the row of edges of posting %d", p)
 	}
+	// Its halo too, if too much has been added to it: whoever calls has put
+	// in it the codes of the endpoints these lists gained.
+	if err := g.trimHalo(p, lists); err != nil {
+		return err
+	}
 	return g.dropPending(p, true)
 }
 
@@ -222,6 +227,19 @@ type growClean struct {
 	raw    []byte
 	own    []float32
 	target []float32
+	// halo and into are the halos of the postings a step is at, where the
+	// postings of the index carry one (grow_halo.go).
+	halo, into growHalo
+}
+
+// code returns the routing code of a doc: the one in memory, or the one read
+// from its bucket by an index that keeps none.
+func (c *growClean) code(docID uint64) ([]uint64, error) {
+	code, read, err := c.g.routingCode(docID)
+	if read > 0 {
+		c.g.stats.RoutingReads.add(1, read)
+	}
+	return code, err
 }
 
 const (
@@ -382,6 +400,9 @@ func (c *growClean) substitute() (bool, error) {
 		dists []float32
 	}
 	var changes []change
+	// The substitutes of the posting and their codes, for its halo.
+	var entered []uint32
+	var enteredCodes [][]uint64
 	for i, docID := range ids {
 		list := lists[i]
 		dead := 0
@@ -418,10 +439,11 @@ func (c *growClean) substitute() (bool, error) {
 			continue
 		}
 		c.stats.DeadEdges += dead
-		subs, without, err := c.substitutesFor(docID, p, list, kept)
+		subs, codes, without, err := c.substitutesFor(docID, p, list, kept)
 		if err != nil {
 			return false, err
 		}
+		entered, enteredCodes = append(entered, subs...), append(enteredCodes, codes...)
 		c.stats.Substituted += len(subs)
 		c.stats.Without += without
 		if len(subs) > 0 {
@@ -453,6 +475,21 @@ func (c *growClean) substitute() (bool, error) {
 	// before it is not its lists any more.
 	g.wrote()
 	g.listSeq[p] = g.seq
+	if g.haloed() && len(entered) > 0 {
+		// The halo of the posting gets the codes of the substitutes it does
+		// not have: an endpoint that came from the list of a vector of another
+		// posting. Before its row of edges is written, which may have the halo
+		// written whole with what these lists need.
+		bytes, err := g.fetchHalo(p, &c.halo)
+		if err != nil {
+			return false, err
+		}
+		g.stats.HaloReads.add(1, bytes)
+		err = g.addHalo(p, &c.halo, entered, func(i int) ([]uint64, error) { return enteredCodes[i], nil })
+		if err != nil {
+			return false, err
+		}
+	}
 	if err := g.rewriteRow(p, old, ids, lists); err != nil {
 		return false, err
 	}
@@ -471,11 +508,17 @@ func (c *growClean) substitute() (bool, error) {
 // distance between two codes: of the list of the one that leaves, the
 // endpoint nearest the vector that is held and not marked, is not the vector,
 // is outside p, and is neither among the edges the vector keeps nor among
-// the substitutes it was just given. without counts the edges left with none.
-func (c *growClean) substitutesFor(docID uint64, p uint32, list, kept []uint32) (subs []uint32, without int, err error) {
+// the substitutes it was just given. codes has the routing code of every
+// substitute, and without counts the edges left with none.
+func (c *growClean) substitutesFor(docID uint64, p uint32, list, kept []uint32) (subs []uint32, codes [][]uint64,
+	without int, err error,
+) {
 	g := c.g
 	side := g.st.side
-	own := side.code(uint32(docID))
+	own, err := c.code(docID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	var dists []float32
 	for _, endpoint := range list {
 		if !c.leaving[endpoint] {
@@ -483,10 +526,11 @@ func (c *growClean) substitutesFor(docID uint64, p uint32, list, kept []uint32) 
 		}
 		candidates, read := c.lists[endpoint]
 		if !read {
-			return nil, 0, errors.Errorf("the list of edges of doc %d, which leaves, was not read", endpoint)
+			return nil, nil, 0, errors.Errorf("the list of edges of doc %d, which leaves, was not read", endpoint)
 		}
 		var (
 			best     uint32
+			bestCode []uint64
 			bestDist float32
 			found    bool
 		)
@@ -497,13 +541,17 @@ func (c *growClean) substitutesFor(docID uint64, p uint32, list, kept []uint32) 
 				slices.Contains(kept, candidate) || slices.Contains(subs, candidate) {
 				continue
 			}
-			dist, err := g.st.quantizer.between(own, side.code(candidate))
+			code, err := c.code(uint64(candidate))
 			if err != nil {
-				return nil, 0, errors.Wrapf(err, "the distance from doc %d to doc %d", docID, candidate)
+				return nil, nil, 0, err
+			}
+			dist, err := g.st.quantizer.between(own, code)
+			if err != nil {
+				return nil, nil, 0, errors.Wrapf(err, "the distance from doc %d to doc %d", docID, candidate)
 			}
 			c.stats.CodeDistances++
 			if !found || dist < bestDist {
-				best, bestDist, found = candidate, dist, true
+				best, bestCode, bestDist, found = candidate, code, dist, true
 			}
 		}
 		if !found {
@@ -515,13 +563,14 @@ func (c *growClean) substitutesFor(docID uint64, p uint32, list, kept []uint32) 
 			at--
 		}
 		subs = slices.Insert(subs, at, best)
+		codes = slices.Insert(codes, at, bestCode)
 		dists = slices.Insert(dists, at, bestDist)
 	}
 	if len(kept)+len(subs) > g.meta.Neighbors {
-		return nil, 0, errors.Errorf("STOP: doc %d would have %d edges, more than the %d of a list", docID, len(kept)+len(subs),
-			g.meta.Neighbors)
+		return nil, nil, 0, errors.Errorf("STOP: doc %d would have %d edges, more than the %d of a list", docID,
+			len(kept)+len(subs), g.meta.Neighbors)
 	}
-	return subs, without, nil
+	return subs, codes, without, nil
 }
 
 // remove takes out of the posting of the next vector that leaves all those
@@ -700,6 +749,38 @@ func (c *growClean) join(p, target uint32) error {
 	// A write of the index: the members of p are in another posting after it.
 	g.wrote()
 	g.listSeq[p], g.listSeq[target] = g.seq, g.seq
+	if g.haloed() {
+		// The lists that move lead where they led, and the codes of their
+		// endpoints are in the halo of the posting they come from: those the
+		// halo of the one that receives them does not have go into it. The
+		// halo of p is read while p is a posting, since the store may drop the
+		// rows of one that is retired whenever it likes, and the entries go
+		// in before the row of the one that receives is written, which may
+		// have its halo written whole with what its lists need.
+		read, err := g.fetchHalo(p, &c.halo)
+		if err != nil {
+			return err
+		}
+		g.stats.HaloReads.add(1, read)
+		if read, err = g.fetchHalo(target, &c.into); err != nil {
+			return err
+		}
+		g.stats.HaloReads.add(1, read)
+		var endpoints []uint32
+		for _, list := range lists {
+			endpoints = append(endpoints, list...)
+		}
+		err = g.addHalo(target, &c.into, endpoints, func(i int) ([]uint64, error) {
+			code := c.halo.find(endpoints[i])
+			if code == nil {
+				return nil, errors.Errorf("STOP: doc %d, where an edge of posting %d leads, is not in its halo", endpoints[i], p)
+			}
+			return code, nil
+		})
+		if err != nil {
+			return err
+		}
+	}
 	// What waited of p has its distances written and leaves with its row.
 	if err := g.retirePosting(p); err != nil {
 		return err

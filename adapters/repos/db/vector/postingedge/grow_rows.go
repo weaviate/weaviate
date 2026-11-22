@@ -505,5 +505,10 @@ func (g *growIndex) writeRow(p uint32, why *int) error {
 	}
 	g.stats.RowWrites.add(1, len(block))
 	*why++
+	// All the lists of the posting are at hand: its halo is written whole
+	// again if too much has been added to it.
+	if err := g.trimHalo(p, lists); err != nil {
+		return err
+	}
 	return g.dropPending(p, true)
 }

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -123,8 +124,10 @@ func TestGrowJournalRecords(t *testing.T) {
 // its members in the order of its row, with their codes, their edges and the
 // distances of those; for every doc id what the map, the routing codes, the
 // marks, the table of slots and the dates of the edges say of it, and its
-// vector; the centroids; and the meta. The graph over the centroids is not
-// in it: an index that a crash left builds it again.
+// vector; the centroids; and the meta. Where the postings carry their halo,
+// what the halo of every posting says of every endpoint it has an entry for,
+// and not how many entries say it. The graph over the centroids is not in
+// it: an index that a crash left builds it again.
 func (g *growIndex) digest() (string, error) {
 	h := sha256.New()
 	meta, err := json.Marshal(g.meta)
@@ -156,10 +159,19 @@ func (g *growIndex) digest() (string, error) {
 			fmt.Fprintf(h, "member %d code %v edges %v dists %v\n", docID, dp.codes[i*words:(i+1)*words], dp.edgesOfMember(i),
 				dists)
 		}
+		if g.haloed() {
+			if _, err := g.fetchHalo(p, &dp.halo); err != nil {
+				return "", err
+			}
+			endpoints := slices.Clone(dp.halo.slots)
+			slices.Sort(endpoints)
+			for _, endpoint := range slices.Compact(endpoints) {
+				fmt.Fprintf(h, "halo %d code %v\n", endpoint, dp.halo.find(endpoint))
+			}
+		}
 	}
 	var raw []byte
 	var vector []float32
-	words := g.st.side.codeWords
 	for docID, live := range g.live {
 		fmt.Fprintf(h, "doc %d live %v", docID, live)
 		if !live {
@@ -169,8 +181,11 @@ func (g *growIndex) digest() (string, error) {
 		if raw, vector, err = g.exact(uint64(docID), raw, vector); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(h, " posting %d code %v vector %v", g.st.side.postingOf[docID], g.st.side.codes[docID*words:(docID+1)*words],
-			vector)
+		code, _, err := g.routingCode(uint64(docID))
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(h, " posting %d code %v vector %v", g.st.side.postingOf[docID], code, vector)
 		if g.deleted != nil {
 			fmt.Fprintf(h, " deleted %v", g.deleted[docID])
 		}
@@ -276,14 +291,21 @@ func TestGrowOpensWhatACrashLeft(t *testing.T) {
 		name string
 		// syncEvery empties the journal every so many steps, 0 for never.
 		syncEvery int
+		// halo has the postings carry their halo, and the index no codes in
+		// memory.
+		halo bool
 	}{
 		{name: "the journal grows", syncEvery: 0},
 		{name: "the journal is emptied after every step", syncEvery: 1},
+		{name: "no codes in memory, the journal grows", syncEvery: 0, halo: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const total, base, dims = 1036, 1000, 64
 			format := shardFormat(8)
+			if tt.halo {
+				format = haloFormat(8, false)
+			}
 			format.open.journal, format.open.deletes = true, true
 			f := newGrowFixtureFormat(t, total, base, dims, false, 64, 46, format)
 			g := f.g
@@ -343,6 +365,10 @@ func TestGrowOpensWhatACrashLeft(t *testing.T) {
 			}
 			require.Zero(t, g.deletedCount)
 			require.Positive(t, g.cleaned.Merges, "postings were merged")
+			if tt.halo {
+				require.Positive(t, g.stats.HaloAdded.N, "the writes added to the halos")
+				require.Positive(t, g.stats.HaloRows.N, "the halves of a split got their halos")
+			}
 			t.Logf("%d steps, %d crashes opened, %d records and %d bytes in the journal", steps, checked, g.journal.records,
 				g.journal.bytes)
 			assert.Greater(t, checked, 100)

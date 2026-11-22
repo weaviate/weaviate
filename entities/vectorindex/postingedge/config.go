@@ -48,8 +48,9 @@ const (
 	MaximumMaxPostingSizeKB = 1024
 	// CacheModeRouting keeps in memory the code the postings are ranked by,
 	// and reads the codes a posting is scanned by from disk. CacheModeNone
-	// keeps no code in memory. It is a value of the parameter, and the index
-	// does not have it yet.
+	// keeps no code in memory: every posting carries on disk the codes of the
+	// vectors its edges lead to, which a search reads with it. Which of the
+	// two a class has is how its index is written, and cannot be changed.
 	CacheModeRouting = "routing"
 	CacheModeNone    = "none"
 	DefaultCacheMode = CacheModeRouting
@@ -130,10 +131,7 @@ func (u UserConfig) Validate() error {
 			u.RQ.RescoreLimit, RescoreLimitAuto))
 	}
 	switch u.RQ.CacheMode {
-	case CacheModeRouting:
-	case CacheModeNone:
-		errs = append(errs, fmt.Errorf("rq.cacheMode %q is not available yet: use %q",
-			CacheModeNone, CacheModeRouting))
+	case CacheModeRouting, CacheModeNone:
 	default:
 		errs = append(errs, unknownCacheMode(u.RQ.CacheMode))
 	}

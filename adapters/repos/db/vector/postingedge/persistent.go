@@ -94,6 +94,10 @@ type Persistent struct {
 	// base, the teardown.
 	mu sync.RWMutex
 	uc ent.UserConfig
+	// noCodes tells that the index keeps no code in memory (rq.cacheMode
+	// "none"): its postings carry their halo, which its searches read. It is
+	// what the index was opened with, and does not change.
+	noCodes bool
 	// g is the index once its base is built, nil before.
 	g *growIndex
 	// staged has the doc ids of the vectors kept aside: every vector the
@@ -154,8 +158,9 @@ const (
 	// taken over: the training limit of centered RQ.
 	DefaultBaseSize = DefaultTrainingLimit
 	// DefaultRoutingBits is the width of the code the postings are ranked
-	// by, the one kept in memory (rq.cacheMode "routing"). Vectors whose
-	// full code is no wider are ranked by the full code.
+	// by: the one kept in memory (rq.cacheMode "routing"), or the one every
+	// posting carries of the endpoints of its edges (rq.cacheMode "none").
+	// Vectors whose full code is no wider are ranked by the full code.
 	DefaultRoutingBits = 512
 	// DefaultSplitThreshold is the size past which a posting splits when
 	// maxPostingSizeKB is automatic, and DefaultMeanPostingSize the mean it
@@ -271,6 +276,10 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 	if store == nil {
 		return nil, errors.New("invalid config: store cannot be nil")
 	}
+	noCodes := uc.RQ.CacheMode == ent.CacheModeNone
+	if noCodes && cfg.listEdges {
+		return nil, errors.New("invalid config: an index with no codes in memory is not written with a value per list of edges")
+	}
 	p := &Persistent{
 		cfg: cfg,
 		// Whoever opens the index gives it a logger that says which index it
@@ -281,6 +290,7 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 		buildDir: filepath.Join(cfg.RootPath, helpers.PostingEdgeBuildDirName(cfg.ID)),
 		store:    store,
 		uc:       uc,
+		noCodes:  noCodes,
 		staged:   map[uint64]struct{}{},
 		gone:     map[uint64]struct{}{},
 	}
@@ -351,6 +361,7 @@ func (p *Persistent) growOpen() growOpen {
 		// in the middle of a write: every write goes through the journal.
 		keepPending: true,
 		journal:     true,
+		noCodes:     p.noCodes,
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
 			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
@@ -975,6 +986,10 @@ func (p *Persistent) buildBase(ctx context.Context, holdsWriteMu bool) (err erro
 		// of a posting in one row, next to its members, and the vectors by
 		// slot, so that they can be laid out again as the index grows.
 		cfg.consolidate, cfg.rowsWithMembers, cfg.slots = DefaultConsolidate, true, true
+		// With no codes in memory, every posting carries the codes of the
+		// endpoints of its edges: the base is written with them, and every
+		// write keeps them up.
+		cfg.halo = p.noCodes
 	}
 	if err := writeGrowIndex(ctx, p.logger, p.dir, st, cfg, p.provider, vectorOf); err != nil {
 		if discarded := p.discardBase(ctx); discarded != nil {

@@ -172,7 +172,14 @@ func postingEdgeTestShard(t *testing.T, repo *DB) *Shard {
 // as it was. What the index does not do fails the query with an error that
 // says what.
 func TestPostingEdge_ThroughAShard(t *testing.T) {
-	postingEdgeThroughAShard(t, false)
+	postingEdgeThroughAShard(t, false, "routing")
+}
+
+// A class that keeps no code of its index in memory (rq.cacheMode "none")
+// behaves as one that keeps them: the same steps, with what the searches rank
+// the postings by read from disk with every posting.
+func TestPostingEdge_ThroughAShardWithNoCodesInMemory(t *testing.T) {
+	postingEdgeThroughAShard(t, false, "none")
 }
 
 // With async indexing the vectors reach the index from the shared workers of
@@ -180,10 +187,16 @@ func TestPostingEdge_ThroughAShard(t *testing.T) {
 // holds, and so do the deletes: the class behaves as it does without it, once
 // the queue has been through.
 func TestPostingEdge_ThroughAShardWithAsyncIndexing(t *testing.T) {
-	postingEdgeThroughAShard(t, true)
+	postingEdgeThroughAShard(t, true, "routing")
 }
 
-func postingEdgeThroughAShard(t *testing.T, async bool) {
+// And so with no codes in memory: the searches of the inserts of several
+// workers read the codes they need from disk at once.
+func TestPostingEdge_ThroughAShardWithAsyncIndexingAndNoCodesInMemory(t *testing.T) {
+	postingEdgeThroughAShard(t, true, "none")
+}
+
+func postingEdgeThroughAShard(t *testing.T, async bool, cacheMode string) {
 	const (
 		dims  = 64
 		base  = 1000
@@ -201,7 +214,7 @@ func postingEdgeThroughAShard(t *testing.T, async bool) {
 		"maxPostingSizeKB": float64(8),
 		"rq": map[string]interface{}{
 			"rescoreLimit": float64(100),
-			"cacheMode":    "routing",
+			"cacheMode":    cacheMode,
 		},
 	})
 	dir, shardState := t.TempDir(), singleShardState()
@@ -444,7 +457,7 @@ func TestPostingEdge_ClassConfig(t *testing.T) {
 		{name: "dot", config: map[string]interface{}{"distance": "dot"}, wantErr: "unsupported distance"},
 		{name: "manhattan", config: map[string]interface{}{"distance": "manhattan"}, wantErr: "unsupported distance"},
 		{name: "hamming", config: map[string]interface{}{"distance": "hamming"}, wantErr: "unsupported distance"},
-		{name: "the cache mode that is not there yet", config: rq("cacheMode", "none"), wantErr: "not available yet"},
+		{name: "no codes in memory", config: rq("cacheMode", "none")},
 		{name: "a cache mode there is not", config: rq("cacheMode", "scan"), wantErr: "unknown rq.cacheMode"},
 		{name: "a boolean for a cache mode", config: rq("cacheMode", true), wantErr: "unknown rq.cacheMode"},
 		{name: "multi-vectors", multiVector: true, wantErr: "multi-vectors are not supported"},

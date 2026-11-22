@@ -190,12 +190,18 @@ func TestPersistentCleansInLineWithItsWrites(t *testing.T) {
 // that stopped at a fixed count ended, on a busy machine, before the layout
 // that was due had.
 func TestPersistentMaintenanceNextToEverything(t *testing.T) {
+	for _, cacheMode := range cacheModes {
+		t.Run(cacheMode, func(t *testing.T) { persistentMaintenanceNextToEverything(t, cacheMode) })
+	}
+}
+
+func persistentMaintenanceNextToEverything(t *testing.T, cacheMode string) {
 	ctx := context.Background()
 	const k = 10
 	// atLeast is how many vectors go in whatever happens, and total how many
 	// there are for the passes to run next to.
 	const atLeast, total = 2*persistentBase + 400, 6 * persistentBase
-	f := newPersistentFixture(t, total)
+	f := newPersistentFixtureMode(t, total, cacheMode, nil)
 	f.add(t, 0, persistentBase+200)
 
 	var deleted [total]atomic.Bool

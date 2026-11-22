@@ -179,6 +179,7 @@ func (g *growIndex) planRefresh(ctx context.Context, plan *growPlan, docID uint6
 	plan.vectorReads = 1
 	plan.entry = []uint64{uint64(g.st.side.postingOf[docID])}
 	plan.assignTime = 0
+	plan.haloOf, plan.haloKept, plan.wantHalo, plan.haloSeq = uint32(plan.entry[0]), false, g.noCodes, g.seq
 
 	search := g.searcher()
 	search.loaded = plan.keep
@@ -196,7 +197,7 @@ func (g *growIndex) planRefresh(ctx context.Context, plan *growPlan, docID uint6
 	}
 	keep := min(len(plan.neighbors), g.meta.Neighbors)
 	plan.neighbors, plan.dists = plan.neighbors[:keep], plan.dists[:keep]
-	return nil
+	return g.planCodes(plan)
 }
 
 // applyRefresh is the part of the refresh of a vector that writes: its list
@@ -234,6 +235,7 @@ func (g *growIndex) applyRefreshWrites(plan *growPlan) error {
 	out.SearchLoads += plan.searched.Postings
 	out.SearchRounds += plan.searched.Rounds
 	out.VectorReads += plan.vectorReads
+	g.stats.RoutingReads.add(int(plan.codeReads.N), int(plan.codeReads.Bytes))
 	if plan.selfMissing {
 		out.SelfMissing++
 	}
@@ -282,11 +284,27 @@ func (g *growIndex) applyRefreshWrites(plan *growPlan) error {
 		delete(g.keptAt, p)
 		g.listSeq[p] = g.seq
 		out.ListsChanged++
+		// The halo of its posting has the codes of the endpoints it had
+		// before, and gets those of the new ones.
+		if err := g.haloOwn(plan, p, edges); err != nil {
+			return err
+		}
 	}
 	if err := g.setBuilt(docID, g.held()); err != nil {
 		return err
 	}
-	if err := g.enterNeighbors(docID, vector, p, neighbors, dists); err != nil {
+	var code []uint64
+	if g.haloed() {
+		// Its own code, for the halo of the postings where it enters a list.
+		var read int
+		if code, read, err = g.routingCode(docID); err != nil {
+			return err
+		}
+		if read > 0 {
+			g.stats.RoutingReads.add(1, read)
+		}
+	}
+	if err := g.enterNeighbors(docID, vector, code, p, neighbors, dists); err != nil {
 		return err
 	}
 	if g.consolidated() {

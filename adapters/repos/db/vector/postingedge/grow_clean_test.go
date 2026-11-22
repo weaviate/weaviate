@@ -38,7 +38,14 @@ type cleanFixture struct {
 // that of the full code.
 func newCleanFixture(t *testing.T, total, base, dims int, cosine bool, threshold, consolidate int) *cleanFixture {
 	t.Helper()
-	format := shardFormat(consolidate)
+	return newCleanFixtureFormat(t, total, base, dims, cosine, threshold, shardFormat(consolidate))
+}
+
+// newCleanFixtureFormat is newCleanFixture with the format of the index on
+// disk given: with the halo of its postings, and with or without its codes in
+// memory.
+func newCleanFixtureFormat(t *testing.T, total, base, dims int, cosine bool, threshold int, format growConfig) *cleanFixture {
+	t.Helper()
 	format.open.deletes = true
 	f := &cleanFixture{growFixture: newGrowFixtureFormat(t, total, base, dims, cosine, 0, threshold, format)}
 	f.d = newDeleteIndex(f.twin, 0, 0)
@@ -152,6 +159,9 @@ func TestGrowCleanEqualsMemory(t *testing.T) {
 		share      float64
 		inserts    int
 		flushEvery int
+		// halo has the postings carry their halo, with no codes in memory
+		// unless resident.
+		halo, resident bool
 	}{
 		{name: "30 % at once", threshold: 60, consolidate: 4, rounds: 1, share: 0.30, inserts: 300, flushEvery: 37},
 		{name: "30 % at once, cosine", cosine: true, threshold: 60, consolidate: DefaultConsolidate, rounds: 1, share: 0.30, inserts: 300},
@@ -159,12 +169,25 @@ func TestGrowCleanEqualsMemory(t *testing.T) {
 		{name: "six rounds of 5 %, rows only at splits", threshold: 60, consolidate: DefaultConsolidate, rounds: 6, share: 0.05, inserts: 100, flushEvery: 29},
 		{name: "four rounds of 10 %, few splits", threshold: 400, consolidate: 16, rounds: 4, share: 0.10, inserts: 120, flushEvery: 53},
 		{name: "half at once", threshold: 60, consolidate: 4, rounds: 1, share: 0.50, inserts: 200},
+		{name: "no codes in memory, 30 % at once", threshold: 60, consolidate: 4, rounds: 1, share: 0.30, inserts: 300, flushEvery: 37, halo: true},
+		{
+			name: "no codes in memory, six rounds of 5 %, cosine", cosine: true, threshold: 60, consolidate: DefaultConsolidate,
+			rounds: 6, share: 0.05, inserts: 100, flushEvery: 29, halo: true,
+		},
+		{
+			name: "the halo kept up with the codes in memory, four rounds of 10 %", threshold: 60, consolidate: 8, rounds: 4,
+			share: 0.10, inserts: 120, flushEvery: 53, halo: true, resident: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const base, dims = 1000, 48
 			total := base + 400 + tt.rounds*tt.inserts
-			f := newCleanFixture(t, total, base, dims, tt.cosine, tt.threshold, tt.consolidate)
+			format := shardFormat(tt.consolidate)
+			if tt.halo {
+				format = haloFormat(tt.consolidate, tt.resident)
+			}
+			f := newCleanFixtureFormat(t, total, base, dims, tt.cosine, tt.threshold, format)
 			f.insertSome(t, 400)
 			f.same(t, "grown")
 			for round := range tt.rounds {
@@ -224,16 +247,25 @@ func TestGrowCleanMerges(t *testing.T) {
 		// whole deletes every member of some postings besides the share.
 		share float64
 		whole int
+		// halo has the postings carry their halo, and the index no codes in
+		// memory.
+		halo bool
 	}{
 		{name: "40 % at random", share: 0.40},
 		{name: "30 % at random and three whole postings", share: 0.30, whole: 3},
+		{name: "no codes in memory, 40 % at random", share: 0.40, halo: true},
+		{name: "no codes in memory, 30 % at random and three whole postings", share: 0.30, whole: 3, halo: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const base, dims, threshold = 1000, 48, 60
 			total := base + 800
 			under, within := mergeUnder(threshold), threshold
-			f := newCleanFixture(t, total, base, dims, false, threshold, 8)
+			format := shardFormat(8)
+			if tt.halo {
+				format = haloFormat(8, false)
+			}
+			f := newCleanFixtureFormat(t, total, base, dims, false, threshold, format)
 			f.insertSome(t, 400)
 			g := f.g
 			f.markShare(t, tt.share, 5)

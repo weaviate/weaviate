@@ -51,6 +51,15 @@ func TestGrowRefreshEqualsMemory(t *testing.T) {
 			base: 1000, total: 2200, reopenAt: 1500,
 		},
 		{name: "the full code", format: shardFormat(16), threshold: 60, base: 1000, total: 2200, flushEvery: 29},
+		{
+			name: "no codes in memory, two doublings", format: haloFormat(8, false), bits: 64, threshold: 60,
+			base: 1000, total: 4100, flushEvery: 41, reopenAt: 2600,
+		},
+		{name: "no codes in memory, the full code", format: haloFormat(DefaultConsolidate, false), threshold: 60, base: 1000, total: 2200},
+		{
+			name: "the halo kept up with the codes in memory", format: haloFormat(4, true), cosine: true, bits: 128, threshold: 60,
+			base: 1000, total: 2200, flushEvery: 37,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

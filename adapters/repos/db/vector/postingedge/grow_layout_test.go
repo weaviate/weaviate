@@ -32,6 +32,15 @@ func shardFormat(consolidate int) growConfig {
 	}
 }
 
+// haloFormat is shardFormat with the halo of every posting written and kept
+// up, and the index opened with no codes in memory, or, with resident, with
+// them: the halo is then written and nobody reads it.
+func haloFormat(consolidate int, resident bool) growConfig {
+	format := shardFormat(consolidate)
+	format.halo, format.open.noCodes = true, !resident
+	return format
+}
+
 // vectorsIntact checks that the index reads, for every doc it holds, the
 // vector it was given.
 func (f *growFixture) vectorsIntact(t *testing.T, at string) {
@@ -113,6 +122,10 @@ func TestGrowSlotsAndPendingEqualMemory(t *testing.T) {
 		},
 		{name: "the format of a shard, cosine", format: shardFormat(DefaultConsolidate), cosine: true, bits: 128, threshold: 60, flushEvery: 29},
 		{name: "the format of a shard, few splits, everything in the memtable", format: shardFormat(DefaultConsolidate), threshold: 400},
+		{name: "no codes in memory", format: haloFormat(4, false), bits: 64, threshold: 60, flushEvery: 41},
+		{name: "no codes in memory, cosine", format: haloFormat(DefaultConsolidate, false), cosine: true, bits: 128, threshold: 60, flushEvery: 29},
+		{name: "no codes in memory, the full code, everything in the memtable", format: haloFormat(DefaultConsolidate, false), threshold: 60},
+		{name: "the halo kept up with the codes in memory", format: haloFormat(8, true), bits: 64, threshold: 60, flushEvery: 37},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

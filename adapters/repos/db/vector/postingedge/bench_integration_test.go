@@ -92,6 +92,10 @@ var (
 	benchIntegrationCycles = flag.Bool("bench.integrationcycles", false, "with TestIntegrationScale: the index is "+
 		"given the cycles of a node that keep an HNSW graph, for the graph over its centroids, called with those of "+
 		"the store; a stage is then measured with the graph as they left it, and not cleaned by hand first")
+	benchIntegrationCacheMode = flag.String("bench.integrationcachemode", ent.CacheModeRouting, "with "+
+		"TestIntegrationScale: the rq.cacheMode of the class, routing or none. With none the index keeps no code in "+
+		"memory, and once it has grown it is opened with them too, over the same files, to count the queries it then "+
+		"answers otherwise")
 	benchIntegrationReuse = flag.Bool("bench.integrationreuse", false, "with TestIntegrationScale: "+
 		"-bench.integrationdir holds an index a run before left, which is opened as it is, with nothing put in: it "+
 		"is measured as the cycles left it and again with its bucket of postings as one segment")
@@ -156,7 +160,10 @@ type integrationStage struct {
 	// AsOneSegment counts the times the index asked for its bucket of
 	// postings as one segment and got it, since it was opened: each of them
 	// had the store write the bucket again, whole.
-	AsOneSegment   int                `json:"postingBucketAsOneSegment"`
+	AsOneSegment int `json:"postingBucketAsOneSegment"`
+	// CodesInMemory is the bytes of the routing codes the index holds in
+	// memory: none with rq.cacheMode none.
+	CodesInMemory  int64              `json:"routingCodesInMemoryBytes"`
 	VectorGen      int                `json:"vectorGen,omitempty"`
 	Slots          int                `json:"vectorSlots,omitempty"`
 	VectorsLaidOut int                `json:"vectorsLaidOut,omitempty"`
@@ -251,6 +258,7 @@ func TestIntegrationScale(t *testing.T) {
 		p                      *Persistent
 	)
 	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = *benchIntegrationCacheMode
 	closed := true
 	// The store has its metrics from the first one that opens: it keeps one
 	// observer of its reads for the whole process. It counts only what it
@@ -500,6 +508,7 @@ func TestIntegrationScale(t *testing.T) {
 			Splits: g.meta.Splits, Coverage: "complete", ReopenSeconds: reopenTook.Seconds(),
 			Segments: segments(), AsOneSegment: g.merges, VectorGen: g.meta.VectorGen, Slots: int(g.nextSlot),
 			VectorsLaidOut: g.meta.VectorsLaidOut, Layouts: p.layouts.Load(),
+			CodesInMemory: int64(len(g.st.side.codes)) * 8,
 		}
 		graphStats, err := g.st.centroids.graph.Stats()
 		require.NoError(t, err)
@@ -517,9 +526,10 @@ func TestIntegrationScale(t *testing.T) {
 		p.writeMu.Unlock()
 		require.NoError(t, cleaned)
 		t.Logf("%s: coverage %s | %d segments of postings, left as one %d times since the index was opened | "+
-			"generation %d of the vectors, %d of %d in the order of their postings | %d deleted centroids in the graph",
+			"generation %d of the vectors, %d of %d in the order of their postings | %d deleted centroids in the graph | "+
+			"%.1f MB of routing codes in memory",
 			name, stage.Coverage, stage.Segments, stage.AsOneSegment, stage.VectorGen, stage.VectorsLaidOut, stage.Slots,
-			stage.DeletedCentroids)
+			stage.DeletedCentroids, float64(stage.CodesInMemory)/1e6)
 		for at, ef := range efs {
 			searchUC := uc
 			searchUC.EF = ef
@@ -834,6 +844,24 @@ func TestIntegrationScale(t *testing.T) {
 	if *benchIntegrationReopen {
 		took := reopen("grown")
 		again := measure("grown, opened again", truth, nil, 0, grown, "the index was closed", took)
+		last := again
+		// withCodes opens the index of a class that keeps no codes in memory
+		// with them, over the same files, measures it, and opens it again as
+		// it was: what it ranks its postings by is then read from memory and
+		// not from their halos, and it must answer the same.
+		withCodes := func(name string) {
+			if uc.RQ.CacheMode != ent.CacheModeNone {
+				return
+			}
+			uc.RQ.CacheMode = ent.CacheModeRouting
+			took := reopen(name)
+			measure(name+", opened with its codes in memory", truth, nil, 0, last, "it was opened with its codes in memory", took)
+			uc.RQ.CacheMode = ent.CacheModeNone
+			reopen(name + ", with no codes in memory again")
+		}
+		if !*benchIntegrationReads {
+			withCodes("grown")
+		}
 		if *benchIntegrationReads {
 			// What a node that is left alone gets to: every memtable flushed,
 			// the store compacted until it finds nothing more to compact,
@@ -866,7 +894,8 @@ func TestIntegrationScale(t *testing.T) {
 				t.Logf("the vectors laid out again in %s, with other runs on the machine", time.Since(clock).Round(time.Second))
 			}
 			t.Logf("compacted in %d rounds, and %d passes over the vectors", rounds, p.layouts.Load()-passes)
-			measure("grown, compacted and laid out", truth, nil, 0, again, "it was compacted and laid out", 0)
+			last = measure("grown, compacted and laid out", truth, nil, 0, again, "it was compacted and laid out", 0)
+			withCodes("grown, compacted and laid out")
 		}
 	}
 

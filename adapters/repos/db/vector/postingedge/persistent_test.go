@@ -76,6 +76,17 @@ func newPersistentFixture(t *testing.T, n int) *persistentFixture {
 // index changed before it first opens.
 func newPersistentFixtureWith(t *testing.T, n int, change func(cfg *PersistentConfig)) *persistentFixture {
 	t.Helper()
+	return newPersistentFixtureMode(t, n, ent.CacheModeRouting, change)
+}
+
+// cacheModes are the two ways a class keeps the codes of its index: the tests
+// of what the index does whatever the way run with both.
+var cacheModes = []string{ent.CacheModeRouting, ent.CacheModeNone}
+
+// newPersistentFixtureMode is newPersistentFixtureWith for a class with the
+// given rq.cacheMode.
+func newPersistentFixtureMode(t *testing.T, n int, cacheMode string, change func(cfg *PersistentConfig)) *persistentFixture {
+	t.Helper()
 	all := latentVectors(n+60, persistentDims, 9101)
 	f := &persistentFixture{
 		root:     t.TempDir(),
@@ -90,6 +101,7 @@ func newPersistentFixtureWith(t *testing.T, n int, change func(cfg *PersistentCo
 	// largest there is, which every insert would pay too.
 	f.uc.MaxPostingSizeKB = ent.MinimumMaxPostingSizeKB
 	f.uc.RQ.RescoreLimit = 100
+	f.uc.RQ.CacheMode = cacheMode
 	f.uc.EF = 64
 	f.cfg = PersistentConfig{
 		ID:               "vectors_test",
@@ -314,6 +326,16 @@ func (f *persistentFixture) covered(t *testing.T, at string) {
 	require.NotNil(t, g, at)
 	require.NoError(t, g.cleanCentroidGraph(), at)
 	require.NoError(t, g.checkCoverage(), at)
+	// The codes are in memory, or the postings carry their halo and no code
+	// is, by what the class asks for.
+	noCodes := f.uc.RQ.CacheMode == ent.CacheModeNone
+	require.Equal(t, noCodes, g.noCodes, at)
+	require.Equal(t, noCodes, g.haloed(), at)
+	if noCodes {
+		require.Empty(t, g.st.side.codes, "%s: no code in memory", at)
+	} else {
+		require.Len(t, g.st.side.codes, len(g.live)*g.meta.RoutingCodeWords, at)
+	}
 }
 
 // vectorsIntact checks that the index reads, for every doc it holds, the
@@ -371,8 +393,14 @@ func TestPersistentEmpty(t *testing.T) {
 // on taking vectors. At every step it answers close to brute force over the
 // vectors it holds, and never with one it does not.
 func TestPersistentGrowsFromEmpty(t *testing.T) {
+	for _, cacheMode := range cacheModes {
+		t.Run(cacheMode, func(t *testing.T) { persistentGrowsFromEmpty(t, cacheMode) })
+	}
+}
+
+func persistentGrowsFromEmpty(t *testing.T, cacheMode string) {
 	const total, k = 3000, 10
-	f := newPersistentFixture(t, total)
+	f := newPersistentFixtureMode(t, total, cacheMode, nil)
 	half := persistentBase / 2
 
 	// Before the base, every answer is exact.
@@ -649,6 +677,43 @@ func TestPersistentUnsupported(t *testing.T) {
 			require.ErrorIs(t, err, ErrNotSupported, provider.Type())
 		}
 	})
+}
+
+// A class keeps the codes of its index the way it was created with. An index
+// written with its codes in memory does not open with none: its postings
+// carry no halo, and it says so, and then opens as it was. One that keeps no
+// codes is not written the way the first version of the index was.
+func TestPersistentKeepsItsCacheMode(t *testing.T) {
+	ctx := context.Background()
+	f := newPersistentFixture(t, persistentBase+300)
+	f.add(t, 0, persistentBase+300)
+	f.covered(t, "with its codes in memory")
+	before := f.answers(t, 10)
+	f.close(t)
+
+	openWith := func(change func(cfg *PersistentConfig, uc *ent.UserConfig)) error {
+		cfg, uc := f.cfg, f.uc
+		change(&cfg, &uc)
+		noop := cyclemanager.NewCallbackGroupNoop()
+		store, err := lsmkv.New(filepath.Join(f.root, "lsm"), f.root, testLogger(), nil, nil, noop, noop, noop)
+		require.NoError(t, err)
+		index, err := Open(cfg, uc, store)
+		if err == nil {
+			require.NoError(t, index.Shutdown(ctx))
+		}
+		require.NoError(t, store.Shutdown(ctx))
+		return err
+	}
+	err := openWith(func(_ *PersistentConfig, uc *ent.UserConfig) { uc.RQ.CacheMode = ent.CacheModeNone })
+	require.ErrorContains(t, err, "do not carry their halo")
+	err = openWith(func(cfg *PersistentConfig, uc *ent.UserConfig) {
+		cfg.listEdges, uc.RQ.CacheMode = true, ent.CacheModeNone
+	})
+	require.ErrorContains(t, err, "not written with a value per list of edges")
+
+	f.open(t)
+	f.covered(t, "opened as it was written")
+	assert.Equal(t, before, f.answers(t, 10), "the same answers")
 }
 
 // What an index cannot take it refuses whole, before it changes anything.

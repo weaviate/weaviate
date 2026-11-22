@@ -31,11 +31,17 @@ import (
 // index: covered, every vector the one it was given, none that was deleted
 // held or returned, and the same after it is opened again.
 func TestPersistentAddsFromSeveralCallers(t *testing.T) {
+	for _, cacheMode := range cacheModes {
+		t.Run(cacheMode, func(t *testing.T) { persistentAddsFromSeveralCallers(t, cacheMode) })
+	}
+}
+
+func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 	ctx := context.Background()
 	const k = 10
 	const callers, batch = 8, 25
 	const total = persistentBase + 1600
-	f := newPersistentFixture(t, total)
+	f := newPersistentFixtureMode(t, total, cacheMode, nil)
 	f.add(t, 0, persistentBase)
 	f.index.mu.Lock()
 	f.index.g.verifyKept = true
