@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,8 @@ var (
 	benchDiskRescores = flag.String("bench.diskrescores", "", "with TestDiskWrite: more rescore limits, in ascending "+
 		"order and separated by commas, to look for the points of a cell with when 0.99 is out of reach with that of "+
 		"the index and with -bench.halorescore. The first one that reaches it is the cell's")
+	benchDiskPointsRescore = flag.Int("bench.diskpointsrescore", 0, "with TestDiskPoints: the rescore limit the points "+
+		"of the cells of -bench.diskcells are looked for with again, over the cells on disk")
 	benchDiskPasses = flag.Int("bench.diskpasses", 3, "with TestDiskTimed: the timed warm passes of every point")
 	benchDiskHeap   = flag.String("bench.diskheap", "", "with TestDiskTimed: the file the heap profile of the process "+
 		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed. "+
@@ -273,15 +276,22 @@ func diskRecall(b *haloBench, ef, rescore int, margin float32) float64 {
 	return float64(hits.Load()) / float64(total.Load())
 }
 
-// diskOperatingPoints finds, for every target, the smallest ef whose recall
-// reaches it: first over the grid, then between the two values of the grid
-// around it. The index in memory has the state of the cell.
+// diskOperatingPoints finds the operating points of a cell over the index in
+// memory, which has the state of the cell.
 func diskOperatingPoints(b *haloBench, name string, rescore int, margin float32) ([]diskPoint, float64) {
+	return diskPointsOver(b.t, name, rescore, func(ef int) float64 { return diskRecall(b, ef, rescore, margin) })
+}
+
+// diskPointsOver finds, for every target, the smallest ef whose recall, as
+// recallOf tells it, reaches it: first over the grid, then between the two
+// values of the grid around it. It returns the best recall over the grid
+// besides.
+func diskPointsOver(t *testing.T, name string, rescore int, recallOf func(ef int) float64) ([]diskPoint, float64) {
 	recalls := make(map[int]float64)
 	recall := func(ef int) float64 {
 		if _, done := recalls[ef]; !done {
-			recalls[ef] = diskRecall(b, ef, rescore, margin)
-			b.t.Logf("%s, rescore %d, ef %d: recall %.4f", name, rescore, ef, recalls[ef])
+			recalls[ef] = recallOf(ef)
+			t.Logf("%s, rescore %d, ef %d: recall %.4f", name, rescore, ef, recalls[ef])
 		}
 		return recalls[ef]
 	}
@@ -747,6 +757,183 @@ func TestDiskTimed(t *testing.T) {
 			write()
 		},
 	})
+}
+
+// diskSearchAll searches every query in a cell on disk, untimed, and tells the
+// recall against truth and the stats of the searches added up.
+func diskSearchAll(ctx context.Context, logger logrus.FieldLogger, disk *diskIndex, queries [][]float32,
+	truth [][]uint64, k int,
+) (float64, *diskSearchStats, error) {
+	searchCtx := concurrency.CtxWithBudget(ctx, 1)
+	var mu sync.Mutex
+	sums := &diskSearchStats{}
+	hits, wanted := 0, 0
+	err := parallelChunks(ctx, logger, len(queries), 8, func(_, start, end int) error {
+		for q := start; q < end; q++ {
+			stats := &diskSearchStats{}
+			ids, _, err := disk.search(searchCtx, queries[q], k, stats)
+			if err != nil {
+				return err
+			}
+			found := 0
+			for _, want := range truth[q] {
+				if slices.Contains(ids, want) {
+					found++
+				}
+			}
+			mu.Lock()
+			hits += found
+			wanted += len(truth[q])
+			sums.Postings += stats.Postings
+			sums.Members += stats.Members
+			sums.Rounds += stats.Rounds
+			sums.Blocks += stats.Blocks
+			sums.BlockBytes += stats.BlockBytes
+			sums.MemberBytes += stats.MemberBytes
+			sums.EdgeBytes += stats.EdgeBytes
+			sums.HaloBytes += stats.HaloBytes
+			sums.Rescored += stats.Rescored
+			mu.Unlock()
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return float64(hits) / float64(wanted), sums, nil
+}
+
+// TestDiskPoints looks for the operating points of cells that are already
+// written, with another rescore limit, without building their index again
+// (bench-report.md, "10M en disco", fourth amendment): the build of 10M takes
+// hours, and TestDiskWrite keeps the first rescore limit that reaches 0.99.
+// The recall is that of the searches over the cell on disk against the truth
+// of the manifest, with the tunables TestDiskTimed searches with. There is no
+// index in memory to compare the results with, so a point of this test has
+// no queries compared; before it looks for anything, every point the cell
+// has must come out again with its recall and its loads, which stops the run
+// if it does not. The manifest of -bench.diskmanifest is left, with the new
+// points of the cells of -bench.diskcells, in -bench.out, for TestDiskTimed.
+func TestDiskPoints(t *testing.T) {
+	if *benchDatasetDir == "" || *benchDiskDir == "" || *benchDiskPointsRescore == 0 {
+		t.Skip("no -bench.dataset, -bench.diskdir and -bench.diskpointsrescore given")
+	}
+	require.NotEmpty(t, *benchOut, "TestDiskPoints leaves its manifest in -bench.out")
+	rescore := *benchDiskPointsRescore
+	ctx := context.Background()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	raw, err := os.ReadFile(*benchDiskManifest)
+	require.NoError(t, err)
+	var manifest diskManifest
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+	data := loadBenchData(t, *benchDatasetDir, 0, manifest.Queries, manifest.K, true)
+	require.Len(t, data.queries, len(manifest.Truth))
+	queries, truth, k := data.queries, manifest.Truth, manifest.K
+	provider := distancer.NewCosineDistanceProvider()
+	metrics, err := diskStoreMetrics()
+	require.NoError(t, err)
+	n := float64(len(queries))
+
+	for _, name := range strings.Split(*benchDiskCells, ",") {
+		at := slices.IndexFunc(manifest.Cells, func(c diskCellManifest) bool { return c.Spec.Name == name })
+		require.GreaterOrEqualf(t, at, 0, "the manifest has no cell %q", name)
+		cell := &manifest.Cells[at]
+		require.Zero(t, cell.Spec.Rescore, "cell %s has its rescore limit fixed", name)
+		dir := filepath.Join(*benchDiskDir, cell.Dir)
+		uc := NewDefaultUserConfig()
+		uc.LoadBatch = DefaultLoadBatch
+		uc.SourceMargin = float32(cell.Spec.Margin)
+		with := func(disk *diskIndex, ef, limit int) {
+			pointUC := uc
+			pointUC.EF, pointUC.RescoreLimit = ef, limit
+			require.NoError(t, disk.ix.UpdateUserConfig(pointUC, func() {}))
+		}
+		disk, err := openDiskIndex(ctx, logger, dir, provider, uc, nil, false)
+		require.NoError(t, err)
+
+		// What the cell was written with comes out again, or nothing here
+		// can be read next to it.
+		for _, point := range cell.Points {
+			if !point.Reached {
+				continue
+			}
+			with(disk, point.EF, point.RescoreLimit)
+			recall, sums, err := diskSearchAll(ctx, logger, disk, queries, truth, k)
+			require.NoError(t, err)
+			if math.Abs(recall-point.Recall) > 1e-9 || math.Abs(float64(sums.Postings)/n-point.Loads) > 1e-9 {
+				t.Fatalf("STOP: cell %s at recall %.2f (ef %d, rescore %d) has recall %.4f and %.2f loads in its "+
+					"manifest, and %.4f and %.2f over the cell on disk", name, point.Target, point.EF, point.RescoreLimit,
+					point.Recall, point.Loads, recall, float64(sums.Postings)/n)
+			}
+			t.Logf("cell %s at recall %.2f, as written: ef %d, rescore %d, recall %.4f and %.2f loads over the cell "+
+				"on disk, those of its manifest", name, point.Target, point.EF, point.RescoreLimit, recall, point.Loads)
+		}
+
+		points, best := diskPointsOver(t, name, rescore, func(ef int) float64 {
+			with(disk, ef, rescore)
+			recall, _, err := diskSearchAll(ctx, logger, disk, queries, truth, k)
+			require.NoError(t, err)
+			return recall
+		})
+		for i := range points {
+			point := &points[i]
+			if !point.Reached {
+				t.Logf("cell %s: recall %.2f is not reached with rescore %d, the best is %.4f", name, point.Target, rescore, best)
+				continue
+			}
+			with(disk, point.EF, point.RescoreLimit)
+			recall, sums, err := diskSearchAll(ctx, logger, disk, queries, truth, k)
+			require.NoError(t, err)
+			require.InDelta(t, point.Recall, recall, 1e-9, "the recall the point was found with")
+			point.Loads, point.Rounds, point.Blocks = float64(sums.Postings)/n, float64(sums.Rounds)/n, float64(sums.Blocks)/n
+			point.MemberBytes, point.EdgeBytes = float64(sums.MemberBytes)/n, float64(sums.EdgeBytes)/n
+			point.HaloBytes, point.Rescored = float64(sums.HaloBytes)/n, float64(sums.Rescored)/n
+			// The model of v3.0, as TestDiskWrite counts it.
+			point.ModelBytes = float64(sums.MemberBytes+(sums.EdgeBytes-sums.Members)+sums.HaloBytes) / n
+			t.Logf("cell %s at recall %.2f: ef %d, rescore %d, recall %.4f over the cell on disk | %.2f loads, %.2f "+
+				"rounds, %.1f blocks, %.3f MB of blocks per query (model %.3f MB), %.1f rescored", name, point.Target,
+				point.EF, point.RescoreLimit, point.Recall, point.Loads, point.Rounds, point.Blocks,
+				(point.MemberBytes+point.EdgeBytes+point.HaloBytes)/1e6, point.ModelBytes/1e6, point.Rescored)
+		}
+		require.NoError(t, disk.close(ctx))
+
+		// What the store reads, counted by the store, which only counts
+		// when it reads with pread.
+		counted, err := openDiskIndex(ctx, logger, dir, provider, uc, metrics, true)
+		require.NoError(t, err)
+		for i := range points {
+			point := &points[i]
+			if !point.Reached {
+				continue
+			}
+			with(counted, point.EF, point.RescoreLimit)
+			readsBefore, bytesBefore, err := diskStoreReads()
+			require.NoError(t, err)
+			_, sums, err := diskSearchAll(ctx, logger, counted, queries, truth, k)
+			require.NoError(t, err)
+			readsAfter, bytesAfter, err := diskStoreReads()
+			require.NoError(t, err)
+			reads, bytes := readsAfter-readsBefore, bytesAfter-bytesBefore
+			// The store reads a block with one read, of the block and
+			// what it wraps it in.
+			require.Equal(t, uint64(sums.Blocks), reads, "the store counts one read per block")
+			require.Equal(t, uint64(sums.BlockBytes+sums.Blocks*(diskStoreNodeBytes+diskKeyBytes)), bytes)
+			require.InDelta(t, point.Blocks, float64(sums.Blocks)/n, 1e-9, "the same blocks as the search over the mapped store")
+			point.StoreReads, point.StoreBytes = float64(reads)/n, float64(bytes)/n
+			point.RealOverModel = point.StoreBytes / point.ModelBytes
+			t.Logf("cell %s at recall %.2f: the store counts %.1f reads and %.3f MB per query, %.3f of the model",
+				name, point.Target, point.StoreReads, point.StoreBytes/1e6, point.RealOverModel)
+		}
+		require.NoError(t, counted.close(ctx))
+
+		reached := points[len(points)-1].Reached
+		cell.Points, cell.MaxRecall, cell.MaxRescoreLimit = points, best, rescore
+		cell.Tried = append(cell.Tried, diskRescoreTry{RescoreLimit: rescore, MaxRecall: best, Reached: reached})
+	}
+	out, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(*benchOut, out, 0o644))
 }
 
 // writeHeapProfile writes the heap profile of the process, as of its last
