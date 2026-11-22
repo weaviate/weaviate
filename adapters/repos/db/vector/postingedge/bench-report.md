@@ -618,6 +618,25 @@ La ventaja en frío a 0.95 frente a HFresh de 8 en 8 es de 3 veces o más, por e
 - **Las dos caben antes de las 08:30:** el ensayo construyó 1M en 1 min 45 s, así que cada celda de 10M debería llevar entre 45 y 75 minutos con su espera. La segunda no empieza después de las 05:30, y ninguna cronometra si su espera acaba después de las 07:35.
 - **Lo que espero de la celda centrada:** 0.95 con ef entre 40 y 80, y 0.99 con ef entre 250 y 450, como v1.4. Lo demás, como en lo esperado de arriba.
 
+#### Enmienda 2 (23:06 del 22, antes de cronometrar nada): la primera cadena falló al empezar a cronometrar
+
+**Qué pasó.** Las dos celdas se construyeron, encontraron sus puntos y pasaron la espera. Las dos fallaron en la primera pasada sin cronometrar, que comprueba que el punto da el recall con el que se encontró. Esa comprobación exigía igualdad exacta, y HNSW dio 0.9500 donde el punto se había encontrado con 0.9501: un acierto de diferencia en 10 000.
+
+- **Por qué, hasta donde sé:** HNSW no responde igual dos veces a la misma query. Su rescore corre en tantos workers como el presupuesto de la query, y un empate en el puesto k se lo queda el que llega antes. Los puntos se buscaron con presupuesto 1; la pasada, con el que concede el limitador.
+- **El arreglo:** la comprobación admite 0.001 de diferencia, 10 aciertos, y anota las dos cifras. Las celdas de posting-edge no cambian: su búsqueda sí es determinista, y la comprobación exacta sigue en `TestDiskTimed`.
+- **No se cronometró nada.** Las dos celdas se construyen otra vez, porque el índice no se guarda.
+- **Lo que dejaron los dos builds, sin cronometrar:**
+
+| | por defecto, sin centrar | centrada (*mía*) |
+|---|---|---|
+| build | 27 min 13 s | 21 min 58 s |
+| heap en uso tras construir y recoger | 4 755 MB | 4 866 MB |
+| códigos en memoria | 992 MB | 992 MB |
+| 0.95 | ef 165 | ef 44 |
+| 0.99 | no llega: 0.9891 con ef 2 048 | ef 374 |
+
+- **El heap queda por encima de lo que esperaba,** 3.0 a 3.6 GB. El de v1.4 se midió de otra forma: la diferencia entre el heap antes y después de construir.
+
 ## Parámetros: el `ef` dinámico y la regla del rescore (2026-11-21)
 
 **Estado: medido el 21, de 11:37 a 13:55. `ef` dinámico: no hace falta un factor por k; basta el mínimo de 20 y que `ef` no baje de k, y lo que k = 100 necesita es rescore, 4 veces k. Regla del rescore: el ancla a 768 bits baja de 200 a 150. Abajo, «Resultados» y «Las dos reglas que propongo».** Pre-registrado el 21 a las 11:12, antes de correr nada. No hay código nuevo: son corridas del arnés de v3.0 (`TestHalo`) con el binario de v5.4. Las dos medidas y lo que hay que proponer son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Sin cronometrar: son conteos, en memoria, y corren al lado de la parte sin cronometrar de v5.4.
