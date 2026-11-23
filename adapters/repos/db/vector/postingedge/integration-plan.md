@@ -1327,6 +1327,76 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 **Cómo entra en la medida** (*mío*):
 
 - **El índice** lo crece el arnés de escala como en las corridas del hito 2, con ocho llamadores y las decisiones del 22, en un directorio del volumen de las pruebas. Se mide compactado y con los vectores en orden de posting.
-- **HNSW** es `TestHNSWDiskTimed` de la rama de experimentos (`946f843a09`), portado a esta rama y construido en el mismo proceso que abre el nuestro, para que los dos se cronometren en la misma sesión.
+- **HNSW** es `TestHNSWDiskTimed` de la rama de experimentos (`946f843a09`), portado a esta rama y construido en el mismo proceso que abre el nuestro, para que los dos se cronometren en la misma sesión. Con `acorn`, su estrategia por defecto, y con `sweeping` (abajo, «Lo que cambió después de la enmienda 1»).
 - **En frío,** antes de cada lote de 10 queries el nuestro se cierra con su store y se abre otra vez tras soltar la caché, sin cronometrar; de HNSW se cierra solo el fichero de los vectores, como en la medida de 10M.
 - **La parada se comprueba en cada query de cada medida:** un id fuera del filtro para la corrida.
+
+### Lo que cambió después de la enmienda 1, el 23 por la mañana
+
+- **En el informe de los experimentos esta enmienda es la 2** del pre-registro de filtros (`063fe39a72` en `feat/posting-edge-index`): la 1 es la corrección del usuario que sigue.
+- **La comparación principal es HNSW con `acorn`, no con `sweeping`.** Palabras del usuario: «Filtros: la comparación principal es con HNSW en su valor por defecto (ACORN), cronometrado. Sweeping va como segunda referencia, también cronometrada si cabe». En el pre-registro es la enmienda 1 (`996f0ba2d2`). El criterio no cambia.
+  - **En el arnés:** HNSW se mide con `acorn` y con `sweeping` sin cronometrar, en todos los filtros, y con su corte de 40 000. En las rondas cronometradas van primero el nuestro y HNSW con `acorn`; las de `sweeping`, al final, si la noche da (`-bench.filters.until` deja fuera, y lo dice, lo que empezaría tarde).
+- **El volumen.** La sesión de experimentos dio el visto bueno a poner el índice integrado en `/Volumes/v40bench/filter1m`, junto a los vectores de HNSW, y a desmontar y montar el volumen entre los lotes en frío, como su cola: si no desmonta, la corrida falla.
+
+**Dos decisiones del usuario del 23, para más adelante.** No se empiezan hasta que el usuario lo diga:
+
+- **Distancias en la primera versión: `cosine` y `l2-squared`.** `dot` se rechaza, como en HFresh (`entities/vectorindex/hfresh/config.go:113`). La variación de norma queda documentada como no probada.
+- **El margen de las fuentes pasa a ser relativo a la dispersión de la pila de parada,** con un suelo para cuando la pila tiene pocos elementos o `worst − best` es casi cero. **Con filtros se calcula sobre los escaneados, no sobre los válidos.**
+  - **Lo que hay hoy en la búsqueda filtrada:** el corte de fuentes es el peor de la pila de parada más el margen absoluto, y en la pila solo entran los permitidos. Cuando el margen sea relativo, su dispersión tendrá que salir de los escaneados, permitidos o no: con un filtro selectivo la pila de permitidos está muy abierta y daría un margen demasiado ancho. Sin hacer.
+
+### Enmienda 3 (23 de noviembre, 11:45): el rescore de la búsqueda plana, y la búsqueda plana en `none`
+
+*Por dos órdenes del usuario del 23, escrita antes de compilar nada.*
+
+**El rescore de la búsqueda plana sale del `rescoreLimit` del índice.** Palabras del usuario: «El rescore del camino plano sale del `rescoreLimit` del índice, no es un número fijo. Si 507 tiene un motivo, dímelo».
+
+- **No hay ningún número fijo en el código.** Con el límite automático, R es la regla del 22 aplicada al ancho del código que ordena la búsqueda plana, con 4 × k y ef como suelos. Con un límite explícito, ese límite, con k y ef como suelos.
+- **Por qué sale 507 en dbpedia.** La plana ordena por el código de ruteo, que a 1 536 dimensiones son 512 bits capados, y la regla da 150 × (768 / 512)³ = 507 para ese ancho.
+  - **Con 64, lo que la regla da para el código de scan de 1 536 bits,** el techo de recall con 512 bits capados es 0.9255 en dbpedia (sección 4). La plana no llegaría a 0.95 al 0.1 % ni al 1 %, que son los filtros que van por ella.
+  - **Con 400 ese techo es 0.991,** y con 507 queda por encima.
+- **Un test de tabla lo fija:** el automático con 512 bits, con el código completo, un límite explícito, y k y ef por encima de cada uno (`TestFlatRescore`).
+
+**La búsqueda plana en `none`.** Palabras del usuario: «Define el camino plano en modo `none`: agrupar los permitidos por posting con el mapa, cargar solo esos postings y escanear solo los permitidos. Si queda para después, que dé error explícito en ese modo y no use códigos que no están en memoria».
+
+- **Hasta ahora, en `none`, la plana leía el código de ruteo de cada permitido de su bucket,** uno a uno. Eso se quita.
+- **Lo que hará:**
+  - **El mapa,** que está en memoria en los dos modos, da el posting de cada permitido.
+  - **Se cargan solo esos postings,** cada uno una vez y solo su fila de miembros. Ni su fila de aristas ni su halo.
+  - **Se puntúan solo sus miembros permitidos,** con su código de scan, el completo.
+  - **Se rescoran los R mejores** como en `routing`. Aquí ordena el código de scan, así que R es la regla aplicada a su ancho: 64 a 1 536 bits, con 4 × k y ef como suelos (*mío*). Es el mismo principio que en `routing`, con el código que ordena en cada modo.
+- **Lo que cuesta, sin medir:** un posting cargado por cada posting distinto que tenga algún permitido. Con un filtro en bola son pocos. Con uno al azar del 1 % a 1M, casi todos: unas 4 000 cargas por query.
+- **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito, y no lee ningún código de ruteo. La medida es en `routing` y no la cambia.
+
+## 9. Un índice sin su `meta.json` (23 de noviembre)
+
+*Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*
+
+**El riesgo.** Hasta el 23, `Open` tomaba la falta de meta por un build de la base sin acabar y llamaba a `discardBase`, que borra todos los ficheros del índice y todos sus buckets. Una copia o una restauración sin el meta abría como un índice vacío, sin error, y con todo borrado.
+
+- **El test en rojo,** en su propio commit (`43988b3c8b`): un índice con base, cerrado, sin su meta. Abrirlo tiene que fallar y no cambiar nada en disco, y con el meta de vuelta tiene que abrir como era (`TestPersistentOpensWithoutItsMeta`). Con el código de entonces abría sin error y lo borraba todo.
+
+**La base a medio construir: decisión del usuario del 23.** Le pregunté por los dos casos en que el índice borra lo que escribió un build suyo de la base: el build que muere mientras escribe la base, y el que falla sin morir, por ejemplo con el disco lleno. Sus palabras:
+
+> «Sí en los dos casos, con estas condiciones:
+> 1. La marca de build registra qué crea el build, y la limpieza borra solo eso.
+> 2. Antes de borrar, se comprueba que los vectores de origen apartados están completos. Si no lo están, error al abrir y no se borra nada.
+> 3. Cada limpieza deja una línea de log con qué se borró y por qué.
+> Tests: los dos casos (muerte durante el build y fallo sin morir), uno con los vectores de origen incompletos que debe dar error sin borrar nada, y uno para el trabajo de backup más adelante: restaurar una copia hecha a mitad de un build, que debe rehacer la base y quedar entera.»
+
+**El arreglo:**
+
+- **El meta se escribe el último,** así que un índice con meta tiene su base entera. Eso no cambia.
+- **La marca de un build** es su directorio, `<id>.postingedge.build`. Se crea antes de empezar y se quita al acabar, haya salido bien o mal.
+  - **Antes de escribir nada de la base, el build deja en ella la lista de lo que va a crear:** los ficheros del directorio del índice, por su nombre, y los buckets del índice en el store, también por su nombre. Lleva además los doc ids de los vectores de los que construye la base.
+  - **Si algo de esa lista existe ya, el build no empieza.** Así nada de lo que la limpieza puede borrar es anterior al build.
+- **La limpieza borra solo lo que está en la lista** y existe. Antes de borrar comprueba dos cosas, y si falla cualquiera no borra nada:
+  - **que no haya nada más de una base fuera de la lista** (en el directorio del índice o en sus buckets);
+  - **que los vectores de origen sigan todos apartados,** cada doc id de la lista con su vector o con la marca de un borrado hecho durante el build.
+  - **Cada limpieza deja una línea de log** con lo que borró y por qué.
+- **Cuándo limpia:**
+  - **Un build que falla sin morir** limpia antes de devolver el error, en el mismo proceso. Los vectores siguen apartados y el build se intenta otra vez, como antes.
+  - **Un índice que abre sin meta y con la marca de un build y su lista** limpia, y abre con los vectores apartados: el build siguiente rehace la base.
+- **Al abrir sin meta, en los demás casos:**
+  - **Sin nada de una base:** es un índice que nunca tuvo base, y abre como siempre. Si queda la marca de un build sin lista, ese build murió antes de escribir nada, y se quita la marca, que solo tiene ficheros de trabajo del build.
+  - **Con algo de una base y sin una lista que lo cubra:** error al abrir, que dice qué hay y dónde. No se borra nada. Es lo que deja una copia o una restauración incompleta.
+- **Con meta y la marca de un build:** el build murió después de escribir el meta, y la base está entera. Se quita la marca.
