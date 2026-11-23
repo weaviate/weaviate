@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -266,8 +267,32 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
+	if !h.Centroids.Built() {
+		err = h.restoreSinglePosting()
+		if err != nil {
+			return err
+		}
+	}
 
 	return h.restoreMetrics()
+}
+
+// restoreSinglePosting finds posting 1 by its size, persisted on each append,
+// without reading the posting.
+func (h *HFresh) restoreSinglePosting() error {
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
+	if err != nil || size == 0 {
+		return err
+	}
+
+	h.Centroids.restoreSingle()
+
+	// a crash can lose the queued split, and a lowered limit applies without
+	// waiting for an insert
+	if size > h.splitLimit() {
+		return h.taskQueue.EnqueueSplit(singlePostingID)
+	}
+	return nil
 }
 
 // restoreDimensions restores dimension-dependent components from persisted
@@ -458,6 +483,11 @@ func (h *HFresh) repairOrphanPostings() {
 		if !h.Centroids.Exists(postingID) || h.Centroids.VectorMissing(postingID) {
 			orphans = append(orphans, postingID)
 		}
+	}
+	// a first split cut short after the graph existed leaves posting 1 full,
+	// outside the graph and without a persisted map entry
+	if h.Centroids.Built() && !h.Centroids.Exists(singlePostingID) && !slices.Contains(orphans, singlePostingID) {
+		orphans = append(orphans, singlePostingID)
 	}
 
 	for _, postingID := range orphans {
