@@ -171,9 +171,6 @@ func (ix *Index) searchFrom(ctx context.Context, vector []float32, k int, allow 
 	if st == nil {
 		return nil, nil, ErrNotBuilt
 	}
-	if allow != nil {
-		return nil, nil, errors.Wrap(ErrNotSupported, "filtered search")
-	}
 	if k < 1 {
 		return nil, nil, errors.Errorf("k must be positive, got %d", k)
 	}
@@ -208,6 +205,7 @@ func (ix *Index) searchFrom(ctx context.Context, vector []float32, k int, allow 
 		stop = &sc.stop
 	}
 	search := st.newPostingSearch(sc, query, stop, margin, stats)
+	search.allow = allow
 
 	var clock time.Time
 	if len(entryIDs) == 0 {
@@ -328,6 +326,10 @@ type postingSearch struct {
 	// into dists. A layout that keeps the codes of the endpoints with the
 	// posting sets it; the index never does.
 	scoreEndpoints func(post *posting, slots []uint32, dists []float32) error
+	// allow, when set, is the filter of the search: a member it leaves out
+	// is scored and is a source like any other, so that the search goes on
+	// through it, and is never a candidate (integration-plan.md, section 8).
+	allow helpers.AllowList
 }
 
 // newPostingSearch prepares the search of one query. With codes of their own
@@ -386,6 +388,7 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 	sc.memberDist = sc.memberDist[:0]
 	deleted := s.st.deleted
 	asSources := s.st.deletedAsSources
+	allow := s.allow
 	skipped := 0
 	for i, docID := range post.docIDs {
 		gone := deleted != nil && deleted[post.key(i)]
@@ -399,7 +402,7 @@ func (s *postingSearch) visit(p uint32, post *posting) error {
 			return errors.Wrapf(err, "estimate distance to doc %d", docID)
 		}
 		sc.memberDist = append(sc.memberDist, dist)
-		if gone {
+		if gone || allow != nil && !allow.Contains(docID) {
 			// A source like any other, and no candidate.
 			continue
 		}

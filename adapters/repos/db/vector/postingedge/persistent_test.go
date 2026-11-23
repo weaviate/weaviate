@@ -629,12 +629,12 @@ func TestPersistentUnsupported(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"a filtered search", func() error {
-			_, _, err := f.index.SearchByVector(ctx, query, 10, allow)
-			return err
-		}},
 		{"a search by distance", func() error {
 			_, _, err := f.index.SearchByVectorDistance(ctx, query, 0.2, 100, nil)
+			return err
+		}},
+		{"a filtered search by distance", func() error {
+			_, _, err := f.index.SearchByVectorDistance(ctx, query, 0.2, 100, allow)
 			return err
 		}},
 		{"a backup", func() error { return f.index.PrepareForBackup(ctx) }},

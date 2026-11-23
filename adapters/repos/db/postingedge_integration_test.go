@@ -394,8 +394,8 @@ func postingEdgeThroughAShard(t *testing.T, async bool, cacheMode string) {
 		assert.Greater(t, got, 0.9)
 	})
 
+	more := newPostingEdgeCorpus(300, dims, 3)
 	t.Run("after the restart it goes on", func(t *testing.T) {
-		more := newPostingEdgeCorpus(300, dims, 3)
 		for i, vector := range more.vectors {
 			require.NoError(t, repo.PutObject(ctx, &models.Object{
 				Class: postingEdgeTestClass, ID: more.ids[i],
@@ -411,22 +411,59 @@ func postingEdgeThroughAShard(t *testing.T, async bool, cacheMode string) {
 		require.NotContains(t, search(t, repo, more.vectors[0], k), more.ids[0])
 	})
 
-	t.Run("what the index does not do fails the query", func(t *testing.T) {
-		shard := postingEdgeTestShard(t, repo)
+	// A filter leaves the late objects, but for the one deleted: the index
+	// returns those and nothing else, the nearest of them by brute force,
+	// and so after a restart.
+	filtered := func(t *testing.T, repo *DB, at string) {
+		t.Helper()
 		filter := &filters.LocalFilter{Root: &filters.Clause{
 			Operator: filters.OperatorEqual,
 			On:       &filters.Path{Class: postingEdgeTestClass, Property: "name"},
 			Value:    &filters.Value{Value: "late", Type: schema.DataTypeText},
 		}}
-		_, err := repo.VectorSearch(ctx, dto.GetParams{
-			ClassName:  postingEdgeTestClass,
-			Pagination: &filters.Pagination{Limit: k},
-			Filters:    filter,
-		}, []string{""}, []models.Vector{corpus.queries[0]})
-		require.ErrorContains(t, err, "filtered search")
-		require.ErrorContains(t, err, "not supported")
+		late := map[strfmt.UUID]bool{}
+		for _, id := range more.ids[1:] {
+			late[id] = true
+		}
+		hits, wanted := 0, 0
+		for i, query := range append(slices.Clone(corpus.queries), more.vectors[:10]...) {
+			res, err := repo.VectorSearch(ctx, dto.GetParams{
+				ClassName:  postingEdgeTestClass,
+				Pagination: &filters.Pagination{Limit: k},
+				Filters:    filter,
+			}, []string{""}, []models.Vector{query})
+			require.NoError(t, err, "%s, query %d", at, i)
+			require.Len(t, res, k, "%s, query %d", at, i)
+			var got []strfmt.UUID
+			for _, r := range res {
+				require.True(t, late[r.ID], "%s, query %d: %s is not an object the filter allows", at, i, r.ID)
+				got = append(got, r.ID)
+			}
+			want := more.nearest(t, query, k, func(i int) bool { return i > 0 })
+			for _, id := range want {
+				if slices.Contains(got, id) {
+					hits++
+				}
+			}
+			wanted += len(want)
+		}
+		recall := float64(hits) / float64(wanted)
+		t.Logf("%s: filtered recall@%d %.4f", at, k, recall)
+		assert.Greater(t, recall, 0.95, at)
+	}
+	t.Run("a filter leaves only what it allows", func(t *testing.T) {
+		filtered(t, repo, "filtered")
+		require.NoError(t, repo.Shutdown(context.Background()))
+		closed = true
+		repo = open()
+		closed = false
+		indexed(t, repo)
+		filtered(t, repo, "filtered, after a restart")
+	})
 
-		_, _, err = shard.ObjectVectorSearch(ctx, []models.Vector{corpus.queries[0]}, []string{""}, 0.5, -1,
+	t.Run("what the index does not do fails the query", func(t *testing.T) {
+		shard := postingEdgeTestShard(t, repo)
+		_, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{corpus.queries[0]}, []string{""}, 0.5, -1,
 			nil, nil, nil, additional.Properties{}, nil, nil)
 		require.ErrorContains(t, err, "search by distance")
 		require.ErrorContains(t, err, "not supported")

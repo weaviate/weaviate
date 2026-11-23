@@ -557,8 +557,12 @@ func TestOperationsThisVersionLeavesOutFailLoudly(t *testing.T) {
 	require.ErrorIs(t, index.Delete(3), ErrNotSupported)
 	assert.True(t, index.ContainsDoc(3), "a refused delete must not look like it worked")
 
-	_, _, err := index.SearchByVector(ctx, vectors[0], 5, helpers.NewAllowList(1, 2, 3))
-	require.ErrorIs(t, err, ErrNotSupported)
+	// A filter is taken: the search returns nothing it leaves out. This index
+	// has no flat search, and the allowed vectors of a filter this small may
+	// lie where no edge of the clusters of this test leads.
+	ids, _, err := index.SearchByVector(ctx, vectors[0], 5, helpers.NewAllowList(1, 2, 3))
+	require.NoError(t, err)
+	require.Subset(t, []uint64{1, 2, 3}, ids)
 
 	require.ErrorIs(t, index.PrepareForBackup(ctx), ErrNotSupported)
 	_, err = index.SnapshotMutableFiles(ctx, t.TempDir(), t.TempDir())

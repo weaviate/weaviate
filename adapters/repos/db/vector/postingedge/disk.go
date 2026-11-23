@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -349,6 +350,10 @@ type diskSearchStats struct {
 	Loaded     []uint32
 	// Rescored counts the exact vectors read, one read each.
 	Rescored int
+	// Flat tells that the search was the flat search of a filter, which
+	// loads no posting, and Scored counts the codes it scored.
+	Flat   bool
+	Scored int
 	// Budget is the concurrency budget the query ran with, which whoever
 	// times the search writes down: the search does not.
 	Budget       int
@@ -395,6 +400,8 @@ type fetchedSearch struct {
 	// index: the search of an insert for its edges has its own
 	// (efConstruction), next to the queries.
 	ef int
+	// allow, when set, is the filter of the search (postingSearch.allow).
+	allow helpers.AllowList
 }
 
 // run searches from the given entry postings. Without any it asks the
@@ -439,6 +446,7 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 		stop = &sc.stop
 	}
 	search := st.newPostingSearch(sc, query, stop, margin, stats.Work)
+	search.allow = f.allow
 	var visiting *diskPosting
 	blocks := 2
 	if f.noMembers {

@@ -225,6 +225,12 @@ type PersistentConfig struct {
 	// it: a value per list of edges, and the exact vectors at their doc ids.
 	// Only the tests set it, to have an index of then to open.
 	listEdges bool
+	// flatCutoff is the allowed vectors under which a filtered search is the
+	// flat search and not the search of the index: 0 for the default,
+	// DefaultFlatSearchCutoff, and negative for never. It is not a parameter
+	// of a class: the tests and the experiments set it (integration-plan.md,
+	// section 8).
+	flatCutoff int
 	// refreshEdges has the index build again the edges of its oldest vectors
 	// every time it doubles (persistent_refresh.go). It is off by default, by
 	// the user's decision of 2026-11-22: measured at 1M it bought nothing
@@ -1132,11 +1138,6 @@ func (p *Persistent) mark(ids []uint64) (int, error) {
 func (p *Persistent) SearchByVector(ctx context.Context, vector []float32, k int,
 	allow helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	// A filter that is dropped would return what the filter leaves out, and
-	// nothing above the index checks.
-	if allow != nil {
-		return nil, nil, errors.Wrap(ErrNotSupported, "filtered search")
-	}
 	if k < 1 {
 		return nil, nil, errors.Errorf("k must be positive, got %d", k)
 	}
@@ -1150,14 +1151,18 @@ func (p *Persistent) SearchByVector(ctx context.Context, vector []float32, k int
 	if dims == 0 {
 		return nil, nil, nil
 	}
+	if allow != nil && allow.IsEmpty() {
+		// Nothing is allowed.
+		return nil, nil, nil
+	}
 	if p.g != nil {
-		ids, dists, err := p.g.searcher().run(ctx, vector, k, nil, nil)
+		ids, dists, err := p.searchIndex(ctx, vector, k, allow, nil)
 		if err != nil || len(p.staged) == 0 {
 			return ids, dists, err
 		}
 		// What came while the base was built and the index has not taken
 		// yet is searched as everything was before the base: exactly.
-		aside, asideDists, err := p.searchStaged(ctx, distancer.Normalize(vector), k)
+		aside, asideDists, err := p.searchStaged(ctx, distancer.Normalize(vector), k, allow)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1171,12 +1176,13 @@ func (p *Persistent) SearchByVector(ctx context.Context, vector []float32, k int
 	if err := checkValues(vector); err != nil {
 		return nil, nil, errors.Wrap(err, "query")
 	}
-	return p.searchStaged(ctx, distancer.Normalize(vector), k)
+	return p.searchStaged(ctx, distancer.Normalize(vector), k, allow)
 }
 
 // searchStaged is the search while there is no base: the exact distance to
 // every vector kept aside, read from its bucket.
-func (p *Persistent) searchStaged(ctx context.Context, query []float32, k int) ([]uint64, []float32, error) {
+func (p *Persistent) searchStaged(ctx context.Context, query []float32, k int, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
 	var best topK
 	best.reset(k)
 	vector := make([]float32, len(query))
@@ -1192,6 +1198,9 @@ func (p *Persistent) searchStaged(ctx context.Context, query []float32, k int) (
 		}
 		if len(key) != 4 || len(value) != 4*len(query) {
 			return errors.Errorf("a vector kept aside with a key of %d bytes and a value of %d", len(key), len(value))
+		}
+		if allow != nil && !allow.Contains(uint64(binary.BigEndian.Uint32(key))) {
+			return nil
 		}
 		for i := range vector {
 			vector[i] = getFloat32(value[4*i:])
