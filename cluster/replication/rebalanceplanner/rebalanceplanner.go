@@ -9,8 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package rebalanceplanner scores rebalance placements and searches for the
-// direct moves of a rebalance plan.
+// Package rebalanceplanner searches for the direct moves of a rebalance plan
+// that balance disk utilisation across nodes.
 package rebalanceplanner
 
 import (
@@ -23,14 +23,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-// TODO(calibration): the weights and headroomMargin are placeholders until
-// tests on large clusters set them.
-const (
-	diskWeight     = 1.0
-	countWeight    = 1.0
-	movementWeight = 0.1
-	headroomMargin = 1.0
-)
+// TODO(calibration): headroomMargin is a placeholder until tests on large
+// clusters set it.
+const headroomMargin = 1.0
 
 // minRelativeGain guards against rounding error. It is not a value awaiting
 // calibration. Search computes a candidate's balance value by updating running
@@ -109,7 +104,7 @@ type Result struct {
 	MinMoveCount int
 }
 
-// NodeLoad is one node's state in a placement.
+// NodeLoad is one node's projected state during a search.
 type NodeLoad struct {
 	Role        Role
 	UsedBytes   int64
@@ -121,44 +116,11 @@ type NodeLoad struct {
 	LargestIncoming int64
 }
 
-// Placement is the state of every listed node after a list of moves.
-type Placement struct {
-	Nodes []NodeLoad
-	// MovedBytes is the sum of the bytes of the moves.
-	MovedBytes int64
-	// SourceUsedBytes is the sum of the sources' used bytes before any move.
-	SourceUsedBytes int64
-}
-
-// Cost is diskWeight × variance(disk utilisation) + countWeight ×
-// variance(count ratio) + movementWeight × MovedBytes / SourceUsedBytes. The
-// movement term is 0 when SourceUsedBytes is 0.
-func Cost(p Placement) float64 {
-	return sumsOf(p.Nodes).balance() + movement(p.MovedBytes, p.SourceUsedBytes)
-}
-
-// PassesBalanceRule reports whether diskWeight × variance(disk utilisation) +
-// countWeight × variance(count ratio) is strictly lower for after than for
-// before.
-func PassesBalanceRule(before, after []NodeLoad) bool {
-	return sumsOf(after).balance() < sumsOf(before).balance()
-}
-
-func movement(movedBytes, sourceUsedBytes int64) float64 {
-	if sourceUsedBytes == 0 {
-		return 0
-	}
-	return movementWeight * float64(movedBytes) / float64(sourceUsedBytes)
-}
-
-// sums holds the running sums behind both variances. A move changes the terms
-// of only two nodes, so balanceAfter scores a candidate in constant time.
+// sums holds the running sums behind the disk variance. A move changes the
+// terms of only two nodes, so balanceAfter scores a candidate in constant time.
 type sums struct {
 	n            float64
 	disk, diskSq float64
-	// count, the replica total, is the same for every placement of one input,
-	// so balanceAfter updates only countSq.
-	count, countSq int64
 }
 
 func sumsOf(nodes []NodeLoad) sums {
@@ -167,8 +129,6 @@ func sumsOf(nodes []NodeLoad) sums {
 		d := utilisation(n)
 		s.disk += d
 		s.diskSq += d * d
-		s.count += int64(n.Replicas)
-		s.countSq += int64(n.Replicas) * int64(n.Replicas)
 	}
 	return s
 }
@@ -182,20 +142,6 @@ func (s sums) diskVariance() float64 {
 	return s.diskSq/s.n - m*m
 }
 
-// countVariance is the variance of replicas / mean(replicas), which equals
-// (n × Σc² − (Σc)²) / (Σc)². It is 0 when no node holds a replica.
-func (s sums) countVariance() float64 {
-	if s.count == 0 {
-		return 0
-	}
-	total := float64(s.count)
-	return (s.n*float64(s.countSq) - total*total) / (total * total)
-}
-
-func (s sums) balance() float64 {
-	return diskWeight*s.diskVariance() + countWeight*s.countVariance()
-}
-
 // Search plans direct moves from the input's sources to its targets.
 //
 // Search returns an error and Result{} when any of these holds:
@@ -207,10 +153,10 @@ func (s sums) balance() float64 {
 //   - a replica on a listed node has negative Bytes;
 //   - two replicas on a listed node share a (collection, shard, node).
 //
-// The balance value of a state is diskWeight × variance(disk utilisation) +
-// countWeight × variance(count ratio). Let current be the balance value before
-// a move. The move gains when the balance value after it is below
-// current − current × minRelativeGain. Each step runs in this order:
+// The balance value of a state is the variance of disk utilisation across the
+// listed nodes. Let current be the balance value before a move. The move gains
+// when the balance value after it is below current − current × minRelativeGain.
+// Each step runs in this order:
 //  1. If ctx is done, Search returns ctx.Err() and Result{}.
 //  2. If Balanced accepts the current state, Search stops.
 //  3. Among allowed moves that gain, Search takes the one with the lowest
@@ -220,9 +166,7 @@ func (s sums) balance() float64 {
 //   - it leaves its source's used bytes at 0 or above;
 //   - its target's used bytes after the move, plus Workers × headroomMargin ×
 //     the largest replica moved onto the target, fit within the target's
-//     usable bytes;
-//   - the standard deviation of disk utilisation after it is at most the
-//     larger of balanceTolerance and the input's standard deviation.
+//     usable bytes.
 //
 // If Search would take a step beyond MaxMoves, it returns LimitExceeded.
 // Otherwise it returns MovesFound with every move taken, or NoAcceptablePlan
@@ -233,7 +177,6 @@ func Search(ctx context.Context, in Input) (Result, error) {
 		return Result{}, err
 	}
 	s := newSearch(in)
-	diskLimit := max(balanceTolerance, stddev(s.disk))
 
 	var moves []Move
 	for {
@@ -243,7 +186,7 @@ func Search(ctx context.Context, in Input) (Result, error) {
 		if Balanced(s.rows()) {
 			break
 		}
-		c, ok := s.best(diskLimit)
+		c, ok := s.best()
 		if !ok {
 			break
 		}
@@ -377,9 +320,9 @@ func newSearch(in Input) *search {
 // balance value after it. Search's doc comment defines which moves are allowed
 // and which gain. best reports false when no allowed move gains. On a tie, the
 // first candidate in source, replica, target order wins.
-func (s *search) best(diskLimit float64) (candidate, bool) {
+func (s *search) best() (candidate, bool) {
 	var best candidate
-	current := s.sums.balance()
+	current := s.sums.diskVariance()
 	bestValue, found := current-current*minRelativeGain, false
 	for _, src := range s.sources {
 		from := s.nodes[src]
@@ -397,10 +340,10 @@ func (s *search) best(diskLimit float64) (candidate, bool) {
 				if float64(to.UsedBytes)+float64(r.Bytes)+headroom > to.UsableBytes {
 					continue
 				}
-				value, fromAfter, toAfter := s.balanceAfter(src, tgt, r.Bytes)
-				// bestValue starts at the gain threshold. Only a candidate that
-				// beats bestValue runs the disk check, which costs O(nodes).
-				if value >= bestValue || s.diskSpreadAfter(src, tgt, fromAfter, toAfter) > diskLimit {
+				value := s.balanceAfter(src, tgt, r.Bytes)
+				// bestValue starts at the gain threshold, so this check also
+				// rejects every move that does not gain.
+				if value >= bestValue {
 					continue
 				}
 				best, bestValue, found = candidate{src, tgt, ri}, value, true
@@ -410,33 +353,18 @@ func (s *search) best(diskLimit float64) (candidate, bool) {
 	return best, found
 }
 
-// balanceAfter returns the balance value after moving bytes from src to tgt,
-// and the two nodes' disk utilisations after that move.
-func (s *search) balanceAfter(src, tgt int, bytes int64) (value, fromAfter, toAfter float64) {
+// balanceAfter returns the balance value after moving bytes from src to tgt.
+func (s *search) balanceAfter(src, tgt int, bytes int64) float64 {
 	from, to := s.nodes[src], s.nodes[tgt]
 	from.UsedBytes -= bytes
 	to.UsedBytes += bytes
 	fromBefore, toBefore := s.disk[src], s.disk[tgt]
-	fromAfter, toAfter = utilisation(from), utilisation(to)
+	fromAfter, toAfter := utilisation(from), utilisation(to)
 
 	next := s.sums
 	next.disk += fromAfter + toAfter - fromBefore - toBefore
 	next.diskSq += fromAfter*fromAfter + toAfter*toAfter - fromBefore*fromBefore - toBefore*toBefore
-	// (from−1)² + (to+1)² − from² − to² = 2(to − from) + 2
-	next.countSq += 2*int64(to.Replicas-from.Replicas) + 2
-	return next.balance(), fromAfter, toAfter
-}
-
-// diskSpreadAfter returns the standard deviation of disk utilisation with
-// src at fromAfter and tgt at toAfter. Search sets diskLimit with the same
-// stddev call on the same slice in the same order. So a state exactly at the
-// limit gives the same float64 as the limit.
-func (s *search) diskSpreadAfter(src, tgt int, fromAfter, toAfter float64) float64 {
-	fromBefore, toBefore := s.disk[src], s.disk[tgt]
-	s.disk[src], s.disk[tgt] = fromAfter, toAfter
-	spread := stddev(s.disk)
-	s.disk[src], s.disk[tgt] = fromBefore, toBefore
-	return spread
+	return next.diskVariance()
 }
 
 func (s *search) apply(c candidate) Move {

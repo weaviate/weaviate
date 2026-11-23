@@ -133,45 +133,26 @@ func stddev(xs []float64) float64 {
 	return math.Sqrt(sum / float64(len(xs)))
 }
 
-// spreads returns the standard deviations of disk utilisation and of
-// replica count over the mean replica count.
-func spreads(rows []types.RebalanceNodeBalance) (disk, count float64) {
+// diskSpread returns the standard deviation of disk utilisation.
+func diskSpread(rows []types.RebalanceNodeBalance) float64 {
 	utils := make([]float64, len(rows))
-	counts := make([]float64, len(rows))
-	total := 0.0
 	for i, r := range rows {
 		utils[i] = r.DiskUtilisation
-		counts[i] = float64(r.ReplicaCount)
-		total += counts[i]
 	}
-	if total > 0 {
-		mean := total / float64(len(rows))
-		for i := range counts {
-			counts[i] /= mean
-		}
-	}
-	return stddev(utils), stddev(counts)
-}
-
-// diskBalanced reports whether rows pass Balanced once every node holds the
-// same replica count, which leaves the disk check alone to decide.
-func diskBalanced(rows []types.RebalanceNodeBalance) bool {
-	level := make([]types.RebalanceNodeBalance, len(rows))
-	for i, r := range rows {
-		level[i] = types.RebalanceNodeBalance{Node: r.Node, DiskUtilisation: r.DiskUtilisation, ReplicaCount: 1}
-	}
-	return rp.Balanced(level)
+	return stddev(utils)
 }
 
 // checkResult asserts what holds for every result on valid input, and returns
-// the rows after the moves. For MovesFound: the moves are legal, no target
-// that receives a replica ends above its usable bytes, Goal equals the
-// replayed rows, a baseline that passes the disk check still passes it, a
-// baseline that fails it gets no wider disk spread, and the disk spread or the
-// count spread is lower than the baseline's.
+// the rows after the moves. A baseline that Balanced accepts gets
+// NoAcceptablePlan. For MovesFound: the moves are legal, no target that
+// receives a replica ends above its usable bytes, Goal equals the replayed
+// rows, and the disk spread is lower than the baseline's.
 func checkResult(t *testing.T, in rp.Input, res rp.Result) []types.RebalanceNodeBalance {
 	t.Helper()
 	base := baselineRows(in)
+	if rp.Balanced(base) {
+		require.Equal(t, rp.NoAcceptablePlan, res.Verdict, "the baseline is balanced")
+	}
 	switch res.Verdict {
 	case rp.MovesFound:
 		require.NotEmpty(t, res.Moves)
@@ -183,15 +164,7 @@ func checkResult(t *testing.T, in rp.Input, res rp.Result) []types.RebalanceNode
 			require.Equal(t, want.ReplicaCount, res.Goal[i].ReplicaCount, "goal count of %s", want.Node)
 			require.InDelta(t, want.DiskUtilisation, res.Goal[i].DiskUtilisation, 1e-9, "goal disk of %s", want.Node)
 		}
-		baseDisk, baseCount := spreads(base)
-		disk, count := spreads(after)
-		if diskBalanced(base) {
-			require.True(t, diskBalanced(after), "the baseline passes the disk check and the goal fails it: %+v", after)
-		} else {
-			require.LessOrEqual(t, disk, baseDisk, "the baseline fails the disk check and the goal widens the disk spread: %+v", after)
-		}
-		require.True(t, disk < baseDisk || count < baseCount,
-			"neither spread fell: disk %v -> %v, count %v -> %v", baseDisk, disk, baseCount, count)
+		require.Less(t, diskSpread(after), diskSpread(base), "the disk spread did not fall: %+v", after)
 		return after
 	case rp.NoAcceptablePlan:
 		require.Empty(t, res.Moves)
@@ -258,7 +231,7 @@ func shards(node, prefix string, n int, bytes int64) []rp.Replica {
 // relocated builds a layout that direct moves can balance exactly. Every
 // node owns perNode shards whose sizes cycle through sizes, plus equal
 // non-shard bytes. The shards the targets own sit on the sources, spread
-// round-robin. Moving them back gives every node the same bytes and count.
+// round-robin. Moving them back gives every node the same bytes.
 func relocated(sources, targets, perNode int, sizes []int64) rp.Input {
 	var owned int64
 	for j := 0; j < perNode; j++ {
@@ -333,7 +306,7 @@ func TestSearchBalancesWhatDirectMovesCanBalance(t *testing.T) {
 // with no other bytes. The source holds onSource shards and each target
 // onTarget, and every node's usable bytes make the mean disk utilisation
 // percentFull. Moving shards off the source can give every node the same
-// count.
+// bytes.
 func drained(targets, onSource, onTarget, percentFull int) rp.Input {
 	const b = int64(1_000)
 	nodes := targets + 1
@@ -351,19 +324,19 @@ func drained(targets, onSource, onTarget, percentFull int) rp.Input {
 	return in
 }
 
-// One source that holds a small share of the replicas, among targets that
-// can level it, must end balanced.
+// One source that is fuller than every target, among targets that can level
+// it, must end balanced.
 func TestSearchBalancesOneSourceAmongManyTargets(t *testing.T) {
 	tests := []struct {
 		targets, onSource, onTarget int
 	}{
-		{2, 330, 285},
-		{4, 260, 185},
-		{9, 130, 100},
-		{19, 145, 45},
+		{2, 450, 225},
+		{4, 400, 150},
+		{9, 235, 85},
+		{19, 126, 46},
 	}
 	for _, tt := range tests {
-		for _, percentFull := range []int{20, 50} {
+		for _, percentFull := range []int{20, 35} {
 			name := fmt.Sprintf("%d targets, %d against %d shards, %d%% full", tt.targets, tt.onSource, tt.onTarget, percentFull)
 			t.Run(name, func(t *testing.T) {
 				in := drained(tt.targets, tt.onSource, tt.onTarget, percentFull)
@@ -372,7 +345,8 @@ func TestSearchBalancesOneSourceAmongManyTargets(t *testing.T) {
 				require.Equal(t, rp.MovesFound, res.Verdict)
 				after := checkResult(t, in, res)
 				require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
-				// The plan stops at or before equal counts.
+				// Shards are equal, so equal counts is level disk. The plan stops
+				// at or before it.
 				mean := (tt.onSource + tt.targets*tt.onTarget) / (tt.targets + 1)
 				require.GreaterOrEqual(t, after[0].ReplicaCount, mean)
 				checkLimit(t, in, res)
@@ -382,9 +356,9 @@ func TestSearchBalancesOneSourceAmongManyTargets(t *testing.T) {
 }
 
 // skewed puts total equal shards on one source and one target. The source
-// holds permille/1000 of the total more than the target, so the count-ratio
-// spread is permille/1000 and the disk spread is half of that, whatever the
-// total. Shard bytes shrink as total grows, so used bytes do not change.
+// holds permille/1000 of the total more than the target, so the disk spread
+// is permille/2000, whatever the total. Shard bytes shrink as total grows, so
+// used bytes do not change.
 func skewed(total, permille int) rp.Input {
 	const allBytes = int64(1_000_000_000_000)
 	b := allBytes / int64(total)
@@ -405,12 +379,7 @@ func skewed(total, permille int) rp.Input {
 func rejectedSkew(t *testing.T) int {
 	t.Helper()
 	for p := 1; p <= 800; p++ {
-		in := skewed(2_000, p)
-		in.Replicas = nil
-		rows := baselineRows(in)
-		rows[0].ReplicaCount = 1000 + p
-		rows[1].ReplicaCount = 1000 - p
-		if !rp.Balanced(rows) {
+		if !rp.Balanced(baselineRows(skewed(2_000, p))) {
 			return p + 1
 		}
 	}
@@ -468,57 +437,170 @@ func TestSearchVerdictIgnoresReplicaTotal(t *testing.T) {
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, in, res)
 			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
-			// The plan stops at or before equal counts.
+			// Shards are equal, so equal counts is level disk. The plan stops
+			// at or before it.
 			require.GreaterOrEqual(t, after[0].ReplicaCount, after[1].ReplicaCount)
 		})
 	}
 }
 
-// A plan never takes nodes that pass the disk check to nodes that fail it,
-// and never widens the disk spread of nodes that already fail it.
-func TestSearchKeepsDiskBalance(t *testing.T) {
-	// In both layouts the source holds many small shards and the target few
-	// large replicas, so every move evens the counts and widens the disk spread.
+// two puts sN shards of sB bytes on a source and tN shards of tB bytes on a
+// target. Both nodes have 1,000,000 usable bytes.
+func two(sUsed, tUsed int64, sN int, sB int64, tN int, tB int64) rp.Input {
+	return rp.Input{
+		Nodes: []rp.Node{
+			{Name: "S", Role: rp.Source, UsedBytes: sUsed, UsableBytes: 1_000_000, Workers: 1},
+			{Name: "T", Role: rp.Target, UsedBytes: tUsed, UsableBytes: 1_000_000, Workers: 1},
+		},
+		Replicas: append(shards("S", "s", sN, sB), shards("T", "t", tN, tB)...),
+		MaxMoves: noLimit,
+	}
+}
+
+// Replica count alone never earns a move. In every layout the source holds
+// more replicas than the target, and no move narrows the disk spread.
+func TestSearchTakesNoMoveForReplicaCount(t *testing.T) {
 	tests := []struct {
-		name         string
-		in           rp.Input
-		diskBalanced bool
+		name     string
+		in       rp.Input
+		balanced bool
 	}{
-		{
-			// Both nodes sit at 40% disk. Each move widens the disk spread by 0.04.
-			name: "the baseline passes the disk check",
-			in: rp.Input{
-				Nodes: []rp.Node{
-					{Name: "S", Role: rp.Source, UsedBytes: 100_000, UsableBytes: 250_000, Workers: 1},
-					{Name: "T", Role: rp.Target, UsedBytes: 100_000, UsableBytes: 250_000, Workers: 1},
-				},
-				Replicas: append(shards("S", "s", 10, 10_000),
-					rp.Replica{Collection: "c", Shard: "big", Node: "T", Bytes: 100_000, Eligible: true}),
-				MaxMoves: noLimit,
-			},
-			diskBalanced: true,
-		},
-		{
-			// S sits at 40% disk and T at 80%. Each move widens the disk spread
-			// by 0.02, and T has room for eight moves.
-			name: "the baseline fails the disk check",
-			in: rp.Input{
-				Nodes: []rp.Node{
-					{Name: "S", Role: rp.Source, UsedBytes: 40_000, UsableBytes: 100_000, Workers: 1},
-					{Name: "T", Role: rp.Target, UsedBytes: 80_000, UsableBytes: 100_000, Workers: 1},
-				},
-				Replicas: append(shards("S", "s", 20, 2_000), shards("T", "t", 2, 40_000)...),
-				MaxMoves: noLimit,
-			},
-			diskBalanced: false,
-		},
+		{name: "level disk, 1,000 replicas against 10", in: two(500_000, 500_000, 1_000, 500, 10, 50_000), balanced: true},
+		{name: "level disk, 10 replicas against 1", in: two(400_000, 400_000, 10, 40_000, 1, 400_000), balanced: true},
+		// The disk spread is 0.04, inside the tolerance.
+		{name: "source 8 points fuller, 100 replicas against 10", in: two(480_000, 400_000, 100, 4_800, 10, 40_000), balanced: true},
+		// S sits at 40% disk and T at 80%, so every move widens the disk spread.
+		{name: "source emptier than the target, 20 replicas against 2", in: two(400_000, 800_000, 20, 20_000, 2, 400_000), balanced: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.diskBalanced, diskBalanced(baselineRows(tt.in)), "the baseline's disk check")
+			base := baselineRows(tt.in)
+			require.Greater(t, base[0].ReplicaCount, base[1].ReplicaCount, "the source must hold more replicas")
+			require.Equal(t, tt.balanced, rp.Balanced(base), "the baseline's balance")
 			res := mustSearch(t, tt.in)
+			require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 			checkResult(t, tt.in, res)
 			checkLimit(t, tt.in, res)
+		})
+	}
+}
+
+// Where the fuller node holds no more replicas than the emptier one, every
+// move that narrows the disk spread widens the replica-count spread. The plan
+// must still end balanced.
+func TestSearchBalancesDiskAgainstReplicaCount(t *testing.T) {
+	// s0 and s1 hold 60 large shards, each with a third replica on one target.
+	// The three targets hold 900 small shards.
+	five := rp.Input{MaxMoves: noLimit}
+	used := map[string]int64{}
+	place := func(shard string, bytes int64, on ...string) {
+		for _, n := range on {
+			five.Replicas = append(five.Replicas, rp.Replica{Collection: "c", Shard: shard, Node: n, Bytes: bytes, Eligible: true})
+			used[n] += bytes
+		}
+	}
+	targets := []string{"t0", "t1", "t2"}
+	for i := 0; i < 60; i++ {
+		place(fmt.Sprintf("big%04d", i), 8_000, "s0", "s1", targets[i%3])
+	}
+	for i := 0; i < 900; i++ {
+		place(fmt.Sprintf("small%04d", i), 200, targets...)
+	}
+	for _, n := range []string{"s0", "s1", "t0", "t1", "t2"} {
+		role := rp.Target
+		if n[0] == 's' {
+			role = rp.Source
+		}
+		five.Nodes = append(five.Nodes, rp.Node{Name: n, Role: role, UsedBytes: used[n], UsableBytes: 1_000_000, Workers: 1})
+	}
+
+	tests := []struct {
+		name string
+		in   rp.Input
+	}{
+		// S sits at 80% disk and T at 10%.
+		{name: "equal counts, 100 against 100", in: two(800_000, 100_000, 100, 8_000, 100, 1_000)},
+		// S sits at 60% disk and T at 40%.
+		{name: "the fuller node holds fewer replicas, 100 against 1,000", in: two(600_000, 400_000, 100, 6_000, 1_000, 400)},
+		// The sources sit at 48% disk with 60 replicas each. The targets sit
+		// at 34% with 920 each.
+		{name: "two sources and three targets, 60 against 920", in: five},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := baselineRows(tt.in)
+			require.False(t, rp.Balanced(base), "the baseline must start unbalanced")
+			for _, r := range base[1:] {
+				if r.DiskUtilisation < base[0].DiskUtilisation {
+					require.LessOrEqual(t, base[0].ReplicaCount, r.ReplicaCount, "the fuller node must hold no more replicas")
+				}
+			}
+			res := mustSearch(t, tt.in)
+			require.Equal(t, rp.MovesFound, res.Verdict)
+			after := checkResult(t, tt.in, res)
+			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+			checkLimit(t, tt.in, res)
+		})
+	}
+}
+
+// scaleOut puts n shards on three sources, three replicas each, beside two
+// empty targets. Sizes cycle through sizes. Every node has 1,000,000 usable
+// bytes and 50,000 bytes that are not shards.
+func scaleOut(sizes []int64, n int) rp.Input {
+	in := rp.Input{MaxMoves: noLimit}
+	var perSource int64 = 50_000
+	for i := 0; i < n; i++ {
+		b := sizes[i%len(sizes)]
+		perSource += b
+		for _, node := range []string{"s0", "s1", "s2"} {
+			in.Replicas = append(in.Replicas, rp.Replica{Collection: "c", Shard: fmt.Sprintf("%04d", i), Node: node, Bytes: b, Eligible: true})
+		}
+	}
+	for _, node := range []string{"s0", "s1", "s2"} {
+		in.Nodes = append(in.Nodes, rp.Node{Name: node, Role: rp.Source, UsedBytes: perSource, UsableBytes: 1_000_000, Workers: 1})
+	}
+	for _, node := range []string{"t0", "t1"} {
+		in.Nodes = append(in.Nodes, rp.Node{Name: node, Role: rp.Target, UsedBytes: 50_000, UsableBytes: 1_000_000, Workers: 1})
+	}
+	return in
+}
+
+// A cluster grown from three nodes to five, with three replicas per shard,
+// must end balanced.
+func TestSearchBalancesScaleOut(t *testing.T) {
+	// One shard in 100 holds 30,000 bytes and the rest 100 bytes.
+	fewLarge := make([]int64, 100)
+	for i := range fewLarge {
+		fewLarge[i] = 100
+	}
+	fewLarge[0] = 30_000
+
+	tests := []struct {
+		name  string
+		sizes []int64
+		n     int
+		// maxMoves, when above 0, is the most moves the plan may hold.
+		maxMoves int
+	}{
+		{name: "300 equal shards", sizes: []int64{1_000}, n: 300},
+		{name: "150 mixed shards", sizes: []int64{500, 1_000, 2_500, 10_000}, n: 150},
+		// The 30 large replicas hold three quarters of the shard bytes, so a
+		// plan needs no more moves than that.
+		{name: "990 small shards and 10 large", sizes: fewLarge, n: 1_000, maxMoves: 30},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := scaleOut(tt.sizes, tt.n)
+			require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+			res := mustSearch(t, in)
+			require.Equal(t, rp.MovesFound, res.Verdict)
+			after := checkResult(t, in, res)
+			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+			if tt.maxMoves > 0 {
+				require.LessOrEqual(t, len(res.Moves), tt.maxMoves)
+			}
+			checkLimit(t, in, res)
 		})
 	}
 }
@@ -575,30 +657,33 @@ func TestSearchPlansAroundFullTarget(t *testing.T) {
 	})
 }
 
-// A target that the disk check rules out does not end the plan for the others.
-// T1 holds no replica, so it is the best target by count, but it sits at 58%
-// disk against 50% on S and T2. One 2-byte shard onto T1 takes the disk spread
-// from 0.038 to 0.052; onto T2 it takes it to 0.041.
-func TestSearchPlansAroundDiskLimitedTarget(t *testing.T) {
+// A target that is fuller than the source receives no move and does not end
+// the plan for the others. S sits at 80% disk, T1 at 90% and T2 at 40%. Ten
+// 2-byte shards onto T2 level S and T2 at 60%.
+func TestSearchPlansAroundFullerTarget(t *testing.T) {
 	in := rp.Input{
 		Nodes: []rp.Node{
-			{Name: "S", Role: rp.Source, UsedBytes: 50, UsableBytes: 100, Workers: 1},
-			{Name: "T1", Role: rp.Target, UsedBytes: 58, UsableBytes: 100, Workers: 1},
-			{Name: "T2", Role: rp.Target, UsedBytes: 50, UsableBytes: 100, Workers: 1},
+			{Name: "S", Role: rp.Source, UsedBytes: 80, UsableBytes: 100, Workers: 1},
+			{Name: "T1", Role: rp.Target, UsedBytes: 90, UsableBytes: 100, Workers: 1},
+			{Name: "T2", Role: rp.Target, UsedBytes: 40, UsableBytes: 100, Workers: 1},
 		},
-		Replicas: append(shards("S", "s", 10, 2), shards("T2", "t", 5, 2)...),
+		Replicas: shards("S", "s", 20, 2),
 		MaxMoves: noLimit,
 	}
-	require.True(t, diskBalanced(baselineRows(in)), "the baseline must pass the disk check")
 	res := mustSearch(t, in)
 	require.Equal(t, rp.MovesFound, res.Verdict)
-	checkResult(t, in, res)
+	after := checkResult(t, in, res)
+	for i, m := range res.Moves {
+		require.Equal(t, "T2", m.TargetNode, "move %d", i)
+	}
+	pair := rowsOf(after, "S", "T2")
+	require.True(t, rp.Balanced(pair), "S and T2 are not balanced: %+v", after)
 	checkLimit(t, in, res)
 }
 
 // A layout that only a swap can improve has no acceptable plan. S holds 6 and
-// 4 bytes and T holds 5 and 3, of 16 usable bytes each: disk 62.5% and 50%,
-// counts 2 and 2. Either move leaves counts 1 and 3 and a wider disk spread.
+// 4 bytes and T holds 5 and 3, of 16 usable bytes each: disk 62.5% and 50%.
+// Either move widens the disk spread.
 func TestSearchSwapOnlyLayoutHasNoPlan(t *testing.T) {
 	in := rp.Input{
 		Nodes: []rp.Node{
@@ -620,17 +705,19 @@ func TestSearchSwapOnlyLayoutHasNoPlan(t *testing.T) {
 }
 
 // A layout whose only move mirrors it has no acceptable plan. S and T have
-// equal disks and equal shards, and S holds one replica more than T. Moving
-// one shard swaps the two nodes' counts and disk utilisations, so neither
-// spread changes.
+// equal disks and equal shards, and S holds one shard more than T. Moving one
+// shard swaps the two nodes' disk utilisations, so the disk spread does not
+// change. Every shard is over a tenth of the disk, so the baseline is
+// unbalanced.
 func TestSearchMirrorOnlyLayoutHasNoPlan(t *testing.T) {
-	for _, usable := range []int64{100, 1_000} {
-		for _, shardBytes := range []int64{1, 3, 7} {
-			for _, otherBytes := range []int64{0, 5} {
-				for onT := 1; onT <= 40; onT++ {
+	for _, usable := range []int64{100, 1_000, 1_000_000_007} {
+		for _, percent := range []int64{11, 13, 17, 23} {
+			shardBytes := usable * percent / 100
+			for _, otherBytes := range []int64{0, usable / 20, usable / 7} {
+				for onT := 0; onT <= 8; onT++ {
 					usedS := int64(onT+1)*shardBytes + otherBytes
-					if usedS > usable/2 {
-						// Past half the disk, T lacks room for the move.
+					if usedS+shardBytes > usable {
+						// T lacks room for the move and its headroom.
 						break
 					}
 					name := fmt.Sprintf("%d against %d shards of %d bytes, %d other bytes, %d usable", onT+1, onT, shardBytes, otherBytes, usable)
@@ -643,6 +730,7 @@ func TestSearchMirrorOnlyLayoutHasNoPlan(t *testing.T) {
 							Replicas: append(shards("S", "s", onT+1, shardBytes), shards("T", "t", onT, shardBytes)...),
 							MaxMoves: noLimit,
 						}
+						require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
 						res := mustSearch(t, in)
 						require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 						checkResult(t, in, res)
@@ -668,7 +756,7 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 	valid := func() rp.Input {
 		return rp.Input{
 			Nodes: []rp.Node{
-				{Name: "S", Role: rp.Source, UsedBytes: 100_000, UsableBytes: 1_000_000, Workers: 1},
+				{Name: "S", Role: rp.Source, UsedBytes: 300_000, UsableBytes: 1_000_000, Workers: 1},
 				{Name: "T", Role: rp.Target, UsedBytes: 0, UsableBytes: 1_000_000, Workers: 1},
 			},
 			Replicas: shards("S", "s", 10, 10_000),

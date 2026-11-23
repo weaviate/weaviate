@@ -17,27 +17,19 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-// balanceTolerance is the largest standard deviation of disk utilisation and
-// of count ratio for which the baseline counts as balanced.
+// balanceTolerance is the largest standard deviation of disk utilisation for
+// which the baseline counts as balanced.
 const balanceTolerance = 0.05
 
-// Balanced reports whether the standard deviations of disk utilisation and of
-// count ratio (replicas over the mean replica count, 0 when that mean is 0)
-// are both within balanceTolerance.
+// Balanced reports whether the standard deviation of disk utilisation is
+// within balanceTolerance. Replica counts do not affect the result. A NaN or
+// infinite disk utilisation makes it false.
 func Balanced(rows []types.RebalanceNodeBalance) bool {
 	disk := make([]float64, len(rows))
-	counts := make([]float64, len(rows))
 	for i, r := range rows {
 		disk[i] = r.DiskUtilisation
-		counts[i] = float64(r.ReplicaCount)
 	}
-	ratios := make([]float64, len(rows))
-	if m := mean(counts); m != 0 {
-		for i, c := range counts {
-			ratios[i] = c / m
-		}
-	}
-	return stddev(disk) <= balanceTolerance && stddev(ratios) <= balanceTolerance
+	return stddev(disk) <= balanceTolerance
 }
 
 func mean(xs []float64) float64 {

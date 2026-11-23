@@ -375,11 +375,9 @@ func layout(groups ...shardGroup) *schemaFixture {
 	return &schemaFixture{states: map[string]sharding.State{"Articles": {Physical: physical}}}
 }
 
-// balancedLayout puts 100 replicas on node-1 and 104 on node-2: count ratios
-// 0.98 and 1.02 (stddev 0.0196, balanced), while the raw counts' stddev is 2.
-// Counting the FROZEN shards would give node-1 130 (stddev 0.11), skipping the
-// COLD ones would give node-2 100, and counting the unlisted node-9 in the
-// mean would unbalance every ratio.
+// balancedLayout puts 100 replicas on node-1 and 104 on node-2. The replica
+// counts in the wanted baseline catch a miscount. Counting the FROZEN shards
+// would give node-1 130. Skipping the COLD ones would give node-2 100.
 func balancedLayout() *schemaFixture {
 	return layout(
 		shardGroup{count: 100, nodes: []string{"node-1", "node-2"}},
@@ -518,16 +516,26 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			check: func(t *testing.T, h *plannerHarness) { require.Empty(t, warnings(h)) },
 		},
 		{
-			name: "imbalanced count ratios",
-			// Count ratios 1.33 and 0.67; disk utilisation as in balanced.
+			name: "skewed replica counts with level disk need no plan",
+			// Replica counts 80 and 40; disk utilisation as in balanced.
 			states: layout(
 				shardGroup{count: 40, nodes: []string{"node-1", "node-2"}},
 				shardGroup{count: 40, nodes: []string{"node-1"}},
 			),
-			wantOutcome: replication.PlanStateProposed,
+			wantOutcome: replication.PlanStateNotNeeded,
 			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 80},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 40},
+			},
+		},
+		{
+			name: "imbalanced disk utilisation",
+			rows: withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskAvailableBytes = 100_000_000 }),
+			// Utilisation 0.75 and 1.13.
+			wantOutcome: replication.PlanStateProposed,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
+				{Node: "node-2", DiskUtilisation: 940_000_000.0 / 832_000_000.0, ReplicaCount: 104},
 			},
 			check: func(t *testing.T, h *plannerHarness) {
 				create := func(id string) error {
@@ -546,18 +554,8 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			},
 		},
 		{
-			name: "imbalanced disk utilisation",
-			rows: withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskAvailableBytes = 100_000_000 }),
-			// Utilisation 0.75 and 1.13; count ratios as in balanced.
-			wantOutcome: replication.PlanStateProposed,
-			wantBaseline: []types.RebalanceNodeBalance{
-				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
-				{Node: "node-2", DiskUtilisation: 940_000_000.0 / 832_000_000.0, ReplicaCount: 104},
-			},
-		},
-		{
 			name: "no replicas on any listed node",
-			// node-9 is not listed, so the mean replica count is 0.
+			// node-9 is not listed, so both listed nodes count 0 replicas.
 			states:      layout(shardGroup{count: 4, nodes: []string{"node-9"}}),
 			wantOutcome: replication.PlanStateNotNeeded,
 			wantBaseline: []types.RebalanceNodeBalance{

@@ -27,15 +27,15 @@ func TestBalanced(t *testing.T) {
 			{Node: "node-2", DiskUtilisation: disk[1], ReplicaCount: counts[1]},
 		}
 	}
-	// The tolerance is 0.05. For two nodes, each stddev is half the spread.
+	// The tolerance is 0.05. For two nodes, the disk stddev is half the spread.
 	tests := []struct {
 		name string
 		rows []types.RebalanceNodeBalance
 		want bool
 	}{
 		{
-			// disk stddev 0.02; counts 10, 10 give ratios 1, 1 and stddev 0.
-			name: "both deviations within tolerance",
+			// disk stddev 0.02.
+			name: "disk deviation within tolerance",
 			rows: rows([2]float64{0.50, 0.54}, [2]int{10, 10}),
 			want: true,
 		},
@@ -46,15 +46,9 @@ func TestBalanced(t *testing.T) {
 			want: false,
 		},
 		{
-			// counts 3, 1: mean 2, ratios 1.5, 0.5, stddev 0.5.
-			name: "count-ratio deviation over tolerance",
+			// disk stddev 0; counts 3, 1.
+			name: "skewed counts with level disk are balanced",
 			rows: rows([2]float64{0.5, 0.5}, [2]int{3, 1}),
-			want: false,
-		},
-		{
-			// A zero mean gives ratios 0, 0.
-			name: "zero mean replica count",
-			rows: rows([2]float64{0.5, 0.5}, [2]int{0, 0}),
 			want: true,
 		},
 		{

@@ -607,7 +607,7 @@ func TestRebalancePlan_SnapshotRoundTrip(t *testing.T) {
 		req := completeReq(replication.PlanStateProposed)
 		req.MeasuredAtUnixMs = createdAtMs + 7
 		req.Nodes = nodes()
-		req.Reason = "count ratios imbalanced"
+		req.Reason = "disk utilisation imbalanced"
 		require.NoError(t, src.CompletePlanning(runTerm, req))
 
 		// Writes through the request or a returned plan do not reach FSM state.
@@ -620,7 +620,7 @@ func TestRebalancePlan_SnapshotRoundTrip(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, createdAtMs+7, wantPlan.MeasuredAtUnixMs)
 		require.Equal(t, nodes(), wantPlan.Nodes)
-		require.Equal(t, "count ratios imbalanced", wantPlan.Reason)
+		require.Equal(t, "disk utilisation imbalanced", wantPlan.Reason)
 
 		b, err := src.Snapshot()
 		require.NoError(t, err)
