@@ -293,6 +293,17 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 | 1 thread en caliente | de un 5 a un 20 % más rápido | un 16 % |
 | 8 threads | empate | empate en p50 y algo mejor en QPS; el p95 en frío, de un 8 a un 13 % peor |
 
+**El PR está abierto, listo para revisión:** weaviate/weaviate#13994, con esta tabla y la cola explicada.
+
+### Enmienda 2 (13:45 del 23, del usuario, antes de ningún dato de la variante): un tope de 8 lecturas en vuelo por query
+
+**Motivo.** El p95 en frío con 8 threads sube de un 8 a un 13 %. *Hipótesis, sin comprobar:* las lecturas en vuelo de 8 queries, hasta 20 cada una, compiten por el disco. El usuario pide medir una variante con un máximo de 8 lecturas en vuelo por query, con el mismo protocolo.
+
+- **La variante:** `multiGetWorkers` pasa a ser el mínimo entre el presupuesto, 8 y los postings (`0fa8757020`, en una rama local aparte, `perf/hfresh-parallel-posting-reads-cap8`).
+- **La sesión:** main, el PR y la variante sobre el mismo índice, en dos rondas (main, PR, variante; variante, PR, main), en un hueco que no estorbe a los filtros, con el marcador y la espera de siempre.
+- **La lectura, del usuario:** la variante entra en el PR si baja la cola (el p95 en frío con 8 threads) sin perder la mediana ni el 2.9 veces de 1 thread en frío. *Mía, para aplicarla:* perder es quedar más de un 10 % por encima del PR en p50, o por debajo de 2.6 veces en frío con 1 thread.
+- **Lo que espero (*mío*):** con 1 thread en frío, algo más lenta que el PR, de 13.5 a entre 14 y 17 ms, porque lee 8 postings a la vez en vez de 20; con 8 threads, el p95 en frío vuelve al de main, unos 108 ms, con la mediana del PR.
+
 ## Filtros en el índice integrado, 1M dbpedia (pre-registro, 2026-11-23 a las 11:10)
 
 **Estado: pre-registrado antes de compilar nada.** El experimento, sus filtros, la parada y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*.
