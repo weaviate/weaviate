@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 type raft struct {
@@ -84,8 +85,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", port))), nil
 }
 
-// NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
-// this resolver to resolve addresses based on server IDs.
+// NewTCPTransport returns a RAFT TCP transport that resolves server IDs on every outbound RPC (see transport).
 // This is particularly crucial as K8s assigns new IPs on each node restart.
 func (a *raft) NewTCPTransport(
 	bindAddr string,
@@ -93,14 +93,17 @@ func (a *raft) NewTCPTransport(
 	maxPool int,
 	timeout time.Duration,
 	logger *logrus.Logger,
-) (*raftImpl.NetworkTransport, error) {
+) (types.RaftTransport, error) {
 	cfg := &raftImpl.NetworkTransportConfig{
-		ServerAddressProvider: a,
-		MaxPool:               maxPool,
-		Timeout:               timeout,
-		Logger:                log.NewHCLogrusLogger("raft-net", logger),
+		MaxPool: maxPool,
+		Timeout: timeout,
+		Logger:  log.NewHCLogrusLogger("raft-net", logger),
 	}
-	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
+	inner, err := raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &transport{RaftTransport: inner, resolver: a, log: logger.WithField("action", "raft-net")}, nil
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
