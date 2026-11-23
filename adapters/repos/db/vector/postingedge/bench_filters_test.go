@@ -51,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
@@ -78,6 +79,9 @@ var (
 		"too, after HNSW with acorn, its default: its curves, and its timed rounds after all the others")
 	benchFiltersUntil = flag.String("bench.filters.until", "", "TestIntegrationFilters: the time of day, HH:MM, "+
 		"after which no timed point starts; empty for none. The points it leaves out are told")
+	benchFiltersSearchers = flag.String("bench.filters.searchers", "", "TestIntegrationFilters: the searchers to "+
+		"measure, by index and path (ours graph, ours flat, hnsw acorn, hnsw sweeping), comma separated; all of them "+
+		"when empty")
 	benchFiltersOnly = flag.String("bench.filters.only", "", "TestIntegrationFilters: the filters to measure, by "+
 		"kind (none, random, near, far), comma separated; empty for all")
 )
@@ -544,6 +548,14 @@ func TestIntegrationFilters(t *testing.T) {
 			searchers = append(searchers, hnswIndex.searcher(t, enthnsw.FilterStrategySweeping, queries, k))
 		}
 	}
+	if *benchFiltersSearchers != "" {
+		wanted := map[string]bool{}
+		for _, name := range strings.Split(*benchFiltersSearchers, ",") {
+			wanted[strings.TrimSpace(name)] = true
+		}
+		searchers = slices.DeleteFunc(searchers, func(s *filterSearcher) bool { return !wanted[s.index+" "+s.path] })
+		require.NotEmpty(t, searchers, "no searcher is named %q", *benchFiltersSearchers)
+	}
 	write()
 
 	// One query, checked: no doc id the filter leaves out, ever.
@@ -679,6 +691,7 @@ func TestIntegrationFilters(t *testing.T) {
 			write()
 		}
 	}
+	acornRan(t, filters, curves, key)
 
 	if *benchFiltersRounds == 0 {
 		return
@@ -1037,6 +1050,7 @@ func buildFilterHNSW(t *testing.T, ctx context.Context, logger logrus.FieldLogge
 		"maxConnections": uc.MaxConnections, "efConstruction": uc.EFConstruction, "distance": uc.Distance,
 		"rqBits": uc.RQ.Bits, "rqCentering": uc.RQ.Centering, "rqTrainingLimit": uc.RQ.TrainingLimit,
 		"rqRescoreLimit": uc.RQ.RescoreLimit, "flatSearchCutoff": uc.FlatSearchCutoff, "filterStrategy": uc.FilterStrategy,
+		"acornFilterRatio": config.DefaultHNSWAcornFilterRatio,
 	}}
 	store := testinghelpers.NewDummyStore(t)
 	const id = "filters"
@@ -1052,6 +1066,9 @@ func buildFilterHNSW(t *testing.T, ctx context.Context, logger logrus.FieldLogge
 		TempVectorForIDWithViewThunk: tempVectorForID,
 		GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		// What a node gives it from HNSW_ACORN_FILTER_RATIO: with none, HNSW
+		// never runs ACORN (acornRan).
+		AcornFilterRatio: config.DefaultHNSWAcornFilterRatio,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
 	index.PostStartup(ctx)
@@ -1107,6 +1124,93 @@ func buildFilterHNSW(t *testing.T, ctx context.Context, logger logrus.FieldLogge
 	h.buildSeconds = time.Since(begin).Seconds()
 	t.Logf("hnsw built: %d vectors in %s, %v", n, time.Since(begin).Round(time.Second), h.config)
 	return h
+}
+
+// acornRan fails the measure where HNSW with acorn answered exactly as with
+// sweeping, at every ef, on a filter that leaves fewer than the share of the
+// ACORN ratio and no fewer than the cutoff of its flat search: ACORN did not
+// run there. A harness that builds HNSW in its own process must give it the
+// ratio a node does (hnsw.Config.AcornFilterRatio): with none, HNSW never
+// runs ACORN and says nothing, and the first untimed run of this measure
+// measured sweeping twice.
+func acornRan(t *testing.T, filters []*benchFilter, curves map[string]*filterCurve,
+	key func(*filterSearcher, *benchFilter) string,
+) {
+	t.Helper()
+	ran, notRan := acornChecked(filters, curves, key)
+	for _, name := range ran {
+		t.Logf("hnsw acorn and sweeping differ on %s: ACORN ran", name)
+	}
+	for _, name := range notRan {
+		t.Errorf("hnsw acorn answered as hnsw sweeping at every ef on %s: ACORN did not run", name)
+	}
+}
+
+// acornChecked tells the filters where ACORN should run and did, and those
+// where it should and did not, by the curves of HNSW with both strategies.
+func acornChecked(filters []*benchFilter, curves map[string]*filterCurve,
+	key func(*filterSearcher, *benchFilter) string,
+) (ran, notRan []string) {
+	acorn := &filterSearcher{index: "hnsw", path: enthnsw.FilterStrategyAcorn}
+	sweeping := &filterSearcher{index: "hnsw", path: enthnsw.FilterStrategySweeping}
+	for _, f := range filters {
+		a, s := curves[key(acorn, f)], curves[key(sweeping, f)]
+		if a == nil || s == nil || f.Share == 0 || f.Share > config.DefaultHNSWAcornFilterRatio ||
+			a.Allowed < enthnsw.DefaultFlatSearchCutoff {
+			continue
+		}
+		same := len(a.Grid) == len(s.Grid)
+		for i := 0; same && i < len(a.Grid); i++ {
+			same = a.Grid[i].Recall == s.Grid[i].Recall && a.Grid[i].VectorReads == s.Grid[i].VectorReads
+		}
+		if same {
+			notRan = append(notRan, f.Name)
+		} else {
+			ran = append(ran, f.Name)
+		}
+	}
+	return ran, notRan
+}
+
+// The guard of ACORN looks only where ACORN runs, a filter under the ratio
+// and above the cutoff, and finds the curves of the first untimed run, where
+// acorn answered as sweeping at every ef.
+func TestAcornChecked(t *testing.T) {
+	key := func(s *filterSearcher, f *benchFilter) string { return s.index + "/" + s.path + "/" + f.Name }
+	grid := func(recalls ...float64) []filterCurvePoint {
+		points := make([]filterCurvePoint, len(recalls))
+		for i, r := range recalls {
+			ef := 10 << i
+			points[i] = filterCurvePoint{EF: ef, Recall: r, VectorReads: float64(ef)}
+		}
+		return points
+	}
+	tests := []struct {
+		name            string
+		share           float64
+		allowed         int
+		acorn, sweeping []filterCurvePoint
+		wantRan         []string
+		wantNotRan      []string
+	}{
+		{name: "the same at 10 %", share: 0.1, allowed: 99_000, acorn: grid(0.9, 0.95), sweeping: grid(0.9, 0.95), wantNotRan: []string{"f"}},
+		{name: "different at 10 %", share: 0.1, allowed: 99_000, acorn: grid(0.92, 0.96), sweeping: grid(0.9, 0.95), wantRan: []string{"f"}},
+		{name: "the same at 50 %, over the ratio", share: 0.5, allowed: 495_000, acorn: grid(0.9), sweeping: grid(0.9)},
+		{name: "the same at 1 %, under the cutoff", share: 0.01, allowed: 9_900, acorn: grid(0.9), sweeping: grid(0.9)},
+		{name: "no filter", share: 0, allowed: 990_000, acorn: grid(0.9), sweeping: grid(0.9)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &benchFilter{Name: "f", Share: tt.share}
+			curves := map[string]*filterCurve{
+				"hnsw/acorn/f":    {Allowed: tt.allowed, Grid: tt.acorn},
+				"hnsw/sweeping/f": {Allowed: tt.allowed, Grid: tt.sweeping},
+			}
+			ran, notRan := acornChecked([]*benchFilter{f}, curves, key)
+			require.Equal(t, tt.wantRan, ran)
+			require.Equal(t, tt.wantNotRan, notRan)
+		})
+	}
 }
 
 // writeFilterVectors writes the train set, which is in memory and normalized,
