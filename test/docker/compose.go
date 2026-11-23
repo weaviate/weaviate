@@ -1260,7 +1260,14 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_PORT"] = "8300"
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
-	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
+	if _, ok := settings["RAFT_BOOTSTRAP_EXPECT"]; !ok {
+		settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
+	}
+	voters, err := strconv.Atoi(settings["RAFT_BOOTSTRAP_EXPECT"])
+	if err != nil {
+		return nil, fmt.Errorf("startCluster: RAFT_BOOTSTRAP_EXPECT: %w", err)
+	}
+	voters = max(0, min(voters, size))
 
 	// first node
 	config1 := copySettings(settings)
@@ -1324,41 +1331,37 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			hostname, maxRetries+1, perAttemptTimeout, lastErr)
 	}
 
-	// Phase 1: Start all nodes concurrently — each blocks until live.
-	// Static IPs are derived from hostnames via StaticIPForHostname.
-	eg := errgroup.Group{}
-
-	eg.Go(func() (err error) {
-		cs[0], err = startNodeWithRetry(config1, Weaviate0)
-		return err
-	})
-
+	configs := []map[string]string{config1}
 	if size > 1 {
 		config2 := copySettings(settings)
 		config2["CLUSTER_HOSTNAME"] = Weaviate1
 		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
 		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
-		eg.Go(func() (err error) {
-			cs[1], err = startNodeWithRetry(config2, Weaviate1)
-			return err
-		})
+		configs = append(configs, config2)
 	}
-
 	if size > 2 {
 		config3 := copySettings(settings)
 		config3["CLUSTER_HOSTNAME"] = Weaviate2
 		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
-		eg.Go(func() (err error) {
-			cs[2], err = startNodeWithRetry(config3, Weaviate2)
-			return err
-		})
+		configs = append(configs, config3)
 	}
 
-	if err := eg.Wait(); err != nil {
-		return cs, fmt.Errorf("startCluster phase 1 (liveness): %w", err)
+	// Phase 1: start nodes concurrently, each blocking until live. Voters (the first RAFT_BOOTSTRAP_EXPECT nodes) go
+	// first: a non-voter whose CLUSTER_JOIN seed does not resolve yet never joins memberlist (0-weaviate-issues#700).
+	for _, group := range [][2]int{{0, voters}, {voters, size}} {
+		eg := errgroup.Group{}
+		for i := group[0]; i < group[1]; i++ {
+			eg.Go(func() (err error) {
+				cs[i], err = startNodeWithRetry(configs[i], []string{Weaviate0, Weaviate1, Weaviate2}[i])
+				return err
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return cs, fmt.Errorf("startCluster phase 1 (liveness): %w", err)
+		}
 	}
 
 	// Phase 2: All nodes are live. Wait for each to become ready (Raft quorum
