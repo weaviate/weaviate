@@ -1283,8 +1283,15 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
-	if err := h.moduleConfig.ValidateClass(ctx, class); err != nil {
-		return err
+	// A legacy class with vectorizer "none" had no module validation until its
+	// generative and reranker settings were checked on create. A backed-up one
+	// may hold settings that are refused today, or that a module checks against
+	// a remote API, so it restores unvalidated, as it did before.
+	legacyNoneVectorizer := len(class.VectorConfig) == 0 && class.Vectorizer == config.VectorizerModuleNone
+	if !restoring || !legacyNoneVectorizer {
+		if err := h.moduleConfig.ValidateClass(ctx, class); err != nil {
+			return err
+		}
 	}
 
 	if err := validateMT(class); err != nil {
