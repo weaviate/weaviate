@@ -15,12 +15,14 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/entities/models"
@@ -37,35 +39,57 @@ type move struct {
 	host int // last octet of the new IP
 }
 
-// TestRestartOnReusedIPs restarts nodes of a cluster with one voter (weaviate-0, always the leader) and two non-voters
-// on new IPs, one of them another node's old IP. The RAFT configuration still stores every node's old address, and the
-// leader dials it while it cannot resolve the node through memberlist. Every node must become ready, the leader must
-// keep its term, and later RAFT entries must reach every node.
+// TestRestartOnReusedIPs restarts nodes of a three-node cluster on new IPs, one of them another node's old IP. The RAFT
+// configuration still stores every node's old address, and the leader dials it while it cannot resolve the node through
+// memberlist. Every node must become ready, the leader must keep its term, and later RAFT entries must reach every node.
 func TestRestartOnReusedIPs(t *testing.T) {
 	tests := []struct {
-		name          string
-		restartLeader bool
-		moves         []move // applied in order: a node vacates an IP before another takes it
-		startOrder    []string
+		name       string
+		voters     int      // 1: weaviate-0 is the only voter and always the leader; 3: every node votes
+		restartAll bool     // also stop weaviate-0
+		moves      []move   // applied in order: a node vacates an IP before another takes it
+		startOrder []string // nil starts every stopped node at once, as three voters need a quorum to become ready
 	}{
 		{
 			// 0-weaviate-issues#707: the leader's pipeline for weaviate-1 lands on weaviate-2 and never re-resolves.
-			name:          "follower takes another follower's old IP",
-			restartLeader: true,
-			moves:         []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
-			startOrder:    []string{docker.Weaviate0, docker.Weaviate2, docker.Weaviate1},
+			name:       "one voter: follower takes another follower's old IP",
+			voters:     1,
+			restartAll: true,
+			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+			startOrder: []string{docker.Weaviate0, docker.Weaviate2, docker.Weaviate1},
 		},
 		{
-			name:       "follower takes another follower's old IP while the leader stays up",
+			name:       "one voter: follower takes another follower's old IP while the leader stays up",
+			voters:     1,
 			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
 			startOrder: []string{docker.Weaviate2, docker.Weaviate1},
 		},
 		{
 			// The leader's stored address for weaviate-2 is its own; a leader steps down on an AppendEntries of its own term.
-			name:          "leader takes a follower's old IP",
-			restartLeader: true,
-			moves:         []move{{docker.Weaviate2, 22}, {docker.Weaviate1, 21}, {docker.Weaviate0, 12}},
-			startOrder:    []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2},
+			name:       "one voter: leader takes a follower's old IP",
+			voters:     1,
+			restartAll: true,
+			moves:      []move{{docker.Weaviate2, 22}, {docker.Weaviate1, 21}, {docker.Weaviate0, 12}},
+			startOrder: []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2},
+		},
+		{
+			// weaviate-0 and weaviate-2 form the quorum; whichever leads dials weaviate-1's old IP, now weaviate-2's.
+			name:       "three voters: voter takes another voter's old IP while weaviate-0 stays up",
+			voters:     3,
+			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+			startOrder: []string{docker.Weaviate2, docker.Weaviate1},
+		},
+		{
+			name:       "three voters: all restart, a voter takes another voter's old IP",
+			voters:     3,
+			restartAll: true,
+			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+		},
+		{
+			name:       "three voters: all restart, weaviate-0 takes another voter's old IP",
+			voters:     3,
+			restartAll: true,
+			moves:      []move{{docker.Weaviate2, 22}, {docker.Weaviate1, 21}, {docker.Weaviate0, 12}},
 		},
 	}
 	for _, tc := range tests {
@@ -73,7 +97,7 @@ func TestRestartOnReusedIPs(t *testing.T) {
 			ctx := context.Background()
 			compose, err := docker.New().
 				With3NodeCluster().
-				WithWeaviateEnv("RAFT_BOOTSTRAP_EXPECT", "1").
+				WithWeaviateEnv("RAFT_BOOTSTRAP_EXPECT", strconv.Itoa(tc.voters)).
 				Start(ctx)
 			require.NoError(t, err)
 			t.Cleanup(func() {
@@ -92,7 +116,7 @@ func TestRestartOnReusedIPs(t *testing.T) {
 			requireConverged(t)
 
 			stop := []string{docker.Weaviate1, docker.Weaviate2}
-			if tc.restartLeader {
+			if tc.restartAll {
 				stop = append([]string{docker.Weaviate0}, stop...)
 			}
 			for _, node := range stop {
@@ -109,6 +133,15 @@ func TestRestartOnReusedIPs(t *testing.T) {
 				helper.SetupClient(compose.GetWeaviate().URI())
 				requireStableLeader(t)
 			}
+			if tc.startOrder == nil {
+				eg := errgroup.Group{}
+				for _, node := range stop {
+					eg.Go(func() error { return compose.Start(ctx, node) })
+				}
+				require.NoError(t, eg.Wait(), "every node must become ready")
+				helper.SetupClient(compose.GetWeaviate().URI())
+				requireStableLeader(t)
+			}
 
 			helper.CreateClass(t, &models.Class{Class: "AfterRestart", Vectorizer: "none"})
 			requireConverged(t)
@@ -116,31 +149,30 @@ func TestRestartOnReusedIPs(t *testing.T) {
 	}
 }
 
-// requireStableLeader requires weaviate-0 to lead in the same term at both ends of stableLeaderWindow. With a single
-// voter the term changes only if the leader steps down.
+// requireStableLeader requires the same node to lead in the same term at both ends of stableLeaderWindow: a leader that
+// steps down shows a new term.
 func requireStableLeader(t *testing.T) {
 	t.Helper()
-	before := leaderTerm(t)
+	before := leaderAndTerm(t)
 	time.Sleep(stableLeaderWindow)
-	require.Equal(t, before, leaderTerm(t), "weaviate-0 stepped down and re-elected itself")
+	require.Equal(t, before, leaderAndTerm(t), "the leader stepped down")
 }
 
-func leaderTerm(t *testing.T) string {
+func leaderAndTerm(t *testing.T) string {
 	t.Helper()
-	var term string
+	var leader string
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), nil)
 		require.NoError(ct, err)
 		for _, s := range resp.Payload.Statistics {
-			if s.Name == docker.Weaviate0 && s.Raft != nil {
-				require.Equalf(ct, "Leader", s.Raft.State, "weaviate-0 does not stay leader (term %s)", s.Raft.Term)
-				term = s.Raft.Term
+			if s.Raft != nil && s.Raft.State == "Leader" {
+				leader = s.Name + " in term " + s.Raft.Term
 				return
 			}
 		}
-		require.Fail(ct, "no RAFT statistics for weaviate-0")
+		require.Fail(ct, "no node is leader")
 	}, 30*time.Second, 500*time.Millisecond)
-	return term
+	return leader
 }
 
 // requireConverged requires all three nodes to be ready and to have applied the same RAFT index.
