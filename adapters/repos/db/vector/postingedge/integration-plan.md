@@ -1278,3 +1278,55 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Lo que el diario frena a los inserts:** nada cronometrado.
 - **La base en segundo plano, a 1M y por el shard:** el arnés espera a la base antes de seguir, para que sus corridas se comparen con las anteriores; el test de extremo a extremo pasa, y no mira qué ocurre mientras se construye.
 - **Lo que tarda una búsqueda con miles de vectores apartados:** los lee todos del bucket en cada query, como antes de la base. Con una base grande y muchos inserts durante su construcción puede ser lento un rato.
+
+## 8. Búsqueda filtrada (desde el 2026-11-23)
+
+*Encargo del usuario del 23 por la mañana: una búsqueda filtrada en el índice integrado y su medida a 1M de dbpedia. El pre-registro de la medida lo escribió la sesión de experimentos en `bench-report.md` de `feat/posting-edge-index` (`c7546f419e`, «Filtros en el índice integrado, 1M dbpedia»). Hasta el 23 el índice rechazaba cualquier filtro con `ErrNotSupported`.*
+
+### Enmienda 1 (23 de noviembre, 11:20): la búsqueda filtrada y el corte plano
+
+*Mía, escrita antes de compilar nada. Es el diseño que mide el pre-registro.*
+
+**Qué es un filtro aquí.** La lista de doc ids permitidos que el shard pasa a la búsqueda (`helpers.AllowList`). Ningún resultado queda fuera de ella, en ningún camino.
+
+**Dos caminos, como HNSW:**
+
+- **Con menos de 40 000 permitidos, la búsqueda plana;** con 40 000 o más, el recorrido del índice. Es el `flatSearchCutoff` por defecto de HNSW, comparado igual que allí: el número de permitidos contra el corte.
+- **El corte no es un parámetro público:** la lista de seis no cambia. Es un campo sin exportar de la configuración del índice (`PersistentConfig.flatCutoff`), que los tests y el arnés fijan y con el que fuerzan cualquiera de los dos caminos. Si pasa a ser público lo decide el usuario después de la medida.
+
+**El recorrido del índice con filtro:**
+
+- **El scan.** Un miembro que no está permitido se puntúa y sigue siendo fuente: sus aristas se siguen si queda dentro del corte de fuentes, como las de un vector borrado. Nunca entra entre los candidatos. Es lo que hace HNSW con `sweeping`: recorrer lo de siempre y filtrar los resultados.
+- **El ruteo, sin cambios.** Los endpoints se puntúan con su código de ruteo estén permitidos o no, y un posting se ordena por su mejor endpoint. Un posting sin ningún permitido se carga igual si está cerca: puede llevar a otros que sí los tienen.
+- **La parada, la de siempre:** el mejor posting sin cargar ya no está más cerca que el ef-ésimo candidato, que ahora es el ef-ésimo permitido. Con un filtro selectivo esa distancia crece y la búsqueda carga más postings. Es lo que mide la primera parte del criterio.
+- **El rescore, como sin filtro:** todos los candidatos están permitidos, y se rescoran los que dice la regla del 22.
+- **Los vectores apartados** (antes de la base, o los que el índice aún no ha tomado): su búsqueda exacta mira solo los permitidos.
+- **El índice en memoria de los experimentos filtra igual:** el scan es el mismo código. Así el índice en disco se compara con su gemelo en memoria también con filtro.
+
+**La búsqueda plana:**
+
+- **Recorre los ids permitidos** con el iterador de la lista, y salta los que el índice no tiene o tiene marcados como borrados.
+- **Puntúa cada uno con su código de ruteo** (512 bits a 1 536 dimensiones): en memoria en el modo `routing`, leído del bucket de códigos en `none`. No lee ningún posting.
+- **Rescora exactos los R mejores,** con su vector del fichero.
+  - **Con el límite automático, R es el mayor entre la regla del 22 aplicada al ancho del código de ruteo, 4 × k y ef:** 507 con 512 bits. Se aplica al código de ruteo y no al del scan porque es el que ordena aquí. Con 512 bits capados y un rescore de 64 el techo en dbpedia es 0.9255 (sección 4); con 400, 0.991.
+  - **Con un límite explícito,** el mayor entre él, k y ef.
+  - **ef solo cuenta cuando pasa de R.** Así la plana también sube su recall con ef.
+  - **Con R permitidos o menos, la plana es exacta:** los rescora todos.
+- **Lo que cuesta,** sin medir: con el corte en 40 000, hasta 40 000 distancias de 512 bits (unos 2 ms en caliente) y R lecturas de vector. En `none`, además, 40 000 lecturas del bucket de códigos, que esta medida no mira.
+
+**No cambia:** la búsqueda por distancia, con filtro o sin él, sigue sin soportarse.
+
+**Tests, antes de la medida:**
+
+- **El índice en disco es su gemelo en memoria con filtro:** mismos ids, mismas distancias y el mismo trabajo, con filtros al azar y en bola, en las selectividades de la medida.
+- **Ningún id fuera del filtro,** en los dos caminos, con borrados, con los vectores apartados antes de la base y después, y tras reabrir.
+- **La plana con R permitidos o menos devuelve la verdad exacta;** con más, recall alto frente a fuerza bruta.
+- **El corte:** por debajo va por la plana, desde él por el índice, y cada camino se puede forzar.
+- **Por el shard:** una clase con un filtro devuelve solo lo que el filtro deja, en los dos modos, y lo mismo tras reiniciar.
+
+**Cómo entra en la medida** (*mío*):
+
+- **El índice** lo crece el arnés de escala como en las corridas del hito 2, con ocho llamadores y las decisiones del 22, en un directorio del volumen de las pruebas. Se mide compactado y con los vectores en orden de posting.
+- **HNSW** es `TestHNSWDiskTimed` de la rama de experimentos (`946f843a09`), portado a esta rama y construido en el mismo proceso que abre el nuestro, para que los dos se cronometren en la misma sesión.
+- **En frío,** antes de cada lote de 10 queries el nuestro se cierra con su store y se abre otra vez tras soltar la caché, sin cronometrar; de HNSW se cierra solo el fichero de los vectores, como en la medida de 10M.
+- **La parada se comprueba en cada query de cada medida:** un id fuera del filtro para la corrida.
