@@ -45,23 +45,14 @@ func (s *Shard) fillQueue(targetVector string, from uint64, skipIndexed bool) er
 
 	var counter int
 
-	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
+	vectorIndex, q, release, ok := s.acquireVectorIndexAndQueue(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
-	defer releaseIndex()
-
-	q, releaseQueue, ok := s.AcquireVectorIndexQueue(targetVector)
-	if !ok {
-		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: queue not found")
-		// queue was never initialized, possibly because of a failed shard
-		// initialization. No op.
-		return nil
-	}
-	defer releaseQueue()
+	defer release()
 
 	ctx := context.Background()
 
@@ -248,7 +239,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	className := s.index.Config.ClassName.String()
 	shardName := s.Name()
 
-	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
+	vectorIndex, q, release, ok := s.acquireVectorIndexAndQueue(targetVector)
 	if !ok {
 		s.index.logger.
 			WithField("class", className).
@@ -259,7 +250,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		// initialization. No op.
 		return nil
 	}
-	defer releaseIndex()
+	defer release()
 
 	// if it's HNSW, trigger a tombstone cleanup
 	if hnsw.IsHNSWIndex(vectorIndex) {
@@ -270,19 +261,6 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			return errors.Wrap(err, "clean up tombstoned nodes")
 		}
 	}
-
-	q, releaseQueue, ok := s.AcquireVectorIndexQueue(targetVector)
-	if !ok {
-		s.index.logger.
-			WithField("class", className).
-			WithField("shard", shardName).
-			WithField("targetVector", targetVector).
-			Warn("repair index: queue not found")
-		// queue was never initialized, possibly because of a failed shard
-		// initialization. No op.
-		return nil
-	}
-	defer releaseQueue()
 
 	maxDocID := s.Counter().Get()
 	visited := visited.NewList(int(maxDocID))

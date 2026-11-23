@@ -49,16 +49,11 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("vector %q has no mapping record", targetVector)
 	}
 
-	vidx, releaseIndex, vok := s.AcquireVectorIndex(targetVector)
-	if !vok {
+	vidx, q, release, ok := s.acquireVectorIndexAndQueue(targetVector)
+	if !ok {
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
-	defer releaseIndex()
-	q, releaseQueue, qok := s.AcquireVectorIndexQueue(targetVector)
-	if !qok {
-		return fmt.Errorf("vector index %q not found", targetVector)
-	}
-	defer releaseQueue()
+	defer release()
 
 	// read before the drop: afterwards nothing tells the type
 	_, isHFresh := vidx.(*hfresh.HFresh)

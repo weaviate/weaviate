@@ -84,6 +84,17 @@ func (s *Shard) AcquireVectorIndexQueue(targetVector string) (queue *VectorIndex
 	return slot.queue, slot.release, true
 }
 
+// acquireVectorIndexAndQueue is AcquireVectorIndex for the index and its
+// queue together. Two separate leases would let a switch of the index start
+// between them, then wait for the first while the second waits for it.
+func (s *Shard) acquireVectorIndexAndQueue(targetVector string) (index VectorIndex, queue *VectorIndexQueue, release func(), ok bool) {
+	slot, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return nil, nil, nil, false
+	}
+	return slot.index, slot.queue, slot.release, true
+}
+
 func (s *Shard) hasLegacyVectorIndex() bool {
 	_, ok := s.vectors.get("")
 	return ok
