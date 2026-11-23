@@ -29,10 +29,14 @@ type transport struct {
 }
 
 // dial returns id's memberlist address, else target, the address stored for id in the RAFT configuration. It refuses
-// this node's own address: raft never sends itself an RPC, so id is down and this node took over its old IP.
+// this node's own address: raft never sends itself an RPC, so id is down and this node took over its old IP. It refuses
+// a target memberlist assigns to another node: that node would answer, and be counted as a vote or ack, in id's place.
 func (t *transport) dial(id raftImpl.ServerID, target raftImpl.ServerAddress) (raftImpl.ServerAddress, error) {
 	addr, err := t.resolver.ServerAddr(id)
 	if err != nil {
+		if holder := t.resolver.memberAt(target); holder != "" {
+			return "", fmt.Errorf("raft address %s of %s now belongs to %s", target, id, holder)
+		}
 		t.log.WithFields(logrus.Fields{"id": id, "fallback": target}).
 			Warnf("unable to get address for server, using fallback address: %v", err)
 		addr = target

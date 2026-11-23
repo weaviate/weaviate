@@ -63,26 +63,47 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	if id == raftImpl.ServerID(a.LocalName) {
 		return raftImpl.ServerAddress(a.LocalAddress), nil
 	}
-	addr := a.ClusterStateReader.NodeAddress(string(id))
+	addr, ok := a.memberAddr(id)
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
-	if addr == "" {
+	if !ok {
 		a.notResolvedNodes.Store(id, struct{}{})
 		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	a.notResolvedNodes.Delete(id)
+	return addr, nil
+}
 
+// memberAddr returns the RAFT address memberlist resolves id to.
+func (a *raft) memberAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, bool) {
+	addr := a.ClusterStateReader.NodeAddress(string(id))
+	if addr == "" {
+		return "", false
+	}
 	// If we are not running a local cluster we can immediately return, otherwise we need to lookup the port of the node
 	// as we can't use the default raft port locally.
 	if !a.IsLocalCluster {
-		return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", a.RaftPort))), nil
+		return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", a.RaftPort))), true
 	}
 	port, exists := a.NodeNameToPortMap[string(id)]
 	if !exists {
 		// if does not exist, use the default raft port, self healing from bad config
 		port = a.RaftPort
 	}
-	return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", port))), nil
+	return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", port))), true
+}
+
+// memberAt returns the memberlist member, other than this node, whose RAFT address is addr, or "" if there is none.
+func (a *raft) memberAt(addr raftImpl.ServerAddress) string {
+	for _, name := range a.ClusterStateReader.AllNames() {
+		if name == a.LocalName {
+			continue
+		}
+		if got, ok := a.memberAddr(raftImpl.ServerID(name)); ok && got == addr {
+			return name
+		}
+	}
+	return ""
 }
 
 // NewTCPTransport returns a RAFT TCP transport that resolves server IDs on every outbound RPC (see transport).

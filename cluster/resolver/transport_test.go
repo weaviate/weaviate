@@ -49,6 +49,16 @@ func (f *fakeMemberlist) NodeAddress(id string) string {
 	return f.ips[id]
 }
 
+func (f *fakeMemberlist) AllNames() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	names := make([]string, 0, len(f.ips))
+	for name := range f.ips {
+		names = append(names, name)
+	}
+	return names
+}
+
 // newRaftNode starts a RAFT node; a non-empty bootstrapAddr bootstraps it as the single voter stored at that address.
 func newRaftNode(t *testing.T, id string, trans raftImpl.Transport, bootstrapAddr raftImpl.ServerAddress) *raftImpl.Raft {
 	t.Helper()
@@ -288,4 +298,43 @@ func TestStaleMemberlistAddressHeldByUnknownNode(t *testing.T) {
 	applyN(t, leader, 5)
 
 	requireCaughtUp(t, leader, f1, "F1")
+}
+
+// TestStaleFallbackAddressDoesNotFakeQuorum covers five voters: F1 is down and not in memberlist, and F2 now holds the
+// address stored for F1. With F3 and F4 also down, only L and F2 are alive, two of five, so L must not commit. If F2's
+// answers to RPCs meant for F1 count as F1's, L sees three of five and commits entries that only two nodes hold.
+func TestStaleFallbackAddressDoesNotFakeQuorum(t *testing.T) {
+	t2, t3, t4 := newTransport(t, "127.0.0.1", 0), newTransport(t, "127.0.0.1", 0), newTransport(t, "127.0.0.1", 0)
+	members := &fakeMemberlist{ips: map[string]string{"L": "127.0.0.1"}}
+	res := NewRaft(RaftConfig{
+		ClusterStateReader: members,
+		IsLocalHost:        true,
+		NodeNameToPortMap: map[string]int{
+			"F1": portOf(t, deadAddress(t)), "F2": portOf(t, t2.LocalAddr()),
+			"F3": portOf(t, t3.LocalAddr()), "F4": portOf(t, t4.LocalAddr()),
+		},
+		LocalName: "L",
+	})
+	leader, _ := startLeader(t, res, 0, "")
+
+	// F2 is stored under its old address; memberlist resolves it to where it listens now.
+	followers := map[string]*raftImpl.Raft{}
+	for id, tr := range map[string]raftImpl.Transport{"F2": t2, "F3": t3, "F4": t4} {
+		followers[id] = newRaftNode(t, id, tr, "")
+		members.set(id, "127.0.0.1")
+		stored := tr.LocalAddr()
+		if id == "F2" {
+			stored = deadAddress(t)
+		}
+		require.NoError(t, leader.AddVoter(raftImpl.ServerID(id), stored, 0, time.Second).Error())
+	}
+	// F1 restarted elsewhere and has not rejoined memberlist; the address stored for it is the one F2 took.
+	require.NoError(t, leader.AddVoter("F1", t2.LocalAddr(), 0, time.Second).Error())
+	applyN(t, leader, 3)
+
+	require.NoError(t, followers["F3"].Shutdown().Error())
+	require.NoError(t, followers["F4"].Shutdown().Error())
+
+	err := leader.Apply([]byte("needs a real majority"), 3*time.Second).Error()
+	require.Errorf(t, err, "committed with only L and F2 alive (state %s): F2 was counted as F1", leader.State())
 }
