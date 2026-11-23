@@ -157,9 +157,15 @@ func (v *vectorIndexSlots) get(name string) (*vectorIndexSlot, bool) {
 // the legacy slot last, stopping at the first error. Creation and removal
 // wait for the walk, as they did with the maps. A slot whose removal is in
 // progress is skipped, as the old drop held the write lock for its whole
-// teardown; it is visited again if that teardown fails.
+// teardown; it is visited again if that teardown fails. A walk waits for
+// any switch in progress, and a switch waits for the walk: f holds no lease.
 func (v *vectorIndexSlots) ForEach(f func(name string, index VectorIndex, queue *VectorIndexQueue) error) error {
 	v.mu.RLock()
+	for switching := v.anySwitching(); switching != nil; switching = v.anySwitching() {
+		v.mu.RUnlock()
+		<-switching
+		v.mu.RLock()
+	}
 	defer v.mu.RUnlock()
 
 	for name, slot := range v.slots {
@@ -173,6 +179,17 @@ func (v *vectorIndexSlots) ForEach(f func(name string, index VectorIndex, queue 
 	}
 	if slot, ok := v.slots[""]; ok && !slot.closing {
 		return f("", slot.index, slot.queue)
+	}
+	return nil
+}
+
+// anySwitching returns the signal of a switch in progress, if any. Callers
+// hold mu.
+func (v *vectorIndexSlots) anySwitching() chan struct{} {
+	for _, slot := range v.slots {
+		if slot.switching != nil {
+			return slot.switching
+		}
 	}
 	return nil
 }
