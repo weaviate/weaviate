@@ -314,7 +314,7 @@ func (c *client) organizationFor(ctx context.Context) string {
 
 // endpoint picks the base URL and the key of a query.
 func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
-	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, baseURLHeader, classBaseURL)
+	baseURL, err := modulecomponents.ResolveBaseURL(ctx, baseURLHeader, classBaseURL)
 	if err != nil {
 		return "", "", err
 	}

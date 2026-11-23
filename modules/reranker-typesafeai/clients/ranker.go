@@ -286,7 +286,7 @@ func (e apiError) Error() string {
 
 // endpoint returns the URL and the key of the requests.
 func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
-	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, baseURLHeader, classBaseURL)
+	baseURL, err := modulecomponents.ResolveBaseURL(ctx, baseURLHeader, classBaseURL)
 	if err != nil {
 		return "", "", err
 	}
