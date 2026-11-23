@@ -86,8 +86,10 @@ func TestClasslessBeaconDoesNotNameMultiTenantCollections(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, roleName, userName)
 
 	missingID := strfmt.UUID("9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")
+	// Validate requires an id; the failed creates never store it.
+	newID := strfmt.UUID("6d5c4b3a-2f1e-4d0c-9b8a-7f6e5d4c3b2a")
 	withRef := func(id strfmt.UUID) *models.Object {
-		return &models.Object{Class: article, Properties: map[string]any{
+		return &models.Object{Class: article, ID: newID, Properties: map[string]any{
 			"related": []any{map[string]any{"beacon": "weaviate://localhost/" + id.String()}},
 		}}
 	}
