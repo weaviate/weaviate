@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -275,4 +276,278 @@ func (f fakeClassConfig) Config() *config.Config {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+func TestRankSendsNothingForNoDocuments(t *testing.T) {
+	server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+
+	res, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", "text", nil, cfg)
+
+	require.NoError(t, err)
+	assert.Equal(t, "q", res.Query)
+	assert.Empty(t, res.DocumentScores)
+	assert.Zero(t, requests.Load())
+}
+
+func TestRankRejectsMalformedResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "more results than documents",
+			body:    `{"results":[{"index":0,"relevance_score":1},{"index":1,"relevance_score":1},{"index":2,"relevance_score":1}]}`,
+			wantErr: "DigitalOcean reranker returned 3 results for 2 documents",
+		},
+		{
+			name:    "no results",
+			body:    `{"results":[]}`,
+			wantErr: "DigitalOcean reranker returned 0 results for 2 documents",
+		},
+		{
+			name:    "results missing",
+			body:    `{}`,
+			wantErr: "DigitalOcean reranker returned 0 results for 2 documents",
+		},
+		{
+			name:    "negative index",
+			body:    `{"results":[{"index":0,"relevance_score":1},{"index":-1,"relevance_score":1}]}`,
+			wantErr: "DigitalOcean reranker result index -1 out of range for 2 documents",
+		},
+		{
+			name:    "body is not JSON",
+			body:    `<html>gateway</html>`,
+			wantErr: "failed to parse reranker response (status 200)",
+		},
+		{
+			name:    "empty body",
+			body:    ``,
+			wantErr: "failed to parse reranker response (status 200)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, _ := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			})
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+
+			res, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", "text", []string{"a", "b"}, cfg)
+
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Nil(t, res)
+		})
+	}
+}
+
+func TestRankChunkBoundaries(t *testing.T) {
+	const maxDocuments = 3
+	tests := []struct {
+		documents    int
+		wantRequests int64
+	}{
+		{documents: 1, wantRequests: 1},
+		{documents: maxDocuments - 1, wantRequests: 1},
+		{documents: maxDocuments, wantRequests: 1},
+		{documents: maxDocuments + 1, wantRequests: 2},
+		{documents: 2 * maxDocuments, wantRequests: 2},
+		{documents: 2*maxDocuments + 1, wantRequests: 3},
+		{documents: 20 * maxDocuments, wantRequests: 20},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d documents", tt.documents), func(t *testing.T) {
+			server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var req rankRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Documents) > maxDocuments {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				// reverse order, as a relevance sort may return it; the score
+				// is the number in the document
+				results := make([]rankResult, len(req.Documents))
+				for i, doc := range req.Documents {
+					var score float64
+					fmt.Sscanf(doc, "doc-%f", &score)
+					results[len(req.Documents)-1-i] = rankResult{Index: i, RelevanceScore: score}
+				}
+				json.NewEncoder(w).Encode(rankResponse{Results: results})
+			})
+			documents := make([]string, tt.documents)
+			for i := range documents {
+				documents[i] = fmt.Sprintf("doc-%d", i)
+			}
+			c := New("key", 0, nullLogger())
+			c.maxDocuments = maxDocuments
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+
+			res, err := c.Rank(context.Background(), "q", "text", documents, cfg)
+
+			require.NoError(t, err)
+			require.Len(t, res.DocumentScores, tt.documents)
+			for i := range documents {
+				assert.Equal(t, ent.DocumentScore{Document: documents[i], Score: float64(i)}, res.DocumentScores[i])
+			}
+			assert.Equal(t, tt.wantRequests, requests.Load())
+		})
+	}
+}
+
+func TestRankReturnsNoPartialResultWhenAChunkFails(t *testing.T) {
+	tests := []struct {
+		name string
+		// failing is the document whose chunk the API refuses.
+		failing string
+	}{
+		{name: "first chunk", failing: "a"},
+		{name: "middle chunk", failing: "c"},
+		{name: "last chunk", failing: "e"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, _ := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+				var req rankRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				results := make([]rankResult, len(req.Documents))
+				for i, doc := range req.Documents {
+					if doc == tt.failing {
+						w.WriteHeader(http.StatusTooManyRequests)
+						w.Write([]byte(`{"id":"too_many_requests","message":"slow down"}`))
+						return
+					}
+					results[i] = rankResult{Index: i, RelevanceScore: 1}
+				}
+				json.NewEncoder(w).Encode(rankResponse{Results: results})
+			})
+			c := New("key", 0, nullLogger())
+			c.maxDocuments = 2
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+
+			res, err := c.Rank(context.Background(), "q", "text", []string{"a", "b", "c", "d", "e"}, cfg)
+
+			require.ErrorContains(t, err, "status: 429 error: slow down")
+			assert.Nil(t, res)
+		})
+	}
+}
+
+func TestRankStopsOnACancelledContext(t *testing.T) {
+	server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+
+	res, err := New("key", 0, nullLogger()).Rank(ctx, "q", "text", []string{"a"}, cfg)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, res)
+	assert.Zero(t, requests.Load())
+}
+
+func TestRankKeepsTheBaseURLPath(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		fromHeader bool
+		wantPath   string
+	}{
+		{name: "class base URL without a path", path: "", wantPath: "/v1/rerank"},
+		{name: "class base URL with a trailing slash", path: "/", wantPath: "/v1/rerank"},
+		{name: "class base URL with a gateway path", path: "/gateway", wantPath: "/gateway/v1/rerank"},
+		{name: "class base URL with a gateway path and a trailing slash", path: "/gateway/", wantPath: "/gateway/v1/rerank"},
+		{name: "header base URL with a gateway path", path: "/gateway", fromHeader: true, wantPath: "/gateway/v1/rerank"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPath atomic.Value
+			server, _ := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+				gotPath.Store(r.URL.Path)
+				json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
+			})
+			ctx := context.Background()
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL + tt.path}}
+			if tt.fromHeader {
+				ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{server.URL + tt.path})
+				cfg = fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://unused.example.com"}}
+			}
+
+			_, err := New("key", 0, nullLogger()).Rank(ctx, "q", "text", []string{"a"}, cfg)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPath, gotPath.Load())
+		})
+	}
+}
+
+// The base URL of a query comes from the header or, without one, from the
+// class config, which may predate MODULES_VALIDATE_BASE_URL. Whichever is
+// used is validated before the API key and the documents are sent.
+func TestRankValidatesTheBaseURLItUses(t *testing.T) {
+	tests := []struct {
+		name string
+		// <fake> stands for the URL of the fake server.
+		baseURL  string
+		validate bool
+		wantErr  string
+	}{
+		{name: "http", baseURL: "<fake>", validate: true, wantErr: "baseURL must use HTTPS"},
+		{name: "http with a path", baseURL: "<fake>/v1", validate: true, wantErr: "baseURL must use HTTPS"},
+		{name: "https to a loopback address", baseURL: "https://127.0.0.1:8443", validate: true, wantErr: "baseURL cannot target internal addresses"},
+		{name: "https to a private address", baseURL: "https://10.0.0.1", validate: true, wantErr: "baseURL cannot target internal addresses"},
+		{name: "https to the metadata address", baseURL: "https://169.254.169.254", validate: true, wantErr: "baseURL cannot target internal addresses"},
+		{name: "https to localhost", baseURL: "https://localhost/v1", validate: true, wantErr: "baseURL cannot target internal addresses"},
+		{name: "http while validation is off", baseURL: "<fake>"},
+	}
+	for _, source := range []string{"class config", "header", "header over a valid class config"} {
+		for _, tt := range tests {
+			t.Run(source+"/"+tt.name, func(t *testing.T) {
+				if tt.validate {
+					t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+				}
+				server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+					json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
+				})
+				baseURL := strings.ReplaceAll(tt.baseURL, "<fake>", server.URL)
+				ctx := context.Background()
+				cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": baseURL}}
+				switch source {
+				case "header":
+					ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{baseURL})
+					cfg = fakeClassConfig{classConfig: map[string]interface{}{}}
+				case "header over a valid class config":
+					ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{baseURL})
+					cfg = fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://8.8.8.8"}}
+				}
+
+				res, err := New("key", 0, nullLogger()).Rank(ctx, "q", "text", []string{"a"}, cfg)
+
+				if tt.wantErr == "" {
+					require.NoError(t, err)
+					assert.EqualValues(t, 1, requests.Load())
+					return
+				}
+				require.EqualError(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				assert.Zero(t, requests.Load())
+			})
+		}
+	}
+}
+
+// countingServer starts a fake API and counts the requests it receives.
+func countingServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *atomic.Int64) {
+	t.Helper()
+	requests := &atomic.Int64{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		handler(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server, requests
 }

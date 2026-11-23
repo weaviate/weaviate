@@ -182,12 +182,17 @@ func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
 	return requests
 }
 
+// getRerankURL builds the endpoint from the X-Digitalocean-Baseurl header or,
+// without one, from the class baseURL. Whichever is used is validated: a class
+// baseURL may predate MODULES_VALIDATE_BASE_URL.
 func (c *client) getRerankURL(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Digitalocean-Baseurl", baseURL)
-	if err != nil {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Digitalocean-Baseurl"); headerBaseURL != "" {
+		baseURL = headerBaseURL
+	}
+	if err := modulecomponents.ValidateBaseURL(baseURL); err != nil {
 		return "", err
 	}
-	return url.JoinPath(passedBaseURL, "/v1/rerank")
+	return url.JoinPath(baseURL, "/v1/rerank")
 }
 
 func (c *client) getApiKey(ctx context.Context) (string, error) {
