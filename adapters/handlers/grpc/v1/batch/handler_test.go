@@ -16,14 +16,20 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
+	batchMocks "github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 // Drives BatchObjects with a request carrying no objects, which returns before
@@ -69,6 +75,81 @@ func TestHandler_BatchObjects(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, reply)
 				assert.Equal(t, tc.want, slot.Namespace)
+			})
+		}
+	})
+
+	t.Run("authorizes each class and tenant pair", func(t *testing.T) {
+		const badUUID = "not-a-uuid"
+		_, errBadUUID := uuid.Parse(badUUID)
+		errDenied := errors.New("denied")
+		authzCall := func(verb, class, tenant string) authMocks.AuthZReq {
+			return authMocks.AuthZReq{
+				Verb:      verb,
+				Resources: authorization.ShardsData(class, tenant),
+			}
+		}
+
+		tests := []struct {
+			name         string
+			objects      []*pb.BatchObject
+			allowedCalls int
+			authzErr     error
+			wantErrs     []error
+			wantCalls    []authMocks.AuthZReq
+		}{
+			{
+				name: "reuses authorization for the same pair",
+				objects: []*pb.BatchObject{
+					{Collection: "Foo", Tenant: "tenantA"},
+					{Collection: "Foo", Tenant: "tenantA"},
+				},
+				wantErrs: []error{errBadUUID, errBadUUID},
+				wantCalls: []authMocks.AuthZReq{
+					authzCall(authorization.UPDATE, "Foo", "tenantA"),
+					authzCall(authorization.CREATE, "Foo", "tenantA"),
+				},
+			},
+			{
+				name: "authorizes colliding pairs separately",
+				objects: []*pb.BatchObject{
+					{Collection: "Foo", Tenant: "tenantA#Victim"},
+					{Collection: "Foo#tenantA", Tenant: "Victim"},
+				},
+				allowedCalls: 2,
+				authzErr:     errDenied,
+				wantErrs:     []error{errBadUUID, errDenied},
+				wantCalls: []authMocks.AuthZReq{
+					authzCall(authorization.UPDATE, "Foo", "tenantA#Victim"),
+					authzCall(authorization.CREATE, "Foo", "tenantA#Victim"),
+					authzCall(authorization.UPDATE, "Foo#tenantA", "Victim"),
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				authorizer := authMocks.NewMockAuthorizer()
+				authorizer.SetErrAfter(tt.allowedCalls, tt.authzErr)
+				schemaManager := batchMocks.NewMockschemaManager(t)
+				schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Twice()
+				schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Foo").
+					Return(map[string]versioned.Class{"Foo": {Class: &models.Class{Class: "Foo"}}}, nil).
+					Once()
+				handler := newHandler(authorizer, nil, logger, auth.NewHandler(true, nil), schemaManager, false)
+
+				wantErrors := make([]*pb.BatchObjectsReply_BatchError, len(tt.objects))
+				for i, obj := range tt.objects {
+					obj.Uuid = badUUID
+					wantErrors[i] = &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: tt.wantErrs[i].Error()}
+				}
+
+				reply, err := handler.BatchObjects(context.Background(), &pb.BatchObjectsRequest{Objects: tt.objects})
+
+				require.NoError(t, err)
+				require.ElementsMatch(t, wantErrors, reply.Errors)
+				require.Equal(t, tt.wantCalls, authorizer.Calls())
 			})
 		}
 	})

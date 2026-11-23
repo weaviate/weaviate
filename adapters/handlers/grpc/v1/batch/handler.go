@@ -37,11 +37,19 @@ type Handler struct {
 	authenticator     *auth.Handler
 	batchManager      *objects.BatchManager
 	logger            logrus.FieldLogger
-	schemaManager     *schema.Manager
+	schemaManager     schemaManager
 	namespacesEnabled bool
 }
 
+type classTenant struct {
+	class, tenant string
+}
+
 func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
+	return newHandler(authorizer, batchManager, logger, authenticator, schemaManager, namespacesEnabled)
+}
+
+func newHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager schemaManager, namespacesEnabled bool) *Handler {
 	return &Handler{
 		authorizer:        authorizer,
 		authenticator:     authenticator,
@@ -68,16 +76,15 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	//   a combination of class+shard
 	// - to pass down the stack to reuse, index by classname so it can be found easily
 	knownClasses := map[string]versioned.Class{}
-	knownClassesAuthCheck := map[string]*models.Class{}
+	knownClassesAuthCheck := map[classTenant]*models.Class{}
 	classGetter := func(classname, shard string) (string, *models.Class, error) {
 		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
 		if err != nil {
 			return "", nil, err
 		}
 		classname = resolved
-		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		classTenantName := classname + "#" + shard
-		class, ok := knownClassesAuthCheck[classTenantName]
+		key := classTenant{class: classname, tenant: shard}
+		class, ok := knownClassesAuthCheck[key]
 		if ok {
 			return resolved, class, nil
 		}
@@ -101,7 +108,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", qualifiedAlias, classname)
 		}
 		knownClasses[classname] = vClass[classname]
-		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
+		knownClassesAuthCheck[key] = vClass[classname].Class
 		return resolved, vClass[classname].Class, nil
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
