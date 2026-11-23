@@ -12,10 +12,14 @@
 package authz
 
 import (
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -91,5 +95,184 @@ func TestAuthzAliases(t *testing.T) {
 		resp, err := helper.Client(t).Schema.AliasesGetAlias(params, helper.CreateAuth(limitedKey))
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
+	})
+}
+
+func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
+	adminKey := "admin-key"
+	malloryUser, malloryKey := "custom-user2", "custom-key2"
+	readerUser, readerKey := "test-user", "test-key"
+	ingestUser, ingestKey := "write-user", "write-key"
+
+	const (
+		victimClass   = "CompanyOrders"
+		scratchClass  = "MalloryScratch"
+		aliasName     = "Orders"
+		scratchRole   = "scratch-owner"
+		readerRole    = "orders-reader"
+		ingestRole    = "ingest-all"
+		bothSidesRole = "orders-mover"
+	)
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	for _, class := range []string{victimClass, scratchClass} {
+		helper.CreateClassAuth(t, &models.Class{Class: class}, adminKey)
+	}
+	helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: victimClass}, adminKey)
+
+	scratchPermissions := []*models.Permission{
+		helper.NewAliasesPermission().WithAction(authorization.UpdateAliases).WithCollection(scratchClass).Permission(),
+		helper.NewAliasesPermission().WithAction(authorization.DeleteAliases).WithCollection(scratchClass).Permission(),
+		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(scratchClass).Permission(),
+	}
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(scratchRole), Permissions: scratchPermissions})
+	helper.AssignRoleToUser(t, adminKey, scratchRole, malloryUser)
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(readerRole), Permissions: append([]*models.Permission{
+		helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection(victimClass).WithAlias(aliasName).Permission(),
+	}, scratchPermissions...)})
+	helper.AssignRoleToUser(t, adminKey, readerRole, readerUser)
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(ingestRole), Permissions: []*models.Permission{
+		helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection("*").Permission(),
+	}})
+	helper.AssignRoleToUser(t, adminKey, ingestRole, ingestUser)
+
+	assertTarget := func(t *testing.T, want string) {
+		t.Helper()
+		got := helper.GetAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
+		require.Equal(t, want, got.Class)
+	}
+
+	t.Run("caller who cannot read the alias gets the missing-alias answer", func(t *testing.T) {
+		_, missingErr := helper.UpdateAliasAuthWithReturn(t, "NoSuchAlias", scratchClass, malloryKey)
+		var missing *schema.AliasesUpdateNotFound
+		require.ErrorAs(t, missingErr, &missing)
+
+		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
+		var denied *schema.AliasesUpdateNotFound
+		require.ErrorAs(t, err, &denied)
+		assert.Equal(t, missing, denied)
+		assert.Equal(t, missingErr.Error(), err.Error())
+		assertTarget(t, victimClass)
+	})
+
+	t.Run("caller who can read the alias gets forbidden", func(t *testing.T) {
+		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, readerKey)
+		var forbidden *schema.AliasesUpdateForbidden
+		require.ErrorAs(t, err, &forbidden)
+		assertTarget(t, victimClass)
+	})
+
+	t.Run("writes through the alias still land in the original collection", func(t *testing.T) {
+		require.NoError(t, helper.CreateObjectAuth(t, &models.Object{Class: aliasName, Properties: map[string]any{}}, ingestKey))
+
+		res, err := helper.ListObjectsAuth(t, scratchClass, malloryKey)
+		require.NoError(t, err)
+		assert.Empty(t, res.Objects)
+		res, err = helper.ListObjectsAuth(t, victimClass, adminKey)
+		require.NoError(t, err)
+		assert.Len(t, res.Objects, 1)
+	})
+
+	t.Run("delete_aliases on the new target alone cannot delete the alias", func(t *testing.T) {
+		_, err := helper.DeleteAliasAuthWithReturn(t, aliasName, malloryKey)
+		var forbidden *schema.AliasesDeleteForbidden
+		var notFound *schema.AliasesDeleteNotFound
+		require.True(t, errors.As(err, &forbidden) || errors.As(err, &notFound),
+			"want 403 or 404, got %v", err)
+		assertTarget(t, victimClass)
+	})
+
+	t.Run("update_aliases on both targets moves the alias", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{Name: String(bothSidesRole), Permissions: []*models.Permission{
+			helper.NewAliasesPermission().WithAction(authorization.UpdateAliases).WithCollection(victimClass).WithAlias(aliasName).Permission(),
+		}})
+		helper.AssignRoleToUser(t, adminKey, bothSidesRole, malloryUser)
+
+		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
+		require.NoError(t, err)
+		assertTarget(t, scratchClass)
+	})
+}
+
+// Restoring a collection must not move or create aliases the caller holds no
+// alias permission on. The caller below holds only manage_backups and
+// delete_collections on her own collections.
+func TestAuthzRestoreAliasesRequireAliasPermission(t *testing.T) {
+	adminKey := "admin-key"
+	malloryUser, malloryKey := "custom-user2", "custom-key2"
+
+	const (
+		backend     = "filesystem"
+		backupRole  = "mallory-backup-owner"
+		malloryColl = "Mallory*"
+	)
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(backupRole), Permissions: []*models.Permission{
+		helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(malloryColl).Permission(),
+		helper.NewCollectionsPermission().WithAction(authorization.DeleteCollections).WithCollection(malloryColl).Permission(),
+	}})
+	helper.AssignRoleToUser(t, adminKey, backupRole, malloryUser)
+
+	backUp := func(t *testing.T, class string) string {
+		t.Helper()
+		id := fmt.Sprintf("alias-restore-%d", time.Now().UnixNano())
+		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), class, backend, id, helper.CreateAuth(malloryKey))
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, id, backend, helper.CreateAuth(adminKey))
+		return id
+	}
+
+	// The restore is either refused up front or completes; any other outcome
+	// fails here rather than letting the alias assertion pass by accident.
+	restore := func(t *testing.T, class, id string, overwriteAlias bool) {
+		t.Helper()
+		helper.DeleteClassWithAuthz(t, class, helper.CreateAuth(malloryKey))
+		params := backups.NewBackupsRestoreParams().WithBackend(backend).WithID(id).
+			WithBody(&models.BackupRestoreRequest{
+				Include:        []string{class},
+				Config:         helper.DefaultRestoreConfig(),
+				OverwriteAlias: overwriteAlias,
+			})
+		_, err := helper.Client(t).Backups.BackupsRestore(params, helper.CreateAuth(malloryKey))
+		if err != nil {
+			var forbidden *backups.BackupsRestoreForbidden
+			require.ErrorAs(t, err, &forbidden)
+			return
+		}
+		helper.ExpectBackupEventuallyRestored(t, id, backend, helper.CreateAuth(adminKey))
+	}
+
+	t.Run("overwriteAlias keeps an alias the caller cannot update", func(t *testing.T) {
+		const victimClass, scratchClass, aliasName = "CompanyOrders", "MalloryScratch", "Orders"
+		for _, class := range []string{victimClass, scratchClass} {
+			helper.CreateClassAuth(t, &models.Class{Class: class}, adminKey)
+		}
+		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: scratchClass}, adminKey)
+		id := backUp(t, scratchClass)
+		helper.UpdateAliasWithAuthz(t, aliasName, victimClass, helper.CreateAuth(adminKey))
+
+		restore(t, scratchClass, id, true)
+
+		got := helper.GetAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
+		assert.Equal(t, victimClass, got.Class)
+	})
+
+	t.Run("restore does not recreate an alias the caller cannot create", func(t *testing.T) {
+		const archiveClass, aliasName = "MalloryArchive", "Invoices"
+		helper.CreateClassAuth(t, &models.Class{Class: archiveClass}, adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: archiveClass}, adminKey)
+		id := backUp(t, archiveClass)
+		helper.DeleteAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
+
+		restore(t, archiveClass, id, false)
+
+		_, err := helper.GetAliasAuthWithReturn(t, aliasName, adminKey)
+		var notFound *schema.AliasesGetAliasNotFound
+		require.ErrorAs(t, err, &notFound)
 	})
 }
