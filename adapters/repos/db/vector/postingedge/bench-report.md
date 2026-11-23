@@ -267,7 +267,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - **La verdad filtrada:** los 10 permitidos más cercanos a la query, por coseno exacto, en una pasada por todo el corpus por query.
 - **El corte por defecto: 40 000 vectores permitidos,** el `flatSearchCutoff` de HNSW. A 1M, el 0.1 % y el 1 % van por la búsqueda plana, y el 10 % y el 50 % por el índice.
 - **Para el punto de cruce se miden los dos caminos en todas las selectividades:** el índice forzado y la búsqueda plana forzada. La plana pasa a ser más barata donde su p50 en frío a 0.95 queda por debajo del del índice; se reporta también por lecturas por query.
-- **HNSW:** configuración por defecto de una clase con RQ de 1 bit, con el filtro en `sweeping` como pide el encargo y su corte de 40 000. En este código la estrategia por defecto es `acorn`: se mide también, sin cronometrar. El grafo y los códigos en memoria, y los vectores en un fichero del volumen de las pruebas, leídos con `pread` en el rescore, como en la medida de HNSW a 10M de anoche.
+- **HNSW:** configuración por defecto de una clase con RQ de 1 bit, con el filtro en `sweeping` como pide el encargo y su corte de 40 000. En este código la estrategia por defecto es `acorn`: se mide también, sin cronometrar. *Corregido por la enmienda 1: `acorn` es la comparación principal, cronometrada, y `sweeping` la segunda referencia.* El grafo y los códigos en memoria, y los vectores en un fichero del volumen de las pruebas, leídos con `pread` en el rescore, como en la medida de HNSW a 10M de anoche.
 - **Sin cronometrar:** por tipo y selectividad, recall a igual ef sobre la malla de ef (de 10 a 2 048), cargas por query en el nuestro y lecturas de vector por query en los dos; y el ef de 0.95, y de 0.99 donde se alcance. Los mismos puntos sin filtro, como referencia.
 - **Cronometrado:** cada tipo y selectividad en su punto de 0.95, con 1 thread, en caliente y en frío (lotes de 10 queries con el volumen desmontado entre lotes, 500 queries en frío). Los dos índices en la misma sesión, dos rondas, con la espera de 15 minutos sin teclado ni trackpad, el marcador y el detector de deriva de siempre.
 - **La parada se comprueba en cada query de cada medida,** cronometrada o no, en los dos índices.
@@ -284,6 +284,15 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Anticorrelado al 10 % y al 50 %:** el índice puede no llegar a 0.95 con ef 2 048. HNSW con `sweeping`, tampoco.
 - **La búsqueda plana al 0.1 % y al 1 %:** recall por encima de 0.99.
 - **El punto de cruce:** entre el 2 % y el 5 % de selectividad, unos 20 000 a 50 000 vectores. El corte de 40 000 quedaría cerca.
+
+### Enmienda 1 (11:15 del 23, del usuario, antes de ningún dato): HNSW con ACORN es la comparación principal
+
+**Motivo.** El usuario lo corrige antes de que haya datos: la comparación principal es HNSW con su estrategia por defecto, `acorn`, cronometrada. `sweeping` queda como segunda referencia, cronometrada también si cabe.
+
+- **HNSW con `acorn`:** sin cronometrar en todos los filtros y cronometrado en el punto de 0.95 de cada tipo y selectividad, en la misma sesión que el nuestro y con su corte de 40 000. Es contra él contra quien se leen el anticorrelado y el punto de cruce.
+- **HNSW con `sweeping`:** los mismos barridos sin cronometrar. Se cronometra detrás de las curvas de `acorn` y de las nuestras, si la sesión cabe en la noche; si no, se dice.
+- **El criterio no cambia:** sus dos partes son sobre nuestro índice.
+- **Lo que espero de `acorn`:** frente a `sweeping`, mejor en el anticorrelado y con filtros pequeños por encima del corte (10 %); parecido al 50 %.
 
 ## 10M en disco: wiki-dpr 10M con el camino de lectura de v4.0 (2026-11-21)
 
