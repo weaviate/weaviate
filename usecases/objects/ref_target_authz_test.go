@@ -318,3 +318,30 @@ func TestBatchReferencesCheckTheScopeTheyRead(t *testing.T) {
 		})
 	}
 }
+
+func TestRefTargetDenialCheckedOncePerBatch(t *testing.T) {
+	_, b, repo, modules, authorizer := newNSManagers(t, refAuthzClasses(""), false)
+	authorizer.Deny(authorization.Objects("Payroll", ""))
+	repo.On("Exists", mock.Anything, mock.Anything).Return(true, nil).Maybe()
+	repo.On("BatchPutObjects", mock.Anything).Return(nil).Maybe()
+	modules.On("BatchUpdateVector").Return(nil, nil).Maybe()
+
+	beacon := "weaviate://localhost/Payroll/" + refAuthzTargetID.String()
+	objs := []*models.Object{refAuthzObject("multi", beacon), refAuthzObject("multi", beacon), refAuthzObject("multi", beacon)}
+	for i, obj := range objs {
+		obj.ID = strfmt.UUID(fmt.Sprintf("5a1cd361-1e0d-42ae-bd52-ee09cb5f31c%d", i))
+	}
+	res, err := b.AddObjects(context.Background(), nil, objs, nil, nil)
+	require.NoError(t, err)
+	for _, r := range res {
+		require.True(t, errors.As(r.Err, &autherrs.Forbidden{}), "%v", r.Err)
+	}
+
+	var checks int
+	for _, call := range authorizer.Calls() {
+		if assert.ObjectsAreEqual(call.Resources, authorization.ShardsData("Payroll", "")) {
+			checks++
+		}
+	}
+	assert.Equal(t, 1, checks)
+}

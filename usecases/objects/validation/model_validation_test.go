@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -72,7 +73,7 @@ func TestValidationReference(t *testing.T) {
 }
 
 func TestValidateExistence(t *testing.T) {
-	tenantErr := errors.New("has multi-tenancy disabled, but request was with tenant")
+	tenantErr := fmt.Errorf("class To %w, but request was with tenant", schema.ErrMultiTenancyDisabled)
 	replicasErr := fmt.Errorf("check existence: %w",
 		replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down")))
 	otherErr := errors.New("connection refused")
@@ -117,10 +118,42 @@ func TestValidateExistence(t *testing.T) {
 	}
 }
 
+// Only a target without multi-tenancy is retried; other tenant lookup errors pass through.
+func TestValidateExistenceReturnsTenantLookupErrors(t *testing.T) {
+	replicasErr := fmt.Errorf("check existence: %w",
+		replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down")))
+	tenantMissing := errors.New("tenant not found: tenantA")
+	tests := []struct {
+		name  string
+		first error
+	}{
+		{name: "a replica shortage", first: replicasErr},
+		{name: "a missing tenant on a multi-tenant target", first: tenantMissing},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lookups []string
+			stub := func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, tenant string) (bool, error) {
+				lookups = append(lookups, tenant)
+				return false, tt.first
+			}
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.Deny(authorization.Objects("To", ""))
+			validator := New(stub, &config.WeaviateConfig{}, nil, nil, false, authorizer)
+			ref := &crossref.Ref{Class: "To", TargetID: strfmt.UUID(UuidLower)}
+
+			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")
+			require.ErrorIs(t, err, tt.first)
+			require.False(t, errors.As(err, &autherrs.Forbidden{}), "%v", err)
+			require.Equal(t, []string{"tenantA"}, lookups)
+		})
+	}
+}
+
 // Each lookup needs READ on the scope it reads: a class-less one and the
 // tenant-less retry read without a tenant.
 func TestValidateExistenceAuthorizesLookupScope(t *testing.T) {
-	tenantErr := errors.New("has multi-tenancy disabled, but request was with tenant")
+	tenantErr := fmt.Errorf("class To %w, but request was with tenant", schema.ErrMultiTenancyDisabled)
 	tests := []struct {
 		name        string
 		class       string

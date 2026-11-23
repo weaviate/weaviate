@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -73,7 +74,7 @@ type Validator struct {
 	principal         *models.Principal
 	namespacesEnabled bool
 	authorizer        authorization.Authorizer
-	readGranted       map[refTarget]struct{}
+	readChecked       map[refTarget]error
 }
 
 type refTarget struct{ class, tenant string }
@@ -100,17 +101,15 @@ func New(exists exists, config *config.WeaviateConfig,
 // authorizeRefTarget requires READ on the collection a reference points to; "" means any collection.
 func (v *Validator) authorizeRefTarget(ctx context.Context, class, tenant string) error {
 	key := refTarget{class: class, tenant: tenant}
-	if _, ok := v.readGranted[key]; ok {
-		return nil
-	}
-	if err := v.authorizer.Authorize(ctx, v.principal, authorization.READ, authorization.ShardsData(class, tenant)...); err != nil {
+	if err, ok := v.readChecked[key]; ok {
 		return err
 	}
-	if v.readGranted == nil {
-		v.readGranted = map[refTarget]struct{}{}
+	err := v.authorizer.Authorize(ctx, v.principal, authorization.READ, authorization.ShardsData(class, tenant)...)
+	if v.readChecked == nil {
+		v.readChecked = map[refTarget]error{}
 	}
-	v.readGranted[key] = struct{}{}
-	return nil
+	v.readChecked[key] = err
+	return err
 }
 
 func (v *Validator) Object(ctx context.Context, class *models.Class,
@@ -157,14 +156,13 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		if tenant == "" {
+		// Only a target without multi-tenancy can answer the lookup without a tenant.
+		if tenant == "" || !errors.Is(err, schema.ErrMultiTenancyDisabled) {
 			return err
 		}
 		if aerr := v.authorizeRefTarget(ctx, ref.Class, ""); aerr != nil {
 			return aerr
 		}
-		// since refs can be created to non-MT classes, check again if non-MT object exists
-		// (use empty tenant, if previously was given)
 		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 		if err2 != nil {
 			// A target class without multi-tenancy fails the tenant call with a

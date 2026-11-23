@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -71,7 +72,7 @@ func (v *singleTenantValidator) ValidateTenants(ctx context.Context, tenants ...
 	for _, tenant := range tenants {
 		if tenant != "" {
 			return objects.NewErrMultiTenancy(
-				fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", v.className),
+				fmt.Errorf("class %s %w, but request was with tenant", v.className, schema.ErrMultiTenancyDisabled),
 			)
 		}
 	}
