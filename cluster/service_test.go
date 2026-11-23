@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/wl/rebalance"
 )
 
 // rConfig is a keyed composite literal, so omitting one of the four cleanup
@@ -92,7 +93,7 @@ func (n *countingNotifier) Wake() { n.wakes.Add(1) }
 func TestService_SetDistributedTaskSchedulerNotifier(t *testing.T) {
 	// A Store holding only a distributed task Manager is enough: AddTask wakes
 	// the installed notifier without a Raft node.
-	newService := func(planner *replication.RebalancePlanner) *Service {
+	newService := func(planner RebalancePlanner) *Service {
 		manager := distributedtask.NewManager(distributedtask.ManagerParameters{})
 		return &Service{
 			Raft:             &Raft{store: &Store{distributedTasksManager: manager}},
@@ -101,9 +102,9 @@ func TestService_SetDistributedTaskSchedulerNotifier(t *testing.T) {
 	}
 
 	logger, _ := logrustest.NewNullLogger()
-	newPlanner := func(t *testing.T, ready func() bool) *replication.RebalancePlanner {
+	newPlanner := func(t *testing.T, ready func() bool) *rebalance.RebalancePlanner {
 		t.Helper()
-		planner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
+		planner, err := rebalance.NewRebalancePlanner(rebalance.RebalancePlannerParams{
 			Logger:      logger,
 			FSM:         replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry()),
 			Proposer:    &Raft{},

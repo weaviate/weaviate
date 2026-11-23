@@ -198,15 +198,6 @@ type Config struct {
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
 
-	// DistributedTaskCollectionExtractors are registered on the
-	// distributed-task Manager at FSM construction time, BEFORE RAFT
-	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay
-	// (schemaOnly) apply too. Late post-construction registration would
-	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
-	// and weaviate/0-weaviate-issues#231.
-	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
-	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
-	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
 	// DistributedTaskConflictDetectors and DistributedTaskSchemaMutationDetectors
 	// reach the Manager when NewFSM runs, before RAFT replay, like the
@@ -215,7 +206,6 @@ type Config struct {
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
 	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
 	// whose units no longer match the current replicas of the shards they name.
-	// A namespace without a collection extractor is never checked.
 	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
@@ -248,10 +238,9 @@ type Config struct {
 	ReplicaMovementEnabled  *runtime.DynamicValue[bool]
 	ReplicaRebalanceEnabled *runtime.DynamicValue[bool]
 
-	// RebalanceMeasure reads one node's resources and its draft for task taskID
-	// at version, for the rebalance planner. When nil, every planning run that
-	// reaches collection ends PLANNING_FAILED.
-	RebalanceMeasure func(ctx context.Context, node, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error)
+	// NewRebalancePlanner builds the rebalance planner. It is nil on a node
+	// that may not run the planner, and such a node completes no planning run.
+	NewRebalancePlanner func(RebalancePlannerDeps) (RebalancePlanner, error)
 
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.
@@ -347,14 +336,14 @@ type Store struct {
 
 	// tenantAddLocks serializes AddTenants per class on the leader so the
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
-	tenantAddLocks *entsync.KeyLocker
+	tenantAddLocks *evictingKeyRWLocker
 
 	// collectionAddLocks serializes AddClass per namespace on the leader so the
 	// pre-commit collection-cap check cannot race the apply that increments the
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	taskMovementLocks *entsync.KeyLocker
+	taskMovementLocks *evictingKeyRWLocker
 
 	metrics *storeMetrics
 
@@ -478,14 +467,6 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
-	// Register collection extractors BEFORE RAFT.Apply replay can fire.
-	// The DELETE_CLASS cascade lives in updateSchema (runs even on
-	// schemaOnly replay), but with no extractor registered for the
-	// reindex namespace the cascade is a no-op and the resurrected task
-	// records survive. weaviate/0-weaviate-issues#231.
-	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
-		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
-	}
 	for namespace, extractor := range cfg.DistributedTaskTargetVectorExtractors {
 		distributedTasksManager.RegisterTargetVectorExtractor(namespace, extractor)
 	}
@@ -514,9 +495,9 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
-		tenantAddLocks:          entsync.NewKeyLocker(),
+		tenantAddLocks:          newEvictingKeyRWLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
-		taskMovementLocks:       entsync.NewKeyLocker(),
+		taskMovementLocks:       newEvictingKeyRWLocker(),
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, monitoring.GetMetrics(), cfg.Logger),

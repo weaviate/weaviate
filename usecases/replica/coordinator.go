@@ -346,16 +346,22 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 // so the read fails over to another replica. Maintenance and a missing class are retried instead:
 // a replica behind the schema answers the same unprocessable as a class that does not exist, and
 // catches up in less than a retry takes. Maintenance is only ever the wire text of a 418.
+// A shard recovering from a peer is dropped too: its copy outlasts the whole retry ladder.
 func replicaCannotServe(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, ErrReplicaBooting) || errors.Is(err, ErrReplicaMaintenance) {
+	if errors.Is(err, ErrReplicaBooting) || errors.Is(err, ErrReplicaMaintenance) ||
+		enterrors.IsShardRecovering(err) {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
+	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg) ||
+		strings.Contains(msg, shardRecoveringMsg)
 }
+
+// shardRecoveringMsg is ErrShardRecovering's text, all a remote replica's refusal carries of it.
+var shardRecoveringMsg = strings.ToLower(enterrors.ErrShardRecovering.Error())
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
 // to op, while cycling through replicas for the coordinator's shard.

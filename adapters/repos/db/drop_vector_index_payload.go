@@ -85,46 +85,76 @@ type DropVectorIndexTaskPayload struct {
 	// "owed nothing" — the conservative reading, and the one that keeps the
 	// closed-epoch fence.
 	//
+	// For a FAILED or CANCELLED round, owedShards also counts as owed each
+	// shard whose units did not all complete.
+	//
 	// Size: mirrors CleanedShards (one name per shard, no per-replica blowup);
 	// a drop on a 100k-tenant collection with most tenants cold carries the
 	// complement of CleanedShards here.
 	DeferredShards []string `json:"deferredShards,omitempty"`
+
+	// VerifyOnly marks a round that strips nothing. Each node's unit waits
+	// until the node's loaded shards of the drop hold no pending or quarantined
+	// rows for the epoch's op, which a restart can put back on a shard whose
+	// unit already completed.
+	//
+	// A node that does not read this field re-cleans its unit's shard instead.
+	// At most its own completion callback checks its other loaded shards, so a
+	// peer can still remove the marker over rows pending there.
+	VerifyOnly bool `json:"verifyOnly,omitempty"`
 }
 
 // DropVectorIndexTaskVisiblePayloadFields are the payload fields GET /v1/tasks
 // shows a caller without tenant read. Any other field could name tenants,
 // shards or nodes, so it stays hidden until it is listed here.
-var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId"}
+var DropVectorIndexTaskVisiblePayloadFields = []string{"collection", "opId", "dropEpochId", "verifyOnly"}
 
-// ResolvedByShardDeletion reports whether p's recorded coverage spans every
-// shard in shards while a shard p still OWED has since disappeared — i.e. the
-// drop's outstanding work did not get done, it ceased to exist along with its
-// tenant. Such a chain is complete for the collection as it now stands, so the
-// marker can be removed without re-stripping shards that are already clean.
+// ResolvedByShardDeletion reports whether a shard the round still OWED has
+// since disappeared — i.e. the drop's outstanding work did not get done, it
+// ceased to exist along with its tenant.
 //
-// A payload that owed nothing returns false even with full coverage: that is
+// A true result alone does not make the marker removable. Both callers also
+// require EpochCoveredShards to span shards: the round's epoch must have
+// stripped every shard that still exists.
+//
+// A round that owed nothing returns false even with full coverage: that is
 // the closed-epoch residue shape (a finalized drop's records beside a
 // re-created name's marker), and it must keep re-cleaning.
 //
 // Deterministic over its inputs: the enqueuer and the FSM removal gate both
-// call it so the enqueuer never attempts a removal the gate would refuse.
-func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(shards []string) bool {
-	if len(p.DeferredShards) == 0 {
-		return false
-	}
-	if len(ShardsNotCovered(shards, p.CoveredShards())) > 0 {
-		return false
-	}
+// call it, so they read a round the same way.
+func (p *DropVectorIndexTaskPayload) ResolvedByShardDeletion(task *distributedtask.Task, shards []string) bool {
 	current := make(map[string]struct{}, len(shards))
 	for _, shard := range shards {
 		current[shard] = struct{}{}
 	}
-	for _, owed := range p.DeferredShards {
-		if _, stillThere := current[owed]; !stillThere {
+	for _, shard := range p.owedShards(task) {
+		if _, stillThere := current[shard]; !stillThere {
 			return true
 		}
 	}
 	return false
+}
+
+// owedShards returns the shards a terminal round left unstripped. A FAILED or
+// CANCELLED round owes the shards of its unfinished units too, because a
+// tenant deleted mid-strip fails its unit.
+func (p *DropVectorIndexTaskPayload) owedShards(task *distributedtask.Task) []string {
+	if !terminalWithPartialWork(task.Status) {
+		return p.DeferredShards
+	}
+	completed := CompletedUnitShards(task, p)
+	stripped := make(map[string]struct{}, len(completed))
+	for _, shard := range completed {
+		stripped[shard] = struct{}{}
+	}
+	owed := append([]string(nil), p.DeferredShards...)
+	for _, shard := range p.UnitToShard {
+		if _, ok := stripped[shard]; !ok {
+			owed = append(owed, shard)
+		}
+	}
+	return owed
 }
 
 // SameTargetSet reports whether two target lists contain the same names with
@@ -319,34 +349,15 @@ func terminalWithPartialWork(s distributedtask.TaskStatus) bool {
 func EpochAndInheritedCoverage(collection string, targets []string, state *sharding.State,
 	tasks map[string][]*distributedtask.Task, logger logrus.FieldLogger,
 ) (epoch string, cleaned []string, finalizeNow bool) {
-	// The newest matching task (raft-assigned Version: monotonic and
-	// deterministic, unlike node wall clocks) names the candidate epoch.
-	var newest *DropVectorIndexTaskPayload
-	var newestVersion uint64
-	for _, task := range tasks[DropVectorIndexNamespace] {
-		p, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
-			}
-			continue
-		}
-		if !SameDrop(p, collection, targets) {
-			continue
-		}
-		if newest == nil || task.Version > newestVersion {
-			newest, newestVersion = p, task.Version
-		}
-	}
-	if newest == nil || newest.DropEpochID == "" {
+	newestEpoch, ok := newestDropEpoch(tasks[DropVectorIndexNamespace], collection, targets, logger)
+	if !ok {
 		return uuid.NewString(), nil, false
 	}
 	// Completed tasks vouch their full CoveredShards; a FAILED or CANCELLED
 	// round vouches only its COMPLETED units — a deactivated tenant fails a
 	// whole round, and discarding its finished work would make MT-scale
 	// convergence improbable.
-	covered := EpochCoveredShards(tasks[DropVectorIndexNamespace], collection, targets, newest.DropEpochID)
+	covered := EpochCoveredShards(tasks[DropVectorIndexNamespace], collection, targets, newestEpoch)
 	// Prune to current shards: deleted tenants would otherwise accumulate in
 	// every subsequent payload forever.
 	cleaned = make([]string, 0, len(covered))
@@ -367,16 +378,53 @@ func EpochAndInheritedCoverage(collection string, targets []string, state *shard
 	if len(ShardsNotCovered(shardNames, remaining)) == 0 {
 		// The chain spans every current shard while the marker still stands.
 		// Either the shards it still owed were DELETED — the work is genuinely
-		// done for the collection as it now stands, so finalize rather than
-		// re-strip shards that are already clean — or the chain owed nothing,
-		// which is closed-epoch residue (see above) and must re-clean.
+		// done for the collection as it now stands, so the caller finalizes
+		// through a verify-only round rather than re-strip shards that are
+		// already clean — or the chain owed nothing, which is closed-epoch
+		// residue (see above) and must re-clean.
+		//
+		// A verify-only round looks for leftover rows under the epoch's op
+		// only, so an epoch with a record under another op cannot be verified
+		// and re-cleans as well.
 		if resolvedByDeletion(tasks[DropVectorIndexNamespace], collection, targets,
-			newest.DropEpochID, shardNames) {
-			return newest.DropEpochID, cleaned, true
+			newestEpoch, shardNames) &&
+			!epochHasForeignOp(tasks[DropVectorIndexNamespace], collection, targets, newestEpoch) {
+			return newestEpoch, cleaned, true
 		}
 		return uuid.NewString(), nil, false
 	}
-	return newest.DropEpochID, cleaned, false
+	return newestEpoch, cleaned, false
+}
+
+// newestDropEpoch returns the epoch of the newest record of the drop
+// (collection, targets). Newest is by raft-assigned Version, which is monotonic
+// and deterministic, unlike node wall clocks. ok is false when the drop has no
+// record or its newest record carries no epoch.
+func newestDropEpoch(tasks []*distributedtask.Task, collection string, targets []string,
+	logger logrus.FieldLogger,
+) (epoch string, ok bool) {
+	var newest *DropVectorIndexTaskPayload
+	var newestVersion uint64
+	for _, task := range tasks {
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			if logger != nil {
+				logger.WithField("task", task.ID).
+					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
+			}
+			continue
+		}
+		if !SameDrop(p, collection, targets) {
+			continue
+		}
+		if newest == nil || task.Version > newestVersion {
+			newest, newestVersion = p, task.Version
+		}
+	}
+	if newest == nil || newest.DropEpochID == "" {
+		return "", false
+	}
+	return newest.DropEpochID, true
 }
 
 // resolvedByDeletion reports whether some task of the epoch proves the drop's
@@ -396,7 +444,23 @@ func resolvedByDeletion(tasks []*distributedtask.Task, collection string, target
 		if !SameDrop(p, collection, targets) || p.DropEpochID != epoch {
 			continue
 		}
-		if p.ResolvedByShardDeletion(shardNames) {
+		if p.ResolvedByShardDeletion(task, shardNames) {
+			return true
+		}
+	}
+	return false
+}
+
+// epochHasForeignOp reports whether some record of the epoch ran under an op
+// other than the epoch's own. Rows still pending under such an op are
+// invisible to anything that looks the op up by epoch.
+func epochHasForeignOp(tasks []*distributedtask.Task, collection string, targets []string, epoch string) bool {
+	for _, task := range tasks {
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if SameDrop(p, collection, targets) && p.DropEpochID == epoch && p.OpID != epoch {
 			return true
 		}
 	}
@@ -476,14 +540,25 @@ func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targe
 	return p.Collection, p.Targets, true
 }
 
-// ExtractDropVectorIndexTaskCollection is the collection extractor registered
-// with the DTM Manager so the DeleteClass cascade can drop this namespace's task
-// records (mirrors ExtractReindexTaskCollection). ok is false on an unparseable
-// payload.
+// ExtractDropVectorIndexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
 func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok bool) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
 		return "", false
 	}
 	return p.Collection, true
+}
+
+var _ distributedtask.HeaderDecoder = (*DropVectorIndexDetector)(nil)
+
+type dropVectorIndexTaskHeader string
+
+func (h dropVectorIndexTaskHeader) Collection() string { return string(h) }
+
+func (*DropVectorIndexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
+	p, err := decodeDropVectorIndexPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return dropVectorIndexTaskHeader(p.Collection), nil
 }

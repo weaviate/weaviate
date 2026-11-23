@@ -21,7 +21,7 @@ def test_reranker() -> None:
     uuid3 = collection.data.insert({"prop": "hellohello"}, vector=[1, 0])
 
     objs = collection.query.near_vector(
-        [1, 0], rerank=wvc.query.Rerank(prop="prop"), return_properties=[]
+        [1, 0], rerank=wvc.query.Rerank(prop="prop", query="any"), return_properties=[]
     ).objects
     assert len(objs) == 3
 

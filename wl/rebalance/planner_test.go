@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication_test
+package rebalance_test
 
 import (
 	"context"
@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/wl/rebalance"
 )
 
 const (
@@ -67,10 +68,10 @@ type measureCall struct {
 
 type plannerHarness struct {
 	t        *testing.T
-	planner  *replication.RebalancePlanner
+	planner  *rebalance.RebalancePlanner
 	fsm      *replication.ShardReplicationFSM
-	proposer *replication.MockrebalanceProposer
-	drafting *replication.MockrebalanceDrafting
+	proposer *rebalance.MockrebalanceProposer
+	drafting *rebalance.MockrebalanceDrafting
 	clock    *clockwork.FakeClock
 	registry *prometheus.Registry
 	logs     *logrustest.Hook
@@ -103,7 +104,7 @@ type plannerHarness struct {
 // expectProposals is called. The drafting mock serves the tasks set by
 // setDraftTasks, starting with reportedDraftTask(plannerPlanID). It expects no
 // add and no terminate.
-func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replication.MockrebalanceSchemaReader) *plannerHarness {
+func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *rebalance.MockrebalanceSchemaReader) *plannerHarness {
 	t.Helper()
 	logger, logs := logrustest.NewNullLogger()
 
@@ -112,8 +113,8 @@ func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replicat
 		logs:     logs,
 		registry: prometheus.NewPedanticRegistry(),
 		clock:    clockwork.NewFakeClockAt(plannerStart),
-		proposer: replication.NewMockrebalanceProposer(t),
-		drafting: replication.NewMockrebalanceDrafting(t),
+		proposer: rebalance.NewMockrebalanceProposer(t),
+		drafting: rebalance.NewMockrebalanceDrafting(t),
 		logTerm:  plannerTerm,
 		tasks:    []replication.DraftTask{reportedDraftTask(plannerPlanID)},
 	}
@@ -131,7 +132,7 @@ func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replicat
 		CreatedAtUnixMs: plannerStart.UnixMilli(),
 	}))
 
-	params := replication.RebalancePlannerParams{
+	params := rebalance.RebalancePlannerParams{
 		Logger:      logger,
 		FSM:         h.fsm,
 		Proposer:    h.proposer,
@@ -163,7 +164,7 @@ func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replicat
 			return measure(ctx, node)
 		}
 	}
-	planner, err := replication.NewRebalancePlanner(params)
+	planner, err := rebalance.NewRebalancePlanner(params)
 	require.NoError(t, err)
 	h.planner = planner
 	return h
@@ -331,8 +332,8 @@ type schemaFixture struct {
 // of every listed collection. ReadSchema lists collections in sorted order.
 // Read is expected only with retryIfClassNotFound=false, because a real reader
 // retries a missing class with backoff before failing.
-func (f *schemaFixture) mock(t *testing.T) *replication.MockrebalanceSchemaReader {
-	m := replication.NewMockrebalanceSchemaReader(t)
+func (f *schemaFixture) mock(t *testing.T) *rebalance.MockrebalanceSchemaReader {
+	m := rebalance.NewMockrebalanceSchemaReader(t)
 	classes := append(slices.Collect(maps.Keys(f.states)), slices.Collect(maps.Keys(f.readErrs))...)
 	slices.Sort(classes)
 	m.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(reader func(models.Class, uint64)) error {
@@ -710,10 +711,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			if rows == nil {
 				rows = equalNodes()
 			}
-			var states *replication.MockrebalanceSchemaReader
+			var states *rebalance.MockrebalanceSchemaReader
 			switch {
 			case tc.noSchemaRead:
-				states = replication.NewMockrebalanceSchemaReader(t)
+				states = rebalance.NewMockrebalanceSchemaReader(t)
 			case tc.states != nil:
 				states = tc.states.mock(t)
 			default:
@@ -800,7 +801,7 @@ func TestRebalancePlanner_ConcurrentTenantWrites(t *testing.T) {
 
 		registry := prometheus.NewPedanticRegistry()
 		fsm := replication.NewShardReplicationFSM(registry)
-		proposer := replication.NewMockrebalanceProposer(t)
+		proposer := rebalance.NewMockrebalanceProposer(t)
 		proposer.EXPECT().CompleteRebalancePlanning(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, req *replication.CompletePlanningRequest) error {
 				if _, err := json.Marshal(req); err != nil {
@@ -808,11 +809,11 @@ func TestRebalancePlanner_ConcurrentTenantWrites(t *testing.T) {
 				}
 				return fsm.CompletePlanning(plannerTerm, req)
 			})
-		drafting := replication.NewMockrebalanceDrafting(t)
+		drafting := rebalance.NewMockrebalanceDrafting(t)
 		drafting.EXPECT().RebalanceDraftTasks().Return([]replication.DraftTask{reportedDraftTask(plannerPlanID)})
 		measure := fixedMeasure(equalNodes())
 		logger, _ := logrustest.NewNullLogger()
-		planner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
+		planner, err := rebalance.NewRebalancePlanner(rebalance.RebalancePlannerParams{
 			Logger:      logger,
 			FSM:         fsm,
 			Proposer:    proposer,
@@ -1000,7 +1001,7 @@ func TestRebalancePlanner_Cancelled(t *testing.T) {
 				return types.RebalanceNodeMeasurement{}, ctx.Err()
 			}
 			return equalNodes()[node], nil
-		}, replication.NewMockrebalanceSchemaReader(t))
+		}, rebalance.NewMockrebalanceSchemaReader(t))
 		h.expectProposals().Maybe()
 
 		h.planner.RunOnce(ctx)
@@ -1018,7 +1019,7 @@ func TestRebalancePlanner_Cancelled(t *testing.T) {
 
 func TestRebalancePlanner_Wake(t *testing.T) {
 	t.Run("Wake does not block on a full channel when Run is not receiving", func(t *testing.T) {
-		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), rebalance.NewMockrebalanceSchemaReader(t))
 
 		done := make(chan struct{})
 		logger, _ := logrustest.NewNullLogger()
@@ -1107,7 +1108,7 @@ func TestRebalancePlanner_NoRun(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+			h := newPlannerHarness(t, fixedMeasure(equalNodes()), rebalance.NewMockrebalanceSchemaReader(t))
 			h.expectProposals().Maybe()
 			h.gate = make(chan struct{})
 			tc.setup(t, h)
@@ -1188,7 +1189,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 	}
 
 	t.Run("creates the task once", func(t *testing.T) {
-		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), rebalance.NewMockrebalanceSchemaReader(t))
 		h.setDraftTasks()
 		h.drafting.EXPECT().AddRebalanceDraftTask(mock.Anything, plannerPlanID, []string{"node-1", "node-2"}).
 			RunAndReturn(func(context.Context, string, []string) error {
@@ -1232,7 +1233,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+			h := newPlannerHarness(t, fixedMeasure(equalNodes()), rebalance.NewMockrebalanceSchemaReader(t))
 			h.setDraftTasks(draftTask(plannerPlanID, false, "", completed, inProgress))
 			tc.setup(t, h)
 			var calls []string
@@ -1265,7 +1266,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 	}
 
 	t.Run("failed terminate adds no task", func(t *testing.T) {
-		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), rebalance.NewMockrebalanceSchemaReader(t))
 		stop(t, h)
 		deletePlan(t, h)
 		createPlan2(t, h)
@@ -1376,7 +1377,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 	})
 
 	t.Run("ended task fails the plan naming nodes", func(t *testing.T) {
-		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), rebalance.NewMockrebalanceSchemaReader(t))
 		h.expectProposals()
 		// Units is a map, which has no iteration order. The Reason lists the
 		// unfinished nodes sorted.
@@ -1444,7 +1445,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 				return unreachable(ctx, node)
 			}
 			return equalNodes()[node], nil
-		}, replication.NewMockrebalanceSchemaReader(t))
+		}, rebalance.NewMockrebalanceSchemaReader(t))
 		h.expectProposals()
 		h.driveClock()
 
@@ -1514,7 +1515,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 						return types.RebalanceNodeMeasurement{}, err
 					}
 					return unreachable(ctx, node)
-				}, replication.NewMockrebalanceSchemaReader(t))
+				}, rebalance.NewMockrebalanceSchemaReader(t))
 				h.driveClock()
 
 				h.planner.RunOnce(context.Background())
@@ -1541,7 +1542,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 				return unreachable(ctx, node)
 			}
 			return equalNodes()[node], nil
-		}, replication.NewMockrebalanceSchemaReader(t))
+		}, rebalance.NewMockrebalanceSchemaReader(t))
 		// The planner first waits on round 1's attempt limit, then on the
 		// backoff. Leadership is lost while the backoff wait is pending.
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1625,7 +1626,7 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 				return equalNodes()[node], nil
 			}
 			return unreachable(ctx, node)
-		}, replication.NewMockrebalanceSchemaReader(t))
+		}, rebalance.NewMockrebalanceSchemaReader(t))
 		// The planner holds one timer at a time: a round's 30s attempt limit,
 		// then its backoff. Each step advances 1s, so every wait ends on its
 		// exact second.
@@ -1650,4 +1651,12 @@ func TestRebalancePlanner_Drafting(t *testing.T) {
 		}, backoffs)
 		requireCounted(t, h, "CANCELLED")
 	})
+}
+
+func buildApplyRequest(class string, cmdType api.ApplyRequest_Type, jsonSubCmd any) *api.ApplyRequest {
+	subData, err := json.Marshal(jsonSubCmd)
+	if err != nil {
+		panic("json.Marshal: " + err.Error())
+	}
+	return &api.ApplyRequest{Type: cmdType, Class: class, SubCommand: subData}
 }

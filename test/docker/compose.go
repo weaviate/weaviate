@@ -60,6 +60,8 @@ import (
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
+	modrerankeropenai "github.com/weaviate/weaviate/modules/reranker-openai"
+	modrerankertypesafeai "github.com/weaviate/weaviate/modules/reranker-typesafeai"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -544,6 +546,19 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 func (d *Compose) WithRerankerCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerTypeSafeAI(apiKey string) *Compose {
+	d.weaviateEnvs["TYPESAFEAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankertypesafeai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerOpenAI(apiKey, organization string) *Compose {
+	d.weaviateEnvs["OPENAI_APIKEY"] = apiKey
+	d.weaviateEnvs["OPENAI_ORGANIZATION"] = organization
+	d.enableModules = append(d.enableModules, modrerankeropenai.Name)
 	return d
 }
 
@@ -1131,7 +1146,7 @@ func (d *Compose) With3NodeCluster() *Compose {
 
 func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string) ([]*DockerContainer, error) {
 	if size == 0 || size > 3 {
-		return nil, nil
+		return nil, fmt.Errorf("weaviate cluster of %d nodes not supported, 1 to 3", size)
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v

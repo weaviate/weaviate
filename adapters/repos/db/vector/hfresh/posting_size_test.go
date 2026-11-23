@@ -314,3 +314,16 @@ func TestPostingSizesStore(t *testing.T) {
 		}, seen)
 	})
 }
+
+// Posting ids only grow, two per split, so the in-memory arrays must address
+// the full id range a long-lived index can reach.
+const maxAddressablePostingID = 1<<30 - 1
+
+func TestPostingSizesAddressFullIDRange(t *testing.T) {
+	sizes := makePostingSizes(t)
+
+	require.NotPanics(t, func() { sizes.FastIncrement(maxAddressablePostingID) })
+	size, err := sizes.Get(t.Context(), maxAddressablePostingID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, size)
+}

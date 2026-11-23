@@ -202,8 +202,16 @@ func TestMergeNoCandidatesFound(t *testing.T) {
 	tf.Index.minPostingSize = 5
 	defer func() { tf.Index.minPostingSize = originalMin }()
 
+	versionBefore, err := tf.Index.PostingStore.versions.Get(t.Context(), postingID)
+	require.NoError(t, err)
+
 	err = tf.Index.doMerge(t.Context(), postingID)
 	require.NoError(t, err)
+
+	// every search on a small posting queues a merge
+	versionAfter, err := tf.Index.PostingStore.versions.Get(t.Context(), postingID)
+	require.NoError(t, err)
+	require.Equal(t, versionBefore, versionAfter, "a merge that changes nothing must not rewrite the posting")
 
 	var foundLog bool
 	for _, entry := range tf.Logs.Entries {
@@ -293,6 +301,22 @@ func TestMergeTaskQueueOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	require.False(t, tf.Index.taskQueue.MergeContains(postingID))
+}
+
+func TestMergeTaskRequeueStaysPending(t *testing.T) {
+	tf := createHFreshIndex(t)
+	require.NoError(t, tf.Index.scheduler.Close(t.Context()))
+	postingID := uint64(42)
+	require.NoError(t, tf.Index.taskQueue.EnqueueMerge(postingID))
+
+	tf.Index.postingLocks.Lock(postingID)
+	defer tf.Index.postingLocks.Unlock(postingID)
+	require.NoError(t, (&MergeTask{id: postingID, idx: tf.Index}).Execute(t.Context()))
+	require.True(t, tf.Index.taskQueue.MergeContains(postingID), "requeued merge must remain pending")
+
+	size := tf.Index.taskQueue.Size()
+	require.NoError(t, tf.Index.taskQueue.EnqueueMerge(postingID))
+	require.Equal(t, size, tf.Index.taskQueue.Size())
 }
 
 // Merge completes: the small posting folds into the large candidate and the

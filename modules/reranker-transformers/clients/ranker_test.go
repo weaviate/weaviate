@@ -41,7 +41,7 @@ func TestGetScore(t *testing.T) {
 		})
 		defer server.Close()
 		c := New(server.URL, 0, nullLogger())
-		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, nil)
+		res, err := c.Rank(context.Background(), "Where do I work?", "text", []string{"I work at Apple"}, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, ent.RankResult{
@@ -64,7 +64,7 @@ func TestGetScore(t *testing.T) {
 		})
 		defer server.Close()
 		c := New(server.URL, 0, nullLogger())
-		_, err := c.Rank(context.Background(), "prop",
+		_, err := c.Rank(context.Background(), "prop", "text",
 			[]string{"I work at Apple"}, nil)
 
 		require.NotNil(t, err)
@@ -133,7 +133,7 @@ func TestGetScore(t *testing.T) {
 			"Response 5", "Response 6", "Response 7",
 		}
 
-		resp, err := c.Rank(context.Background(), query, documents, nil)
+		resp, err := c.Rank(context.Background(), query, "text", documents, nil)
 
 		require.Nil(t, err)
 		require.NotNil(t, resp)

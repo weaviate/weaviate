@@ -74,6 +74,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
@@ -467,10 +468,16 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
 }
 
-// Pins that a cancel keeps the small tenant's swap, reports partial, and a resubmit finishes the rest.
+// Pins that a cancel keeps the small tenant's swap and a resubmit finishes the rest without needing it HOT.
 func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *testing.T) {
+	for _, parked := range []string{models.TenantActivityStatusFROZEN, models.TenantActivityStatusCOLD} {
+		t.Run(parked, func(t *testing.T) { cancelThenResubmitWhileFinishedTenantIs(t, parked) })
+	}
+}
+
+func cancelThenResubmitWhileFinishedTenantIs(t *testing.T, parked string) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	compose, cleanup := startReindexCluster(ctx, t, reindexClusterBuilder(t).WithOffloadS3("offloading", "us-east-1"))
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
@@ -499,8 +506,11 @@ func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *test
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className),
 		"the decided tenant keeps its swap after the cancel")
 
+	helper.SetupClient(restURI)
+	helper.SetTenantsStatus(t, className, []string{"small"}, parked)
 	retry := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, retry, reindexhelpers.WithTimeout(10*time.Minute))
+	helper.SetTenantsStatus(t, className, []string{"small"}, models.TenantActivityStatusHOT)
 	for i := 1; i <= 3; i++ {
 		reindexhelpers.AwaitTokenizationVisible(t, compose.GetWeaviateNode(i).URI(), className, "text", "field")
 		ids, err := runBM25QueryOnNodeTenant(t, compose.GetWeaviateNode(i).URI(), className, "large", "bulk 42")

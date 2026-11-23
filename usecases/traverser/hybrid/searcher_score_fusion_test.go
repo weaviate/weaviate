@@ -13,6 +13,7 @@ package hybrid
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -272,6 +273,34 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 	assert.Contains(t, res[0].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Dist, float32(0.008))
+}
+
+// An aggregation searches its shards side by side with one HybridSearch, so
+// Search must only read it.
+func TestSearchConcurrentSharedNearTextParams(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	shared := &searchparams.HybridSearch{
+		TargetVectors:   []string{"default"},
+		Type:            "hybrid",
+		FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
+		NearTextParams:  &searchparams.NearTextParams{Values: []string{"some query"}},
+		Alpha:           1.0,
+	}
+	sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			params := &Params{HybridSearch: shared, Class: "HybridClass"}
+			_, err := Search(t.Context(), params, logger, sparse, dense, nil,
+				&fakeModuleProvider{}, newFakeSchemaManager(), newFakeTargetVectorParamHelper())
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
 }
 
 func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {

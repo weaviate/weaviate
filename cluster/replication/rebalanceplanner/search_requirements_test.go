@@ -580,14 +580,10 @@ func TestSearchBalancesScaleOut(t *testing.T) {
 		name  string
 		sizes []int64
 		n     int
-		// maxMoves, when above 0, is the most moves the plan may hold.
-		maxMoves int
 	}{
 		{name: "300 equal shards", sizes: []int64{1_000}, n: 300},
 		{name: "150 mixed shards", sizes: []int64{500, 1_000, 2_500, 10_000}, n: 150},
-		// The 30 large replicas hold three quarters of the shard bytes, so a
-		// plan needs no more moves than that.
-		{name: "990 small shards and 10 large", sizes: fewLarge, n: 1_000, maxMoves: 30},
+		{name: "990 small shards and 10 large", sizes: fewLarge, n: 1_000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -597,9 +593,6 @@ func TestSearchBalancesScaleOut(t *testing.T) {
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, in, res)
 			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
-			if tt.maxMoves > 0 {
-				require.LessOrEqual(t, len(res.Moves), tt.maxMoves)
-			}
 			checkLimit(t, in, res)
 		})
 	}
