@@ -202,8 +202,16 @@ func TestMergeNoCandidatesFound(t *testing.T) {
 	tf.Index.minPostingSize = 5
 	defer func() { tf.Index.minPostingSize = originalMin }()
 
+	versionBefore, err := tf.Index.PostingStore.versions.Get(t.Context(), postingID)
+	require.NoError(t, err)
+
 	err = tf.Index.doMerge(t.Context(), postingID)
 	require.NoError(t, err)
+
+	// every search on a small posting queues a merge
+	versionAfter, err := tf.Index.PostingStore.versions.Get(t.Context(), postingID)
+	require.NoError(t, err)
+	require.Equal(t, versionBefore, versionAfter, "a merge that changes nothing must not rewrite the posting")
 
 	var foundLog bool
 	for _, entry := range tf.Logs.Entries {
