@@ -304,6 +304,24 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **La lectura, del usuario:** la variante entra en el PR si baja la cola (el p95 en frío con 8 threads) sin perder la mediana ni el 2.9 veces de 1 thread en frío. *Mía, para aplicarla:* perder es quedar más de un 10 % por encima del PR en p50, o por debajo de 2.6 veces en frío con 1 thread.
 - **Lo que espero (*mío*):** con 1 thread en frío, algo más lenta que el PR, de 13.5 a entre 14 y 17 ms, porque lee 8 postings a la vez en vez de 20; con 8 threads, el p95 en frío vuelve al de main, unos 108 ms, con la mediana del PR.
 
+#### La variante: resultados (23 de noviembre, de 14:03 a 14:20)
+
+**Estado: cronometrado en dos rondas (main, PR, variante; variante, PR, main). El último tramo, main en la segunda ronda, coincidió con uso del teclado o del trackpad al final: queda marcado.** Sus cifras están a un 3 % de las de main en la primera ronda. Datos en `testdata/bench/hfresh-mg/cap8/`.
+
+| a 0.95, ronda 1 / ronda 2 | main | PR | variante, tope de 8 |
+|---|---|---|---|
+| 1 thread, frío, p50 | 39.69 / 40.76 ms | 13.65 / 13.48 ms | 14.18 / 14.09 ms |
+| 1 thread, caliente, p50 | 2.88 / 2.89 ms | 2.44 / 2.43 ms | 2.42 / 2.41 ms |
+| 8 threads, frío, p50 | 82.20 / 84.37 ms | 74.57 / 76.30 ms | 76.46 / 76.02 ms |
+| 8 threads, frío, p95 | 108.05 / 110.43 ms | 136.77 / 125.97 ms | 132.13 / 132.54 ms |
+| 8 threads, caliente, p50 | 8.21 / 8.50 ms | 7.97 / 7.90 ms | 7.95 / 7.95 ms |
+| 8 threads, frío, QPS | 87 / 83 | 91 / 91 | 91 / 91 |
+
+- **La variante no baja la cola.** Su p95 en frío con 8 threads, 132 ms en las dos rondas, empata con el del PR (137 y 126) y queda un 20 % por encima del de main (108 y 110). Por la regla del usuario, no entra en el PR.
+- **Tampoco pierde lo demás:** con 1 thread en frío es un 4 % más lenta que el PR, 2.8 y 2.9 veces más rápida que main, y la mediana con 8 threads es la del PR.
+- **La hipótesis de las lecturas de cada query no se sostiene con un tope de 8.** Con 8 queries a la vez, main tiene como mucho 8 lecturas en vuelo en total; el PR, unas 115 (14.4 por query); la variante, hasta 64. *Lectura mía, sin comprobar:* lo que alarga la cola puede ser el total de lecturas en vuelo del nodo, no las de cada query. Un tope por query más bajo, o uno para todo el nodo, sería la medida siguiente.
+- **La cola del PR se mueve más de lo que creía:** 122 y 117 ms en la primera sesión, 137 y 126 en esta. La de main se repite a un 2 %.
+
 ## Filtros en el índice integrado, 1M dbpedia (pre-registro, 2026-11-23 a las 11:10)
 
 **Estado: pre-registrado antes de compilar nada.** El experimento, sus filtros, la parada y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*.
