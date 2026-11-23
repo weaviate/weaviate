@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -147,7 +148,8 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 	}
 
 	shedEnabled, peakEnabled := burst(t, func(shed *atomic.Int64) {
-		require.Eventually(t, func() bool {
+		// Non-fatal, so burst still joins its searches; the Equal below fails.
+		assert.Eventually(t, func() bool {
 			return shed.Load() == concurrency-maxQueue
 		}, 30*time.Second, time.Millisecond, "searches should be shed while the budget is held")
 		releaseHolds()
