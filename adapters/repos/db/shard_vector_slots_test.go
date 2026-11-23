@@ -639,3 +639,46 @@ func TestVectorIndexSlots_SwitchOfOneSlotDoesNotBlockAnother(t *testing.T) {
 	close(finish)
 	require.NoError(t, <-done)
 }
+
+// A walk that starts during a switch waits for it and sees the new index:
+// write paths walk the queues, and the switch repoints the queue it shares.
+func TestVectorIndexSlots_ForEachWaitsForASwitch(t *testing.T) {
+	var v vectorIndexSlots
+	replacement := &MockVectorIndex{}
+	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
+	require.NoError(t, v.Publish("body", &MockVectorIndex{}, nil))
+
+	inSwap := make(chan struct{})
+	finish := make(chan struct{})
+	switched := make(chan error, 1)
+	go func() {
+		switched <- v.Switch(context.Background(), "title", func(VectorIndex, *VectorIndexQueue) (VectorIndex, error) {
+			close(inSwap)
+			<-finish
+			return replacement, nil
+		})
+	}()
+	<-inSwap
+
+	seen := make(chan map[string]VectorIndex, 1)
+	go func() {
+		got := map[string]VectorIndex{}
+		assert.NoError(t, v.ForEach(func(name string, index VectorIndex, _ *VectorIndexQueue) error {
+			got[name] = index
+			return nil
+		}))
+		seen <- got
+	}()
+	select {
+	case <-seen:
+		t.Fatal("a walk ran during the switch")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(finish)
+	require.NoError(t, <-switched)
+	got := <-seen
+	assert.Same(t, replacement, got["title"])
+	assert.Len(t, got, 2)
+}
+
