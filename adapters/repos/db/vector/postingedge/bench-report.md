@@ -261,6 +261,14 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Con 1 thread en caliente,** entre un 5 y un 20 % más rápido: en caliente leer postings pesa poco.
 - **Con 8 threads,** un empate en caliente y en frío. Las 8 queries se reparten el presupuesto del nodo, y en la enmienda 6 los 8 threads no ganaron nada.
 
+### Enmienda 1 (12:20 del 23, antes de ningún dato): se adelanta, en un volumen aparte
+
+**Motivo.** El usuario adelanta los dos PR por delante de los filtros. La sesión de integración está escribiendo su índice de 1M en `/Volumes/v40bench`, y desmontar ese volumen para el frío le cortaría las escrituras.
+
+- **El índice de HFresh va en un volumen APFS nuevo, `hfmgbench` (`disk3s8`),** del mismo contenedor, y el frío desmonta y monta solo ese.
+- **Lo cronometrado espera a que no corra ninguna otra prueba,** también el crecimiento de la sesión de integración; después pone el marcador y espera los 15 minutos sin actividad. Lo que no se cronometra (build, limpieza y conteo) corre ya.
+- **Lo demás no cambia.**
+
 ## Filtros en el índice integrado, 1M dbpedia (pre-registro, 2026-11-23 a las 11:10)
 
 **Estado: pre-registrado antes de compilar nada.** El experimento, sus filtros, la parada y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*.
