@@ -76,10 +76,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		// close, POST=JSON-RPC envelope), not RBAC-gated resources. Authz runs per
 		// tool-call inside the JSON-RPC handler. RBAC is covered in mcp_test.go.
 		"/mcp",
-		// TODO: these leak status (404 for aliases, 501 for replication) before
-		// authz runs, so a caller without permission learns the resource exists.
-		// Fix by moving authz to the top of each handler, then drop these entries.
-		"/aliases/{aliasName}",
+		// TODO: these leak status (501 for replication) before authz runs, so a
+		// caller without permission learns the resource exists. Fix by moving
+		// authz to the top of each handler, then drop these entries.
 		"/replication/replicate",
 		"/replication/replicate/force-delete",
 		"/replication/replicate/list",
@@ -101,6 +100,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
 		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
+		// A forbidden alias answers 404 like a missing one, so its existence
+		// stays hidden. Covered in aliases_test.go.
+		"/aliases/{aliasName}": {http.MethodGet: true, http.MethodDelete: true},
 	}
 
 	ignoreGetAll := []string{
