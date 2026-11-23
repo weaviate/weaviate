@@ -72,8 +72,9 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 	props := []string{"body", "category"}
 
 	// burst fires `concurrency` searches at once and reports shed count and
-	// peak goroutine delta above the pre-burst baseline.
-	burst := func(t *testing.T) (shed int, peakDelta int) {
+	// peak goroutine delta above the pre-burst baseline. whileFiring, if set,
+	// runs once all searches are started and before waiting for them.
+	burst := func(t *testing.T, whileFiring func(shed *atomic.Int64)) (shed int, peakDelta int) {
 		baseline := runtime.NumGoroutine()
 		var peak atomic.Int64
 		peak.Store(int64(baseline))
@@ -115,6 +116,9 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 				}
 			}()
 		}
+		if whileFiring != nil {
+			whileFiring(&shedCount)
+		}
 		wg.Wait()
 		close(stop)
 
@@ -124,16 +128,38 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 		return int(shedCount.Load()), int(peak.Load()) - baseline
 	}
 
-	// Only ~budget+queue can be in flight, so the limiter sheds most of the burst.
-	shedEnabled, peakEnabled := burst(t)
+	// Searches over 200 objects finish in microseconds, so how many overlap is
+	// up to the scheduler. Holding the whole budget until every search has
+	// arrived makes the outcome exact: maxQueue wait, the rest are shed.
+	limiter := shard.Index().Config.QueryAdmission
+	var holds []func()
+	releaseHolds := func() {
+		for _, release := range holds {
+			release()
+		}
+	}
+	t.Cleanup(releaseHolds)
+	for range budget {
+		// want=1 is granted exactly 1 unit while any capacity remains.
+		_, release, err := limiter.Admit(ctx, 1)
+		require.NoError(t, err)
+		holds = append(holds, release)
+	}
+
+	shedEnabled, peakEnabled := burst(t, func(shed *atomic.Int64) {
+		require.Eventually(t, func() bool {
+			return shed.Load() == concurrency-maxQueue
+		}, 30*time.Second, time.Millisecond, "searches should be shed while the budget is held")
+		releaseHolds()
+	})
 	t.Logf("enabled:  shed=%d/%d peakGoroutineDelta=%d gomaxprocs=%d",
 		shedEnabled, concurrency, peakEnabled, runtime.GOMAXPROCS(0))
-	require.Positive(t, shedEnabled, "expected shedding at %d concurrent vs budget %d / queue %d",
-		concurrency, budget, maxQueue)
+	require.Equal(t, concurrency-maxQueue, shedEnabled,
+		"with the budget held, all but the %d queued searches must be shed", maxQueue)
 
 	// The kill switch makes Admit a passthrough on an already-built limiter.
 	require.NoError(t, disabled.SetValue(true))
-	shedDisabled, peakDisabled := burst(t)
+	shedDisabled, peakDisabled := burst(t, nil)
 	require.NoError(t, disabled.SetValue(false))
 	t.Logf("disabled: shed=%d/%d peakGoroutineDelta=%d",
 		shedDisabled, concurrency, peakDisabled)
