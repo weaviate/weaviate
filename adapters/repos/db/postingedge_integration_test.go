@@ -452,6 +452,22 @@ func postingEdgeThroughAShard(t *testing.T, async bool, cacheMode string) {
 		assert.Greater(t, recall, 0.95, at)
 	}
 	t.Run("a filter leaves only what it allows", func(t *testing.T) {
+		if cacheMode == "none" {
+			// The late objects are fewer than the cutoff of the flat search,
+			// which an index with no codes in memory does not have yet.
+			_, err := repo.VectorSearch(ctx, dto.GetParams{
+				ClassName:  postingEdgeTestClass,
+				Pagination: &filters.Pagination{Limit: k},
+				Filters: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On:       &filters.Path{Class: postingEdgeTestClass, Property: "name"},
+					Value:    &filters.Value{Value: "late", Type: schema.DataTypeText},
+				}},
+			}, []string{""}, []models.Vector{corpus.queries[0]})
+			require.ErrorContains(t, err, "not supported")
+			require.ErrorContains(t, err, "rq.cacheMode")
+			return
+		}
 		filtered(t, repo, "filtered")
 		require.NoError(t, repo.Shutdown(context.Background()))
 		closed = true

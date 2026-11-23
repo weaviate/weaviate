@@ -181,8 +181,9 @@ func TestGrowFilteredSearchEqualsMemory(t *testing.T) {
 // codes and rescores the best ones. With no more allowed than it rescores it
 // is the exact answer among them, and with more it rescores as many as it is
 // told. It never returns a doc id the filter leaves out, nor one marked
-// deleted, and an index with no codes in memory, which reads them from their
-// bucket, answers what one with them answers. How much of the answer it finds
+// deleted, and an index with no codes in memory refuses it, until it has one
+// of its own (integration-plan.md, section 8, amendment 3). How much of the
+// answer it finds
 // with real vectors is for the tests of the index a shard opens: the tight
 // clusters of these vectors have near ties a code cannot tell apart.
 func TestGrowFlatSearch(t *testing.T) {
@@ -250,22 +251,13 @@ func TestGrowFlatSearch(t *testing.T) {
 	require.NotContains(t, after, before[0])
 	require.Equal(t, before[1:], after[:k-1])
 
-	// With no codes in memory, the same answers.
-	f.how.noCodes = true
-	f.reopen(t)
-	g = f.g
-	require.True(t, g.noCodes)
-	for _, filter := range filters {
-		for i, query := range f.queries {
-			if i == 0 {
-				// The vector that is marked deleted now.
-				continue
-			}
-			ids, _, err := g.flatSearch(ctx, query, k, 40, filter.allow, nil)
-			require.NoError(t, err)
-			require.Equal(t, answers["the best 40 rescored"+filter.name][i], ids, "%s, query %d, no codes in memory", filter.name, i)
-		}
-	}
 	_, _, err = g.flatSearch(ctx, query[:dims-1], k, 40, everything, nil)
 	require.Error(t, err, "a query of another length")
+
+	// With no codes in memory, no flat search.
+	f.how.noCodes = true
+	f.reopen(t)
+	require.True(t, f.g.noCodes)
+	_, _, err = f.g.flatSearch(ctx, query, k, 40, filters[0].allow, nil)
+	require.ErrorIs(t, err, ErrNotSupported)
 }

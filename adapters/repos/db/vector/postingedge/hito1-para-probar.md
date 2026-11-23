@@ -133,7 +133,8 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
   - *Verificado por tests,* también por el shard, y con una pasada de 30 000 vectores: el mismo índice abierto con los códigos en memoria responde exactamente lo mismo. Y con el dataset de 1M, el proceso muerto con `kill -9` a los 15 minutos de un import deja un índice que abre entero, con el halo de cada posting completo. *Verificado a 1M* (22 de noviembre): creciendo de 10 000 a 990 000 el índice es el mismo que con los códigos en memoria (0.9536 y 19.7 postings leídos a ef 21, 0.9910 y 72.4 a ef 158), lee tres filas por posting con 208 KB, y abierto con los códigos en memoria no cambia ninguna respuesta. *Sin ninguna medida de latencia ni de heap.*
 
 - **Las búsquedas con filtro (`where`) ya funcionan,** también las híbridas y `Aggregate` con filtro (desde el 23 de noviembre). Con menos de 40 000 objetos permitidos el índice los busca uno a uno por su código y rescora los mejores; con más, recorre el índice y solo devuelve permitidos. Ningún resultado queda fuera del filtro.
-  - *Verificado por tests,* también por el shard, en los dos modos. *A 1M:* la medida está en marcha, frente a HNSW con `acorn`.
+  - **Con `rq.cacheMode: "none"`, un filtro que deja menos de 40 000 objetos da error** («not supported … rq.cacheMode»): ese modo aún no tiene su búsqueda plana. Con más objetos permitidos funciona como en el otro modo.
+  - *Verificado por tests,* también por el shard, en los dos modos. *A 1M:* la medida está en marcha en el modo por defecto, frente a HNSW con `acorn`.
   - **La búsqueda por distancia sigue sin funcionar,** con filtro o sin él.
 
 **Lo que sigue igual que en el hito 1:** lo demás de «Qué falla por diseño».

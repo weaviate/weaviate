@@ -53,22 +53,26 @@ func (p *Persistent) searchIndex(ctx context.Context, vector []float32, k int, a
 	stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
 	if allow != nil && allow.Len() < p.flatCutoff() {
-		return p.g.flatSearch(ctx, vector, k, p.flatRescore(k), allow, stats)
+		return p.g.flatSearch(ctx, vector, k, p.flatRescore(k, routingBitsOf(&p.g.meta)), allow, stats)
 	}
 	search := p.g.searcher()
 	search.allow = allow
 	return search.run(ctx, vector, k, nil, stats)
 }
 
-// flatRescore is how many of the allowed vectors a flat search rescores: with
-// the automatic limit, the rule of the rescore applied to the width of the
-// routing code, which is the code that ranks them here, and at least four
+// flatRescore is how many of the allowed vectors a flat search rescores, by
+// the width in bits of the code that ranks them there: with the automatic
+// limit, the rule of the rescore applied to that width, and at least four
 // times k; with a limit of its own, that limit and at least k. ef raises it,
-// so that the flat search too finds more as ef grows.
-func (p *Persistent) flatRescore(k int) int {
+// so that the flat search too finds more as ef grows (integration-plan.md,
+// section 8, amendment 3). The code that ranks is the routing code, 512 bits
+// at 1 536 dimensions, where the rule gives 507: with the 64 it gives for the
+// full code, the routing code has a ceiling of recall of 0.9255 on dbpedia
+// (integration-plan.md, section 4).
+func (p *Persistent) flatRescore(k, bits int) int {
 	limit, perK := p.uc.RQ.RescoreLimit, 0
 	if limit == ent.RescoreLimitAuto {
-		limit, perK = autoRescoreLimit(routingBitsOf(&p.g.meta)), autoRescorePerK
+		limit, perK = autoRescoreLimit(bits), autoRescorePerK
 	}
 	return max(limit, k, perK*k, int(p.g.ix.ef.Load()))
 }
@@ -83,10 +87,12 @@ func routingBitsOf(meta *growMeta) int {
 }
 
 // flatSearch is the flat search of a filter: every allowed doc id the index
-// holds and has not marked deleted is ranked by its routing code, from memory
-// or, in an index with none there, from its bucket; the best rescore of them
-// are rescored with their exact vectors, all of them where there are no more
-// than that; and the best k of those are the answer. It loads no posting.
+// holds and has not marked deleted is ranked by its routing code, which is in
+// memory; the best rescore of them are rescored with their exact vectors, all
+// of them where there are no more than that; and the best k of those are the
+// answer. It loads no posting. An index with no codes in memory has no flat
+// search yet: it refuses, and reads no code from anywhere else
+// (integration-plan.md, section 8, amendment 3).
 func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore int, allow helpers.AllowList,
 	stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
@@ -99,6 +105,11 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 	}
 	if err := checkValues(vector); err != nil {
 		return nil, nil, errors.Wrap(err, "query")
+	}
+	if g.noCodes {
+		return nil, nil, errors.Wrapf(ErrNotSupported,
+			"a filter that allows %d vectors, under the cutoff of the flat search, with no codes in memory (rq.cacheMode %q)",
+			allow.Len(), ent.CacheModeNone)
 	}
 	if stats == nil {
 		stats = &diskSearchStats{}
@@ -129,31 +140,12 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 		estimator := g.st.quantizer.NewEstimator(query)
 		var best topK
 		best.reset(rescore)
-		if !g.noCodes {
-			dists := make([]float32, len(ids))
-			if err := g.st.side.score(estimator, ids, dists); err != nil {
-				return nil, nil, err
-			}
-			for i, id := range ids {
-				best.push(uint64(id), dists[i])
-			}
-		} else {
-			for i, id := range ids {
-				if i%4096 == 4095 {
-					if err := ctx.Err(); err != nil {
-						return nil, nil, err
-					}
-				}
-				code, _, err := g.routingCode(uint64(id))
-				if err != nil {
-					return nil, nil, err
-				}
-				dist, err := estimator.Distance(code)
-				if err != nil {
-					return nil, nil, errors.Wrapf(err, "estimate distance to doc %d", id)
-				}
-				best.push(uint64(id), dist)
-			}
+		dists := make([]float32, len(ids))
+		if err := g.st.side.score(estimator, ids, dists); err != nil {
+			return nil, nil, err
+		}
+		for i, id := range ids {
+			best.push(uint64(id), dists[i])
 		}
 		stats.Scored = len(ids)
 		candidates = best.sorted()
