@@ -57,6 +57,8 @@ var (
 	benchHNSWDiskWait = flag.String("bench.hnswdisk.wait", "", "TestHNSWDiskTimed: a shell command run once the "+
 		"index is built and its operating points are found, before anything is timed. It returns when the machine "+
 		"may be timed, and fails if it may not")
+	benchHNSWDiskEFs = flag.String("bench.hnswdisk.efs", "", "TestHNSWDiskTimed: ef values, comma-separated, to "+
+		"tell the recall at once the index is built, instead of finding its operating points and timing them")
 	benchHNSWDiskCentering = flag.Bool("bench.hnswdisk.centering", false, "TestHNSWDiskTimed: the RQ codes "+
 		"centered, as in the HNSW of v1.4. A class has them not centered by default")
 )
@@ -195,11 +197,13 @@ type hnswDiskResult struct {
 	AfterBuild memSnapshot `json:"afterBuild"`
 	// CodeBytes is the codes HNSW keeps of the vectors in memory, and
 	// VectorBytes the file of the vectors.
-	CodeBytes   int64           `json:"codeBytes"`
-	VectorBytes int64           `json:"vectorBytes"`
-	MaxRecall   float64         `json:"maxRecall"`
-	Points      []diskPoint     `json:"points"`
-	Rounds      []hnswDiskRound `json:"rounds"`
+	CodeBytes   int64   `json:"codeBytes"`
+	VectorBytes int64   `json:"vectorBytes"`
+	MaxRecall   float64 `json:"maxRecall"`
+	// Recalls is the recall at every ef of -bench.hnswdisk.efs, when given.
+	Recalls map[int]float64 `json:"recalls,omitempty"`
+	Points  []diskPoint     `json:"points"`
+	Rounds  []hnswDiskRound `json:"rounds"`
 }
 
 // TestHNSWDiskTimed times HNSW with its default configuration and 1-bit RQ,
@@ -394,6 +398,15 @@ func TestHNSWDiskTimed(t *testing.T) {
 		})
 		require.NoError(t, err)
 		return float64(hits.Load()) / float64(len(queries)*k)
+	}
+	if *benchHNSWDiskEFs != "" {
+		result.Recalls = make(map[int]float64)
+		for _, ef := range parseInts(t, *benchHNSWDiskEFs) {
+			result.Recalls[ef] = recallAt(ef)
+			t.Logf("hnsw, rescore %d, ef %d: recall %.4f", uc.RQ.RescoreLimit, ef, result.Recalls[ef])
+		}
+		write()
+		return
 	}
 	result.Points, result.MaxRecall = diskPointsOver(t, "hnsw", uc.RQ.RescoreLimit, recallAt)
 	for _, point := range result.Points {
