@@ -1083,7 +1083,8 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 			},
 		}
 		_, b, repo, _, _ := newNSManagers(t, classes, false)
-		repo.On("Exists", "SourceMT", id).Return(false, nil)
+		// READ is checked before any lookup, so the denial can come first.
+		repo.On("Exists", "SourceMT", id).Return(false, nil).Maybe()
 		// AddBatchReferences must NEVER run — the inner authz READ must
 		// fail-fast with a Forbidden before we reach persistence.
 		// (No repo.On("AddBatchReferences") expectation: would assert if called.)

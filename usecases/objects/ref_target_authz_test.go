@@ -261,12 +261,13 @@ func TestReferenceEndpointsCheckClasslessLookupWithoutTenant(t *testing.T) {
 
 func TestBatchReferencesCheckTheScopeTheyRead(t *testing.T) {
 	cases := []struct {
-		name        string
-		multiTenant bool
-		from        string
-		to          string
-		tenant      string
-		denied      string
+		name              string
+		multiTenant       bool
+		targetMultiTenant bool
+		from              string
+		to                string
+		tenant            string
+		denied            string
 	}{
 		{
 			name:        "a non-multi-tenant target of a multi-tenant source is read without a tenant",
@@ -275,6 +276,15 @@ func TestBatchReferencesCheckTheScopeTheyRead(t *testing.T) {
 			to:          "weaviate://localhost/Alpha/" + refAuthzTargetID.String(),
 			tenant:      "t1",
 			denied:      authorization.Objects("Alpha", ""),
+		},
+		{
+			name:              "a multi-tenant target is read in the tenant",
+			multiTenant:       true,
+			targetMultiTenant: true,
+			from:              "single",
+			to:                "weaviate://localhost/Alpha/" + refAuthzTargetID.String(),
+			tenant:            "t1",
+			denied:            authorization.Objects("Alpha", "t1"),
 		},
 		{
 			name:   "a class-less target needs READ on every collection",
@@ -289,6 +299,9 @@ func TestBatchReferencesCheckTheScopeTheyRead(t *testing.T) {
 			if tc.multiTenant {
 				classes[0].MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 			}
+			if tc.targetMultiTenant {
+				classes[1].MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+			}
 			_, b, repo, _, authorizer := newNSManagers(t, classes, false)
 			authorizer.Deny(tc.denied)
 			repo.On("Exists", mock.Anything, mock.Anything).Return(true, nil).Maybe()
@@ -301,6 +314,7 @@ func TestBatchReferencesCheckTheScopeTheyRead(t *testing.T) {
 			}}, nil)
 			require.True(t, errors.As(err, &autherrs.Forbidden{}), "%v", err)
 			repo.AssertNotCalled(t, "AddBatchReferences", mock.Anything)
+			repo.AssertNotCalled(t, "Exists", mock.Anything, refAuthzTargetID)
 		})
 	}
 }
