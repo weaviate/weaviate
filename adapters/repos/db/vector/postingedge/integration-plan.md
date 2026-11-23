@@ -210,6 +210,32 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 - **Las aristas.** *Lectura mía:* los vecinos más cercanos por producto escalar tienden a ser los vectores de norma grande, que acabarían de vecinos de casi todos. Sin medir.
 - **Un margen relativo no vale sin más:** la distancia `dot` es el producto cambiado de signo, y un umbral que puede ser negativo no se puede escalar por un factor.
 
+**Revisado el 23 de noviembre, solo leyendo** (encargo del usuario: qué métricas soporta RQ de 1 bit, qué datasets sin normalizar de 768 dimensiones o más hay en disco, y cómo hacer relativo el margen).
+
+- **RQ de 1 bit admite `cosine`, `dot` y `l2-squared`; no `manhattan` ni `hamming`.**
+  - Lo comprueba el cuantizador al crearse (`compressionhelpers/rotational_quantization.go:42-56`). Los configs de HNSW y de flat no ponen RQ por defecto con una distancia que no esté en esa lista (`entities/vectorindex/common/rq_distance.go:20-26`, usado en `hnsw/config.go:365` y `flat/config.go:287`).
+  - Para `dot` y `l2-squared` el código guarda la norma de cada vector. La distancia estimada es `l2·(|x|² + |q|²) + cos − (1 + l2)·⟨x, q⟩ estimado` (`binary_rotational_quantization.go:400` y `:420`).
+  - **El código no es lo que impide otras métricas a nuestro índice.** Lo impiden la partición en l2 sobre vectores normalizados, el margen absoluto y que no hay ninguna medida fuera del coseno.
+- **El índice integrado sigue siendo solo coseno.** Rechaza otra distancia al parsear (`entities/vectorindex/postingedge/config.go:112-115`, en `feat/posting-edge-integration`). Normaliza cada vector al insertar y al buscar (`persistent.go:602`, `:703`, `:1160`, `:1306`), y parte en l2 sobre esos vectores, que equivale al coseno (`assign.go:61`, `centroids.go:77`).
+- **Datasets de 768 dimensiones o más sin normalizar, en disco** (normas medidas sobre 2 000 vectores de cada uno):
+
+| dataset | dimensiones | vectores | distancia | norma: mín, p50, máx | variación de la norma |
+|---|---|---|---|---|---|
+| `sphere-1M-meta-dpr` (`.bin` en el formato de los bancos, y `.hdf5`) | 768 | 990 000 y 10 000 queries, con su verdad top-100 | `dot` | 13.5, 14.4, 15.3 | 1.6 % |
+| `dbpedia-100k-cohere-embed-v2.0-angular.hdf5` | 4 096 | 100 000 | `angular` | 75.6, 86.0, 93.7 | 3.1 % |
+
+  - **Todos los demás están normalizados:** dbpedia con OpenAI ada-002 y 3-large, los de Cohere de BEIR a 1 024 dimensiones, y wiki-dpr con e5.
+  - **Los dos sin normalizar tienen la norma casi constante.** Sirven para probar la escala de la distancia, no la variación de la norma. Para eso haría falta un dataset sintético, por ejemplo dbpedia con cada vector multiplicado por un factor al azar.
+  - **El único de 1M es `sphere-1M-meta-dpr`,** en `dot`. Es el que pediría el margen relativo: con normas de 14.4 la distancia es unas 207 veces la del coseno, y un margen de 0.06 equivale a no cortar.
+- **El margen hoy:** el corte es `stop.worst() + margin` (`search.go:354-361`), en unidades de la distancia. Es 0.06 en coseno y no hay corte en l2-squared (`config.go:49-59`, `index.go:168-175`).
+- **Propuesta (*mía*): un margen relativo a la dispersión de la propia búsqueda.** El corte pasa a ser `worst + m · (worst − best)` del montón de parada, con m sin unidades.
+  - **Vale para las tres métricas con un solo m:** no cambia si la distancia se escala o se desplaza, así que cubre el coseno, el l2 con cualquier escala y el `dot`.
+  - **Resuelve la objeción de arriba:** `worst − best` nunca es negativo, aunque las distancias `dot` lo sean.
+  - **Como hoy, el corte no se aplica mientras el montón no está lleno.** No cuesta nada: el montón ya tiene los dos extremos.
+  - **Cómo fijar m:** con `calibrateMargin` del banco y fracciones (0.25, 0.5, 0.75, 1.0), hasta recuperar la frontera del 0.06 en dbpedia. Después se comprueba, sin tocar m, sobre `sphere-1M-meta-dpr` en `dot`, sobre dbpedia en l2-squared (que debe dar lo mismo que el coseno) y sobre el dbpedia sintético con normas variables.
+  - **La alternativa, si la dispersión resulta ruidosa query a query:** un corte por rango, que sigue las aristas de los ⌈(1 + ρ)·ef⌉ mejores escaneados. No depende de ninguna transformación monótona de la distancia; cuesta un segundo montón por query.
+- **El margen es la parte fácil.** Para `dot` sobre vectores crudos falta además todo lo de arriba: la partición y el ruteo por producto escalar, y medirlo.
+
 ### Multi-vector
 
 - **Hoy no hay:** `Multivector()` devuelve `false` y el índice no implementa `VectorIndexMulti`.
