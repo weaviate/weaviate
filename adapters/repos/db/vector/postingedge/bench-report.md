@@ -239,6 +239,28 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## HFresh con los postings leídos en paralelo, el PR a main (pre-registro, 2026-11-23 a las 11:25)
+
+**Estado: pre-registrado. El código está en la rama `perf/hfresh-parallel-posting-reads`, desde main, con sus tests en verde; la medida va detrás de la de filtros.**
+
+**El encargo (del usuario).** Llevar a main el `MultiGet` en paralelo de la enmienda 6 de v4.0, con su test, encendido por defecto. Las lecturas en vuelo respetan el presupuesto compartido de búsqueda del nodo, el del limitador de admisión, sin goroutines fuera de él. Antes de abrir el PR, medir antes y después en el arnés, con HFresh como un nodo, a 1M: en frío y en caliente, con 1 y 8 threads, a 0.95, y confirmar que con 8 threads no empeora.
+
+**El cambio.** `MultiGet` lee a la vez tantos postings como el presupuesto de la query que lleva el contexto, y nunca más que los postings que lee. El presupuesto se lo da el limitador a cada búsqueda vectorial del shard: 20 a una query sola en esta máquina, y menos cuando hay varias a la vez. Sin presupuesto, como en las tareas de fondo, lee uno detrás de otro, como hasta ahora. La enmienda 6 leía siempre 8 a la vez, con un número fijo que solo ponía el arnés.
+
+**Cómo lo mido (*mío*).**
+
+- **El índice:** HFresh sobre dbpedia 1M, construido con el binario de main, con su grafo de centroides limpio, como en un nodo. Antes y después leen el mismo índice: el cambio no toca el formato.
+- **El arnés:** el de v4.0, copiado sin commit en las dos ramas y adaptado a cómo main guarda el grafo de centroides. Cada query toma su presupuesto del limitador (`-bench.hfresh.admission`).
+- **El punto:** la configuración que menos lee para 0.95, buscada sobre ese índice.
+- **La sesión:** antes y después alternados, dos rondas, en caliente y en frío (500 queries en frío, con el volumen desmontado cada 10), con 1 y 8 threads. La espera de 15 minutos sin actividad, el marcador y el detector de deriva de siempre.
+- **La lectura:** con 8 threads, en frío y en caliente, el p50 de después no pasa del de antes más de un 10 %, que es el empate de siempre. Si pasa, no se abre el PR y se dice.
+
+**Lo que espero (*mío*).**
+
+- **Con 1 thread en frío,** de 3 a 4 veces más rápido. En la enmienda 6, con 8 lecturas fijas, fue de 46.8 a 14.3 ms; con 20 puede bajar algo más.
+- **Con 1 thread en caliente,** entre un 5 y un 20 % más rápido: en caliente leer postings pesa poco.
+- **Con 8 threads,** un empate en caliente y en frío. Las 8 queries se reparten el presupuesto del nodo, y en la enmienda 6 los 8 threads no ganaron nada.
+
 ## Filtros en el índice integrado, 1M dbpedia (pre-registro, 2026-11-23 a las 11:10)
 
 **Estado: pre-registrado antes de compilar nada.** El experimento, sus filtros, la parada y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*.
