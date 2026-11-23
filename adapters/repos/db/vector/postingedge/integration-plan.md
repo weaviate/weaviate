@@ -1367,6 +1367,8 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Lo que cuesta, sin medir:** un posting cargado por cada posting distinto que tenga algún permitido. Con un filtro en bola son pocos. Con uno al azar del 1 % a 1M, casi todos: unas 4 000 cargas por query.
 - **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito, y no lee ningún código de ruteo. La medida es en `routing` y no la cambia.
 
+**Hecho** (`fea9e96399`): `flatRescore(k, bits)` no tiene ningún número propio, `TestFlatRescore` fija la tabla (507 a 512 bits, 64 a 1 536, 150 a 768, 4 × k, ef, un límite de la clase con k y ef por encima, y 0 con k y ef). En `none` la plana devuelve `ErrNotSupported`, y no lee nada del bucket de ruteo. Los tests del índice y del shard lo esperan en ese modo. *Verificado por tests,* con y sin el detector de carreras.
+
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
 *Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*
@@ -1400,3 +1402,28 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
   - **Sin nada de una base:** es un índice que nunca tuvo base, y abre como siempre. Si queda la marca de un build sin lista, ese build murió antes de escribir nada, y se quita la marca, que solo tiene ficheros de trabajo del build.
   - **Con algo de una base y sin una lista que lo cubra:** error al abrir, que dice qué hay y dónde. No se borra nada. Es lo que deja una copia o una restauración incompleta.
 - **Con meta y la marca de un build:** el build murió después de escribir el meta, y la base está entera. Se quita la marca.
+
+**Hecho** (`43a26135e1`). El test en rojo de `43988b3c8b` pasa.
+
+- **La lista** está en `<id>.postingedge.build/list.json`, con los doc ids en `sources.u32` y su checksum. Primero se escriben los doc ids, luego la lista, cada fichero entero y sincronizado antes de tener su nombre. Así una lista en disco tiene todos sus doc ids.
+- **Nombres, no rutas:** la lista nombra los ficheros del directorio del índice y los buckets por su nombre. Una copia restaurada en otro directorio se limpia igual.
+- **Lo que añadí yo** (*mío*):
+  - **El build no empieza si hay cualquier cosa de una base,** nombrada en la lista o no. Con solo lo de la lista, un fichero ajeno en el directorio del índice dejaba una lista escrita y una limpieza que se negaba.
+  - **La limpieza borra el meta primero** y sincroniza el directorio antes de seguir. Una limpieza que se corta nunca deja un meta junto a media base. El directorio del build, con su lista, se quita el último: el índice que abre después termina lo que quedó.
+  - **Si una limpieza en el mismo proceso se niega,** el directorio del build se queda con su lista y se escribe una línea de error en el log. El índice sigue con sus vectores apartados, y cada build siguiente se niega a empezar mientras quede algo de esa base.
+- **Fallo adyacente, arreglado en el mismo commit:** `Drop` no borraba el directorio del build. Ahora lo borra, y también todos los buckets que una base puede tener. El test de `Drop` lo comprueba, y fallaba sin el arreglo.
+- **Un fallo de los tests, encontrado de paso** (`5b3b5c9398`): el fixture de los tests del índice dejaba que el build de fondo leyera cuantos vectores hubieran llegado. Con la máquina cargada los leía todos, y un índice construido de una vez con sus 2 100 vectores no partía ningún posting. Por eso fallaron `TestPersistentKeepsItsCentroidGraph` y `TestPersistentLaysItsVectorsOutAsItGrows`. Ahora espera la base a su tamaño. `TestPersistentFixtureBuildsItsBaseFromItsBaseSize` retiene el build: con el fixture viejo da una base de 2 100 y ningún split.
+- **Tests:**
+  - `TestPersistentCleansWhatABuildLeft`, en los dos modos:
+    - el proceso muere mientras escribe la base;
+    - una limpieza que se quedó a medias;
+    - el build falla sin morir;
+    - los vectores de origen incompletos: el bucket que falta, o un vector que falta. Da error y no se borra nada;
+    - algo de una base que la lista no nombra. Da error y no se borra nada;
+    - una copia hecha a mitad de un build, fichero a fichero, y restaurada en otro directorio. Rehace la base y queda entera.
+  - `TestBuildListIsWhatTheBuildWrites`: la lista es lo que crea la escritura, en los tres formatos.
+  - `TestPersistentBuildDoesNotStartOverWhatIsThere`.
+  - `TestPersistentInterruptedBase`, que ahora espera el error cuando no hay lista.
+- **Para el trabajo de backup:**
+  - **Hoy `ListFiles` se niega.** Cuando exista, la copia tiene que llevar el directorio del build con su lista. Sin ella, el índice restaurado no abre, aunque tampoco borra nada.
+  - **Una copia con meta tomada fichero a fichero mientras el build escribe** no es consistente, y eso no lo arregla el índice. Lo tiene que resolver el backup, por ejemplo esperando al build en `PrepareForBackup`.

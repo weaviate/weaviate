@@ -137,4 +137,7 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
   - *Verificado por tests,* también por el shard, en los dos modos. *A 1M:* la medida está en marcha en el modo por defecto, frente a HNSW con `acorn`.
   - **La búsqueda por distancia sigue sin funcionar,** con filtro o sin él.
 
+- **Un índice al que le falta su `meta.json` ya no abre vacío borrándolo todo** (desde el 23 de noviembre). Da error al abrir, dice qué ficheros hay y no borra nada. Lo único que el índice borra por su cuenta es lo que escribió un build de su base que no acabó. Y solo si ese build dejó la lista de lo que creaba y los vectores de los que partía siguen apartados. Cada vez deja una línea en el log con lo que borró y por qué.
+  - *Verificado por tests:* el proceso que muere a mitad del build, el build que falla sin morir, una copia hecha a mitad de un build y restaurada en otro sitio, y los casos en que no borra nada.
+
 **Lo que sigue igual que en el hito 1:** lo demás de «Qué falla por diseño».
