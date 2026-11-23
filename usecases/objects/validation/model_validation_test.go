@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -111,6 +113,49 @@ func TestValidateExistence(t *testing.T) {
 			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")
 			tt.check(t, err)
 			require.Equal(t, []string{"tenantA", ""}, tenants)
+		})
+	}
+}
+
+// Each lookup needs READ on the scope it reads: a class-less one and the
+// tenant-less retry read without a tenant.
+func TestValidateExistenceAuthorizesLookupScope(t *testing.T) {
+	tenantErr := errors.New("has multi-tenancy disabled, but request was with tenant")
+	tests := []struct {
+		name        string
+		class       string
+		denied      string
+		wantLookups []string
+	}{
+		{
+			name:        "the tenant-less retry needs READ without a tenant",
+			class:       "To",
+			denied:      authorization.Objects("To", ""),
+			wantLookups: []string{"tenantA"},
+		},
+		{
+			name:   "a class-less lookup needs READ on every collection without a tenant",
+			denied: authorization.Objects("", ""),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lookups []string
+			stub := func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, tenant string) (bool, error) {
+				lookups = append(lookups, tenant)
+				if tenant != "" {
+					return false, tenantErr
+				}
+				return true, nil
+			}
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.Deny(tt.denied)
+			validator := New(stub, &config.WeaviateConfig{}, nil, nil, false, authorizer)
+			ref := &crossref.Ref{Class: tt.class, TargetID: strfmt.UUID(UuidLower)}
+
+			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")
+			require.True(t, errors.As(err, &autherrs.Forbidden{}), "%v", err)
+			require.Equal(t, tt.wantLookups, lookups)
 		})
 	}
 }

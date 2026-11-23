@@ -144,12 +144,24 @@ func (v *Validator) ValidateSingleRef(cref *models.SingleRef) (*crossref.Ref, er
 	return ref, nil
 }
 
+// ValidateExistence requires READ on the scope of each lookup before running it.
 func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, errorVal string, tenant string) error {
+	scopeTenant := tenant
+	if ref.Class == "" {
+		// A class-less lookup searches every collection and ignores the tenant.
+		scopeTenant = ""
+	}
+	if err := v.authorizeRefTarget(ctx, ref.Class, scopeTenant); err != nil {
+		return err
+	}
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
 		if tenant == "" {
 			return err
+		}
+		if aerr := v.authorizeRefTarget(ctx, ref.Class, ""); aerr != nil {
+			return aerr
 		}
 		// since refs can be created to non-MT classes, check again if non-MT object exists
 		// (use empty tenant, if previously was given)

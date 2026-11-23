@@ -165,10 +165,16 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			// behaviour (byte-exact compare on delete handles it).
 			if b.config.Config.Namespaces.Enabled {
 				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+				continue
 			}
+			uniqueClassShard["#"] = classAndShard{} // may point into any collection
 			continue
 		}
-		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
+		shard := ref.Tenant
+		if target := fetchedClasses[qualifiedTarget].Class; target != nil && !schema.MultiTenancyEnabled(target) {
+			shard = "" // a non-multi-tenant target is read without a tenant
+		}
+		uniqueClassShard[qualifiedTarget+"#"+shard] = classAndShard{Class: qualifiedTarget, Shard: shard}
 	}
 
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))

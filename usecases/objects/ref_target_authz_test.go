@@ -225,3 +225,82 @@ func TestAutoSchemaClasslessBeaconRequiresReadOnEveryCollection(t *testing.T) {
 		})
 	}
 }
+
+// A class-less lookup ignores the tenant, so a tenant-scoped READ must not pass it.
+func TestReferenceEndpointsCheckClasslessLookupWithoutTenant(t *testing.T) {
+	classless := strfmt.URI("weaviate://localhost/" + refAuthzTargetID.String())
+	writes := map[string]func(m *Manager) *Error{
+		"add reference": func(m *Manager) *Error {
+			return m.AddObjectReference(context.Background(), nil, &AddReferenceInput{
+				Class: "Source", ID: refAuthzObjectID, Property: "multi", Ref: models.SingleRef{Beacon: classless},
+			}, nil, "t1")
+		},
+		"replace references": func(m *Manager) *Error {
+			return m.UpdateObjectReferences(context.Background(), nil, &PutReferenceInput{
+				Class: "Source", ID: refAuthzObjectID, Property: "multi", Refs: models.MultipleRef{{Beacon: classless}},
+			}, nil, "t1")
+		},
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			m, _, repo, _, authorizer := newNSManagers(t, refAuthzClasses(""), false)
+			authorizer.Deny(authorization.Objects("", ""))
+			repo.On("Exists", mock.Anything, mock.Anything).Return(true, nil).Maybe()
+			repo.On("Object", "Source", refAuthzObjectID, mock.Anything, mock.Anything, mock.Anything).
+				Return(&search.Result{ClassName: "Source", ID: refAuthzObjectID}, nil).Maybe()
+			repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Maybe()
+			repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			err := write(m)
+			require.NotNil(t, err)
+			assert.True(t, err.Forbidden(), "status %d: %v", err.Code, err.Err)
+			repo.AssertNotCalled(t, "Exists", "", refAuthzTargetID)
+		})
+	}
+}
+
+func TestBatchReferencesCheckTheScopeTheyRead(t *testing.T) {
+	cases := []struct {
+		name        string
+		multiTenant bool
+		from        string
+		to          string
+		tenant      string
+		denied      string
+	}{
+		{
+			name:        "a non-multi-tenant target of a multi-tenant source is read without a tenant",
+			multiTenant: true,
+			from:        "single",
+			to:          "weaviate://localhost/Alpha/" + refAuthzTargetID.String(),
+			tenant:      "t1",
+			denied:      authorization.Objects("Alpha", ""),
+		},
+		{
+			name:   "a class-less target needs READ on every collection",
+			from:   "multi",
+			to:     "weaviate://localhost/" + refAuthzTargetID.String(),
+			denied: authorization.Objects("", ""),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			classes := refAuthzClasses("")
+			if tc.multiTenant {
+				classes[0].MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+			}
+			_, b, repo, _, authorizer := newNSManagers(t, classes, false)
+			authorizer.Deny(tc.denied)
+			repo.On("Exists", mock.Anything, mock.Anything).Return(true, nil).Maybe()
+			repo.On("AddBatchReferences", mock.Anything).Return(nil).Maybe()
+
+			_, err := b.AddReferences(context.Background(), nil, []*models.BatchReference{{
+				From:   strfmt.URI("weaviate://localhost/Source/" + refAuthzObjectID.String() + "/" + tc.from),
+				To:     strfmt.URI(tc.to),
+				Tenant: tc.tenant,
+			}}, nil)
+			require.True(t, errors.As(err, &autherrs.Forbidden{}), "%v", err)
+			repo.AssertNotCalled(t, "AddBatchReferences", mock.Anything)
+		})
+	}
+}

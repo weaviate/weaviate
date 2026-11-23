@@ -142,6 +142,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+		if errors.As(err, &autherrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}
 		}
