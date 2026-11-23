@@ -74,3 +74,19 @@ func TestVectorIndexQueue_BeforeSchedule_DoesNotLeakPauseOnUpgradeError(t *testi
 	require.False(t, iq.scheduler.IsQueuePaused(iq.ID()),
 		"BeforeSchedule must resume the queue itself when Upgrade errors without having called its callback")
 }
+
+// A queue being switched to another index is skipped whatever its pause
+// state says: a backup ending or a compression finishing resumes it.
+func TestVectorIndexQueue_BeforeSchedule_SkipsWhileSwitching(t *testing.T) {
+	fake := &movementFakeUpgradable{shouldUpgrade: true, upgradeAt: 0, indexed: 1}
+	iq := newPausableTestQueue(t, fake)
+	iq.switching.Store(true)
+	iq.Resume()
+
+	require.True(t, iq.BeforeSchedule(), "a switching queue is skipped")
+	require.False(t, fake.upgradeCalled, "no compression starts on the index being replaced")
+
+	iq.switching.Store(false)
+	require.True(t, iq.BeforeSchedule(), "the upgrade branch is taken again")
+	require.True(t, fake.upgradeCalled)
+}
