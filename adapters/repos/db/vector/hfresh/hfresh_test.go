@@ -16,11 +16,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -541,5 +543,47 @@ func TestSinglePostingMode(t *testing.T) {
 		require.Len(t, seen, len(vectors))
 
 		assertSelfSearch(t, &tf, vectors)
+	})
+
+	t.Run("muvera index searches the single posting and the graph built from it", func(t *testing.T) {
+		const (
+			limit  = 300
+			tokens = 2
+			dim    = 16
+		)
+		muvera := muveraUserConfig().Multivector.MuveraConfig
+		encodedDims := muvera.Repetitions * (1 << muvera.KSim) * muvera.DProjections
+		t.Setenv(singlePostingMaxSizeEnv, strconv.FormatUint(uint64(limit*postingEntryBytes(encodedDims)), 10))
+		tf := createMuveraHFreshIndex(t, withDistanceProvider(distancer.NewCosineDistanceProvider()))
+
+		rng := rand.New(rand.NewSource(7))
+		var docs [][][]float32
+		add := func(n int) {
+			for range n {
+				doc := randomMultiVector(rng, tokens, dim)
+				addMultiVectorToIndex(t, &tf, uint64(len(docs)), doc)
+				docs = append(docs, doc)
+			}
+		}
+		assertSelfSearch := func() {
+			for i, doc := range docs {
+				ids, _, err := tf.Index.SearchByMultiVector(ctx, doc, 1, nil)
+				require.NoError(t, err)
+				require.Equal(t, []uint64{uint64(i)}, ids, "document %d", i)
+			}
+		}
+
+		add(limit)
+		tf.Index.waitForMaintenance(t)
+		require.EqualValues(t, limit, tf.Index.bootstrapThreshold)
+		require.Greater(t, uint32(limit), tf.Index.maxPostingSize, "only the limit keeps the posting whole")
+		require.False(t, tf.Index.Centroids.Built())
+		requireSinglePostingSize(t, tf.Index, limit)
+		assertSelfSearch()
+
+		add(100)
+		tf.Index.waitForMaintenance(t)
+		require.True(t, tf.Index.Centroids.Built())
+		assertSelfSearch()
 	})
 }
