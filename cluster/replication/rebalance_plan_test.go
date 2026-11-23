@@ -355,6 +355,69 @@ func TestRebalancePlan_TransitionMatrix(t *testing.T) {
 	})
 }
 
+func TestRebalancePlan_CompletionMoves(t *testing.T) {
+	moves := func() []replication.PlanMove {
+		return []replication.PlanMove{
+			{ID: "move-1", Collection: "Articles", Shard: "s1", SourceNode: "node-0", TargetNode: "node-1", EstimatedBytes: 100},
+			{ID: "move-2", Collection: "Articles", Shard: "s2", SourceNode: "node-0", TargetNode: "node-1", EstimatedBytes: 200},
+			{ID: "move-3", Collection: "Books", Shard: "s1", SourceNode: "node-0", TargetNode: "node-1", EstimatedBytes: 300},
+		}
+	}
+	complete := func(outcome replication.PlanState) func(*testing.T, *replication.ShardReplicationFSM) {
+		return func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+			req := completeReq(outcome)
+			req.Moves = moves()
+			require.NoError(t, fsm.CompletePlanning(runTerm, req))
+			// Writes through the request do not reach FSM state.
+			req.Moves[0].TargetNode = "node-9"
+		}
+	}
+	cases := []struct {
+		name      string
+		apply     func(*testing.T, *replication.ShardReplicationFSM)
+		wantState replication.PlanState
+		wantMoves []replication.PlanMove
+	}{
+		{name: "PROPOSED stores every move", apply: complete(replication.PlanStateProposed), wantState: replication.PlanStateProposed, wantMoves: moves()},
+		{name: "NOT_NEEDED stores none", apply: complete(replication.PlanStateNotNeeded), wantState: replication.PlanStateNotNeeded},
+		{name: "NO_ACCEPTABLE_PLAN stores none", apply: complete(replication.PlanStateNoAcceptablePlan), wantState: replication.PlanStateNoAcceptablePlan},
+		{name: "PLANNING_FAILED stores none", apply: complete(replication.PlanStatePlanningFailed), wantState: replication.PlanStatePlanningFailed},
+		{name: "a PLANNING plan holds none", apply: func(*testing.T, *replication.ShardReplicationFSM) {}, wantState: replication.PlanStatePlanning},
+		{
+			name: "a STOPPED plan holds none",
+			apply: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				require.NoError(t, fsm.StopPlan(&replication.StopPlanRequest{PlanID: seededPlanID}))
+			},
+			wantState: replication.PlanStateStopped,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsm, _ := newPlanFSM()
+			require.NoError(t, fsm.CreatePlan(createReq(seededPlanID)))
+
+			tc.apply(t, fsm)
+
+			leaked, ok := fsm.GetPlan()
+			require.True(t, ok)
+			if len(leaked.Moves) > 0 {
+				leaked.Moves[0].Shard = "leaked"
+			}
+
+			got, ok := fsm.GetPlan()
+			require.True(t, ok)
+			require.Equal(t, tc.wantState, got.State)
+			require.Equal(t, tc.wantMoves, got.Moves)
+
+			b, err := json.Marshal(got)
+			require.NoError(t, err)
+			var keys map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(b, &keys))
+			require.Contains(t, keys, "moves")
+		})
+	}
+}
+
 func TestRebalancePlan_Fencing(t *testing.T) {
 	planning := seededPlan(replication.PlanStatePlanning)
 	recordedRun := seededPlan(replication.PlanStatePlanning)
@@ -601,6 +664,10 @@ func TestRebalancePlan_SnapshotRoundTrip(t *testing.T) {
 				{Node: "node-1", Error: "context deadline exceeded"},
 			}
 		}
+		moves := []replication.PlanMove{
+			{ID: "move-1", Collection: "Articles", Shard: "s1", SourceNode: "node-0", TargetNode: "node-1", EstimatedBytes: 100},
+			{ID: "move-2", Collection: "Books", Shard: "s2", SourceNode: "node-0", TargetNode: "node-1", EstimatedBytes: 200},
+		}
 		src, _ := newPlanFSM()
 		seedOps(t, src)
 		require.NoError(t, src.CreatePlan(createReq(seededPlanID)))
@@ -608,6 +675,7 @@ func TestRebalancePlan_SnapshotRoundTrip(t *testing.T) {
 		req.MeasuredAtUnixMs = createdAtMs + 7
 		req.Nodes = nodes()
 		req.Reason = "disk utilisation imbalanced"
+		req.Moves = slices.Clone(moves)
 		require.NoError(t, src.CompletePlanning(runTerm, req))
 
 		// Writes through the request or a returned plan do not reach FSM state.
@@ -621,6 +689,7 @@ func TestRebalancePlan_SnapshotRoundTrip(t *testing.T) {
 		require.Equal(t, createdAtMs+7, wantPlan.MeasuredAtUnixMs)
 		require.Equal(t, nodes(), wantPlan.Nodes)
 		require.Equal(t, "disk utilisation imbalanced", wantPlan.Reason)
+		require.Equal(t, moves, wantPlan.Moves)
 
 		b, err := src.Snapshot()
 		require.NoError(t, err)

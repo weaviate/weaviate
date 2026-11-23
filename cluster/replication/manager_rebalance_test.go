@@ -159,6 +159,9 @@ func TestManager_GetRebalancePlan(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NoError(t, m.CreateRebalancePlan(&api.ApplyRequest{SubCommand: create}))
+		moves := []replication.PlanMove{
+			{ID: "move-1", Collection: "Books", Shard: "s1", SourceNode: "node-1", TargetNode: "node-2", EstimatedBytes: 100},
+		}
 		complete, err := json.Marshal(&replication.CompletePlanningRequest{
 			PlanID:              "plan-1",
 			RunID:               "run-a",
@@ -170,11 +173,13 @@ func TestManager_GetRebalancePlan(t *testing.T) {
 			MoveCount:           1,
 			PlanHash:            "hash-1",
 			ApproveBeforeUnixMs: 5000,
+			Moves:               moves,
 		})
 		require.NoError(t, err)
 		require.NoError(t, m.CompleteRebalancePlanning(3, &api.ApplyRequest{SubCommand: complete}))
 		want, ok := m.GetReplicationFSM().GetPlan()
 		require.True(t, ok)
+		require.Equal(t, moves, want.Moves)
 
 		payload, err := m.GetRebalancePlan(query)
 		require.NoError(t, err)
