@@ -190,6 +190,8 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Acordado: `distance` se expone, y la primera versión valida solo `cosine`.** Cualquier otro valor da error de configuración.
 
+**Decidido por el usuario el 23: la primera versión admite `cosine` y `l2-squared`; `dot` se rechaza, como en HFresh** (`entities/vectorindex/hfresh/config.go:113`). **La variación de la norma queda documentada como no probada:** los dos datasets sin normalizar que hay en disco tienen la norma casi constante (abajo).
+
 - **El error tiene que salir al parsear,** para que la clase no llegue a crearse. Hoy la distancia se rechaza al crear el índice (`Config.validate`, `config.go:259`), es decir, al arrancar el shard. HFresh valida las suyas al parsear (`entities/vectorindex/hfresh/config.go:113`).
 - **El código de hoy admite también `l2-squared` por dentro,** y sus tests pasan. Con lo acordado queda sin camino desde el esquema.
 - **El shard no normaliza:** el índice recibe vectores crudos y los normaliza él para el coseno. Ya lo hace, en el insert, en la query y en el rescore.
@@ -228,11 +230,13 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
   - **Los dos sin normalizar tienen la norma casi constante.** Sirven para probar la escala de la distancia, no la variación de la norma. Para eso haría falta un dataset sintético, por ejemplo dbpedia con cada vector multiplicado por un factor al azar.
   - **El único de 1M es `sphere-1M-meta-dpr`,** en `dot`. Es el que pediría el margen relativo: con normas de 14.4 la distancia es unas 207 veces la del coseno, y un margen de 0.06 equivale a no cortar.
 - **El margen hoy:** el corte es `stop.worst() + margin` (`search.go:354-361`), en unidades de la distancia. Es 0.06 en coseno y no hay corte en l2-squared (`config.go:49-59`, `index.go:168-175`).
-- **Propuesta (*mía*): un margen relativo a la dispersión de la propia búsqueda.** El corte pasa a ser `worst + m · (worst − best)` del montón de parada, con m sin unidades.
-  - **Vale para las tres métricas con un solo m:** no cambia si la distancia se escala o se desplaza, así que cubre el coseno, el l2 con cualquier escala y el `dot`.
+- **Propuesta (*mía*, con las correcciones del usuario del 23): un margen relativo a la dispersión de la propia búsqueda.** El corte pasa a ser `worst + m · (worst − best)` del montón de parada, con m sin unidades.
+  - **Vale con un solo m para el coseno y el l2-squared de cualquier escala,** que son las dos métricas de la primera versión. Tampoco cambiaría con `dot`, que queda fuera.
   - **Resuelve la objeción de arriba:** `worst − best` nunca es negativo, aunque las distancias `dot` lo sean.
-  - **Como hoy, el corte no se aplica mientras el montón no está lleno.** No cuesta nada: el montón ya tiene los dos extremos.
-  - **Cómo fijar m:** con `calibrateMargin` del banco y fracciones (0.25, 0.5, 0.75, 1.0), hasta recuperar la frontera del 0.06 en dbpedia. Después se comprueba, sin tocar m, sobre `sphere-1M-meta-dpr` en `dot`, sobre dbpedia en l2-squared (que debe dar lo mismo que el coseno) y sobre el dbpedia sintético con normas variables.
+  - **Un suelo, pedido por el usuario:** cuando el montón tiene pocos elementos, o `worst − best` es casi cero (muchos vecinos a la misma distancia), la dispersión no dice nada de la escala. *Propuesta mía:* mientras el montón no esté lleno, no hay corte, como hoy. Lleno, la dispersión no baja de una fracción fija de la escala de la distancia que ve la propia búsqueda, por ejemplo una centésima de `worst − best` del primer lote de postings escaneados, que es siempre más ancho. El valor se fija en la misma calibración.
+  - **Con filtros se calcula sobre los escaneados, no sobre los válidos** (usuario). El montón de los válidos puede tener pocos elementos y lejos, y daría un margen sin sentido. La dispersión sale de un montón de los ef mejores escaneados, pasen o no el filtro, que es el que hoy decide el corte sin filtros.
+  - **Cómo fijar m, por la frontera recall-QPS en dbpedia** (usuario), como se eligió el 0.06, no en un solo punto: barrer m (0.25, 0.5, 0.75, 1.0 y 1.5) con la malla de ef, y quedarse con el m cuya frontera domina la de sin corte en todo el rango y queda más cerca de la del 0.06.
+  - **Después se comprueba sin tocar m en `sphere-1M-meta-dpr` con `l2-squared`** (usuario), y en dbpedia con `l2-squared`, que debe dar lo mismo que el coseno. Si en `sphere-1M` la frontera de m no domina a la de sin corte, se dice y no se ajusta.
   - **La alternativa, si la dispersión resulta ruidosa query a query:** un corte por rango, que sigue las aristas de los ⌈(1 + ρ)·ef⌉ mejores escaneados. No depende de ninguna transformación monótona de la distancia; cuesta un segundo montón por query.
 - **El margen es la parte fácil.** Para `dot` sobre vectores crudos falta además todo lo de arriba: la partición y el ruteo por producto escalar, y medirlo.
 
