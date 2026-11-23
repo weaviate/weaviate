@@ -285,7 +285,7 @@ func (p *DropVectorIndexDetector) dropCovers(className, targetVector string, exi
 
 // eachDropCovering invokes fn for every task matching statusMatch whose payload
 // covers targetVector on className, until fn returns false. Unparseable payloads are
-// skipped (fail-open) without a log line, since the restore that stored them logged them.
+// skipped (fail-open) without a log line, since loading the Raft snapshot that stored them logged them.
 func (p *DropVectorIndexDetector) eachDropCovering(className, targetVector string,
 	existingTasks []*distributedtask.Task, statusMatch func(distributedtask.TaskStatus) bool,
 	fn func(*distributedtask.Task, *DropVectorIndexTaskPayload) bool,

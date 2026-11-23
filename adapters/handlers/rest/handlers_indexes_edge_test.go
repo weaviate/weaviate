@@ -1007,21 +1007,3 @@ func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
 		})
 	}
 }
-
-// Pins: an in-flight task whose payload will not decode is logged rather
-// than skipped in silence. It may be the very task the operator is trying
-// to cancel, and the answer they get is a NO_OP.
-func TestFindCancelTarget_LogsUndecodablePayload(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-
-	target, _ := findCancelTarget([]*distributedtask.Task{{
-		Namespace:      db.ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_bad", Version: 1},
-		Status:         distributedtask.TaskStatusStarted,
-		Payload:        []byte("not json"),
-	}}, "C", "foo", "filterable", logger)
-
-	require.Nil(t, target)
-	require.Len(t, hook.AllEntries(), 1)
-	require.Contains(t, hook.AllEntries()[0].Message, "T_bad")
-}

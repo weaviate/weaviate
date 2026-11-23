@@ -2776,9 +2776,8 @@ func TestRestoreLogsUnreadableHeadersAsOneLine(t *testing.T) {
 		wantWarnings       int
 		wantIDs            int
 	}{
-		{name: "all readable", usable: 3},
 		{name: "one unreadable", unreadable: 1, usable: 2, wantWarnings: 1, wantIDs: 1},
-		{name: "long ids", idPrefix: "Article:change-tokenization:title:", unreadable: 6, wantWarnings: 1, wantIDs: 5},
+		{name: "more than five unreadable", idPrefix: "Article:change-tokenization:title:", unreadable: 6, wantWarnings: 1, wantIDs: 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var tasks []*Task

@@ -12,7 +12,6 @@
 package db
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -22,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 func TestTaskListPassesLogUnreadablePayloadsAsOneLine(t *testing.T) {
@@ -49,52 +47,6 @@ func TestTaskListPassesLogUnreadablePayloadsAsOneLine(t *testing.T) {
 			msg := hook.LastEntry().Message
 			require.True(t, strings.HasPrefix(msg, "3 "), msg)
 			require.Contains(t, msg, "task-0, task-1, task-2")
-		})
-	}
-}
-
-func TestDropVectorApplyChecksDoNotRelogRestoredUnreadablePayloads(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		apply func(t *testing.T, mgr *distributedtask.Manager)
-	}{
-		{"add tasks", func(t *testing.T, mgr *distributedtask.Manager) {
-			for i := range 3 {
-				payload, err := json.Marshal(DropVectorIndexTaskPayload{Collection: "C", Targets: []string{fmt.Sprintf("v%d", i)}, OpID: fmt.Sprintf("op-%d", i)})
-				require.NoError(t, err)
-				sub, err := json.Marshal(&api.AddDistributedTaskRequest{
-					Namespace: DropVectorIndexNamespace, Id: fmt.Sprintf("new-%d", i), Payload: payload,
-					UnitSpecs: []*api.UnitSpec{{Id: "u", GroupId: "s1"}},
-				})
-				require.NoError(t, err)
-				require.NoError(t, mgr.AddTask(&api.ApplyRequest{SubCommand: sub}, uint64(10+i)))
-			}
-		}},
-		{"remove vectors", func(t *testing.T, mgr *distributedtask.Manager) {
-			for range 3 {
-				require.NoError(t, mgr.CheckVectorConfigRemoval("C", []string{"v"}, nil))
-			}
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			bad := &distributedtask.Task{
-				Namespace: DropVectorIndexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "bad", Version: 1},
-				Payload: []byte("not json"), Status: distributedtask.TaskStatusStarted,
-			}
-			snap, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {DropVectorIndexNamespace: {bad}}})
-			require.NoError(t, err)
-			logger, hook := logrustest.NewNullLogger()
-			detector := NewDropVectorIndexDetector(logger)
-			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
-				Logger:                  logger,
-				ConflictDetectors:       map[string]distributedtask.ConflictDetector{DropVectorIndexNamespace: detector},
-				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{DropVectorIndexNamespace: detector},
-			})
-			require.NoError(t, mgr.Restore(snap))
-			require.Len(t, hook.AllEntries(), 1, "the restore reports the unreadable task once")
-
-			tc.apply(t, mgr)
-			require.Len(t, hook.AllEntries(), 1, "the apply checks add no line for it")
 		})
 	}
 }

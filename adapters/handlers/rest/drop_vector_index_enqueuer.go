@@ -128,7 +128,8 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 // already-fetched task list, so the reconcile loop pays ONE ListDistributedTasks
 // per round instead of one per marker. A slightly stale list is safe: the
 // AddTask-apply guard (CheckConflict) re-proves the coverage claim against the
-// FSM's live records, and any rejection is retried by the next round.
+// FSM's live records, and any rejection is retried by the next round. It logs no
+// unparseable payloads, because the reconcile round logs them once.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string,
 	targets []string, tasks map[string][]*distributedtask.Task,
 ) error {
