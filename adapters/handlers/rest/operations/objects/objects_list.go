@@ -47,7 +47,7 @@ func NewObjectsList(ctx *middleware.Context, handler ObjectsListHandler) *Object
 
 # List objects
 
-Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (`class`) parameter to specify which collection's objects to list, otherwise, returns an empty list.
+Retrieves a list of data objects from the collection named in the `class` parameter. By default, objects are returned in reverse order of creation. <br/><br/>**Note**: Calling this endpoint without `class` is deprecated and will be removed in a future version. Without `class`, it lists objects across all collections. Some cluster configurations do not support a request without `class`.
 */
 type ObjectsList struct {
 	Context *middleware.Context

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3138,7 +3139,9 @@ func (f *fakeUserLister) ListAllUsers() []string { return f.users }
 
 // fakeRoleLister is a static RoleLister for scheduler tests. carried records the
 // ids of each BuiltInAssignments call, and oidcCarried the namespaces of each
-// OIDCBuiltInAssignments call.
+// OIDCBuiltInAssignments call. snapshot and snapshotErr are what Snapshot returns.
+// When refreshed is non-nil, the second and later Snapshot calls return it in
+// place of snapshot.
 type fakeRoleLister struct {
 	roles           []string
 	err             error
@@ -3146,6 +3149,12 @@ type fakeRoleLister struct {
 	carried         [][]string
 	oidcAssignments []byte
 	oidcCarried     [][]string
+	snapshot        []byte
+	snapshotErr     error
+	refreshed       []byte
+
+	mu            sync.Mutex
+	snapshotReads int
 }
 
 func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.err }
@@ -3158,6 +3167,16 @@ func (f *fakeRoleLister) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 func (f *fakeRoleLister) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
 	f.oidcCarried = append(f.oidcCarried, namespaces)
 	return f.oidcAssignments, nil
+}
+
+func (f *fakeRoleLister) Snapshot(...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshotReads++
+	if f.snapshotReads > 1 && f.refreshed != nil {
+		return f.refreshed, f.snapshotErr
+	}
+	return f.snapshot, f.snapshotErr
 }
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
@@ -3187,6 +3206,161 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
+}
+
+// roleRows decodes an RBAC snapshot blob into its policy and grouping-policy rows.
+func roleRows(t *testing.T, blob []byte) (policies, grouping [][]string) {
+	t.Helper()
+	var s struct {
+		Policies [][]string `json:"roles_policies"`
+		Grouping [][]string `json:"grouping_policies"`
+	}
+	require.NoError(t, json.Unmarshal(blob, &s))
+	return s.Policies, s.Grouping
+}
+
+// TestRestoreDynamicUserAssignmentsGate checks that Restore replaces the backup's
+// dynamic-user role assignments with the target's exactly when no backup users
+// apply. The backup and target share no dynamic-user row, so the applied roles
+// show whether the replace ran. The replace also drops the carried db:dave row,
+// which shows it runs after the carried assignments are merged in.
+//
+// The target loses db:erin between the request and the dispatch. The replace
+// adds db:erin, so its absence from the applied roles shows the refresh ran at
+// dispatch. When the backup users apply, the applied roles keep db:alice and
+// db:dave. The refreshed target lacks both, so their presence shows no refresh
+// ran in that case.
+func TestRestoreDynamicUserAssignmentsGate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const (
+		backupID = "dynamic-user-gate"
+		node     = "Node-A"
+	)
+	backupRoles := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:alice","role:editor"],["oidc:carol","role:editor"]]}`)
+	carried := []byte(`{"version":1,"grouping_policies":[["db:dave","role:admin"]]}`)
+	target := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"],["db:erin","role:editor"]]}`)
+	refreshedTarget := []byte(`{"version":1,"roles_policies":[["role:editor","*","R","*"]],"grouping_policies":[["db:bob","role:editor"]]}`)
+	policies := [][]string{{"role:editor", "*", "R", "*"}}
+	replaced := [][]string{{"oidc:carol", "role:editor"}, {"db:bob", "role:editor"}}
+	kept := [][]string{{"db:alice", "role:editor"}, {"oidc:carol", "role:editor"}, {"db:dave", "role:admin"}}
+	userBlob := []byte(`{"Version":0,"Data":{"Users":{"alice":{"Id":"alice"}}}}`)
+
+	// Restores that pass the request-time checks succeed.
+	setup := func(t *testing.T, withUsers bool) (*fakeScheduler, *recordingRolesAndUsersRestorer) {
+		t.Helper()
+		meta := backup.DistributedBackupDescriptor{
+			ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success, Leader: node,
+			Nodes:                  map[string]*backup.NodeDescriptor{node: {Classes: []string{"Movies"}}},
+			BuiltInRoleAssignments: carried,
+		}
+		nodeDesc := backup.BackupDescriptor{
+			ID: backupID, Status: backup.Success,
+			Classes:     []backup.ClassDescriptor{{Name: "Movies"}},
+			RbacBackups: backupRoles,
+		}
+		if withUsers {
+			nodeDesc.UserBackups = userBlob
+		}
+		nodeMeta, err := json.Marshal(nodeDesc)
+		require.NoError(t, err)
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.roleLister.snapshot = target
+		fs.roleLister.refreshed = refreshedTarget
+		rec := &recordingRolesAndUsersRestorer{}
+		fs.rolesAndUsers = rec
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{}).Maybe()
+		fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).Return(nodeMeta, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil).Maybe()
+		fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
+			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil).Maybe()
+		fs.client.On("Commit", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		fs.client.On("Status", mock.Anything, mock.Anything, mock.Anything).
+			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).Maybe()
+		return fs, rec
+	}
+	restoreReq := func(usersOption string) *BackupRequest {
+		return &BackupRequest{
+			ID: backupID, Backend: "gcs", Include: []string{"Movies"},
+			UserRestoreOption: usersOption, RbacRestoreOption: models.RestoreConfigRolesOptionsAll,
+		}
+	}
+
+	tests := []struct {
+		name          string
+		usersOption   string
+		withUsers     bool
+		nilUserLister bool
+		wantGrouping  [][]string
+	}{
+		{
+			name:         "usersOptions=noRestore replaces the assignments",
+			usersOption:  models.RestoreConfigUsersOptionsNoRestore,
+			withUsers:    true,
+			wantGrouping: replaced,
+		},
+		{
+			name:          "dynamic users disabled on the target replaces the assignments",
+			usersOption:   models.RestoreConfigUsersOptionsAll,
+			withUsers:     true,
+			nilUserLister: true,
+			wantGrouping:  replaced,
+		},
+		{
+			name:         "a backup without a user snapshot replaces the assignments",
+			usersOption:  models.RestoreConfigUsersOptionsAll,
+			wantGrouping: replaced,
+		},
+		{
+			name:         "users that apply keep the backup's assignments",
+			usersOption:  models.RestoreConfigUsersOptionsAll,
+			withUsers:    true,
+			wantGrouping: kept,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs, rec := setup(t, tt.withUsers)
+			s := fs.scheduler()
+			if tt.nilUserLister {
+				s.userLister = nil
+			}
+
+			_, err := s.Restore(ctx, nil, restoreReq(tt.usersOption), false)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
+				10*time.Second, 10*time.Millisecond, "restore did not finish")
+
+			calls := rec.recorded()
+			require.Len(t, calls, 1)
+			gotPolicies, gotGrouping := roleRows(t, calls[0].roles)
+			assert.ElementsMatch(t, policies, gotPolicies)
+			assert.ElementsMatch(t, tt.wantGrouping, gotGrouping)
+		})
+	}
+
+	t.Run("a target read error is returned unchanged", func(t *testing.T) {
+		fs, _ := setup(t, false)
+		readErr := errors.New("read failed")
+		fs.roleLister.snapshotErr = readErr
+		_, err := fs.scheduler().Restore(ctx, nil, restoreReq(models.RestoreConfigUsersOptionsAll), false)
+		assert.Equal(t, readErr, err)
+		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("an undecodable target is unprocessable", func(t *testing.T) {
+		fs, _ := setup(t, false)
+		fs.roleLister.snapshot = []byte(`not json`)
+		_, err := fs.scheduler().Restore(ctx, nil, restoreReq(models.RestoreConfigUsersOptionsAll), false)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+	})
 }
 
 func marshalCoordinatorMeta(m backup.DistributedBackupDescriptor) []byte {
@@ -4611,6 +4785,7 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 		name     string
 		classes  []string
 		rbacBlob []byte
+		userBlob []byte
 		carried  []byte
 		wantErr  []string
 	}{
@@ -4623,6 +4798,8 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 			name:     "a carried assignment colliding with a node-blob subject",
 			classes:  []string{"ns1:Movies"},
 			rbacBlob: []byte(`{"version":1,"namespaces":["ns2"],"roles_policies":[["role:ns2:editor","*","R","*"]],"grouping_policies":[["db:ns2:alice","role:ns2:editor"]]}`),
+			// Users apply, so the dynamic-user rows above are not replaced with the target's.
+			userBlob: makeUserSnapshot(t, "ns1:alice"),
 			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns1:alice","role:admin"]]}`),
 			wantErr:  []string{"db:ns1:alice", "db:ns2:alice", `strip to the same name "db:alice"`},
 		},
@@ -4651,6 +4828,7 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 				ID:          backupID,
 				Status:      backup.Success,
 				RbacBackups: tt.rbacBlob,
+				UserBackups: tt.userBlob,
 			}
 			for _, class := range tt.classes {
 				nodeMeta.Classes = append(nodeMeta.Classes, backup.ClassDescriptor{Name: class})
@@ -4900,6 +5078,7 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 		rbacBlob   []byte
 		userBlob   []byte
 		carried    []byte
+		target     []byte // the target node's current RBAC snapshot
 		states     map[string]cmd.NamespaceState
 		options    func(req *BackupRequest)
 		wantRoles  []byte // the roles blob applied by an accepted restore
@@ -4939,26 +5118,33 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			},
 		},
 		{
-			// usersOptions=noRestore turns off the users-blob check, so the roles blob
-			// has to catch ns3 on its own. Otherwise the grouping row lands
-			// cluster-wide with no namespace to belong to.
-			name:     "a namespace named only by a role assignment is caught with users off",
+			// usersOptions=noRestore turns off the users-blob check. It also replaces
+			// the backup's dynamic-user rows with the target's before the roles-blob
+			// check. So the check skips the backup's ns3 row and sees the target's ns4 row.
+			name:     "with users off the check reads the target's role assignments",
 			rbacBlob: rbacBlobDBSubject,
 			userBlob: userBlob,
+			target:   []byte(`{"version":1,"grouping_policies":[["db:ns4:carol","role:viewer"]]}`),
 			states:   map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
 			options: func(req *BackupRequest) {
 				req.UserRestoreOption = models.RestoreConfigUsersOptionsNoRestore
 			},
-			wantErr:    []string{"roles", "ns3"},
-			wantNotErr: []string{"ns2"},
+			// The offending row is the target's, so the message must not blame the backup.
+			wantErr:    []string{"the restore would apply roles or users", "roles", "ns4"},
+			wantNotErr: []string{"ns2", "ns3", "backup"},
 		},
 		{
 			// The check runs on the merged blob, so a carried assignment alone is enough.
+			// Users apply, so the carried db:ns3 row is not replaced with the target's.
 			name:     "a namespace named only by a carried assignment is caught",
 			rbacBlob: rbacBlob,
+			userBlob: userBlob,
 			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns3:bob","role:admin"]]}`),
-			states:   map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
-			wantErr:  []string{"roles", "ns3"},
+			states: map[string]cmd.NamespaceState{
+				"ns1": cmd.NamespaceStateActive,
+				"ns2": cmd.NamespaceStateActive,
+			},
+			wantErr: []string{"roles", "ns3"},
 		},
 	}
 
@@ -4983,6 +5169,7 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
 			fs.schema.namespacesEnabled = true
 			fs.namespaces = namespaces.NewMockExisterInState(t, tt.states)
+			fs.roleLister.snapshot = tt.target
 			rec := &recordingRolesAndUsersRestorer{}
 			fs.rolesAndUsers = rec
 			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
@@ -5114,7 +5301,18 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 	t.Run("descriptor skip discards the users blob", func(t *testing.T) {
 		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true}, nil)
 		require.Len(t, calls, 1)
-		assert.Equal(t, blobA, calls[0].roles)
+		// No users apply, so the backup's dynamic-user rows are replaced with the
+		// target's. Neither blobA nor the target has any, so the rows are blobA's.
+		gotPolicies, gotGrouping := roleRows(t, calls[0].roles)
+		wantPolicies, wantGrouping := roleRows(t, blobA)
+		assert.ElementsMatch(t, wantPolicies, gotPolicies)
+		assert.ElementsMatch(t, wantGrouping, gotGrouping)
+		var gotVersion, wantVersion struct {
+			Version int `json:"version"`
+		}
+		require.NoError(t, json.Unmarshal(calls[0].roles, &gotVersion))
+		require.NoError(t, json.Unmarshal(blobA, &wantVersion))
+		assert.Equal(t, wantVersion, gotVersion)
 		assert.Empty(t, calls[0].users)
 	})
 

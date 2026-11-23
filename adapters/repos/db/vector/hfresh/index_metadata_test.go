@@ -703,7 +703,9 @@ type partialFlushCase struct {
 }
 
 func TestRecoveryAfterPartialFlush(t *testing.T) {
-	vectors, _ := testinghelpers.RandomVecsFixedSeed(1400, 0, 8)
+	// the final phase adds 320 vectors, more than one posting holds at the
+	// 8 KB floor and 8 dimensions (316), so even an empty recovered store splits
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(720, 0, 8)
 	idRange := func(from, to int) []uint64 {
 		ids := make([]uint64, 0, to-from)
 		for id := from; id < to; id++ {
@@ -735,22 +737,22 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 	centroidVectorsBucket := func(_ *Config, storeDir string) string {
 		return filepath.Join(storeDir, helpers.VectorsCompressedBucketLSM)
 	}
+	livePostings := func(h *HFresh) (live int, smallest uint64) {
+		var smallestCount uint32
+		for id, md := range h.PostingMap.Iter() {
+			if md.Count() == 0 || !h.Centroids.Exists(id) {
+				continue
+			}
+			live++
+			if smallestCount == 0 || md.Count() < smallestCount {
+				smallest, smallestCount = id, md.Count()
+			}
+		}
+		return live, smallest
+	}
 	// shrinkAndMerge deletes most of the smallest posting and merges it
 	shrinkAndMerge := func(t *testing.T, h *HFresh) []uint64 {
-		livePostings := func() (live int, smallest uint64) {
-			var smallestCount uint32
-			for id, md := range h.PostingMap.Iter() {
-				if md.Count() == 0 || !h.Centroids.Exists(id) {
-					continue
-				}
-				live++
-				if smallestCount == 0 || md.Count() < smallestCount {
-					smallest, smallestCount = id, md.Count()
-				}
-			}
-			return live, smallest
-		}
-		live, smallest := livePostings()
+		live, smallest := livePostings(h)
 		require.Greater(t, live, 1)
 
 		md, err := h.PostingMap.Get(t.Context(), smallest)
@@ -763,7 +765,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		}
 		require.NoError(t, h.Delete(deleted...))
 		require.NoError(t, h.doMerge(t.Context(), smallest))
-		after, _ := livePostings()
+		after, _ := livePostings(h)
 		require.Equal(t, live-1, after, "the merge must remove a posting")
 		return deleted
 	}
@@ -773,39 +775,39 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 	cases := []partialFlushCase{
 		{
 			name:      "split, commit log behind store",
-			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
-			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 100, 400); return nil },
 			rollback:  commitLog,
-			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 400) },
 		},
 		{
 			name:      "split, store behind commit log",
-			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
-			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 100, 400); return nil },
 			rollback:  wholeStore,
-			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 100) },
 		},
 		{
 			name:      "merge, store behind commit log",
-			setup:     func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			setup:     func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 400) },
 			mutate:    shrinkAndMerge,
 			rollback:  wholeStore,
-			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 400) },
 		},
 		{
 			name:     "merge, commit log behind store",
-			setup:    func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 800) },
+			setup:    func(t *testing.T, h *HFresh) { addGradually(t, h, 0, 400) },
 			mutate:   shrinkAndMerge,
 			rollback: commitLog,
 			reachable: func(deleted []uint64) []uint64 {
-				return slices.DeleteFunc(idRange(0, 800), func(id uint64) bool { return slices.Contains(deleted, id) })
+				return slices.DeleteFunc(idRange(0, 400), func(id uint64) bool { return slices.Contains(deleted, id) })
 			},
 		},
 		{
 			name:  "IDs of cleaned up centroids, store behind commit log",
-			setup: func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
+			setup: func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
 			mutate: func(t *testing.T, h *HFresh) []uint64 {
-				add(t, h, 200, 800)
+				add(t, h, 100, 400)
 				waitIdle(t, h)
 				require.NoError(t, h.Centroids.state.Load().hnsw.CleanUpTombstonedNodes(func() bool { return false }))
 				for id := range h.PostingMap.Iter() {
@@ -814,7 +816,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 				return nil
 			},
 			rollback:  wholeStore,
-			reachable: func([]uint64) []uint64 { return idRange(0, 200) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 100) },
 			check: func(t *testing.T, h *HFresh) {
 				id, err := h.IDs.Next()
 				require.NoError(t, err)
@@ -823,10 +825,10 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 		},
 		{
 			name:      "split, centroid vectors bucket behind commit log",
-			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 200) },
-			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 200, 800); return nil },
+			setup:     func(t *testing.T, h *HFresh) { add(t, h, 0, 100) },
+			mutate:    func(t *testing.T, h *HFresh) []uint64 { add(t, h, 100, 400); return nil },
 			rollback:  centroidVectorsBucket,
-			reachable: func([]uint64) []uint64 { return idRange(0, 800) },
+			reachable: func([]uint64) []uint64 { return idRange(0, 400) },
 		},
 		{
 			name:      "first posting, commit log behind store",
@@ -923,9 +925,13 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 
 			// the recovered index must keep accepting writes and splitting
 			phase(func(h *HFresh) {
-				add(t, h, 800, 1400)
+				before, _ := livePostings(h)
+				add(t, h, 400, 720)
 				waitIdle(t, h)
-				requireReachable(h, append(reachable, idRange(800, 1400)...))
+				// going from no posting to one is not a split
+				after, _ := livePostings(h)
+				require.Greater(t, after, max(before, 1), "the recovered index must split")
+				requireReachable(h, append(reachable, idRange(400, 720)...))
 			})
 		})
 	}

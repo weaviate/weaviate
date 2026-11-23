@@ -1,0 +1,75 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package modrerankeropenai
+
+import (
+	"context"
+	"os"
+
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/reranker-openai/clients"
+	"github.com/weaviate/weaviate/modules/reranker-openai/config"
+	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+)
+
+const Name = config.ModuleName
+
+func New() *ReRankerOpenAIModule {
+	return &ReRankerOpenAIModule{}
+}
+
+type ReRankerOpenAIModule struct {
+	reranker                     ReRankerOpenAIClient
+	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+}
+
+type ReRankerOpenAIClient interface {
+	Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	MetaInfo() (map[string]any, error)
+}
+
+func (m *ReRankerOpenAIModule) Name() string {
+	return Name
+}
+
+func (m *ReRankerOpenAIModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2TextReranker
+}
+
+func (m *ReRankerOpenAIModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams,
+) error {
+	apiKey := os.Getenv("OPENAI_APIKEY")
+	organization := os.Getenv("OPENAI_ORGANIZATION")
+	client := clients.New(apiKey, organization, params.GetConfig().ModuleHttpClientTimeout, clients.MaxDocumentsPerQuery,
+		params.GetLogger())
+	m.reranker = client
+	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(client)
+	return nil
+}
+
+func (m *ReRankerOpenAIModule) MetaInfo() (map[string]any, error) {
+	return m.reranker.MetaInfo()
+}
+
+func (m *ReRankerOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return m.additionalPropertiesProvider.AdditionalProperties()
+}
+
+// verify we implement the modules.Module interface
+var (
+	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.AdditionalProperties(New())
+	_ = modulecapabilities.MetaProvider(New())
+)

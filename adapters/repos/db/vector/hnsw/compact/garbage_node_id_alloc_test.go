@@ -470,7 +470,8 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, exe, "-test.run=^"+topLevelName+"$", "-test.count=1")
-	cmd.Env = append(os.Environ(), garbageNodeIDChildEnv+"="+sc.name)
+	// the race detector sleeps 1s at exit by default, once per child
+	cmd.Env = append(os.Environ(), garbageNodeIDChildEnv+"="+sc.name, "GORACE=atexit_sleep_ms=0")
 	cmd.WaitDelay = 10 * time.Second
 	out, runErr := cmd.CombinedOutput()
 	tail := lastLines(string(out), 40)

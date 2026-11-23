@@ -94,6 +94,9 @@ func makeNoopCommitLogger(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, erro
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
+// testScheduleInterval replaces the scheduler's 1s default, which every wait for an idle task queue would pay
+const testScheduleInterval = 10 * time.Millisecond
+
 func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	l := logrus.New()
 	tmpDir := t.TempDir()
@@ -122,7 +125,8 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	cfg.Logger = l
 	scheduler := queue.NewScheduler(
 		queue.SchedulerOptions{
-			Logger: l,
+			Logger:           l,
+			ScheduleInterval: testScheduleInterval,
 		},
 	)
 	scheduler.Start()
