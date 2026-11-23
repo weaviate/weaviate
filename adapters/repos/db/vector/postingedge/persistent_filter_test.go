@@ -203,7 +203,9 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 // automatic limit the rule of the rescore at that width, 507 for the routing
 // code of 512 bits and 64 for a full code of 1 536, with four times k and ef
 // over it; with a limit of the class, that limit, with k and ef over it
-// (integration-plan.md, section 8, amendment 3).
+// (integration-plan.md, section 8, amendment 3). R is the larger of that limit
+// and ef, as the user decided on 2026-11-23: it grows with ef past 507, and a
+// limit set by hand is kept.
 func TestFlatRescore(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -216,6 +218,10 @@ func TestFlatRescore(t *testing.T) {
 		{name: "automatic, 768 bits", rescoreLimit: ent.RescoreLimitAuto, bits: 768, k: 10, ef: 20, wantRescored: 150},
 		{name: "automatic, four times k over the rule", rescoreLimit: ent.RescoreLimitAuto, bits: 512, k: 200, ef: 20, wantRescored: 800},
 		{name: "automatic, ef over the rule", rescoreLimit: ent.RescoreLimitAuto, bits: 512, k: 10, ef: 1000, wantRescored: 1000},
+		{name: "automatic, the rule over ef", rescoreLimit: ent.RescoreLimitAuto, bits: 512, k: 10, ef: 500, wantRescored: 507},
+		{name: "automatic, ef 800 over 507", rescoreLimit: ent.RescoreLimitAuto, bits: 512, k: 10, ef: 800, wantRescored: 800},
+		{name: "a limit of 100 set by hand, ef 20", rescoreLimit: 100, bits: 512, k: 10, ef: 20, wantRescored: 100},
+		{name: "a limit of 100 set by hand, ef 300", rescoreLimit: 100, bits: 512, k: 10, ef: 300, wantRescored: 300},
 		{name: "a limit of the class", rescoreLimit: 300, bits: 512, k: 10, ef: 20, wantRescored: 300},
 		{name: "a limit of the class, k over it", rescoreLimit: 300, bits: 512, k: 400, ef: 20, wantRescored: 400},
 		{name: "a limit of the class, ef over it", rescoreLimit: 300, bits: 512, k: 10, ef: 2000, wantRescored: 2000},
