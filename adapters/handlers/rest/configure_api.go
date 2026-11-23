@@ -39,6 +39,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	"github.com/jonboulle/clockwork"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -195,6 +196,7 @@ import (
 	wldbusershandlers "github.com/weaviate/weaviate/wl/dbusers/handlers"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/namespaces/suspendsweep"
+	"github.com/weaviate/weaviate/wl/rebalance"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 	srhandlers "github.com/weaviate/weaviate/wl/selfrecovery/handlers"
 )
@@ -231,7 +233,7 @@ func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardRe
 	}
 }
 
-// rebalanceMeasure builds the RebalanceMeasure func. For a node missing from
+// rebalanceMeasure builds the planner's Measure func. For a node missing from
 // cluster membership it returns an error, never a zero measurement with a nil error.
 func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string, string, uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
 	return func(ctx context.Context, node, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
@@ -742,7 +744,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 		ReplicaMovementEnabled:                 appState.ServerConfig.Config.Replication.ReplicaMovementEnabled,
 		ReplicaRebalanceEnabled:                appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
-		RebalanceMeasure:                       rebalanceMeasure(appState.Cluster.NodeHostname, remoteNodesClient),
+		NewRebalancePlanner: rebalancePlannerFor(rebalancePlannerModeFor(appState.ServerConfig.Config), func(deps rCluster.RebalancePlannerDeps) (rCluster.RebalancePlanner, error) {
+			p, err := rebalance.NewRebalancePlanner(rebalance.RebalancePlannerParams{
+				Logger:      deps.Logger,
+				FSM:         deps.FSM,
+				Proposer:    deps.Raft,
+				Drafting:    deps.Raft,
+				Clock:       clockwork.NewRealClock(),
+				Registerer:  prometheus.DefaultRegisterer,
+				Measure:     rebalanceMeasure(appState.Cluster.NodeHostname, remoteNodesClient),
+				Schema:      deps.Raft.SchemaReader(),
+				CurrentTerm: deps.CurrentTerm,
+				ReadyToPlan: deps.ReadyToPlan,
+				Enabled:     deps.Enabled,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return p, nil
+		}),
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
 		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
@@ -1434,7 +1454,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
+	logUnlicensedRebalance(appState.Logger, rebalanceModeFor(appState.ServerConfig.Config))
 	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
+		appState.ServerConfig.Config.WeaviateLicense,
 		api, appState.ClusterService.Raft, appState.ClusterService.Raft, appState.Cluster, appState.Metrics, appState.Authorizer, appState.Logger,
 		appState.ServerConfig.Config.Persistence.DataPath)
 

@@ -26,9 +26,13 @@ import (
 	rebalance "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const rebalanceLogAction = "replication_rebalance"
+
+// RebalanceFeature names cluster rebalancing in the license refusal and the startup warning.
+const RebalanceFeature = "cluster rebalancing"
 
 var (
 	errRebalanceDisabled     = errors.New("replica movement and replica rebalancing must both be enabled")
@@ -66,8 +70,13 @@ func (h *replicationHandler) createRebalancePlan(params replication.CreateRebala
 	if err := h.authorizeRebalance(ctx, principal, authorization.CREATE); err != nil {
 		return replication.NewCreateRebalancePlanForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
-	if !h.enabled.Get() || !h.rebalanceEnabled.Get() {
+	switch license.ModeFor(h.enabled.Get() && h.rebalanceEnabled.Get(), h.licensed) {
+	case license.FeatureOff:
 		return replication.NewCreateRebalancePlanNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errRebalanceDisabled))
+	case license.FeatureUnlicensed:
+		// An unlicensed node runs no planner, so a plan created here could stay in PLANNING.
+		return replication.NewCreateRebalancePlanForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, license.Required(RebalanceFeature)))
+	case license.FeatureLicensed:
 	}
 	if err := validateRebalanceRequest(params.Body); err != nil {
 		return replication.NewCreateRebalancePlanBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))

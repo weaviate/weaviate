@@ -61,6 +61,8 @@ packages:
     interfaces:
       OpProducer:
       OpConsumer:
+  github.com/weaviate/weaviate/wl/rebalance:
+    interfaces:
       rebalanceDrafting:
       rebalanceProposer:
       rebalanceSchemaReader:
