@@ -11,6 +11,12 @@
 
 package nearText
 
+import (
+	"context"
+
+	"github.com/weaviate/weaviate/entities/moduletools"
+)
+
 type fakeTransformer struct{}
 
 func (t *fakeTransformer) Transform(in []string) ([]string, error) {
@@ -23,4 +29,20 @@ func (t *fakeTransformer) Transform(in []string) ([]string, error) {
 		}
 	}
 	return result, nil
+}
+
+type fakeVectorizer struct {
+	err error
+}
+
+func (v *fakeVectorizer) Texts(ctx context.Context, input []string, cfg moduletools.ClassConfig) ([]float32, error) {
+	return nil, v.err
+}
+
+type fakeClassConfig struct {
+	moduletools.ClassConfig
+}
+
+func (fakeClassConfig) Tenant() string {
+	return ""
 }
