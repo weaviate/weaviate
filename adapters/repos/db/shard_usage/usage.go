@@ -25,6 +25,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -140,10 +141,20 @@ func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error 
 func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage,
 	vectorConfigsFingerprint string, generation uint64,
 ) (saved bool, err error) {
+	return SaveComputedUsageDataWithSegmentHeap(indexPath, shardName, shardUsage,
+		vectorConfigsFingerprint, generation, nil)
+}
+
+// SaveComputedUsageDataWithSegmentHeap is [SaveComputedUsageData] that also
+// records segmentHeap. A nil segmentHeap writes no segmentHeap key.
+func SaveComputedUsageDataWithSegmentHeap(indexPath, shardName string, shardUsage *types.ShardUsage,
+	vectorConfigsFingerprint string, generation uint64, segmentHeap *types.SegmentHeap,
+) (saved bool, err error) {
 	data, err := json.Marshal(&types.UsageDisk{
 		Version:                  types.UsageDiskVersion,
 		ShardUsage:               shardUsage,
 		VectorConfigsFingerprint: vectorConfigsFingerprint,
+		SegmentHeap:              segmentHeap,
 	})
 	if err != nil {
 		return false, fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
@@ -377,6 +388,61 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (Vect
 		}
 	}
 	return metrics, nil
+}
+
+// CalculateSegmentHeap sums the segment bytes that loading the shard puts in
+// Go heap, over the bucket directories under lsmPath. It follows the load rule
+// in lsmkv's newSegment, assuming no memory pressure. A segment of at most
+// minMMapSize bytes is read whole and loads no bloom filter. A larger segment
+// is mmapped and keeps its bloom filter. It does not check whether the bucket
+// uses bloom filters.
+func CalculateSegmentHeap(lsmPath string, directories []string, minMMapSize int64) (types.SegmentHeap, error) {
+	heap := types.SegmentHeap{MinMMapSize: minMMapSize}
+	for _, directory := range directories {
+		files, _, err := listDir(filepath.Join(lsmPath, directory))
+		if err != nil {
+			return types.SegmentHeap{}, err
+		}
+		for name, size := range files {
+			if strings.HasSuffix(name, segmentFileSuffix) {
+				if size <= minMMapSize {
+					heap.SmallSegmentBytes += size
+				}
+				continue
+			}
+			segment, ok := segmentOfHeapSidecar(name)
+			if !ok {
+				continue
+			}
+			if segmentSize, ok := files[segment]; ok && segmentSize > minMMapSize {
+				heap.BloomBytes += size
+			}
+		}
+	}
+	return heap, nil
+}
+
+const segmentFileSuffix = ".db"
+
+// segmentOfHeapSidecar maps a bloom, secondary bloom or metadata sidecar name
+// to the name of its segment file. It returns false for any other name.
+// lsmkv's buildPath names the sidecars of <base>.db as <base>.bloom,
+// <base>.secondary.<N>.bloom and <base>.metadata. <base> is segment-<id>, or
+// segment-<id>.l<level>.s<strategy> when it carries a level and strategy.
+func segmentOfHeapSidecar(name string) (string, bool) {
+	base, ok := strings.CutSuffix(name, lsmkv.MetadataFileSuffix)
+	if !ok {
+		base, ok = strings.CutSuffix(name, lsmkv.BloomFilterFileSuffix)
+		if !ok {
+			return "", false
+		}
+		if i := strings.LastIndex(base, lsmkv.SecondaryBloomFilterInfix); i >= 0 {
+			if _, err := strconv.ParseUint(base[i+len(lsmkv.SecondaryBloomFilterInfix):], 10, 16); err == nil {
+				base = base[:i]
+			}
+		}
+	}
+	return base + segmentFileSuffix, true
 }
 
 // listDir lists a directory's files with their sizes and its subdirectory names. A directory that is

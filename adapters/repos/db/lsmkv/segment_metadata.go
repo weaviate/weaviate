@@ -30,7 +30,7 @@ const (
 )
 
 func (s *segment) metadataPath() string {
-	return s.buildPath("%s.metadata")
+	return s.buildPath("%s" + MetadataFileSuffix)
 }
 
 func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOnLowerSegmentsFn, precomputedCNAValue *int, existingFilesList map[string]int64, writeMetadata bool) (bool, error) {

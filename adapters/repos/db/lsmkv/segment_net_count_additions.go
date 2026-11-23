@@ -46,7 +46,7 @@ const CountNetAdditionsFileSuffix = ".cna"
 type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
 func (s *segment) countNetPath() string {
-	return s.buildPath("%s.cna")
+	return s.buildPath("%s" + CountNetAdditionsFileSuffix)
 }
 
 const netAdditionsOutputBufferSize = 10e6

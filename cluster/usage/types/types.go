@@ -27,6 +27,23 @@ type UsageDisk struct {
 	// from. Serving it under different ones would bill a vector index that has since
 	// been dropped, or leave out one that was added, until the shard is loaded again.
 	VectorConfigsFingerprint string `json:"vectorConfigsFingerprint,omitempty"`
+	// SegmentHeap is nil in a file written without one, including every file
+	// written by an older build.
+	SegmentHeap *SegmentHeap `json:"segmentHeap,omitempty"`
+}
+
+// SegmentHeap counts the bytes of a shard's lsm segments that loading the
+// shard puts in Go heap.
+type SegmentHeap struct {
+	// BloomBytes is the size of the bloom filter and metadata sidecars of
+	// segments larger than MinMMapSize. Those segments are mmapped and keep
+	// their bloom filters.
+	BloomBytes int64 `json:"bloomBytes"`
+	// SmallSegmentBytes is the size of the segments of at most MinMMapSize
+	// bytes. Those segments are read whole and load no bloom filter.
+	SmallSegmentBytes int64 `json:"smallSegmentBytes"`
+	// MinMMapSize is the threshold the two sums above were split by.
+	MinMMapSize int64 `json:"minMMapSize"`
 }
 
 // Report represents the usage metrics report from the metrics endpoint

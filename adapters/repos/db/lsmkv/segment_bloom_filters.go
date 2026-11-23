@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,13 +44,17 @@ func (s *segment) buildPath(template string) string {
 	return path
 }
 
+const (
+	BloomFilterFileSuffix     = ".bloom"
+	SecondaryBloomFilterInfix = ".secondary."
+)
+
 func (s *segment) bloomFilterPath() string {
-	return s.buildPath("%s.bloom")
+	return s.buildPath("%s" + BloomFilterFileSuffix)
 }
 
 func (s *segment) bloomFilterSecondaryPath(pos int) string {
-	posTemplate := fmt.Sprintf(".%d.bloom", pos)
-	return s.buildPath("%s.secondary" + posTemplate)
+	return s.buildPath("%s" + SecondaryBloomFilterInfix + strconv.Itoa(pos) + BloomFilterFileSuffix)
 }
 
 func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFilesList map[string]int64) error {
