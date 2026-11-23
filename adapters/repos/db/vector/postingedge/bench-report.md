@@ -358,6 +358,25 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **En frío,** antes de cada lote de 10 queries el nuestro se cierra con su store y se abre otra vez tras soltar la caché, sin cronometrar. De HNSW se cierra solo el fichero de los vectores, como en la medida de 10M. Los dos índices van en el volumen de las pruebas, en `/Volumes/v40bench/filter1m`.
 - **La parada** se comprueba en cada query de cada medida.
 
+### Enmienda 3 (11:45 del 23, de la sesión de integración, por dos órdenes del usuario, antes de compilar): el rescore de la búsqueda plana, y la búsqueda plana en `none`
+
+*Copiada de su plan, donde es su enmienda 3. El test en rojo del `meta.json`, que no es de esta medida, está en `43988b3c8b`.*
+
+**El rescore de la búsqueda plana sale del `rescoreLimit` del índice** (usuario: «no es un número fijo. Si 507 tiene un motivo, dímelo»).
+
+- **No hay ningún número fijo en el código.** Con el límite automático, R es la regla del 22 aplicada al ancho del código que ordena la búsqueda plana, con 4 × k y ef como suelos. Con un límite explícito, ese límite, con k y ef como suelos.
+- **Por qué sale 507 en dbpedia:** la plana ordena por el código de ruteo, que a 1 536 dimensiones son 512 bits capados, y la regla da 150 × (768 / 512)³ = 507 para ese ancho.
+  - **Con 64,** que es lo que la regla da para el código de scan de 1 536 bits, el techo con 512 bits capados es 0.9255 en dbpedia: la plana no llegaría a 0.95 al 0.1 % ni al 1 %, que son los filtros que van por ella.
+  - **Con 400 el techo es 0.991,** y con 507 queda por encima.
+- **Lo fija un test de tabla** (`TestFlatRescore`): el automático con 512 bits y con el código completo, un límite explícito, y k y ef por encima de cada uno.
+
+**La búsqueda plana en `none`** (usuario: «agrupar los permitidos por posting con el mapa, cargar solo esos postings y escanear solo los permitidos. Si queda para después, que dé error explícito en ese modo y no use códigos que no están en memoria»).
+
+- **Se quita la lectura del código de ruteo de cada permitido desde su bucket,** uno a uno, que es lo que hacía hasta ahora.
+- **Lo que hará:** el mapa, que está en memoria en los dos modos, da el posting de cada permitido; se cargan solo esos postings, cada uno una vez y solo su fila de miembros; se puntúan solo sus miembros permitidos con su código de scan, el completo; y se rescoran los R mejores. Aquí ordena el código de scan, así que R es la regla aplicada a su ancho: 64 a 1 536 bits, con 4 × k y ef como suelos.
+- **Lo que cuesta, sin medir:** una carga por cada posting distinto con algún permitido. Con un filtro en bola son pocas; con uno al azar del 1 % a 1M, casi todos los postings, unas 4 000 cargas por query.
+- **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito y no lee ningún código de ruteo. La medida es en `routing` y no cambia.
+
 ## 10M en disco: wiki-dpr 10M con el camino de lectura de v4.0 (2026-11-21)
 
 **Estado: cerrado el 22. Las dos condiciones se cumplen, con nuestras celdas en rescore 64 y también en 150 («Resultados» y el apartado que le sigue, abajo). Pre-registrado el 21 a las 11:43, antes de construir nada a 10M y antes de ningún dato suyo, con cuatro enmiendas.** El experimento, las celdas, la configuración de HFresh y las dos condiciones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás de v5.4 y de las medidas de parámetros.
