@@ -682,3 +682,33 @@ func TestVectorIndexSlots_ForEachWaitsForASwitch(t *testing.T) {
 	assert.Len(t, got, 2)
 }
 
+// The index and the queue come under one lease, so a switch waits only for
+// that lease; with two, a switch starting between them would stall both.
+func TestShard_AcquireVectorIndexAndQueueTakesOneLease(t *testing.T) {
+	var s Shard
+	index := &MockVectorIndex{}
+	q := &VectorIndexQueue{}
+	require.NoError(t, s.vectors.Publish("title", index, q))
+
+	gotIndex, gotQueue, release, ok := s.acquireVectorIndexAndQueue("title")
+	require.True(t, ok)
+	assert.Same(t, index, gotIndex)
+	assert.Same(t, q, gotQueue)
+	slot, _ := s.vectors.get("title")
+	assert.EqualValues(t, 1, slot.users.Count())
+
+	switched := make(chan error, 1)
+	go func() {
+		switched <- s.vectors.Switch(context.Background(), "title", swapTo(&MockVectorIndex{}))
+	}()
+	release()
+	select {
+	case err := <-switched:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the switch did not complete once the one lease was returned")
+	}
+
+	_, _, _, ok = s.acquireVectorIndexAndQueue("missing")
+	assert.False(t, ok)
+}
