@@ -252,6 +252,9 @@ type PersistentConfig struct {
 	// baseHook, in the tests, is called at every point of the build of the
 	// base and of what follows it, with what has just happened.
 	baseHook func(point string) error
+	// writeHook, in the tests, is called at the points of the write of the
+	// base (writeGrowIndex). What it answers is the write failing there.
+	writeHook func(point string) error
 }
 
 func (c *PersistentConfig) validate() error {
@@ -319,14 +322,14 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return nil, errors.Wrap(err, "create the directory of the index")
 	}
-	// Whatever a build of the base left when it did not end.
-	if err := os.RemoveAll(p.buildDir); err != nil {
-		return nil, errors.Wrap(err, "remove what a build left")
-	}
-
 	_, statErr := os.Stat(filepath.Join(p.dir, diskMetaFile))
 	switch {
 	case statErr == nil:
+		// The meta is written last: the base is whole, and what a build of it
+		// left is its scratch.
+		if err := p.removeBuildDir("the base it wrote is whole: the index has its meta"); err != nil {
+			return nil, err
+		}
 		if err := p.openGrown(ctx); err != nil {
 			return nil, errors.Wrap(err, "open the index")
 		}
@@ -337,23 +340,8 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 			return nil, errors.Wrap(err, "open the vectors kept aside")
 		}
 	case os.IsNotExist(statErr):
-		// Without a meta there is no base: what there is of one is of a
-		// build that did not end, and the vectors it was built from are
-		// still kept aside.
-		if err := p.discardBase(ctx); err != nil {
-			return nil, err
-		}
-		if err := p.openStaging(ctx); err != nil {
-			return nil, err
-		}
-		if err := p.loadStaged(); err != nil {
-			_ = p.closeStaging(ctx)
-			return nil, err
-		}
-		// A vector that was deleted while a base was built: that base is not
-		// there, and neither is the vector.
-		if err := p.settleGone(); err != nil {
-			_ = p.closeStaging(ctx)
+		// Without a meta there is no base, and the vectors are kept aside.
+		if err := p.openWithoutMeta(ctx); err != nil {
 			return nil, err
 		}
 	default:
@@ -444,33 +432,6 @@ func (p *Persistent) dropStaging(ctx context.Context) error {
 		return errors.Wrapf(err, "remove the bucket %s", name)
 	}
 	clear(p.staged)
-	return nil
-}
-
-// discardBase removes what there is of a base without a meta, in the
-// directory of the index and in the store: the buckets of the index, which
-// must not be open, with everything in them.
-func (p *Persistent) discardBase(ctx context.Context) error {
-	entries, err := os.ReadDir(p.dir)
-	if err != nil {
-		return errors.Wrap(err, "read the directory of the index")
-	}
-	for _, entry := range entries {
-		if err := os.RemoveAll(filepath.Join(p.dir, entry.Name())); err != nil {
-			return errors.Wrap(err, "remove what a build left")
-		}
-	}
-	for _, name := range helpers.PostingEdgeBucketNames(p.cfg.ID) {
-		if name == p.stagingName() {
-			continue
-		}
-		if err := shutdownBucket(ctx, p.store, name); err != nil {
-			return errors.Wrapf(err, "close the bucket %s", name)
-		}
-		if err := os.RemoveAll(filepath.Join(p.store.GetDir(), name)); err != nil {
-			return errors.Wrapf(err, "remove the bucket %s", name)
-		}
-	}
 	return nil
 }
 
@@ -895,6 +856,11 @@ func (p *Persistent) readStaged() (ids []uint64, vectors [][]float32, err error)
 // batch, writes it and makes it the index. The base has a meta only once it
 // is whole: if anything fails before, what was written is removed, the
 // vectors stay aside, and the base is tried again once more have come.
+// Before it writes anything of the base, the build leaves the list of what it
+// creates in its directory, which is its mark while it runs; and it does not
+// start if anything of that list is there already. Only what the list names
+// is ever removed, here or when the index opens after a build that did not
+// end (cleanBuild, integration-plan.md, section 9).
 //
 // It builds with none of the locks of the index: the vectors that come
 // meanwhile are kept aside as those before them, and the searches go on
@@ -962,9 +928,16 @@ func (p *Persistent) buildBase(ctx context.Context, holdsWriteMu bool) (err erro
 	if err != nil {
 		return errors.Wrap(err, "configure the build")
 	}
+	// The directory of the build stays when what is on disk of a base is not
+	// known to be removed: its list is what an index that opens needs to
+	// remove it.
+	keepMark := false
 	defer func() {
 		if dropped := batch.Drop(ctx, false); err == nil && dropped != nil {
 			p.logger.Warnf("drop the build of the base: %v", dropped)
+		}
+		if keepMark {
+			return
 		}
 		if removed := os.RemoveAll(p.buildDir); err == nil && removed != nil {
 			p.logger.Warnf("remove the directory of the build of the base: %v", removed)
@@ -1014,9 +987,40 @@ func (p *Persistent) buildBase(ctx context.Context, holdsWriteMu bool) (err erro
 		// write keeps them up.
 		cfg.halo = p.noCodes
 	}
+	cfg.hook = p.cfg.writeHook
+
+	// What the write creates is listed on disk before it creates any of it,
+	// and nothing of a base may be there already, of the list or not.
+	leftFiles, leftBuckets, err := p.baseLeft()
+	if err != nil {
+		return err
+	}
+	if len(leftFiles)+len(leftBuckets) > 0 {
+		// Whatever is there is not of this build, and its directory may hold
+		// the list of the one that wrote it.
+		keepMark = true
+		return errors.Errorf("the build of the base does not start: the index holds %s already",
+			strings.Join(p.paths(leftFiles, leftBuckets), ", "))
+	}
+	files, buckets := cfg.creates()
+	list, err := p.writeBuildList(files, buckets, ids)
+	if err != nil {
+		return err
+	}
 	if err := writeGrowIndex(ctx, p.logger, p.dir, st, cfg, p.provider, vectorOf); err != nil {
-		if discarded := p.discardBase(ctx); discarded != nil {
-			p.logger.Errorf("remove a base that was not written whole: %v", discarded)
+		// While a base is built, a vector of it that is deleted leaves a
+		// mark in its place: every one of them is kept aside, or marked.
+		kept := func(id uint64) bool {
+			p.mu.RLock()
+			defer p.mu.RUnlock()
+			_, staged := p.staged[id]
+			_, gone := p.gone[id]
+			return staged || gone
+		}
+		why := "the build failed: " + err.Error()
+		if cleaned := p.cleanBuild(context.WithoutCancel(ctx), list, kept, why); cleaned != nil {
+			keepMark = true
+			p.logger.Errorf("a build of the base failed, and what it wrote is still on disk: %v", cleaned)
 		}
 		return errors.Wrap(err, "write the base")
 	}
@@ -1438,7 +1442,12 @@ func (p *Persistent) Drop(ctx context.Context, keepFiles bool) error {
 	if err := os.RemoveAll(p.dir); err != nil {
 		return errors.Wrap(err, "remove the directory of the index")
 	}
-	for _, name := range helpers.PostingEdgeBucketNames(p.cfg.ID) {
+	// The directory of a build of the base is of the index too: a build that
+	// failed and could not remove what it wrote leaves it with its list.
+	if err := os.RemoveAll(p.buildDir); err != nil {
+		return errors.Wrap(err, "remove the directory of a build of the base")
+	}
+	for _, name := range append(p.baseBucketNames(), p.stagingName()) {
 		if err := os.RemoveAll(filepath.Join(p.store.GetDir(), name)); err != nil {
 			return errors.Wrapf(err, "remove the bucket %s", name)
 		}

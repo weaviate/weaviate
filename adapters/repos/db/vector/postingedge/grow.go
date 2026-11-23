@@ -788,6 +788,58 @@ type growConfig struct {
 	// open says where the buckets of the index go: the zero value is a store
 	// of its own under dir.
 	open growOpen
+	// hook tells the tests where the write is. What it answers is the write
+	// failing there.
+	hook func(point string) error
+}
+
+func (cfg growConfig) hookAt(point string) error {
+	if cfg.hook == nil {
+		return nil
+	}
+	return cfg.hook(point)
+}
+
+// creates lists what writeGrowIndex creates with this config: the files of
+// its directory, by name, and the buckets of the index in a store it is
+// given, by their name there. A build of the base leaves the list on disk
+// before it writes, so that what it leaves when it does not end is known to
+// be its own and nothing else (Persistent.writeBuildList).
+// TestBuildListIsWhatTheBuildWrites keeps it the list of what the write
+// creates.
+func (cfg growConfig) creates() (files, buckets []string) {
+	gen := 0
+	if cfg.slots {
+		gen = 1
+	}
+	files = []string{diskMeanFile, diskCentroidFile, diskGraphDir, growVectorsName(gen), growBuiltFile}
+	if cfg.slots {
+		files = append(files, growSlotsName(gen))
+	}
+	// The meta is written next to its place and then given its name.
+	files = append(files, diskMetaFile+".tmp", diskMetaFile)
+	if cfg.open.store == nil {
+		// The buckets are in a store of its own, under the directory.
+		return append(files, diskStoreDir), nil
+	}
+	// The buckets openStore opens.
+	kinds := []string{growBucketPostings, growBucketMap, growBucketRouting, growBucketDists}
+	if cfg.open.deletes {
+		kinds = append(kinds, growBucketDeleted)
+	}
+	if cfg.consolidate > 0 {
+		if !cfg.rowsWithMembers {
+			kinds = append(kinds, growBucketEdges)
+		}
+		if cfg.open.keepPending {
+			kinds = append(kinds, growBucketPending)
+		}
+	}
+	g := &growIndex{names: cfg.open.names}
+	for _, kind := range kinds {
+		buckets = append(buckets, g.bucketName(kind))
+	}
+	return files, buckets
 }
 
 // writeGrowIndex writes an index built in batch to dir, which must exist and
@@ -876,6 +928,9 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 	if err := writeCentroidGraph(ctx, logger, path(diskGraphDir), st.centroids.vectors); err != nil {
 		return err
 	}
+	if err := cfg.hookAt("the files of the base are written"); err != nil {
+		return err
+	}
 
 	if err := g.openStore(ctx, cfg.open); err != nil {
 		return err
@@ -952,6 +1007,11 @@ func writeGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, 
 		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if p == postings/2 {
+			if err := cfg.hookAt("half of the postings are written"); err != nil {
+				return err
+			}
 		}
 	}
 	// The edges of every vector of the base are those of the base.
