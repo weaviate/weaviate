@@ -162,7 +162,13 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 }
 
 func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
-	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Openai-Baseurl", baseURL)
+	// The Azure endpoint is built from the resource name, so the class baseURL
+	// is unused there and must not fail the request.
+	resolveBaseURL := modulecomponents.ResolveBaseURL
+	if isAzure {
+		resolveBaseURL = modulecomponents.ValidatedBaseURLFromHeader
+	}
+	passedBaseURL, err := resolveBaseURL(ctx, "X-Openai-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}

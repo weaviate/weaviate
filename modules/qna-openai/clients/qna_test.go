@@ -298,6 +298,54 @@ func TestAnswerRejectsInsecureBaseURL(t *testing.T) {
 	assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
 }
 
+// The Azure endpoint ignores the base URL, so an unused class baseURL is not
+// validated: neither its scheme nor, through a DNS lookup, its host.
+func TestBuildOpenAIUrlValidatesOnlyTheBaseURLItUses(t *testing.T) {
+	const azureURL = "https://resource.openai.azure.com/openai/deployments/deployment/completions?api-version=2022-12-01"
+	tests := []struct {
+		name          string
+		classBaseURL  string
+		headerBaseURL string
+		isAzure       bool
+		wantURL       string
+		wantErr       string
+	}{
+		{name: "azure with an http class baseURL", classBaseURL: "http://8.8.8.8", isAzure: true, wantURL: azureURL},
+		{name: "azure with an internal class baseURL", classBaseURL: "https://127.0.0.1", isAzure: true, wantURL: azureURL},
+		{name: "azure with a class baseURL that does not resolve", classBaseURL: "https://does-not-resolve.invalid", isAzure: true, wantURL: azureURL},
+		{name: "azure with the default class baseURL", classBaseURL: "https://api.openai.com", isAzure: true, wantURL: azureURL},
+		{name: "azure with an http header baseURL", classBaseURL: "https://api.openai.com", headerBaseURL: "http://8.8.8.8", isAzure: true, wantErr: "baseURL must use HTTPS"},
+		{name: "openai with an http class baseURL", classBaseURL: "http://8.8.8.8", wantErr: "baseURL must use HTTPS"},
+		{name: "openai with an internal class baseURL", classBaseURL: "https://127.0.0.1", wantErr: "baseURL cannot target internal addresses"},
+		{name: "openai with an http header baseURL", classBaseURL: "https://8.8.8.8", headerBaseURL: "http://8.8.4.4", wantErr: "baseURL must use HTTPS"},
+		{name: "openai with an https class baseURL", classBaseURL: "https://8.8.8.8", wantURL: "https://8.8.8.8/v1/completions"},
+		{name: "openai with an https header baseURL", classBaseURL: "http://8.8.8.8", headerBaseURL: "https://8.8.4.4", wantURL: "https://8.8.4.4/v1/completions"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			ctx := context.Background()
+			if tt.headerBaseURL != "" {
+				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{tt.headerBaseURL})
+			}
+			resourceName, deploymentID := "", ""
+			if tt.isAzure {
+				resourceName, deploymentID = "resource", "deployment"
+			}
+
+			got, err := New("openAIApiKey", "", "azureApiKey", 0, nullLogger()).
+				buildOpenAIUrl(ctx, tt.classBaseURL, resourceName, deploymentID, tt.isAzure)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, got)
+		})
+	}
+}
+
 type fakeClassConfig struct {
 	baseURL string
 }

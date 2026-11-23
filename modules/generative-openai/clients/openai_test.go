@@ -311,6 +311,42 @@ func TestGenerateRejectsInsecureBaseURL(t *testing.T) {
 	}
 }
 
+// Unlike qna-openai, the Azure endpoint uses the base URL as its host, so it
+// is validated there too. Only an empty or default base URL falls back to the
+// resource name.
+func TestBuildOpenAIUrlValidatesTheAzureBaseURL(t *testing.T) {
+	const path = "/openai/deployments/deployment/chat/completions?api-version=2024-02-01"
+	tests := []struct {
+		name    string
+		baseURL string
+		wantURL string
+		wantErr string
+	}{
+		{name: "http", baseURL: "http://8.8.8.8", wantErr: "baseURL must use HTTPS"},
+		{name: "internal address", baseURL: "https://127.0.0.1", wantErr: "baseURL cannot target internal addresses"},
+		{name: "https", baseURL: "https://8.8.8.8", wantURL: "https://8.8.8.8" + path},
+		{name: "default", baseURL: "https://api.openai.com", wantURL: "https://resource.openai.azure.com" + path},
+		{name: "empty", baseURL: "", wantURL: "https://resource.openai.azure.com" + path},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			params := openaiparams.Params{
+				BaseURL: tt.baseURL, ResourceName: "resource", DeploymentID: "deployment", ApiVersion: "2024-02-01",
+			}
+
+			got, err := New("openAIApiKey", "", "azureApiKey", 0, nullLogger()).buildOpenAIUrl(context.Background(), params)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, got)
+		})
+	}
+}
+
 type fakeClassConfig struct {
 	baseURL string
 }
