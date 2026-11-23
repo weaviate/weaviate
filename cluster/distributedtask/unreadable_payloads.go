@@ -17,8 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// UnreadablePayloads collects the tasks of one pass over a task list whose
-// payload cannot be decoded, so the pass logs one line however many there are.
+// UnreadablePayloads lets one pass over a task list log a single line for all undecodable payloads.
 type UnreadablePayloads struct {
 	count    int
 	sample   []string
@@ -35,8 +34,7 @@ func (u *UnreadablePayloads) Add(taskID string, err error) {
 	}
 }
 
-// Log writes "<count> <what>; e.g. <up to 5 IDs>: <first reason>", or nothing
-// when no task was added.
+// Log writes one line, or nothing when no task was added.
 func (u *UnreadablePayloads) Log(logger logrus.FieldLogger, what string) {
 	if u.count == 0 || logger == nil {
 		return
