@@ -620,6 +620,9 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		if qerr != nil {
 			return nil, qerr
 		}
+		if err = v.authorizeRefTarget(ctx, qualifiedTarget, tenant); err != nil {
+			return nil, err
+		}
 		// Existence check uses qualified; stored beacon stays short.
 		refQualified := *ref
 		refQualified.Class = qualifiedTarget
@@ -627,8 +630,13 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 			return nil, err
 		}
 		ref.Class = shortTarget
-	} else if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
-		return nil, err
+	} else {
+		if err = v.authorizeRefTarget(ctx, "", tenant); err != nil {
+			return nil, err
+		}
+		if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
+			return nil, err
+		}
 	}
 	return ref.SingleRef(), nil
 }

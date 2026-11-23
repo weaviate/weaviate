@@ -228,7 +228,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), &fakeMetrics{}, nil,
-					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+					NewAutoSchemaManager(schemaManager, vectorRepo, mocks.NewMockAuthorizer(), cfg, logger, prometheus.NewPedanticRegistry()))
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, err := callFuncByName(manager, test.methodName, args...)
@@ -348,7 +348,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				vectorRepo := &fakeObjectFinder{}
 				modulesProvider := getFakeModulesProvider()
 				manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
-					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+					NewAutoSchemaManager(schemaManager, vectorRepo, mocks.NewMockAuthorizer(), cfg, logger, prometheus.NewPedanticRegistry()))
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, err := callFuncByName(manager, test.methodName, args...)

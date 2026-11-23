@@ -139,6 +139,6 @@ func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, 
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil,
-		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, mocks.NewMockAuthorizer(), new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()))
 	return manager, vectorRepo, authorizer, smanager
 }

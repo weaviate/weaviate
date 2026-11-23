@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -663,6 +664,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			Return(searchResults([]string{"Article"}), nil).Once()
 		logger, _ := test.NewNullLogger()
 		m := &AutoSchemaManager{
+			authorizer:    mocks.NewMockAuthorizer(),
 			schemaManager: &fakeSchemaManager{},
 			objectFinder:  vectorRepo,
 			logger:        logger,
@@ -743,6 +745,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: schemaManager,
 		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
@@ -770,6 +773,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: schemaManager,
 		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
@@ -856,6 +860,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 		},
 	}
 	autoSchemaManager := &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: schemaManager,
 		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
@@ -1010,6 +1015,7 @@ func Test_autoSchemaManager_autoSchema_laggingLocalSchema(t *testing.T) {
 			}
 			logger, _ := test.NewNullLogger()
 			m := &AutoSchemaManager{
+				authorizer:    mocks.NewMockAuthorizer(),
 				schemaManager: sm,
 				objectFinder:  &fakeObjectFinder{},
 				config: config.AutoSchema{
@@ -1055,6 +1061,7 @@ func Test_autoSchemaManager_autoSchema_keepsFetchedVersionWhenNothingIsAdded(t *
 	}
 	logger, _ := test.NewNullLogger()
 	m := &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: schemaManager,
 		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{
@@ -1592,6 +1599,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 	}
 
 	manager := &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: &fakeSchemaManager{},
 		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{
@@ -1881,6 +1889,7 @@ func searchResults(classNames []string) search.Results {
 func newBeaconTestManager(vectorRepo *fakeObjectFinder) *AutoSchemaManager {
 	logger, _ := test.NewNullLogger()
 	return &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: &fakeSchemaManager{},
 		objectFinder:  vectorRepo,
 		logger:        logger,
@@ -2232,6 +2241,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		},
 	}
 	manager := &AutoSchemaManager{
+		authorizer:    mocks.NewMockAuthorizer(),
 		schemaManager: schemaManager,
 		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{

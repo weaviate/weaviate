@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -64,13 +65,18 @@ const (
 	ErrorInvalidProperties string = "properties of object %v must be of type map[string]interface"
 )
 
+// Validator is not safe for concurrent use.
 type Validator struct {
 	exists            exists
 	config            *config.WeaviateConfig
 	replicationProps  *additional.ReplicationProperties
 	principal         *models.Principal
 	namespacesEnabled bool
+	authorizer        authorization.Authorizer
+	readGranted       map[refTarget]struct{}
 }
+
+type refTarget struct{ class, tenant string }
 
 // New constructs a Validator. principal + namespacesEnabled drive
 // cross-NS deny and storage-shape normalisation for inline-payload refs.
@@ -79,6 +85,7 @@ type Validator struct {
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
 	principal *models.Principal, namespacesEnabled bool,
+	authorizer authorization.Authorizer,
 ) *Validator {
 	return &Validator{
 		exists:            exists,
@@ -86,7 +93,24 @@ func New(exists exists, config *config.WeaviateConfig,
 		replicationProps:  repl,
 		principal:         principal,
 		namespacesEnabled: namespacesEnabled,
+		authorizer:        authorizer,
 	}
+}
+
+// authorizeRefTarget requires READ on the collection a reference points to; "" means any collection.
+func (v *Validator) authorizeRefTarget(ctx context.Context, class, tenant string) error {
+	key := refTarget{class: class, tenant: tenant}
+	if _, ok := v.readGranted[key]; ok {
+		return nil
+	}
+	if err := v.authorizer.Authorize(ctx, v.principal, authorization.READ, authorization.ShardsData(class, tenant)...); err != nil {
+		return err
+	}
+	if v.readGranted == nil {
+		v.readGranted = map[refTarget]struct{}{}
+	}
+	v.readGranted[key] = struct{}{}
+	return nil
 }
 
 func (v *Validator) Object(ctx context.Context, class *models.Class,

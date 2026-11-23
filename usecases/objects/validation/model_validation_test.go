@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -36,7 +37,7 @@ var (
 )
 
 func TestValidationReferencesInObject(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false, &authorization.DummyAuthorizer{})
 
 	class := &models.Class{
 		Class: "From",
@@ -60,7 +61,7 @@ func TestValidationReferencesInObject(t *testing.T) {
 }
 
 func TestValidationReference(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false, &authorization.DummyAuthorizer{})
 
 	cref := &models.SingleRef{Beacon: strfmt.URI(BEACON + "To/" + UuidUpper)}
 	ref, err := validator.ValidateSingleRef(cref)
@@ -104,7 +105,7 @@ func TestValidateExistence(t *testing.T) {
 				}
 				return false, tenantErr
 			}
-			validator := New(stub, &config.WeaviateConfig{}, nil, nil, false)
+			validator := New(stub, &config.WeaviateConfig{}, nil, nil, false, &authorization.DummyAuthorizer{})
 			ref := &crossref.Ref{Class: "To", TargetID: strfmt.UUID(UuidLower)}
 
 			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")

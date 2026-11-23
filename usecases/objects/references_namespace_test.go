@@ -149,7 +149,7 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	modulesProvider := getFakeModulesProvider()
-	autoSchema := NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry())
+	autoSchema := NewAutoSchemaManager(schemaManager, vectorRepo, authorizer, cfg, logger, prometheus.NewPedanticRegistry())
 	m := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, &fakeMetrics{}, nil, autoSchema)
 	b := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, autoSchema)
 	return m, b, vectorRepo, modulesProvider, authorizer

@@ -877,7 +877,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig,
+	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.Authorizer, appState.ServerConfig,
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
