@@ -15,6 +15,7 @@ package rebalance
 
 import (
 	context "context"
+
 	"github.com/weaviate/weaviate/cluster/replication"
 
 	mock "github.com/stretchr/testify/mock"
@@ -181,7 +182,8 @@ func (_c *MockrebalanceDrafting_TerminateRebalanceDraftTask_Call) RunAndReturn(r
 func NewMockrebalanceDrafting(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockrebalanceDrafting {
+},
+) *MockrebalanceDrafting {
 	mock := &MockrebalanceDrafting{}
 	mock.Mock.Test(t)
 

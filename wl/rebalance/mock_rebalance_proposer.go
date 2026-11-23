@@ -15,6 +15,7 @@ package rebalance
 
 import (
 	context "context"
+
 	"github.com/weaviate/weaviate/cluster/replication"
 
 	mock "github.com/stretchr/testify/mock"
@@ -85,7 +86,8 @@ func (_c *MockrebalanceProposer_CompleteRebalancePlanning_Call) RunAndReturn(run
 func NewMockrebalanceProposer(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockrebalanceProposer {
+},
+) *MockrebalanceProposer {
 	mock := &MockrebalanceProposer{}
 	mock.Mock.Test(t)
 
