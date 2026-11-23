@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -229,4 +230,44 @@ func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 
 func (f fakeClassConfig) Config() *config.Config {
 	return nil
+}
+
+// A class-config baseURL is the fallback when no header is sent, so it must be
+// validated like the header itself: a plain-HTTP one must never be sent the API
+// key and the payload.
+func TestVectorizeRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+	cfg := fakeClassConfig{classConfig: map[string]any{"baseURL": server.URL}}
+
+	tests := []struct {
+		name string
+		call func(c *vectorizer) error
+	}{
+		{name: "Vectorize", call: func(c *vectorizer) error {
+			_, err := c.Vectorize(context.Background(), []string{"text"}, []string{"aW1hZ2U="}, cfg)
+			return err
+		}},
+		{name: "VectorizeQuery", call: func(c *vectorizer) error {
+			_, err := c.VectorizeQuery(context.Background(), []string{"text"}, cfg)
+			return err
+		}},
+		{name: "VectorizeImages", call: func(c *vectorizer) error {
+			_, err := c.VectorizeImages(context.Background(), []string{"aW1hZ2U="}, cfg)
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call(New("apiKey", time.Second, nullLogger()))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+			assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
+		})
+	}
 }

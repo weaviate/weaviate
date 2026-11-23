@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -24,7 +25,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -275,3 +278,42 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 func ptString(in string) *string {
 	return &in
 }
+
+// A class-config baseURL is the fallback when no header is sent, so it must be
+// validated like the header itself: a plain-HTTP one must never be sent the API
+// key and the payload.
+func TestAnswerRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+
+	_, err := New("openAIApiKey", "", "", 0, nullLogger()).Answer(context.Background(), "My name is John", "What is my name?",
+		fakeClassConfig{baseURL: server.URL})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+	assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
+}
+
+type fakeClassConfig struct {
+	baseURL string
+}
+
+func (f fakeClassConfig) Class() map[string]any { return nil }
+
+func (f fakeClassConfig) ClassByModuleName(string) map[string]any {
+	return map[string]any{"baseURL": f.baseURL}
+}
+
+func (f fakeClassConfig) Property(string) map[string]any { return nil }
+
+func (f fakeClassConfig) Tenant() string { return "" }
+
+func (f fakeClassConfig) TargetVector() string { return "" }
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType { return nil }
+
+func (f fakeClassConfig) Config() *config.Config { return nil }

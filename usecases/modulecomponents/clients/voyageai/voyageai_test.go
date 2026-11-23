@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -249,4 +250,44 @@ func (c *fakeVoyageaiUrlBuilder) URL(baseURL, model string) string {
 		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
 	}
 	return fmt.Sprintf("%s%s", c.origin, c.pathMask)
+}
+
+// The Settings baseURL is the fallback when no header is sent, so it must be
+// validated like the header itself: a plain-HTTP one must never be sent the API
+// key and the payload.
+func TestVectorizeRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+	settings := Settings{Model: "voyage-2", BaseURL: server.URL}
+
+	tests := []struct {
+		name string
+		call func(c *Client) error
+	}{
+		{name: "Vectorize", call: func(c *Client) error {
+			_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, settings)
+			return err
+		}},
+		{name: "VectorizeQuery", call: func(c *Client) error {
+			_, err := c.VectorizeQuery(context.Background(), []string{"This is my text"}, settings)
+			return err
+		}},
+		{name: "VectorizeMultiModal", call: func(c *Client) error {
+			_, err := c.VectorizeMultiModal(context.Background(), []string{"This is my text"}, nil, nil, settings)
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call(New("apiKey", time.Second, &fakeVoyageaiUrlBuilder{pathMask: "/embeddings"}, nullLogger()))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+			assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
+		})
+	}
 }
