@@ -182,7 +182,7 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (v *nvidia) getNvidiaUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
-	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Nvidia-Baseurl", baseURL, classBaseURL, "X-Nvidia-Api-Key")
+	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Nvidia-Baseurl", baseURL, classBaseURL, "X-Nvidia-Api-Key")
 	if err != nil {
 		return "", err
 	}

@@ -171,7 +171,7 @@ func (c *Client) getEmbeddingRequest(inputs []string, settings Settings) embeddi
 }
 
 func (c *Client) getNvidiaUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Nvidia-Baseurl", "", baseURL, "X-Nvidia-Api-Key")
+	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Nvidia-Baseurl", "", baseURL, "X-Nvidia-Api-Key")
 	if err != nil {
 		return "", err
 	}

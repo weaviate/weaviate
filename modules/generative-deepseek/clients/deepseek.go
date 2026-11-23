@@ -230,7 +230,7 @@ func GetResponseParams(result map[string]any) *responseParams {
 }
 
 func (c *client) url(ctx context.Context, base, classBase string) (string, error) {
-	base, _, err := modulecomponents.RequestBaseURL(ctx, "X-Deepseek-Baseurl", base, classBase, "X-Deepseek-Api-Key")
+	base, err := modulecomponents.RequestBaseURL(ctx, "X-Deepseek-Baseurl", base, classBase, "X-Deepseek-Api-Key")
 	if err != nil {
 		return "", err
 	}

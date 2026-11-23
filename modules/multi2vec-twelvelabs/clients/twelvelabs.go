@@ -88,7 +88,7 @@ func (v *vectorizer) vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	baseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Twelvelabs-Baseurl", "", settings.BaseURL(),
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Twelvelabs-Baseurl", "", settings.BaseURL(),
 		"X-Twelvelabs-Api-Key")
 	if err != nil {
 		return nil, err

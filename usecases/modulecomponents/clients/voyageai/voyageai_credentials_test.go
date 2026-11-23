@@ -66,12 +66,6 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			classBaseURL: server.URL,
 			wantAuth:     "Bearer " + serverKey,
 		},
-		{
-			name:         "baseURL header equal to the class baseURL gets the server key",
-			classBaseURL: server.URL,
-			headers:      map[string]string{"X-Voyageai-Baseurl": server.URL},
-			wantAuth:     "Bearer " + serverKey,
-		},
 	}
 	for callName, call := range calls {
 		for _, tt := range tests {

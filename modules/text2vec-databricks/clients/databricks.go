@@ -148,7 +148,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	endpoint, _, err := modulecomponents.RequestBaseURL(ctx, "X-Databricks-Endpoint", "", config.Endpoint, "X-Databricks-Token")
+	endpoint, err := modulecomponents.RequestBaseURL(ctx, "X-Databricks-Endpoint", "", config.Endpoint, "X-Databricks-Token")
 	return endpoint, err
 }
 

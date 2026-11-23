@@ -56,19 +56,8 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantAuth: "BEARER " + callerKey,
 		},
 		{
-			name:     "baseURL header with a request key",
-			headers:  map[string]string{"X-Cohere-Baseurl": server.URL, "X-Cohere-Api-Key": callerKey},
-			wantAuth: "BEARER " + callerKey,
-		},
-		{
 			name:        "class baseURL gets the server key",
 			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
-			wantAuth:    "BEARER " + serverKey,
-		},
-		{
-			name:        "query baseURL equal to the class baseURL gets the server key",
-			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
-			options:     &cohereparams.Params{BaseURL: server.URL},
 			wantAuth:    "BEARER " + serverKey,
 		},
 	}

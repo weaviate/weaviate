@@ -54,19 +54,8 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantKey: callerKey,
 		},
 		{
-			name:    "baseURL header with a request key",
-			headers: map[string]string{"X-Nvidia-Baseurl": server.URL, "X-Nvidia-Api-Key": callerKey},
-			wantKey: callerKey,
-		},
-		{
 			name:        "class baseURL gets the server key",
 			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
-			wantKey:     serverKey,
-		},
-		{
-			name:        "query baseURL equal to the class baseURL gets the server key",
-			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
-			options:     &nvidiaparams.Params{BaseURL: server.URL},
 			wantKey:     serverKey,
 		},
 	}

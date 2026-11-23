@@ -97,11 +97,10 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options, imageProperties)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	dest, err := v.buildOpenAIUrl(ctx, params, config.NewClassSettings(cfg))
+	oaiUrl, isAzure, err := v.buildOpenAIUrl(ctx, params, config.NewClassSettings(cfg))
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
-	oaiUrl := dest.url
 
 	input, err := v.generateInput(prompt, params)
 	if err != nil {
@@ -124,12 +123,12 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx, dest.isAzure)
+	apiKey, err := v.getApiKey(ctx, isAzure)
 	if err != nil {
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
-	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, dest.isAzure))
-	if openAIOrganization := v.getOpenAIOrganization(ctx, dest.hostFromRequest); openAIOrganization != "" {
+	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, isAzure))
+	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
 		req.Header.Add("OpenAI-Organization", openAIOrganization)
 	}
 	req.Header.Add("Content-Type", "application/json")
@@ -283,61 +282,42 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-type destination struct {
-	url string
-	// isAzure includes the X-Azure-* headers, so the key lookup must use it.
-	isAzure bool
-	// hostFromRequest is set when the request, not the class, chose the host.
-	hostFromRequest bool
-}
-
-// buildOpenAIUrl applies the base URL rule of modulecomponents.RequestBaseURL
-// to the Azure resource name too, as it is part of the Azure host.
+// buildOpenAIUrl returns the URL and whether it is an Azure one. isAzure
+// includes the X-Azure-* headers, so the key lookup must use it.
 func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params, settings config.ClassSettings,
-) (destination, error) {
+) (endpoint string, isAzure bool, err error) {
 	deploymentID := params.DeploymentID
-	resourceName, resourceNameSource := params.ResourceName, "resourceName"
-
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
 
+	resourceName := params.ResourceName
 	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
-		resourceName, resourceNameSource = headerResourceName, "X-Azure-Resource-Name"
+		resourceName = headerResourceName
 	}
 
-	isLegacy := config.IsLegacy(params.Model)
-	isAzure := config.IsAzure(params.IsAzure, resourceName, deploymentID)
+	isAzure = config.IsAzure(params.IsAzure, resourceName, deploymentID)
 
-	baseURL, hostFromRequest, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl",
-		params.BaseURL, settings.BaseURL(), apiKeyHeader(isAzure))
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", params.BaseURL, settings.BaseURL(), apiKeyHeader(isAzure))
 	if err != nil {
-		return destination{}, err
+		return "", false, err
 	}
 
 	if isAzure {
+		if resourceName, err = modulecomponents.RequestAzureResourceName(ctx, params.ResourceName, settings.ResourceName()); err != nil {
+			return "", false, err
+		}
 		// A request that turns Azure on for a non-Azure collection would pair
 		// the collection's host with the server's Azure key.
-		source := ""
-		switch {
-		case !strings.EqualFold(resourceName, settings.ResourceName()):
-			source = resourceNameSource
-		case !settings.IsAzure():
-			source = "isAzure"
-		}
-		if source != "" {
-			if err := modulecomponents.RequireRequestAPIKey(ctx, source, apiKeyHeader(isAzure)); err != nil {
-				return destination{}, err
+		if !settings.IsAzure() {
+			if err := modulecomponents.RequireRequestAPIKey(ctx, "isAzure", apiKeyHeader(isAzure)); err != nil {
+				return "", false, err
 			}
-			hostFromRequest = true
 		}
 	}
 
-	endpoint, err := v.buildUrl(isLegacy, isAzure, resourceName, deploymentID, baseURL, params.ApiVersion)
-	if err != nil {
-		return destination{}, err
-	}
-	return destination{url: endpoint, isAzure: isAzure, hostFromRequest: hostFromRequest}, nil
+	endpoint, err = v.buildUrl(config.IsLegacy(params.Model), isAzure, resourceName, deploymentID, baseURL, params.ApiVersion)
+	return endpoint, isAzure, err
 }
 
 func (v *openai) generateInput(prompt string, params openaiparams.Params) (generateInput, error) {
@@ -485,12 +465,9 @@ func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *openai) getOpenAIOrganization(ctx context.Context, hostFromRequest bool) string {
+func (v *openai) getOpenAIOrganization(ctx context.Context) string {
 	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
-	}
-	if hostFromRequest {
-		return ""
 	}
 	return v.openAIOrganization
 }

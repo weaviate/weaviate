@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -172,7 +171,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 		return nil, nil, 0, errors.Wrap(err, "marshal body")
 	}
 
-	endpoint, hostFromRequest, err := v.buildURL(ctx, settings)
+	endpoint, err := v.buildURL(ctx, settings)
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "join OpenAI API host and path")
 	}
@@ -191,7 +190,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 		return nil, nil, 0, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure))
-	if openAIOrganization := v.getOpenAIOrganization(ctx, hostFromRequest); openAIOrganization != "" {
+	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
 		req.Header.Add("OpenAI-Organization", openAIOrganization)
 	}
 	req.Header.Add("Content-Type", "application/json")
@@ -258,34 +257,25 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 	}, rateLimit, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
-// buildURL applies the base URL rule of modulecomponents.RequestBaseURL to the
-// Azure resource name too, as it is part of the Azure host. hostFromRequest is
-// set when the request, not the class, chose the host.
-func (v *Client) buildURL(ctx context.Context, config Settings) (endpoint string, hostFromRequest bool, err error) {
-	resourceName, deploymentID, isAzure := config.ResourceName, config.DeploymentID, config.IsAzure
-
-	baseURL, hostFromRequest, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl",
-		config.BaseURL, config.BaseURL, apiKeyHeader(isAzure))
+func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) {
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", config.BaseURL, apiKeyHeader(config.IsAzure))
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 
+	deploymentID := config.DeploymentID
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
 
-	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
-		if isAzure && !strings.EqualFold(headerResourceName, config.ResourceName) {
-			if err := modulecomponents.RequireRequestAPIKey(ctx, "X-Azure-Resource-Name", apiKeyHeader(isAzure)); err != nil {
-				return "", false, err
-			}
-			hostFromRequest = true
+	resourceName := config.ResourceName
+	if config.IsAzure {
+		if resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", config.ResourceName); err != nil {
+			return "", err
 		}
-		resourceName = headerResourceName
 	}
 
-	endpoint, err = v.buildUrlFn(baseURL, resourceName, deploymentID, config.ApiVersion, config.Endpoint, isAzure)
-	return endpoint, hostFromRequest, err
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, config.ApiVersion, config.Endpoint, config.IsAzure)
 }
 
 func (v *Client) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
@@ -324,12 +314,9 @@ func (v *Client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (v *Client) getOpenAIOrganization(ctx context.Context, hostFromRequest bool) string {
+func (v *Client) getOpenAIOrganization(ctx context.Context) string {
 	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
-	}
-	if hostFromRequest {
-		return ""
 	}
 	return v.openAIOrganization
 }

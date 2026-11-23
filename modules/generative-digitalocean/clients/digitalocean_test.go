@@ -70,7 +70,7 @@ func TestURL(t *testing.T) {
 				ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{tt.header})
 				ctx = context.WithValue(ctx, "X-Digitalocean-Api-Key", []string{"callerKey"})
 			}
-			u, _, err := c.url(ctx, tt.baseURL, tt.baseURL)
+			u, err := c.url(ctx, tt.baseURL, tt.baseURL)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedU, u)
 		})

@@ -97,7 +97,7 @@ func (c *Client) VectorizeQuery(ctx context.Context, input []string,
 
 func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	settings := ent.NewClassSettings(cfg)
-	endpoint, hostFromRequest, err := buildURL(ctx, settings.BaseURL())
+	endpoint, err := buildURL(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "build /v1/embeddings URL")
 	}
@@ -130,8 +130,7 @@ func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Set("Content-Type", "application/json")
-	// The server's UUID only goes to the configured host.
-	if weaviateUUID := settings.WeaviateUUID(); weaviateUUID != "" && !hostFromRequest {
+	if weaviateUUID := settings.WeaviateUUID(); weaviateUUID != "" {
 		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/%s %s", weaviateUUID, build.Version))
 	} else {
 		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version))
@@ -211,14 +210,12 @@ func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.
 	}, rateLimit, modulecomponents.GetTotalTokens(parsed.Usage), nil
 }
 
-func buildURL(ctx context.Context, classBaseURL string) (endpoint string, hostFromRequest bool, err error) {
-	baseURL, hostFromRequest, err := modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", "", classBaseURL,
-		"X-Digitalocean-Api-Key")
+func buildURL(ctx context.Context, classBaseURL string) (string, error) {
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", "", classBaseURL, "X-Digitalocean-Api-Key")
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	endpoint, err = url.JoinPath(baseURL, "/v1/embeddings")
-	return endpoint, hostFromRequest, err
+	return url.JoinPath(baseURL, "/v1/embeddings")
 }
 
 func formatError(statusCode int, requestID string, body *digitalOceanError) error {

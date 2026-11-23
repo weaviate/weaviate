@@ -67,12 +67,6 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
 			wantKey:     serverKey,
 		},
-		{
-			name:        "baseURL header equal to the class baseURL gets the server key",
-			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
-			headers:     map[string]string{"X-Twelvelabs-Baseurl": server.URL},
-			wantKey:     serverKey,
-		},
 	}
 	for callName, call := range calls {
 		for _, tt := range tests {

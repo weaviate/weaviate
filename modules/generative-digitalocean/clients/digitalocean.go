@@ -74,7 +74,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	debugData := c.debugData(debug, prompt)
 
 	settings := config.NewClassSettings(cfg)
-	endpoint, hostFromRequest, err := c.url(ctx, params.BaseURL, settings.BaseURL())
+	endpoint, err := c.url(ctx, params.BaseURL, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve endpoint")
 	}
@@ -102,8 +102,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	req.Header.Set("Content-Type", "application/json")
-	// The server's UUID only goes to the configured host.
-	if weaviateUUID := settings.WeaviateUUID(); weaviateUUID != "" && !hostFromRequest {
+	if weaviateUUID := settings.WeaviateUUID(); weaviateUUID != "" {
 		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/%s %s", weaviateUUID, build.Version))
 	} else {
 		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version))
@@ -216,14 +215,12 @@ func GetResponseParams(result map[string]any) *responseParams {
 	return nil
 }
 
-func (c *client) url(ctx context.Context, base, classBase string) (endpoint string, hostFromRequest bool, err error) {
-	base, hostFromRequest, err = modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", base, classBase,
-		"X-Digitalocean-Api-Key")
+func (c *client) url(ctx context.Context, base, classBase string) (string, error) {
+	base, err := modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", base, classBase, "X-Digitalocean-Api-Key")
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	endpoint, err = url.JoinPath(base, "/v1/chat/completions")
-	return endpoint, hostFromRequest, err
+	return url.JoinPath(base, "/v1/chat/completions")
 }
 
 func (c *client) apiKeyFromContext(ctx context.Context) (string, error) {

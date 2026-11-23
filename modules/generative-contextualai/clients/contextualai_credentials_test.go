@@ -81,12 +81,6 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantKey:  serverKey,
 			wantHost: defaultHost,
 		},
-		{
-			name:     "baseURL header equal to the default gets the server key",
-			headers:  map[string]string{"X-ContextualAI-Baseurl": "https://" + defaultHost},
-			wantKey:  serverKey,
-			wantHost: defaultHost,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

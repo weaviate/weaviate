@@ -356,11 +356,11 @@ func TestClient(t *testing.T) {
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 		ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
 
-		buildURL, _, err := c.buildURL(ctxWithValue, config)
+		buildURL, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings", buildURL)
 
-		buildURL, _, err = c.buildURL(context.TODO(), config)
+		buildURL, err = c.buildURL(context.TODO(), config)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
@@ -381,7 +381,7 @@ func TestClient(t *testing.T) {
 			ctxWithValue := context.WithValue(context.Background(),
 				"X-Openai-Baseurl", []string{internal})
 			ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
-			_, _, err := c.buildURL(ctxWithValue, config)
+			_, err := c.buildURL(ctxWithValue, config)
 			require.Error(t, err, internal)
 			assert.NotContains(t, err.Error(), "needs X-Openai-Api-Key", internal)
 		}
@@ -398,7 +398,7 @@ func TestClient(t *testing.T) {
 			"X-Azure-Resource-Name", []string{"spoofResource"})
 		ctxWithValue = context.WithValue(ctxWithValue, "X-Azure-Api-Key", []string{"callerKey"})
 
-		buildURL, _, err := c.buildURL(ctxWithValue, config)
+		buildURL, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)
 		assert.Equal(t, "https://spoofResource.openai.azure.com/openai/deployments/spoofDeployment/embeddings?api-version=", buildURL)
 	})
@@ -528,13 +528,13 @@ func TestGetOpenAIOrganization(t *testing.T) {
 	t.Run("from context", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "X-Openai-Organization", []string{"from-context"})
 		c := New("", "default-org", "", 0, nullLogger())
-		assert.Equal(t, "from-context", c.getOpenAIOrganization(ctx, false))
+		assert.Equal(t, "from-context", c.getOpenAIOrganization(ctx))
 	})
 
 	t.Run("from default", func(t *testing.T) {
 		ctx := context.Background()
 		c := New("", "default-org", "", 0, nullLogger())
-		assert.Equal(t, "default-org", c.getOpenAIOrganization(ctx, false))
+		assert.Equal(t, "default-org", c.getOpenAIOrganization(ctx))
 	})
 }
 

@@ -230,7 +230,7 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL, classBaseURL string) (string, error) {
-	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Anthropic-Baseurl", baseURL, classBaseURL, "X-Anthropic-Api-Key")
+	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Anthropic-Baseurl", baseURL, classBaseURL, "X-Anthropic-Api-Key")
 	if err != nil {
 		return "", err
 	}

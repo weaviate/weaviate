@@ -32,13 +32,11 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 	serverEndpoint := server.URL + "/serving-endpoints/embed/invocations"
 
 	tests := []struct {
-		name            string
-		classEndpoint   string
-		headers         map[string]string
-		validateBaseURL bool
-		wantErr         string
-		wantToken       string
-		wantPath        string
+		name          string
+		classEndpoint string
+		headers       map[string]string
+		wantErr       string
+		wantToken     string
 	}{
 		{
 			name:          "endpoint header without a request token",
@@ -53,44 +51,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantToken:     callerToken,
 		},
 		{
-			name:            "endpoint header with a request token is checked against SSRF",
-			classEndpoint:   classEndpoint,
-			headers:         map[string]string{"X-Databricks-Endpoint": serverEndpoint, "X-Databricks-Token": callerToken},
-			validateBaseURL: true,
-			wantErr:         "baseURL cannot target internal addresses",
-		},
-		{
 			name:          "class endpoint gets the server token",
 			classEndpoint: serverEndpoint,
 			wantToken:     serverToken,
 		},
-		{
-			name:          "endpoint header equal to the class endpoint gets the server token",
-			classEndpoint: serverEndpoint,
-			headers:       map[string]string{"X-Databricks-Endpoint": serverEndpoint},
-			wantToken:     serverToken,
-		},
-		{
-			name:          "another endpoint header on the class host without a request token",
-			classEndpoint: serverEndpoint,
-			headers:       map[string]string{"X-Databricks-Endpoint": server.URL + "/serving-endpoints/other/invocations"},
-			wantErr:       "X-Databricks-Endpoint needs X-Databricks-Token: the server's key is not sent to a host named by the request",
-		},
-		{
-			name:          "another endpoint header on the class host with a request token",
-			classEndpoint: serverEndpoint,
-			headers: map[string]string{
-				"X-Databricks-Endpoint": server.URL + "/serving-endpoints/other/invocations", "X-Databricks-Token": callerToken,
-			},
-			wantToken: callerToken,
-			wantPath:  "/serving-endpoints/other/invocations",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.validateBaseURL {
-				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-			}
 			before := len(server.Requests())
 			c := New(serverToken, 0, nullLogger())
 			c.httpClient = server.Client()
@@ -102,20 +69,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
-				if tt.validateBaseURL {
-					assert.NotContains(t, err.Error(), "needs", "the SSRF check must reject it, not the token check")
-				}
 				assert.Empty(t, got, "no request may leave Weaviate")
 				return
 			}
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			assert.Equal(t, "Bearer "+tt.wantToken, got[0].Header.Get("Authorization"))
-			wantPath := tt.wantPath
-			if wantPath == "" {
-				wantPath = "/serving-endpoints/embed/invocations"
-			}
-			assert.Equal(t, wantPath, got[0].URL.Path)
+			assert.Equal(t, "/serving-endpoints/embed/invocations", got[0].URL.Path)
 		})
 	}
 }

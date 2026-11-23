@@ -32,14 +32,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 	serverEndpoint := server.URL + "/serving-endpoints/chat/invocations"
 
 	tests := []struct {
-		name            string
-		classConfig     credentialtest.ClassConfig
-		options         *databricksparams.Params
-		headers         map[string]string
-		validateBaseURL bool
-		wantErr         string
-		wantToken       string
-		wantPath        string
+		name        string
+		classConfig credentialtest.ClassConfig
+		options     *databricksparams.Params
+		headers     map[string]string
+		wantErr     string
+		wantToken   string
 	}{
 		{
 			name:        "query endpoint without a request token",
@@ -61,83 +59,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantToken:   callerToken,
 		},
 		{
-			name:        "endpoint header with a request token",
-			classConfig: credentialtest.ClassConfig{"endpoint": classEndpoint},
-			headers:     map[string]string{"X-Databricks-Endpoint": serverEndpoint, "X-Databricks-Token": callerToken},
-			wantToken:   callerToken,
-		},
-		{
-			name:        "endpoint header wins over the query endpoint",
-			classConfig: credentialtest.ClassConfig{"endpoint": classEndpoint},
-			options:     &databricksparams.Params{Endpoint: classEndpoint},
-			headers:     map[string]string{"X-Databricks-Endpoint": serverEndpoint, "X-Databricks-Token": callerToken},
-			wantToken:   callerToken,
-		},
-		{
-			name:            "query endpoint with a request token is checked against SSRF",
-			classConfig:     credentialtest.ClassConfig{"endpoint": classEndpoint},
-			options:         &databricksparams.Params{Endpoint: serverEndpoint},
-			headers:         map[string]string{"X-Databricks-Token": callerToken},
-			validateBaseURL: true,
-			wantErr:         "baseURL cannot target internal addresses",
-		},
-		{
-			name:            "endpoint header with a request token is checked against SSRF",
-			classConfig:     credentialtest.ClassConfig{"endpoint": classEndpoint},
-			headers:         map[string]string{"X-Databricks-Endpoint": serverEndpoint, "X-Databricks-Token": callerToken},
-			validateBaseURL: true,
-			wantErr:         "baseURL cannot target internal addresses",
-		},
-		{
 			name:        "class endpoint gets the server token",
 			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
 			wantToken:   serverToken,
 		},
-		{
-			name:        "query endpoint equal to the class endpoint gets the server token",
-			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
-			options:     &databricksparams.Params{Endpoint: serverEndpoint},
-			wantToken:   serverToken,
-		},
-		{
-			name:        "endpoint header equal to the class endpoint gets the server token",
-			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
-			headers:     map[string]string{"X-Databricks-Endpoint": serverEndpoint},
-			wantToken:   serverToken,
-		},
-		{
-			name:        "query endpoint with a trailing slash gets the server token",
-			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
-			options:     &databricksparams.Params{Endpoint: serverEndpoint + "/"},
-			wantToken:   serverToken,
-			wantPath:    "/serving-endpoints/chat/invocations",
-		},
-		{
-			name:        "another query endpoint on the class host without a request token",
-			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
-			options:     &databricksparams.Params{Endpoint: server.URL + "/serving-endpoints/other/invocations"},
-			wantErr:     "baseURL needs X-Databricks-Token: the server's key is not sent to a host named by the request",
-		},
-		{
-			name:        "workspace API on the class host without a request token",
-			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
-			headers:     map[string]string{"X-Databricks-Endpoint": server.URL + "/api/2.0/token/create"},
-			wantErr:     "X-Databricks-Endpoint needs X-Databricks-Token",
-		},
-		{
-			name:        "another query endpoint on the class host with a request token",
-			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
-			options:     &databricksparams.Params{Endpoint: server.URL + "/serving-endpoints/other/invocations"},
-			headers:     map[string]string{"X-Databricks-Token": callerToken},
-			wantToken:   callerToken,
-			wantPath:    "/serving-endpoints/other/invocations",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.validateBaseURL {
-				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-			}
 			before := len(server.Requests())
 			c := New(serverToken, 0, nullLogger())
 			c.httpClient = server.Client()
@@ -152,20 +80,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
-				if tt.validateBaseURL {
-					assert.NotContains(t, err.Error(), "needs", "the SSRF check must reject it, not the token check")
-				}
 				assert.Empty(t, got, "no request may leave Weaviate")
 				return
 			}
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			assert.Equal(t, "Bearer "+tt.wantToken, got[0].Header.Get("Authorization"))
-			wantPath := tt.wantPath
-			if wantPath == "" {
-				wantPath = "/serving-endpoints/chat/invocations"
-			}
-			assert.Equal(t, wantPath, got[0].URL.Path)
+			assert.Equal(t, "/serving-endpoints/chat/invocations", got[0].URL.Path)
 		})
 	}
 }

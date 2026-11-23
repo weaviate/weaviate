@@ -36,60 +36,57 @@ func BaseURLValidationEnabled() bool {
 	return entcfg.Enabled(os.Getenv("MODULES_VALIDATE_BASE_URL"))
 }
 
-// ValidatedBaseURLFromHeader returns the baseURL carried in the given request
-// header if present and valid, otherwise fallback. Validation is a no-op unless
-// MODULES_VALIDATE_BASE_URL is enabled. It folds the recurring
-// fetch-check-validate-assign block in module URL builders into one call.
-func ValidatedBaseURLFromHeader(ctx context.Context, headerKey, fallback string) (string, error) {
-	headerBaseURL := GetValueFromContext(ctx, headerKey)
-	if headerBaseURL == "" {
-		return fallback, nil
-	}
-	if err := ValidateBaseURL(headerBaseURL); err != nil {
-		return "", err
-	}
-	return headerBaseURL, nil
-}
-
 // RequestBaseURL returns the base URL a module request goes to: the value of
 // baseURLHeader if the request sets it, else requested (a query-time baseURL),
 // else configured (the class setting or module default). A base URL other than
-// configured is used only if the request carries its own key in one of
-// apiKeyHeaders, so the server's key is only ever sent to the configured URL.
-// The path counts too: a path on the configured host can reach another
-// endpoint, or another tenant of a gateway. A value that differs from
-// configured only in the case of the scheme or host, or in a trailing slash,
-// returns configured. fromRequest reports that the request's URL is used: the
-// caller must then send nothing else from server configuration, such as an
-// organization ID.
-func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured string, apiKeyHeaders ...string,
-) (baseURL string, fromRequest bool, err error) {
+// configured is used only if the request carries its own key in apiKeyHeader,
+// so the server's key is only ever sent to the configured URL. The path counts
+// too: a path on the configured host can reach another endpoint, or another
+// tenant of a gateway. A value that differs from configured only in the case
+// of the scheme or host, or in a trailing slash, returns configured.
+func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured, apiKeyHeader string) (string, error) {
 	source, baseURL := "baseURL", requested
 	if headerBaseURL := GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		source, baseURL = baseURLHeader, headerBaseURL
 	}
 	if baseURL == "" || baseURL == configured || sameBaseURL(baseURL, configured) {
-		return configured, false, nil
+		return configured, nil
 	}
-	if err := RequireRequestAPIKey(ctx, source, apiKeyHeaders...); err != nil {
-		return "", false, err
+	if err := RequireRequestAPIKey(ctx, source, apiKeyHeader); err != nil {
+		return "", err
 	}
 	if err := ValidateBaseURL(baseURL); err != nil {
-		return "", false, err
+		return "", err
 	}
-	return baseURL, true, nil
+	return baseURL, nil
+}
+
+// RequestAzureResourceName returns the Azure resource name a request goes to:
+// the X-Azure-Resource-Name header if the request sets it, else requested,
+// else configured. The resource name is the Azure host
+// (<resourceName>.openai.azure.com), so the RequestBaseURL rule applies: a
+// name other than configured needs X-Azure-Api-Key.
+func RequestAzureResourceName(ctx context.Context, requested, configured string) (string, error) {
+	source, name := "resourceName", requested
+	if headerName := GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerName != "" {
+		source, name = "X-Azure-Resource-Name", headerName
+	}
+	if name == "" || strings.EqualFold(name, configured) {
+		return configured, nil
+	}
+	if err := RequireRequestAPIKey(ctx, source, "X-Azure-Api-Key"); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 // RequireRequestAPIKey returns an error unless the request carries a key in
-// one of apiKeyHeaders. source names the request value that set the host.
-func RequireRequestAPIKey(ctx context.Context, source string, apiKeyHeaders ...string) error {
-	for _, header := range apiKeyHeaders {
-		if GetValueFromContext(ctx, header) != "" {
-			return nil
-		}
+// apiKeyHeader. source names the request value that set the host.
+func RequireRequestAPIKey(ctx context.Context, source, apiKeyHeader string) error {
+	if GetValueFromContext(ctx, apiKeyHeader) != "" {
+		return nil
 	}
-	return fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
-		source, strings.Join(apiKeyHeaders, " or "))
+	return fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request", source, apiKeyHeader)
 }
 
 // sameBaseURL reports whether a and b differ only in the case of the scheme

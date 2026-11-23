@@ -23,7 +23,6 @@ import (
 func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 	const (
 		serverKey      = "server-openai-key"
-		serverOrg      = "server-org"
 		serverAzureKey = "server-azure-key"
 		callerKey      = "caller-key"
 	)
@@ -38,7 +37,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		wantErr      string
 		wantAuth     string
 		wantAzureKey string
-		wantOrg      string
 	}{
 		{
 			name:     "baseURL header without a request key",
@@ -53,26 +51,9 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantAuth: "Bearer " + callerKey,
 		},
 		{
-			name:     "request organization sent to a host the request names",
-			settings: Settings{BaseURL: "https://api.openai.com"},
-			headers: map[string]string{
-				"X-Openai-Baseurl": server.URL, "X-Openai-Api-Key": callerKey, "X-Openai-Organization": "caller-org",
-			},
-			wantAuth: "Bearer " + callerKey,
-			wantOrg:  "caller-org",
-		},
-		{
-			name:     "class baseURL gets the server key and organization",
+			name:     "class baseURL gets the server key",
 			settings: Settings{BaseURL: server.URL},
 			wantAuth: "Bearer " + serverKey,
-			wantOrg:  serverOrg,
-		},
-		{
-			name:     "baseURL header equal to the class baseURL gets the server key",
-			settings: Settings{BaseURL: server.URL},
-			headers:  map[string]string{"X-Openai-Baseurl": server.URL},
-			wantAuth: "Bearer " + serverKey,
-			wantOrg:  serverOrg,
 		},
 		{
 			name:     "Azure baseURL header without a request key",
@@ -96,20 +77,12 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			name:         "Azure class resourceName gets the server key",
 			settings:     Settings{IsAzure: true, ResourceName: injectedResourceName, DeploymentID: "d"},
 			wantAzureKey: serverAzureKey,
-			wantOrg:      serverOrg,
-		},
-		{
-			name:         "Azure resourceName header equal to the class one gets the server key",
-			settings:     Settings{IsAzure: true, ResourceName: injectedResourceName, DeploymentID: "d"},
-			headers:      map[string]string{"X-Azure-Resource-Name": injectedResourceName},
-			wantAzureKey: serverAzureKey,
-			wantOrg:      serverOrg,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			before := len(server.Requests())
-			c := New(serverKey, serverOrg, serverAzureKey, 0, nullLogger())
+			c := New(serverKey, "", serverAzureKey, 0, nullLogger())
 			c.httpClient = server.Client()
 			settings := tt.settings
 			settings.Model, settings.Type = "ada", "text"
@@ -127,7 +100,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			require.Len(t, got, 1)
 			assert.Equal(t, tt.wantAuth, got[0].Header.Get("Authorization"))
 			assert.Equal(t, tt.wantAzureKey, got[0].Header.Get("api-key"))
-			assert.Equal(t, tt.wantOrg, got[0].Header.Get("OpenAI-Organization"))
 		})
 	}
 }
@@ -152,8 +124,7 @@ func TestAzureDefaultBaseURLVariantsKeepTheResourceHost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
 
-			endpoint, hostFromRequest, err := c.buildURL(
-				credentialtest.Context(map[string]string{"X-Openai-Baseurl": tt.header}), settings)
+			endpoint, err := c.buildURL(credentialtest.Context(map[string]string{"X-Openai-Baseurl": tt.header}), settings)
 
 			if tt.wantErr != "" {
 				require.Error(t, err)
@@ -161,7 +132,6 @@ func TestAzureDefaultBaseURLVariantsKeepTheResourceHost(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.False(t, hostFromRequest)
 			assert.True(t, strings.HasPrefix(endpoint, "https://corp.openai.azure.com/"), endpoint)
 		})
 	}

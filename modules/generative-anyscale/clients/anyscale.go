@@ -150,7 +150,7 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 }
 
 func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
-	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Anyscale-Baseurl", baseURL, classBaseURL, "X-Anyscale-Api-Key")
+	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Anyscale-Baseurl", baseURL, classBaseURL, "X-Anyscale-Api-Key")
 	if err != nil {
 		return "", err
 	}

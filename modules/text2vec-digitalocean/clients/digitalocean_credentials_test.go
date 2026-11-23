@@ -13,7 +13,6 @@ package clients
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -22,20 +21,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
 func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 	const (
-		serverKey  = "server-key"
-		serverUUID = "server-uuid"
-		callerKey  = "caller-key"
-		model      = "qwen3-embedding-0.6b"
+		serverKey = "server-key"
+		callerKey = "caller-key"
+		model     = "qwen3-embedding-0.6b"
 	)
-	t.Setenv("VECTOR_DB_UUID", serverUUID)
-	serverUserAgent := strings.TrimSpace("vector-db/weaviate/" + serverUUID + " " + build.Version)
-	anonymousUserAgent := strings.TrimSpace("vector-db/weaviate/unknown " + build.Version)
 	server := credentialtest.NewServer(t, embeddingsResponse{
 		Object: "list",
 		Data:   []embeddingData{{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2}}},
@@ -52,12 +46,11 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		},
 	}
 	tests := []struct {
-		name          string
-		classConfig   credentialtest.ClassConfig
-		headers       map[string]string
-		wantErr       string
-		wantAuth      string
-		wantUserAgent string
+		name        string
+		classConfig credentialtest.ClassConfig
+		headers     map[string]string
+		wantErr     string
+		wantAuth    string
 	}{
 		{
 			name:        "baseURL header without a request key",
@@ -66,31 +59,15 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantErr:     "X-Digitalocean-Baseurl needs X-Digitalocean-Api-Key: the server's key is not sent to a host named by the request",
 		},
 		{
-			name:          "baseURL header with a request key",
-			classConfig:   credentialtest.ClassConfig{"model": model},
-			headers:       map[string]string{"X-Digitalocean-Baseurl": server.URL, "X-Digitalocean-Api-Key": callerKey},
-			wantAuth:      "Bearer " + callerKey,
-			wantUserAgent: anonymousUserAgent,
+			name:        "baseURL header with a request key",
+			classConfig: credentialtest.ClassConfig{"model": model},
+			headers:     map[string]string{"X-Digitalocean-Baseurl": server.URL, "X-Digitalocean-Api-Key": callerKey},
+			wantAuth:    "Bearer " + callerKey,
 		},
 		{
-			name:          "class baseURL gets the server key and UUID",
-			classConfig:   credentialtest.ClassConfig{"model": model, "baseURL": server.URL},
-			wantAuth:      "Bearer " + serverKey,
-			wantUserAgent: serverUserAgent,
-		},
-		{
-			name:          "baseURL header equal to the class baseURL gets the server key and UUID",
-			classConfig:   credentialtest.ClassConfig{"model": model, "baseURL": server.URL},
-			headers:       map[string]string{"X-Digitalocean-Baseurl": server.URL},
-			wantAuth:      "Bearer " + serverKey,
-			wantUserAgent: serverUserAgent,
-		},
-		{
-			name:          "request key to the class baseURL gets the server UUID",
-			classConfig:   credentialtest.ClassConfig{"model": model, "baseURL": server.URL},
-			headers:       map[string]string{"X-Digitalocean-Api-Key": callerKey},
-			wantAuth:      "Bearer " + callerKey,
-			wantUserAgent: serverUserAgent,
+			name:        "class baseURL gets the server key",
+			classConfig: credentialtest.ClassConfig{"model": model, "baseURL": server.URL},
+			wantAuth:    "Bearer " + serverKey,
 		},
 	}
 	for callName, call := range calls {
@@ -112,7 +89,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, got, 1)
 				assert.Equal(t, tt.wantAuth, got[0].Header.Get("Authorization"))
-				assert.Equal(t, tt.wantUserAgent, got[0].Header.Get("User-Agent"), "the server UUID only goes to the configured host")
 			})
 		}
 	}

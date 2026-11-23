@@ -211,7 +211,7 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (v *xai) getXaiUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
-	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Xai-Baseurl", baseURL, classBaseURL, "X-Xai-Api-Key")
+	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Xai-Baseurl", baseURL, classBaseURL, "X-Xai-Api-Key")
 	if err != nil {
 		return "", err
 	}

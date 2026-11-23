@@ -69,12 +69,13 @@ func TestValidateBaseURL(t *testing.T) {
 
 // Guards the SSRF-via-header vector from hackerone #3768976.
 func TestValidateBaseURLHeader(t *testing.T) {
-	const key = "X-Openai-Baseurl"
+	const key, apiKey = "X-Openai-Baseurl", "X-Openai-Api-Key"
 	ctxWith := func(v string) context.Context {
 		return context.WithValue(context.Background(), key, []string{v})
 	}
 	validate := func(ctx context.Context) error {
-		_, err := ValidatedBaseURLFromHeader(ctx, key, "")
+		ctx = context.WithValue(ctx, apiKey, []string{"caller"})
+		_, err := RequestBaseURL(ctx, key, "", "", apiKey)
 		return err
 	}
 
@@ -99,20 +100,17 @@ func TestRequestBaseURL(t *testing.T) {
 	const (
 		baseURLHeader = "X-Openai-Baseurl"
 		keyHeader     = "X-Openai-Api-Key"
-		otherKey      = "X-Azure-Api-Key"
 		configured    = "https://api.openai.com"
 		attacker      = "https://attacker.example.com"
 	)
 	tests := []struct {
-		name            string
-		headers         map[string]string
-		requested       string
-		configured      string
-		keyHeaders      []string
-		validate        bool
-		wantURL         string
-		wantFromRequest bool
-		wantErr         string
+		name       string
+		headers    map[string]string
+		requested  string
+		configured string
+		validate   bool
+		wantURL    string
+		wantErr    string
 	}{
 		{name: "nothing requested", wantURL: configured},
 		{name: "requested equals configured", requested: configured, wantURL: configured},
@@ -134,11 +132,10 @@ func TestRequestBaseURL(t *testing.T) {
 			wantErr:   "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
 		},
 		{
-			name:            "requested path on the configured host with a request key",
-			requested:       configured + "/proxy",
-			headers:         map[string]string{keyHeader: "caller"},
-			wantURL:         configured + "/proxy",
-			wantFromRequest: true,
+			name:      "requested path on the configured host with a request key",
+			requested: configured + "/proxy",
+			headers:   map[string]string{keyHeader: "caller"},
+			wantURL:   configured + "/proxy",
 		},
 		{
 			name:       "requested gateway path of another tenant",
@@ -162,11 +159,10 @@ func TestRequestBaseURL(t *testing.T) {
 			wantErr:   "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
 		},
 		{
-			name:            "requested host with a request key",
-			requested:       attacker,
-			headers:         map[string]string{keyHeader: "caller"},
-			wantURL:         attacker,
-			wantFromRequest: true,
+			name:      "requested host with a request key",
+			requested: attacker,
+			headers:   map[string]string{keyHeader: "caller"},
+			wantURL:   attacker,
 		},
 		{
 			name:      "requested scheme differs",
@@ -194,10 +190,9 @@ func TestRequestBaseURL(t *testing.T) {
 			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
 		},
 		{
-			name:            "header host with a request key",
-			headers:         map[string]string{baseURLHeader: attacker, keyHeader: "caller"},
-			wantURL:         attacker,
-			wantFromRequest: true,
+			name:    "header host with a request key",
+			headers: map[string]string{baseURLHeader: attacker, keyHeader: "caller"},
+			wantURL: attacker,
 		},
 		{
 			name:      "header wins over requested",
@@ -211,18 +206,10 @@ func TestRequestBaseURL(t *testing.T) {
 			wantURL: configured,
 		},
 		{
-			name:            "any of several key headers",
-			requested:       attacker,
-			headers:         map[string]string{otherKey: "caller"},
-			keyHeaders:      []string{keyHeader, otherKey},
-			wantURL:         attacker,
-			wantFromRequest: true,
-		},
-		{
-			name:       "several key headers named in the error",
-			requested:  attacker,
-			keyHeaders: []string{keyHeader, otherKey},
-			wantErr:    "baseURL needs X-Openai-Api-Key or X-Azure-Api-Key",
+			name:      "another provider's key does not count",
+			requested: attacker,
+			headers:   map[string]string{"X-Azure-Api-Key": "caller"},
+			wantErr:   "baseURL needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested host validated when validation is on",
@@ -247,15 +234,11 @@ func TestRequestBaseURL(t *testing.T) {
 			for k, v := range tt.headers {
 				ctx = context.WithValue(ctx, k, []string{v})
 			}
-			keyHeaders := tt.keyHeaders
-			if keyHeaders == nil {
-				keyHeaders = []string{keyHeader}
-			}
 			configuredURL := tt.configured
 			if configuredURL == "" {
 				configuredURL = configured
 			}
-			got, fromRequest, err := RequestBaseURL(ctx, baseURLHeader, tt.requested, configuredURL, keyHeaders...)
+			got, err := RequestBaseURL(ctx, baseURLHeader, tt.requested, configuredURL, keyHeader)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -263,7 +246,70 @@ func TestRequestBaseURL(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantURL, got)
-			assert.Equal(t, tt.wantFromRequest, fromRequest)
+		})
+	}
+}
+
+func TestRequestAzureResourceName(t *testing.T) {
+	const configured = "class-resource"
+	tests := []struct {
+		name      string
+		headers   map[string]string
+		requested string
+		wantName  string
+		wantErr   string
+	}{
+		{name: "nothing requested", wantName: configured},
+		{name: "requested equals configured", requested: configured, wantName: configured},
+		{name: "requested differs only in case", requested: "Class-Resource", wantName: configured},
+		{
+			name:      "requested name without a request key",
+			requested: "other",
+			wantErr:   "resourceName needs X-Azure-Api-Key: the server's key is not sent to a host named by the request",
+		},
+		{
+			name:      "requested name with a request key",
+			requested: "other",
+			headers:   map[string]string{"X-Azure-Api-Key": "caller"},
+			wantName:  "other",
+		},
+		{
+			name:    "header name without a request key",
+			headers: map[string]string{"X-Azure-Resource-Name": "attacker.example.com#"},
+			wantErr: "X-Azure-Resource-Name needs X-Azure-Api-Key",
+		},
+		{
+			name:     "header name with a request key",
+			headers:  map[string]string{"X-Azure-Resource-Name": "other", "X-Azure-Api-Key": "caller"},
+			wantName: "other",
+		},
+		{
+			name:      "header wins over requested",
+			headers:   map[string]string{"X-Azure-Resource-Name": configured},
+			requested: "other",
+			wantName:  configured,
+		},
+		{
+			name:      "an OpenAI key does not count",
+			requested: "other",
+			headers:   map[string]string{"X-Openai-Api-Key": "caller"},
+			wantErr:   "resourceName needs X-Azure-Api-Key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			for k, v := range tt.headers {
+				ctx = context.WithValue(ctx, k, []string{v})
+			}
+			got, err := RequestAzureResourceName(ctx, tt.requested, configured)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantName, got)
 		})
 	}
 }

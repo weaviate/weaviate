@@ -119,11 +119,11 @@ func TestGetAnswer(t *testing.T) {
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 		ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
 
-		buildURL, _, err := c.buildOpenAIUrl(ctxWithValue, "http://default-url.com", "", "", false)
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "http://default-url.com", "", "", false)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/completions", buildURL)
 
-		buildURL, _, err = c.buildOpenAIUrl(context.TODO(), "http://default-url.com", "", "", false)
+		buildURL, err = c.buildOpenAIUrl(context.TODO(), "http://default-url.com", "", "", false)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/completions", buildURL)
 	})
@@ -137,7 +137,7 @@ func TestGetAnswer(t *testing.T) {
 			"X-Azure-Resource-Name", []string{"headerResourceName"})
 		ctxWithValue = context.WithValue(ctxWithValue, "X-Azure-Api-Key", []string{"callerKey"})
 
-		buildURL, _, err := c.buildOpenAIUrl(ctxWithValue, "", "", "", true)
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "", "", "", true)
 		require.NoError(t, err)
 		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/completions?api-version=2022-12-01", buildURL)
 	})
