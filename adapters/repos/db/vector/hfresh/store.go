@@ -15,14 +15,18 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -85,6 +89,8 @@ type PostingStore struct {
 	locks    *common.ShardedRWLocks
 	metrics  *Metrics
 	versions *PostingVersionsStore
+	// logger is what the reads MultiGet runs in parallel report a panic to.
+	logger logrus.FieldLogger
 }
 
 func NewPostingStore(store *lsmkv.Store, sharedBucket bucketRef, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
@@ -138,6 +144,7 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket bucketRef, metrics *Metric
 		locks:    common.NewDefaultShardedRWLocks(),
 		metrics:  metrics,
 		versions: versions,
+		logger:   common.LoggerOrDiscard(nil),
 	}, nil
 }
 
@@ -224,9 +231,14 @@ func (p *PostingStore) getWithBuckets(ctx context.Context, postingsBucket, versi
 	return posting, nil
 }
 
+// MultiGet reads the postings of postingIDs and returns them in that order, an
+// id with no posting as an empty one. It reads as many of them at once as the
+// concurrency budget of the query in ctx allows (entities/concurrency). The
+// node's admission limiter grants that budget to every vector search: a query
+// alone reads several postings at a time, queries running at once share what
+// the node has, and a caller with no budget, such as the background tasks,
+// reads them one after another.
 func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
-	postings := make([]Posting, 0, len(postingIDs))
-
 	// One pin for the whole fan-out; a search reaches this with every selected
 	// centroid at once.
 	postingsBucket, versionsBucket, release, err := p.acquireBuckets()
@@ -235,6 +247,11 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 	}
 	defer release()
 
+	if workers := multiGetWorkers(ctx, len(postingIDs)); workers >= 2 {
+		return p.multiGetParallel(ctx, postingsBucket, versionsBucket, postingIDs, workers)
+	}
+
+	postings := make([]Posting, 0, len(postingIDs))
 	for _, id := range postingIDs {
 		posting, err := p.getWithBuckets(ctx, postingsBucket, versionsBucket, id)
 		if err != nil {
@@ -243,6 +260,46 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 		postings = append(postings, posting)
 	}
 
+	return postings, nil
+}
+
+// multiGetWorkers is how many postings MultiGet reads at once for postings
+// ids: the budget of the query in ctx, 1 when it carries none, and never more
+// than there are postings.
+func multiGetWorkers(ctx context.Context, postings int) int {
+	return min(concurrency.BudgetFromCtx(ctx, 1), postings)
+}
+
+// multiGetParallel reads the postings with the given number of reads in
+// flight, each worker taking the next one, and returns them in the order of
+// their ids, as MultiGet does reading them one by one.
+func (p *PostingStore) multiGetParallel(ctx context.Context, postingsBucket, versionsBucket *lsmkv.Bucket,
+	postingIDs []uint64, workers int,
+) ([]Posting, error) {
+	postings := make([]Posting, len(postingIDs))
+	var next atomic.Int64
+	eg := enterrors.NewErrorGroupWrapper(p.logger)
+	for range workers {
+		eg.Go(func() error {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(postingIDs) {
+					return nil
+				}
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				posting, err := p.getWithBuckets(ctx, postingsBucket, versionsBucket, postingIDs[i])
+				if err != nil {
+					return errors.Wrapf(err, "failed to get posting %d", postingIDs[i])
+				}
+				postings[i] = posting
+			}
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return postings, nil
 }
 

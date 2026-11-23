@@ -18,10 +18,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
@@ -619,4 +622,155 @@ func BenchmarkPostingStoreMultiGet(b *testing.B) {
 			}
 		}
 	})
+}
+
+// The reads MultiGet has in flight are the budget of the query in its context,
+// never more than the postings it reads, and one at a time without a budget.
+func TestMultiGetWorkers(t *testing.T) {
+	limiter := queryadmission.New(prometheus.NewRegistry(), queryadmission.Config{})
+	admitted, release, err := limiter.Admit(t.Context(), concurrency.TimesGOMAXPROCS(2))
+	require.NoError(t, err)
+	defer release()
+	granted := concurrency.BudgetFromCtx(admitted, 0)
+	require.Positive(t, granted, "a query alone is granted a budget by the limiter")
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		postings int
+		want     int
+	}{
+		{name: "no budget, no postings", ctx: t.Context(), postings: 0, want: 0},
+		{name: "no budget", ctx: t.Context(), postings: 50, want: 1},
+		{name: "a budget of 1", ctx: concurrency.CtxWithBudget(t.Context(), 1), postings: 50, want: 1},
+		{name: "a budget of 8", ctx: concurrency.CtxWithBudget(t.Context(), 8), postings: 50, want: 8},
+		{name: "fewer postings than the budget", ctx: concurrency.CtxWithBudget(t.Context(), 8), postings: 3, want: 3},
+		{name: "the budget the limiter grants", ctx: admitted, postings: 500, want: min(granted, 500)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, multiGetWorkers(tt.ctx, tt.postings))
+		})
+	}
+}
+
+// With several reads in flight MultiGet returns what it returns reading one
+// posting after another: the same postings, in the order of their ids, and an
+// empty one for an id with no posting.
+func TestStoreMultiGetInParallel(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	})
+	require.NoError(t, err)
+
+	// Postings of several sizes, with ids that are not in a row.
+	const postings = 60
+	for i := range postings {
+		var posting Posting
+		for v := range 1 + i%7 {
+			posting = posting.AddVector(NewVector(uint64(1000*i+v), 1, []byte{byte(i), byte(v), 3, 4, 5, 6, 7, 8, 9, 10}))
+		}
+		require.NoError(t, s.Put(ctx, uint64(3*i), posting))
+	}
+
+	tests := []struct {
+		name string
+		ids  []uint64
+	}{
+		{name: "none"},
+		{name: "one", ids: []uint64{9}},
+		{name: "one that does not exist", ids: []uint64{10}},
+		{name: "two", ids: []uint64{177, 0}},
+		{name: "some, out of order, with gaps and one twice", ids: []uint64{30, 3, 1, 90, 30, 2, 174, 60, 5}},
+		{name: "all of them and what lies between", ids: func() []uint64 {
+			ids := make([]uint64, 0, 3*postings)
+			for id := 3*postings - 1; id >= 0; id-- {
+				ids = append(ids, uint64(id))
+			}
+			return ids
+		}()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want, err := s.MultiGet(ctx, tt.ids)
+			require.NoError(t, err)
+			require.Len(t, want, len(tt.ids))
+			for _, budget := range []int{1, 2, 8, 64, 1000} {
+				got, err := s.MultiGet(concurrency.CtxWithBudget(ctx, budget), tt.ids)
+				require.NoError(t, err)
+				require.Len(t, got, len(tt.ids))
+				for i := range want {
+					require.Equalf(t, len(want[i]), len(got[i]), "posting %d with a budget of %d", tt.ids[i], budget)
+					for v := range want[i] {
+						require.Equalf(t, []byte(want[i][v]), []byte(got[i][v]), "posting %d with a budget of %d",
+							tt.ids[i], budget)
+					}
+				}
+			}
+		})
+	}
+
+	// A cancelled context stops the parallel read with its error.
+	cancelled, cancel := context.WithCancel(concurrency.CtxWithBudget(ctx, 8))
+	cancel()
+	_, err = s.MultiGet(cancelled, []uint64{0, 3, 6, 9})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// Postings written while a parallel MultiGet reads them: every read returns
+// either the posting as it was or as it is, never a torn one, which -race
+// checks along with the reads themselves.
+func TestStoreMultiGetInParallelWithWrites(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	})
+	require.NoError(t, err)
+
+	const postings, vectors = 32, 4
+	write := func(id uint64, round byte) error {
+		var posting Posting
+		for v := range vectors {
+			posting = posting.AddVector(NewVector(uint64(100*id)+uint64(v), 1, []byte{round, round, round, round}))
+		}
+		return s.Put(ctx, id, posting)
+	}
+	ids := make([]uint64, postings)
+	for i := range ids {
+		ids[i] = uint64(i)
+		require.NoError(t, write(ids[i], 0))
+	}
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for round := byte(1); ; round++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			for _, id := range ids {
+				if err := write(id, round); err != nil {
+					t.Errorf("write posting %d: %v", id, err)
+					return
+				}
+			}
+		}
+	}()
+	for range 200 {
+		got, err := s.MultiGet(concurrency.CtxWithBudget(ctx, 8), ids)
+		require.NoError(t, err)
+		require.Len(t, got, postings)
+		for i, posting := range got {
+			require.NotEmptyf(t, posting, "posting %d", ids[i])
+		}
+	}
+	close(stop)
+	wg.Wait()
 }
