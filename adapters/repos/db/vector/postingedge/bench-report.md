@@ -239,6 +239,52 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## Filtros en el índice integrado, 1M dbpedia (pre-registro, 2026-11-23 a las 11:10)
+
+**Estado: pre-registrado antes de compilar nada.** El experimento, sus filtros, la parada y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*.
+
+### El encargo (del usuario)
+
+- **1M de dbpedia, sobre el índice integrado en modo `routing`.**
+- **Filtros sintéticos al 50 %, 10 %, 1 % y 0.1 %, de tres tipos:** al azar, correlado con la query (los permitidos están cerca) y anticorrelado (lejos). Verdad filtrada por fuerza bruta.
+- **Recall filtrado a igual ef, cargas y latencia en frío y en caliente,** frente a HNSW con su sweeping y su corte plano sobre los mismos filtros, en la misma sesión.
+- **Parada:** ningún resultado que no cumpla el filtro.
+- **Criterio:** con filtros al azar del 10 % y del 50 %, 0.95 alcanzable subiendo solo ef, con a lo sumo el doble de cargas que sin filtro al mismo recall; y con el corte por defecto, todas las selectividades llegan a 0.95. El anticorrelado se reporta frente a HNSW, sin umbral.
+- **Reportar en qué selectividad la búsqueda plana pasa a ser más barata que la del índice,** para revisar el valor por defecto más adelante.
+
+### Lo que hay hoy
+
+**El índice integrado no filtra:** una búsqueda con filtro devuelve `ErrNotSupported` (`persistent.go:1138` y `search.go:175` en `feat/posting-edge-integration`, `b6200010ab`). La medida necesita antes una búsqueda filtrada y un corte plano. Es código del índice integrado, en su rama, y lo hace la sesión de integración. Su diseño entra aquí como enmienda 1, antes de compilarlo.
+
+### Cómo lo aplico (*mío*)
+
+- **El índice:** el integrado en `routing`, crecido como en las corridas del hito 2 desde su base por defecto hasta los 990 000 vectores de dbpedia. Lleva las decisiones del 22: el refresco apagado y la regla del rescore, que a 1 536 bits da 64. Se mide compactado y con los vectores en orden de posting.
+- **Las queries:** las 1 000 primeras del conjunto de test, k = 10, coseno.
+- **Los filtros.** N = 990 000; s es la selectividad. Una semilla fija por tipo y selectividad.
+  - **Al azar:** un único conjunto de s·N ids, uniforme, el mismo para todas las queries.
+  - **Correlado:** por query, un pivote al azar entre sus 1 000 vecinos más cercanos; los permitidos son los s·N vectores más cercanos al pivote. Los permitidos forman una bola cerca de la query, que no la tiene por centro.
+  - **Anticorrelado:** igual, con el pivote al azar entre sus 1 000 vecinos más lejanos.
+  - **La verdad filtrada:** los 10 permitidos más cercanos a la query, por coseno exacto, en una pasada por todo el corpus por query.
+- **El corte por defecto: 40 000 vectores permitidos,** el `flatSearchCutoff` de HNSW. A 1M, el 0.1 % y el 1 % van por la búsqueda plana, y el 10 % y el 50 % por el índice.
+- **Para el punto de cruce se miden los dos caminos en todas las selectividades:** el índice forzado y la búsqueda plana forzada. La plana pasa a ser más barata donde su p50 en frío a 0.95 queda por debajo del del índice; se reporta también por lecturas por query.
+- **HNSW:** configuración por defecto de una clase con RQ de 1 bit, con el filtro en `sweeping` como pide el encargo y su corte de 40 000. En este código la estrategia por defecto es `acorn`: se mide también, sin cronometrar. El grafo y los códigos en memoria, y los vectores en un fichero del volumen de las pruebas, leídos con `pread` en el rescore, como en la medida de HNSW a 10M de anoche.
+- **Sin cronometrar:** por tipo y selectividad, recall a igual ef sobre la malla de ef (de 10 a 2 048), cargas por query en el nuestro y lecturas de vector por query en los dos; y el ef de 0.95, y de 0.99 donde se alcance. Los mismos puntos sin filtro, como referencia.
+- **Cronometrado:** cada tipo y selectividad en su punto de 0.95, con 1 thread, en caliente y en frío (lotes de 10 queries con el volumen desmontado entre lotes, 500 queries en frío). Los dos índices en la misma sesión, dos rondas, con la espera de 15 minutos sin teclado ni trackpad, el marcador y el detector de deriva de siempre.
+- **La parada se comprueba en cada query de cada medida,** cronometrada o no, en los dos índices.
+- **La lectura del criterio** (*mía*):
+  - **Primera parte:** al azar al 10 % y al 50 %, por el camino del índice, 0.95 se alcanza subiendo solo ef, y sus cargas a 0.95 son como mucho el doble de las del índice sin filtro a 0.95.
+  - **Segunda parte:** con el corte de 40 000, las cuatro selectividades llegan a 0.95, al azar y correladas.
+  - **El anticorrelado se reporta junto a HNSW,** sin umbral.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **Al azar al 50 %:** 0.95 con cargas entre 1.1 y 1.5 veces las de sin filtro.
+- **Al azar al 10 %:** entre 1.6 y 3 veces. La primera parte del criterio es la que más dudo.
+- **Correlado:** más fácil que al azar en las cuatro selectividades.
+- **Anticorrelado al 10 % y al 50 %:** el índice puede no llegar a 0.95 con ef 2 048. HNSW con `sweeping`, tampoco.
+- **La búsqueda plana al 0.1 % y al 1 %:** recall por encima de 0.99.
+- **El punto de cruce:** entre el 2 % y el 5 % de selectividad, unos 20 000 a 50 000 vectores. El corte de 40 000 quedaría cerca.
+
 ## 10M en disco: wiki-dpr 10M con el camino de lectura de v4.0 (2026-11-21)
 
 **Estado: cerrado el 22. Las dos condiciones se cumplen, con nuestras celdas en rescore 64 y también en 150 («Resultados» y el apartado que le sigue, abajo). Pre-registrado el 21 a las 11:43, antes de construir nada a 10M y antes de ningún dato suyo, con cuatro enmiendas.** El experimento, las celdas, la configuración de HFresh y las dos condiciones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás de v5.4 y de las medidas de parámetros.
