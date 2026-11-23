@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -52,6 +53,9 @@ type vectorIndexSlot struct {
 	queue   *VectorIndexQueue
 	users   *common.SharedGauge
 	closing bool // guarded by vectorIndexSlots.mu
+	// switching is open while Switch replaces the index; new leases and a
+	// removal wait for it to close. Guarded by vectorIndexSlots.mu.
+	switching chan struct{}
 }
 
 // resolve maps the legacy vector's two names onto its slot key: "" always,
@@ -112,17 +116,25 @@ func (v *vectorIndexSlots) Publish(name string, index VectorIndex, queue *Vector
 // queue until it calls the slot's release, and a removal waits for it. ok
 // is false when no slot has that name or its removal has already started.
 // No closure is built here, so the hot paths that take a lease per object
-// do not allocate for it.
+// do not allocate for it. While the slot's index is being switched, it waits
+// for the switch to end.
 func (v *vectorIndexSlots) Acquire(name string) (slot *vectorIndexSlot, ok bool) {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-
-	slot, ok = v.slots[v.resolve(name)]
-	if !ok || slot.closing {
-		return nil, false
+	for {
+		v.mu.RLock()
+		slot, ok = v.slots[v.resolve(name)]
+		if !ok || slot.closing {
+			v.mu.RUnlock()
+			return nil, false
+		}
+		switching := slot.switching
+		if switching == nil {
+			slot.users.Incr()
+			v.mu.RUnlock()
+			return slot, true
+		}
+		v.mu.RUnlock()
+		<-switching
 	}
-	slot.users.Incr()
-	return slot, true
 }
 
 // release gives a lease back. Calling it twice panics, since a double
@@ -180,20 +192,77 @@ func (v *vectorIndexSlots) Replace(name string, index VectorIndex) bool {
 	return true
 }
 
-// Remove takes a slot out of service: no new lease is handed out, the ones
-// in flight get up to the drain timeout to finish, and then teardown runs
-// on the index and queue. The slot leaves the map only once teardown
-// succeeds; a failed teardown reopens it, so the shard keeps the handles
-// for a retried drop or its own shutdown. A missing slot is not an error
-// and teardown is not called. Past the drain deadline the removal proceeds
-// and logs the leases it left behind, as the shard-level drop does; a user
-// still running then sees a torn index, which is what it saw with no wait
-// at all. No alias: a drop names the vector exactly.
+// Switch replaces name's index with the one swap returns, once every lease
+// on the slot is returned. New leases wait meanwhile, for at most the drain
+// timeout plus swap, so swap must be short. swap gets the current index and
+// the queue, with no lease held; on error the slot keeps its index.
+func (v *vectorIndexSlots) Switch(ctx context.Context, name string,
+	swap func(current VectorIndex, queue *VectorIndexQueue) (VectorIndex, error),
+) error {
+	v.mu.Lock()
+	slot, ok := v.slots[name]
+	if !ok || slot.closing {
+		v.mu.Unlock()
+		return fmt.Errorf("vector %q has no index", name)
+	}
+	if slot.switching != nil {
+		v.mu.Unlock()
+		return fmt.Errorf("vector %q is already switching its index", name)
+	}
+	switching := make(chan struct{})
+	slot.switching = switching
+	v.mu.Unlock()
+
+	defer func() {
+		v.mu.Lock()
+		slot.switching = nil
+		v.mu.Unlock()
+		close(switching)
+	}()
+
+	timeout := v.drainTimeout
+	if timeout == 0 {
+		timeout = slotDrainTimeout
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := slot.users.Wait(waitCtx)
+	if err != nil {
+		return fmt.Errorf("wait for the users of vector %q's index: %w", name, err)
+	}
+
+	index, err := swap(slot.index, slot.queue)
+	if err != nil {
+		return err
+	}
+	v.mu.Lock()
+	slot.index = index
+	v.mu.Unlock()
+	return nil
+}
+
+// Remove takes a slot out of service once any switch of its index has
+// ended: no new lease is handed out, the ones in flight get up to the
+// drain timeout to finish, and then teardown runs on the index and queue.
+// The slot leaves the map only once teardown succeeds; a failed teardown
+// reopens it, so the shard keeps the handles for a retried drop or its own
+// shutdown. A missing slot is not an error and teardown is not called.
+// Past the drain deadline the removal proceeds and logs the leases it left
+// behind, as the shard-level drop does; a user still running then sees a
+// torn index, which is what it saw with no wait at all. No alias: a drop
+// names the vector exactly.
 func (v *vectorIndexSlots) Remove(ctx context.Context, name string, logger logrus.FieldLogger,
 	teardown func(index VectorIndex, queue *VectorIndexQueue) error,
 ) error {
 	v.mu.Lock()
 	slot, ok := v.slots[name]
+	for ok && slot.switching != nil {
+		switching := slot.switching
+		v.mu.Unlock()
+		<-switching
+		v.mu.Lock()
+		slot, ok = v.slots[name]
+	}
 	if !ok {
 		v.mu.Unlock()
 		return nil
