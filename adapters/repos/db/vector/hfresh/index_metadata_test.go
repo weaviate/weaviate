@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -604,6 +605,37 @@ func TestEmptyIndexReopenKeepsCentroidMode(t *testing.T) {
 			index.waitForMaintenance(t)
 			require.Greater(t, index.PostingSizes.Count(), uint64(1), "the posting must split")
 			requireSelfSearchExcept(t, index, all, -1)
+		})
+	}
+}
+
+// Only a missing commit log directory means the graph was never built: any
+// other failure to check it must fail the open, or a built index opens empty.
+func TestLazyCentroidIndexFailsOnUncheckableCommitLog(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, root, dir string)
+	}{
+		{"root not searchable", func(t *testing.T, root, dir string) {
+			if os.Geteuid() == 0 {
+				t.Skip("root ignores directory permissions")
+			}
+			require.NoError(t, os.Chmod(root, 0))
+			t.Cleanup(func() { require.NoError(t, os.Chmod(root, 0o700)) })
+		}},
+		{"symlink loop", func(t *testing.T, root, dir string) {
+			require.NoError(t, os.Symlink(dir, dir))
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			var cfg Config
+			cfg.Centroids.HNSWConfig = &hnsw.Config{RootPath: root, ID: "centroids"}
+			tt.prepare(t, root, hnsw.CommitLogDirectory(root, "centroids"))
+
+			_, err := NewHNSWIndex(nil, nil, &cfg, true)
+			require.Error(t, err)
 		})
 	}
 }
