@@ -191,6 +191,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 **Acordado: `distance` se expone, y la primera versión valida solo `cosine`.** Cualquier otro valor da error de configuración.
 
 **Decidido por el usuario el 23: la primera versión admite `cosine` y `l2-squared`; `dot` se rechaza, como en HFresh** (`entities/vectorindex/hfresh/config.go:113`). **La variación de la norma queda documentada como no probada:** los dos datasets sin normalizar que hay en disco tienen la norma casi constante (abajo).
+- **Lo que cambia en el código por admitir `l2-squared`:** hoy el índice integrado normaliza cada vector al insertar y al buscar (`persistent.go:602`, `:703`, `:1160`, `:1306`), lo que con `l2-squared` cambiaría las respuestas sobre vectores sin normalizar. Con `l2-squared` no debe normalizar, y el margen tiene que ser el relativo de abajo: el 0.06 absoluto solo vale para el coseno.
 
 - **El error tiene que salir al parsear,** para que la clase no llegue a crearse. Hoy la distancia se rechaza al crear el índice (`Config.validate`, `config.go:259`), es decir, al arrancar el shard. HFresh valida las suyas al parsear (`entities/vectorindex/hfresh/config.go:113`).
 - **El código de hoy admite también `l2-squared` por dentro,** y sus tests pasan. Con lo acordado queda sin camino desde el esquema.
@@ -239,6 +240,81 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
   - **Después se comprueba sin tocar m en `sphere-1M-meta-dpr` con `l2-squared`** (usuario), y en dbpedia con `l2-squared`, que debe dar lo mismo que el coseno. Si en `sphere-1M` la frontera de m no domina a la de sin corte, se dice y no se ajusta.
   - **La alternativa, si la dispersión resulta ruidosa query a query:** un corte por rango, que sigue las aristas de los ⌈(1 + ρ)·ef⌉ mejores escaneados. No depende de ninguna transformación monótona de la distancia; cuesta un segundo montón por query.
 - **El margen es la parte fácil.** Para `dot` sobre vectores crudos falta además todo lo de arriba: la partición y el ruteo por producto escalar, y medirlo.
+
+### Backup (revisado el 23 de noviembre, solo leyendo)
+
+*Encargo del usuario: cómo implementan HNSW y HFresh la interfaz de backup, qué costaría en nuestro índice, qué tareas de fondo hay que pausar, qué ficheros entran, y si la reorganización del fichero de vectores es un riesgo. Leído en `feat/posting-edge-integration`, `b6200010ab`; las líneas de `adapters/repos/db/` valen también en main.*
+
+**La interfaz y el orden en que el shard la llama.**
+
+- **Los métodos:** `PrepareForBackup`, `ResumeAfterBackup`, `ListFiles` y `SnapshotMutableFiles` (`vector_index.go:38-42`). Al restaurar no hay ningún método del índice: los ficheros se copian a su sitio y el shard abre como siempre (`usecases/backup/restorer.go:242-256`).
+- **Preparar** (`shard_backup.go:46-181`):
+  - **Solo en la primera parada:** pausa la compactación del store y los ciclos de los índices vectoriales, con lo que se paran el commit log y las tombstones de un HNSW (líneas 107-113).
+  - **En cada parada:** `PrepareForBackup` de la cola y del índice, y después vuelca los memtables. Un `PrepareForBackup` tiene que poder llamarse más de una vez.
+- **Listar:** `store.ListFiles` (sin los `.wal`) más `index.ListFiles` (`shard_backup.go:361-427`).
+- **El backup por hardlinks** lista, copia a un directorio aparte lo que devuelve `SnapshotMutableFiles` y enlaza el resto. El shard se reanuda en cuanto ha enlazado (`shard_backup.go:297-358`): un fichero que el índice reescriba en su sitio después cambia también en el backup.
+- **Reanudar:** `ResumeAfterBackup` solo cuando la última parada se levanta (`shard_backup.go:468-550`).
+- **Usan la misma parada** el movimiento de réplicas, que enlaza lo listado y nunca llama a `SnapshotMutableFiles` (`shard_replica_snapshot.go:39,102-139`), y el offload de tenants.
+
+**HNSW y HFresh.**
+
+| | HNSW | HFresh |
+|---|---|---|
+| preparar | cambia de fichero de commit log (`hnsw/backup.go:29-35`) | prepara el HNSW de centroides y sus 4 colas en disco: para los workers, vuelca, sella el trozo a medias y los reanuda (`hfresh/hfresh.go:344-418`) |
+| qué lista | los ficheros cerrados de su commit log (`hnsw/backup.go:77-147`) | el commit log de los centroides y los trozos de las colas; sus postings viven en el store del shard |
+| reanudar y `SnapshotMutableFiles` | no hacen nada | sale del modo de mantenimiento de las colas; no copia nada |
+| por qué le basta | no reescribe ningún fichero listado | no tiene ningún fichero propio que reescriba en su sitio |
+
+- **El test de HFresh solo comprueba lo que lista** (`hfresh/backup_test.go`): no restaura.
+
+**Nuestro índice hoy: rechaza el backup** (`persistent.go:1384-1403`). Eso bloquea el backup de un shard activo, el movimiento de réplicas y el offload. Un shard inactivo se copia igual, recorriendo su directorio (`backup.go:890-996`), y esa restauración no está probada.
+
+**Qué entra.**
+
+- **Los buckets del índice,** en el store del shard, ya entran con él: postings, map, routing, edgedists, deleted, pending y staging.
+- **Los ficheros de `<id>.postingedge.d`:**
+
+| fichero | cómo se escribe | en el backup |
+|---|---|---|
+| `meta.json` | fichero temporal y rename | copiado |
+| `mean.f32` | una vez, en el build | enlazado |
+| `centroids.f32` | se le añade al final en cada split | copiado |
+| el commit log del grafo de centroides | sus ciclos son los del shard | los ficheros cerrados, como HNSW |
+| `vectors-<gen>.f32` | se le añade al final | enlazado: solo crece |
+| `slots-<gen>.u32` y `built.u32` | se reescriben en su sitio | copiados |
+| `journal.log` | se trunca en su sitio | copiado, y sin truncar mientras dura el backup |
+| `graph.changed` | marca | copiada |
+
+**Qué hay que pausar, y el riesgo de la reorganización.**
+
+- **La parada del shard no para ninguna tarea de fondo del índice.** Su goroutine de mantenimiento sigue con el build de la base, la petición del bucket en un segmento, la limpieza, el refresco y la reorganización de los vectores (`persistent_maintenance.go:46-160`). La limpieza también corre dentro de los inserts.
+- **La reorganización sí es un riesgo.** Al acabar escribe el meta con la generación nueva y borra los ficheros de la vieja (`grow_layout.go:297-375`). Si eso cae entre listar y enlazar, el backup falla por un fichero que ya no existe, o guarda el meta de la generación N+1 junto a los ficheros de la N, y no abre.
+- **Aunque no hubiera reorganización, el backup no sería coherente.** `slots`, `built` y el diario se reescriben en su sitio y cambiarían después de enlazarlos. Truncar el diario entre el volcado y la copia perdería escrituras.
+- **HFresh no tiene este problema** porque no reescribe ningún fichero en su sitio ni cambia de generación; solo para sus colas lo justo para sellarlas.
+
+**Propuesta.**
+
+- **`PrepareForBackup`, que se llama en cada parada:**
+  - Rechaza el backup mientras se construye la base, como ya hace el shard con otras operaciones estructurales.
+  - Pone una retención: la reorganización en marcha se detiene en su paso siguiente y ninguna empieza; el diario no se trunca; el grafo de centroides se prepara como un HNSW.
+- **`ListFiles`:** los buckets van con el store. Del directorio, `mean.f32`, el `vectors` de la generación del meta y los ficheros cerrados del commit log de centroides. Nunca otra generación, ni ficheros temporales, ni el directorio del build.
+- **`SnapshotMutableFiles`:** copia, con la retención puesta, el meta, el diario, `slots`, `built`, `centroids.f32` y la marca.
+- **`ResumeAfterBackup`:** quita la retención, reanuda el grafo y despierta el mantenimiento.
+- **Fuera del índice:** que el movimiento de réplicas llame también a `SnapshotMutableFiles`, porque hoy enlaza lo listado tal cual.
+
+**Un riesgo al lado, sin reproducir.** Si al abrir falta `meta.json`, el índice lo toma por un build que no acabó y borra todos sus buckets (`persistent.go:331-338`, `447-471`). Una copia sin meta abriría como un índice vacío, sin error. Hoy no pasa porque el backup se rechaza, pero el trabajo de backup tiene que empezar por un test en rojo de ese caso: un meta que falta junto a buckets con datos tiene que ser un error.
+
+**Lo que cuesta** (*estimación*): unas 280 líneas de código y de 600 a 900 de tests.
+
+- **Lo que se copia de HFresh:** delegar en el grafo de centroides, unas 40 líneas.
+- **Lo nuevo:** la retención y la parada de la reorganización, el diario retenido, el listado por generación, la copia de los ficheros que cambian, la llamada en el movimiento de réplicas y la guarda del meta.
+- **Los tests:**
+  - lo que lista;
+  - una reorganización en marcha durante el backup;
+  - el diario retenido;
+  - un corte hecho como lo hace el shard mientras siguen inserts, deletes y reorganización, que al abrirse da las mismas respuestas que el índice en el momento del corte;
+  - dos `PrepareForBackup` y un `ResumeAfterBackup`;
+  - el backup, las réplicas y el offload por el shard.
 
 ### Multi-vector
 
