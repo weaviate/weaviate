@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"io/fs"
 	"math"
 	"os"
 	"slices"
@@ -115,8 +116,11 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, lazy bool) 
 
 	if lazy {
 		_, err := os.Stat(hnsw.CommitLogDirectory(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID))
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return &index, nil
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "check the centroid graph's commit log")
 		}
 	}
 
