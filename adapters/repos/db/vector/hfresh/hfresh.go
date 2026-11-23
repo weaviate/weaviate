@@ -232,6 +232,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	// the single posting keeps no id list, which its appends would leave stale
+	if postingID == singlePostingID && !h.Centroids.Built() {
+		return h.PostingSizes.Set(ctx, postingID, len(posting))
+	}
+
 	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
 		return err
 	}
