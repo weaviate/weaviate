@@ -269,6 +269,30 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Lo cronometrado espera a que no corra ninguna otra prueba,** también el crecimiento de la sesión de integración; después pone el marcador y espera los 15 minutos sin actividad. Lo que no se cronometra (build, limpieza y conteo) corre ya.
 - **Lo demás no cambia.**
 
+### Resultados (23 de noviembre, de 13:17 a 13:28)
+
+**Estado: cronometrado, dos rondas (antes, después; después, antes), sin teclado ni trackpad en ningún tramo y con el crecimiento de la sesión de integración ya acabado.** Datos en `testdata/bench/hfresh-mg/`. La configuración que menos lee para 0.95 sobre este índice es rescore 200 con searchProbe 144: 0.9507 de recall y 361 lecturas por query, la misma antes y después.
+
+| a 0.95, p50 en ms | antes | después | después entre antes |
+|---|---|---|---|
+| 1 thread, en frío | 39.73 / 39.63 | 13.57 / 13.50 | 0.34x |
+| 1 thread, en caliente | 2.91 / 2.89 | 2.45 / 2.44 | 0.84x |
+| 8 threads, en frío | 81.22 / 82.89 | 76.78 / 78.86 | 0.95x |
+| 8 threads, en caliente | 8.11 / 8.33 | 7.99 / 7.83 | 0.99x / 0.94x |
+
+- **La lectura pre-registrada se cumple:** con 8 threads el p50 de después no pasa del de antes en ningún estado ni ronda.
+- **Con 1 thread en frío, 2.9 veces más rápido,** de 39.7 a 13.5 ms: leer los postings pasa de 32.0 a 6.3 ms por query. Una query sola recibe un presupuesto de 20.
+- **Con 8 threads cada query recibe 14.4 de media,** y el QPS en frío sube de 87 a 90-91.
+- **La cola en frío con 8 threads empeora:** el p95 pasa de 108.0 y 108.2 ms a 121.9 y 116.5, un 12.8 % y un 7.7 % más. Antes, las dos rondas se separan un 0.1 %; después, un 4.6 %. La pre-lectura no miraba el p95. En caliente con 8 threads el p95 va de 10.91 a 11.48 en la primera ronda y de 11.40 a 10.57 en la segunda.
+
+**Lo esperado y lo medido:**
+
+| | esperado | medido |
+|---|---|---|
+| 1 thread en frío | de 3 a 4 veces más rápido | 2.9 veces |
+| 1 thread en caliente | de un 5 a un 20 % más rápido | un 16 % |
+| 8 threads | empate | empate en p50 y algo mejor en QPS; el p95 en frío, de un 8 a un 13 % peor |
+
 ## Filtros en el índice integrado, 1M dbpedia (pre-registro, 2026-11-23 a las 11:10)
 
 **Estado: pre-registrado antes de compilar nada.** El experimento, sus filtros, la parada y el criterio son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*.

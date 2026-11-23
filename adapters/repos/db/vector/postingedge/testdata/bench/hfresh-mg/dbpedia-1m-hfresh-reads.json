@@ -1,0 +1,106 @@
+{
+  "counts": [
+    {
+      "name": "default",
+      "target": 0,
+      "reached": true,
+      "searchProbe": 256,
+      "rescoreLimit": 350,
+      "recall": 0.9684,
+      "queries": 1000,
+      "postingReads": 287.372,
+      "postingBytes": 10407898.102,
+      "rescoreReads": 350,
+      "rescoreBytes": 2164750,
+      "reads": 637.372
+    },
+    {
+      "name": "r200@0.95",
+      "target": 0.95,
+      "reached": true,
+      "searchProbe": 144,
+      "rescoreLimit": 200,
+      "recall": 0.9507,
+      "queries": 1000,
+      "postingReads": 161.299,
+      "postingBytes": 5852020.75,
+      "rescoreReads": 200,
+      "rescoreBytes": 1237000,
+      "reads": 361.299
+    },
+    {
+      "name": "r200@0.99",
+      "target": 0.99,
+      "reached": true,
+      "searchProbe": 1221,
+      "rescoreLimit": 200,
+      "recall": 0.99,
+      "queries": 1000,
+      "postingReads": 1364.189,
+      "postingBytes": 49773565.86,
+      "rescoreReads": 200,
+      "rescoreBytes": 1237000,
+      "reads": 1564.189
+    },
+    {
+      "name": "r350@0.95",
+      "target": 0.95,
+      "reached": true,
+      "searchProbe": 142,
+      "rescoreLimit": 350,
+      "recall": 0.9503,
+      "queries": 1000,
+      "postingReads": 159.068,
+      "postingBytes": 5770530.138,
+      "rescoreReads": 350,
+      "rescoreBytes": 2164750,
+      "reads": 509.068
+    },
+    {
+      "name": "r350@0.99",
+      "target": 0.99,
+      "reached": true,
+      "searchProbe": 1042,
+      "rescoreLimit": 350,
+      "recall": 0.99,
+      "queries": 1000,
+      "postingReads": 1165.004,
+      "postingBytes": 42460804.204,
+      "rescoreReads": 350,
+      "rescoreBytes": 2164750,
+      "reads": 1515.004
+    },
+    {
+      "name": "r800@0.95",
+      "target": 0.95,
+      "reached": true,
+      "searchProbe": 141,
+      "rescoreLimit": 800,
+      "recall": 0.9503,
+      "queries": 1000,
+      "postingReads": 157.939,
+      "postingBytes": 5730023.354,
+      "rescoreReads": 800,
+      "rescoreBytes": 4948000,
+      "reads": 957.939
+    },
+    {
+      "name": "r800@0.99",
+      "target": 0.99,
+      "reached": true,
+      "searchProbe": 997,
+      "rescoreLimit": 800,
+      "recall": 0.99,
+      "queries": 1000,
+      "postingReads": 1114.974,
+      "postingBytes": 40623759.21,
+      "rescoreReads": 800,
+      "rescoreBytes": 4948000,
+      "reads": 1914.974
+    }
+  ],
+  "best": {
+    "0.95": "r200@0.95",
+    "0.99": "r350@0.99"
+  }
+}
