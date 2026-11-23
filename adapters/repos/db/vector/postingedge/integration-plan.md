@@ -1369,6 +1369,76 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 **Hecho** (`fea9e96399`): `flatRescore(k, bits)` no tiene ningún número propio, `TestFlatRescore` fija la tabla (507 a 512 bits, 64 a 1 536, 150 a 768, 4 × k, ef, un límite de la clase con k y ef por encima, y 0 con k y ef). En `none` la plana devuelve `ErrNotSupported`, y no lee nada del bucket de ruteo. Los tests del índice y del shard lo esperan en ese modo. *Verificado por tests,* con y sin el detector de carreras.
 
+### Resultados sin cronometrar (23 de noviembre)
+
+*`8b4efd53a2`. El nuestro, con `abfda15bea`, es el crecido a 990 000 en `2e58f5c2e1` (0.9506 con 19.2 cargas a ef 20, como en el hito 2). HNSW lleva `3c243abc20`, con RQ de 1 bit y la configuración por defecto, y su corte de 40 000. Son 1 000 queries con k = 10. Las cargas son postings leídos por query; los vectores, lecturas de vector exacto por query.*
+
+**Un fallo del arnés, encontrado y arreglado antes de leer nada de HNSW.**
+- **Qué pasaba:** un HNSW construido en el proceso sin `AcornFilterRatio` no corre ACORN nunca, y no avisa. La primera corrida midió `sweeping` dos veces, la segunda con el nombre de `acorn`: las dos curvas salieron iguales en cada ef.
+- **El arreglo** (`3c243abc20`): el arnés le da a HNSW el ratio de un nodo, 0.4. Un control hace fallar la medida si `acorn` y `sweeping` responden igual donde ACORN tiene que correr. Las curvas de HNSW se midieron otra vez, y difieren en los tres filtros del 10 %.
+- **Con 0.4, HNSW con `acorn` va por `sweeping` al 50 %, y por su plana al 1 % y al 0.1 %.** Solo los filtros del 10 % pasan por ACORN.
+- **En `filters-untimed-dbpedia-1m.json` las curvas llamadas `hnsw acorn` son de `sweeping`.** Las buenas de HNSW están en `filters-untimed-hnsw-dbpedia-1m.json`.
+
+**La parada se cumple:** ningún resultado fuera de su filtro, en ninguna query de ninguna medida.
+
+**El criterio, sin cronometrar:**
+- **Primera parte: se cumple al 50 % y no al 10 %.**
+  - **Al azar al 50 %,** 0.95 a ef 16 con 24.4 cargas: 1.30 veces las 18.8 de sin filtro a 0.95.
+  - **Al azar al 10 %,** con ef 10, el más bajo con k = 10, ya da 0.9531 con 50.6 cargas: 2.69 veces. La parada en el ef-ésimo permitido obliga a cargar más postings, y no hay un ef más bajo con el que bajar de ahí.
+- **Segunda parte: se cumple.** Con el corte de 40 000 los doce filtros llegan a 0.95: las cuatro selectividades al azar y correladas, y también las anticorreladas.
+
+**Cada filtro, el nuestro por el camino que le da el corte, frente a HNSW:**
+
+| filtro | permitidos | nuestro, camino | nuestro a 0.95 | a 0.99 | acorn a 0.95 | a 0.99 | sweeping a 0.95 | a 0.99 |
+|---|---:|---|---|---|---|---|---|---|
+| sin filtro | 990 000 | índice | ef 21 · 18.8 cargas | ef 166 · 73.0 cargas | ef 78 · 78 vectores | ef 362 · 362 vectores | ef 78 · 78 vectores | ef 362 · 362 vectores |
+| al azar 50 % | 495 000 | índice | ef 16 · 24.4 cargas | ef 87 · 75.6 cargas | ef 61 · 61 vectores | ef 201 · 201 vectores | ef 61 · 61 vectores | ef 201 · 201 vectores |
+| al azar 10 % | 99 000 | índice | ef 10 · 50.6 cargas | ef 36 · 124.0 cargas | ef 125 · 125 vectores | no llega (mejor 0.9899) | ef 42 · 42 vectores | ef 109 · 109 vectores |
+| al azar 1 % | 9 900 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 37 · 37 vectores | ef 80 · 80 vectores | ef 37 · 37 vectores | ef 80 · 80 vectores |
+| al azar 0.1 % | 990 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 33 · 33 vectores | ef 63 · 63 vectores | ef 33 · 33 vectores | ef 63 · 63 vectores |
+| correlado 50 % | 495 000 | índice | ef 21 · 18.9 cargas | ef 163 · 72.4 cargas | ef 77 · 77 vectores | ef 364 · 364 vectores | ef 77 · 77 vectores | ef 364 · 364 vectores |
+| correlado 10 % | 99 000 | índice | ef 18 · 18.5 cargas | ef 131 · 69.7 cargas | ef 76 · 76 vectores | ef 375 · 375 vectores | ef 69 · 69 vectores | ef 294 · 294 vectores |
+| correlado 1 % | 9 900 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 41 · 41 vectores | ef 97 · 97 vectores | ef 41 · 41 vectores | ef 97 · 97 vectores |
+| correlado 0.1 % | 990 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 39 · 39 vectores | ef 80 · 80 vectores | ef 39 · 39 vectores | ef 80 · 80 vectores |
+| anticorrelado 50 % | 495 000 | índice | ef 14 · 84.7 cargas | ef 102 · 247.9 cargas | ef 91 · 91 vectores | ef 328 · 328 vectores | ef 91 · 91 vectores | ef 328 · 328 vectores |
+| anticorrelado 10 % | 99 000 | índice | ef 12 · 698.1 cargas | ef 79 · 1422.4 cargas | ef 1362 · 512 vectores | no llega (mejor 0.9581) | ef 120 · 120 vectores | ef 403 · 403 vectores |
+| anticorrelado 1 % | 9 900 | plano | ef 10 · 507 vectores | ef 729 · 729 vectores | ef 146 · 146 vectores | ef 399 · 399 vectores | ef 146 · 146 vectores | ef 399 · 399 vectores |
+| anticorrelado 0.1 % | 990 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 120 · 120 vectores | ef 244 · 244 vectores | ef 120 · 120 vectores | ef 244 · 244 vectores |
+
+**Los dos caminos del nuestro forzados, a 0.95,** que es lo que dará el punto de cruce cuando haya tiempos:
+
+| filtro | índice a 0.95 | plano a 0.95 | plano: recall a ef 10 |
+|---|---|---|---|
+| al azar 50 % | ef 16 · 24.4 cargas | ef 10 · 507 vectores | 0.9963 |
+| al azar 10 % | ef 10 · 50.6 cargas | ef 10 · 507 vectores | 0.9981 |
+| al azar 1 % | ef 10 · 258.5 cargas | ef 10 · 507 vectores | 0.9995 |
+| al azar 0.1 % | ef 10 · 1320.4 cargas | ef 10 · 507 vectores | 1.0000 |
+| correlado 50 % | ef 21 · 18.9 cargas | ef 10 · 507 vectores | 0.9953 |
+| correlado 10 % | ef 18 · 18.5 cargas | ef 10 · 507 vectores | 0.9951 |
+| correlado 1 % | ef 12 · 21.7 cargas | ef 10 · 507 vectores | 0.9982 |
+| correlado 0.1 % | ef 10 · 50.0 cargas | ef 10 · 507 vectores | 1.0000 |
+| anticorrelado 50 % | ef 14 · 84.7 cargas | ef 10 · 507 vectores | 0.9889 |
+| anticorrelado 10 % | ef 12 · 698.1 cargas | ef 10 · 507 vectores | 0.9789 |
+| anticorrelado 1 % | ef 10 · 2842.2 cargas | ef 10 · 507 vectores | 0.9811 |
+| anticorrelado 0.1 % | ef 10 · 3898.9 cargas | ef 10 · 507 vectores | 0.9985 |
+
+**Lo que se ve:**
+- **La plana lee siempre 507 vectores por query,** la R de la regla a 512 bits (enmienda 3). Con eso queda muy por encima de 0.95: entre 0.979 y 1.000 ya a ef 10. La plana de HNSW llega a 0.95 leyendo entre 33 y 146, porque ordena por su código RQ de 1 536 bits, y la nuestra por el código de ruteo de 512. En frío, 507 lecturas por query pesan. Lo digo y no lo ajusto: R sale del `rescoreLimit`, por orden del usuario.
+- **Correlado, el nuestro es más barato que sin filtro:** al 10 %, 18.5 cargas a 0.95; al 1 %, por el índice, 21.7.
+- **Anticorrelado, el nuestro por el índice es muy caro:** 84.7 cargas al 50 % y 698 al 10 %. Al 1 % y al 0.1 %, forzado por el índice, lee casi todos los postings (2 842 y 3 899). HNSW con `sweeping` llega a 0.95 con 91 y 120 vectores al 50 % y al 10 %.
+- **ACORN, en este HNSW con RQ de 1 bit, necesita más ef que `sweeping` en los tres filtros del 10 %:** 125 frente a 42 al azar, 76 frente a 69 correlado, y 1 362 frente a 120 anticorrelado. Y no llega a 0.99 ni al azar (0.9899) ni anticorrelado (0.9581). Un ef de ACORN puede costar menos que uno de `sweeping`, así que eso lo dirán los tiempos.
+
+**Lo esperado frente a lo medido:**
+- **Al azar al 50 %:** esperaba entre 1.1 y 1.5 veces las cargas de sin filtro; salen 1.30.
+- **Al azar al 10 %:** esperaba entre 1.6 y 3 veces; salen 2.69, dentro de lo esperado y fuera del criterio.
+- **Correlado, más fácil que al azar en las cuatro:** se cumple.
+- **Anticorrelado al 10 % y al 50 %, «puede no llegar a 0.95 con ef 2 048»:** llega, a ef 12 y a ef 14, pero con muchas cargas. HNSW con `sweeping` también llega.
+- **La plana al 0.1 % y al 1 %, por encima de 0.99:** se cumple al azar y correlado. Anticorrelado al 1 % da 0.9811 a ef 10 y necesita ef 729 para 0.99.
+- **ACORN frente a `sweeping`, «mejor al 10 % y en el anticorrelado, parecido al 50 %»:** al 50 % es el mismo, por el ratio. Al 10 % necesita más ef en los tres, y por lecturas sale peor.
+- **El punto de cruce entre el 2 % y el 5 %:** sin tiempos todavía. Por lecturas, al azar, el índice al 1 % hace unas 580 por query (258.5 cargas de dos lecturas, más 64 vectores) y la plana 507, así que por lecturas el cruce estaría cerca del 1 %.
+
+**Lo que falta, cronometrado:** cada filtro en su punto de 0.95, en caliente y en frío, dos rondas. El nuestro va por los dos caminos y HNSW con `acorn`; `sweeping` después, si cabe en la noche. Después, el punto de cruce por p50 en frío.
+
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
 *Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*
