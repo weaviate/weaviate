@@ -271,6 +271,7 @@ func TestSinglePostingRestartAfterMerge(t *testing.T) {
 	}
 	require.NoError(t, index.doMerge(t.Context(), 1))
 	requireSinglePostingSize(t, index, 290)
+	requireNoSinglePostingIDs(t, index)
 
 	all := addRestartVectors(t, index, vectors, 300, 400)
 	requireSinglePostingSize(t, index, 390)
