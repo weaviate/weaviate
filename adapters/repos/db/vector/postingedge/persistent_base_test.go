@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -394,4 +395,34 @@ func TestMergeNearest(t *testing.T) {
 			require.True(t, slices.IsSorted(dists))
 		})
 	}
+}
+
+// The fixture builds the base of its index from BaseSize vectors whatever
+// the scheduler does. Here the build in the background cannot start until
+// well after the call that brings the last vector has returned, as on a
+// loaded machine: before the fixture waited for the base at its size, it read
+// every vector the test added, and an index of 2 100 vectors built from all of
+// them never split.
+func TestPersistentFixtureBuildsItsBaseFromItsBaseSize(t *testing.T) {
+	const total = persistentBase + 1500
+	logger, logs := logtest.NewNullLogger()
+	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.Logger = logger })
+	f.index.baseMu.Lock()
+	enterrors.GoWrapper(func() {
+		time.Sleep(time.Second)
+		f.index.baseMu.Unlock()
+	}, testLogger())
+	f.add(t, 0, total)
+	built := 0
+	for _, entry := range logs.AllEntries() {
+		if entry.Data["action"] == "postingedge_build_base" {
+			built = entry.Data["vectors"].(int)
+		}
+	}
+	assert.Equal(t, persistentBase, built, "the vectors the base was built from")
+	require.NoError(t, f.index.Settle(context.Background()))
+	f.index.mu.RLock()
+	splits := f.index.g.meta.Splits
+	f.index.mu.RUnlock()
+	assert.Positive(t, splits, "the index split on the way")
 }

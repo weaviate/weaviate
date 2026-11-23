@@ -199,7 +199,32 @@ func (f *persistentFixture) cycle() {
 }
 
 // add adds the vectors of the doc ids [from, to), in batches.
+//
+// An index with no base yet builds it from the first BaseSize of them, and
+// takes the rest one by one: the base is built in the background, and how
+// many vectors come before the build reads those it is built from is up to
+// the scheduler. On a loaded machine it read every one, and the tests that
+// count on the index splitting or doubling on the way to `to` found it had
+// not (TestPersistentFixtureBuildsItsBaseFromItsBaseSize).
 func (f *persistentFixture) add(t *testing.T, from, to int) {
+	t.Helper()
+	f.index.mu.RLock()
+	gathering := f.index.g == nil
+	f.index.mu.RUnlock()
+	if base := f.cfg.BaseSize; gathering && from < base && base < to {
+		f.addBatches(t, from, base)
+		require.NoError(t, f.index.settleBase(context.Background()))
+		from = base
+	}
+	f.addBatches(t, from, to)
+	// The vectors that came while the base was built wait for the index to
+	// take them: the tests look at an index that has them all.
+	require.NoError(t, f.index.settleBase(context.Background()))
+}
+
+// addBatches adds the vectors of the doc ids [from, to), in batches, and
+// waits for nothing done in the background.
+func (f *persistentFixture) addBatches(t *testing.T, from, to int) {
 	t.Helper()
 	const batch = 50
 	for start := from; start < to; start += batch {
@@ -207,10 +232,6 @@ func (f *persistentFixture) add(t *testing.T, from, to int) {
 		ids := sequentialIDs(end-start, uint64(start))
 		require.NoError(t, f.index.AddBatch(context.Background(), ids, f.vectors[start:end]), "docs [%d, %d)", start, end)
 	}
-	// The base is built in the background, and the vectors that came
-	// meanwhile wait for the index to take them: the tests look at an index
-	// that has them all.
-	require.NoError(t, f.index.settleBase(context.Background()))
 }
 
 // truth returns the k doc ids nearest to a query among the first n vectors
