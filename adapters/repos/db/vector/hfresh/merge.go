@@ -120,6 +120,11 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 		h.logger.WithField("postingID", postingID).
 			Debug("no candidates found for merge operation, skipping")
 
+		if prevLen == initialLen {
+			// no changes, just return
+			return nil
+		}
+
 		// persist the gc'ed posting
 		err = h.PostingStore.Put(ctx, postingID, newPosting)
 		if err != nil {
