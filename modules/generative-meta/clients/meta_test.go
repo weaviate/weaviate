@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	metaparams "github.com/weaviate/weaviate/modules/generative-meta/parameters"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -64,8 +65,9 @@ func TestURL(t *testing.T) {
 			ctx := context.Background()
 			if tt.header != "" {
 				ctx = context.WithValue(ctx, "X-Meta-Baseurl", []string{tt.header})
+				ctx = context.WithValue(ctx, "X-Meta-Api-Key", []string{"callerKey"})
 			}
-			u, err := c.url(ctx, tt.baseURL)
+			u, err := c.url(ctx, tt.baseURL, tt.baseURL)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedU, u)
 		})
@@ -164,7 +166,8 @@ func TestGenerate(t *testing.T) {
 			defer server.Close()
 
 			c := New("key", time.Minute, nullLogger())
-			res, err := c.GenerateSingleResult(context.Background(), properties, "prompt",
+			ctx := credentialtest.Context(map[string]string{"X-Meta-Api-Key": "callerKey"})
+			res, err := c.GenerateSingleResult(ctx, properties, "prompt",
 				metaparams.Params{BaseURL: server.URL}, false, nil)
 
 			if tt.expectedErr != "" {
@@ -282,7 +285,8 @@ func TestGenerateRequest(t *testing.T) {
 			params := tt.params
 			params.BaseURL = server.URL
 			c := New("key", time.Minute, nullLogger())
-			_, err := c.GenerateAllResults(context.Background(), tt.properties, "task", params, false, nil)
+			_, err := c.GenerateAllResults(context.Background(), tt.properties, "task", params, false,
+				credentialtest.ClassConfig{"baseURL": server.URL})
 			require.NoError(t, err)
 
 			assert.Equal(t, "/v1/chat/completions", gotPath)
