@@ -91,21 +91,10 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		shardReadSem = semaphore.NewWeighted(1)
 	}
 
-	// A dropped vector index keeps its schema entry but loses its VectorIndexConfig,
-	// so there is nothing to report on. Filtering here, once per collection rather
-	// than once per shard, matches the loaded path, where the shard holds no such
-	// index to enumerate.
-	activeVectorConfigs := make(map[string]models.VectorConfig, len(vectorConfig))
-	for targetVector, cfg := range vectorConfig {
-		if modelsext.IsVectorIndexDropped(cfg) {
-			continue
-		}
-		activeVectorConfigs[targetVector] = cfg
-	}
-	// computed once per collection: every shard's saved usage is checked against it
-	vectorConfigsFingerprint, err := shardusage.VectorConfigsFingerprint(activeVectorConfigs)
+	// computed once per collection rather than once per shard
+	activeConfigs, vectorConfigsFingerprint, err := activeVectorConfigs(vectorConfig)
 	if err != nil {
-		return nil, fmt.Errorf("fingerprint vector configs: %w", err)
+		return nil, err
 	}
 
 	localShards := map[string]struct{}{}
@@ -153,7 +142,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		eg.Go(func() error {
 			defer shardReadSem.Release(1)
 
-			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, activeVectorConfigs, vectorConfigsFingerprint)
+			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, activeConfigs, vectorConfigsFingerprint)
 			if err != nil {
 				return err
 			}
@@ -199,6 +188,27 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 	return collectionUsage, nil
 }
 
+// activeVectorConfigs returns the vector configs that still have an index, and
+// their [shardusage.VectorConfigsFingerprint]. A dropped vector index keeps its
+// schema entry but loses its VectorIndexConfig, so there is nothing to report
+// on. Filtering it out matches the loaded path, where the shard holds no such
+// index to enumerate.
+func activeVectorConfigs(vectorConfig map[string]models.VectorConfig) (map[string]models.VectorConfig, string, error) {
+	active := make(map[string]models.VectorConfig, len(vectorConfig))
+	for targetVector, cfg := range vectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		active[targetVector] = cfg
+	}
+	// every shard's saved usage is checked against it
+	fingerprint, err := shardusage.VectorConfigsFingerprint(active)
+	if err != nil {
+		return nil, "", fmt.Errorf("fingerprint vector configs: %w", err)
+	}
+	return active, fingerprint, nil
+}
+
 // usageForShard computes usage for a single local shard. There is an important distinction between
 // the state of the shard in the schema (in schemaReader) and the local state, which corresponds to
 // which shard is loaded in memory — both can be out of sync, so the shard is locked against changes
@@ -206,11 +216,23 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 // *ShardUsage with a nil error means the shard should be skipped (transitional states like
 // FREEZING/OFFLOADING). Safe to call concurrently for distinct shards.
 func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, activeVectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string) (*types.ShardUsage, error) {
+	shardUsage, _, err := i.usageAndSegmentHeapForShard(ctx, shardName, exactObjectCount, activeVectorConfigs, vectorConfigsFingerprint, false)
+	return shardUsage, err
+}
+
+// usageAndSegmentHeapForShard is [Index.usageForShard] that also returns the
+// shard's segment heap. A loaded shard computes the heap only when
+// wantSegmentHeap is set. An unloaded shard returns whatever heap its saved
+// file or its recompute holds. The heap is nil for a tenant with no directory,
+// which has no segments.
+func (i *Index) usageAndSegmentHeapForShard(ctx context.Context, shardName string, exactObjectCount bool,
+	activeVectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string, wantSegmentHeap bool,
+) (*types.ShardUsage, *types.SegmentHeap, error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	shard := i.shards.Load(shardName)
@@ -226,16 +248,17 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 	// tenants that were deleted in the meantime, but as we record zero usage, it doesn't matter
 	exists, err := i.tenantDirExists(shardName)
 	if err != nil {
-		return nil, fmt.Errorf("tenant exists: %w", err)
+		return nil, nil, fmt.Errorf("tenant exists: %w", err)
 	}
 	if !exists {
 		// no numbers to read from disk, but an unloaded lazy shard is still marked
 		lazyShard, isLazy := asLazyLoadShard(shard)
-		return emptyShardUsageWithNameAndActivity(shardName, localStatus, isLazy && !lazyShard.isLoaded()), nil
+		return emptyShardUsageWithNameAndActivity(shardName, localStatus, isLazy && !lazyShard.isLoaded()), nil, nil
 	}
 
 	var err2 error
 	var shardUsage *types.ShardUsage
+	var segmentHeap *types.SegmentHeap
 	// true when the usage below was read from disk because the lazy shard is not loaded
 	var unloadedLazy bool
 	switch localStatus {
@@ -254,12 +277,13 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 				loadedShard := lazyShard.currentShard()
 				unloadedLazy = loadedShard == nil
 				if loadedShard != nil {
-					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
+					shardUsage, segmentHeap, err2 = i.loadedUsageAndSegmentHeap(ctx, loadedShard, exactObjectCount, wantSegmentHeap)
 					if err2 != nil {
 						err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
 					}
 				} else {
-					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs, vectorConfigsFingerprint)
+					shardUsage, segmentHeap, err2 = i.unloadedUsageAndSegmentHeap(ctx, shardName, activeVectorConfigs,
+						vectorConfigsFingerprint, wantSegmentHeap, i.Config.MinMMapSize)
 					if err2 != nil {
 						err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
 					}
@@ -268,24 +292,25 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 		} else {
 			loadedShard, ok := shard.(*Shard)
 			if !ok {
-				return nil, fmt.Errorf("expected loaded shard, got %T", shard)
+				return nil, nil, fmt.Errorf("expected loaded shard, got %T", shard)
 			}
-			shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
+			shardUsage, segmentHeap, err2 = i.loadedUsageAndSegmentHeap(ctx, loadedShard, exactObjectCount, wantSegmentHeap)
 			if err2 != nil {
 				err2 = fmt.Errorf("non-lazy shard %s: %w", shardName, err2)
 			}
 		}
 	case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
-		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs, vectorConfigsFingerprint)
+		shardUsage, segmentHeap, err2 = i.unloadedUsageAndSegmentHeap(ctx, shardName, activeVectorConfigs,
+			vectorConfigsFingerprint, wantSegmentHeap, i.Config.MinMMapSize)
 		if err2 != nil {
 			err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
 		}
 	case models.TenantActivityStatusFROZEN, models.TenantActivityStatusOFFLOADING, models.TenantActivityStatusOFFLOADED, models.TenantActivityStatusONLOADING, models.TenantActivityStatusUNFREEZING, models.TenantActivityStatusFREEZING:
 		// skip for now and handle after we stabilized them
-		return nil, nil
+		return nil, nil, nil
 	default:
 		// should not happen as we only collected local shards from the sharding state
-		return nil, fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
+		return nil, nil, fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
 	}
 	if err2 != nil {
 		// Files vanished mid-deletion: record zero usage instead of failing
@@ -295,15 +320,35 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 				"class": i.Config.ClassName.String(),
 				"shard": shardName,
 			}).Warnf("shard files missing during usage calculation, likely deleted concurrently; recording empty usage: %v", err2)
-			return emptyShardUsageWithNameAndActivity(shardName, localStatus, unloadedLazy), nil
+			return emptyShardUsageWithNameAndActivity(shardName, localStatus, unloadedLazy), nil, nil
 		}
-		return nil, err2
+		return nil, nil, err2
 	}
 	// both fields describe the tenant now, not its files, so neither is left to the
 	// calculation above that saves its result to disk and serves it again later
 	shardUsage.Status = strings.ToLower(localStatus)
 	shardUsage.LazyUnloaded = unloadedLazy
-	return shardUsage, nil
+	return shardUsage, segmentHeap, nil
+}
+
+// loadedUsageAndSegmentHeap is [Index.calculateLoadedShardUsage] that also
+// walks the shard's lsm segments when wantSegmentHeap is set.
+func (i *Index) loadedUsageAndSegmentHeap(ctx context.Context, shard *Shard, exactCount, wantSegmentHeap bool,
+) (*types.ShardUsage, *types.SegmentHeap, error) {
+	shardUsage, err := i.calculateLoadedShardUsage(ctx, shard, exactCount)
+	if err != nil || !wantSegmentHeap {
+		return shardUsage, nil, err
+	}
+	lsmPath := shardPathLSM(i.path(), shard.Name())
+	directories, err := diskio.GetSubdirNames(lsmPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	segmentHeap, err := shardusage.CalculateSegmentHeap(lsmPath, directories, i.Config.MinMMapSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("segment heap: %w", err)
+	}
+	return shardUsage, &segmentHeap, nil
 }
 
 func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exactCount bool) (*types.ShardUsage, error) {
@@ -507,11 +552,18 @@ func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
 	return vectorUsage, nil
 }
 
-// calculateUnloadedShardUsage computes usage for a cold shard from disk. vectorConfigs must
-// contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig —
-// and vectorConfigsFingerprint must be their [shardusage.VectorConfigsFingerprint]. The result
-// carries no tenant status: it is saved to disk and served when the tenant may have changed.
-func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string) (*types.ShardUsage, error) {
+// unloadedUsageAndSegmentHeap computes usage and the segment heap for a cold shard from disk.
+// minMMapSize is the heap's cutoff between segments read whole and segments mmapped.
+// vectorConfigs must contain only active vectors — a dropped vector's
+// entry carries a nil VectorIndexConfig — and vectorConfigsFingerprint must be their
+// [shardusage.VectorConfigsFingerprint]. The usage carries no tenant status: it is saved to
+// disk and served when the tenant may have changed. Every recompute computes the segment heap,
+// and the heap is saved whenever the usage is. With wantSegmentHeap set, a saved file is
+// recomputed when its segment heap is missing or used another minMMapSize. Without it, such a
+// file is served.
+func (i *Index) unloadedUsageAndSegmentHeap(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig,
+	vectorConfigsFingerprint string, wantSegmentHeap bool, minMMapSize int64,
+) (*types.ShardUsage, *types.SegmentHeap, error) {
 	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
 		saved, err := shardusage.LoadComputedUsageData(i.path(), shardName)
@@ -524,8 +576,13 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
 		case saved.VectorConfigsFingerprint != vectorConfigsFingerprint:
 			i.logger.Debugf("recomputing usage data for shard %s: vector configs changed since it was saved", shardName)
+		case wantSegmentHeap && saved.SegmentHeap == nil:
+			i.logger.Debugf("recomputing usage data for shard %s: it was saved without a segment heap", shardName)
+		case wantSegmentHeap && saved.SegmentHeap.MinMMapSize != minMMapSize:
+			i.logger.Debugf("recomputing usage data for shard %s: its segment heap was split by min mmap size %d, not %d",
+				shardName, saved.SegmentHeap.MinMMapSize, minMMapSize)
 		default:
-			return saved.ShardUsage, nil
+			return saved.ShardUsage, saved.SegmentHeap, nil
 		}
 	}
 	// Read before anything is measured. A concurrent drop clears this shard's
@@ -538,28 +595,33 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 
 	directories, err := diskio.GetSubdirNames(lsmPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Cold tenant: calculate from disk without loading
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	vectorMetrics, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(lsmPath, directories)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	segmentHeap, err := shardusage.CalculateSegmentHeap(lsmPath, directories, minMMapSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("segment heap: %w", err)
 	}
 
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Get named vector data for cold shards from schema configuration
@@ -567,7 +629,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	for targetVector, vectorConfig := range vectorConfigs {
 		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok {
-			return nil, fmt.Errorf("class %s, shard %s: vector index config for target vector %q has unexpected type %T",
+			return nil, nil, fmt.Errorf("class %s, shard %s: vector index config for target vector %q has unexpected type %T",
 				i.Config.ClassName, shardName, targetVector, vectorConfig.VectorIndexConfig)
 		}
 		encodedDimensions[targetVector] = i.muveraEncodedDimensions(shardName, targetVector, cfg)
@@ -575,7 +637,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	// open the dimensions bucket once for all target vectors
 	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, encodedDimensions)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// one shard's unreadable mapping must not fail the whole collection's report
@@ -604,7 +666,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		cacheable = cacheable && stateCacheable
 		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, scan.Reported, state)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		namedVectors = append(namedVectors, vectorUsage)
 	}
@@ -624,19 +686,19 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		NamedVectors:          namedVectors,
 	}
 	if !cacheable {
-		return shardUsage, nil
+		return shardUsage, &segmentHeap, nil
 	}
-	saved, err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage,
-		vectorConfigsFingerprint, usageGeneration)
+	saved, err := shardusage.SaveComputedUsageDataWithSegmentHeap(i.path(), shardName, shardUsage,
+		vectorConfigsFingerprint, usageGeneration, &segmentHeap)
 	if err != nil {
-		return nil, fmt.Errorf("save usage to disk: %w", err)
+		return nil, nil, fmt.Errorf("save usage to disk: %w", err)
 	}
 	if !saved {
 		// The caller still gets this reading; only the cache is skipped, so the
 		// next collection recomputes from the rows the drop left behind.
 		i.logger.Debugf("shard %s: usage invalidated while it was computed; not caching this reading", shardName)
 	}
-	return shardUsage, nil
+	return shardUsage, &segmentHeap, nil
 }
 
 // splitObjectsBucketSize divides the objects bucket's measured size into the objects themselves and
