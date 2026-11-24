@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -23,94 +22,6 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
-
-// reconcileVectorIndexMapping runs on every load after the first. The mapping
-// says which indexes the shard has, the schema says which it should have, and
-// the two can disagree after a crash, a schema change while the shard was
-// cold, or lost files. It returns the record each schema vector is built
-// from, in name order so a failure is deterministic:
-//   - a ready record whose storage is on disk builds at the recorded ID;
-//   - a ready record whose storage is gone is rebuilt: a backup or a
-//     transfer carries no directory for an index that wrote nothing;
-//   - a creating record (a crash between the two writes of a creation) and a
-//     missing record (a vector added while the shard was cold) are built,
-//     then marked ready.
-//
-// A dropping record is finished first: its files, its state key, then the
-// record. A record the schema no longer has is deleted; its storage is left
-// alone.
-func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
-	records map[string]vectorIndexRecord,
-) (map[string]vectorIndexRecord, error) {
-	// before any deletion: finishing a drop would take the other's queue
-	err := refuseSharedVectorIndexQueues(records)
-	if err != nil {
-		return nil, err
-	}
-	err = refuseGeneratedVectorIndexCollisions(records)
-	if err != nil {
-		return nil, err
-	}
-
-	for name, rec := range records {
-		if rec.State != vectorIndexStateDropping {
-			continue
-		}
-		// a deferred deletion the process did not live to finish
-		err := s.removeVectorIndexArtifacts(ctx, name, rec)
-		if err != nil {
-			return nil, err
-		}
-		delete(records, name)
-	}
-
-	toBuild := make(map[string]vectorIndexRecord, len(active))
-	owners := vectorIndexOwners(records)
-	for _, name := range slices.Sorted(maps.Keys(active)) {
-		cfg := active[name]
-		rec, ok := records[name]
-		if !ok {
-			// a vector without a record is a newcomer: refused like a live
-			// creation when its files belong to another vector, and counted as
-			// an owner for the newcomers after it
-			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
-			if collisions := vectorIndexCollisionsWith(owners, name, ownerOf(rec)); len(collisions) > 0 {
-				return nil, vectorIndexCollisionError(name, collisions)
-			}
-			err := s.mapping.Put(name, rec)
-			if err != nil {
-				return nil, err
-			}
-			owners[name] = ownerOf(rec)
-		}
-		if rec.IndexType != cfg.IndexType() {
-			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
-				name, rec.IndexType, rec.recordedID(), cfg.IndexType())
-		}
-		if rec.State == vectorIndexStateReady {
-			rebuild, err := s.readyVectorIndexNeedsRebuild(name, rec)
-			if err != nil {
-				return nil, err
-			}
-			if rebuild {
-				rec.State = vectorIndexStateCreating
-			}
-		}
-		toBuild[name] = rec
-	}
-
-	for name := range records {
-		if _, ok := active[name]; ok {
-			continue
-		}
-		// dropped or gone from the schema: the record goes, the storage stays
-		err := s.mapping.Delete(name)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return toBuild, nil
-}
 
 // refuseSharedVectorIndexQueues fails when two records name one queue: two
 // consumers would each take the other's work, and a drop of either would
@@ -156,69 +67,6 @@ func refuseGeneratedVectorIndexCollisions(records map[string]vectorIndexRecord) 
 // derived from a vector name, which never contains a "-".
 func isGeneratedVectorIndexID(id string) bool {
 	return strings.Contains(id, "-")
-}
-
-// readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
-// nothing to do. Missing: the index is rebuilt at its recorded ID, as before
-// the mapping. A backup or transfer carries no directory for an index that
-// has written nothing, which under async indexing includes one whose vectors
-// are all still queued.
-func (s *Shard) readyVectorIndexNeedsRebuild(name string, rec vectorIndexRecord) (bool, error) {
-	dirs, err := s.vectorIndexStorageDirsFor(rec)
-	if err != nil {
-		return false, fmt.Errorf("vector %q: %w", name, err)
-	}
-	exists, err := vectorIndexStorageExists(dirs)
-	if err != nil {
-		return false, fmt.Errorf("vector %q: %w", name, err)
-	}
-	return !exists, nil
-}
-
-// commitVectorIndexRecords makes the indexes just built durable in the
-// mapping, each with the config it was built with. On the first load every
-// record is written ready in one transaction; later, the records that were
-// creating are flipped, and a ready record is rewritten when the config it
-// holds is not the one the index was built with.
-//
-// Until the cutover the schema decides the config at load, so a ready
-// record whose config differs from the schema's is rewritten rather than
-// trusted: today's config push reaches loaded shards only, and a shard
-// that was cold during a change picks the change up here. The same rewrite
-// fills in a record from before the config and queue ID fields existed.
-func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord,
-	built map[string]schemaConfig.VectorIndexConfig, initialized bool,
-) error {
-	for name, rec := range records {
-		rec, changed := rec.adopted(built[name])
-		if initialized && rec.State == vectorIndexStateReady {
-			if !changed {
-				continue
-			}
-			err := s.mapping.Put(name, rec)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if !initialized {
-			err := s.syncVectorIndexRecordStorage(name, rec)
-			if err != nil {
-				return err
-			}
-			rec.State = vectorIndexStateReady
-			records[name] = rec
-			continue
-		}
-		err := s.markVectorIndexReady(name, rec)
-		if err != nil {
-			return err
-		}
-	}
-	if initialized {
-		return nil
-	}
-	return s.mapping.Initialize(records)
 }
 
 // markVectorIndexCreating records that name's index is about to be built at

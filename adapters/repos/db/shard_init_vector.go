@@ -15,13 +15,12 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
-	"maps"
 	"path/filepath"
-	"slices"
 
 	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -72,48 +71,25 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 
-	// The mapping decides the physical ID of each index. A shard without one
-	// creates everything under the naming rule; a shard with one checks its
-	// records against the schema and the disk first.
-	records, initialized, stripped, err := s.mapping.LoadAndStrip()
+	// The manifest says where each index lives; nothing opens before it is in order.
+	entries, firstLoad, err := s.manifest.Open(ctx, active)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
-	}
-	if len(stripped) > 0 {
-		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
-	}
-	if initialized {
-		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
-		if err != nil {
-			return fmt.Errorf("shard %q: %w", s.ID(), err)
-		}
-	} else {
-		records = make(map[string]vectorIndexRecord, len(active))
-		for name, cfg := range active {
-			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
-		}
-		for _, c := range vectorIndexCollisions(vectorIndexOwners(records)) {
-			s.index.logger.WithField("shard", s.ID()).Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
-		}
 	}
 
 	// Only a shard without a mapping can still hold the pre-1.30.19 layout: a
 	// failed repair fails the load before the mapping is written, so the next
 	// load retries it. 1.40 only logged a failed repair and wrote the mapping;
 	// such a shard keeps the old layout and is not repaired again (accepted).
-	if !initialized {
-		err := newCompressedVectorsMigrator(s.index.logger).do(s, records, active)
+	if firstLoad {
+		err := newCompressedVectorsMigrator(s.index.logger).do(s, entries)
 		if err != nil {
 			return fmt.Errorf("shard %q: migrate compressed vectors: %w", s.ID(), err)
 		}
 	}
 
-	// legacy first, then names in order. The record says where the index and
-	// its queue live; the schema says what config to build with, until the
-	// cutover makes the record authoritative for that too.
-	for _, name := range slices.Sorted(maps.Keys(records)) {
-		rec := records[name]
-		err := s.createVectorIndex(ctx, name, rec.storageID(), rec.queueIDOrDefault(), active[name], s.lazySegmentLoadingEnabled)
+	for _, e := range entries {
+		err := s.createVectorIndex(ctx, e.Name, e.StorageID, e.QueueID, e.Config, s.lazySegmentLoadingEnabled)
 		if err != nil {
 			return err
 		}
@@ -127,7 +103,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		}
 	}
 
-	err = s.commitVectorIndexRecords(records, active, initialized)
+	err = s.manifest.Ready(active)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
