@@ -88,8 +88,8 @@ func (p *BitmapBufPoolTrackingForTests) CloneBytes(src []byte) (cloned *sroar.Bi
 	return cloneBytes(p, src)
 }
 
-func (p *BitmapBufPoolTrackingForTests) FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return fromAccumulator(p, acc)
+func (p *BitmapBufPoolTrackingForTests) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 // Outstanding returns the number of buffers that have been allocated but not

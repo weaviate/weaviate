@@ -49,13 +49,10 @@ type BitmapBufPool interface {
 	// must be a valid, non-empty sroar serialization. Like Clone, the clone owns
 	// the buffer's full capacity and grows through the pool past it.
 	CloneBytes(src []byte) (cloned *sroar.Bitmap, put func())
-	// FromAccumulator materializes the accumulator's union into a pooled
-	// buffer, so a warm accumulator building into pooled memory allocates
-	// nothing. The returned bitmap owns the buffer's full capacity and grows
-	// through the pool past it (same contract as Clone). Release via put;
-	// the accumulator stays reusable. acc must be non-nil (unlike Clone's
-	// nil tolerance, it panics).
-	FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
+	// FromAccumulatorWithHeadroom builds the accumulator's union on
+	// CloneWithHeadroom's terms, allocating nothing once the pool is warm. acc
+	// stays reusable and must not be nil, unlike CloneWithHeadroom's bm.
+	FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func())
 }
 
 func clone(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -103,9 +100,9 @@ func requireEvenLength(src []byte) {
 	}
 }
 
-func fromAccumulator(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+func fromAccumulatorWithHeadroom(pool BitmapBufPool, acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
 	dst, put := pool.GetBitmapStruct()
-	return acc.BitmapTo(dst, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
+	return acc.BitmapTo(dst, sroar.BuildOpts{Pool: pool, InitialSpareRatio: spareRatio}), put
 }
 
 // bitmapStructPool recycles the result structs sroar To methods build into.
@@ -213,8 +210,8 @@ func (p *bitmapBufPoolNoop) CloneBytes(src []byte) (cloned *sroar.Bitmap, put fu
 	return cloneBytes(p, src)
 }
 
-func (p *bitmapBufPoolNoop) FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return fromAccumulator(p, acc)
+func (p *bitmapBufPoolNoop) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 // -----------------------------------------------------------------------------
@@ -315,8 +312,8 @@ func (p *bitmapBufPoolRanged) CloneBytes(src []byte) (cloned *sroar.Bitmap, put 
 	return cloneBytes(p, src)
 }
 
-func (p *bitmapBufPoolRanged) FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return fromAccumulator(p, acc)
+func (p *bitmapBufPoolRanged) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {

@@ -217,13 +217,16 @@ func (o *BitmapOps) OrAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar.
 	if len(raws) == 0 {
 		return sroar.NewBitmap(), func() {}
 	}
+	if len(raws) == 1 {
+		return o.pool.Clone(raws[0]) // nothing is ORed into it, so no headroom
+	}
 	largestIdx := 0
 	for i := 1; i < len(raws); i++ {
 		if raws[i].LenInBytes() > raws[largestIdx].LenInBytes() {
 			largestIdx = i
 		}
 	}
-	raw, release = o.pool.Clone(raws[largestIdx])
+	raw, release = o.pool.CloneWithHeadroom(raws[largestIdx], 0)
 	for i, bm := range raws {
 		if i == largestIdx {
 			continue

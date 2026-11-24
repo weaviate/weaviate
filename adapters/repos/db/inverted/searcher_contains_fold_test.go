@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"reflect"
@@ -609,6 +610,56 @@ func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
 	}
 }
 
+// TestDocBitmapContainsBatch_AccumulatorFoldHeadroom pins that the filter merge
+// ORs a sibling's new keys into a fold's result without moving its containers.
+func TestDocBitmapContainsBatch_AccumulatorFoldHeadroom(t *testing.T) {
+	forceContainsAccumulatorGate(t, 2)
+	ctx := context.Background()
+	keysNodeSize := func(bm *sroar.Bitmap) uint64 { return binary.LittleEndian.Uint64(bm.ToBuffer()) }
+
+	const bufSize = 1 << 16
+	rows := map[string][]uint64{"a": {1, 70_000, 140_000, 200_000}, "b": {3, 270_000, 330_000}}
+	// sibling has fewer containers than the fold's result, so the merge ORs into the latter.
+	sibling := []uint64{20 << 16, 21 << 16, 22 << 16}
+
+	for _, workers := range []int{1, 2} {
+		for _, tc := range []struct {
+			contains, merge filters.Operator
+		}{
+			{filters.ContainsAny, filters.OperatorOr},
+			{filters.ContainsNone, filters.OperatorAnd}, // both are deny lists
+		} {
+			t.Run(fmt.Sprintf("%s/workers=%d", tc.contains.Name(), workers), func(t *testing.T) {
+				forceContainsWorkers(t, workers)
+				fixture := newContainsBatchFixture(t, ctx, rows)
+				s := newFoldSearcher(t, roaringset.NewBitmapBufPoolRanged(nil, 0, nil, bufSize))
+				pv := &propValuePair{operator: tc.contains, containsKeys: keysFrom(t, []byte("a"), []byte("b"))}
+				dbm, plan, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
+				require.NoError(t, err)
+				require.Equal(t, foldStrategyUnionAccumulator, plan.strategy)
+				require.Equal(t, workers, plan.workers)
+				want := []uint64{1, 3, 70_000, 140_000, 200_000, 270_000, 330_000}
+				require.Equal(t, want, dbm.docIDs.ToArray())
+				keysBefore := keysNodeSize(dbm.docIDs)
+
+				merged := mergeBitmapsAndOrWithDenyList(&dbm, &docBitmap{
+					docIDs: roaringset.NewBitmap(sibling...), release: noopRelease, isDenyList: dbm.isDenyList,
+				}, tc.merge, 1)
+				defer merged.release()
+				require.Same(t, dbm.docIDs, merged.docIDs)
+				require.Equal(t, keysBefore, keysNodeSize(merged.docIDs), "keys node moved")
+				require.Equal(t, bufSize, merged.docIDs.CapInBytes(), "buffer grew")
+				require.Equal(t, append(want, sibling...), merged.docIDs.ToArray())
+
+				exact, _, err := newFoldSearcher(t, nil).docBitmapContainsBatch(ctx, fixture.source(t), pv)
+				require.NoError(t, err)
+				defer exact.release()
+				require.Equal(t, exact.docIDs.LenInBytes(), exact.docIDs.CapInBytes(), "headroom must not ask for a larger buffer")
+			})
+		}
+	}
+}
+
 // TestDocBitmapContainsBatch_SingleKey covers the 1 of 0/1/N. The folds adopt
 // their first row as the accumulator and merge every row after it, so a single
 // key is the one count that exercises the adopt without any merge — and a fold
@@ -898,7 +949,7 @@ func TestDocBitmapContainsBatch_ParallelMatchesSequential(t *testing.T) {
 			wantDocIDs:   parallelFixtureUnion(), wantDenyList: true,
 		},
 		{
-			// the deny flag on the arm that stages through FromAccumulator: the
+			// the deny flag on the arm that stages through an Accumulator: the
 			// incremental leg above adopts a fetched row, this one never does
 			name: "ContainsNone, accumulator", operator: filters.ContainsNone, gate: 2,
 			wantStrategy: foldStrategyUnionAccumulator,

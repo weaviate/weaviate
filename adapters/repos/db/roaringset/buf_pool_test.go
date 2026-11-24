@@ -963,7 +963,7 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 		pool := newRanged()
 		bm1, put1 := pool.CloneBytes(serialized)
 		bm2, put2 := pool.Clone(src)
-		bm3, put3 := pool.FromAccumulator(sroar.NewAccumulator())
+		bm3, put3 := pool.FromAccumulatorWithHeadroom(sroar.NewAccumulator(), 0)
 		defer put1()
 		defer put2()
 		defer put3()
@@ -1084,8 +1084,8 @@ func (p *dirtyTrackingPool) CloneBytes(src []byte) (*sroar.Bitmap, func()) {
 	return cloneBytes(p, src)
 }
 
-func (p *dirtyTrackingPool) FromAccumulator(acc *sroar.Accumulator) (*sroar.Bitmap, func()) {
-	return fromAccumulator(p, acc)
+func (p *dirtyTrackingPool) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (*sroar.Bitmap, func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 // TestPooledBitmapGrowsThroughThePool pins that growth takes dirty buffers from
@@ -1119,10 +1119,10 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 		{"CloneBytes", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
 			return p.CloneBytes(slices.Clone(baseBM().ToBuffer()))
 		}},
-		{"FromAccumulator", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+		{"FromAccumulatorWithHeadroom", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
 			acc := sroar.NewAccumulator()
 			acc.Or(baseBM())
-			return p.FromAccumulator(acc)
+			return p.FromAccumulatorWithHeadroom(acc, 1)
 		}},
 	}
 	ops := []struct {
@@ -1163,11 +1163,18 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 	}
 }
 
+// keysNodeSize reads the size sroar serializes first. bm must not be empty.
+func keysNodeSize(bm *sroar.Bitmap) uint64 {
+	return binary.LittleEndian.Uint64(bm.ToBuffer())
+}
+
 // TestPooledBuildsWithHeadroom pins spareRatio reaching sroar from every pool,
 // and headroom adding the key slots the plain builds must not.
 func TestPooledBuildsWithHeadroom(t *testing.T) {
 	const roomyBufSize = 1 << 16
 	src := NewBitmap(1, 2, 3, 70_000, 200_000)
+	acc := sroar.NewAccumulator()
+	acc.Or(src)
 
 	builds := []struct {
 		name         string
@@ -1190,6 +1197,17 @@ func TestPooledBuildsWithHeadroom(t *testing.T) {
 				return p.ZeroedLayoutWithHeadroom(src, spareRatio)
 			},
 		},
+		{
+			name: "FromAccumulator",
+			plain: func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+				dst, put := p.GetBitmapStruct()
+				return acc.BitmapTo(dst, sroar.BuildOpts{Pool: p, SpareTailOnly: true}), put
+			},
+			withHeadroom: func(p BitmapBufPool, spareRatio float64) (*sroar.Bitmap, func()) {
+				return p.FromAccumulatorWithHeadroom(acc, spareRatio)
+			},
+			values: src.ToArray(),
+		},
 	}
 	// None of these rounds a request up, the ranged pool because it has no ranges.
 	exactPools := []struct {
@@ -1211,7 +1229,7 @@ func TestPooledBuildsWithHeadroom(t *testing.T) {
 		capInBytes := bm.CapInBytes()
 		// ToBuffer of an empty bitmap is nil. src has its keys, so adding them moves nothing.
 		bm.Or(src)
-		return layout{capInBytes, binary.LittleEndian.Uint64(bm.ToBuffer())}
+		return layout{capInBytes, keysNodeSize(bm)}
 	}
 
 	for _, b := range builds {
@@ -1278,7 +1296,7 @@ type countingDisposableMetrics struct{ created int }
 
 func (m *countingDisposableMetrics) bufCreated(int) { m.created++ }
 
-func TestFromAccumulator(t *testing.T) {
+func TestFromAccumulatorWithHeadroom(t *testing.T) {
 	ids := []uint64{1, 2, 3, 70_000, 200_000}
 	newAcc := func() *sroar.Accumulator {
 		acc := sroar.NewAccumulator()
@@ -1300,7 +1318,7 @@ func TestFromAccumulator(t *testing.T) {
 	for _, tc := range pools {
 		t.Run(tc.name, func(t *testing.T) {
 			acc := newAcc()
-			bm, put := tc.pool.FromAccumulator(acc)
+			bm, put := tc.pool.FromAccumulatorWithHeadroom(acc, 0)
 			require.NotNil(t, put, "put must always be callable")
 			require.Equal(t, acc.Bitmap().ToArray(), bm.ToArray())
 			put()
@@ -1309,7 +1327,7 @@ func TestFromAccumulator(t *testing.T) {
 
 	t.Run("empty accumulator yields an empty bitmap", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
-		bm, put := pool.FromAccumulator(sroar.NewAccumulator())
+		bm, put := pool.FromAccumulatorWithHeadroom(sroar.NewAccumulator(), 0)
 		require.NotNil(t, put, "put must always be callable")
 		defer put()
 		require.NotNil(t, bm)
@@ -1318,17 +1336,17 @@ func TestFromAccumulator(t *testing.T) {
 
 	t.Run("nil accumulator panics, as documented", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
-		require.Panics(t, func() { pool.FromAccumulator(nil) })
+		require.Panics(t, func() { pool.FromAccumulatorWithHeadroom(nil, 0) })
 	})
 
 	t.Run("allocates nothing warm", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		acc := newAcc()
-		_, put := pool.FromAccumulator(acc)
+		_, put := pool.FromAccumulatorWithHeadroom(acc, 0)
 		put()
 
 		allocs := testing.AllocsPerRun(100, func() {
-			bm, put := pool.FromAccumulator(acc)
+			bm, put := pool.FromAccumulatorWithHeadroom(acc, 0)
 			_ = bm.GetCardinality()
 			put()
 		})
@@ -1338,12 +1356,12 @@ func TestFromAccumulator(t *testing.T) {
 	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		acc := newAcc()
-		bm1, put1 := pool.FromAccumulator(acc)
+		bm1, put1 := pool.FromAccumulatorWithHeadroom(acc, 0)
 		for i := uint64(0); i < 100_000; i += 7 {
 			bm1.Set(i)
 		}
 		put1()
-		bm2, put2 := pool.FromAccumulator(acc)
+		bm2, put2 := pool.FromAccumulatorWithHeadroom(acc, 0)
 		defer put2()
 		require.Equal(t, ids, bm2.ToArray(),
 			"reused entry must reflect only the fresh union, not the grown bitmap")
@@ -1363,11 +1381,6 @@ func TestPooledBuildsKeepSpareAsTailRoom(t *testing.T) {
 		{"Clone", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.Clone(src) }},
 		{"CloneBytes", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
 			return p.CloneBytes(src.ToBuffer())
-		}},
-		{"FromAccumulator", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
-			acc := sroar.NewAccumulator()
-			acc.Or(src)
-			return p.FromAccumulator(acc)
 		}},
 	}
 	for _, b := range builds {
