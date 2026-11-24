@@ -303,7 +303,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - **Si la plana sale lenta también en A, sin HNSW,** se dice, y su plana no se compara hasta saber por qué.
   - **Si la reproducción no da la plana lenta,** A se lee como otra medida de la plana en un proceso propio, junto a la repetición. La duda sobre la plana de la noche del 23 sigue abierta.
 
-### Enmienda 2 (de la tarde del 24, *mía*, antes de ningún dato): la reproducción se para después de la plana
+### Enmienda 2 (09:00 del 24, *mía*, antes de ningún dato): la reproducción se para después de la plana
 
 **Motivo.** La cadena tiene que caber entre las 18:00 y las 08:00. En la noche del 23, `acorn` iba detrás de la plana en cada ronda, y `sweeping` en las rondas 3 y 4. En una reproducción de una sola ronda, ninguno de los dos va antes de la plana, así que cronometrarlos no cambia sus condiciones y cuesta unas dos horas.
 
