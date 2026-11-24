@@ -139,13 +139,6 @@ func TestMultiNodeBackupAndRestore(t *testing.T) {
 }
 
 func TestMultiNodeAsyncReplicationConvergesForActiveTenants(t *testing.T) {
-	missedDeletesConverge(t, true, 3, 5*time.Minute)
-}
-
-// missedDeletesConverge deletes one object in each of the first tenants while node 3 is
-// down, then waits for async replication to remove them from node 3; keepPeersLoaded
-// reads every replica each round.
-func missedDeletesConverge(t *testing.T, keepPeersLoaded bool, tenants int, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	c := startCluster(ctx, t, "AsyncRep", 3, 10, nil)
@@ -155,7 +148,7 @@ func missedDeletesConverge(t *testing.T, keepPeersLoaded bool, tenants int, time
 	require.NoError(t, c.compose.StopAt(ctx, 2, nil))
 	one := "ONE"
 	deleted := map[string]strfmt.UUID{}
-	for _, tenant := range c.tenants[:tenants] {
+	for _, tenant := range c.tenants[:3] {
 		id := c.ledger.ids(c.class, tenant)[0]
 		_, err := c.cl.Objects.ObjectsClassDelete(objects.NewObjectsClassDeleteParams().WithContext(ctx).
 			WithClassName(c.class).WithID(id).WithTenant(&tenant).WithConsistencyLevel(&one), nil)
@@ -170,16 +163,14 @@ func missedDeletesConverge(t *testing.T, keepPeersLoaded bool, tenants int, time
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for tenant, id := range deleted {
-			if keepPeersLoaded {
-				for _, n := range names {
-					require.NoError(ct, readObject(ctx, c.cl, c.class, tenant, c.ledger.ids(c.class, tenant)[0], &n))
-				}
+			for _, n := range names {
+				require.NoError(ct, readObject(ctx, c.cl, c.class, tenant, c.ledger.ids(c.class, tenant)[0], &n))
 			}
 			gone, err := objectGone(ctx, lc, c.class, tenant, id, lagging)
 			require.NoError(ct, err)
 			require.True(ct, gone, "%s still holds the delete it missed in %s", lagging, tenant)
 		}
-	}, timeout, 2*time.Second, "async replication repairs the replica that missed the deletes")
+	}, 5*time.Minute, 2*time.Second, "async replication repairs the replica that missed the deletes")
 	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)
 	c.waitIdle(ctx, t, "every node unloads its idle shards again")
 }

@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func registryWrapper() *LazyLoadShard {
@@ -101,48 +101,6 @@ func TestLoadedShardRegistryAppendChunk(t *testing.T) {
 	}
 }
 
-func TestAccessClockIsMonotonic(t *testing.T) {
-	before := AccessClockNow()
-	advanceAccessClock()
-	after := AccessClockNow()
-	require.GreaterOrEqual(t, after, before)
-	require.Positive(t, after)
-	accessClock.Store(after + 1000)
-	advanceAccessClock()
-	require.Equal(t, after+1000, AccessClockNow(), "an older reading never moves the clock back")
-	accessClock.Store(after)
-}
-
-func TestLazyLoadShard_UnloaderHooks(t *testing.T) {
-	f := newUnloadFixture(t)
-	require.Zero(t, f.unloader.beforeLoads.Load())
-	require.Zero(t, f.unloader.registry.Loaded())
-
-	f.put(t)
-	require.EqualValues(t, 1, f.unloader.beforeLoads.Load())
-	require.EqualValues(t, 1, f.unloader.registry.Loaded())
-
-	f.put(t)
-	require.EqualValues(t, 1, f.unloader.beforeLoads.Load(), "a warm shard does not call BeforeLoad")
-
-	f.lazy.lastAccess.Store(0)
-	advanceAccessClock()
-	_, release, err := f.index.GetShard(testCtx(), f.name)
-	require.NoError(t, err)
-	release()
-	require.Equal(t, AccessClockNow(), f.lazy.LastAccess(), "a pin records the access")
-
-	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-	f.put(t)
-	require.EqualValues(t, 2, f.unloader.beforeLoads.Load())
-	require.EqualValues(t, 1, f.unloader.registry.Loaded())
-
-	outcome, err := f.index.UnloadLocalShard(testCtx(), f.name)
-	require.NoError(t, err)
-	require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
-	require.Zero(t, f.unloader.registry.Loaded(), "a COLD unload deregisters")
-}
-
 func TestLazyLoadShard_UnloaderDeregisteredOnDropAndShutdown(t *testing.T) {
 	tests := []struct {
 		name string
@@ -150,6 +108,11 @@ func TestLazyLoadShard_UnloaderDeregisteredOnDropAndShutdown(t *testing.T) {
 	}{
 		{name: "drop", stop: func(t *testing.T, f *unloadFixture) { require.NoError(t, f.index.dropShards([]string{f.name})) }},
 		{name: "index shutdown", stop: func(t *testing.T, f *unloadFixture) { require.NoError(t, f.index.Shutdown(testCtx())) }},
+		{name: "COLD unload", stop: func(t *testing.T, f *unloadFixture) {
+			outcome, err := f.index.UnloadLocalShard(testCtx(), f.name)
+			require.NoError(t, err)
+			require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -236,80 +199,6 @@ func BenchmarkGetShardLazy(b *testing.B) {
 	}
 }
 
-func TestLazyLoadShard_RequestDuringTeardownWaitsThenReloads(t *testing.T) {
-	f := newUnloadFixture(t)
-	id := f.put(t)
-	victim := f.lazy.currentShard()
-
-	marked := make(chan struct{})
-	proceed := make(chan struct{})
-	f.lazy.unloadMarkedHook = func() {
-		close(marked)
-		<-proceed
-	}
-	unloaded := make(chan bool, 1)
-	enterrors.GoWrapper(func() { unloaded <- f.lazy.TryUnload(testCtx(), UnloadRequest{}) }, f.index.logger)
-	<-marked
-
-	require.True(t, f.index.shardCreateLocks.TryLock(f.name), "the teardown runs without the create lock")
-	f.index.shardCreateLocks.Unlock(f.name)
-	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-
-	type readResult struct {
-		shard  *Shard
-		exists bool
-		err    error
-	}
-	read := make(chan readResult, 1)
-	enterrors.GoWrapper(func() {
-		shard, release, err := f.index.GetShard(testCtx(), f.name)
-		defer release()
-		if err != nil {
-			read <- readResult{err: err}
-			return
-		}
-		ok, err := shard.Exists(testCtx(), id)
-		read <- readResult{shard: f.lazy.currentShard(), exists: ok, err: err}
-	}, f.index.logger)
-
-	select {
-	case r := <-read:
-		t.Fatalf("a request finished during the teardown: %+v", r)
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	close(proceed)
-	require.True(t, <-unloaded)
-	r := <-read
-	require.NoError(t, r.err)
-	require.True(t, r.exists)
-	require.NotSame(t, victim, r.shard, "the request reloads a fresh instance")
-	require.True(t, victim.shut.Load())
-	require.EqualValues(t, 1, f.unloader.registry.Loaded())
-}
-
-func TestLazyLoadShard_EvictedAfterDeferredShutdownLeavesTheRegistry(t *testing.T) {
-	f := newUnloadFixture(t)
-	f.put(t)
-	_, release, err := f.index.GetShard(testCtx(), f.name)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(testCtx(), 300*time.Millisecond)
-	defer cancel()
-	outcome, err := f.index.UnloadLocalShard(ctx, f.name)
-	require.Error(t, err)
-	require.Equal(t, ShardUnloadOutcomeRefusedInUse, outcome)
-	release()
-	require.Eventually(t, func() bool { return shardKnownShut(f.lazy) }, 5*time.Second, 10*time.Millisecond)
-
-	shard, release, err := f.index.getOrInitShard(testCtx(), f.name)
-	require.NoError(t, err)
-	require.NoError(t, shard.PutObject(testCtx(), testObject(f.index.Config.ClassName.String())))
-	release()
-	require.NotSame(t, f.lazy, f.index.shards.Load(f.name), "the cleanly shut wrapper was evicted and replaced")
-	require.EqualValues(t, 1, f.unloader.registry.Loaded(), "the evicted wrapper must leave the registry")
-}
-
 func TestLazyLoadShard_DeferredShutdownLeavesTheRegistry(t *testing.T) {
 	f := newUnloadFixture(t)
 	f.put(t)
@@ -326,20 +215,13 @@ func TestLazyLoadShard_DeferredShutdownLeavesTheRegistry(t *testing.T) {
 	release()
 	require.Eventually(t, func() bool { return shardKnownShut(f.lazy) }, 5*time.Second, 10*time.Millisecond)
 	require.Zero(t, f.unloader.registry.Loaded(), "a shard the last release shut no longer counts as loaded")
-}
 
-func TestLazyLoadShard_UnloadedAtTracksTheLastUnload(t *testing.T) {
-	f := newUnloadFixture(t)
-	require.True(t, f.lazy.UnloadedAt().IsZero())
-	f.put(t)
-	require.True(t, f.lazy.UnloadedAt().IsZero())
-
-	before := time.Now()
-	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-	require.False(t, f.lazy.UnloadedAt().Before(before))
-
-	f.put(t)
-	require.True(t, f.lazy.UnloadedAt().IsZero(), "a reload clears it")
+	shard, release, err := f.index.getOrInitShard(testCtx(), f.name)
+	require.NoError(t, err)
+	require.NoError(t, shard.PutObject(testCtx(), testObject(f.index.Config.ClassName.String())))
+	release()
+	require.NotSame(t, f.lazy, f.index.shards.Load(f.name), "the cleanly shut wrapper was evicted and replaced")
+	require.EqualValues(t, 1, f.unloader.registry.Loaded(), "the evicted wrapper must leave the registry")
 }
 
 func TestDBShutdownClosesTheShardUnloaderOnce(t *testing.T) {
@@ -411,6 +293,8 @@ func TestRecordAccessNeverMovesLastAccessBack(t *testing.T) {
 			f.lazy.stampAccess(newer - 10)
 			require.Equal(t, newer, f.lazy.LastAccess(), "an older stamp must not overwrite a newer one")
 			require.Equal(t, newer, AccessClockNow(), "an older stamp must not move the clock back")
+			advanceAccessClock()
+			require.Equal(t, newer, AccessClockNow(), "an older reading never moves the clock back")
 
 			accessClock.Store(newer + 3)
 			require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: 5 * time.Second}))
@@ -436,4 +320,23 @@ func TestRequestDuringAStalledAccessClockKeepsTheShard(t *testing.T) {
 	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: time.Second}),
 		"a request during a stalled clock must still count as recent")
 	require.True(t, f.lazy.isLoaded())
+}
+
+type panickingCompressedIndex struct{ VectorIndex }
+
+func (panickingCompressedIndex) Compressed() bool { panic("injected status read panic") }
+
+func TestNodesStatusReleasesItsPinOnPanic(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	s := f.lazy.currentShard()
+	restore := replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return panickingCompressedIndex{v} })
+	defer restore()
+
+	func() {
+		defer func() { require.NotNil(t, recover()) }()
+		var status []*models.NodeShardStatus
+		f.index.getShardsNodeStatus(testCtx(), &status, "")
+	}()
+	require.Zero(t, s.inUseCounter.Load(), "a panicking status read must not leak the shard's pin")
 }

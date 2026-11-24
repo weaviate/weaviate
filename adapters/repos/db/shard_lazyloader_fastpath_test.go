@@ -224,6 +224,10 @@ func TestLazyLoadShard_TornWrapperIsNotServedOrReloaded(t *testing.T) {
 	replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return failingShutdownVectorIndex{v} })
 	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 	require.Error(t, s.teardownError())
+	require.Zero(t, f.unloader.registry.Loaded(), "a torn shard no longer counts as loaded")
+	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	_, _, err := f.index.getOrInitShard(testCtx(), f.name)
+	require.ErrorContains(t, err, "injected vector index shutdown failure")
 	beforeLoads := f.unloader.beforeLoads.Load()
 
 	for _, op := range fastPathOps()[:3] {
@@ -265,6 +269,9 @@ func TestLazyLoadShard_ColdWrapperLoadsOnceUnderConcurrentPins(t *testing.T) {
 			require.Len(t, loaded, 1, "concurrent callers built more than one instance")
 			require.Equal(t, beforeLoads+1, f.unloader.beforeLoads.Load())
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
+			_, err := op.run(f, id)
+			require.NoError(t, err)
+			require.Equal(t, beforeLoads+1, f.unloader.beforeLoads.Load(), "a warm shard does not call BeforeLoad")
 		})
 	}
 }

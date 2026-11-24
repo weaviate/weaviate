@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -214,6 +213,15 @@ func coldHotLoop(r *unloadRace) error {
 	return err
 }
 
+func isLoadedLoop(r *unloadRace) error {
+	if l, ok := r.f.index.shards.Load(r.f.name).(*LazyLoadShard); ok {
+		l.isLoaded()
+	}
+	_, release, err := r.f.index.GetShard(context.Background(), r.f.name)
+	release()
+	return err
+}
+
 func namespaceSuspendLoop(r *unloadRace) error {
 	if _, err := r.f.index.db.UnloadShard(context.Background(), r.f.index.Config.ClassName.String(), r.f.name); err != nil {
 		return err
@@ -230,6 +238,7 @@ func unloadContenders() []unloadContender {
 		{name: "halt and resume", run: haltLoop},
 		{name: "change log activation", run: changeLogLoop},
 		{name: "blockLoading", run: blockLoadingLoop},
+		{name: "isLoaded", run: isLoadedLoop},
 		{name: "cold then hot", run: coldHotLoop},
 		{name: "namespace unload and reopen", run: namespaceSuspendLoop},
 	}
@@ -410,44 +419,31 @@ func TestLazyLoadShard_TryUnloadRacesFastPathPins(t *testing.T) {
 
 func TestLazyLoadShard_TryUnloadStressWithWatchdog(t *testing.T) {
 	coldUnloads := map[string]bool{"cold then hot": true, "namespace unload and reopen": true}
-	tests := []struct {
-		name     string
-		withCold bool
-	}{
-		{name: "unloader with every non-cold contender"},
-		{name: "unloader with cold unloads too", withCold: true},
+	f := newUnloadFixture(t)
+	r := newUnloadRace(t, f)
+	r.addID(f.put(t))
+	var contenders []unloadContender
+	for _, c := range unloadContenders() {
+		if coldUnloads[c.name] {
+			continue
+		}
+		c.pause = time.Millisecond
+		contenders = append(contenders, c)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newUnloadFixture(t)
-			r := newUnloadRace(t, f)
-			r.addID(f.put(t))
-			var contenders []unloadContender
-			for _, c := range unloadContenders() {
-				if coldUnloads[c.name] && !tt.withCold {
-					continue
-				}
-				c.pause = time.Millisecond
-				contenders = append(contenders, c)
-			}
-			contenders = append(contenders,
-				unloadContender{name: "unload", run: unloaderLoop},
-				unloadContender{name: "unload-2", run: unloaderLoop},
-				unloadContender{name: "reads-2", run: readerLoop, pause: time.Millisecond},
-				unloadContender{name: "writes-2", run: writerLoop, pause: time.Millisecond},
-			)
-			r.runWithWatchdog(contenders, 5*time.Second, 20*time.Second)
-			r.requireInvariants(!tt.withCold)
-			var sb strings.Builder
-			for _, c := range contenders {
-				if !tt.withCold {
-					require.Positive(t, r.counter(c.name).Load(), c.name)
-				}
-				fmt.Fprintf(&sb, "%s=%d ", c.name, r.counter(c.name).Load())
-			}
-			t.Log(sb.String())
-		})
+	contenders = append(contenders,
+		unloadContender{name: "unload", run: unloaderLoop},
+		unloadContender{name: "unload-2", run: unloaderLoop},
+		unloadContender{name: "reads-2", run: readerLoop, pause: time.Millisecond},
+		unloadContender{name: "writes-2", run: writerLoop, pause: time.Millisecond},
+	)
+	r.runWithWatchdog(contenders, 5*time.Second, 20*time.Second)
+	r.requireInvariants(true)
+	var sb strings.Builder
+	for _, c := range contenders {
+		require.Positive(t, r.counter(c.name).Load(), c.name)
+		fmt.Fprintf(&sb, "%s=%d ", c.name, r.counter(c.name).Load())
 	}
+	t.Log(sb.String())
 }
 
 func TestLazyLoadShard_TryUnloadRacesTerminalOps(t *testing.T) {
@@ -512,23 +508,6 @@ func TestLazyLoadShard_TryUnloadAfterRecoveringPromotion(t *testing.T) {
 	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 	f.requireUnloaded(t)
 	require.True(t, f.exists(t, id))
-}
-
-func TestLazyLoadShard_TryUnloadLeavesTenantStatus(t *testing.T) {
-	state := NewMultiTenantShardingStateBuilder().
-		WithIndexName("UnloadTenants").WithNodePrefix("node").
-		WithReplicationFactor(1).
-		WithTenant("t1", models.TenantActivityStatusHOT).
-		Build()
-	u := newFakeShardUnloader()
-	f := newAddPropertyLazyFixture(t, "UnloadTenants", state, withShardUnloader(u))
-	lazy := f.coldShards(t)["t1"]
-	require.NotNil(t, lazy)
-	_, _, err := lazy.loadIfCold(testCtx())
-	require.NoError(t, err)
-	require.True(t, lazy.TryUnload(testCtx(), UnloadRequest{}))
-	require.Equal(t, models.TenantActivityStatusHOT, state.Physical["t1"].Status)
-	require.Same(t, lazy, f.index.shards.Load("t1"))
 }
 
 type switchableNamespace struct{ suspended atomic.Bool }

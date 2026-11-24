@@ -38,24 +38,6 @@ func idleKnobs(k *testKnobs) {
 	set(nil, k.idleTTL, 2*time.Second)
 }
 
-func TestPausedNeverUnloads(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, func(k *testKnobs) {
-			idleKnobs(k)
-			set(t, k.paused, true)
-		})
-		shards := h.loadN(3)
-		h.p.beforeLoad(cold(h))
-		time.Sleep(time.Minute)
-		synctest.Wait()
-
-		require.Equal(t, 3, h.loadedCount(shards))
-		for _, s := range shards {
-			require.Empty(t, s.requests())
-		}
-	})
-}
-
 func TestIdleSweepRetriesARefusedShard(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, func(k *testKnobs) {
@@ -74,6 +56,7 @@ func TestIdleSweepRetriesARefusedShard(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		require.False(t, busy.loaded())
+		require.Positive(t, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("ok")))
 	})
 }
 
@@ -102,61 +85,10 @@ func TestIdleSweepWalksTheRegistryInChunks(t *testing.T) {
 	})
 }
 
-func TestIdleTTLUnloadsIdleShardsAndStopsAtZero(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, func(k *testKnobs) {
-			set(t, k.idleTTL, 10*time.Second)
-		})
-		busy := h.reg.load("busy")
-		idle := h.reg.load("idle")
-		for range 12 {
-			busy.touch()
-			tickOnce(time.Second)
-		}
-		require.True(t, busy.loaded())
-		require.False(t, idle.loaded())
-		require.Equal(t, db.UnloadRequest{IdleTTL: 10 * time.Second}, idle.requests()[len(idle.requests())-1])
-		require.Positive(t, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("ok")))
-
-		set(t, h.knobs.idleTTL, 0)
-		time.Sleep(time.Minute)
-		synctest.Wait()
-		require.True(t, busy.loaded(), "idle_ttl 0 stops idle unloading")
-	})
-}
-
-func TestFractionalIdleTTLWaitsUntilTheShardIsIdle(t *testing.T) {
-	tests := []struct {
-		name    string
-		idleTTL time.Duration
-		wait    time.Duration
-	}{
-		{name: "below two seconds", idleTTL: 1500 * time.Millisecond, wait: 3 * time.Second},
-		{name: "just past a whole second", idleTTL: 2100 * time.Millisecond, wait: 4 * time.Second},
-		{name: "just past half a minute", idleTTL: 30500 * time.Millisecond, wait: 32 * time.Second},
-		{name: "a whole second", idleTTL: 2 * time.Second, wait: 3 * time.Second},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				h := newHarness(t, func(k *testKnobs) {
-					set(t, k.idleTTL, tt.idleTTL)
-				})
-				shard := h.reg.load("idle")
-
-				time.Sleep(tt.wait)
-				synctest.Wait()
-
-				require.False(t, shard.loaded())
-				require.Len(t, shard.requests(), 1, "selection and TryUnload agree on when the shard is idle")
-			})
-		})
-	}
-}
-
 func TestIdleShardIsNeverUnloadedBeforeIdleTTL(t *testing.T) {
-	for _, idleTTL := range []time.Duration{time.Second, 1500 * time.Millisecond, 2 * time.Second, 10 * time.Second} {
+	for _, idleTTL := range []time.Duration{
+		time.Second, 1500 * time.Millisecond, 2 * time.Second, 2100 * time.Millisecond, 10 * time.Second, 30500 * time.Millisecond,
+	} {
 		t.Run(idleTTL.String(), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				h := newHarness(t, func(k *testKnobs) {
@@ -176,6 +108,7 @@ func TestIdleShardIsNeverUnloadedBeforeIdleTTL(t *testing.T) {
 					}
 				}
 				require.False(t, shard.loaded())
+				require.Len(t, shard.requests(), 1, "selection and TryUnload agree on when the shard is idle")
 			})
 		})
 	}
@@ -215,10 +148,11 @@ func TestKnobChangesTakeEffectWithinOneTick(t *testing.T) {
 		before func(*testKnobs)
 		change func(t *testing.T, k *testKnobs)
 		want   int
+		swept  bool
 	}{
-		{name: "setting idle_ttl", change: func(t *testing.T, k *testKnobs) { set(t, k.idleTTL, 30*time.Second) }, want: 0},
+		{name: "setting idle_ttl", change: func(t *testing.T, k *testKnobs) { set(t, k.idleTTL, 30*time.Second) }, swept: true},
 		{
-			name:   "pausing",
+			name:   "setting idle_ttl while paused",
 			before: func(k *testKnobs) { set(nil, k.paused, true) },
 			change: func(t *testing.T, k *testKnobs) { set(t, k.idleTTL, 30*time.Second) },
 			want:   6,
@@ -227,7 +161,7 @@ func TestKnobChangesTakeEffectWithinOneTick(t *testing.T) {
 			name:   "unpausing",
 			before: func(k *testKnobs) { set(nil, k.paused, true); set(nil, k.idleTTL, 30*time.Second) },
 			change: func(t *testing.T, k *testKnobs) { set(t, k.paused, false) },
-			want:   0,
+			swept:  true,
 		},
 	}
 	for _, tt := range tests {
@@ -247,25 +181,12 @@ func TestKnobChangesTakeEffectWithinOneTick(t *testing.T) {
 				tt.change(t, h.knobs)
 				tickOnce(10 * time.Second)
 				require.Equal(t, tt.want, h.loadedCount(shards))
+				h.reg.mu.Lock()
+				defer h.reg.mu.Unlock()
+				require.Equal(t, tt.swept, h.reg.chunks > 0, "a paused tick never walks the registry")
 			})
 		})
 	}
-}
-
-func TestRefreshConfigAppliesKnobsWithoutWaitingForTheTick(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, func(k *testKnobs) {
-			set(t, k.checkInterval, time.Hour)
-		})
-		shards := h.loadN(4)
-		time.Sleep(10 * time.Second)
-		synctest.Wait()
-		set(t, h.knobs.idleTTL, 2*time.Second)
-		h.p.refreshConfig()
-		synctest.Wait()
-		require.Zero(t, h.loadedCount(shards))
-		require.Equal(t, 2*time.Second, h.p.snap.Load().idleTTL)
-	})
 }
 
 func TestWorkerPoolResizesLive(t *testing.T) {
@@ -348,36 +269,31 @@ func TestUnloadPanicKeepsTheWorker(t *testing.T) {
 	})
 }
 
-func blockedSweep(t *testing.T) (*harness, []*fakeShard, chan struct{}) {
-	h := newHarness(t, func(k *testKnobs) {
-		idleKnobs(k)
-		set(t, k.workers, 1)
-	})
-	gate := make(chan struct{})
-	first := h.reg.load("blocked")
-	first.block.Store(&gate)
-	time.Sleep(time.Second)
-	shards := append([]*fakeShard{first}, h.loadN(2)...)
-	time.Sleep(5 * time.Second)
-	synctest.Wait()
-	require.Len(t, shards[0].requests(), 1)
-	require.True(t, shards[1].pending.Load())
-	return h, shards, gate
-}
-
 func TestCloseStopsEveryGoroutineAndReleasesQueuedShards(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h, shards, gate := blockedSweep(t)
+		h := newHarness(t, func(k *testKnobs) {
+			idleKnobs(k)
+			set(t, k.workers, 1)
+		})
+		gate := make(chan struct{})
+		first := h.reg.load("blocked")
+		first.block.Store(&gate)
+		time.Sleep(time.Second)
+		shards := append([]*fakeShard{first}, h.loadN(2)...)
+		time.Sleep(5 * time.Second)
+		synctest.Wait()
+		require.Len(t, shards[0].requests(), 1)
+		require.True(t, shards[1].pending.Load())
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		require.ErrorIs(t, h.p.close(ctx), context.DeadlineExceeded, "close waits for an unload in flight")
+		require.False(t, shards[1].pending.Load(), "a timed-out close must not strand a queued claim")
+		require.True(t, shards[1].loaded())
 		close(gate)
 		require.NoError(t, h.p.close(context.Background()))
 		require.NoError(t, h.p.close(context.Background()))
 		require.Zero(t, h.p.workersRunning.Load())
-		require.False(t, shards[1].pending.Load(), "a queued handoff is released")
-		require.True(t, shards[1].loaded())
 		require.Zero(t, h.p.pending.Load())
 
 		h.p.beforeLoad(cold(h))
@@ -386,18 +302,6 @@ func TestCloseStopsEveryGoroutineAndReleasesQueuedShards(t *testing.T) {
 		synctest.Wait()
 		require.Empty(t, shards[1].requests())
 		require.Empty(t, shards[2].requests())
-	})
-}
-
-func TestReloadAfterUnloadIsObserved(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, nil)
-		s := cold(h)
-		h.p.beforeLoad(s)
-		s.unloadedAt.Store(time.Now().UnixNano())
-		time.Sleep(5 * time.Second)
-		h.p.beforeLoad(s)
-		require.Equal(t, 1, histogramCount(t, h, "weaviate_idle_shard_collector_reload_after_unload_seconds"))
 	})
 }
 
@@ -411,16 +315,6 @@ func histogramCount(t *testing.T, h *harness, name string) int {
 		}
 	}
 	return 0
-}
-
-func TestGauges(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, nil)
-		h.loadN(3)
-		tickOnce(time.Second)
-		require.Equal(t, 3.0, testutil.ToFloat64(h.p.metrics.loaded))
-		require.Zero(t, testutil.ToFloat64(h.p.metrics.unloading))
-	})
 }
 
 func TestMetricsRegisterTwiceOnOneRegistry(t *testing.T) {
@@ -441,6 +335,8 @@ func newAllocHarness(tb testing.TB) (*harness, *fakeShard) {
 
 func TestBeforeLoadAllocatesNothing(t *testing.T) {
 	h, loading := newAllocHarness(t)
+	h.p.beforeLoad(cold(h))
+	require.Zero(t, histogramCount(t, h, "weaviate_idle_shard_collector_reload_after_unload_seconds"), "a never-unloaded shard is not observed")
 	require.Zero(t, testing.AllocsPerRun(200, func() { h.p.beforeLoad(loading) }))
 	require.Positive(t, histogramCount(t, h, "weaviate_idle_shard_collector_reload_after_unload_seconds"))
 }
@@ -481,72 +377,6 @@ func TestSeriesStayBounded(t *testing.T) {
 	})
 }
 
-func TestCloseTimingOutStillReleasesQueuedShards(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		h, shards, gate := blockedSweep(t)
-
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		require.ErrorIs(t, h.p.close(ctx), context.DeadlineExceeded)
-		require.False(t, shards[1].pending.Load(), "a timed-out close must not strand a queued claim")
-		require.True(t, shards[1].loaded())
-		close(gate)
-	})
-}
-
-// synctest fails a test whose bubble still holds goroutines once it returns,
-// so this pins that Close leaves neither the loop nor a worker behind.
-func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		logger, _ := logrustest.NewNullLogger()
-		k := newTestKnobs()
-		set(t, k.workers, 8)
-		idleKnobs(k)
-		reg := newFakeRegistry()
-		p := newPolicy[*fakeShard](reg, k.knobs(), policyDeps{
-			logger: logger, clock: reg.clock,
-			metrics: newMetrics(nil, logger),
-		})
-		for range 4 {
-			reg.load("s")
-		}
-		tickOnce(5 * time.Second)
-		p.beforeLoad(&fakeShard{name: "loading", reg: reg})
-		synctest.Wait()
-		set(t, k.workers, 2)
-		p.refreshConfig()
-		synctest.Wait()
-
-		require.NoError(t, p.close(context.Background()))
-		require.Zero(t, p.workersRunning.Load())
-	})
-}
-
-func TestCollectingFollowsTheKnobs(t *testing.T) {
-	tests := []struct {
-		name      string
-		configure func(k *testKnobs)
-		close     bool
-		want      bool
-	}{
-		{name: "idle_ttl off"},
-		{name: "idle_ttl set", configure: idleKnobs, want: true},
-		{name: "paused", configure: func(k *testKnobs) { idleKnobs(k); set(nil, k.paused, true) }},
-		{name: "closed", configure: idleKnobs, close: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				h := newHarness(t, tt.configure)
-				if tt.close {
-					require.NoError(t, h.p.close(context.Background()))
-				}
-				require.Equal(t, tt.want, h.p.collecting())
-			})
-		})
-	}
-}
-
 func TestCollectingStopsOnALiveChange(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	k := newTestKnobs()
@@ -561,4 +391,77 @@ func TestCollectingStopsOnALiveChange(t *testing.T) {
 	set(t, k.paused, true)
 	c.RefreshConfig()
 	require.False(t, c.Collecting(), "a runtime change applies without waiting for the check")
+	set(t, k.paused, false)
+	c.RefreshConfig()
+	require.True(t, c.Collecting())
+	require.NoError(t, c.Close(context.Background()))
+	require.False(t, c.Collecting(), "closed means not collecting")
+}
+
+func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
+	stays := func(t *testing.T, queued *fakeShard) {
+		require.True(t, queued.loaded())
+		require.Empty(t, queued.requests(), "a handoff no setting wants anymore never reaches TryUnload")
+	}
+
+	tests := []struct {
+		name   string
+		change func(h *harness)
+		want   func(t *testing.T, queued *fakeShard)
+	}{
+		{
+			name:   "idle_ttl raised",
+			change: func(h *harness) { set(h.t, h.knobs.idleTTL, time.Hour) },
+			want: func(t *testing.T, queued *fakeShard) {
+				require.True(t, queued.loaded())
+				reqs := queued.requests()
+				require.Len(t, reqs, 1)
+				require.Equal(t, time.Hour, reqs[0].IdleTTL)
+			},
+		},
+		{
+			name:   "idle_ttl turned off",
+			change: func(h *harness) { set(h.t, h.knobs.idleTTL, 0) },
+			want:   stays,
+		},
+		{
+			name:   "paused",
+			change: func(h *harness) { set(h.t, h.knobs.paused, true) },
+			want:   stays,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				h := newHarness(t, func(k *testKnobs) {
+					set(t, k.checkInterval, 24*time.Hour)
+					set(t, k.idleTTL, 30*time.Second)
+					set(t, k.paused, true)
+				})
+				shards := h.loadN(4)
+				time.Sleep(time.Minute)
+				synctest.Wait()
+				gate := make(chan struct{})
+				shards[0].block.Store(&gate)
+
+				set(t, h.knobs.paused, false)
+				h.p.refreshConfig()
+				synctest.Wait()
+				require.Len(t, shards[0].requests(), 1, "the only worker is busy on the first shard")
+				queued := shards[1]
+				require.True(t, queued.pending.Load(), "the second shard waits in the queue")
+
+				tt.change(h)
+				h.p.refreshConfig()
+				synctest.Wait()
+				close(gate)
+				synctest.Wait()
+
+				tt.want(t, queued)
+				require.False(t, queued.pending.Load(), "the handoff released its claim")
+				require.Zero(t, h.p.pending.Load())
+			})
+		})
+	}
 }

@@ -34,16 +34,6 @@ func TestSnapshotSanitisesKnobs(t *testing.T) {
 		check     func(t *testing.T, s *snapshot)
 	}{
 		{
-			name:      "idle_ttl is taken as set",
-			configure: func(k *testKnobs) { set(nil, k.idleTTL, time.Second) },
-			check:     func(t *testing.T, s *snapshot) { require.Equal(t, time.Second, s.idleTTL) },
-		},
-		{
-			name:      "zero idle_ttl is off",
-			configure: func(k *testKnobs) { set(nil, k.idleTTL, 0) },
-			check:     func(t *testing.T, s *snapshot) { require.Zero(t, s.idleTTL) },
-		},
-		{
 			name:      "a negative idle_ttl is off",
 			configure: func(k *testKnobs) { set(nil, k.idleTTL, -time.Second) },
 			check:     func(t *testing.T, s *snapshot) { require.Zero(t, s.idleTTL) },

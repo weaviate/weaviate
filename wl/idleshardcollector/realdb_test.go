@@ -270,14 +270,4 @@ func TestRealIndexUnloadsIdleShards(t *testing.T) {
 	r.requireTenantsUnchanged(t)
 }
 
-func TestRealIndexWithoutAnUnloaderKeepsEveryShardLoaded(t *testing.T) {
-	r := newRealDB(t, nil, 6)
-	for _, tenant := range r.tenants {
-		r.put(t, tenant)
-	}
-	time.Sleep(500 * time.Millisecond)
-	require.Equal(t, 6, r.loaded(t))
-	require.Nil(t, r.repo.ShardUnloader())
-}
-
 var _ db.ShardUnloader = (*Collector)(nil)

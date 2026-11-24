@@ -72,20 +72,22 @@ func runTTLSweep(t *testing.T, index *Index) int32 {
 
 func TestTTLSweepCountsAsShardAccessOnlyWhenItDeletes(t *testing.T) {
 	tests := []struct {
-		name         string
-		shardState   *sharding.State
-		class        *models.Class
-		tenant       string
-		expiredCount int
-		unload       bool
-		wantDeleted  int32
+		name          string
+		shardState    *sharding.State
+		class         *models.Class
+		tenant        string
+		expiredCount  int
+		unload        bool
+		collectorIdle bool
+		wantDeleted   int32
+		wantLoaded    bool
 	}{
-		{name: "single tenant, nothing expired", shardState: singleShardState(), class: batchDeleteTTLClass()},
-		{name: "single tenant, expired objects", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, wantDeleted: 3},
+		{name: "single tenant, nothing expired", shardState: singleShardState(), class: batchDeleteTTLClass(), wantLoaded: true},
+		{name: "single tenant, expired objects", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, wantDeleted: 3, wantLoaded: true},
 		{name: "single tenant, unloaded", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, unload: true},
-		{name: "multi tenant, nothing expired", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant},
-		{name: "multi tenant, expired objects", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, wantDeleted: 3},
-		{name: "multi tenant, unloaded", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, unload: true},
+		{name: "single tenant, unloaded, collector idle", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, unload: true, collectorIdle: true, wantDeleted: 3, wantLoaded: true},
+		{name: "multi tenant, nothing expired", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, wantLoaded: true},
+		{name: "multi tenant, expired objects", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, wantDeleted: 3, wantLoaded: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -93,11 +95,12 @@ func TestTTLSweepCountsAsShardAccessOnlyWhenItDeletes(t *testing.T) {
 			if tt.unload {
 				require.True(t, lazy.TryUnload(testCtx(), UnloadRequest{}))
 			}
+			index.Config.ShardUnloader.(*fakeShardUnloader).idle.Store(tt.collectorIdle)
 			lazy.lastAccess.Store(0)
 
 			require.Equal(t, tt.wantDeleted, runTTLSweep(t, index))
 
-			require.Equal(t, !tt.unload, lazy.isLoaded())
+			require.Equal(t, tt.wantLoaded, lazy.isLoaded())
 			require.Equal(t, tt.wantDeleted > 0, lazy.LastAccess() != 0)
 		})
 	}
@@ -140,17 +143,19 @@ func setupUnlicensedColdTTLRepo(t *testing.T, expiredCount int) (*Index, *LazyLo
 
 func TestIncomingFindUUIDsFromBackgroundWork(t *testing.T) {
 	tests := []struct {
-		name       string
-		background bool
-		unload     bool
-		wantLoaded bool
-		wantFound  int
-		wantAccess bool
+		name          string
+		background    bool
+		unload        bool
+		collectorIdle bool
+		wantLoaded    bool
+		wantFound     int
+		wantAccess    bool
 	}{
 		{name: "request, loaded", wantLoaded: true, wantFound: 3, wantAccess: true},
 		{name: "request, unloaded", unload: true, wantLoaded: true, wantFound: 3, wantAccess: true},
 		{name: "background, loaded", background: true, wantLoaded: true, wantFound: 3},
 		{name: "background, unloaded", background: true, unload: true},
+		{name: "background, unloaded, collector idle", background: true, unload: true, collectorIdle: true, wantLoaded: true, wantFound: 3, wantAccess: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,6 +163,7 @@ func TestIncomingFindUUIDsFromBackgroundWork(t *testing.T) {
 			if tt.unload {
 				require.True(t, lazy.TryUnload(testCtx(), UnloadRequest{}))
 			}
+			index.Config.ShardUnloader.(*fakeShardUnloader).idle.Store(tt.collectorIdle)
 			lazy.lastAccess.Store(0)
 			ctx := context.Background()
 			if tt.background {
@@ -182,29 +188,6 @@ func TestBackgroundWorkLoadsColdShardsWithoutAnUnloader(t *testing.T) {
 	})
 	t.Run("incoming find uuids", func(t *testing.T) {
 		index, lazy := setupUnlicensedColdTTLRepo(t, 3)
-		uuids, err := index.IncomingFindUUIDs(backgroundaccess.With(context.Background()), lazy.Name(), ttlExpiredFilter(), 100)
-		require.NoError(t, err)
-		require.Len(t, uuids, 3)
-		require.True(t, lazy.isLoaded())
-	})
-}
-
-func TestBackgroundWorkLoadsColdShardsWhileTheCollectorIsIdle(t *testing.T) {
-	setup := func(t *testing.T) (*Index, *LazyLoadShard) {
-		index, lazy := setupTTLUnloaderRepo(t, singleShardState(), batchDeleteTTLClass(), "", 3)
-		require.True(t, lazy.TryUnload(testCtx(), UnloadRequest{}))
-		u, ok := index.Config.ShardUnloader.(*fakeShardUnloader)
-		require.True(t, ok)
-		u.idle.Store(true)
-		return index, lazy
-	}
-	t.Run("ttl sweep", func(t *testing.T) {
-		index, lazy := setup(t)
-		require.Equal(t, int32(3), runTTLSweep(t, index))
-		require.True(t, lazy.isLoaded())
-	})
-	t.Run("incoming find uuids", func(t *testing.T) {
-		index, lazy := setup(t)
 		uuids, err := index.IncomingFindUUIDs(backgroundaccess.With(context.Background()), lazy.Name(), ttlExpiredFilter(), 100)
 		require.NoError(t, err)
 		require.Len(t, uuids, 3)

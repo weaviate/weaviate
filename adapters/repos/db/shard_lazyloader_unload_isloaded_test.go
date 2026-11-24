@@ -40,38 +40,7 @@ func blockTeardown(t *testing.T, l *LazyLoadShard) (entered <-chan struct{}, rel
 	return in, release
 }
 
-func TestLazyLoadShard_AddPropertyDoesNotWaitOnAnUnloadTeardown(t *testing.T) {
-	f := newUnloadFixture(t)
-	f.put(t)
-	entered, release := blockTeardown(t, f.lazy)
-	done := make(chan bool, 1)
-	go func() {
-		done <- f.lazy.TryUnload(testCtx(), UnloadRequest{})
-	}()
-	<-entered
-
-	prop := textProp("late", true)
-	f.schemaClass.Properties = append(f.schemaClass.Properties, prop)
-	added := make(chan error, 1)
-	go func() { added <- f.index.addProperty(testCtx(), prop) }()
-	select {
-	case err := <-added:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		release()
-		require.FailNow(t, "addProperty waited on an unload teardown")
-	}
-	require.False(t, f.lazy.isLoaded(), "a shard mid-teardown reads as unloaded")
-
-	release()
-	require.True(t, <-done)
-	shard, rel, err := f.index.GetShard(testCtx(), f.name)
-	defer rel()
-	require.NoError(t, err)
-	require.NotNil(t, shard.Store().Bucket(helpers.BucketFromPropNameLSM("late")), "the reload builds the added property")
-}
-
-func TestLazyLoadShard_IsLoadedWaitsForALoadButRefusesUnloadsMeanwhile(t *testing.T) {
+func TestLazyLoadShard_IsLoadedWaitsForALoadInFlight(t *testing.T) {
 	f := newUnloadFixture(t)
 	f.put(t)
 	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
@@ -95,51 +64,6 @@ func TestLazyLoadShard_IsLoadedWaitsForALoadButRefusesUnloadsMeanwhile(t *testin
 	require.True(t, waiting)
 	require.True(t, <-result, "a load in flight is waited on")
 	require.Zero(t, f.lazy.loadWaiters.Load())
-
-	f.lazy.loadWaiters.Add(1)
-	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}),
-		"an unload never starts a teardown a waiting isLoaded would then sit through")
-	f.lazy.loadWaiters.Add(-1)
-	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-}
-
-func TestLazyLoadShard_IsLoadedRacesUnloadsAndReloads(t *testing.T) {
-	f := newUnloadFixture(t)
-	f.put(t)
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-					f.lazy.isLoaded()
-				}
-			}
-		}()
-	}
-	unloads, refusals := 0, 0
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if f.lazy.TryUnload(testCtx(), UnloadRequest{}) {
-			unloads++
-		} else {
-			refusals++
-		}
-		shard, release, err := f.index.GetShard(testCtx(), f.name)
-		require.NoError(t, err)
-		require.NotNil(t, shard)
-		release()
-	}
-	close(stop)
-	wg.Wait()
-	require.Positive(t, unloads, "refusals: %d", refusals)
-	require.True(t, f.lazy.isLoaded())
-	require.EqualValues(t, 1, f.unloader.registry.Loaded())
 }
 
 // TryUnload holds shardCreateLocks only across try-locks and atomics; the
@@ -192,7 +116,23 @@ func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
 	tests := []struct {
 		name  string
 		check func(t *testing.T, f *unloadFixture)
+		after func(t *testing.T, f *unloadFixture)
 	}{
+		{
+			name: "addProperty",
+			check: func(t *testing.T, f *unloadFixture) {
+				prop := textProp("late", true)
+				f.schemaClass.Properties = append(f.schemaClass.Properties, prop)
+				require.NoError(t, f.index.addProperty(testCtx(), prop))
+				require.False(t, f.lazy.isLoaded(), "a shard mid-teardown reads as unloaded")
+			},
+			after: func(t *testing.T, f *unloadFixture) {
+				shard, release, err := f.index.GetShard(testCtx(), f.name)
+				require.NoError(t, err)
+				defer release()
+				require.NotNil(t, shard.Store().Bucket(helpers.BucketFromPropNameLSM("late")), "the reload builds the added property")
+			},
+		},
 		{name: "GetStatus", check: func(t *testing.T, f *unloadFixture) {
 			require.Equal(t, storagestate.StatusLazyLoading, f.lazy.GetStatus())
 		}},
@@ -269,6 +209,9 @@ func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
 			}
 			release()
 			require.True(t, <-done)
+			if tt.after != nil {
+				tt.after(t, f)
+			}
 		})
 	}
 }

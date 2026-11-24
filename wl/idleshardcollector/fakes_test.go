@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -40,8 +39,6 @@ type fakeShard struct {
 	panics     atomic.Bool
 	// refuse makes every TryUnload refuse, as a shard shutdown can.
 	refuse atomic.Bool
-	// seq is the registry-wide order in which TryUnload was entered, 0 if never.
-	seq atomic.Int64
 
 	mu   sync.Mutex
 	reqs []db.UnloadRequest
@@ -66,10 +63,6 @@ func (f *fakeShard) ClearUnloadPending() { f.pending.Store(false) }
 
 func (f *fakeShard) TryUnload(_ context.Context, req db.UnloadRequest) bool {
 	defer f.ClearUnloadPending()
-	f.seq.Store(f.reg.unloadSeq.Add(1))
-	if d := f.reg.unloadDelay.Load(); d > 0 {
-		time.Sleep(time.Duration(d))
-	}
 	f.mu.Lock()
 	f.reqs = append(f.reqs, req)
 	f.mu.Unlock()
@@ -103,9 +96,6 @@ func (f *fakeShard) touch() { f.lastAccess.Store(f.reg.clock()) }
 
 type fakeRegistry struct {
 	epoch time.Time
-
-	unloadSeq   atomic.Int64
-	unloadDelay atomic.Int64
 
 	mu     sync.Mutex
 	shards []*fakeShard
@@ -203,35 +193,28 @@ type harness struct {
 	knobs *testKnobs
 	p     *policy[*fakeShard]
 	prom  *prometheus.Registry
-	logs  *logrustest.Hook
 }
 
-type harnessOpt func(*harness, *policyDeps)
-
-func newHarness(t testing.TB, configure func(*testKnobs), opts ...harnessOpt) *harness {
+func newHarness(t testing.TB, configure func(*testKnobs)) *harness {
 	t.Helper()
 	k := newTestKnobs()
 	if configure != nil {
 		configure(k)
 	}
-	h := newHarnessWithKnobs(t, k.knobs(), opts...)
+	h := newHarnessWithKnobs(t, k.knobs())
 	h.knobs = k
 	return h
 }
 
-func newHarnessWithKnobs(t testing.TB, knobs Knobs, opts ...harnessOpt) *harness {
+func newHarnessWithKnobs(t testing.TB, knobs Knobs) *harness {
 	t.Helper()
-	logger, hook := logrustest.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-	h := &harness{t: t, reg: newFakeRegistry(), prom: prometheus.NewPedanticRegistry(), logs: hook}
+	logger, _ := logrustest.NewNullLogger()
+	h := &harness{t: t, reg: newFakeRegistry(), prom: prometheus.NewPedanticRegistry()}
 	deps := policyDeps{
-		logger: logger,
-		clock:  h.reg.clock,
+		logger:  logger,
+		clock:   h.reg.clock,
+		metrics: newMetrics(h.prom, logger),
 	}
-	for _, opt := range opts {
-		opt(h, &deps)
-	}
-	deps.metrics = newMetrics(h.prom, logger)
 	h.p = newPolicy[*fakeShard](h.reg, knobs, deps)
 	t.Cleanup(func() { require.NoError(t, h.p.close(context.Background())) })
 	return h

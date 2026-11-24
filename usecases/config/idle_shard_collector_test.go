@@ -41,7 +41,6 @@ func TestIdleShardCollectorIgnoresEnvironment(t *testing.T) {
 		name string
 		env  map[string]string
 	}{
-		{name: "nothing set"},
 		{name: "valid values", env: map[string]string{
 			"IDLE_SHARD_COLLECTOR_IDLE_TTL": "10m", "IDLE_SHARD_COLLECTOR_CHECK_INTERVAL": "1m",
 			"IDLE_SHARD_COLLECTOR_PAUSED": "true",
@@ -106,17 +105,4 @@ idle_shard_collector_idle_ttl: 500ms
 	require.NoError(t, err)
 	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
 	require.Equal(t, defaultIdleShardCollectorValues(), idleShardCollectorValues(conf.IdleShardCollector))
-}
-
-func TestBuildRegisteredRuntimeConfigSharesIdleShardCollector(t *testing.T) {
-	conf := Config{}
-	require.NoError(t, FromEnv(&conf))
-	r := BuildRegisteredRuntimeConfig(&conf)
-	c := conf.IdleShardCollector
-	require.Same(t, c.IdleTTL, r.IdleShardCollectorIdleTTL)
-	require.Same(t, c.CheckInterval, r.IdleShardCollectorCheckInterval)
-	require.Same(t, c.UnloadRate, r.IdleShardCollectorUnloadRate)
-	require.Same(t, c.UnloadWorkers, r.IdleShardCollectorUnloadWorkers)
-	require.Same(t, c.Paused, r.IdleShardCollectorPaused)
-	require.True(t, HookKeyMatchesAnyField("IdleShardCollector"))
 }

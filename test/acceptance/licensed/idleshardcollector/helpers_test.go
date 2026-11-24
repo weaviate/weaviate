@@ -55,9 +55,8 @@ const (
 	overridesPath = "/etc/weaviate/runtime-overrides.yaml"
 	metricsURL    = "http://127.0.0.1:2112/metrics"
 
-	metricLoaded  = "weaviate_idle_shard_collector_loaded_shards"
-	metricUnloads = "weaviate_idle_shard_collector_unloads_total"
-	// metricUnloading has no labels, so every tick publishes it, namespaces or not.
+	metricLoaded    = "weaviate_idle_shard_collector_loaded_shards"
+	metricUnloads   = "weaviate_idle_shard_collector_unloads_total"
 	metricUnloading = "weaviate_idle_shard_collector_unloading_shards"
 
 	// listLimit is the server's default QUERY_MAXIMUM_RESULTS.
@@ -83,6 +82,8 @@ func (k knobs) yaml() string {
 
 // idleTTL leaves each test time to see its shards loaded before they unload.
 const idleTTL = "30s"
+
+var idleKnobs = knobs{"idle_ttl": idleTTL}
 
 // fastKnobs makes the collector check every second.
 func fastKnobs(extra knobs) knobs {
@@ -157,8 +158,8 @@ func setKnobs(ctx context.Context, t *testing.T, compose *docker.DockerCompose, 
 	}
 }
 
-// metric sums every series of name on the node; ok is false while the series is absent.
-func metric(ctx context.Context, c *docker.DockerContainer, name string, labelFragments ...string) (value float64, ok bool, err error) {
+// metric sums every series of name whose line contains label; ok is false while no such series exists.
+func metric(ctx context.Context, c *docker.DockerContainer, name, label string) (value float64, ok bool, err error) {
 	code, reader, err := c.Container().Exec(ctx,
 		[]string{"sh", "-c", fmt.Sprintf("wget -qO- %s | grep -E '^%s( |\\{)' || true", metricsURL, name)},
 		tcexec.Multiplexed())
@@ -173,7 +174,7 @@ func metric(ctx context.Context, c *docker.DockerContainer, name string, labelFr
 		return 0, false, fmt.Errorf("scrape %s: exit %d: %s", name, code, out)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" || !containsAll(line, labelFragments) {
+		if line == "" || !strings.Contains(line, label) {
 			continue
 		}
 		fields := strings.Fields(line)
@@ -187,25 +188,13 @@ func metric(ctx context.Context, c *docker.DockerContainer, name string, labelFr
 	return value, ok, nil
 }
 
-func containsAll(s string, fragments []string) bool {
-	for _, f := range fragments {
-		if !strings.Contains(s, f) {
-			return false
-		}
-	}
-	return true
-}
-
-// loadedShards is the collector's own count of loaded shards on the node; a running collector drops an emptied namespace's series.
+// loadedShards is the collector's own count of loaded shards on the node.
 func loadedShards(ctx context.Context, c *docker.DockerContainer) (int, error) {
-	v, ok, err := metric(ctx, c, metricLoaded)
-	if err != nil || ok {
-		return int(v), err
+	v, ok, err := metric(ctx, c, metricLoaded, "")
+	if err == nil && !ok {
+		err = errors.New(metricLoaded + " is not published")
 	}
-	if _, running, err := metric(ctx, c, metricUnloading); err != nil || !running {
-		return 0, errors.Join(err, errors.New(metricLoaded+" is not published"))
-	}
-	return 0, nil
+	return int(v), err
 }
 
 // waitUnloader blocks until every node's collector publishes its gauges.
@@ -213,7 +202,7 @@ func waitUnloader(ctx context.Context, t *testing.T, compose *docker.DockerCompo
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for i := 1; i <= nodeCount; i++ {
-			_, ok, err := metric(ctx, compose.GetWeaviateNode(i), metricUnloading)
+			_, ok, err := metric(ctx, compose.GetWeaviateNode(i), metricUnloading, "")
 			require.NoError(ct, err)
 			require.True(ct, ok, "node %d publishes no %s", i, metricUnloading)
 		}
@@ -414,26 +403,22 @@ func (l *ledger) random(class, tenant string, r *rand.Rand) (strfmt.UUID, bool) 
 	return ids[r.Intn(len(ids))], true
 }
 
-func randomVector(r *rand.Rand) []float32 {
-	v := make([]float32, 8)
-	for i := range v {
-		v[i] = r.Float32()
-	}
-	return v
-}
-
 // writeObjects batch-writes n objects and records them only once every one is acknowledged.
 func writeObjects(ctx context.Context, cl *apiclient.Weaviate, l *ledger, class, tenant string, n int, consistency *string, r *rand.Rand) error {
 	objs := make([]*models.Object, n)
 	ids := make([]strfmt.UUID, n)
 	for i := range objs {
 		ids[i] = strfmt.UUID(uuid.NewString())
+		vec := make([]float32, 8)
+		for j := range vec {
+			vec[j] = r.Float32()
+		}
 		objs[i] = &models.Object{
 			Class:      class,
 			ID:         ids[i],
 			Tenant:     tenant,
 			Properties: map[string]any{"owner": tenant, "seq": i},
-			Vector:     randomVector(r),
+			Vector:     vec,
 		}
 	}
 	l.attempt(class, tenant, ids...)
@@ -506,14 +491,6 @@ func listObjectIDs(ctx context.Context, cl *apiclient.Weaviate, class, tenant st
 	return ids, nil
 }
 
-func countObjects(ctx context.Context, cl *apiclient.Weaviate, class, tenant string) (int, error) {
-	ids, err := listObjectIDs(ctx, cl, class, tenant)
-	if err != nil {
-		return 0, err
-	}
-	return len(ids), nil
-}
-
 // verifyAll checks every acknowledged object reads back and every shard holds exactly the ledger's count.
 func verifyAll(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string) {
 	t.Helper()
@@ -522,12 +499,12 @@ func verifyAll(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *led
 	for _, tenant := range tenants {
 		g.Go(func() error {
 			ids := l.ids(class, tenant)
-			n, err := countObjects(gctx, cl, class, tenant)
+			listed, err := listObjectIDs(gctx, cl, class, tenant)
 			if err != nil {
 				return err
 			}
-			if n != len(ids) {
-				return fmt.Errorf("%s/%s holds %d objects, %d acknowledged", class, tenant, n, len(ids))
+			if len(listed) != len(ids) {
+				return fmt.Errorf("%s/%s holds %d objects, %d acknowledged", class, tenant, len(listed), len(ids))
 			}
 			for _, id := range ids {
 				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
@@ -652,63 +629,43 @@ func randomWorkload(ctx context.Context, cl *apiclient.Weaviate, l *ledger, clas
 	return g.Wait()
 }
 
-func TestCheckListing(t *testing.T) {
-	t.Parallel()
-	const a, b, c, d strfmt.UUID = "a", "b", "c", "d"
-	attempted := map[strfmt.UUID]struct{}{a: {}, b: {}, c: {}}
-	tests := []struct {
-		name        string
-		acked       []strfmt.UUID
-		listed      []strfmt.UUID
-		wantApplied int
-		wantErrs    []string
-	}{
-		{name: "only acknowledged writes", acked: []strfmt.UUID{a, b}, listed: []strfmt.UUID{b, a}},
-		{name: "unacknowledged write lost", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a}},
-		{name: "unacknowledged writes applied", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, b, c}, wantApplied: 2},
-		{
-			name: "acknowledged write missing", acked: []strfmt.UUID{a, b}, listed: []strfmt.UUID{a, c},
-			wantErrs: []string{"acknowledged but not listed: [b]"},
-		},
-		{
-			name: "acknowledged write listed twice", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, a},
-			wantErrs: []string{"listed more than once: [a]"},
-		},
-		{
-			name: "unacknowledged write listed twice", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, b, b},
-			wantErrs: []string{"listed more than once: [b]"},
-		},
-		{
-			name: "listed but never attempted", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, d},
-			wantErrs: []string{"listed but never attempted: [d]"},
-		},
-		{
-			name: "every check breaks at once", acked: []strfmt.UUID{a, b}, listed: []strfmt.UUID{b, b, d},
-			wantErrs: []string{"acknowledged but not listed: [a]", "listed more than once: [b]", "listed but never attempted: [d]"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			applied, err := checkListing(tt.acked, tt.listed, attempted)
-			if len(tt.wantErrs) == 0 {
-				require.NoError(t, err)
-				require.Equal(t, tt.wantApplied, applied)
-				return
-			}
-			for _, want := range tt.wantErrs {
-				require.ErrorContains(t, err, want)
-			}
-		})
-	}
-}
+// minPollsAcrossIdleTTL is 3s of 200ms polls after the last access.
+const minPollsAcrossIdleTTL int64 = 15
 
-func envInt(t *testing.T, name string, def int) int {
+// pollNodesVerbose reads every shard's status on the class until the test ends.
+func pollNodesVerbose(ctx context.Context, t *testing.T, compose *docker.DockerCompose, class string) *atomic.Int64 {
 	t.Helper()
-	v := os.Getenv(name)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.Atoi(v)
-	require.NoError(t, err, "%s", name)
-	return n
+	cl := newClient(compose.GetWeaviate().URI())
+	pctx, stop := context.WithCancel(ctx)
+	var polls atomic.Int64
+	var pollErr atomic.Pointer[error]
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := nodeLoadedShards(pctx, cl, class); err != nil {
+					if pctx.Err() == nil {
+						pollErr.CompareAndSwap(nil, &err)
+					}
+					continue
+				}
+				polls.Add(1)
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		stop()
+		wg.Wait()
+		if err := pollErr.Load(); err != nil {
+			t.Errorf("nodes API poll failed: %v", *err)
+		}
+	})
+	return &polls
 }

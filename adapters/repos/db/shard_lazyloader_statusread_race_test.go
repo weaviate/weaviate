@@ -66,62 +66,88 @@ func (h *statusReadHits) record(op string, err error, status string) {
 	}
 }
 
-func TestLazyLoadShard_StatusReadNeverErrsOnAnIdleUnload(t *testing.T) {
-	prev := runtime.GOMAXPROCS(1)
-	t.Cleanup(func() { runtime.GOMAXPROCS(prev) })
-	f := newUnloadFixture(t)
-	f.put(t)
-	ctx := context.Background()
-	hits := &statusReadHits{}
-	reads := []func() (string, string, error){
-		func() (string, string, error) {
-			s, err := f.index.IncomingGetShardStatus(ctx, f.name)
-			return "IncomingGetShardStatus", s, err
+func TestLazyLoadShard_StatusReadsOnAnIdleUnload(t *testing.T) {
+	tests := []struct {
+		name        string
+		reads       func(f *unloadFixture) []func() (string, string, error)
+		tearingOnly bool
+	}{
+		{
+			name:        "index status reads never err",
+			tearingOnly: true,
+			reads: func(f *unloadFixture) []func() (string, string, error) {
+				ctx := context.Background()
+				return []func() (string, string, error){
+					func() (string, string, error) {
+						s, err := f.index.IncomingGetShardStatus(ctx, f.name)
+						return "IncomingGetShardStatus", s, err
+					},
+					func() (string, string, error) {
+						_, err := f.index.IncomingGetShardQueueSize(ctx, f.name)
+						return "IncomingGetShardQueueSize", storagestate.StatusReady.String(), err
+					},
+					func() (string, string, error) {
+						s, err := f.index.localShardStatus(ctx, f.name)
+						return "localShardStatus", s, err
+					},
+				}
+			},
 		},
-		func() (string, string, error) {
-			_, err := f.index.IncomingGetShardQueueSize(ctx, f.name)
-			return "IncomingGetShardQueueSize", storagestate.StatusReady.String(), err
-		},
-		func() (string, string, error) {
-			s, err := f.index.localShardStatus(ctx, f.name)
-			return "localShardStatus", s, err
+		{
+			name: "wrapper status never reads SHUTDOWN",
+			reads: func(f *unloadFixture) []func() (string, string, error) {
+				return []func() (string, string, error){
+					func() (string, string, error) { return "GetStatus", f.lazy.GetStatus().String(), nil },
+				}
+			},
 		},
 	}
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	for i := range 6 {
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			read := reads[i%len(reads)]
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				if f.lazy.unloadPhase.Load() != unloadPhaseTearing {
-					time.Sleep(20 * time.Microsecond)
-					continue
-				}
-				op, status, err := read()
-				hits.record(op, err, status)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prev := runtime.GOMAXPROCS(1)
+			t.Cleanup(func() { runtime.GOMAXPROCS(prev) })
+			f := newUnloadFixture(t)
+			f.put(t)
+			ctx := context.Background()
+			hits := &statusReadHits{}
+			reads := tt.reads(f)
+			stop := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := range 6 {
+				wg.Add(1)
+				enterrors.GoWrapper(func() {
+					defer wg.Done()
+					read := reads[i%len(reads)]
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+						}
+						if tt.tearingOnly && f.lazy.unloadPhase.Load() != unloadPhaseTearing {
+							time.Sleep(20 * time.Microsecond)
+							continue
+						}
+						op, status, err := read()
+						hits.record(op, err, status)
+					}
+				}, f.index.logger)
 			}
-		}, f.index.logger)
+			var cycles int
+			deadline := time.Now().Add(stressDuration(t, 10*time.Second))
+			for time.Now().Before(deadline) && hits.hits.Load() == 0 {
+				if f.lazy.TryUnload(ctx, UnloadRequest{}) {
+					cycles++
+				}
+				_, release, err := f.index.getOrInitShard(ctx, f.name)
+				release()
+				require.NoError(t, err)
+			}
+			close(stop)
+			wg.Wait()
+			t.Logf("unload cycles=%d status reads=%d busy=%d hits=%d", cycles, hits.reads.Load(), hits.busy.Load(), hits.hits.Load())
+			require.Positive(t, cycles)
+			require.Zero(t, hits.hits.Load(), "a status read saw the idle unload's teardown: %v", hits.samples)
+		})
 	}
-	var cycles int
-	deadline := time.Now().Add(stressDuration(t, 10*time.Second))
-	for time.Now().Before(deadline) && hits.hits.Load() == 0 {
-		if f.lazy.TryUnload(ctx, UnloadRequest{}) {
-			cycles++
-		}
-		_, release, err := f.index.getOrInitShard(ctx, f.name)
-		release()
-		require.NoError(t, err)
-	}
-	close(stop)
-	wg.Wait()
-	t.Logf("unload cycles=%d status reads=%d busy=%d hits=%d", cycles, hits.reads.Load(), hits.busy.Load(), hits.hits.Load())
-	require.Positive(t, cycles)
-	require.Zero(t, hits.hits.Load(), "a status read failed on an idle unload: %v", hits.samples)
 }

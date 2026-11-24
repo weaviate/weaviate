@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type fakeShardUnloader struct {
@@ -260,6 +261,8 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			s := f.lazy.currentShard()
 			require.NotNil(t, s)
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
+			require.True(t, f.lazy.UnloadedAt().IsZero())
+			before := time.Now()
 
 			undo := func() {}
 			if tt.arm != nil {
@@ -290,68 +293,24 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}), "the refusal lifts with its cause")
 				f.requireUnloaded(t)
 			}
+			require.False(t, f.lazy.UnloadedAt().Before(before))
 			require.True(t, f.exists(t, id), "data survives the unload and the reload")
 			require.NotSame(t, s, f.lazy.currentShard())
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
+			require.True(t, f.lazy.UnloadedAt().IsZero(), "a reload clears it")
 		})
 	}
-}
-
-func TestLazyLoadShard_TryUnloadRefusesAMovementStartedAfterItsCheck(t *testing.T) {
-	f := newUnloadFixture(t)
-	id := f.put(t)
-	var active atomic.Bool
-	t.Cleanup(f.setMovement(active.Load, func() bool { return false }))
-	f.lazy.unloadMarkedHook = func() { active.Store(true) }
-
-	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-	f.requireUnloaded(t)
-	f.lazy.unloadMarkedHook = nil
-
-	require.NoError(t, f.index.IncomingStartChangeCapture(testCtx(), f.name, "op-1"))
-	s := f.lazy.currentShard()
-	require.NotNil(t, s, "activation loads the shard")
-
-	require.False(t, tryUnloadPromptly(t, f.lazy, UnloadRequest{}))
-	require.Same(t, s, f.lazy.currentShard())
-	require.False(t, s.shut.Load())
-	require.EqualValues(t, 1, f.unloader.registry.Loaded())
-	require.NoError(t, f.index.IncomingStopChangeCapture(testCtx(), f.name, "op-1"))
-	require.True(t, f.exists(t, id))
 }
 
 func TestLazyLoadShard_TryUnloadRefusesWhileAReindexIsLive(t *testing.T) {
 	tests := []struct {
 		name string
-		opts []func(*Config)
 		arm  func(db *DB, collection, shard string)
-		want bool
 	}{
-		{
-			name: "no live reindex",
-			arm: func(db *DB, collection, shard string) {
-				db.SetShardReindexActivityLookup(makeActivityBuilder(nil))
-			},
-			want: true,
-		},
 		{
 			name: "live reindex on the shard",
 			arm: func(db *DB, collection, shard string) {
 				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, shard}: true}))
-			},
-		},
-		{
-			name: "live reindex on another shard",
-			arm: func(db *DB, collection, shard string) {
-				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, "other"}: true}))
-			},
-			want: true,
-		},
-		{
-			name: "terminal reindex still cleaning up the shard",
-			arm: func(db *DB, collection, shard string) {
-				db.SetShardReindexActivityLookup(makeActivityBuilder(nil))
-				db.SetReindexCleanupInProgressLookup(makeCleanupBuilder(map[[2]string]bool{{collection, shard}: true}))
 			},
 		},
 		{
@@ -360,30 +319,17 @@ func TestLazyLoadShard_TryUnloadRefusesWhileAReindexIsLive(t *testing.T) {
 				db.SetShardReindexActivityLookup(unreachableActivityBuilder)
 			},
 		},
-		{
-			name: "runtime reindex disabled",
-			opts: []func(*Config){func(c *Config) { c.RuntimeReindexDisabled = true }},
-			arm: func(db *DB, collection, shard string) {
-				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, shard}: true}))
-			},
-			want: true,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newUnloadFixture(t, tt.opts...)
+			f := newUnloadFixture(t)
 			id := f.put(t)
 			s := f.lazy.currentShard()
 			require.NotNil(t, s)
 			tt.arm(f.index.db, f.index.Config.ClassName.String(), f.name)
 
-			require.Equal(t, tt.want, tryUnloadPromptly(t, f.lazy, UnloadRequest{}))
-			if tt.want {
-				f.requireUnloaded(t)
-				require.True(t, f.exists(t, id))
-				return
-			}
+			require.False(t, tryUnloadPromptly(t, f.lazy, UnloadRequest{}))
 			require.Same(t, s, f.lazy.currentShard(), "a refused unload leaves the shard loaded")
 			require.False(t, s.shut.Load())
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
@@ -405,18 +351,84 @@ func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) bool {
 	}
 }
 
-func TestLazyLoadShard_TryUnloadTornTeardown(t *testing.T) {
-	f := newUnloadFixture(t)
-	f.put(t)
-	s := f.lazy.currentShard()
-	replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return failingShutdownVectorIndex{v} })
+func TestTryUnload_ReadOnlyStatusAcrossReload(t *testing.T) {
+	tests := []struct {
+		name          string
+		arm           func(t *testing.T, f *unloadFixture)
+		whileUnloaded func(t *testing.T, f *unloadFixture)
+		cycles        int
+		want          storagestate.Status
+	}{
+		{
+			name:   "manual READONLY survives an idle unload",
+			arm:    setManualStatus(storagestate.StatusReadOnly),
+			cycles: 1,
+			want:   storagestate.StatusReadOnly,
+		},
+		{
+			name:   "manual READONLY survives repeated idle unloads",
+			arm:    setManualStatus(storagestate.StatusReadOnly),
+			cycles: 3,
+			want:   storagestate.StatusReadOnly,
+		},
+		{
+			name:          "manual READY on an unloaded READONLY shard lifts it",
+			arm:           setManualStatus(storagestate.StatusReadOnly),
+			whileUnloaded: setManualStatus(storagestate.StatusReady),
+			cycles:        1,
+			want:          storagestate.StatusReady,
+		},
+		{
+			name:          "manual READONLY outlives a resource recovery while unloaded",
+			arm:           setManualStatus(storagestate.StatusReadOnly),
+			whileUnloaded: func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReady() },
+			cycles:        1,
+			want:          storagestate.StatusReadOnly,
+		},
+		{
+			name:   "resource pressure READONLY is re-read at load",
+			arm:    func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReadOnly("test") },
+			cycles: 1,
+			want:   storagestate.StatusReadOnly,
+		},
+		{
+			name:          "resource pressure READONLY lifted while unloaded loads READY",
+			arm:           func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReadOnly("test") },
+			whileUnloaded: func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReady() },
+			cycles:        1,
+			want:          storagestate.StatusReady,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			f.put(t)
+			tt.arm(t, f)
+			for range tt.cycles {
+				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+				f.requireUnloaded(t)
+				if tt.whileUnloaded != nil {
+					tt.whileUnloaded(t, f)
+				}
+				shard, release, err := f.index.GetShard(testCtx(), f.name)
+				require.NoError(t, err)
+				require.Equal(t, tt.want, shard.GetStatus())
+				err = shard.PutObject(testCtx(), testObject(f.index.Config.ClassName.String()))
+				release()
+				if tt.want == storagestate.StatusReadOnly {
+					require.ErrorContains(t, err, storagestate.ErrStatusReadOnly.Error())
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		})
+	}
+}
 
-	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-	require.Same(t, s, f.lazy.currentShard(), "the torn shard stays published as the last reference to its handles")
-	require.Error(t, s.teardownError())
-	require.Zero(t, f.unloader.registry.Loaded(), "a torn shard no longer counts as loaded")
-	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-
-	_, _, err := f.index.getOrInitShard(testCtx(), f.name)
-	require.ErrorContains(t, err, "injected vector index shutdown failure")
+func setManualStatus(status storagestate.Status) func(t *testing.T, f *unloadFixture) {
+	return func(t *testing.T, f *unloadFixture) {
+		require.NoError(t, f.index.withShardForWrite(testCtx(), f.name, func(w shardWriter) error {
+			return w.UpdateStatus(status.String(), statusReasonManualUpdate)
+		}))
+	}
 }

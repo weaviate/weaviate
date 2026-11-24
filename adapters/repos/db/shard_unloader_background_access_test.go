@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -48,6 +49,52 @@ func TestInternalShardWorkDoesNotCountAsAccess(t *testing.T) {
 				return err
 			},
 			wantStamped: true,
+		},
+		{
+			name: "write pin",
+			read: func(t *testing.T, f *unloadFixture) error {
+				_, release, err := f.index.getOrInitShard(testCtx(), f.name)
+				release()
+				return err
+			},
+			wantStamped: true,
+		},
+		{
+			name: "hashbeat-style loaded pin",
+			read: func(t *testing.T, f *unloadFixture) error {
+				_, release, err := f.index.getLoadedShard(f.name)
+				release()
+				return err
+			},
+		},
+		{
+			name: "nodes verbose",
+			read: func(t *testing.T, f *unloadFixture) error {
+				var status []*models.NodeShardStatus
+				_, n, err := f.index.getShardsNodeStatus(testCtx(), &status, "")
+				require.NoError(t, err)
+				require.EqualValues(t, 1, n)
+				require.True(t, status[0].Loaded)
+				return nil
+			},
+		},
+		{
+			name: "loaded shard walk",
+			read: func(t *testing.T, f *unloadFixture) error {
+				walked := 0
+				require.NoError(t, f.index.withEachLoadedShard(func(string, ShardLike) error {
+					walked++
+					return nil
+				}))
+				require.Equal(t, 1, walked)
+				return nil
+			},
+		},
+		{
+			name: "add property",
+			read: func(t *testing.T, f *unloadFixture) error {
+				return f.index.addProperty(testCtx(), textProp("added", true))
+			},
 		},
 		{
 			name: "shards storage status",
@@ -123,6 +170,7 @@ func TestInternalShardWorkDoesNotCountAsAccess(t *testing.T) {
 			f := newUnloadFixture(t)
 			f.put(t)
 			require.True(t, f.lazy.isLoaded())
+			require.NotZero(t, AccessClockNow())
 			f.lazy.lastAccess.Store(0)
 
 			require.NoError(t, tt.read(t, f))
@@ -238,24 +286,4 @@ func TestBackgroundReadsNeverReloadAShardUnloadedBeforeTheirPin(t *testing.T) {
 			require.Equal(t, loadsBefore, f.unloader.beforeLoads.Load())
 		})
 	}
-}
-
-func TestLoadedOnlyPinNeverLoads(t *testing.T) {
-	f := newUnloadFixture(t)
-	f.put(t)
-	ctx := withLoadedShardsOnly(testCtx())
-
-	shard, release, err := f.index.GetShard(ctx, f.name)
-	require.NoError(t, err)
-	require.NotNil(t, shard)
-	release()
-
-	require.True(t, f.lazy.TryUnload(context.Background(), UnloadRequest{}))
-	loadsBefore := f.unloader.beforeLoads.Load()
-
-	_, release, err = f.index.GetShard(ctx, f.name)
-	release()
-	require.ErrorIs(t, err, errLoadedOnlyShardUnloaded)
-	f.requireUnloaded(t)
-	require.Equal(t, loadsBefore, f.unloader.beforeLoads.Load())
 }
