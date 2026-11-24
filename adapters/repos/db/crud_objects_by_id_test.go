@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -63,6 +64,7 @@ func TestObjectsByID(t *testing.T) {
 		name      string
 		namespace string
 		want      []string // the classes the lookup finds the id in
+		cancelled bool
 		wantErr   error
 	}{
 		{
@@ -98,10 +100,21 @@ func TestObjectsByID(t *testing.T) {
 			namespace: "ns6",
 			wantErr:   errAlreadyShutdown,
 		},
+		{
+			name:      "a cancelled lookup fails rather than report a miss",
+			namespace: "ns3",
+			cancelled: true,
+			wantErr:   context.Canceled,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			results, err := db.ObjectsByID(t.Context(), id, nil, additional.Properties{}, "", tc.namespace)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancelled {
+				cancel()
+			}
+			results, err := db.ObjectsByID(ctx, id, nil, additional.Properties{}, "", tc.namespace)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return

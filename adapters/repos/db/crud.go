@@ -146,6 +146,9 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err // an entry left empty would read as a miss
+	}
 
 	return out, nil
 }
@@ -205,7 +208,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	if result == nil {
-		return nil, nil
+		return nil, ctx.Err() // a cancelled caller gets no answer, never a miss
 	}
 
 	return db.ResolveReferences(ctx,
@@ -274,19 +277,16 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 }
 
 // anyExists must not name a collection: the caller may not be allowed to read it.
-// A hit in one collection wins over a failure in another.
+// A hit or failure starts no further lookup; running ones are not cancelled, as a cancelled replica read logs as failed.
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	repl *additional.ReplicationProperties,
 ) (bool, error) {
-	lookupCtx, stop := context.WithCancel(ctx)
-	defer stop()
-
-	var found atomic.Bool
+	var found, failed atomic.Bool
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	// Not under indexLock: a replicated lookup takes it again on the local replica.
 	for _, index := range db.copyIndices() {
-		if found.Load() {
+		if found.Load() || failed.Load() {
 			break
 		}
 		if index.partitioningEnabled {
@@ -294,18 +294,21 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 		}
 		collection := index.Config.ClassName.String()
 		eg.Go(func() error {
-			if err := lookupCtx.Err(); err != nil {
+			if found.Load() || failed.Load() {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			ok, err := index.exists(lookupCtx, id, repl, "")
+			ok, err := index.exists(ctx, id, repl, "")
 			if ok {
 				found.Store(true)
-				stop()
 				return nil
 			}
-			if err == nil || found.Load() || (ctx.Err() == nil && index.beingDropped()) {
+			if err == nil || (ctx.Err() == nil && index.beingDropped()) {
 				return nil
 			}
+			failed.Store(true)
 			db.logger.WithField("action", "exists_any_collection").
 				WithField("collection", collection).
 				Warnf("look up %s without a collection: %v", id, err)
@@ -315,6 +318,9 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	err := eg.Wait()
 	if found.Load() {
 		return true, nil
+	}
+	if err == nil {
+		err = ctx.Err() // a cancelled caller gets no answer, never a miss
 	}
 	if err != nil {
 		return false, anyExistsError{err: err}

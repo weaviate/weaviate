@@ -13,10 +13,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -41,11 +43,13 @@ func TestExistsWithoutClass(t *testing.T) {
 		holds       strfmt.UUID
 		unreadable  bool  // its shards are shut down
 		closeCause  error // signalled as the index's close request
+		cancels     bool  // a read cancels the lookup, then misses
 	}
 	cases := []struct {
 		name        string
 		collections []collection
 		cancelled   bool
+		inFlight    bool // needs both lookups running at once
 		want        bool
 		wantErr     error
 	}{
@@ -88,7 +92,8 @@ func TestExistsWithoutClass(t *testing.T) {
 				{class: "Broken", holds: otherID, unreadable: true},
 				{class: "Plain", holds: id},
 			},
-			want: true,
+			inFlight: true,
+			want:     true,
 		},
 		{
 			name: "a collection that cannot be read fails a miss",
@@ -119,13 +124,47 @@ func TestExistsWithoutClass(t *testing.T) {
 			cancelled:   true,
 			wantErr:     context.Canceled,
 		},
+		{
+			name:      "a cancelled lookup without collections fails",
+			cancelled: true,
+			wantErr:   context.Canceled,
+		},
+		{
+			name:        "a cancelled lookup over only multi-tenant collections fails",
+			collections: []collection{{class: "PayrollRecords", multiTenant: true, holds: id}},
+			cancelled:   true,
+			wantErr:     context.Canceled,
+		},
+		{
+			name:        "a lookup cancelled during a miss fails",
+			collections: []collection{{class: "Plain", holds: otherID, cancels: true}},
+			wantErr:     context.Canceled,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.inFlight && _NUMCPU < 2 {
+				t.Skip("needs two lookups in flight")
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancelled {
+				cancel()
+			}
 			logger, _ := test.NewNullLogger()
 			db := &DB{logger: logger, indices: map[string]*Index{}}
 			for _, c := range tc.collections {
 				idx := objectsByIDTestIndex(t, c.class, c.multiTenant, c.holds)
+				if c.cancels {
+					var names []string
+					require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+						names = append(names, name)
+						return nil
+					}))
+					for _, name := range names {
+						idx.shards.Store(name, cancelOnExistsShard{ShardLike: idx.shards.Load(name), cancel: cancel})
+					}
+				}
 				if c.unreadable {
 					require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
 						return shard.Shutdown(t.Context())
@@ -135,12 +174,6 @@ func TestExistsWithoutClass(t *testing.T) {
 					idx.signalCloseRequested(c.closeCause)
 				}
 				db.indices[indexID(schema.ClassName(c.class))] = idx
-			}
-			ctx := t.Context()
-			if tc.cancelled {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithCancel(ctx)
-				cancel()
 			}
 			for range 20 {
 				ok, err := db.Exists(ctx, "", id, nil, "")
@@ -169,6 +202,105 @@ func TestExistsWithoutClassFailsOnUnreadableCollection(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(err.Error()), "secretplain")
 	require.NotNil(t, hook.LastEntry())
 	assert.Equal(t, "SecretPlain", hook.LastEntry().Data["collection"])
+}
+
+// A failure starts no further lookup, so an outage costs one round of timeouts.
+func TestExistsWithoutClassStopsAfterAFailure(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	logger, _ := test.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+	var reads atomic.Int64
+	total := 2*_NUMCPU + 1
+	for i := range total {
+		class := fmt.Sprintf("Broken%d", i)
+		idx := objectsByIDTestIndex(t, class, false, id)
+		var names []string
+		require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+			names = append(names, name)
+			return nil
+		}))
+		for _, name := range names {
+			idx.shards.Store(name, failingExistsShard{ShardLike: idx.shards.Load(name), reads: &reads})
+		}
+		db.indices[indexID(schema.ClassName(class))] = idx
+	}
+
+	_, err := db.Exists(t.Context(), "", id, nil, "")
+	require.ErrorIs(t, err, errAlreadyShutdown)
+	assert.LessOrEqual(t, reads.Load(), int64(_NUMCPU), "only lookups already running may read")
+}
+
+// Cancelling a running replica read logs it as failed, so a hit must not.
+func TestExistsWithoutClassLeavesRunningLookupsAlone(t *testing.T) {
+	if _NUMCPU < 2 {
+		t.Skip("needs two lookups in flight")
+	}
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	otherID := strfmt.UUID("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e")
+	logger, _ := test.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+	hit := make(chan struct{})
+	var cancelled atomic.Bool
+	for class, wrap := range map[string]func(ShardLike) ShardLike{
+		"Hit":  func(s ShardLike) ShardLike { return hitSignalShard{ShardLike: s, hit: hit} },
+		"Slow": func(s ShardLike) ShardLike { return slowSiblingShard{ShardLike: s, hit: hit, cancelled: &cancelled} },
+	} {
+		holds := otherID
+		if class == "Hit" {
+			holds = id
+		}
+		idx := objectsByIDTestIndex(t, class, false, holds)
+		var names []string
+		require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+			names = append(names, name)
+			return nil
+		}))
+		for _, name := range names {
+			idx.shards.Store(name, wrap(idx.shards.Load(name)))
+		}
+		db.indices[indexID(schema.ClassName(class))] = idx
+	}
+
+	ok, err := db.Exists(t.Context(), "", id, nil, "")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.False(t, cancelled.Load(), "a running lookup was cancelled after the hit")
+}
+
+type hitSignalShard struct {
+	ShardLike
+	hit chan struct{}
+}
+
+func (s hitSignalShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	defer close(s.hit)
+	return s.ShardLike.Exists(ctx, id)
+}
+
+type slowSiblingShard struct {
+	ShardLike
+	hit       chan struct{}
+	cancelled *atomic.Bool
+}
+
+func (s slowSiblingShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	<-s.hit
+	select {
+	case <-ctx.Done():
+		s.cancelled.Store(true)
+	case <-time.After(100 * time.Millisecond):
+	}
+	return s.ShardLike.Exists(ctx, id)
+}
+
+type failingExistsShard struct {
+	ShardLike
+	reads *atomic.Int64
+}
+
+func (s failingExistsShard) Exists(context.Context, strfmt.UUID) (bool, error) {
+	s.reads.Add(1)
+	return false, errAlreadyShutdown
 }
 
 // A replicated read re-takes indexLock, so a lookup holding it can deadlock.
@@ -232,6 +364,17 @@ func TestClasslessLookupsRunOutsideIndexLock(t *testing.T) {
 	}
 }
 
+// cancelOnExistsShard cancels the lookup, then answers: a local read ignores its context.
+type cancelOnExistsShard struct {
+	ShardLike
+	cancel context.CancelFunc
+}
+
+func (s cancelOnExistsShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	s.cancel()
+	return s.ShardLike.Exists(ctx, id)
+}
+
 type indexLockProbe struct {
 	t     *testing.T
 	db    *DB
@@ -279,10 +422,12 @@ func TestMultiGet(t *testing.T) {
 		name       string
 		unreadable bool
 		closeCause error
+		cancelled  bool
 		wantFound  bool
 		wantErr    error
 	}{
 		{name: "a readable collection returns the object", wantFound: true},
+		{name: "a cancelled lookup fails rather than report a miss", cancelled: true, wantErr: context.Canceled},
 		{name: "a collection that cannot be read fails the lookup", unreadable: true, wantErr: errAlreadyShutdown},
 		{name: "a collection being deleted is left out", unreadable: true, closeCause: errIndexDropped},
 		{name: "a collection shutting down fails the lookup", unreadable: true, closeCause: errIndexShutdown, wantErr: errAlreadyShutdown},
@@ -301,8 +446,13 @@ func TestMultiGet(t *testing.T) {
 				idx.signalCloseRequested(tc.closeCause)
 			}
 			db.indices[indexID("Target")] = idx
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancelled {
+				cancel()
+			}
 
-			res, err := db.MultiGet(t.Context(),
+			res, err := db.MultiGet(ctx,
 				[]multi.Identifier{{ID: string(id), ClassName: "Target"}}, additional.Properties{}, "")
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
