@@ -75,6 +75,22 @@ func GetOfflineMulti(shardDir, ns string, keys ...[]byte) (vals [][]byte, ok boo
 	return vals, true, nil
 }
 
+// ForEachOffline is Namespace.ForEach for an UNLOADED shard's metadata DB, with
+// GetOffline's rules: a missing file iterates nothing, a locked or unreadable
+// one is an error.
+func ForEachOffline(shardDir, ns string, fn func(key, value []byte) error) error {
+	path := filepath.Join(shardDir, FileName)
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: offlineOpenTimeout})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("open shard metadata db %q: %w", path, err)
+	}
+	defer db.Close()
+	return (&Namespace{db: db, name: []byte(ns)}).ForEach(fn)
+}
+
 // IsLocked reports whether an offline read failed because a loaded shard
 // holds the file; that shard owns the state and acts through its own handle.
 func IsLocked(err error) bool {
