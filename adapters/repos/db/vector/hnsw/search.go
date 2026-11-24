@@ -132,10 +132,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	// `any` allocates, and the default path must stay allocation-free.
 	requested := params.EFOrZero()
 	if requested > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", requested)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_requested", requested)
 	}
 	if fs := params.FilterStrategyOrEmpty(); fs != "" {
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_filter_strategy_requested", fs)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_requested", fs)
 	}
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
@@ -147,7 +147,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
 	if requested > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_effective", ef)
 	}
 	return h.knnSearchByVector(ctx, vector, k, ef, allowList, params)
 }
@@ -1253,7 +1253,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	// allocates and the default path must stay allocation-free. The value is
 	// the strategy after the ratio/entrypoint fallbacks, i.e. what runs.
 	if params.FilterStrategyOrEmpty() != "" {
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_filter_strategy_effective", strategy.String())
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_effective", strategy.String())
 	}
 
 	if allowList != nil && (useAcorn || (usePathseer && strategy == RRE)) {
@@ -1338,11 +1338,11 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 	candidateSet := make(map[uint64]struct{})
 	ef := h.searchTimeEF(kPrime, params)
 	if requested := params.EFOrZero(); requested > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_requested", requested)
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef_effective", ef)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_requested", requested)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_effective", ef)
 	}
 	if fs := params.FilterStrategyOrEmpty(); fs != "" {
-		helpers.AnnotateSlowQueryLog(ctx, "hnsw_filter_strategy_requested", fs)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_requested", fs)
 	}
 	for _, vec := range queryVectors {
 		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, ef, allowList, params)

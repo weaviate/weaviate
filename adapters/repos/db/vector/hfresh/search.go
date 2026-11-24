@@ -54,7 +54,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// `any` allocates, and the default path must stay allocation-free.
 	requestedProbe := params.SearchProbeOrZero()
 	if requestedProbe > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_requested", requestedProbe)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_requested", requestedProbe)
 	}
 
 	// this must run before any search path reads the quantizer or distancer,
@@ -90,7 +90,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// use k as the candidate number to enlarge the search space.
 	candidateCentroidNum := h.searchProbeFor(k, params)
 	if requestedProbe > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_effective", candidateCentroidNum)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_effective", candidateCentroidNum)
 	}
 
 	nAllowList := allowList
@@ -497,8 +497,8 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	routingBudget, rerankBudget := h.muveraSearchBudgets(k, params)
 	// Annotate only when a request override is present (see SearchByVector).
 	if requestedProbe := params.SearchProbeOrZero(); requestedProbe > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_requested", requestedProbe)
-		helpers.AnnotateSlowQueryLog(ctx, "hfresh_search_probe_effective", routingBudget)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_requested", requestedProbe)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_effective", routingBudget)
 	}
 
 	candidateIDs, err := h.searchByFDE(ctx, queryFDE, routingBudget, rerankBudget, allow)

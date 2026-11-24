@@ -189,6 +189,33 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 		assert.NotContains(t, details, "hnsw_ef_effective", "brute force walks no graph")
 		assert.Equal(t, true, details["hnsw_flat_search"])
 	})
+
+	// A multi-target request searches several indexes on one context, each
+	// with its own merged params: every value must survive, not the last one.
+	t.Run("slow-query annotations keep every target's value", func(t *testing.T) {
+		q := queryVecs[0]
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		for _, p := range []*searchparams.VectorSearchParams{
+			{EF: 128, FilterStrategy: searchparams.FilterStrategySweeping},
+			{EF: 64, FilterStrategy: searchparams.FilterStrategyAcorn},
+			{EF: 128, FilterStrategy: searchparams.FilterStrategySweeping},
+		} {
+			_, _, err := idxA.SearchByVector(ctx, q, k, nil, p)
+			require.NoError(t, err)
+		}
+		details := helpers.ExtractSlowQueryDetails(ctx)
+		assert.Equal(t, []int{64, 128}, details["hnsw_ef_requested"])
+		assert.Equal(t, []int{64, 128}, details["hnsw_ef_effective"])
+		assert.Equal(t, []string{"acorn", "sweeping"}, details["hnsw_filter_strategy_requested"])
+
+		ctx = helpers.InitSlowQueryDetails(context.Background())
+		for range 2 {
+			_, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: 64})
+			require.NoError(t, err)
+		}
+		details = helpers.ExtractSlowQueryDetails(ctx)
+		assert.Equal(t, 64, details["hnsw_ef_requested"], "one distinct value is reported as a scalar")
+	})
 }
 
 func Test_effectiveFilterStrategy(t *testing.T) {

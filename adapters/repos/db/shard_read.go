@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -709,26 +710,27 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
+// annotateVectorSearchParams records the request's vector search params at
+// shard level, so indexes that report nothing themselves (flat, dynamic in
+// its flat stage) still leave a trace. It does nothing without slow-query
+// details, keeping the default path allocation-free.
+func annotateVectorSearchParams(ctx context.Context, params *searchparams.VectorSearchParams) {
+	if params == nil || !helpers.HasSlowQueryDetails(ctx) {
+		return
+	}
+	if params.EF > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "vector_search_ef_requested", params.EF)
+	}
+	if len(params.PerTarget) > 0 {
+		helpers.AnnotateSlowQueryLog(ctx, "vector_search_params_per_target",
+			slices.Sorted(maps.Keys(params.PerTarget)))
+	}
+}
+
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorSearchParams *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
-	// Only HNSW reports the effective ef; record the request here so flat,
-	// HFresh and dynamic searches leave a trace too. Conditional to keep the
-	// default path allocation-free.
-	//
-	// The per-target map is resolved here (see ForTarget below), so indexes
-	// only ever see the merged, flat parameters for their own target vector.
-	if ef := vectorSearchParams.EFOrZero(); ef > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "vector_search_ef_requested", ef)
-	}
-	if vectorSearchParams != nil && len(vectorSearchParams.PerTarget) > 0 {
-		names := make([]string, 0, len(vectorSearchParams.PerTarget))
-		for name := range vectorSearchParams.PerTarget {
-			names = append(names, name)
-		}
-		slices.Sort(names)
-		helpers.AnnotateSlowQueryLog(ctx, "vector_search_params_per_target", names)
-	}
+	annotateVectorSearchParams(ctx, vectorSearchParams)
 
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{

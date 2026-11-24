@@ -170,6 +170,16 @@ func Test_SearchByVector_SearchProbeOverride(t *testing.T) {
 			}
 		})
 	}
+	t.Run("per-target probes on one context are all reported", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(t.Context())
+		for _, probe := range []int{configured + 100, configured + 50} {
+			_, _, err := tf.Index.SearchByVector(ctx, query, k, nil, &searchparams.VectorSearchParams{SearchProbe: probe})
+			require.NoError(t, err)
+		}
+		details := helpers.ExtractSlowQueryDetails(ctx)
+		require.Equal(t, []int{configured + 50, configured + 100}, details["hfresh_search_probe_requested"])
+		require.Equal(t, []int{configured + 50, configured + 100}, details["hfresh_search_probe_effective"])
+	})
 }
 
 // Test_SearchByMultiVector_SearchProbeOverride checks the MUVERA path reports

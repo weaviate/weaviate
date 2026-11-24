@@ -300,3 +300,27 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 		})
 	}
 }
+
+func TestAnnotateVectorSearchParams(t *testing.T) {
+	params := &searchparams.VectorSearchParams{
+		EF: 64,
+		PerTarget: map[string]searchparams.VectorSearchParams{
+			"title": {EF: 128},
+			"body":  {SearchProbe: 32},
+		},
+	}
+
+	t.Run("records the request-wide ef and the sorted per-target names", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		annotateVectorSearchParams(ctx, params)
+		details := helpers.ExtractSlowQueryDetails(ctx)
+		assert.Equal(t, 64, details["vector_search_ef_requested"])
+		assert.Equal(t, []string{"body", "title"}, details["vector_search_params_per_target"])
+	})
+
+	t.Run("allocates nothing when the slow-query log is off", func(t *testing.T) {
+		ctx := context.Background()
+		allocs := testing.AllocsPerRun(100, func() { annotateVectorSearchParams(ctx, params) })
+		assert.Zero(t, allocs)
+	})
+}
