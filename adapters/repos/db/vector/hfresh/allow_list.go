@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"iter"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -34,10 +35,9 @@ import (
 // across selected postings are instead absorbed by the posting scan's
 // visited set, which measures within noise of claim-based dedup on the 10M
 // benchmark while keeping this check stateless and order-independent.
-func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helpers.AllowList {
+func (h *HFresh) wrapAllowList(_ context.Context, al helpers.AllowList) helpers.AllowList {
 	return &allowList{
 		AllowList:       al,
-		ctx:             ctx,
 		h:               h,
 		allowedPostings: h.visitedPool.Borrow(),
 	}
@@ -91,23 +91,39 @@ func (i *AllowListIterator) contains(id uint64, metadata *PostingMetadata, al *a
 	return i.allowList.Contains(id)
 }
 
+// Avoid caching small postings, where map maintenance can cost more than rescanning.
+const minCachedPostingMembers = 256
+
+const maxPooledRejectedPostings = 4096
+
+var rejectedPostingsPool = sync.Pool{
+	New: func() any { return make(map[*PostingMetadata]int) },
+}
+
 type allowList struct {
 	helpers.AllowList
-	ctx context.Context
-	h   *HFresh
+	h *HFresh
 	// allowedPostings memoizes postings known to contain at least one
 	// allowed vector (the answer is stable within a query, so re-probes
 	// skip the member scan)
 	allowedPostings *visited.SparseSet
+
+	// A miss is valid only for this metadata and its current length: appends
+	// grow it in place, while rewrites replace the metadata pointer.
+	rejectedPostings map[*PostingMetadata]int
+	// Flat centroid search makes one iterator pass, with no random probes.
+	// Only start memoizing misses when Contains is used.
+	cacheRejected bool
 }
 
 // Contains reports whether the posting holds at least one allowed vector.
 func (a *allowList) Contains(id uint64) bool {
+	a.cacheRejected = true
 	if a.allowedPostings.Visited(id) {
 		return true
 	}
 
-	p, err := a.h.PostingMap.Get(a.ctx, id)
+	p, err := a.h.PostingMap.Get(context.Background(), id)
 	if err != nil {
 		return false
 	}
@@ -128,6 +144,12 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 		return false
 	}
 	count := binary.LittleEndian.Uint32(data[1:5])
+	cacheRejected := a.cacheRejected && count >= minCachedPostingMembers
+	if cacheRejected && a.rejectedPostings != nil {
+		if size, ok := a.rejectedPostings[p]; ok && size == len(data) {
+			return false
+		}
+	}
 	scheme := Scheme(data[0])
 	width := scheme.BytesPerValue()
 	data = data[5:]
@@ -152,6 +174,12 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 			return true
 		}
 	}
+	if cacheRejected {
+		if a.rejectedPostings == nil {
+			a.rejectedPostings = rejectedPostingsPool.Get().(map[*PostingMetadata]int)
+		}
+		a.rejectedPostings[p] = len(p.PackedPostingMetadata)
+	}
 	return false
 }
 
@@ -167,4 +195,12 @@ func (a *allowList) Len() int {
 
 func (a *allowList) Close() {
 	a.h.visitedPool.Return(a.allowedPostings)
+	if a.rejectedPostings != nil {
+		size := len(a.rejectedPostings)
+		clear(a.rejectedPostings)
+		if size <= maxPooledRejectedPostings {
+			rejectedPostingsPool.Put(a.rejectedPostings)
+		}
+		a.rejectedPostings = nil
+	}
 }

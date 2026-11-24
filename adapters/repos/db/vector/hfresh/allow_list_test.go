@@ -283,3 +283,131 @@ func TestAllowListPackedMetadata(t *testing.T) {
 	h.PostingMap.setSlot(1, data)
 	require.True(t, a.Contains(1))
 }
+
+// countingAllowList measures document membership checks rather than posting probes.
+type countingAllowList struct {
+	helpers.AllowList
+	calls int
+}
+
+func (a *countingAllowList) Contains(id uint64) bool {
+	a.calls++
+	return a.AllowList.Contains(id)
+}
+
+func newPostingAllowList(t testing.TB) *HFresh {
+	t.Helper()
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "allow-list", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+	return &HFresh{PostingMap: NewPostingMap(bucket), visitedPool: visited.NewPool(512)}
+}
+
+func TestAllowListCachesRejectedMetadata(t *testing.T) {
+	for _, iteratorFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("iterator-first=%t", iteratorFirst), func(t *testing.T) {
+			h := newPostingAllowList(t)
+			for id := range uint64(minCachedPostingMembers) {
+				_, err := h.PostingMap.FastAddVectorID(t.Context(), 1, id)
+				require.NoError(t, err)
+			}
+			inner := &countingAllowList{AllowList: helpers.NewAllowList(999)}
+			defer inner.Close()
+			al := h.wrapAllowList(t.Context(), inner)
+			if !iteratorFirst {
+				require.False(t, al.Contains(1))
+			}
+			next, stop := iter.Pull2(h.PostingMap.Iter())
+			it := &AllowListIterator{allowList: al, next: next, stop: stop}
+			_, ok := it.Next()
+			require.False(t, ok)
+			it.Stop()
+			scans := 1
+			if iteratorFirst {
+				require.Nil(t, al.(*allowList).rejectedPostings, "an iterator-only pass needs no negative cache")
+				scans++
+			}
+			require.False(t, al.Contains(1))
+			require.False(t, al.Contains(1))
+			require.Equal(t, scans*minCachedPostingMembers, inner.calls, "random re-probes must reuse rejected metadata")
+
+			// Appending mutates the same metadata; rewriting installs a new one.
+			_, err := h.PostingMap.FastAddVectorID(t.Context(), 1, 998)
+			require.NoError(t, err)
+			require.False(t, al.Contains(1))
+			require.Equal(t, scans*minCachedPostingMembers+minCachedPostingMembers+1, inner.calls)
+			replacement := Posting(nil)
+			for id := range uint64(minCachedPostingMembers) {
+				replacement = replacement.AddVector(NewVector(id, 1, nil))
+			}
+			replacement = replacement.AddVector(NewVector(999, 1, nil))
+			require.NoError(t, h.PostingMap.SetVectorIDs(t.Context(), 1, replacement))
+			require.True(t, al.Contains(1))
+			require.False(t, al.Contains(0))
+			_, err = h.PostingMap.FastAddVectorID(t.Context(), 0, 999)
+			require.NoError(t, err)
+			require.True(t, al.Contains(0), "an absent posting must not stay rejected after creation")
+
+			cached := al.(*allowList).rejectedPostings
+			allowed := al.(*allowList).allowedPostings
+			al.Close()
+			require.Empty(t, cached, "returning a cache must release its metadata references")
+			require.False(t, allowed.Visited(1), "returning the visited set must reset it")
+			other := helpers.NewAllowList(998)
+			defer other.Close()
+			nextQuery := h.wrapAllowList(t.Context(), other)
+			require.False(t, nextQuery.Contains(1))
+			_, err = h.PostingMap.FastAddVectorID(t.Context(), 1, 998)
+			require.NoError(t, err)
+			require.True(t, nextQuery.Contains(1), "an appended allowed member must be visible")
+			nextQuery.Close()
+		})
+	}
+}
+
+func BenchmarkAllowListReprobe(b *testing.B) {
+	h := newPostingAllowList(b)
+	for id := range uint64(800) {
+		_, err := h.PostingMap.FastAddVectorID(b.Context(), 1, id)
+		require.NoError(b, err)
+	}
+	for _, allowed := range []uint64{0, 999} {
+		b.Run(fmt.Sprintf("allowed=%d", allowed), func(b *testing.B) {
+			inner := helpers.NewAllowList(allowed)
+			defer inner.Close()
+			b.ReportAllocs()
+			for b.Loop() {
+				al := h.wrapAllowList(b.Context(), inner)
+				al.Contains(1)
+				al.Contains(1)
+				al.Close()
+			}
+		})
+	}
+}
+
+func TestAllowListSkipsSmallRejectedPostings(t *testing.T) {
+	h := newPostingAllowList(t)
+	inner := helpers.NewAllowList(999)
+	defer inner.Close()
+	a := h.wrapAllowList(t.Context(), inner).(*allowList)
+	for id := range uint64(minCachedPostingMembers - 1) {
+		_, err := h.PostingMap.FastAddVectorID(t.Context(), 1, id)
+		require.NoError(t, err)
+	}
+	require.False(t, a.Contains(1))
+	require.False(t, a.Contains(1))
+	require.Nil(t, a.rejectedPostings)
+	_, err := h.PostingMap.FastAddVectorID(t.Context(), 1, minCachedPostingMembers-1)
+	require.NoError(t, err)
+	require.False(t, a.Contains(1))
+	require.Len(t, a.rejectedPostings, 1)
+	// A large query may exceed the pooling cap, but must still release references.
+	for range maxPooledRejectedPostings {
+		a.rejectedPostings[&PostingMetadata{}] = 0
+	}
+	cached := a.rejectedPostings
+	a.Close()
+	require.Empty(t, cached)
+	require.Nil(t, a.rejectedPostings)
+}
