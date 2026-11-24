@@ -869,7 +869,7 @@ function get_aof_group() {
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
-    4) echo "test/acceptance/alter_schema test/acceptance/vector_index_restrictions" ;;
+    4) echo "test/acceptance/alter_schema test/acceptance/vector_index_restrictions test/acceptance/raft_ip_reuse" ;;
     6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
     *) echo "" ;;
   esac

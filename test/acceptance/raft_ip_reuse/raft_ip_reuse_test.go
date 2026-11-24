@@ -35,8 +35,9 @@ import (
 const stableLeaderWindow = 15 * time.Second
 
 type move struct {
-	node string
-	host int // last octet of the new IP
+	node  string
+	host  int    // last octet of the new IP
+	takes string // the node whose old IP that is, if any
 }
 
 // TestRestartOnReusedIPs restarts nodes of a three-node cluster on new IPs, one of them another node's old IP. The RAFT
@@ -55,13 +56,13 @@ func TestRestartOnReusedIPs(t *testing.T) {
 			name:       "one voter: follower takes another follower's old IP",
 			voters:     1,
 			restartAll: true,
-			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+			moves:      []move{{docker.Weaviate1, 21, ""}, {docker.Weaviate2, 11, docker.Weaviate1}},
 			startOrder: []string{docker.Weaviate0, docker.Weaviate2, docker.Weaviate1},
 		},
 		{
 			name:       "one voter: follower takes another follower's old IP while the leader stays up",
 			voters:     1,
-			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+			moves:      []move{{docker.Weaviate1, 21, ""}, {docker.Weaviate2, 11, docker.Weaviate1}},
 			startOrder: []string{docker.Weaviate2, docker.Weaviate1},
 		},
 		{
@@ -69,27 +70,27 @@ func TestRestartOnReusedIPs(t *testing.T) {
 			name:       "one voter: leader takes a follower's old IP",
 			voters:     1,
 			restartAll: true,
-			moves:      []move{{docker.Weaviate2, 22}, {docker.Weaviate1, 21}, {docker.Weaviate0, 12}},
+			moves:      []move{{docker.Weaviate2, 22, ""}, {docker.Weaviate1, 21, ""}, {docker.Weaviate0, 12, docker.Weaviate2}},
 			startOrder: []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2},
 		},
 		{
 			// weaviate-0 and weaviate-2 form the quorum; whichever leads dials weaviate-1's old IP, now weaviate-2's.
 			name:       "three voters: voter takes another voter's old IP while weaviate-0 stays up",
 			voters:     3,
-			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+			moves:      []move{{docker.Weaviate1, 21, ""}, {docker.Weaviate2, 11, docker.Weaviate1}},
 			startOrder: []string{docker.Weaviate2, docker.Weaviate1},
 		},
 		{
 			name:       "three voters: all restart, a voter takes another voter's old IP",
 			voters:     3,
 			restartAll: true,
-			moves:      []move{{docker.Weaviate1, 21}, {docker.Weaviate2, 11}},
+			moves:      []move{{docker.Weaviate1, 21, ""}, {docker.Weaviate2, 11, docker.Weaviate1}},
 		},
 		{
 			name:       "three voters: all restart, weaviate-0 takes another voter's old IP",
 			voters:     3,
 			restartAll: true,
-			moves:      []move{{docker.Weaviate2, 22}, {docker.Weaviate1, 21}, {docker.Weaviate0, 12}},
+			moves:      []move{{docker.Weaviate2, 22, ""}, {docker.Weaviate1, 21, ""}, {docker.Weaviate0, 12, docker.Weaviate2}},
 		},
 	}
 	for _, tc := range tests {
@@ -122,8 +123,15 @@ func TestRestartOnReusedIPs(t *testing.T) {
 			for _, node := range stop {
 				require.NoError(t, compose.Stop(ctx, node, nil))
 			}
+			oldIPs := map[string]string{}
+			for _, node := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
+				oldIPs[node] = compose.IP(node)
+			}
 			for _, m := range tc.moves {
 				ip := compose.SubnetIP(m.host)
+				if m.takes != "" {
+					require.Equalf(t, oldIPs[m.takes], ip, "%s must take %s's old IP", m.node, m.takes)
+				}
 				t.Logf("%s: %s -> %s", m.node, compose.IP(m.node), ip)
 				require.NoError(t, compose.MoveToIP(ctx, m.node, ip))
 			}

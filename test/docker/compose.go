@@ -1274,14 +1274,14 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	config1["CLUSTER_HOSTNAME"] = Weaviate0
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
-	// Cluster startup mimics k8s behavior: all pods start concurrently, become
+	// Cluster startup mimics k8s behavior: pods start concurrently, voters first, become
 	// "live" quickly (process running, ports listening), then become "ready"
 	// only after Raft quorum is established. This is critical because Raft
 	// bootstrap requires all RAFT_BOOTSTRAP_EXPECT nodes to be running — if we
 	// waited for weaviate-0 to be fully "ready" before starting weaviate-1/weaviate-2, we'd
 	// deadlock since readiness requires quorum which requires all nodes.
 	//
-	// Phase 1: Start all nodes concurrently with liveness-only wait (live endpoint).
+	// Phase 1: Start voters, then the other nodes, each group concurrently with liveness-only wait (live endpoint).
 	// Phase 2: After all nodes are live, wait for readiness on each (ready endpoint).
 
 	// Liveness endpoint: process is running, can accept memberlist joins.
@@ -1349,8 +1349,9 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		configs = append(configs, config3)
 	}
 
-	// Phase 1: start nodes concurrently, each blocking until live. Voters (the first RAFT_BOOTSTRAP_EXPECT nodes) go
-	// first: a non-voter whose CLUSTER_JOIN seed does not resolve yet never joins memberlist (0-weaviate-issues#700).
+	// Phase 1: start nodes concurrently, each blocking until live. Voters, the first RAFT_BOOTSTRAP_EXPECT nodes, go
+	// first. With RAFT_BOOTSTRAP_EXPECT=1, a node whose CLUSTER_JOIN seed does not resolve at startup never retries the
+	// memberlist join (0-weaviate-issues#700).
 	for _, group := range [][2]int{{0, voters}, {voters, size}} {
 		eg := errgroup.Group{}
 		for i := group[0]; i < group[1]; i++ {
