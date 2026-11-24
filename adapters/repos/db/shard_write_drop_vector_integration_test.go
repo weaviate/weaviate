@@ -495,6 +495,34 @@ func TestDropVectorIndex_MarksTheRecordDroppingFirst(t *testing.T) {
 	assert.False(t, ok, "the record goes with the files")
 }
 
+// A drop that would take what another vector uses is refused before the index
+// and its queue are torn down.
+func TestDropVectorIndex_RefusesSharedFilesBeforeTheTeardown(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
+	shared := foo
+	shared.QueueID = "vectors_mv"
+	require.NoError(t, recordsOf(shard).Put("foo", shared))
+	markDropped(class, "foo")
+
+	before := entriesNamed(t, shard, "foo")
+	require.ErrorContains(t, shard.DropVectorIndex(ctx, "foo"), `both record queue "vectors_mv"`)
+
+	assert.Equal(t, before, entriesNamed(t, shard, "foo"), "every file stays")
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		assert.True(t, index.ContainsDoc(0))
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, found, "the index is still open")
+	rec, _, err := recordsOf(shard).Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, shared, rec)
+	require.NoError(t, recordsOf(shard).Put("foo", foo))
+}
+
 // remapFoo reloads the shard with foo recorded at vectors_foo_v2, writes an
 // object so the index has files there, and plants a decoy at the naming
 // rule's path that no drop of foo may touch.

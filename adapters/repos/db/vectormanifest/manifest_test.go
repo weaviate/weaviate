@@ -320,6 +320,29 @@ func TestManifest_Drop(t *testing.T) {
 	assert.False(t, found)
 }
 
+// A drop of a vector that shares a queue or files with another one is refused
+// before anything is recorded or deleted.
+func TestManifest_DropRefusesSharedFiles(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title", "body")
+	rec, _, err := m.records.Get("title")
+	require.NoError(t, err)
+	rec.QueueID = "vectors_body"
+	require.NoError(t, m.records.Put("title", rec))
+	queueDir := filepath.Join(dir, "vectors_body.queue.d")
+	plant(t, queueDir)
+
+	const wantErr = `vectors "body" and "title" both record queue "vectors_body"`
+	_, err = m.BeginDrop("title")
+	require.ErrorContains(t, err, wantErr)
+	got, _, err := m.records.Get("title")
+	require.NoError(t, err)
+	assert.Equal(t, rec, got)
+
+	require.ErrorContains(t, m.FinishDrop(t.Context(), "title"), wantErr)
+	assert.DirExists(t, queueDir)
+}
+
 func TestManifest_DropKeepsTheRecordWhenAFileStays(t *testing.T) {
 	dir := t.TempDir()
 	m := loaded(t, dir, "foo")
