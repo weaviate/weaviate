@@ -1441,6 +1441,8 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 ### Resultados cronometrados (noche del 23 al 24 de noviembre)
 
+**En duda desde la repetición de las 04:01:** en un proceso nuevo, la plana cuesta unas cuatro veces menos que en esta noche. Por eso están en duda su coste por permitido, el punto de cruce y cada comparación de la plana. Lo explica el apartado «La repetición de los cinco puntos marcados».
+
 *El binario es de `ada98eba8e`, con el mismo índice crecido de `2e58f5c2e1`, y el resultado está en `filters-timed-dbpedia-1m.json`. La máquina quedó quieta a las 19:09, tras la espera de 15 minutos con el marcador puesto. Las rondas 1 y 2 midieron el nuestro por sus dos caminos y HNSW con `acorn`, de 19:09 a 02:32. Las rondas 3 y 4 midieron HNSW con `sweeping`, de 02:32 a 03:04. No se saltó ningún punto.*
 
 *Todo va con 1 thread. En caliente se toma la pasada del medio de tres, sobre 1 000 queries. En frío son 500 queries, en lotes de 10, con el volumen desmontado antes de cada lote. Cada p50 de las tablas es la media de las dos rondas.*
@@ -1577,6 +1579,59 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - las 507 lecturas en frío de la plana con filtros pequeños.
 
 No he tocado nada de esto.
+
+### La repetición de los cinco puntos marcados (24 de noviembre, de 04:01 a 04:34)
+
+*La pidió la sesión de experimentos al aplicar el detector de deriva. El binario es de `ea25e176a1`, que solo añade al arnés `-bench.filters.points` para medir esos cinco puntos y nada más; el código del índice es el de la noche. El protocolo es el mismo:*
+- *el mismo índice;*
+- *HNSW construido otra vez en el proceso;*
+- *los puntos de 0.95 buscados otra vez sin cronometrar, con los mismos ef y recall que en la noche;*
+- *el marcador y la espera de 15 minutos sin actividad (la máquina quedó quieta a las 04:01);*
+- *dos rondas.*
+
+*Los datos están en `filters-timed-repeat-dbpedia-1m.json`. Ningún resultado salió de su filtro.*
+
+**p50 en ms, la noche frente a la repetición:**
+
+| punto | medida | noche, ronda 1 | noche, ronda 2 | repetición, ronda 1 | repetición, ronda 2 |
+|---|---|---:|---:|---:|---:|
+| nuestro por el índice, al azar 1 % | caliente | 23.82 | 26.60 | 24.08 | 23.79 |
+| | frío | 47.10 | 50.14 | 47.14 | 47.37 |
+| nuestro por la plana, al azar 10 % | caliente | 23.70 | 26.26 | 5.82 | 5.80 |
+| | frío | 32.07 | 32.23 | 13.78 | 13.78 |
+| nuestro por la plana, correlado 10 % | caliente | 26.68 | 23.71 | 5.76 | 5.81 |
+| | frío | 31.66 | 31.72 | 13.39 | 13.37 |
+| `acorn`, correlado 0.1 % | caliente | 0.64 | 0.64 | 0.60 | 0.60 |
+| | frío | 1.51 | 1.36 | 1.52 | 1.38 |
+| `acorn`, anticorrelado 0.1 % | caliente | 0.79 | 0.78 | 0.74 | 0.74 |
+| | frío | 2.93 | 2.36 | 2.89 | 2.35 |
+
+**El nuestro por el índice, al azar al 1 %, no va más lento en la ronda 2 de un proceso nuevo:** −1.2 % en caliente y +0.5 % en frío. Las dos rondas de la repetición dan lo mismo que la ronda 1 de la noche. La que se separa es la ronda 2 de la noche.
+
+**La plana, en un proceso nuevo, cuesta unas cuatro veces menos en caliente que en la noche.**
+- **Al 10 %, en caliente:** 5.8 ms, frente a 23.7 a 26.7 ms en la noche. Pasa en las dos rondas y en los dos filtros.
+- **En frío:** de 13.4 a 13.8 ms, frente a 31.7 a 32.2 ms.
+- **La diferencia es solo de cómputo.** Lo que el frío añade al caliente es lo mismo en las dos sesiones: unos 8 ms de leer 507 vectores.
+- **Por permitido salen unos 50 ns,** no los 230 a 250 de la noche. Es lo que esperaba la enmienda 2 y lo que mide `BenchmarkSidecarScore`.
+- **Lo demás es igual:** el código del binario, el índice, las queries y el recall.
+- **La única diferencia que veo es el momento del proceso en que llegó la plana:**
+  - en la noche, después del índice en sus trece filtros, con unas 650 reaperturas y los filtros más pesados, de miles de cargas por query;
+  - en la repetición, después del índice en un solo filtro, con 50 reaperturas.
+- **En la noche el índice también fue más lento en la ronda 2,** en 12 de sus 13 filtros.
+- **Mi lectura** (*mía*, sin comprobar): algo se acumula en un proceso que abre el índice muchas veces o que lo usa mucho rato, y la plana es la que más lo nota, porque pide por query dos slices del tamaño de los permitidos. Puede ser el índice, y entonces es un bug, o el arnés o el runtime de Go. No lo sé todavía.
+
+**Lo que esto cambia de los resultados cronometrados:**
+- **El coste de la plana por permitido** (de 230 a 250 ns), y el «no se cumple» frente a los 2 ms esperados.
+- **El punto de cruce hacia el 3.5 %,** porque sale de las cifras de la plana de la noche.
+- **Cada comparación de la plana con el índice y con `acorn`.** Con la plana de la repetición, al azar al 10 % el índice sigue siendo más barato en frío (9.30 ms frente a 13.78), pero 1.5 veces y no 3.5. Las demás selectividades y el anticorrelado no se han medido en un proceso nuevo.
+- **El veredicto del criterio no cambia:** la primera parte va por las cargas del índice, y la segunda por el recall.
+
+**El detector de deriva sobre la repetición marca otra vez `acorn` anticorrelado al 0.1 % en frío:** −18.6 %. El correlado al 0.1 % se mueve un −8.9 %.
+- **Las dos sesiones dan los mismos dos valores:** 2.93 y 2.36 ms en la noche, 2.89 y 2.35 en la repetición.
+- **No es ruido:** en dos procesos, el frío de la plana de HNSW sale más rápido en la ronda 2.
+- **La regla no dice qué hacer con una repetición que vuelve a derivar.** No la encolo otra vez (*mío*); la reporto como un efecto de ronda de HNSW.
+
+**Lo siguiente:** reproducir la plana lenta en un solo proceso, con la traza del GC y un perfil de CPU, antes de medir otra vez la plana y el punto de cruce. Si es el índice, es un bug: test en rojo y arreglo.
 
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
