@@ -12,6 +12,9 @@
 package vectormanifest
 
 import (
+	"maps"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // A cold shard's vectors are found through their records; a vector without
@@ -137,7 +141,7 @@ func TestReadUnloaded(t *testing.T) {
 			require.NoError(t, ns.Put([]byte("title"), []byte(tt.record)))
 			require.NoError(t, db.Close())
 
-			records, initialized, err := readUnloaded(dir, []string{"title"})
+			records, initialized, err := readUnloaded(dir)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -147,4 +151,49 @@ func TestReadUnloaded(t *testing.T) {
 			assert.Equal(t, map[string]record{"title": {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}}, records)
 		})
 	}
+}
+
+// A vector the caller does not list as a sibling keeps its bucket and its
+// queue when it has a record.
+func TestDropUnloaded_SparesWhatEveryRecordOwns(t *testing.T) {
+	dir := t.TempDir()
+	db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	cfg := enthnsw.NewDefaultUserConfig()
+	store := newRecordStore(db)
+	require.NoError(t, store.Initialize(map[string]record{
+		"foo":                recordFor("foo", cfg, stateReady),
+		"foo_muvera_vectors": recordFor("foo_muvera_vectors", cfg, stateReady),
+	}))
+	require.NoError(t, db.Close())
+	own := filepath.Join(dir, "lsm", "vectors_foo")
+	shared := filepath.Join(dir, "lsm", "vectors_foo_muvera_vectors")
+	plant(t, own, shared)
+
+	require.NoError(t, DropUnloaded(dir, "foo", nil))
+	assert.NoDirExists(t, own)
+	assert.DirExists(t, shared)
+
+	records, _, err := readUnloaded(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"foo_muvera_vectors"}, slices.Collect(maps.Keys(records)))
+}
+
+// An unlisted vector that records the same queue refuses the drop.
+func TestDropUnloaded_RefusesAQueueAnyRecordNames(t *testing.T) {
+	dir := t.TempDir()
+	db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	cfg := enthnsw.NewDefaultUserConfig()
+	other := recordFor("bar", cfg, stateReady)
+	other.QueueID = "vectors_foo"
+	require.NoError(t, newRecordStore(db).Initialize(map[string]record{
+		"foo": recordFor("foo", cfg, stateReady), "bar": other,
+	}))
+	require.NoError(t, db.Close())
+	queueDir := filepath.Join(dir, "vectors_foo.queue.d")
+	plant(t, queueDir)
+
+	require.ErrorContains(t, DropUnloaded(dir, "foo", nil), `both record queue "vectors_foo"`)
+	assert.DirExists(t, queueDir)
 }
