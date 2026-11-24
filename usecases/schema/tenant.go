@@ -14,6 +14,8 @@ package schema
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -427,8 +429,12 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, 0, len(names))
+	var ts []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
+		if len(names) == 0 {
+			names = slices.Collect(maps.Keys(ss.Physical))
+		}
+		ts = make([]*models.Tenant, 0, len(names))
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue

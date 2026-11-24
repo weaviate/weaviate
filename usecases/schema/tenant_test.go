@@ -715,3 +715,39 @@ func TestUpdateShardStatusAcceptsOnlyReadyAndReadOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTenantsWithoutConsistency(t *testing.T) {
+	const class = "Tenants"
+	state := &sharding.State{Physical: map[string]sharding.Physical{
+		"hot":  {Name: "hot", Status: models.TenantActivityStatusHOT},
+		"cold": {Name: "cold", Status: models.TenantActivityStatusCOLD},
+	}}
+	hot := &models.Tenant{Name: "hot", ActivityStatus: models.TenantActivityStatusHOT}
+	cold := &models.Tenant{Name: "cold", ActivityStatus: models.TenantActivityStatusCOLD}
+
+	tests := []struct {
+		name  string
+		names []string
+		want  []*models.Tenant
+	}{
+		{name: "all", want: []*models.Tenant{hot, cold}},
+		{name: "named", names: []string{"cold"}, want: []*models.Tenant{cold}},
+		{name: "unknown", names: []string{"missing"}, want: []*models.Tenant{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, sm := newTestHandler(t, &fakeDB{})
+			sm.On("ClassInfo", class).Return(clusterSchema.ClassInfo{
+				Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}, Tenants: len(state.Physical),
+			})
+			sm.On("Read", class, mock.Anything).Run(func(args mock.Arguments) {
+				_ = args.Get(1).(func(*models.Class, *sharding.State) error)(nil, state)
+			}).Return(nil)
+
+			got, err := handler.GetConsistentTenants(context.Background(), nil, class, false, tt.names)
+
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
+}
