@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"iter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -122,7 +123,30 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 	a.h.PostingMap.RLock(id)
 	defer a.h.PostingMap.RUnlock(id)
 
-	for vectorID := range p.Iter() {
+	data := p.PackedPostingMetadata
+	if len(data) < 5 {
+		return false
+	}
+	count := binary.LittleEndian.Uint32(data[1:5])
+	scheme := Scheme(data[0])
+	width := scheme.BytesPerValue()
+	data = data[5:]
+	for i := uint32(0); i < count; i++ {
+		offset := i * uint32(width)
+		var vectorID uint64
+		switch scheme {
+		case schemeID2Byte:
+			vectorID = uint64(binary.LittleEndian.Uint16(data[offset:]))
+		case schemeID3Byte:
+			vectorID = uint64(data[offset]) | uint64(data[offset+1])<<8 | uint64(data[offset+2])<<16
+		case schemeID4Byte:
+			vectorID = uint64(binary.LittleEndian.Uint32(data[offset:]))
+		case schemeID5Byte:
+			vectorID = uint64(data[offset]) | uint64(data[offset+1])<<8 | uint64(data[offset+2])<<16 |
+				uint64(data[offset+3])<<24 | uint64(data[offset+4])<<32
+		default:
+			vectorID = binary.LittleEndian.Uint64(data[offset:])
+		}
 		if a.AllowList.Contains(vectorID) {
 			a.allowedPostings.Visit(id)
 			return true
