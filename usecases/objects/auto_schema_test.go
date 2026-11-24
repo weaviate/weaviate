@@ -1865,6 +1865,7 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 				call := authorizer.Calls()[i]
 				assert.Equal(t, authorization.READ, call.Verb)
 				assert.Equal(t, authorization.Collections(class), call.Resources)
+				assert.True(t, call.Silent)
 			}
 			if tc.schemaAnswers {
 				vectorRepo.AssertNotCalled(t, "ObjectsByID",
