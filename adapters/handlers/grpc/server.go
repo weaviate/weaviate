@@ -98,8 +98,9 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 		unaryInterceptors = append(unaryInterceptors, makeClientIdentifierInterceptor())
 	}
 	operationalModeInterceptor := newOperationalModeInterceptor(state)
+	maintenanceModeInterceptor := newMaintenanceModeInterceptor(state)
 	unaryInterceptors = append(unaryInterceptors, operationalModeInterceptor.unary)
-	unaryInterceptors = append(unaryInterceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
+	unaryInterceptors = append(unaryInterceptors, maintenanceModeInterceptor.unary)
 
 	// Add OpenTelemetry tracing interceptors
 	unaryInterceptors = append(unaryInterceptors, monitoring.GRPCTracingInterceptor())
@@ -121,7 +122,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
 	o = append(o, grpc.ChainStreamInterceptor(operationalModeInterceptor.stream))
-	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainStreamInterceptor(maintenanceModeInterceptor.stream))
 	o = append(o, grpc.ChainStreamInterceptor(makeDocsLinkStreamInterceptor()))
 
 	s := grpc.NewServer(o...)
@@ -302,12 +303,12 @@ type operationalModeInterceptor struct {
 }
 
 // admit returns a non-nil error if the server cannot process the request in the current state.
-func (omi *operationalModeInterceptor) admit(fullMethod string) error {
+func (i *operationalModeInterceptor) admit(fullMethod string) error {
 	if config.IsGPRCHealthCheck(fullMethod) {
 		return nil
 	}
 	var err error
-	switch omi.getMode() {
+	switch i.getMode() {
 	case config.READ_ONLY:
 		if config.IsGRPCWrite(fullMethod) {
 			err = config.ErrReadOnlyModeEnabled
@@ -329,28 +330,52 @@ func (omi *operationalModeInterceptor) admit(fullMethod string) error {
 }
 
 // unary implements [grpc.UnaryServerInterceptor].
-func (omi *operationalModeInterceptor) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if err := omi.admit(info.FullMethod); err != nil {
+func (i *operationalModeInterceptor) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if err := i.admit(info.FullMethod); err != nil {
 		return nil, err
 	}
 	return handler(ctx, req)
 }
 
 // stream implements [grpc.StreamServerInterceptor].
-func (omi *operationalModeInterceptor) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	if err := omi.admit(info.FullMethod); err != nil {
+func (i *operationalModeInterceptor) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if err := i.admit(info.FullMethod); err != nil {
 		return err
 	}
 	return handler(srv, ss)
 }
 
-func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if maintenanceModeEnabledForLocalhost() {
-			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
-		}
-		return handler(ctx, req)
+func newMaintenanceModeInterceptor(s *state.State) *maintenanceModeInterceptor {
+	return &maintenanceModeInterceptor{
+		inMaintenanceMode: s.Cluster.MaintenanceModeEnabledForLocalhost,
 	}
+}
+
+type maintenanceModeInterceptor struct {
+	inMaintenanceMode func() bool
+}
+
+func (i *maintenanceModeInterceptor) admit() error {
+	if i.inMaintenanceMode() {
+		return status.Error(codes.Unavailable, "server is in maintenance mode")
+	}
+	return nil
+}
+
+// unary implements [grpc.UnaryServerInterceptor].
+func (i *maintenanceModeInterceptor) unary(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if err := i.admit(); err != nil {
+		return nil, err
+	}
+	return handler(ctx, req)
+}
+
+// stream implements [grpc.StreamServerInterceptor].
+func (i *maintenanceModeInterceptor) stream(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if err := i.admit(); err != nil {
+		return err
+	}
+	return handler(srv, ss)
 }
 
 // makeDocsLinkUnaryInterceptor appends the documenting page to the message of
@@ -381,15 +406,6 @@ func withDocsLink(err error) error {
 	}
 	// A plain error becomes codes.Unknown, which is what grpc does with it anyway.
 	return status.Error(codes.Unknown, enterrors.MessageWithDocsLink(err))
-}
-
-func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if maintenanceModeEnabledForLocalhost() {
-			return status.Error(codes.Unavailable, "server is in maintenance mode")
-		}
-		return handler(srv, ss)
-	}
 }
 
 func getRealClientIP(ctx context.Context) string {
