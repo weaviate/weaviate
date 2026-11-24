@@ -347,7 +347,12 @@ func TestLazyLoadShard_TryUnloadRacesEachContender(t *testing.T) {
 			r := newUnloadRace(t, f)
 			r.addID(f.put(t))
 			unloads := unloadContender{name: "unload", run: unloaderLoop}
-			r.runWithWatchdog([]unloadContender{unloads, c}, 1500*time.Millisecond, 20*time.Second)
+			for range 10 {
+				r.runWithWatchdog([]unloadContender{unloads, c}, 1500*time.Millisecond, 20*time.Second)
+				if r.counter(c.name).Load() > 0 {
+					break
+				}
+			}
 			r.requireInvariants(true)
 			require.Positive(t, r.counter(c.name).Load(), "contender never succeeded")
 			t.Logf("unloads=%d %s=%d", r.counter("unload").Load(), c.name, r.counter(c.name).Load())
