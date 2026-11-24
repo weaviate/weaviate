@@ -12,13 +12,16 @@
 package vector_search_params
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // TestVectorSearchParamsFilterStrategy reproduces the "with filter" table of
@@ -109,6 +112,27 @@ func TestVectorSearchParamsFilterStrategy(t *testing.T) {
 				"vectorSearchParams": map[string]any{"ef": 10, "filterStrategy": "pathseer"},
 			})
 			require.Equal(t, want, got, "query %d", qi)
+		}
+	})
+
+	// Same graph, so the per-request strategy must return exactly what the
+	// collection returns once it is configured with that strategy.
+	t.Run("per-request strategy equals the collection configured with it", func(t *testing.T) {
+		setFilterStrategy := func(strategy string) {
+			cls := helper.GetClass(t, class)
+			cls.VectorIndexConfig.(map[string]any)["filterStrategy"] = strategy
+			helper.UpdateClass(t, cls)
+		}
+		t.Cleanup(func() { setFilterStrategy("acorn") })
+		for _, s := range []string{"sweeping", "pathseer"} {
+			t.Run(s, func(t *testing.T) {
+				strategy := pb.FilterStrategy(pb.FilterStrategy_value["FILTER_STRATEGY_"+strings.ToUpper(s)])
+				want := idsPerQuery(t, c, ds, req(10, strategy.Enum(), filter))
+				setFilterStrategy(s)
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
+					assert.Equal(ct, want, idsPerQuery(t, c, ds, req(10, nil, filter)))
+				}, 30*time.Second, 500*time.Millisecond)
+			})
 		}
 	})
 }

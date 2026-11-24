@@ -203,6 +203,35 @@ func TestVectorSearchParamsMultiTarget_REST(t *testing.T) {
 		}
 	})
 
+	t.Run("hybrid with targetVectors matches gRPC", func(t *testing.T) {
+		alpha := float32(1)
+		weights := map[string]float64{graphTarget: 0.5, ivfTarget: 0.5}
+		for qi, q := range ds.queries {
+			got := restOKIDs(t, uri, class, "hybrid", map[string]any{
+				"query": "object", "alpha": 1, "vector": q, "limit": k, "targetVectors": targets,
+				"targetCombination":        map[string]any{"method": "manualWeights", "weights": weights},
+				"targetVectorSearchParams": map[string]any{graphTarget: map[string]any{"ef": 10}, ivfTarget: map[string]any{"searchProbe": 1}},
+			})
+			want := searchIDs(t, c, &pb.SearchRequest{
+				Collection: class, Limit: k, Metadata: &pb.MetadataRequest{Uuid: true},
+				HybridSearch: &pb.Hybrid{
+					Query: "object", AlphaParam: &alpha, UseAlphaParam: true, Vectors: singleVectors(q),
+					Targets: &pb.Targets{
+						TargetVectors: targets, Combination: manual,
+						WeightsForTargets: []*pb.WeightsForTarget{{Target: graphTarget, Weight: 0.5}, {Target: ivfTarget, Weight: 0.5}},
+					},
+				},
+				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
+					forTarget(graphTarget, &pb.VectorSearchParams{Ef: u32(10)}),
+					forTarget(ivfTarget, &pb.VectorSearchParams{SearchProbe: u32(1)}),
+				},
+				Uses_127Api: true,
+			})
+			require.Len(t, got, k)
+			require.Equal(t, want, got, "query %d", qi)
+		}
+	})
+
 	t.Run("errors", func(t *testing.T) {
 		q := ds.queries[0]
 		vpt := map[string]any{graphTarget: q, ivfTarget: q}

@@ -22,11 +22,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -120,6 +122,20 @@ func TestMultiVectorHnsw(t *testing.T) {
 			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
+		}
+	})
+
+	t.Run("per-request params reach every token search", func(t *testing.T) {
+		params := &searchparams.VectorSearchParams{EF: 200, FilterStrategy: searchparams.FilterStrategySweeping}
+		for i, query := range multiQueries {
+			sctx := helpers.InitSlowQueryDetails(ctx)
+			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, params)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+			details := helpers.ExtractSlowQueryDetails(sctx)
+			require.Equal(t, 200, details["hnsw_ef_requested"])
+			require.Equal(t, 200, details["hnsw_ef_effective"])
+			require.Equal(t, "sweeping", details["hnsw_filter_strategy_requested"])
 		}
 	})
 
@@ -540,6 +556,18 @@ func TestMuveraHnsw(t *testing.T) {
 			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
+		}
+	})
+
+	t.Run("per-request ef is floored at the MUVERA overfetch", func(t *testing.T) {
+		for i, query := range multiQueries {
+			sctx := helpers.InitSlowQueryDetails(ctx)
+			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, &searchparams.VectorSearchParams{EF: 5})
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+			details := helpers.ExtractSlowQueryDetails(sctx)
+			require.Equal(t, 5, details["hnsw_ef_requested"])
+			require.Equal(t, 2*k, details["hnsw_ef_effective"], "MUVERA searches 2k candidates")
 		}
 	})
 

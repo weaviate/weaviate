@@ -190,6 +190,16 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 		assert.Equal(t, true, details["hnsw_flat_search"])
 	})
 
+	t.Run("search by distance applies the request ef", func(t *testing.T) {
+		sctx := helpers.InitSlowQueryDetails(context.Background())
+		ids, _, err := idxA.SearchByVectorDistance(sctx, queryVecs[0], 1e9, 50, nil, &searchparams.VectorSearchParams{EF: 300})
+		require.NoError(t, err)
+		require.NotEmpty(t, ids)
+		details := helpers.ExtractSlowQueryDetails(sctx)
+		assert.Equal(t, 300, details["hnsw_ef_requested"])
+		assert.Equal(t, 300, details["hnsw_ef_effective"], "every step searches max(ef, step limit) with step limits below 300")
+	})
+
 	// A multi-target request searches several indexes on one context, each
 	// with its own merged params: every value must survive, not the last one.
 	t.Run("slow-query annotations keep every target's value", func(t *testing.T) {
