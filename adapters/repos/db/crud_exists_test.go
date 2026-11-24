@@ -49,7 +49,6 @@ func TestExistsWithoutClass(t *testing.T) {
 		name        string
 		collections []collection
 		cancelled   bool
-		inFlight    bool // needs both lookups running at once
 		want        bool
 		wantErr     error
 	}{
@@ -85,15 +84,6 @@ func TestExistsWithoutClass(t *testing.T) {
 				{class: "F", holds: otherID},
 			},
 			want: true,
-		},
-		{
-			name: "a hit wins over a collection that cannot be read",
-			collections: []collection{
-				{class: "Broken", holds: otherID, unreadable: true},
-				{class: "Plain", holds: id},
-			},
-			inFlight: true,
-			want:     true,
 		},
 		{
 			name: "a collection that cannot be read fails a miss",
@@ -143,9 +133,6 @@ func TestExistsWithoutClass(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.inFlight && _NUMCPU < 2 {
-				t.Skip("needs two lookups in flight")
-			}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			if tc.cancelled {
@@ -230,65 +217,93 @@ func TestExistsWithoutClassStopsAfterAFailure(t *testing.T) {
 	assert.LessOrEqual(t, reads.Load(), int64(_NUMCPU), "only lookups already running may read")
 }
 
-// Cancelling a running replica read logs it as failed, so a hit must not.
-func TestExistsWithoutClassLeavesRunningLookupsAlone(t *testing.T) {
+// Both lookups are held until both run: a hit beats a running failure, and
+// never cancels a running lookup, as a cancelled replica read logs as failed.
+func TestExistsWithoutClassWithTwoRunningLookups(t *testing.T) {
 	if _NUMCPU < 2 {
 		t.Skip("needs two lookups in flight")
 	}
 	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
 	otherID := strfmt.UUID("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e")
-	logger, _ := test.NewNullLogger()
-	db := &DB{logger: logger, indices: map[string]*Index{}}
-	hit := make(chan struct{})
-	var cancelled atomic.Bool
-	for class, wrap := range map[string]func(ShardLike) ShardLike{
-		"Hit":  func(s ShardLike) ShardLike { return hitSignalShard{ShardLike: s, hit: hit} },
-		"Slow": func(s ShardLike) ShardLike { return slowSiblingShard{ShardLike: s, hit: hit, cancelled: &cancelled} },
-	} {
-		holds := otherID
-		if class == "Hit" {
-			holds = id
-		}
-		idx := objectsByIDTestIndex(t, class, false, holds)
-		var names []string
-		require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
-			names = append(names, name)
-			return nil
-		}))
-		for _, name := range names {
-			idx.shards.Store(name, wrap(idx.shards.Load(name)))
-		}
-		db.indices[indexID(schema.ClassName(class))] = idx
+
+	for _, other := range []barrierRole{roleFail, roleWatch} {
+		t.Run(string(other), func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			db := &DB{logger: logger, indices: map[string]*Index{}}
+			barrier := &twoReadsBarrier{t: t, all: make(chan struct{})}
+			var cancelled atomic.Bool
+			for class, role := range map[string]barrierRole{"Hit": roleHit, "Other": other} {
+				holds := otherID
+				if role == roleHit {
+					holds = id
+				}
+				idx := objectsByIDTestIndex(t, class, false, holds)
+				var names []string
+				require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+					names = append(names, name)
+					return nil
+				}))
+				for _, name := range names {
+					idx.shards.Store(name, barrierShard{
+						ShardLike: idx.shards.Load(name), barrier: barrier, role: role, cancelled: &cancelled,
+					})
+				}
+				db.indices[indexID(schema.ClassName(class))] = idx
+			}
+
+			ok, err := db.Exists(t.Context(), "", id, nil, "")
+			require.NoError(t, err)
+			assert.True(t, ok)
+			assert.False(t, cancelled.Load(), "a running lookup was cancelled after the hit")
+		})
 	}
-
-	ok, err := db.Exists(t.Context(), "", id, nil, "")
-	require.NoError(t, err)
-	assert.True(t, ok)
-	assert.False(t, cancelled.Load(), "a running lookup was cancelled after the hit")
 }
 
-type hitSignalShard struct {
+type barrierRole string
+
+const (
+	roleHit   barrierRole = "a hit"
+	roleFail  barrierRole = "a hit beats a running failure"
+	roleWatch barrierRole = "a hit leaves a running lookup alone"
+)
+
+// twoReadsBarrier releases the reads once both have entered.
+type twoReadsBarrier struct {
+	t       *testing.T
+	entered atomic.Int32
+	all     chan struct{}
+}
+
+func (b *twoReadsBarrier) wait() {
+	if b.entered.Add(1) == 2 {
+		close(b.all)
+	}
+	select {
+	case <-b.all:
+	case <-time.After(5 * time.Second):
+		b.t.Error("the two lookups never ran at once")
+	}
+}
+
+type barrierShard struct {
 	ShardLike
-	hit chan struct{}
-}
-
-func (s hitSignalShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	defer close(s.hit)
-	return s.ShardLike.Exists(ctx, id)
-}
-
-type slowSiblingShard struct {
-	ShardLike
-	hit       chan struct{}
+	barrier   *twoReadsBarrier
+	role      barrierRole
 	cancelled *atomic.Bool
 }
 
-func (s slowSiblingShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	<-s.hit
-	select {
-	case <-ctx.Done():
-		s.cancelled.Store(true)
-	case <-time.After(100 * time.Millisecond):
+func (s barrierShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	s.barrier.wait()
+	switch s.role {
+	case roleFail:
+		return false, errAlreadyShutdown
+	case roleWatch:
+		select {
+		case <-ctx.Done():
+			s.cancelled.Store(true)
+		case <-time.After(100 * time.Millisecond):
+		}
+	case roleHit:
 	}
 	return s.ShardLike.Exists(ctx, id)
 }
