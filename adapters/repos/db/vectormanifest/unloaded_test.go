@@ -148,3 +148,52 @@ func TestReadUnloaded(t *testing.T) {
 		})
 	}
 }
+
+func TestReadUnloadedTasks(t *testing.T) {
+	t.Run("a shard without a metadata db has no tasks", func(t *testing.T) {
+		got, err := readUnloadedTasks(t.TempDir(), []string{"title"})
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("reads the named tasks only", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		tasks := newTaskStore(db)
+		require.NoError(t, tasks.Put("title", testTask("vectors_title")))
+		require.NoError(t, tasks.Put("body", testTask("vectors_body")))
+		require.NoError(t, db.Close())
+
+		got, err := readUnloadedTasks(dir, []string{"title", "summary"})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]rebuildTask{"title": testTask("vectors_title")}, got)
+	})
+
+	tests := []struct {
+		name    string
+		version string
+		task    string
+		wantErr string
+	}{
+		{name: "unsupported format version", version: "2", task: "{}", wantErr: "format version"},
+		{name: "task without format version", task: `{"task_id":"t"}`, wantErr: "format version"},
+		{name: "invalid task", version: "1", task: `{"task_id":"t"}`, wantErr: `task "title": source`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+			require.NoError(t, err)
+			ns := db.Namespace(tasksNamespace)
+			if tt.version != "" {
+				require.NoError(t, ns.Put([]byte(formatVersionKey), []byte(tt.version)))
+			}
+			require.NoError(t, ns.Put([]byte("title"), []byte(tt.task)))
+			require.NoError(t, db.Close())
+
+			_, err = readUnloadedTasks(dir, []string{"title"})
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

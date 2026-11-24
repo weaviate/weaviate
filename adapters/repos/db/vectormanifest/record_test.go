@@ -209,9 +209,9 @@ func TestStorageID(t *testing.T) {
 	}
 }
 
-// Only the record reads its raw physical ID. Anywhere else a raw ID that is
+// Only the record and the rebuild task read their raw physical ID. Anywhere else a raw ID that is
 // not main or vectors_<x> would name the legacy vector's files.
-func TestRecord_PhysicalIDReadOnlyByTheRecord(t *testing.T) {
+func TestRecord_PhysicalIDReadOnlyByItsOwner(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 	fset := token.NewFileSet()
@@ -219,7 +219,7 @@ func TestRecord_PhysicalIDReadOnlyByTheRecord(t *testing.T) {
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
-			name == "record.go" {
+			name == "record.go" || name == "task.go" {
 			continue
 		}
 		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
