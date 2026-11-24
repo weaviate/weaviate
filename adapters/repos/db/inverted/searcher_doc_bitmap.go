@@ -33,7 +33,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (bm docBitmap, err error) {
 	before := time.Now()
-	strategy := b.Strategy()
+	strategy := "geo"
 	defer helpers.AnnotateSlowQueryLogSlowest(ctx, docBitmapSlowLogKey, before, func() map[string]any {
 		return map[string]any{
 			"prop":     pv.prop,
@@ -45,6 +45,18 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		}
 	})
 
+	// geo props cannot be served by the inverted index and they require an
+	// external index. So, instead of trying to serve this chunk of the filter
+	// request internally, we can pass it to an external geo index. A geo prop
+	// with a geopoints bucket is served by the switch below.
+	if pv.operator == filters.OperatorWithinGeoRange && !pv.hasGeoBucketIndex {
+		bm, err = s.docBitmapGeo(ctx, pv)
+		return bm, err
+	}
+	strategy = b.Strategy()
+
+	// all other operators perform operations on the inverted index which we
+	// can serve directly
 	switch b.Strategy() {
 	case lsmkv.StrategySetCollection:
 		bm, err = s.docBitmapInvertedSet(ctx, b, limit, pv)
@@ -57,7 +69,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	case lsmkv.StrategyInverted: // TODO amourao, check
 		bm, err = s.docBitmapInvertedMap(ctx, b, limit, pv)
 	case lsmkv.StrategyGeoPoints:
-		bm, err = s.docBitmapGeo(ctx, b, pv)
+		bm, err = s.docBitmapGeoBucket(ctx, b, pv)
 	default:
 		return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable nor rangeable", pv.prop)
 	}
@@ -193,7 +205,24 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	return out, nil
 }
 
-func (s *Searcher) docBitmapGeo(ctx context.Context, b *lsmkv.Bucket, pv *propValuePair) (docBitmap, error) {
+func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitmap, error) {
+	out := newDocBitmap()
+	propIndex, ok := s.propIndices.ByProp(pv.prop)
+
+	if !ok {
+		return out, nil
+	}
+
+	res, err := propIndex.GeoIndex.WithinRange(ctx, *pv.valueGeoRange)
+	if err != nil {
+		return out, fmt.Errorf("geo index range search on prop %q: %w", pv.prop, err)
+	}
+
+	out.docIDs.SetMany(res)
+	return out, nil
+}
+
+func (s *Searcher) docBitmapGeoBucket(ctx context.Context, b *lsmkv.Bucket, pv *propValuePair) (docBitmap, error) {
 	if pv.operator != filters.OperatorWithinGeoRange || pv.valueGeoRange == nil {
 		return docBitmap{}, fmt.Errorf("operator %s is not supported on geo prop %q", pv.operator.Name(), pv.prop)
 	}

@@ -41,19 +41,15 @@ import (
 
 const geoBucketClass = "GeoBucketClass"
 
-func geoAt(latitude, longitude float32) *models.GeoCoordinates {
-	return &models.GeoCoordinates{Latitude: &latitude, Longitude: &longitude}
-}
-
 var (
 	berlinCoords  = geoAt(52.520, 13.405)
 	munichCoords  = geoAt(48.137, 11.575)
 	hamburgCoords = geoAt(53.551, 9.993)
 )
 
-func removeRootPath(t *testing.T, idx *Index) {
+func removeGeoTestRoot(t *testing.T, idx *Index) {
 	t.Helper()
-	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+	require.NoError(t, os.RemoveAll(idx.Config.RootPath))
 }
 
 func geoBucketTestClass() *models.Class {
@@ -61,8 +57,8 @@ func geoBucketTestClass() *models.Class {
 		Class: geoBucketClass,
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
-			{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
-			{Name: "home", DataType: schema.DataTypeGeoCoordinates.PropString()},
+			{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd},
+			{Name: "home", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd},
 		},
 	}
 }
@@ -124,7 +120,7 @@ func TestGeoBucketWritePaths(t *testing.T) {
 
 	t.Run("put indexes every geo property and the filter finds it", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords, "name": "a"})
 		require.NoError(t, s.PutObject(ctx, obj))
@@ -140,7 +136,7 @@ func TestGeoBucketWritePaths(t *testing.T) {
 
 	t.Run("update moves the point and retires the old doc id", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords})
 		require.NoError(t, s.PutObject(ctx, obj))
@@ -159,7 +155,7 @@ func TestGeoBucketWritePaths(t *testing.T) {
 
 	t.Run("update that drops the property removes the point", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords})
 		require.NoError(t, s.PutObject(ctx, obj))
@@ -174,7 +170,7 @@ func TestGeoBucketWritePaths(t *testing.T) {
 
 	t.Run("coordinates arriving as a map are indexed", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": map[string]any{
 			"latitude": float64(*berlinCoords.Latitude), "longitude": float64(*berlinCoords.Longitude),
@@ -185,7 +181,7 @@ func TestGeoBucketWritePaths(t *testing.T) {
 
 	t.Run("batch put indexes and batch update retires", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		objs := []*storobj.Object{
 			geoTestObject(map[string]interface{}{"location": berlinCoords}),
@@ -210,7 +206,7 @@ func TestGeoBucketWritePaths(t *testing.T) {
 
 	t.Run("a point survives a flush and a restart", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": berlinCoords})
 		require.NoError(t, s.PutObject(ctx, obj))
@@ -257,7 +253,7 @@ func TestGeoBucketDeletePaths(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			s, idx := testGeoBucketShard(t, ctx)
-			defer removeRootPath(t, idx)
+			defer removeGeoTestRoot(t, idx)
 
 			obj := geoTestObject(map[string]interface{}{"location": munichCoords, "home": berlinCoords})
 			require.NoError(t, s.PutObject(ctx, obj))
@@ -276,108 +272,10 @@ func TestGeoBucketDeletePaths(t *testing.T) {
 	}
 }
 
-// TestGeoBucketLegacyIndexMigration pins that a shard upgraded from the geo
-// HNSW rebuilds its bucket from the objects and removes the old directories,
-// whatever state the bucket is in.
-func TestGeoBucketLegacyIndexMigration(t *testing.T) {
-	tests := []struct {
-		name       string
-		legacyDirs []string
-		// wreckBucket damages the bucket before the restart, standing in for a
-		// bucket an interrupted earlier migration left behind
-		wreckBucket func(t *testing.T, s *Shard)
-	}{
-		{
-			name:       "commit log dir, no bucket",
-			legacyDirs: []string{"geo.location.hnsw.commitlog.d"},
-			wreckBucket: func(t *testing.T, s *Shard) {
-				require.NoError(t, os.RemoveAll(filepath.Join(s.pathLSM(), helpers.BucketGeoFromPropNameLSM("location"))))
-			},
-		},
-		{
-			name:       "commit log and queue dirs, partial bucket",
-			legacyDirs: []string{"geo.location.hnsw.commitlog.d", "geo.location.queue.d"},
-			wreckBucket: func(t *testing.T, s *Shard) {
-				dir := filepath.Join(s.pathLSM(), helpers.BucketGeoFromPropNameLSM("location"))
-				entries, err := os.ReadDir(dir)
-				require.NoError(t, err)
-				for _, e := range entries {
-					require.NoError(t, os.RemoveAll(filepath.Join(dir, e.Name())))
-				}
-			},
-		},
-		{
-			name:        "queue dir only, intact bucket",
-			legacyDirs:  []string{"geo.location.queue.d"},
-			wreckBucket: func(*testing.T, *Shard) {},
-		},
-		{
-			name:        "snapshot dir of an older hnsw layout",
-			legacyDirs:  []string{"geo.location.hnsw.commitlog.d", "geo.location.hnsw.snapshot.d"},
-			wreckBucket: func(*testing.T, *Shard) {},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := context.Background()
-			s, idx := testGeoBucketShard(t, ctx)
-			defer removeRootPath(t, idx)
-
-			objs := []*storobj.Object{
-				geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords}),
-				geoTestObject(map[string]interface{}{"location": munichCoords}),
-				geoTestObject(map[string]interface{}{"name": "no geo"}),
-			}
-			for _, obj := range objs {
-				require.NoError(t, s.PutObject(ctx, obj))
-			}
-			deleted := geoTestObject(map[string]interface{}{"location": hamburgCoords})
-			require.NoError(t, s.PutObject(ctx, deleted))
-			require.NoError(t, s.DeleteObject(ctx, deleted.Object.ID, time.Time{}))
-
-			shardPath := s.path()
-			require.NoError(t, s.Shutdown(ctx))
-
-			test.wreckBucket(t, s)
-			for _, dir := range test.legacyDirs {
-				require.NoError(t, os.MkdirAll(filepath.Join(shardPath, dir), 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(shardPath, dir, "1000"), []byte("old"), 0o644))
-			}
-
-			reloaded, err := NewShard(ctx, nil, s.Name(), idx, geoBucketTestClass(),
-				idx.centralJobQueue, idx.scheduler, idx.shardReindexer, false, idx.bitmapBufPool,
-				monitoring.ShardRegistrationEager)
-			require.NoError(t, err)
-			defer reloaded.Shutdown(ctx)
-
-			assert.Equal(t, []uint64{objs[0].DocID, objs[1].DocID},
-				geoDocIDsWithin(t, reloaded, "location", berlinCoords, 1_000_000))
-			assert.Empty(t, geoDocIDsWithin(t, reloaded, "location", hamburgCoords, 1000),
-				"the deleted object must not come back")
-			assert.Equal(t, []uint64{objs[0].DocID}, geoDocIDsWithin(t, reloaded, "home", munichCoords, 1000),
-				"the other geo property is untouched")
-
-			for _, dir := range test.legacyDirs {
-				_, err := os.Stat(filepath.Join(shardPath, dir))
-				assert.True(t, os.IsNotExist(err), "legacy dir %q must be removed", dir)
-			}
-
-			// the rebuilt points are in a segment before the legacy dirs go: a
-			// write-ahead log alone may still be in the page cache when the
-			// machine dies, and then nothing would trigger another rebuild
-			segments, err := filepath.Glob(filepath.Join(reloaded.pathLSM(),
-				helpers.BucketGeoFromPropNameLSM("location"), "segment-*.db"))
-			require.NoError(t, err)
-			assert.NotEmpty(t, segments, "the migration must flush the rebuilt bucket")
-		})
-	}
-}
-
 func TestGeoBucketDebugReset(t *testing.T) {
 	ctx := context.Background()
 	s, idx := testGeoBucketShard(t, ctx)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 
 	objs := []*storobj.Object{
 		geoTestObject(map[string]interface{}{"location": berlinCoords}),
@@ -410,7 +308,7 @@ func TestGeoBucketDebugReset(t *testing.T) {
 func TestShardListBackupFilesCoversGeoBucket(t *testing.T) {
 	ctx := testCtx()
 	s, idx := testGeoBucketShard(t, ctx)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 
 	objs := []*storobj.Object{
 		geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords}),
@@ -454,7 +352,7 @@ func TestShardListBackupFilesCoversGeoBucket(t *testing.T) {
 	require.NoError(t, s.resumeMaintenanceCycles(ctx))
 }
 
-func TestGeoCoordinatesOfProp(t *testing.T) {
+func TestGeoPointOfProp(t *testing.T) {
 	lat, lon := float32(1.5), float32(2.5)
 	tests := []struct {
 		name    string
@@ -474,7 +372,7 @@ func TestGeoCoordinatesOfProp(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			obj := &storobj.Object{Object: models.Object{Properties: test.props}}
-			got, err := geoCoordinatesOfProp(obj, "location")
+			got, err := geoPointOfProp(obj, "location")
 			if test.wantErr {
 				require.Error(t, err)
 				return
@@ -498,7 +396,7 @@ func TestGeoBucketNotCreatedWithoutFilterableIndex(t *testing.T) {
 	class.Properties[1].IndexFilterable = &vFalse
 
 	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 	s := shard.(*Shard)
 
 	assert.False(t, s.hasGeoIndexForProp("location"))
@@ -515,14 +413,14 @@ func TestGeoBucketNotCreatedWithoutFilterableIndex(t *testing.T) {
 func TestGeoBucketRemovedWhenFilterableIndexDisabled(t *testing.T) {
 	ctx := context.Background()
 	s, idx := testGeoBucketShard(t, ctx)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 
 	obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords})
 	require.NoError(t, s.PutObject(ctx, obj))
 	require.True(t, s.hasGeoIndexForProp("location"))
 
 	vFalse := false
-	disabled := &models.Property{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString(), IndexFilterable: &vFalse}
+	disabled := &models.Property{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd, IndexFilterable: &vFalse}
 	eg := enterrors.NewErrorGroupWrapper(idx.logger)
 	s.updatePropertyBuckets(ctx, eg, disabled, &migrationSweepCounts{})
 	require.NoError(t, eg.Wait())
@@ -542,8 +440,11 @@ func TestMainBucketForProperty(t *testing.T) {
 		want      string
 		wantOK    bool
 	}{
-		{name: "geo filterable", prop: &models.Property{Name: "p", DataType: schema.DataTypeGeoCoordinates.PropString()}, indexType: "filterable", want: helpers.BucketGeoFromPropNameLSM("p"), wantOK: true},
-		{name: "geo searchable has no bucket of its own", prop: &models.Property{Name: "p", DataType: schema.DataTypeGeoCoordinates.PropString()}, indexType: "searchable", want: helpers.BucketSearchableFromPropNameLSM("p"), wantOK: true},
+		{name: "geo filterable", prop: &models.Property{Name: "p", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd}, indexType: "filterable", want: helpers.BucketGeoFromPropNameLSM("p"), wantOK: true},
+		{name: "geo searchable has no bucket of its own", prop: &models.Property{Name: "p", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd}, indexType: "searchable", want: helpers.BucketSearchableFromPropNameLSM("p"), wantOK: true},
+		{name: "geo filterable, hnsw", prop: &models.Property{Name: "p", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeHnsw}, indexType: "filterable", want: helpers.BucketFromPropNameLSM("p"), wantOK: true},
+		{name: "geo filterable, type unset", prop: &models.Property{Name: "p", DataType: schema.DataTypeGeoCoordinates.PropString()}, indexType: "filterable", want: helpers.BucketFromPropNameLSM("p"), wantOK: true},
+		{name: "text filterable with a stray geo index type", prop: &models.Property{Name: "p", DataType: schema.DataTypeText.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd}, indexType: "filterable", want: helpers.BucketFromPropNameLSM("p"), wantOK: true},
 		{name: "text filterable", prop: &models.Property{Name: "p", DataType: schema.DataTypeText.PropString()}, indexType: "filterable", want: helpers.BucketFromPropNameLSM("p"), wantOK: true},
 		{name: "unknown index type", prop: &models.Property{Name: "p", DataType: schema.DataTypeText.PropString()}, indexType: "nope"},
 	}
@@ -567,14 +468,14 @@ func TestGeoBucketLateWriteAfterDelete(t *testing.T) {
 
 	t.Run("after a delete", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": berlinCoords})
 		require.NoError(t, s.PutObject(ctx, obj))
 		require.NoError(t, s.DeleteObject(ctx, obj.Object.ID, time.Time{}))
 
 		// the straggling geo write of the insert
-		require.NoError(t, s.updatePropertySpecificIndices(ctx, obj, objectInsertStatus{docID: obj.DocID}))
+		require.NoError(t, s.updateGeoBuckets(ctx, obj, objectInsertStatus{docID: obj.DocID}))
 		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
@@ -582,7 +483,7 @@ func TestGeoBucketLateWriteAfterDelete(t *testing.T) {
 
 	t.Run("after an update", func(t *testing.T) {
 		s, idx := testGeoBucketShard(t, ctx)
-		defer removeRootPath(t, idx)
+		defer removeGeoTestRoot(t, idx)
 
 		obj := geoTestObject(map[string]interface{}{"location": berlinCoords})
 		require.NoError(t, s.PutObject(ctx, obj))
@@ -591,7 +492,7 @@ func TestGeoBucketLateWriteAfterDelete(t *testing.T) {
 		require.NoError(t, s.PutObject(ctx, updated))
 		require.NotEqual(t, obj.DocID, updated.DocID)
 
-		require.NoError(t, s.updatePropertySpecificIndices(ctx, obj, objectInsertStatus{docID: obj.DocID}))
+		require.NoError(t, s.updateGeoBuckets(ctx, obj, objectInsertStatus{docID: obj.DocID}))
 		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
 		assert.Equal(t, []uint64{updated.DocID}, geoDocIDsWithin(t, s, "location", munichCoords, 1000))
 		require.NoError(t, s.store.FlushMemtables(ctx))
@@ -606,7 +507,7 @@ func TestGeoBucketLateWriteAfterDelete(t *testing.T) {
 func TestGeoBucketConcurrentPutDelete(t *testing.T) {
 	ctx := context.Background()
 	s, idx := testGeoBucketShard(t, ctx)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 
 	const objects, workers, rounds = 8, 8, 150
 	ids := make([]strfmt.UUID, objects)
@@ -658,7 +559,7 @@ func TestGeoBucketNameDoesNotCollide(t *testing.T) {
 		Name: "location_geo", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField,
 	})
 	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 	s := shard.(*Shard)
 
 	obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "location_geo": "berlin"})
@@ -691,7 +592,7 @@ func TestGeoBucketNameDoesNotCollide(t *testing.T) {
 func TestGeoBucketRebuildAfterChurn(t *testing.T) {
 	ctx := context.Background()
 	s, idx := testGeoBucketShard(t, ctx)
-	defer removeRootPath(t, idx)
+	defer removeGeoTestRoot(t, idx)
 
 	kept := geoTestObject(map[string]interface{}{"location": berlinCoords})
 	for i := 0; i < 50; i++ {
@@ -707,4 +608,80 @@ func TestGeoBucketRebuildAfterChurn(t *testing.T) {
 	require.NoError(t, s.DebugResetGeoIndex(ctx, "location"))
 	assert.Equal(t, []uint64{kept.DocID}, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
 	assert.Empty(t, geoDocIDsWithin(t, s, "location", munichCoords, 1000))
+}
+
+// TestGeoIndexTypeSelectsIndex pins that geoIndexType alone decides which
+// index a geo property gets: a bucket for "bkd", the HNSW graph otherwise, and
+// never both. Each serves its own property through every write path while the
+// other kind sits beside it in the same class.
+func TestGeoIndexTypeSelectsIndex(t *testing.T) {
+	tests := []struct {
+		name         string
+		geoIndexType string
+		wantBucket   bool
+	}{
+		{name: "unset defaults to hnsw", geoIndexType: "", wantBucket: false},
+		{name: "hnsw", geoIndexType: models.PropertyGeoIndexTypeHnsw, wantBucket: false},
+		{name: "bkd", geoIndexType: models.PropertyGeoIndexTypeBkd, wantBucket: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			// "location" is under test; "home" is always the other kind
+			otherType := models.PropertyGeoIndexTypeBkd
+			if test.wantBucket {
+				otherType = models.PropertyGeoIndexTypeHnsw
+			}
+			class := geoBucketTestClass()
+			class.Properties[1].GeoIndexType = test.geoIndexType
+			class.Properties[2].GeoIndexType = otherType
+
+			shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
+			defer removeGeoTestRoot(t, idx)
+			s := shard.(*Shard)
+
+			for propName, wantBucket := range map[string]bool{"location": test.wantBucket, "home": !test.wantBucket} {
+				assert.Equal(t, wantBucket, s.store.Bucket(helpers.BucketGeoFromPropNameLSM(propName)) != nil,
+					"geo bucket of %q", propName)
+				_, hasGraph := s.propertyIndicesSnapshot().ByProp(propName)
+				assert.Equal(t, !wantBucket, hasGraph, "geo hnsw of %q", propName)
+				_, err := os.Stat(filepath.Join(s.path(), "geo."+propName+".hnsw.commitlog.d"))
+				assert.Equal(t, !wantBucket, err == nil, "geo hnsw commit log of %q", propName)
+				assert.True(t, s.hasGeoIndexForProp(propName))
+			}
+			assert.True(t, s.hasGeoIndex(), "the hnsw property keeps the shard on the property-specific write path")
+
+			both := func(coords *models.GeoCoordinates) map[string]interface{} {
+				return map[string]interface{}{"location": coords, "home": coords}
+			}
+			within := func(propName string, center *models.GeoCoordinates) []uint64 {
+				return geoFilterDocIDs(t, s, propName, center, 1000)
+			}
+
+			put := geoTestObject(both(berlinCoords))
+			require.NoError(t, s.PutObject(ctx, put))
+			batched := geoTestObject(both(berlinCoords))
+			for _, err := range s.PutObjectBatch(ctx, []*storobj.Object{batched}) {
+				require.NoError(t, err)
+			}
+			for _, propName := range []string{"location", "home"} {
+				assert.Equal(t, []uint64{put.DocID, batched.DocID}, within(propName, berlinCoords), propName)
+				assert.Empty(t, within(propName, munichCoords), propName)
+			}
+
+			moved := geoTestObject(both(munichCoords))
+			moved.Object.ID = put.Object.ID
+			require.NoError(t, s.PutObject(ctx, moved))
+			for _, propName := range []string{"location", "home"} {
+				assert.Equal(t, []uint64{batched.DocID}, within(propName, berlinCoords), propName)
+				assert.Equal(t, []uint64{moved.DocID}, within(propName, munichCoords), propName)
+			}
+
+			require.NoError(t, s.DeleteObject(ctx, moved.ID(), time.Now()))
+			for _, propName := range []string{"location", "home"} {
+				assert.Empty(t, within(propName, munichCoords), propName)
+				assert.Equal(t, []uint64{batched.DocID}, within(propName, berlinCoords), propName)
+			}
+		})
+	}
 }

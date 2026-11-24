@@ -347,6 +347,10 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			queueLen += queue.Size()
 			return nil
 		})
+		_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueLen += queue.Size()
+			return nil
+		})
 
 		shardStatus := &models.NodeShardStatus{
 			Name:                   name,

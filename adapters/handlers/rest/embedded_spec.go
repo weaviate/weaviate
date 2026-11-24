@@ -10953,6 +10953,14 @@ func init() {
           "default": true,
           "x-nullable": true
         },
+        "geoIndexType": {
+          "description": "The index that serves ` + "`" + `withinGeoRange` + "`" + ` filters on this property. Applicable only to properties of data type ` + "`" + `geoCoordinates` + "`" + ` with a filterable index. Immutable after creation.\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `hnsw` + "`" + ` (default): An HNSW graph. A filter returns at most 800 objects (` + "`" + `HNSW_GEO_INDEX_EF` + "`" + `).\u003cbr/\u003e- ` + "`" + `bkd` + "`" + `: A BKD tree per LSM segment. Filters are exact and unbounded.",
+          "type": "string",
+          "enum": [
+            "hnsw",
+            "bkd"
+          ]
+        },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If ` + "`" + `false` + "`" + `, this property cannot be used in ` + "`" + `where` + "`" + ` filters. \u003cbr/\u003e\u003cbr/\u003eNote: Unrelated to vectorization behavior.",
           "type": "boolean",
@@ -24684,6 +24692,14 @@ func init() {
           "type": "boolean",
           "default": true,
           "x-nullable": true
+        },
+        "geoIndexType": {
+          "description": "The index that serves ` + "`" + `withinGeoRange` + "`" + ` filters on this property. Applicable only to properties of data type ` + "`" + `geoCoordinates` + "`" + ` with a filterable index. Immutable after creation.\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `hnsw` + "`" + ` (default): An HNSW graph. A filter returns at most 800 objects (` + "`" + `HNSW_GEO_INDEX_EF` + "`" + `).\u003cbr/\u003e- ` + "`" + `bkd` + "`" + `: A BKD tree per LSM segment. Filters are exact and unbounded.",
+          "type": "string",
+          "enum": [
+            "hnsw",
+            "bkd"
+          ]
         },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If ` + "`" + `false` + "`" + `, this property cannot be used in ` + "`" + `where` + "`" + ` filters. \u003cbr/\u003e\u003cbr/\u003eNote: Unrelated to vectorization behavior.",

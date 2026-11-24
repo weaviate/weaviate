@@ -24,8 +24,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,6 +37,8 @@ import (
 func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Class) {
 	ctx := context.TODO()
 
+	s.propertyIndices = propertyspecific.Indices{}
+	s.geoQueues = make(map[string]*VectorIndexQueue)
 	if class == nil {
 		return
 	}
@@ -73,6 +77,11 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		return nil
 	}
 
+	// when the server waits for cache prefill (the default), each geo prop's init
+	// blocks on a 2*GOMAXPROCS-cursor scan of the objects bucket, so they run one
+	// at a time rather than joining the fan-out below
+	var geoProps []*models.Property
+
 	for _, prop := range props {
 		prop = s.withMigratedIndexes(prop)
 		propCopy := *prop // prevent loop variable capture
@@ -99,9 +108,13 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		eg.Go(func() error {
-			return initValueIndex(&propCopy)
-		})
+		if createsGeoIndex(prop) && !usesGeoBucket(prop) {
+			geoProps = append(geoProps, &propCopy)
+		} else {
+			eg.Go(func() error {
+				return initValueIndex(&propCopy)
+			})
+		}
 
 		if s.index.invertedIndexConfig.IndexNullState {
 			eg.Go(func() error {
@@ -121,6 +134,32 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			})
 		}
 	}
+
+	if len(geoProps) > 0 {
+		eg.Go(func() error {
+			// one prop failing must not skip the rest, which each own a separate
+			// index the shard would otherwise come up without
+			ec := errorcompounder.New()
+			for _, prop := range geoProps {
+				if err := ctx.Err(); err != nil {
+					ec.Add(err)
+					break
+				}
+				ec.Add(initValueIndex(prop))
+			}
+			return ec.ToError()
+		})
+	}
+}
+
+// createsGeoIndex reports whether createPropertyValueIndex builds a geo index
+// for prop rather than inverted buckets.
+func createsGeoIndex(prop *models.Property) bool {
+	if !inverted.HasFilterableIndex(prop) {
+		return false
+	}
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	return dt == schema.DataTypeGeoCoordinates
 }
 
 type migrationSweepCounts struct {
@@ -156,6 +195,13 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			mainBucket, ok := mainBucketForProperty(prop, indexType)
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
+			}
+			if indexType == "filterable" && isGeoHNSWProp(prop) {
+				// its filterable index is a graph beside the shard, not a bucket
+				if err := s.dropGeoProp(ctx, prop.Name); err != nil {
+					return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
+				}
+				continue
 			}
 			s.retirePropertyOverlay(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
@@ -284,19 +330,20 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 // and "cat" searchable share a bucket name, so a sweep of either reaches the
 // other's sidecars.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
-	return mainBucketForPropertyIndexOfType(propName, "", indexType)
+	return mainBucketForPropertyIndexOfType(propName, false, indexType)
 }
 
 // mainBucketForProperty is mainBucketForPropertyIndex for a property whose
-// data type is known: the filterable index of a geoCoordinates property is its
-// geo bucket, not a roaringset one.
+// schema is known: the filterable index of a geoCoordinates property with
+// geoIndexType "bkd" is its geo bucket, not a roaringset one.
 func mainBucketForProperty(prop *models.Property, indexType string) (string, bool) {
 	dt, _ := schema.AsPrimitive(prop.DataType)
-	return mainBucketForPropertyIndexOfType(prop.Name, dt, indexType)
+	geoBucket := dt == schema.DataTypeGeoCoordinates && prop.GeoIndexType == models.PropertyGeoIndexTypeBkd
+	return mainBucketForPropertyIndexOfType(prop.Name, geoBucket, indexType)
 }
 
-func mainBucketForPropertyIndexOfType(propName string, dt schema.DataType, indexType string) (string, bool) {
-	if indexType == "filterable" && dt == schema.DataTypeGeoCoordinates {
+func mainBucketForPropertyIndexOfType(propName string, geoBucket bool, indexType string) (string, bool) {
+	if indexType == "filterable" && geoBucket {
 		return helpers.BucketGeoFromPropNameLSM(propName), true
 	}
 	switch indexType {
@@ -438,8 +485,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
+	if usesGeoBucket(prop) {
+		return s.initGeoBucket(ctx, prop, makeBucketOptions)
+	}
 	if createsGeoIndex(prop) {
-		return s.initGeoProp(ctx, prop, makeBucketOptions)
+		return s.initGeoProp(prop)
 	}
 
 	if inverted.HasFilterableIndex(prop) {

@@ -27,6 +27,7 @@ import (
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -53,6 +54,7 @@ type Searcher struct {
 	store                   *lsmkv.Store
 	getClass                func(string) *models.Class
 	classSearcher           ClassSearcher // to allow recursive searches on ref-props
+	propIndices             propertyspecific.Indices
 	stopwordProvider        *stopwords.Provider
 	shardVersion            uint16
 	isFallbackToSearchable  IsFallbackToSearchable
@@ -123,7 +125,7 @@ var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided.
 	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	getClass func(string) *models.Class,
+	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	isRangeableLocallyReady IsRangeableLocallyReady,
@@ -141,6 +143,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		logger:                  logger,
 		store:                   store,
 		getClass:                getClass,
+		propIndices:             propIndices,
 		classSearcher:           classSearcher,
 		stopwordProvider:        stopwordProvider,
 		shardVersion:            shardVersion,
@@ -745,6 +748,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
 		hasRangeableIndex:  s.hasUsableRangeableIndex(prop),
+		hasGeoBucketIndex:  HasGeoBucketIndex(prop),
 		Class:              class,
 	}, nil
 }

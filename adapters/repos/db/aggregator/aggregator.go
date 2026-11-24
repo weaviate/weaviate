@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -50,7 +51,8 @@ type Aggregator struct {
 	store                   *lsmkv.Store
 	params                  aggregation.Params
 	getSchema               schemaUC.SchemaGetter
-	classSearcher           inverted.ClassSearcher // to support ref-filters
+	propIndices             propertyspecific.Indices // to support geo-filters
+	classSearcher           inverted.ClassSearcher   // to support ref-filters
 	vectorIndex             vectorIndex
 	stopwordProvider        *stopwords.Provider
 	shardVersion            uint16
@@ -95,7 +97,7 @@ func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
-	getSchema schemaUC.SchemaGetter,
+	getSchema schemaUC.SchemaGetter, propIndices propertyspecific.Indices,
 	classSearcher inverted.ClassSearcher,
 	stopwordProvider *stopwords.Provider, shardVersion uint16,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
@@ -112,6 +114,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		store:                   store,
 		params:                  params,
 		getSchema:               getSchema,
+		propIndices:             propIndices,
 		classSearcher:           classSearcher,
 		stopwordProvider:        stopwordProvider,
 		shardVersion:            shardVersion,

@@ -127,9 +127,29 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, err
 	}
 
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush geo index queue WALs of prop %q: %w", propName, err)
 		}
 		return nil
 	})
@@ -178,8 +198,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 
-	if err = s.deleteFromGeoIndexes(previousObject, docID); err != nil {
-		return fmt.Errorf("delete from geo indices: %w", err)
+	if err = s.deleteFromGeoBuckets(previousObject, docID); err != nil {
+		return fmt.Errorf("delete from geo buckets: %w", err)
 	}
 
 	// Mirrors the delete into the ingest bucket for scope props suppressed

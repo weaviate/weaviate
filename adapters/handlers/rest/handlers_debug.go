@@ -910,7 +910,8 @@ func newRebuildVectorIndexHandler(logger logrus.FieldLogger, asyncIndexingEnable
 		targetVector := r.URL.Query().Get("vector")
 		geoProp := r.URL.Query().Get("geo")
 
-		// a geo index is rebuilt synchronously from the objects and needs no queue
+		// a geo bucket is rebuilt synchronously from the objects and needs no
+		// queue; a geo hnsw does, which its shard reports
 		if !asyncIndexingEnabled && geoProp == "" {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
@@ -947,6 +948,10 @@ func newRebuildVectorIndexHandler(logger logrus.FieldLogger, asyncIndexingEnable
 				Errorf("failed to reset vector index: %v", err)
 			if strings.Contains(err.Error(), "not found") {
 				http.Error(w, notFound, http.StatusNotFound)
+				return
+			}
+			if strings.Contains(err.Error(), "async indexing is not enabled") {
+				http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 				return
 			}
 

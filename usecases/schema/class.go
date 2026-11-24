@@ -1421,6 +1421,18 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 			}
 		}
 	}
+	switch prop.GeoIndexType {
+	case "":
+		// defaults to hnsw
+	case models.PropertyGeoIndexTypeHnsw, models.PropertyGeoIndexTypeBkd:
+		if dataType != schema.DataTypeGeoCoordinates {
+			return fmt.Errorf("`geoIndexType` is allowed only for the geoCoordinates data type. " +
+				"For other data types leave empty")
+		}
+	default:
+		return fmt.Errorf("`geoIndexType` %q is not supported, use %q or %q", prop.GeoIndexType,
+			models.PropertyGeoIndexTypeHnsw, models.PropertyGeoIndexTypeBkd)
+	}
 
 	return nil
 }

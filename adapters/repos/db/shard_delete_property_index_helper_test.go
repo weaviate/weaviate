@@ -157,8 +157,8 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 		class := &models.Class{
 			Class: "TestClass",
 			Properties: []*models.Property{
-				{Name: propName, DataType: schema.DataTypeGeoCoordinates.PropString(), IndexFilterable: boolPtr(false)},
-				{Name: "home", DataType: schema.DataTypeGeoCoordinates.PropString()},
+				{Name: propName, DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd, IndexFilterable: boolPtr(false)},
+				{Name: "home", DataType: schema.DataTypeGeoCoordinates.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd},
 			},
 		}
 

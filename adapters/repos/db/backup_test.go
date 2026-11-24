@@ -933,6 +933,8 @@ func TestReleaseBackupForeignHalt(t *testing.T) {
 		assert.EqualValues(t, 1, shard.haltForTransferCount.Load())
 		assert.False(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
 			"vector maintenance must stay paused for the operation that halted the shard")
+		assert.False(t, shard.cycleCallbacks.geoPropsCombinedCallbacksCtrl.IsActive(),
+			"geo maintenance must stay paused for the operation that halted the shard")
 	})
 }
 

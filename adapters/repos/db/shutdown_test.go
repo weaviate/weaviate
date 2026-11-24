@@ -210,11 +210,13 @@ func newTestCycleCallbacks(logger logrus.FieldLogger) *indexCycleCallbacks {
 			func(cyclemanager.ShouldAbortCallback) bool { return false }, logger)
 	}
 	return &indexCycleCallbacks{
-		compactionCycle:             newCycle("compaction"),
-		compactionAuxCycle:          newCycle("compaction-aux"),
-		flushCycle:                  newCycle("flush"),
-		vectorCommitLoggerCycle:     newCycle("vector-commit-logger"),
-		vectorTombstoneCleanupCycle: newCycle("vector-tombstone-cleanup"),
+		compactionCycle:               newCycle("compaction"),
+		compactionAuxCycle:            newCycle("compaction-aux"),
+		flushCycle:                    newCycle("flush"),
+		vectorCommitLoggerCycle:       newCycle("vector-commit-logger"),
+		vectorTombstoneCleanupCycle:   newCycle("vector-tombstone-cleanup"),
+		geoPropsCommitLoggerCycle:     newCycle("geo-commit-logger"),
+		geoPropsTombstoneCleanupCycle: newCycle("geo-tombstone-cleanup"),
 	}
 }
 
@@ -235,6 +237,8 @@ func testCyclePointers(cc *indexCycleCallbacks) []*cyclemanager.CycleManager {
 		&cc.flushCycle,
 		&cc.vectorCommitLoggerCycle,
 		&cc.vectorTombstoneCleanupCycle,
+		&cc.geoPropsCommitLoggerCycle,
+		&cc.geoPropsTombstoneCleanupCycle,
 	}
 }
 

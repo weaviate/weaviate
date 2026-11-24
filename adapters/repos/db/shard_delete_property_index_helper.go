@@ -40,7 +40,15 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 	indexPath, shardName string, class *models.Class, migrated func(propName, indexType string) bool,
 ) error {
 	for _, prop := range class.Properties {
-		// a geoCoordinates property's filterable index is its geo bucket
+		// a geo graph lives beside the shard's buckets, see dropGeoProp
+		if propertyIndexRemoved(prop.IndexFilterable) && isGeoHNSWProp(prop) {
+			for _, dir := range geoHNSWDirs(filepath.Join(indexPath, shardName), prop.Name) {
+				if err := os.RemoveAll(dir); err != nil {
+					return fmt.Errorf("failed to remove unused geo index dir %s: class %s property %s: %w", dir, class.Class, prop.Name, err)
+				}
+			}
+		}
+		// the filterable index of a geoCoordinates property with a geo bucket is that bucket
 		filterableBucket, _ := mainBucketForProperty(prop, "filterable")
 		if propertyIndexRemoved(prop.IndexFilterable) && !migrated(prop.Name, "filterable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, filterableBucket) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, filterableBucket); err != nil {

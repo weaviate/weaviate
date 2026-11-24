@@ -211,6 +211,7 @@ func newShardStatusIndex(t *testing.T, mt bool, physical map[string]sharding.Phy
 			shard.EXPECT().preventShutdown().Return(func() {}, nil).Maybe()
 			shard.EXPECT().GetStatus().Return(storagestate.StatusReady).Maybe()
 			shard.EXPECT().ForEachVectorQueue(mock.Anything).Return(nil).Maybe()
+			shard.EXPECT().ForEachGeoQueue(mock.Anything).Return(nil).Maybe()
 			index.shards.Store(name, shard)
 		}
 	}

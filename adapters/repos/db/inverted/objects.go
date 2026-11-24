@@ -606,6 +606,16 @@ func HasFilterableIndex(prop *models.Property) bool {
 	return *prop.IndexFilterable
 }
 
+// HasGeoBucketIndex: prop's geo index is a geopoints bucket (geoIndexType
+// "bkd") rather than the default HNSW graph kept beside the shard.
+func HasGeoBucketIndex(prop *models.Property) bool {
+	if prop.GeoIndexType != models.PropertyGeoIndexTypeBkd || !HasFilterableIndex(prop) {
+		return false
+	}
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	return dt == schema.DataTypeGeoCoordinates
+}
+
 func HasRangeableIndex(prop *models.Property) bool {
 	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:

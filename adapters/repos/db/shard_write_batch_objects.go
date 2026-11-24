@@ -255,10 +255,20 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		}
 		return nil
 	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), pos)
+			}
+		}
+		return nil
+	})
 }
 
-// storeAdditionalStorageWithWorkers stores the object in the vector indexes.
-// The geo buckets were written with the object itself, in putObjectLSM.
+// storeAdditionalStorageWithWorkers stores the object in all non-key-value
+// stores, such as the main vector index as well as the property-specific
+// indices, such as the geo-index.
 func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
 	if ok := ob.checkContext(ctx); !ok {
 		// if the context is no longer OK, there's no point in continuing - abort
@@ -293,6 +303,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	}
 
 	ob.batchStartTime = time.Now()
+	shouldGeoIndex := ob.shard.hasGeoIndex()
 
 	targetVectors := make(map[string][]common.VectorRecord)
 	for i, object := range ob.objects {
@@ -300,6 +311,13 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 		if ob.shouldSkipInAdditionalStorage(i, status) {
 			continue
+		}
+
+		if shouldGeoIndex {
+			if err := ob.shard.updatePropertySpecificIndices(ctx, object, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
+				continue
+			}
 		}
 
 		// skip vector update, as vector was not changed
@@ -425,6 +443,11 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 			}
 		}
 	}
+
+	if err := ob.shard.updatePropertySpecificIndices(ctx, object, status); err != nil {
+		ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), index)
+		return
+	}
 }
 
 // hasErrorAtIndex is thread-safe as it uses the underlying mutex to lock
@@ -475,6 +498,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
 			}
 		}
 		return nil

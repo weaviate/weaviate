@@ -2180,6 +2180,14 @@
           "type": "boolean",
           "x-nullable": true
         },
+        "geoIndexType": {
+          "description": "The index that serves `withinGeoRange` filters on this property. Applicable only to properties of data type `geoCoordinates` with a filterable index. Immutable after creation.<br/><br/>- `hnsw` (default): An HNSW graph. A filter returns at most 800 objects (`HNSW_GEO_INDEX_EF`).<br/>- `bkd`: A BKD tree per LSM segment. Filters are exact and unbounded.",
+          "type": "string",
+          "enum": [
+            "hnsw",
+            "bkd"
+          ]
+        },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",

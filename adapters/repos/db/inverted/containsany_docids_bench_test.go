@@ -191,7 +191,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 
 	maxDocID := uint64(numDocs + 1)
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(maxDocID))
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
@@ -1103,6 +1103,19 @@ func TestDocBitmap_SlowLogEntryFields(t *testing.T) {
 
 	t.Run("a geo leaf", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
+		_, err := f.searcher.docBitmap(ctx, nil, 0, &propValuePair{
+			prop: "location", operator: filters.OperatorWithinGeoRange,
+		})
+		require.NoError(t, err)
+
+		entries, ok := docBitmapSlowLogEntries(ctx)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, "geo", entries[0]["strategy"])
+	})
+
+	t.Run("a geo bucket leaf", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
 		geoBucketName := helpers.BucketGeoFromPropNameLSM("location")
 		require.NoError(t, f.store.CreateOrLoadBucket(ctx, geoBucketName,
 			lsmkv.WithStrategy(lsmkv.StrategyGeoPoints)))
@@ -1111,7 +1124,7 @@ func TestDocBitmap_SlowLogEntryFields(t *testing.T) {
 
 		lat, lon := float32(52.5), float32(13.4)
 		bm, err := f.searcher.docBitmap(ctx, geoBucket, 0, &propValuePair{
-			prop: "location", operator: filters.OperatorWithinGeoRange,
+			prop: "location", operator: filters.OperatorWithinGeoRange, hasGeoBucketIndex: true,
 			valueGeoRange: &filters.GeoRange{
 				GeoCoordinates: &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
 				Distance:       1000,
@@ -1126,5 +1139,44 @@ func TestDocBitmap_SlowLogEntryFields(t *testing.T) {
 		require.Len(t, entries, 1)
 		require.Equal(t, lsmkv.StrategyGeoPoints, entries[0]["strategy"])
 		require.Equal(t, 1, entries[0]["count"])
+	})
+}
+
+// TestGeoRangeBucketResolution pins which index a geoRange leaf goes to: the
+// geopoints bucket only for a property that opted into it, and an error rather
+// than the HNSW fallback when that bucket is missing.
+func TestGeoRangeBucketResolution(t *testing.T) {
+	vFalse := false
+	geo := schema.DataTypeGeoCoordinates.PropString()
+	tests := []struct {
+		name       string
+		prop       *models.Property
+		wantBucket string
+	}{
+		{name: "type unset", prop: &models.Property{Name: "p", DataType: geo}, wantBucket: helpers.BucketFromPropNameLSM("p")},
+		{name: "hnsw", prop: &models.Property{Name: "p", DataType: geo, GeoIndexType: models.PropertyGeoIndexTypeHnsw}, wantBucket: helpers.BucketFromPropNameLSM("p")},
+		{name: "bkd", prop: &models.Property{Name: "p", DataType: geo, GeoIndexType: models.PropertyGeoIndexTypeBkd}, wantBucket: helpers.BucketGeoFromPropNameLSM("p")},
+		{name: "bkd without a filterable index", prop: &models.Property{Name: "p", DataType: geo, GeoIndexType: models.PropertyGeoIndexTypeBkd, IndexFilterable: &vFalse}, wantBucket: ""},
+		{name: "bkd on a text property", prop: &models.Property{Name: "p", DataType: schema.DataTypeText.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd}, wantBucket: helpers.BucketFromPropNameLSM("p")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pv := &propValuePair{
+				prop: "p", operator: filters.OperatorWithinGeoRange,
+				hasFilterableIndex: HasFilterableIndex(test.prop),
+				hasGeoBucketIndex:  HasGeoBucketIndex(test.prop),
+			}
+			require.Equal(t, test.wantBucket, pv.getBucketName())
+		})
+	}
+
+	t.Run("a missing geo bucket is an error", func(t *testing.T) {
+		f := newContainsFixture(t, 10)
+		_, err := (&propValuePair{
+			prop: "p", operator: filters.OperatorWithinGeoRange,
+			hasFilterableIndex: true, hasGeoBucketIndex: true,
+			Class: &models.Class{InvertedIndexConfig: &models.InvertedIndexConfig{}},
+		}).readFromBucket(context.Background(), f.searcher, 0)
+		require.ErrorContains(t, err, "bucket for prop p not found")
 	})
 }
