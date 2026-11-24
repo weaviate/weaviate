@@ -269,6 +269,7 @@ func TestObjectSearchWithoutClassCollectionLifecycle(t *testing.T) {
 				wrapShards(t, idx, func(shard ShardLike) ShardLike { return failingSearchShard{shard} })
 			}
 			if tc.panics {
+				t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false") // the integration run disables it
 				wrapShards(t, idx, func(shard ShardLike) ShardLike { return panickingSearchShard{shard} })
 			}
 			if tc.closeCause != nil {
