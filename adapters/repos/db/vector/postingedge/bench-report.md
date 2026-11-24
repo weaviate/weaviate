@@ -305,15 +305,21 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 ### Enmienda 2 (09:00 del 24, *mía*, antes de ningún dato): la reproducción se para después de la plana
 
-**Motivo.** La cadena tiene que caber entre las 18:00 y las 08:00. En la noche del 23, `acorn` iba detrás de la plana en cada ronda, y `sweeping` en las rondas 3 y 4. En una reproducción de una sola ronda, ninguno de los dos va antes de la plana, así que cronometrarlos no cambia sus condiciones y cuesta unas dos horas.
+**Motivo.** La cadena tiene que caber entre las 18:00 y las 08:00. En la noche del 23, `acorn` iba detrás de la plana en cada ronda, y `sweeping` en las rondas 3 y 4. En una reproducción de una sola ronda, ninguno de los dos va antes de la plana, así que cronometrarlos no cambia sus condiciones.
+  - *Corregido a las 09:40 con las duraciones de la noche del 23, que dio la sesión de integración:* cuestan unos 40 minutos, no las dos horas que estimé: `sweeping` 16 minutos por ronda y `acorn` unos 20.
 
-- **La reproducción cronometra solo los 13 filtros del índice y después los 13 de la plana.** Lo demás no cambia:
+- **La reproducción cronometra solo los 13 filtros del índice y después los 12 de la plana,** que no tiene el punto sin filtro, como la noche del 23. Lo hace con `-bench.filters.timed 'ours graph,ours flat'` (`b1ee33a38b`). Lo demás no cambia:
   - HNSW se construye y queda vivo en el proceso hasta el final;
   - las curvas sin cronometrar de todos los buscadores van antes de la espera, como en la noche;
   - la espera es de al menos 60 minutos sin teclado ni trackpad;
   - 500 queries en frío;
   - los contadores alrededor de cada medida de la plana.
-- **Las dos horas pasan a A, B y C.**
+- **Esos 40 minutos pasan a A, B y C.**
+- **El ETA de la sesión de integración,** si nadie toca el Mac desde las 18:00:
+  - la reproducción acaba entre las 21:51 y las 22:16;
+  - A, entre las 04:57 y las 06:12;
+  - B y C, unos 17 minutos cada uno, y C acaba entre las 05:31 y las 06:46.
+  - Cada hora de uso después de las 18:00 retrasa toda la cadena una hora, por la espera de 60 minutos de la reproducción.
 
 ## La búsqueda plana: ¿pide R = 507 por ordenar con el código recortado? (pre-registro, 2026-11-24 a las 07:10)
 
