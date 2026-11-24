@@ -14,7 +14,6 @@ package validation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -25,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -343,7 +343,7 @@ func TestParseAndValidateSingleRefAuthorizesTenantlessRetry(t *testing.T) {
 		exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, tenant string) (bool, error) {
 			probedTenants = append(probedTenants, tenant)
 			if tenant != "" {
-				return false, errors.New("target is not multi-tenant")
+				return false, fmt.Errorf("class %s %w", target, enterrors.ErrTenantForNonMultiTenantClass)
 			}
 			return true, nil
 		},

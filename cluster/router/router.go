@@ -178,7 +178,7 @@ func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeN
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
-		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection))
+		return objects.NewErrMultiTenancy(fmt.Errorf("class %s %w", r.collection, enterrors.ErrTenantForNonMultiTenantClass))
 	}
 	return nil
 }

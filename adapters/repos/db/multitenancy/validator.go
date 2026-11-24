@@ -71,7 +71,7 @@ func (v *singleTenantValidator) ValidateTenants(ctx context.Context, tenants ...
 	for _, tenant := range tenants {
 		if tenant != "" {
 			return objects.NewErrMultiTenancy(
-				fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", v.className),
+				fmt.Errorf("class %s %w", v.className, errors.ErrTenantForNonMultiTenantClass),
 			)
 		}
 	}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -156,11 +157,9 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		if tenant == "" || errors.Is(err, replicaerrors.ErrReplicas) {
+		if tenant == "" || !errors.Is(err, enterrors.ErrTenantForNonMultiTenantClass) {
 			return err
 		}
-		// since refs can be created to non-MT classes, check again if non-MT object exists
-		// (use empty tenant, if previously was given)
 		if authErr := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
 			authorization.ShardsData(ref.Class, "")...); authErr != nil {
 			return wrapReferenceAuthorizationError(authErr)

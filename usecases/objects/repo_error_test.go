@@ -873,7 +873,8 @@ func TestDedicatedRefTargetAuthorizationFailureIsInternal(t *testing.T) {
 					op.arrange(repo)
 				}
 				if scenario.retry {
-					repo.On("Exists", target, refID).Return(false, errors.New("target is not multi-tenant")).Once()
+					repo.On("Exists", target, refID).
+						Return(false, fmt.Errorf("class %s %w", target, enterrors.ErrTenantForNonMultiTenantClass)).Once()
 				}
 				authz.SetErrAfter(scenario.precedingAuthCalls, authorizationFailed)
 
@@ -1059,7 +1060,8 @@ func TestDedicatedRefTargetScopeDenialIsForbidden(t *testing.T) {
 					authz.Deny(scenario.deniedResources...)
 					probe := repo.On("Exists", scenario.target, refID)
 					if scenario.wantInitialProbe {
-						probe.Return(false, errors.New("target is not multi-tenant")).Once()
+						probe.Return(false,
+							fmt.Errorf("class %s %w", scenario.target, enterrors.ErrTenantForNonMultiTenantClass)).Once()
 					} else {
 						probe.Return(false, nil).Maybe()
 					}

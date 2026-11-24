@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -71,10 +72,13 @@ func TestValidationReference(t *testing.T) {
 }
 
 func TestValidateExistence(t *testing.T) {
-	tenantErr := errors.New("has multi-tenancy disabled, but request was with tenant")
+	tenantErr := fmt.Errorf("class To %w", enterrors.ErrTenantForNonMultiTenantClass)
+	tenantNotFoundErr := fmt.Errorf("validate tenant: %w", enterrors.ErrTenantNotFound)
+	tenantNotActiveErr := fmt.Errorf("validate tenant: %w", enterrors.ErrTenantNotActive)
 	replicasErr := fmt.Errorf("check existence: %w",
 		replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down")))
-	otherErr := errors.New("connection refused")
+	storageErr := errors.New("connection refused")
+	retryErr := errors.New("retry failed")
 
 	tests := []struct {
 		name        string
@@ -82,6 +86,7 @@ func TestValidateExistence(t *testing.T) {
 		retryErr    error
 		denyRetry   bool
 		wantTenants []string
+		wantAuth    int
 		check       func(t *testing.T, err error)
 	}{
 		{
@@ -94,10 +99,38 @@ func TestValidateExistence(t *testing.T) {
 			},
 		},
 		{
+			name:        "missing tenant is returned without retry",
+			initialErr:  tenantNotFoundErr,
+			denyRetry:   true,
+			wantTenants: []string{"tenantA"},
+			check: func(t *testing.T, err error) {
+				require.ErrorIs(t, err, enterrors.ErrTenantNotFound)
+			},
+		},
+		{
+			name:        "inactive tenant is returned without retry",
+			initialErr:  tenantNotActiveErr,
+			denyRetry:   true,
+			wantTenants: []string{"tenantA"},
+			check: func(t *testing.T, err error) {
+				require.ErrorIs(t, err, enterrors.ErrTenantNotActive)
+			},
+		},
+		{
+			name:        "storage error is returned without retry",
+			initialErr:  storageErr,
+			denyRetry:   true,
+			wantTenants: []string{"tenantA"},
+			check: func(t *testing.T, err error) {
+				require.ErrorIs(t, err, storageErr)
+			},
+		},
+		{
 			name:        "replica shortage on the tenant-less retry is returned",
 			initialErr:  tenantErr,
 			retryErr:    replicasErr,
 			wantTenants: []string{"tenantA", ""},
+			wantAuth:    1,
 			check: func(t *testing.T, err error) {
 				require.ErrorIs(t, err, replicaerrors.ErrReplicas)
 			},
@@ -105,8 +138,9 @@ func TestValidateExistence(t *testing.T) {
 		{
 			name:        "other retry errors return the tenant-scoped error",
 			initialErr:  tenantErr,
-			retryErr:    otherErr,
+			retryErr:    retryErr,
 			wantTenants: []string{"tenantA", ""},
+			wantAuth:    1,
 			check: func(t *testing.T, err error) {
 				require.Equal(t, tenantErr, err)
 			},
@@ -132,6 +166,7 @@ func TestValidateExistence(t *testing.T) {
 			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")
 			tt.check(t, err)
 			require.Equal(t, tt.wantTenants, tenants)
+			require.Len(t, authorizer.Calls(), tt.wantAuth)
 		})
 	}
 }
