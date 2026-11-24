@@ -337,14 +337,24 @@ func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
 }
 
 // BeginDrop records that name is being dropped, so a crash before its files go
-// is finished at the next load. found is false for a vector without a record,
+// is finished at the next load. It refuses a vector whose files another one
+// uses. found is false for a vector without a record,
 // which owns nothing: a skipped vector, or a drop that already completed.
 func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	rec, ok, err := m.records.Get(name)
-	if err != nil || !ok {
+	records, _, err := m.records.Load()
+	if err != nil {
+		return false, err
+	}
+	rec, ok := records[name]
+	if !ok {
+		return false, nil
+	}
+	// the caller tears the index and its queue down next
+	err = refuseSharedFiles(records)
+	if err != nil {
 		return false, err
 	}
 	rec.State = stateDropping
