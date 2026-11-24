@@ -1,0 +1,15 @@
+=== RUN   TestFlatNoneCost
+    bench_flat_none_test.go:173: random 1 %, routing: R 507, recall 0.9995, 0.0 loads a query (0 to 0), 0 members, 0 KB, 9900 scored, 507 rescored (untimed, 1s)
+    bench_flat_none_test.go:173: random 1 %, none: R 64, recall 0.9998, 3655.0 loads a query (3655 to 3655), 907223 members, 184280 KB, 9900 scored, 64 rescored (untimed, 1m19s)
+    bench_flat_none_test.go:173: random 0.1 %, routing: R 507, recall 1.0000, 0.0 loads a query (0 to 0), 0 members, 0 KB, 990 scored, 507 rescored (untimed, 1s)
+    bench_flat_none_test.go:173: random 0.1 %, none: R 64, recall 0.9999, 874.0 loads a query (874 to 874), 227877 members, 46288 KB, 990 scored, 64 rescored (untimed, 17s)
+    bench_flat_none_test.go:173: near 1 %, routing: R 507, recall 0.9982, 0.0 loads a query (0 to 0), 0 members, 0 KB, 9900 scored, 507 rescored (untimed, 8s)
+    bench_flat_none_test.go:173: near 1 %, none: R 64, recall 0.9995, 777.6 loads a query (188 to 2075), 196273 members, 39868 KB, 9900 scored, 64 rescored (untimed, 18s)
+    bench_flat_none_test.go:173: near 0.1 %, routing: R 507, recall 1.0000, 0.0 loads a query (0 to 0), 0 members, 0 KB, 990 scored, 507 rescored (untimed, 4s)
+    bench_flat_none_test.go:173: near 0.1 %, none: R 64, recall 0.9996, 123.4 loads a query (9 to 469), 31510 members, 6400 KB, 990 scored, 64 rescored (untimed, 3s)
+    bench_flat_none_test.go:173: far 1 %, routing: R 507, recall 0.9811, 0.0 loads a query (0 to 0), 0 members, 0 KB, 9900 scored, 507 rescored (untimed, 4s)
+    bench_flat_none_test.go:173: far 1 %, none: R 64, recall 0.9919, 849.7 loads a query (217 to 2198), 214459 members, 43562 KB, 9900 scored, 64 rescored (untimed, 20s)
+    bench_flat_none_test.go:173: far 0.1 %, routing: R 507, recall 0.9985, 0.0 loads a query (0 to 0), 0 members, 0 KB, 990 scored, 507 rescored (untimed, 2s)
+    bench_flat_none_test.go:173: far 0.1 %, none: R 64, recall 0.9926, 143.2 loads a query (10 to 552), 36818 members, 7479 KB, 990 scored, 64 rescored (untimed, 3s)
+--- PASS: TestFlatNoneCost (166.59s)
+PASS

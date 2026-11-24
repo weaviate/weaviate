@@ -1,0 +1,216 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "index": "/Volumes/v40bench/v54/flatnone/pe",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 1000,
+  "k": 10,
+  "ef": 20,
+  "postings": 8105,
+  "filters": [
+    {
+      "name": "random 1 %",
+      "kind": "random",
+      "share": 0.01,
+      "allowed": 9900,
+      "ways": [
+        {
+          "cacheMode": "routing",
+          "bits": 512,
+          "rescore": 507,
+          "recall": 0.9995,
+          "loads": 0,
+          "loadsMin": 0,
+          "loadsMax": 0,
+          "members": 0,
+          "memberBytes": 0,
+          "scored": 9900,
+          "rescored": 507
+        },
+        {
+          "cacheMode": "none",
+          "bits": 1536,
+          "rescore": 64,
+          "recall": 0.9998,
+          "loads": 3655,
+          "loadsMin": 3655,
+          "loadsMax": 3655,
+          "members": 907223,
+          "memberBytes": 188702384,
+          "scored": 9900,
+          "rescored": 64
+        }
+      ]
+    },
+    {
+      "name": "random 0.1 %",
+      "kind": "random",
+      "share": 0.001,
+      "allowed": 990,
+      "ways": [
+        {
+          "cacheMode": "routing",
+          "bits": 512,
+          "rescore": 507,
+          "recall": 1,
+          "loads": 0,
+          "loadsMin": 0,
+          "loadsMax": 0,
+          "members": 0,
+          "memberBytes": 0,
+          "scored": 990,
+          "rescored": 507
+        },
+        {
+          "cacheMode": "none",
+          "bits": 1536,
+          "rescore": 64,
+          "recall": 0.9999,
+          "loads": 874,
+          "loadsMin": 874,
+          "loadsMax": 874,
+          "members": 227877,
+          "memberBytes": 47398416,
+          "scored": 990,
+          "rescored": 64
+        }
+      ]
+    },
+    {
+      "name": "near 1 %",
+      "kind": "near",
+      "share": 0.01,
+      "allowed": 9900,
+      "ways": [
+        {
+          "cacheMode": "routing",
+          "bits": 512,
+          "rescore": 507,
+          "recall": 0.9982,
+          "loads": 0,
+          "loadsMin": 0,
+          "loadsMax": 0,
+          "members": 0,
+          "memberBytes": 0,
+          "scored": 9900,
+          "rescored": 507
+        },
+        {
+          "cacheMode": "none",
+          "bits": 1536,
+          "rescore": 64,
+          "recall": 0.9995,
+          "loads": 777.609,
+          "loadsMin": 188,
+          "loadsMax": 2075,
+          "members": 196272.547,
+          "memberBytes": 40824689.776,
+          "scored": 9900,
+          "rescored": 64
+        }
+      ]
+    },
+    {
+      "name": "near 0.1 %",
+      "kind": "near",
+      "share": 0.001,
+      "allowed": 990,
+      "ways": [
+        {
+          "cacheMode": "routing",
+          "bits": 512,
+          "rescore": 507,
+          "recall": 1,
+          "loads": 0,
+          "loadsMin": 0,
+          "loadsMax": 0,
+          "members": 0,
+          "memberBytes": 0,
+          "scored": 990,
+          "rescored": 507
+        },
+        {
+          "cacheMode": "none",
+          "bits": 1536,
+          "rescore": 64,
+          "recall": 0.9996,
+          "loads": 123.44,
+          "loadsMin": 9,
+          "loadsMax": 469,
+          "members": 31509.685,
+          "memberBytes": 6554014.48,
+          "scored": 990,
+          "rescored": 64
+        }
+      ]
+    },
+    {
+      "name": "far 1 %",
+      "kind": "far",
+      "share": 0.01,
+      "allowed": 9900,
+      "ways": [
+        {
+          "cacheMode": "routing",
+          "bits": 512,
+          "rescore": 507,
+          "recall": 0.9811,
+          "loads": 0,
+          "loadsMin": 0,
+          "loadsMax": 0,
+          "members": 0,
+          "memberBytes": 0,
+          "scored": 9900,
+          "rescored": 507
+        },
+        {
+          "cacheMode": "none",
+          "bits": 1536,
+          "rescore": 64,
+          "recall": 0.9919,
+          "loads": 849.743,
+          "loadsMin": 217,
+          "loadsMax": 2198,
+          "members": 214459.494,
+          "memberBytes": 44607574.752,
+          "scored": 9900,
+          "rescored": 64
+        }
+      ]
+    },
+    {
+      "name": "far 0.1 %",
+      "kind": "far",
+      "share": 0.001,
+      "allowed": 990,
+      "ways": [
+        {
+          "cacheMode": "routing",
+          "bits": 512,
+          "rescore": 507,
+          "recall": 0.9985,
+          "loads": 0,
+          "loadsMin": 0,
+          "loadsMax": 0,
+          "members": 0,
+          "memberBytes": 0,
+          "scored": 990,
+          "rescored": 507
+        },
+        {
+          "cacheMode": "none",
+          "bits": 1536,
+          "rescore": 64,
+          "recall": 0.9926,
+          "loads": 143.207,
+          "loadsMin": 10,
+          "loadsMax": 552,
+          "members": 36817.841,
+          "memberBytes": 7658110.928,
+          "scored": 990,
+          "rescored": 64
+        }
+      ]
+    }
+  ]
+}

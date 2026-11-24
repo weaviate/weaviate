@@ -1365,7 +1365,7 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
   - **Se puntúan solo sus miembros permitidos,** con su código de scan, el completo.
   - **Se rescoran los R mejores** como en `routing`. Aquí ordena el código de scan, así que R es la regla aplicada a su ancho: 64 a 1 536 bits, con 4 × k y ef como suelos (*mío*). Es el mismo principio que en `routing`, con el código que ordena en cada modo.
 - **Lo que cuesta, sin medir:** un posting cargado por cada posting distinto que tenga algún permitido. Con un filtro en bola son pocos. Con uno al azar del 1 % a 1M, casi todos: unas 4 000 cargas por query.
-- **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito, y no lee ningún código de ruteo. La medida es en `routing` y no la cambia.
+- **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito, y no lee ningún código de ruteo. La medida es en `routing` y no la cambia. *Hecho el 24, por orden del usuario: lo cuenta el apartado «La búsqueda plana en `none`», al final de esta sección.*
 
 **Hecho** (`fea9e96399`): `flatRescore(k, bits)` no tiene ningún número propio, `TestFlatRescore` fija la tabla (507 a 512 bits, 64 a 1 536, 150 a 768, 4 × k, ef, un límite de la clase con k y ef por encima, y 0 con k y ef). En `none` la plana devuelve `ErrNotSupported`, y no lee nada del bucket de ruteo. Los tests del índice y del shard lo esperan en ese modo. *Verificado por tests,* con y sin el detector de carreras.
 
@@ -1712,6 +1712,71 @@ Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce q
 - **Ordenar con el código completo pagaría menos lecturas con más memoria:** 25 palabras por vector en vez de 9 a 1 536 dimensiones.
 - **Decide el usuario,** con las opciones y su coste en RAM que propone la sesión de experimentos.
 - **El nuevo cronometraje** mide la plana con R = 507, como dice su pre-registro.
+
+### La búsqueda plana en `none` (24 de noviembre)
+
+*Orden del usuario del 24 por la tarde: «La búsqueda plana en modo `none` es bloqueante, por completitud. Implementa la enmienda 3 de la sección 8 del plan», con tests en rojo primero, y «Lento está bien por ahora: no optimices nada». La hizo la sesión de experimentos, en un worktree aparte, sin tocar el binario ni el arnés de la cadena de esta noche (`b1ee33a38b`).*
+
+**Hecho** (`82184a2600`; los tests, en rojo antes, en `50de5f1aef`):
+- **El mapa de postings,** que está en memoria en los dos modos, da el posting de cada permitido que el índice tiene y no ha marcado borrado.
+- **Cada uno de esos postings se lee una vez,** solo su fila de miembros: ni la de aristas ni el halo.
+- **Se puntúan solo sus miembros permitidos,** con el código completo que guarda la fila.
+- **Se rescoran los R mejores.** R es la regla del rescore aplicada al ancho de ese código, con 4 × k y ef como suelos: 64 a 1 536 dimensiones.
+- **Con R permitidos o menos,** la plana los rescora todos y no carga ningún posting, como en `routing`.
+- **El error explícito se ha quitado.**
+- **Nada está optimizado:** los postings se leen uno detrás de otro.
+- **Un permitido que la fila de su posting no tiene da error,** no un resultado incompleto (*mío*).
+
+**Tests**, en rojo en `50de5f1aef` y en verde con el arreglo:
+- **`TestPersistentFilteredSearch` en `none`:** la plana responde ahora, también con borrados. Tras reabrir da las mismas respuestas por los dos caminos forzados, y cada filtro va por el mismo camino.
+- **`TestGrowFlatSearch` sin códigos en memoria:**
+  - es exacta con R permitidos o menos, sin cargar nada;
+  - con más permitidos, carga una sola vez cada posting que tiene alguno;
+  - nunca devuelve el vector borrado.
+- **`TestPersistentFlatSearchTwins`:** dos índices con los mismos vectores, uno en `routing` y otro en `none`. Con un filtro al azar y en bola, al 10 % y al 5 %, su recall queda dentro de 0.02 y por encima de 0.95.
+- **`TestPersistentFlatSearchWithVectorsKeptAside`, en los dos modos:** con la base ya índice y los 250 vectores que llegaron durante el build todavía apartados. Solo devuelve permitidos, cada uno de esos vectores es su propio vecino más cercano y el recall llega a 0.95. Lo mismo después, con todos tomados.
+- **Por el shard:** `TestPostingEdge_ThroughAShardWithNoCodesInMemory` y su variante asíncrona, con el filtro de 299 objetos, bajo el corte.
+- **Lo que añadí para el test** (*mío*): `drainHook`, un punto de parada antes de que el índice tome cada vector apartado, sin ningún lock. Los puntos de `baseHook` se llaman con el lock del índice cogido, y una búsqueda desde el test esperaba para siempre. La primera versión del test se colgó así.
+
+**El coste, sin cronometrar** (`TestFlatNoneCost`, de `fad688cbbc`, de 15:37 a 15:40; los datos en `testdata/bench/integration-filters/flatnone/`):
+- **El índice** es un clon APFS del de la noche (`/Volumes/v40bench/v54/flatnone/pe`, hecho con `cp -c`). El original no se abrió.
+- **Los filtros** son los del 1 % y el 0.1 % de la caché de la medida, con sus 1 000 queries, k = 10 y ef 20.
+- **Los dos modos van sobre el mismo índice,** que creció en `routing`. La fila de miembros es la misma en los dos modos, así que la plana de `none` lee lo que leería ese índice crecido en `none`.
+- **La plana en `routing`** da el recall de la noche en los seis filtros, sin diferencia en el cuarto decimal.
+
+| filtro | permitidos | `routing`: recall (R 507) | `none`: recall (R 64) | `none`: cargas por query, media (mín. a máx.) | `none`: MB leídos por query | el índice forzado en `routing`, a 0.95: cargas |
+|---|---:|---:|---:|---|---:|---:|
+| al azar 1 % | 9 900 | 0.9995 | 0.9998 | 3 655 (todas iguales) | 180 | 258.5 |
+| al azar 0.1 % | 990 | 1.0000 | 0.9999 | 874 (todas iguales) | 45 | 1 320.4 |
+| correlado 1 % | 9 900 | 0.9982 | 0.9995 | 777.6 (188 a 2 075) | 39 | 21.7 |
+| correlado 0.1 % | 990 | 1.0000 | 0.9996 | 123.4 (9 a 469) | 6.3 | 50.0 |
+| anticorrelado 1 % | 9 900 | 0.9811 | 0.9919 | 849.7 (217 a 2 198) | 43 | 2 842.2 |
+| anticorrelado 0.1 % | 990 | 0.9985 | 0.9926 | 143.2 (10 a 552) | 7.3 | 3 898.9 |
+
+**Lo que se ve:**
+- **Recall.** La plana en `none` ordena con el código completo y rescora 64.
+  - Supera a `routing` con R 507 en los tres filtros del 1 %.
+  - Queda por debajo en los tres del 0.1 %: 0.0001 al azar, 0.0004 correlado y 0.0059 anticorrelado (0.9926 frente a 0.9985).
+  - Es lo que daba `TestFlatRankingCode` con el código completo a R 64, a 0.0006 o menos en los seis.
+- **Vectores leídos:** 64 por query, frente a 507.
+- **Cargas:**
+  - Al azar, la plana toca casi la mitad de los postings al 1 % (3 655 de 8 105) y 874 al 0.1 %.
+  - En bola toca menos, pero no pocos: unos 780 a 850 de media al 1 %, y de 123 a 143 al 0.1 %. Las colas llegan a unos 2 000 y 500.
+  - Cada carga lee la fila de miembros sola, unos 50 KB, y por eso al azar al 1 % son 180 MB por query.
+- **Frente al recorrido del índice forzado:**
+  - Al azar al 1 % y correlado, la plana de `none` carga más postings que el índice: 14 veces más al azar al 1 %, y 36 y 2.5 veces más correlado.
+  - Al azar al 0.1 % y anticorrelado, carga menos.
+  - Las cargas del índice son de la noche, en `routing`. En `none` cada carga del índice lee también las aristas y el halo. El índice en `none` no lo he medido.
+- *Mío, sin medir en tiempo:* el corte de 40 000 permitidos se eligió para `routing`, y en `none` manda a la plana filtros que el índice resolvería con muchas menos cargas.
+
+**Lo que no cubre:**
+- no está cronometrado: el volumen estaba en caliente y no se desmontó;
+- el índice no creció en `none`, aunque las filas de miembros son las mismas;
+- solo se midió a 1 536 dimensiones.
+
+**Queda para decidir:**
+- si la plana en `none` se hace más barata, y cómo;
+- si `none` necesita un corte propio.
 
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
