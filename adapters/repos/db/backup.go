@@ -642,6 +642,19 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		return nil, err
 	}
 
+	// The files of a live shard are uploaded from where they are, and no
+	// index is asked for a copy of what it rewrites in place: a backup of an
+	// index that does is refused, before anything is halted.
+	if err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if in, ok := index.(inPlaceFilesIndex); ok && in.RewritesFilesInPlace() {
+			return fmt.Errorf("backup of shard %q without hardlinks: vector index %q rewrites files in place, "+
+				"which only a backup with hardlinks holds whole", name, targetVector)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
 	// Active path => halt compaction (stays paused until ReleaseBackup).
 	// backupLock.Lock is released on return (unlockOnReturn=true).
 	if err := shard.HaltForTransfer(ctx, false, 0); err != nil {

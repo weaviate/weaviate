@@ -241,6 +241,14 @@ func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, staging
 	return rels, nil
 }
 
+// RewritesFilesInPlace tells a shard that a copy of the files of the index is
+// only whole when SnapshotMutableFiles takes it: the meta, the journal, the
+// slots and the centroids are rewritten in place. A backup that uploads the
+// files of a live shard from where they are refuses it.
+func (p *Persistent) RewritesFilesInPlace() bool {
+	return true
+}
+
 // copyFileTo copies a file whole to dst, making its directory, and has the
 // copy reach the disk.
 func copyFileTo(src, dst string) (err error) {

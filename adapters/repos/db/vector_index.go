@@ -56,6 +56,14 @@ type VectorIndex interface {
 	CompressionStats() compressionhelpers.CompressionStats
 }
 
+// inPlaceFilesIndex is a vector index that rewrites some of its files in
+// place, as the posting-edge index does its meta, journal and slots: a copy of
+// them is only whole when the index takes it (SnapshotMutableFiles), which a
+// backup without hardlinks never asks for.
+type inPlaceFilesIndex interface {
+	RewritesFilesInPlace() bool
+}
+
 // checkVectorKind refuses a payload whose shape does not match what the
 // target's index is configured for. Every hnsw implements VectorIndexMulti,
 // so the configured capability is what counts; a mismatch that slips past
