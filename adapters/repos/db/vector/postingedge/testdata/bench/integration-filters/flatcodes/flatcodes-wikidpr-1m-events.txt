@@ -1,0 +1,21 @@
+=== RUN   TestFlatRankingCode
+    bench_test.go:2318: brute-forcing the ground truth over 1000000 vectors
+    bench_filters_test.go:262: filters: the pass over the queries in 36s
+    bench_filters_test.go:332: filters: near 50 % in 2m47s
+    bench_filters_test.go:332: filters: near 10 % in 3m58s
+    bench_filters_test.go:332: filters: near 1 % in 4m54s
+    bench_filters_test.go:332: filters: near 0.1 % in 5m48s
+    bench_filters_test.go:332: filters: far 50 % in 7m53s
+    bench_filters_test.go:332: filters: far 10 % in 9m27s
+    bench_filters_test.go:332: filters: far 1 % in 10m53s
+    bench_filters_test.go:332: filters: far 0.1 % in 12m16s
+    bench_flat_codes_test.go:117: filters: 13, drawn, in 12m16s
+    bench_flat_codes_test.go:146: codes: routing of 9 words and full of 13, in 12m19s
+    bench_flat_codes_test.go:219: random 1 % (10000 allowed): routing [0.9561 0.9925 0.9999], full [0.9947 0.9996 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: random 0.1 % (1000 allowed): routing [0.9755 0.9974 1], full [0.9982 0.9999 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: near 1 % (10000 allowed): routing [0.9271 0.9756 0.9957], full [0.9821 0.9959 0.9993] at R [64 150 507]
+    bench_flat_codes_test.go:219: near 0.1 % (1000 allowed): routing [0.9529 0.9912 0.9999], full [0.9892 0.9988 0.9999] at R [64 150 507]
+    bench_flat_codes_test.go:219: far 1 % (10000 allowed): routing [0.7284 0.8605 0.9623], full [0.8858 0.9531 0.9885] at R [64 150 507]
+    bench_flat_codes_test.go:219: far 0.1 % (1000 allowed): routing [0.8213 0.9452 0.9983], full [0.9301 0.9851 0.9994] at R [64 150 507]
+--- PASS: TestFlatRankingCode (780.04s)
+PASS
