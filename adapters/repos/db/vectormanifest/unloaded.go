@@ -12,12 +12,9 @@
 package vectormanifest
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
@@ -25,11 +22,11 @@ import (
 )
 
 // DropUnloaded is BeginDrop and FinishDrop for the shard at shardDir, which is
-// not loaded. siblings are the collection's other vectors, whose files stay.
-// A shard from before the records existed is dropped from by the naming rule,
-// and one that a load holds is left to that load.
+// not loaded. A shard that a load holds is left to that load. One from before
+// the records existed is dropped from by the naming rule; siblings are the
+// collection's other vectors, whose files stay there.
 func DropUnloaded(shardDir, name string, siblings []string) error {
-	records, initialized, err := readUnloaded(shardDir, append([]string{name}, siblings...))
+	records, initialized, err := readUnloaded(shardDir)
 	if shardmeta.IsLocked(err) {
 		return nil
 	}
@@ -84,7 +81,7 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 // for a vector without one. When a load holds the records (locked) or they
 // cannot be read (err), the IDs are the naming rule's and may be wrong.
 func UnloadedStorageIDs(shardDir string, names []string) (ids map[string]string, locked bool, err error) {
-	records, _, err := readUnloaded(shardDir, names)
+	records, _, err := readUnloaded(shardDir)
 	ids = make(map[string]string, len(names))
 	for _, name := range names {
 		ids[name] = helpers.VectorIndexIDForTarget(name)
@@ -98,47 +95,12 @@ func UnloadedStorageIDs(shardDir string, names []string) (ids map[string]string,
 	return ids, false, err
 }
 
-// readUnloaded reads the records of names from a shard that is not loaded,
-// refusing what a load refuses. initialized is false for a shard that has no
-// records at all, such as one restored from a backup older than them.
-func readUnloaded(shardDir string, names []string) (records map[string]record, initialized bool, err error) {
-	keys := make([][]byte, 0, len(names)+1)
-	keys = append(keys, []byte(formatVersionKey))
-	for _, name := range names {
-		keys = append(keys, []byte(recordKey(name)))
-	}
-	vals, _, err := shardmeta.GetOfflineMulti(shardDir, namespace, keys...)
-	if err != nil {
-		return nil, false, fmt.Errorf("read vector index mapping: %w", err)
-	}
-	if vals == nil {
-		return nil, false, nil
-	}
-	version, values := vals[0], vals[1:]
-	if version == nil {
-		if slices.ContainsFunc(values, func(v []byte) bool { return v != nil }) {
-			return nil, false, errors.New("read vector index mapping: records without a format version")
-		}
-		return nil, false, nil
-	}
-	if string(version) != formatVersion {
-		return nil, false, fmt.Errorf("read vector index mapping: unsupported format version %q, this binary reads %q",
-			version, formatVersion)
-	}
-	records = make(map[string]record, len(names))
-	for i, name := range names {
-		if values[i] == nil {
-			continue
-		}
-		var rec record
-		err := json.Unmarshal(values[i], &rec)
-		if err == nil {
-			err = rec.validate()
-		}
-		if err != nil {
-			return nil, false, fmt.Errorf("read vector index mapping: record %q: %w", name, err)
-		}
-		records[name] = rec
-	}
-	return records, true, nil
+// readUnloaded reads the records of a shard that is not loaded, refusing what
+// a load refuses. initialized is false for a shard that has none, such as one
+// restored from a backup older than them.
+func readUnloaded(shardDir string) (records map[string]record, initialized bool, err error) {
+	records, initialized, _, err = readRecords(func(fn func(key, value []byte) error) error {
+		return shardmeta.ForEachOffline(shardDir, namespace, fn)
+	})
+	return records, initialized, err
 }
