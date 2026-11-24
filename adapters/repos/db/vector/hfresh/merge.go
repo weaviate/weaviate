@@ -94,9 +94,10 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// The first nine bytes identify a vector and its version.
-	vectorSet := make(map[[9]byte]struct{}, len(newPosting))
+	// The value records whether that entry also resides in the candidate.
+	vectorSet := make(map[[9]byte]bool, len(newPosting))
 	for _, v := range newPosting {
-		vectorSet[[9]byte(v[:9])] = struct{}{}
+		vectorSet[[9]byte(v[:9])] = false
 	}
 
 	// get posting centroid
@@ -170,6 +171,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			}
 
 			var candidateLen int
+			var shared bool
 			for _, v := range candidate {
 				version, err := h.VersionMap.Get(ctx, v.ID())
 				if err != nil {
@@ -179,6 +181,10 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 					continue
 				}
 				key := [9]byte(v[:9])
+				if _, exists := vectorSet[key]; exists {
+					vectorSet[key] = true
+					shared = true
+				}
 				key[8] = byte(version)
 				if _, exists := vectorSet[key]; exists {
 					continue // Skip duplicate vectors
@@ -193,6 +199,14 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			if prevLen > candidateLen {
 				smallID, largeID = candidateID, postingID
 				smallPosting = newPosting[prevLen:]
+			} else if shared {
+				// Filter separately so the merged posting keeps every retained entry.
+				smallPosting = make(Posting, 0, prevLen)
+				for _, v := range newPosting[:prevLen] {
+					if !vectorSet[[9]byte(v[:9])] {
+						smallPosting = append(smallPosting, v)
+					}
+				}
 			}
 
 			// mark the small posting as deleted in the SPTAG

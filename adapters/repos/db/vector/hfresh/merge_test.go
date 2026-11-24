@@ -432,6 +432,22 @@ func TestMergeRetainsCurrentVectors(t *testing.T) {
 			candidateCentroid: []float32{0, 1, 0, 0},
 		},
 		{
+			name:              "shared candidate resident is not reassigned",
+			source:            Posting{NewVector(0, 2, nil)},
+			candidate:         Posting{NewVector(0, 2, nil), NewVector(1, 2, nil), NewVector(2, 2, nil)},
+			want:              []uint64{0, 1, 2},
+			survivor:          1,
+			candidateCentroid: []float32{0, 1, 0, 0},
+		},
+		{
+			name:              "shared wrapped candidate resident is not reassigned",
+			source:            Posting{NewVector(0, 2, nil), NewVector(0, 127, nil)},
+			candidate:         Posting{NewVector(0, 2, nil), NewVector(0, 127, nil), NewVector(1, 2, nil), NewVector(2, 2, nil)},
+			want:              []uint64{0, 1, 2},
+			survivor:          1,
+			candidateCentroid: []float32{0, 1, 0, 0},
+		},
+		{
 			name:              "current source copy precedes obsolete duplicate",
 			source:            Posting{NewVector(0, 2, nil), NewVector(0, 1, nil)},
 			want:              []uint64{0},
