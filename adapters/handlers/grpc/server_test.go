@@ -208,7 +208,7 @@ func TestInterceptors(t *testing.T) {
 						Enabled: true,
 					},
 				},
-				OperationalMode: runtime.NewDynamicValue[string](config.READ_ONLY),
+				OperationalMode: runtime.NewDynamicValue[string](config.READ_WRITE),
 			},
 		},
 		Cluster: &cluster.State{},
@@ -237,7 +237,40 @@ func TestInterceptors(t *testing.T) {
 
 	client := pbv1.NewWeaviateClient(conn)
 
-	// Run unary RPC.
-	_, err = client.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
-	require.ErrorContains(t, err, config.ErrReadOnlyModeEnabled.Error(), "interceptor error")
+	for _, tt := range []struct {
+		mode string // Server's operational mode.
+		err  error  // Expected RPC error.
+	}{
+		{
+			mode: config.READ_WRITE,
+			err:  nil,
+		},
+		{
+			mode: config.WRITE_ONLY,
+			err:  nil,
+		},
+		{
+			mode: config.READ_ONLY,
+			err:  config.ErrReadOnlyModeEnabled,
+		},
+		{
+			mode: config.SCALE_OUT,
+			err:  config.ErrScaleOutModeEnabled,
+		},
+	} {
+		t.Run("operational mode="+tt.mode, func(t *testing.T) {
+			mode := s.ServerConfig.Config.OperationalMode.Get()
+			s.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
+			t.Cleanup(func() { s.ServerConfig.Config.OperationalMode.SetValue(mode) })
+
+			// Run unary RPC.
+			_, err = client.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
+
+			if tt.err != nil {
+				require.ErrorContains(t, err, tt.err.Error(), "interceptor error")
+			} else {
+				require.NoError(t, err, "interceptor error")
+			}
+		})
+	}
 }
