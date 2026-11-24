@@ -501,7 +501,7 @@ func TestManifest_OpenRefusesATask(t *testing.T) {
 				require.NoError(t, m.tasks.Put("body", rebuildOf("vectors_body", "a-b")))
 				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "vectors_a-b")))
 			},
-			wantErr: `names "vectors_a-b", an index of vector "body"`,
+			wantErr: `the rebuild task of vector "body" names "a-b", an index of vector "title"`,
 		},
 		{
 			name: "the candidate shares a bucket with another vector's index",
