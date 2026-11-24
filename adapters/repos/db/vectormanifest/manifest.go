@@ -69,6 +69,44 @@ type Entry struct {
 	Config    schemaConfig.VectorIndexConfig
 }
 
+// contents is everything the manifest has on disk, by vector name.
+type contents struct {
+	records map[string]record
+	tasks   map[string]rebuildTask
+}
+
+// names lists the vectors that have a record or a task, in order.
+func (c contents) names() []string {
+	names := slices.AppendSeq(slices.Collect(maps.Keys(c.records)), maps.Keys(c.tasks))
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// storageIDs lists the IDs name's files are under: its record's, and the two
+// of its task.
+func (c contents) storageIDs(name string) []string {
+	var ids []string
+	if rec, ok := c.records[name]; ok {
+		ids = append(ids, rec.storageID())
+	}
+	if task, ok := c.tasks[name]; ok {
+		ids = append(ids, task.Source.storageID(), task.Candidate.storageID())
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids)
+}
+
+// otherStorageIDs lists the storage IDs of every vector but name.
+func (c contents) otherStorageIDs(name string) []string {
+	var ids []string
+	for _, other := range c.names() {
+		if other != name {
+			ids = append(ids, c.storageIDs(other)...)
+		}
+	}
+	return ids
+}
+
 func New(cfg Config) *Manifest {
 	return &Manifest{
 		records:      newRecordStore(cfg.DB),
@@ -144,7 +182,7 @@ func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig
 	records map[string]record,
 ) (map[string]record, error) {
 	// before any deletion: finishing a drop would take the other's queue
-	err := refuseSharedFiles(records)
+	err := refuseSharedFiles(contents{records: records})
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +479,7 @@ func (m *Manifest) removeArtifacts(ctx context.Context, artifacts helpers.Vector
 // buckets another vector owns, and its queue.
 func dropArtifacts(records map[string]record, name string) (helpers.VectorIndexArtifacts, error) {
 	// a vector sharing a queue or files with name would lose them
-	err := refuseSharedFiles(records)
+	err := refuseSharedFiles(contents{records: records})
 	if err != nil {
 		return helpers.VectorIndexArtifacts{}, err
 	}
