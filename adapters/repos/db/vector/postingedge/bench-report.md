@@ -239,6 +239,93 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## La búsqueda plana y el punto de cruce, otra vez, con HNSW centrado (pre-registro, 2026-11-24 a las 07:20)
+
+**Estado: pre-registrado. Solo corre cuando la plana lenta de la noche del 23 quede explicada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*. Lo mide la sesión de integración, con su arnés.
+
+### El encargo (del usuario)
+
+- **Volver a cronometrar solo la plana y el punto de cruce,** cuando la plana lenta esté resuelta.
+- **HNSW centrado con `acorn` como segunda referencia,** junto al de por defecto, en la misma sesión: al azar al 10 % y al 1 %, y correlado y anticorrelado al 1 %.
+- **Si la lentitud es compresión de memoria o swap de macOS** con HNSW en el mismo proceso, no es un bug del índice. Se anota como efecto del entorno, y la plana se mide otra vez sin HNSW en memoria, en un proceso propio.
+
+### Cómo lo aplico (*mío*)
+
+- **Una sesión cronometrada, tres procesos uno detrás de otro.** Cada uno con su espera de 15 minutos sin teclado ni trackpad, el marcador puesto, dos rondas y el detector de deriva.
+  - **A, el nuestro, sin construir HNSW:** la plana y el índice forzados, cada uno en los doce filtros de la medida, y además al azar al 7 %, al 5 % y al 3 %.
+  - **B, HNSW por defecto con `acorn`:** al azar al 10 % y al 1 %, y correlado y anticorrelado al 1 %.
+  - **C, HNSW centrado con `acorn`:** los mismos cuatro filtros. Es la misma configuración con `rqCentering: true`. Va en su propio proceso para que no haya dos HNSW en memoria.
+- **Lo demás, como la noche del 23:**
+  - el mismo índice y la misma caché de filtros;
+  - 1 thread, en caliente sobre 3 pasadas de 1 000 queries y en frío sobre 500 en lotes de 10, con el volumen desmontado entre lotes;
+  - cada filtro en su punto de 0.95, que HNSW vuelve a buscar sin cronometrar después de cada build;
+  - la parada en cada query.
+- **Las tres cuotas al azar nuevas son *mías*:** buscan el cruce midiéndolo, en vez de interpolarlo.
+  - Con la plana de la repetición (13.78 ms en frío al 10 %) y una recta entre el 10 % y el 1 % del índice, el cruce caería hacia el 7 %, y no hacia el 3.5 % de la noche.
+  - El corte cuenta permitidos y acierta con el filtro al azar, así que es ahí donde importa su valor.
+  - El correlado no cruza en lo medido. El anticorrelado cruza por encima del 10 % y no se busca.
+  - Sus filtros se sacan con el mismo código y sus semillas propias; la caché se amplía sin cambiar los doce de antes.
+- **Los contadores de memoria** (`vm_stat`, `memory_pressure` y el swap) se registran antes y después de cada medida de la plana, como en el diagnóstico.
+
+**Lo que se compara:**
+
+- **La plana:** el coste por permitido en caliente, frente a los unos 50 ns de la repetición y los 230 a 250 de la noche.
+- **El cruce al azar:** la cuota más alta en la que la plana queda por debajo del índice en p50 en frío a 0.95, entre el 10 %, el 7 %, el 5 %, el 3 % y el 1 %. En el correlado y el anticorrelado, como antes, en sus cuatro cuotas.
+- **El nuestro frente a los dos HNSW,** en los cuatro filtros de B y C y por el camino que les da el corte. Por debajo del 10 % es empate.
+
+**Si la plana lenta resulta tener otra causa,** esto se enmienda antes de correr.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **La plana, como en la repetición:** unos 50 ns por permitido en caliente (5.8 ms al azar al 10 %), y en frío unos 8 ms más por las 507 lecturas.
+- **El cruce al azar entre el 7 % y el 5 %.**
+- **El correlado y el anticorrelado, como la noche:** el índice gana en las cuatro cuotas del correlado, y la plana gana en el anticorrelado al 10 % y al 1 %.
+- **HNSW centrado, frente al de por defecto:**
+  - Al azar al 10 % llega a 0.95 con menos ef, y es más rápido en frío.
+  - Al 1 % los dos van por su búsqueda plana y empatan.
+- **El nuestro frente al centrado:** al azar al 10 % pierde por más que frente al de por defecto (1.10 veces en frío).
+
+## La búsqueda plana: ¿pide R = 507 por ordenar con el código recortado? (pre-registro, 2026-11-24 a las 07:10)
+
+**Estado: pre-registrado antes de compilar nada.** La hipótesis y las dos dimensiones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*. Sin cronometrar.
+
+### El encargo (del usuario)
+
+- **La hipótesis:** a 1 536 dimensiones la búsqueda plana necesita R = 507 porque ordena con el código de ruteo, recortado a 512 bits.
+- **La medida:** el recall de la plana con R = 64, 150 y 507, ordenando con el código recortado y con el completo, en los filtros pequeños correlado y anticorrelado.
+- **Se repite a 768 dimensiones,** en wiki-dpr 1M.
+- **Si se confirma,** propongo opciones con su coste en RAM.
+
+### Cómo lo aplico (*mío*)
+
+- **Sin abrir el índice.** La plana es una función de los vectores, de los permitidos y del código que ordena:
+  1. puntúa cada permitido con su código;
+  2. rescora exactos los R mejores;
+  3. devuelve los k mejores.
+
+  La copio en el proceso, sobre el dataset, con las mismas piezas del paquete: `trainQuantizer` (RQ de 1 bit centrado) y `withBits(512)` para el código de ruteo, que son los primeros 512 bits de signo de la misma rotación.
+- **El cuantizador** se entrena con los primeros `DefaultTrainingLimit` vectores del train set, como la base del índice crecido.
+- **Los filtros:** correlado y anticorrelado al 1 % y al 0.1 %. Al azar al 1 % y al 0.1 % van también por la plana, así que se miden como referencia.
+  - **A 1 536 dimensiones,** los de la medida de filtros, leídos de su caché: los mismos permitidos y la misma verdad que la noche del 23.
+  - **A 768 dimensiones,** sacados con el mismo código (`buildFilters`) y sus semillas sobre el train set de wiki-dpr 1M.
+- **Las queries:** las 1 000 de cada dataset, k = 10, coseno.
+- **Los dos códigos:** el recortado de 512 bits y el completo (1 536 bits en dbpedia, 768 en wiki-dpr). R ∈ {64, 150, 507}. ef no cuenta, porque es menor que R. Recall@10 frente a la verdad filtrada.
+- **La comprobación de que la copia es la plana del índice:** a 1 536 dimensiones, con el código recortado y R = 507, cada filtro tiene que dar el recall de la plana en las curvas de la noche a ef 10, con una diferencia de 0.002 como mucho. Son 0.9995, 1, 0.9982, 1, 0.9811 y 0.9985 para al azar, correlado y anticorrelado, al 1 % y al 0.1 %. Si no lo da, lo digo antes de leer nada más.
+- **Qué confirma la hipótesis:**
+  - **A 1 536 dimensiones,** en los cuatro filtros correlados y anticorrelados, el código completo con R = 64 da al menos el recall del recortado con R = 507, menos 0.005. El recortado con R = 64 queda más de 0.01 por debajo de su R = 507.
+  - **A 768 dimensiones,** lo mismo con R = 150 para el código completo, que es lo que la regla del 22 da para 768 bits.
+  - **Si se cumple en un filtro y no en otro,** se dice por filtro.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **A 1 536 dimensiones se confirma.**
+  - El completo con R = 64 da 0.99 o más en el correlado, y en el anticorrelado al 1 %, por encima de 0.98.
+  - El recortado con R = 64 queda hacia 0.93, cerca del techo de 0.9255 que tiene sin filtro.
+- **A 768 dimensiones la diferencia es menor:** el código completo tiene 768 bits y el recortado 512, frente a 1 536 y 512.
+  - El completo con R = 150 da lo mismo que el recortado con R = 507, a 0.005.
+  - El recortado con R = 64 queda hacia 0.95.
+- **El anticorrelado pide más R que el correlado a igual código:** los permitidos están todos lejos de la query y a distancias parecidas entre sí.
+
 ## HFresh con los postings leídos en paralelo, el PR a main (pre-registro, 2026-11-23 a las 11:25)
 
 **Estado: pre-registrado. El código está en la rama `perf/hfresh-parallel-posting-reads`, desde main, con sus tests en verde; la medida va detrás de la de filtros.**
@@ -482,6 +569,12 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Con el mejor de sus dos caminos, en frío,** gana en dos: el correlado al 1 % por el índice (4.85 ms frente a 5.60) y el anticorrelado al 10 % por la plana (32.3 frente a 40.8).
 - **Al azar, en frío, la plana sale favorecida.** El filtro al azar es el mismo conjunto para todas las queries, y en un lote de 10 las de después encuentran en caché los vectores que leyeron las de antes. Por eso la plana al azar al 0.1 % da 1.56 ms en frío y no unos 8.4 como los otros dos tipos. A HNSW le pasa lo mismo. Es el frío de un filtro compartido, como una categoría, no el de una query sola.
 - **La memoria de cada índice no entra en esta medida.** HNSW tiene el grafo y sus códigos de 1 536 bits en memoria.
+- **HNSW corrió sin centrar** (anotado el 24 a las 07:05, a petición del usuario).
+  - **Es la configuración por defecto de una clase con RQ de 1 bit,** la que pedía este pre-registro: `rqCentering: false` en el JSON de la medida, `DefaultRQCentering` en `buildFilterHNSW`.
+  - **No es la de la tabla de ayer a 10M,** donde la comparación que cuenta es la celda centrada.
+  - **Nuestro índice sí ordena con códigos centrados** (CRQ1), así que en esta tabla los dos no cuantizan igual.
+  - **Lo que centrar cambió a 10M en wiki-dpr:** el 0.95 de HNSW pasó de ef 177 a 46, y su p50 en frío de 7.71 ms a entre 3.2 y 4.1. Aquí, sin centrar, HNSW llega a 0.95 sin filtro con ef 78.
+  - **Las razones nuestro ÷ `acorn` de la tabla son frente al HNSW sin centrar.** Frente al centrado no se midieron. *Mío, sin medir:* lo esperable es que sean mayores.
 
 **`acorn` frente a `sweeping`:** al 50 %, al 1 % y al 0.1 % son lo mismo. Al 50 % `acorn` corre `sweeping` por su ratio de 0.4, y al 1 % y al 0.1 % los dos van por la plana. Al 10 %, en frío, `sweeping` es 1.78 veces más rápido al azar (4.75 ms frente a 8.44), empatan en el correlado (2.42 frente a 2.55), y `acorn` es más rápido en el anticorrelado (40.8 frente a 54.9).
 
