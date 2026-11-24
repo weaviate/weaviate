@@ -74,8 +74,14 @@ func (m *recordStore) LoadAndStrip() (records map[string]record, initialized boo
 // load is Load, and also names the records whose stored value differs from
 // what this binary would write for them.
 func (m *recordStore) load() (records map[string]record, initialized bool, foreign []string, err error) {
+	return readRecords(m.ns.ForEach)
+}
+
+// readRecords is recordStore.load over the keys forEach walks.
+func readRecords(forEach func(fn func(key, value []byte) error) error,
+) (records map[string]record, initialized bool, foreign []string, err error) {
 	records = map[string]record{}
-	err = m.ns.ForEach(func(key, value []byte) error {
+	err = forEach(func(key, value []byte) error {
 		k := string(key)
 		if k == formatVersionKey {
 			if string(value) != formatVersion {

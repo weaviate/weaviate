@@ -262,13 +262,15 @@ func TestManifest_ReadyRefuses(t *testing.T) {
 	assert.Equal(t, "creating", rec.State)
 }
 
-// A reset keeps the record's IDs, and the files go without the queue.
+// A reset keeps the record's IDs, and the files go without the queue or a
+// bucket a sibling owns.
 func TestManifest_Reset(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
 	dir := t.TempDir()
-	m := loaded(t, dir, "title")
+	m := loaded(t, dir, "title", "title_muvera_vectors")
 	queueDir := filepath.Join(dir, "vectors_title.queue.d")
-	plant(t, queueDir)
+	siblings := filepath.Join(dir, "lsm", "vectors_title_muvera_vectors")
+	plant(t, queueDir, siblings)
 
 	require.NoError(t, m.Reset("title"))
 	rec, _, err := m.records.Get("title")
@@ -277,6 +279,7 @@ func TestManifest_Reset(t *testing.T) {
 	require.NoError(t, m.RemoveIndexFiles(t.Context(), "title"))
 	assert.NoDirExists(t, filepath.Join(dir, "vectors_title.hnsw.commitlog.d"))
 	assert.DirExists(t, queueDir)
+	assert.DirExists(t, siblings)
 
 	buildHNSW(t, dir, "vectors_title")
 	require.NoError(t, m.Ready(schemaVectors{"title": cfg}))
