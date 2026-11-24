@@ -1441,7 +1441,7 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 ### Resultados cronometrados (noche del 23 al 24 de noviembre)
 
-**En duda desde la repetición de las 04:01:** en un proceso nuevo, la plana cuesta unas cuatro veces menos que en esta noche. Por eso están en duda su coste por permitido, el punto de cruce y cada comparación de la plana. Lo explica el apartado «La repetición de los cinco puntos marcados».
+**En duda desde la repetición de las 04:01:** en un proceso nuevo, la plana cuesta unas cuatro veces menos que en esta noche. Por eso están en duda su coste por permitido, el punto de cruce y cada comparación de la plana. Lo explica el apartado «La repetición de los cinco puntos marcados». El diagnóstico de las 04:50 tampoco la reproduce, ni en un solo proceso con el orden de la noche: lo cuenta el apartado «El diagnóstico de la plana lenta».
 
 *El binario es de `ada98eba8e`, con el mismo índice crecido de `2e58f5c2e1`, y el resultado está en `filters-timed-dbpedia-1m.json`. La máquina quedó quieta a las 19:09, tras la espera de 15 minutos con el marcador puesto. Las rondas 1 y 2 midieron el nuestro por sus dos caminos y HNSW con `acorn`, de 19:09 a 02:32. Las rondas 3 y 4 midieron HNSW con `sweeping`, de 02:32 a 03:04. No se saltó ningún punto.*
 
@@ -1618,7 +1618,7 @@ No he tocado nada de esto.
   - en la noche, después del índice en sus trece filtros, con unas 650 reaperturas y los filtros más pesados, de miles de cargas por query;
   - en la repetición, después del índice en un solo filtro, con 50 reaperturas.
 - **En la noche el índice también fue más lento en la ronda 2,** en 12 de sus 13 filtros.
-- **Mi lectura** (*mía*, sin comprobar): algo se acumula en un proceso que abre el índice muchas veces o que lo usa mucho rato, y la plana es la que más lo nota, porque pide por query dos slices del tamaño de los permitidos. Puede ser el índice, y entonces es un bug, o el arnés o el runtime de Go. No lo sé todavía.
+- **Mi lectura** (*mía*, sin comprobar): algo se acumula en un proceso que abre el índice muchas veces o que lo usa mucho rato, y la plana es la que más lo nota, porque pide por query dos slices del tamaño de los permitidos. Puede ser el índice, y entonces es un bug, o el arnés o el runtime de Go. No lo sé todavía. *Refutada en un proceso por el diagnóstico de las 04:50; lo cuenta el apartado «El diagnóstico de la plana lenta».*
 
 **Lo que esto cambia de los resultados cronometrados:**
 - **El coste de la plana por permitido** (de 230 a 250 ns), y el «no se cumple» frente a los 2 ms esperados.
@@ -1632,6 +1632,69 @@ No he tocado nada de esto.
 - **La regla no dice qué hacer con una repetición que vuelve a derivar.** No la encolo otra vez (*mío*); la reporto como un efecto de ronda de HNSW.
 
 **Lo siguiente:** reproducir la plana lenta en un solo proceso, con la traza del GC y un perfil de CPU, antes de medir otra vez la plana y el punto de cruce. Si es el índice, es un bug: test en rojo y arreglo.
+
+### El diagnóstico de la plana lenta (24 de noviembre, de 04:50 a 07:30, sin cronometrar)
+
+*Un diagnóstico, nunca una medida: ninguna de sus cifras se reporta como tiempo. El binario es de `2d550c3b64`, que añade al arnés la sonda `-bench.filters.probe`; el código del índice es el de la noche. Los datos se quedan fuera del repositorio; los perfiles, en las notas de la sesión.*
+
+**El orden de la noche, en un solo proceso:**
+- el mismo índice;
+- HNSW construido en el proceso y vivo hasta el final, como en la noche: se cierra solo su fichero de vectores, y `acorn` va en las mismas rondas que el nuestro;
+- las curvas sin cronometrar de todos los buscadores en todos los filtros;
+- una ronda: el nuestro por el índice en sus trece filtros, y después la plana.
+
+**Lo que no es como en la noche:**
+- 200 queries en frío por punto, no 500: 20 reaperturas por punto, 260 en los trece filtros del índice;
+- el marcador puesto desde el principio, sin la espera;
+- la traza del GC (`GODEBUG=gctrace=1`);
+- la sonda.
+
+**La sonda** busca la plana al azar al 10 %, con ef 10 y sola, en las 300 primeras queries: una pasada para calentar y otra con un perfil de CPU. Mide también el recorrido de las listas de permitidos solas, el heap y el GC. Corre antes de las curvas, después de ellas, después de cada punto cronometrado y al final. Calienta los códigos de ese filtro entre los puntos, cosa que la noche no hacía.
+
+**La plana no va más lenta en ningún momento del proceso:**
+- **Las 19 sondas** dan un p50 de 5.79 a 6.30 ms, de la apertura al final. Es lo de la repetición en un proceso nuevo (5.8 ms), también después de los trece filtros del índice y sus 260 reaperturas.
+- **Recorrer las listas de permitidos** cuesta de 11.0 a 12.0 ns por miembro en todas las sondas.
+- **El GC** se lleva del 2 al 4.5 % de la CPU, con 1.5 GB vivos y un objetivo de 3 GB.
+- **Ningún perfil tiene `gcAssistAlloc`**, y `mallocgc` se queda en el 7 % de las muestras o menos.
+- **Los puntos de la plana cronometrados en el mismo proceso**, después del índice en sus trece filtros (p50 en ms, sin cronometrar a efectos del informe):
+
+| filtro | caliente, diagnóstico | caliente, noche | frío, diagnóstico | frío, noche |
+|---|---:|---:|---:|---:|
+| al azar 50 % | 25.01 | 112.77 | 30.11 | 121.44 |
+| al azar 10 % | 5.93 | 23.70 | 13.94 | 32.07 |
+| al azar 1 % | 1.28 | 3.12 | 7.88 | 9.92 |
+
+  Los demás no empezaron antes de las 07:30.
+- **El nuestro por el índice repite la noche:** sus 26 puntos, en caliente y en frío, quedan a ±4 % de la ronda 1 de la noche. Las excepciones son anticorrelado al 10 %, 1 % y 0.1 %, que salen entre un 3 y un 11 % más rápidos. La CPU iba igual de rápida que en la noche para el índice, y no para la plana.
+
+**Lo que descarta:**
+- **Mi lectura** de que algo se acumula en un proceso que reabre el índice muchas veces o que lo usa mucho rato: aquí no se acumula nada que la plana note.
+- **Las ayudas del GC** como causa, por lo menos en el estado rápido, que es el único que se vio.
+
+**La hipótesis del usuario** es que macOS comprime o saca a swap el array de los códigos de ruteo. Las cifras de la noche no encajan con un coste por página (*mío*):
+- **El coste de la noche es lineal por permitido:** unos 225 ns a 50, 10 y 1 %, más unos 0.9 ms fijos.
+- **Al 1 % al azar ya se toca cerca del 90 % de las páginas de 16 KB de los códigos,** que guardan 227 códigos cada una. Un coste por página haría el 1 % casi tan caro como el 10 %.
+- **El caliente es la mediana de tres pasadas** después de una sin cronometrar, con las páginas ya en memoria.
+- **La espera tampoco separa la noche de la repetición:** en la noche se cumplió al instante (3658 s sin teclado a las 19:09, con el proceso corriendo las curvas hasta entonces), y la repetición, rápida, tenía 26 699 s.
+- **A las 07:22 el proceso tenía 19 MB comprimidos** de los 4.3 GB que ocupaba (`top`). El sistema tenía 1.42 millones de páginas en el compresor, 4.7 GB de swap usados de 6 y un 86 % libre.
+
+**El arnés registra la memoria y la CPU para la reproducción:**
+- **`-bench.filters.memory`** toma muestras antes del pase sin cronometrar de cada punto, antes y después de sus pasadas en caliente, y antes y después del frío. Van a los eventos y al JSON. Recoge:
+  - de `vm_stat`, las descompresiones, compresiones, page-ins, swap-ins, swap-outs y las páginas en el compresor;
+  - de `memory_pressure -Q`, la memoria libre;
+  - el swap de `sysctl vm.swapusage`;
+  - de `top`, la memoria comprimida y la huella del proceso;
+  - la contabilidad de CPU del proceso (`proc_pid_rusage`): el tiempo en los núcleos de rendimiento, el tiempo por QoS, el tiempo esperando un núcleo, las instrucciones por ciclo, los ciclos por segundo de CPU y lo leído del disco.
+- **`-bench.filters.untimedprofiles`** toma un perfil de CPU del pase sin cronometrar de cada punto. Las pasadas cronometradas nunca se perfilan.
+
+**La reproducción en las condiciones de la noche:**
+- HNSW vivo en el proceso;
+- una espera de al menos 60 minutos sin teclado ni trackpad, con el marcador desde que empieza;
+- 500 queries en frío;
+- sin la sonda;
+- una ronda en el orden de la noche.
+
+Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce queda para una enmienda pre-registrada.
 
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 

@@ -13,7 +13,22 @@
 
 package postingedge
 
-import "github.com/pkg/errors"
+import (
+	"time"
+
+	"github.com/pkg/errors"
+)
+
+// processCPU is the accounting of the CPU of this process by core and QoS.
+// It is only written for macOS.
+func processCPU() (processCPUTimes, error) {
+	return processCPUTimes{}, errors.New("the CPU of the process by core and QoS is only counted on macOS")
+}
+
+// processCPUTimeOfGetrusage is only used to check processCPU.
+func processCPUTimeOfGetrusage() (time.Duration, error) {
+	return 0, errors.New("the check of processCPU is only written for macOS")
+}
 
 // processDiskReads is what the system has read from disk for this process.
 // It is only written for macOS.

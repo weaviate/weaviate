@@ -98,6 +98,12 @@ var (
 		"the probe, the first of the set")
 	benchFiltersProbeProfiles = flag.String("bench.filters.probeprofiles", "", "TestIntegrationFilters: the "+
 		"directory of the CPU profiles of the probe, one a probe; empty for none")
+	benchFiltersUntimedProfiles = flag.String("bench.filters.untimedprofiles", "", "TestIntegrationFilters: the "+
+		"directory of a CPU profile of the untimed pass of every timed point, the one that checks its recall before "+
+		"the warm passes, which are never profiled; empty for none")
+	benchFiltersMemory = flag.Bool("bench.filters.memory", false, "TestIntegrationFilters: the memory of the "+
+		"system, untimed, before and after the warm passes and the cold batches of every timed point: vm_stat, "+
+		"memory_pressure -Q, sysctl vm.swapusage and top on the process (macOS), in the events and the JSON")
 )
 
 // filterSearcherNames are the searchers of the measure, by index and path.
@@ -461,6 +467,20 @@ type filterTimed struct {
 	ColdBatch   int             `json:"coldBatch,omitempty"`
 	ColdRecall  float64         `json:"coldRecall,omitempty"`
 	ReopenMs    float64         `json:"reopenms,omitempty"`
+	// Memory is the memory of the system around the point
+	// (-bench.filters.memory), untimed.
+	Memory *filterMemory `json:"memory,omitempty"`
+}
+
+// filterMemory is the memory of the system around a timed point: before its
+// untimed pass, before its first warm pass, after its last, and before and
+// after its cold batches.
+type filterMemory struct {
+	BeforeUntimed systemMemory  `json:"beforeUntimed"`
+	BeforeWarm    systemMemory  `json:"beforeWarm"`
+	AfterWarm     systemMemory  `json:"afterWarm"`
+	BeforeCold    *systemMemory `json:"beforeCold,omitempty"`
+	AfterCold     *systemMemory `json:"afterCold,omitempty"`
 }
 
 // filterRound is one timed round. The rounds of HNSW with sweeping come after
@@ -904,6 +924,13 @@ func TestIntegrationFilters(t *testing.T) {
 	for i := range all {
 		all[i] = i
 	}
+	// sampleMemory samples the memory of the system, untimed; the measure
+	// fails if macOS does not tell it.
+	sampleMemory := func() systemMemory {
+		m, err := sampleSystemMemory(ctx)
+		require.NoError(t, err, "-bench.filters.memory")
+		return m
+	}
 	mean := func(stats []diskSearchStats, of func(diskSearchStats) int) float64 {
 		total := 0
 		for _, s := range stats {
@@ -985,7 +1012,22 @@ func TestIntegrationFilters(t *testing.T) {
 				s.prepare()
 				s.setEF(point.EF)
 				timed := filterTimed{Index: s.index, Path: s.path, Filter: f.Name, Target: filterTargets[0], EF: point.EF}
+				if *benchFiltersMemory {
+					timed.Memory = &filterMemory{BeforeUntimed: sampleMemory()}
+				}
+				var profile *os.File
+				if *benchFiltersUntimedProfiles != "" {
+					var err error
+					profile, err = os.Create(filepath.Join(*benchFiltersUntimedProfiles, fmt.Sprintf("round-%d-%s-%s-%s.pprof",
+						round, s.index, s.path, strings.NewReplacer(" ", "", "%", "pct").Replace(f.Name))))
+					require.NoError(t, err)
+					require.NoError(t, pprof.StartCPUProfile(profile))
+				}
 				_, _, hits, _ := run(s, f, all)
+				if profile != nil {
+					pprof.StopCPUProfile()
+					require.NoError(t, profile.Close())
+				}
 				timed.Recall = float64(hits) / float64(len(queries)*k)
 				if s.index == "ours" {
 					require.Equal(t, point.Recall, timed.Recall, "%s %s, %s: the recall the point was found with", s.index,
@@ -994,16 +1036,28 @@ func TestIntegrationFilters(t *testing.T) {
 					require.InDelta(t, point.Recall, timed.Recall, 1e-3, "%s %s, %s: the recall the point was found with",
 						s.index, s.path, f.Name)
 				}
+				if timed.Memory != nil {
+					timed.Memory.BeforeWarm = sampleMemory()
+				}
 				for pass := 0; pass < *benchDiskPasses; pass++ {
 					latencies, stats, _, wall := run(s, f, all)
 					timed.Warm = append(timed.Warm, diskLatenciesOf(latencies, stats, wall))
 					timed.Reads = mean(stats, func(s diskSearchStats) int { return s.Rescored })
 					timed.Loads = mean(stats, func(s diskSearchStats) int { return s.Postings })
 				}
+				if timed.Memory != nil {
+					timed.Memory.AfterWarm = sampleMemory()
+				}
 				warm := timed.Warm[len(timed.Warm)/2]
 				t.Logf("round %d, %s %s, %s (ef %d), 1 thread, warm: p50 %.3f ms, p95 %.3f, p99 %.3f | %.0f QPS | %.1f loads, "+
 					"%.1f vectors read", round, s.index, s.path, f.Name, point.EF, warm.P50, warm.P95, warm.P99, warm.QPS,
 					timed.Loads, timed.Reads)
+				if m := timed.Memory; m != nil {
+					t.Logf("round %d, %s %s, %s, the untimed pass: the memory of the system, untimed: %s", round, s.index,
+						s.path, f.Name, memoryChange(m.BeforeUntimed, m.BeforeWarm))
+					t.Logf("round %d, %s %s, %s, the warm passes: the memory of the system, untimed: %s", round, s.index,
+						s.path, f.Name, memoryChange(m.BeforeWarm, m.AfterWarm))
+				}
 
 				if *benchDiskDrop != "" {
 					const batch = 10
@@ -1016,6 +1070,10 @@ func TestIntegrationFilters(t *testing.T) {
 					}
 					var wall, reopen time.Duration
 					coldHits := 0
+					if timed.Memory != nil {
+						before := sampleMemory()
+						timed.Memory.BeforeCold = &before
+					}
 					for from := 0; from < *benchDiskCold; from += batch {
 						which := all[from:min(from+batch, *benchDiskCold)]
 						closeAll()
@@ -1034,6 +1092,10 @@ func TestIntegrationFilters(t *testing.T) {
 						coldHits += batchHits
 						timed.ColdBatches++
 					}
+					if timed.Memory != nil {
+						after := sampleMemory()
+						timed.Memory.AfterCold = &after
+					}
 					cold := diskLatenciesOf(latencies, stats, wall)
 					timed.Cold, timed.ColdBatch = &cold, batch
 					for _, half := range halves {
@@ -1046,6 +1108,10 @@ func TestIntegrationFilters(t *testing.T) {
 						cold.P50, cold.P95, cold.P99, timed.ColdBatches, batch, timed.ColdHalves[0].P50, timed.ColdHalves[1].P50,
 						mean(stats, func(s diskSearchStats) int { return s.Postings }),
 						mean(stats, func(s diskSearchStats) int { return s.Rescored }))
+					if m := timed.Memory; m != nil {
+						t.Logf("round %d, %s %s, %s, the cold batches: the memory of the system, untimed: %s", round, s.index,
+							s.path, f.Name, memoryChange(*m.BeforeCold, *m.AfterCold))
+					}
 				}
 				timedRound.Points = append(timedRound.Points, timed)
 				result.Rounds = slices.DeleteFunc(result.Rounds, func(r filterRound) bool { return r.Round == round })
