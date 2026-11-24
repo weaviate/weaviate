@@ -352,30 +352,25 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 }
 
 // initTargetVector creates the named vector's index and queue under the
-// naming rule unless the shard has them already, recording it creating
-// before the build and ready after. Creates are serialized by the slots, so
-// two concurrent UpdateVectorIndexConfigs calls that both saw the target
-// absent build it once; the second finds it in place and returns.
+// naming rule unless the shard has them already, recording it before the
+// build and once built. Creates are serialized by the slots, so two concurrent
+// UpdateVectorIndexConfigs calls that both saw the target absent build it
+// once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	if !vectorIndexHasStorage(cfg) {
 		id := s.vectorIndexID(targetVector)
 		return s.createVectorIndex(ctx, targetVector, id, id, cfg, lazyLoadSegments)
 	}
-	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		err := s.refuseVectorIndexCollision(targetVector, rec)
+		entry, err := s.manifest.Create(targetVector, cfg)
 		if err != nil {
 			return nil, nil, err
 		}
-		err = s.markVectorIndexCreating(targetVector, rec)
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, entry.StorageID, entry.QueueID, cfg, lazyLoadSegments)
 		if err != nil {
 			return nil, nil, err
 		}
-		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.storageID(), rec.queueIDOrDefault(), cfg, lazyLoadSegments)
-		if err != nil {
-			return nil, nil, err
-		}
-		err = s.markVectorIndexReady(targetVector, rec)
+		err = s.manifest.Ready(map[string]schemaConfig.VectorIndexConfig{targetVector: cfg})
 		if err != nil {
 			// nothing may run unpublished; the record stays creating for the retry
 			errs := []error{err}

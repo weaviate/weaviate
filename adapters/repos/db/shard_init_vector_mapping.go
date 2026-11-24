@@ -223,20 +223,3 @@ func vectorIndexCollisions(owners map[string]vectorIndexOwner) []string {
 func vectorIndexCollisionError(name string, collisions []string) error {
 	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
 }
-
-// refuseVectorIndexCollision fails a creation whose physical names are
-// already in use by another recorded vector. The vector's own record, a
-// retry of an interrupted creation, is not a collision.
-func (s *Shard) refuseVectorIndexCollision(name string, rec vectorIndexRecord) error {
-	records, _, err := s.mapping.Load()
-	if err != nil {
-		return err
-	}
-	owners := vectorIndexOwners(records)
-	delete(owners, name)
-	collisions := vectorIndexCollisionsWith(owners, name, ownerOf(rec))
-	if len(collisions) == 0 {
-		return nil
-	}
-	return vectorIndexCollisionError(name, collisions)
-}
