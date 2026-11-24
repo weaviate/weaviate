@@ -1068,6 +1068,18 @@ func (p *dirtyTrackingPool) Clone(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	return clone(p, bm)
 }
 
+func (p *dirtyTrackingPool) CloneWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (*sroar.Bitmap, func()) {
+	return cloneWithHeadroom(p, bm, spareRatio)
+}
+
+func (p *dirtyTrackingPool) ZeroedLayout(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return zeroedLayout(p, bm)
+}
+
+func (p *dirtyTrackingPool) ZeroedLayoutWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (*sroar.Bitmap, func()) {
+	return zeroedLayoutWithHeadroom(p, bm, spareRatio)
+}
+
 func (p *dirtyTrackingPool) CloneBytes(src []byte) (*sroar.Bitmap, func()) {
 	return cloneBytes(p, src)
 }
@@ -1095,6 +1107,15 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 		get  func(BitmapBufPool) (*sroar.Bitmap, func())
 	}{
 		{"Clone", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.Clone(baseBM()) }},
+		{"CloneWithHeadroom", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.CloneWithHeadroom(baseBM(), 1) }},
+		{"ZeroedLayout", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+			bm, put := p.ZeroedLayout(baseBM())
+			return bm.Or(baseBM()), put
+		}},
+		{"ZeroedLayoutWithHeadroom", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+			bm, put := p.ZeroedLayoutWithHeadroom(baseBM(), 1)
+			return bm.Or(baseBM()), put
+		}},
 		{"CloneBytes", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
 			return p.CloneBytes(slices.Clone(baseBM().ToBuffer()))
 		}},
@@ -1139,6 +1160,94 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 				require.Equal(t, int64(0), pool.Outstanding())
 			})
 		}
+	}
+}
+
+// TestPooledBuildsWithHeadroom pins spareRatio reaching sroar from every pool,
+// and headroom adding the key slots the plain builds must not.
+func TestPooledBuildsWithHeadroom(t *testing.T) {
+	const roomyBufSize = 1 << 16
+	src := NewBitmap(1, 2, 3, 70_000, 200_000)
+
+	builds := []struct {
+		name         string
+		plain        func(BitmapBufPool) (*sroar.Bitmap, func())
+		withHeadroom func(BitmapBufPool, float64) (*sroar.Bitmap, func())
+		values       []uint64
+	}{
+		{
+			name:  "Clone",
+			plain: func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.Clone(src) },
+			withHeadroom: func(p BitmapBufPool, spareRatio float64) (*sroar.Bitmap, func()) {
+				return p.CloneWithHeadroom(src, spareRatio)
+			},
+			values: src.ToArray(),
+		},
+		{
+			name:  "ZeroedLayout",
+			plain: func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.ZeroedLayout(src) },
+			withHeadroom: func(p BitmapBufPool, spareRatio float64) (*sroar.Bitmap, func()) {
+				return p.ZeroedLayoutWithHeadroom(src, spareRatio)
+			},
+		},
+	}
+	// None of these rounds a request up, the ranged pool because it has no ranges.
+	exactPools := []struct {
+		name string
+		pool BitmapBufPool
+	}{
+		{"noop", NewBitmapBufPoolNoop()},
+		{"ranged", NewBitmapBufPoolRanged(nil, 0, nil)},
+		{"tracking", NewBitmapBufPoolTrackingForTests()},
+	}
+
+	type layout struct {
+		capInBytes   int
+		keysNodeSize uint64
+	}
+	layoutOf := func(t *testing.T, wantValues []uint64, bm *sroar.Bitmap, put func()) layout {
+		defer put()
+		require.ElementsMatch(t, wantValues, bm.ToArray())
+		capInBytes := bm.CapInBytes()
+		// ToBuffer of an empty bitmap is nil. src has its keys, so adding them moves nothing.
+		bm.Or(src)
+		return layout{capInBytes, binary.LittleEndian.Uint64(bm.ToBuffer())}
+	}
+
+	for _, b := range builds {
+		for _, p := range exactPools {
+			t.Run(b.name+"/"+p.name, func(t *testing.T) {
+				withHeadroom := func(spareRatio float64) layout {
+					bm, put := b.withHeadroom(p.pool, spareRatio)
+					return layoutOf(t, b.values, bm, put)
+				}
+				bm, put := b.plain(p.pool)
+				plain := layoutOf(t, b.values, bm, put)
+
+				require.Equal(t, plain, withHeadroom(0), "an exact fit has no spare to split")
+				n := float64(plain.capInBytes)
+				for _, spareRatio := range []float64{0.5, 3, 9.5 / n} { // the last sizes to n+9.5
+					require.Equal(t, int(math.Ceil(n*(1+spareRatio))), withHeadroom(spareRatio).capInBytes, "ratio %v", spareRatio)
+				}
+				require.Greater(t, withHeadroom(3).keysNodeSize, plain.keysNodeSize)
+				require.Panics(t, func() { withHeadroom(-0.5) })
+			})
+		}
+
+		t.Run(b.name+"/ranged, roomy", func(t *testing.T) {
+			bm, put := b.plain(NewBitmapBufPoolNoop())
+			exact := layoutOf(t, b.values, bm, put)
+
+			pool := NewBitmapBufPoolRanged(nil, 0, nil, roomyBufSize)
+			bm, put = b.plain(pool)
+			plain := layoutOf(t, b.values, bm, put)
+			bm, put = b.withHeadroom(pool, 0)
+			headroom := layoutOf(t, b.values, bm, put)
+
+			require.Equal(t, layout{roomyBufSize, exact.keysNodeSize}, plain, "plain leaves spare as tail room")
+			require.Equal(t, roomyBufSize, headroom.capInBytes)
+			require.Greater(t, headroom.keysNodeSize, plain.keysNodeSize)
+		})
 	}
 }
 
