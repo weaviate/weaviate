@@ -14,12 +14,9 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
@@ -78,94 +75,12 @@ func (s *Shard) clearDroppedVectorDimensions(ctx context.Context, class *models.
 }
 
 // removeVectorIndexFiles removes every on-disk artifact of a named vector index
-// (see helpers.VectorIndexArtifactsFor for the set and why it is centralised).
-// otherTargetVectors are the collection's remaining vector names, needed so a
-// sibling whose own bucket collides with one of this target's artifact names is
-// not deleted along with it.
+// of a shard that is not loaded. otherTargetVectors are the collection's
+// remaining vector names, whose files stay.
 func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	indexPath, shardName, targetVector string, otherTargetVectors []string,
 ) error {
-	lsmDir := filepath.Join(indexPath, shardName, "lsm")
-	shardDir := filepath.Join(indexPath, shardName)
-
-	// the record says what the vector owns; a shard from a pre-mapping backup
-	// has none, and the naming rule is what its first load would record
-	rec, recorded, initialized, err := readVectorIndexRecordOffline(shardDir, targetVector)
-	if shardmeta.IsLocked(err) {
-		// a load slipped in: the shard's own drop and reconcile finish it
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var artifacts helpers.VectorIndexArtifacts
-	var id string
-	switch {
-	case !initialized:
-		id = helpers.VectorIndexIDForTarget(targetVector)
-		artifacts = helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
-	case !recorded:
-		return nil // nothing recorded, nothing owned
-	default:
-		id = rec.storageID()
-		records := map[string]vectorIndexRecord{targetVector: rec}
-		var otherIDs []string
-		for _, other := range otherTargetVectors {
-			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				continue
-			}
-			records[other] = otherRec
-			otherIDs = append(otherIDs, otherRec.storageID())
-		}
-		// a sibling sharing a queue or files would lose them; a load refuses the pair
-		err := refuseSharedVectorIndexQueues(records)
-		if err != nil {
-			return err
-		}
-		err = refuseGeneratedVectorIndexCollisions(records)
-		if err != nil {
-			return err
-		}
-		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
-		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
-	}
-
-	var dirs []string
-	for _, bucket := range artifacts.LSMBuckets {
-		dirs = append(dirs, filepath.Join(lsmDir, bucket))
-	}
-	for _, dir := range artifacts.ShardDirs {
-		dirs = append(dirs, filepath.Join(shardDir, dir))
-	}
-
-	for _, dir := range dirs {
-		if err := os.RemoveAll(dir); err != nil {
-			return fmt.Errorf("remove %s: %w", dir, err)
-		}
-	}
-
-	// A dynamic index records its flat-to-hnsw upgrade as a key in the shard's
-	// index.db, which no artifact above can reach: that file is one per shard,
-	// not one per vector, so removing it would take every sibling's state too.
-	//
-	// Unconditional because nothing here can tell a dynamic vector from any
-	// other — the drop rewrote this entry's VectorIndexType to "none" and
-	// discarded the original type along with its config.
-	if err := dynamic.RemoveStateKeyForID(shardDir, id); err != nil {
-		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
-	}
-
-	// the record goes last, so a failed sweep keeps it for the retry
-	key := []byte(vectorIndexMappingKey(targetVector))
-	if err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, key); err != nil {
-		return fmt.Errorf("remove mapping record for %q: %w", targetVector, err)
-	}
-
-	return nil
+	return vectormanifest.DropUnloaded(filepath.Join(indexPath, shardName), targetVector, otherTargetVectors)
 }
 
 // otherTargetVectors lists the collection's vector names except `exclude` —
