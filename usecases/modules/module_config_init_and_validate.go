@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -289,7 +290,14 @@ func (p *Provider) ValidateModuleConfig(ctx context.Context, class *models.Class
 		return nil
 	}
 	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector, &p.cfg)
-	if err := cc.ValidateClass(ctx, class, cfg); err != nil {
+	validation := moduletools.NewValidationClassConfig(cfg)
+	err := cc.ValidateClass(ctx, class, validation)
+	if invalid := validation.Err(); invalid != nil {
+		// A module error can describe the wrong value a getter returned in
+		// place of the reported setting.
+		err = invalid
+	}
+	if err != nil {
 		return errors.Wrapf(err, "module '%s'", moduleName)
 	}
 	return nil

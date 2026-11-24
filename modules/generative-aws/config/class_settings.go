@@ -142,7 +142,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return fmt.Errorf("%s", strings.Join(errorMessages, ", "))
 	}
 
-	return nil
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty, maxTokenCountProperty, maxTokensToSampleProperty, topKProperty)
 }
 
 func (ic *classSettings) validatAvailableAWSSetting(value string, availableValues []string) bool {
