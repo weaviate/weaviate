@@ -326,6 +326,92 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - El recortado con R = 64 queda hacia 0.95.
 - **El anticorrelado pide más R que el correlado a igual código:** los permitidos están todos lejos de la query y a distancias parecidas entre sí.
 
+### Resultados (24 de noviembre, de 07:33 a 07:46)
+
+*Medido con `TestFlatRankingCode` (`7bf1236245`, en la rama local `exp/flat-ranking-code`, que sale de `feat/posting-edge-integration`). Los datos están en `testdata/bench/integration-filters/flatcodes/` de esa rama. Sin cronometrar: 15 s a 1 536 dimensiones con los filtros de la caché, y 13 min a 768, de ellos 12 para sacar los filtros.*
+
+**La copia es la plana del índice.** A 1 536 dimensiones, con el código recortado y R = 507, da el recall de la noche a 0.0003 como mucho en los seis filtros:
+
+| | al azar 1 % | al azar 0.1 % | correlado 1 % | correlado 0.1 % | anticorrelado 1 % | anticorrelado 0.1 % |
+|---|---:|---:|---:|---:|---:|---:|
+| noche, ef 10 | 0.9995 | 1 | 0.9982 | 1 | 0.9811 | 0.9985 |
+| copia | 0.9992 | 1 | 0.9982 | 0.9999 | 0.9813 | 0.9985 |
+
+**dbpedia, 1 536 dimensiones,** recall@10 con R = 64 / 150 / 507:
+
+| filtro | recortado, 512 bits | completo, 1 536 bits |
+|---|---|---|
+| al azar 1 % | 0.9554 / 0.9898 / 0.9992 | 0.9998 / 1 / 1 |
+| al azar 0.1 % | 0.9693 / 0.9967 / 1 | 0.9999 / 1 / 1 |
+| correlado 1 % | 0.9379 / 0.9835 / 0.9982 | 0.9994 / 1 / 1 |
+| correlado 0.1 % | 0.9527 / 0.9925 / 0.9999 | 0.9997 / 1 / 1 |
+| anticorrelado 1 % | 0.7880 / 0.9027 / 0.9813 | 0.9917 / 0.9995 / 1 |
+| anticorrelado 0.1 % | 0.8210 / 0.9429 / 0.9985 | 0.9920 / 0.9993 / 1 |
+
+**wiki-dpr, 768 dimensiones,** recall@10 con R = 64 / 150 / 507:
+
+| filtro | recortado, 512 bits | completo, 768 bits |
+|---|---|---|
+| al azar 1 % | 0.9561 / 0.9925 / 0.9999 | 0.9947 / 0.9996 / 1 |
+| al azar 0.1 % | 0.9755 / 0.9974 / 1 | 0.9982 / 0.9999 / 1 |
+| correlado 1 % | 0.9271 / 0.9756 / 0.9957 | 0.9821 / 0.9959 / 0.9993 |
+| correlado 0.1 % | 0.9529 / 0.9912 / 0.9999 | 0.9892 / 0.9988 / 0.9999 |
+| anticorrelado 1 % | 0.7284 / 0.8605 / 0.9623 | 0.8858 / 0.9531 / 0.9885 |
+| anticorrelado 0.1 % | 0.8213 / 0.9452 / 0.9983 | 0.9301 / 0.9851 / 0.9994 |
+
+**La hipótesis, por la regla pre-registrada:**
+
+- **A 1 536 dimensiones se confirma en tres de los cuatro filtros.**
+  - El completo con R = 64 da al menos el recall del recortado con R = 507, menos 0.005, en el correlado al 1 % y al 0.1 % y en el anticorrelado al 1 %. En el anticorrelado al 1 % lo supera: 0.9917 frente a 0.9813.
+  - Falla en el anticorrelado al 0.1 %: 0.9920 frente a 0.9985, 0.0065 por debajo, con un margen de 0.005. Con R = 150 el completo lo supera (0.9993).
+  - El recortado con R = 64 queda de 0.047 a 0.193 por debajo de su R = 507 en los cuatro.
+- **A 768 dimensiones se confirma en el correlado y no en el anticorrelado.**
+  - El completo con R = 150 iguala al recortado con R = 507 en el correlado: 0.9959 frente a 0.9957 al 1 %, y 0.9988 frente a 0.9999 al 0.1 %.
+  - En el anticorrelado se queda corto: 0.9531 frente a 0.9623 al 1 %, y 0.9851 frente a 0.9983 al 0.1 %. Ahí el código completo, a igual R, da más recall: 0.9885 frente a 0.9623 al 1 % con R = 507.
+- **A 1 536 dimensiones, R = 507 sale del recorte a 512 bits.** Con el código completo bastan 64, o 150 para el anticorrelado al 0.1 %.
+- **A 768 dimensiones, R = 507 también hace falta con el código completo, en el anticorrelado.** La regla del 22, calibrada sin filtro, da R = 150 para 768 bits y no alcanza ahí.
+
+**Lo esperado frente a lo medido** (lo esperado es *mío*, de este pre-registro):
+
+- **A 1 536 dimensiones se confirma:** se cumple en tres de los cuatro filtros.
+- **El completo con R = 64, 0.99 o más en el correlado:** se cumple, con 0.9994 y 0.9997. En el anticorrelado al 1 %, por encima de 0.98: se cumple, con 0.9917.
+- **El recortado con R = 64, hacia 0.93:** se cumple en el correlado (0.938 y 0.953), pero no en el anticorrelado, que se queda en 0.788 y 0.821.
+- **A 768 dimensiones, el completo con R = 150 igual al recortado con R = 507:** se cumple en el correlado y no en el anticorrelado.
+- **A 768 dimensiones, el recortado con R = 64 hacia 0.95:** se cumple en el correlado (0.927 y 0.953), y no en el anticorrelado (0.728 y 0.821).
+- **El anticorrelado pide más R que el correlado:** se cumple con los dos códigos y a las dos dimensiones.
+
+**Dos anchos intermedios del código de ruteo a 1 536 dimensiones (*mío*, fuera del pre-registro, para dar el coste de las opciones),** R = 64 / 150 / 507:
+
+| filtro | 768 bits | 1 024 bits |
+|---|---|---|
+| correlado 1 % | 0.9786 / 0.9971 / 0.9997 | 0.9925 / 0.9994 / 1 |
+| correlado 0.1 % | 0.9847 / 0.9988 / 1 | 0.9944 / 0.9999 / 1 |
+| anticorrelado 1 % | 0.8963 / 0.9682 / 0.9964 | 0.9513 / 0.9899 / 0.9995 |
+| anticorrelado 0.1 % | 0.9146 / 0.9814 / 0.9999 | 0.9579 / 0.9953 / 1 |
+
+**Las opciones, con su coste en RAM (*mías*).**
+- **Hoy:** el índice guarda en memoria el código de ruteo de cada vector, de 72 B (512 bits y una palabra de cabecera). HNSW guarda 200 B de códigos por vector, además del grafo.
+- **Lo que se gana es frío:** cada vector del rescore es una lectura de disco. La noche dio unos 8 ms de p50 en frío por las 507 lecturas, y por eso la plana perdía frente a `acorn` en los filtros pequeños correlado y anticorrelado (5.83 y 3.28 veces al 0.1 %). Cuánto baja con menos lecturas está sin medir.
+
+| opción, a 1 536 dimensiones | RAM por vector | por millón | a 10M | R | peor recall de los cuatro filtros |
+|---|---:|---:|---:|---:|---:|
+| hoy: ruteo de 512 bits | 72 B | 72 MB | 720 MB | 507 | 0.9813 |
+| A. el código completo en memoria, además del de ruteo, solo para la plana | +200 B | +200 MB | +2.0 GB | 64 | 0.9917 |
+| B. el de ruteo pasa a ser el completo | +128 B | +128 MB | +1.28 GB | 64 | 0.9917 |
+| C. ruteo de 1 024 bits | +64 B | +64 MB | +640 MB | 150 | 0.9899 |
+| D. ruteo de 768 bits | +32 B | +32 MB | +320 MB | 507 | 0.9964 |
+| E. los códigos completos de los permitidos, leídos de sus postings | 0 | 0 | 0 | 64 | 0.9917 |
+
+- **A y B dan lo mismo a la plana.** B ahorra 72 B por vector, pero cambia también el ruteo del grafo: cada endpoint se puntúa con 25 palabras en vez de 9. Su efecto en el camino del índice está sin medir.
+- **C con R = 150 es la que menos RAM pide** para llegar a 0.99 en los cuatro filtros (0.9899 el peor) con menos de un tercio de las lecturas. Con R = 64, el que da la regla para 1 024 bits, el anticorrelado al 1 % se queda en 0.9513: la regla no vale para el anticorrelado. Cambia el grafo, como B.
+- **D no baja R:** sube el recall a igual R (0.9964 frente a 0.9813 en el anticorrelado al 1 %).
+- **E no gasta RAM, pero cuesta cargas de posting:** es el diseño de la plana en `none` (enmienda 3 de los filtros).
+  - Con un filtro en bola, los permitidos caen en pocos postings.
+  - Con uno al azar del 1 %, en casi todos: unas 4 000 cargas por query.
+  - Se puede elegir por query según cuántos postings toquen los permitidos. Está sin medir.
+- **A 768 dimensiones** el código completo pesa 104 B, 32 más que el de ruteo, y no baja R en el anticorrelado: B ahí cuesta 32 MB por millón y sube el recall a igual R (0.9885 frente a 0.9623 al 1 %).
+- **Mi propuesta:** C si se acepta medir otra vez el camino del índice con el ruteo de 1 024 bits, porque es la que menos RAM pide para bajar R. Si el grafo no se toca, A. En los dos casos, el R de la plana tiene que salir de lo medido con filtros, no de la regla del 22, que está calibrada sin filtro y se queda corta en el anticorrelado.
+
 ## HFresh con los postings leídos en paralelo, el PR a main (pre-registro, 2026-11-23 a las 11:25)
 
 **Estado: pre-registrado. El código está en la rama `perf/hfresh-parallel-posting-reads`, desde main, con sus tests en verde; la medida va detrás de la de filtros.**
