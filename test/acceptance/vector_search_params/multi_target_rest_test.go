@@ -139,12 +139,7 @@ func TestVectorSearchParamsMultiTarget_REST(t *testing.T) {
 		}
 	})
 
-	// RED: REST sum and average combinations fail with HTTP 500 "number of
-	// weights in join does not match number of results".
-	// dto.NewTargetCombination returns TargetCombination{Type: Sum|Average}
-	// without weights, while CombineMultiTargetResults requires one weight
-	// per target for every type except minimum. gRPC fills them (1 for sum,
-	// 1/n for average, extractTargets), so the two surfaces diverge.
+	// sum and average need implicit weights in the shard join, as gRPC sets
 	t.Run("sum and average combinations match gRPC", func(t *testing.T) {
 		q := ds.queries[0]
 		cases := []struct {

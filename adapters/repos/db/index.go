@@ -1741,8 +1741,7 @@ type IndexConfig struct {
 	RootPath            string
 	ClassName           schema.ClassName
 	QueryMaximumResults int64
-	// HNSWMaxSearchEF and HFreshMaxSearchProbe cap incoming per-request
-	// vector search params (HNSW_MAX_SEARCH_EF, HFRESH_MAX_SEARCH_PROBE).
+	// HNSW_MAX_SEARCH_EF and HFRESH_MAX_SEARCH_PROBE, for incoming searches
 	HNSWMaxSearchEF                     int64
 	HFreshMaxSearchProbe                int64
 	QueryHybridMaximumResults           int64

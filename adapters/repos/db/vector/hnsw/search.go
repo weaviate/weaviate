@@ -46,9 +46,7 @@ const (
 	PATHSEER
 )
 
-// String returns the lower-case strategy name used in slow-query log
-// annotations. The values match the user-config strings for the strategies
-// a user can select (sweeping, acorn, pathseer); rre is internal only.
+// String returns the strategy's config name; rre is internal only.
 func (s FilterStrategy) String() string {
 	switch s {
 	case SWEEPING:
@@ -64,13 +62,8 @@ func (s FilterStrategy) String() string {
 	}
 }
 
-// effectiveFilterStrategy returns the filtered-traversal strategy for one
-// search: a per-request strategy in params takes precedence over the
-// collection's configured strategy. Unknown strings are rejected by the
-// request parsers, so the config mapping's sweeping fallback is never hit by
-// a validated request. The returned value is the strategy to *try*: callers
-// still apply the allow-list ratio and entrypoint fallbacks (ACORN -> RRE,
-// no filter -> SWEEPING).
+// effectiveFilterStrategy returns the strategy to try: the request's, else
+// the configured one. Callers still apply the ACORN and entrypoint fallbacks.
 func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorSearchParams) FilterStrategy {
 	if requested := params.FilterStrategyOrEmpty(); requested != "" {
 		return filterStrategyFromConfig(requested)
@@ -78,9 +71,8 @@ func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorSearchParams) 
 	return FilterStrategy(h.configuredFilterStrategy.Load())
 }
 
-// searchTimeEF returns the beam width for a search of k results. A positive
-// per-request ef in params takes precedence over the collection config (it may
-// be smaller than the configured ef), but is never allowed to drop below k.
+// searchTimeEF returns the beam width for k results: the request's ef if set,
+// else the configured one, never below k.
 func (h *hnsw) searchTimeEF(k int, params *searchparams.VectorSearchParams) int {
 	if reqEF := params.EFOrZero(); reqEF > 0 {
 		return max(reqEF, k)
@@ -128,8 +120,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 
 	vector = h.normalizeVec(vector)
 	ef := h.searchTimeEF(k, params)
-	// Annotate only when a request override is present: boxing the ints into
-	// `any` allocates, and the default path must stay allocation-free.
+	// annotate only overrides: boxing into any allocates
 	requested := params.EFOrZero()
 	if requested > 0 {
 		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_requested", requested)
@@ -139,9 +130,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	}
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
-		// Brute force: no graph walk happens, so there is no effective beam to
-		// report. ef only caps the compressed candidates kept for rescoring and
-		// is discarded entirely on an uncompressed index.
+		// brute force has no beam to report; ef only caps compressed rescoring
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
 		return h.flatSearch(ctx, vector, k, ef, allowList)
 	}
@@ -291,9 +280,8 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-// acornEnabled reports whether a filtered search with the given strategy
-// should use ACORN: only when strategy is ACORN, a filter is present and the
-// filter is selective enough relative to the cache size.
+// acornEnabled reports whether a filtered search with strategy uses ACORN,
+// which also needs a selective enough filter.
 func (h *hnsw) acornEnabled(allowList helpers.AllowList, strategy FilterStrategy) bool {
 	if allowList == nil || strategy != ACORN {
 		return false
@@ -321,8 +309,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	// keep strategy selection consistent with knnSearchByVector: callers of
 	// this helper (KnnSearchByVectorMaxDist) previously fell back to
 	// sweeping silently when filterStrategy was pathseer. These callers
-	// (inserts, geo, upper layers) carry no request params, so they always
-	// use the collection's configured strategy.
+	// (inserts, geo, upper layers) always use the configured strategy.
 	configured := FilterStrategy(h.configuredFilterStrategy.Load())
 	if h.pathseerEnabled(allowList, configured) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, PATHSEER)
@@ -1103,9 +1090,8 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 	}
 }
 
-// knnSearchByVector walks the graph for the k nearest neighbours of
-// searchVec. params may be nil (collection defaults); only its filter
-// strategy is read here, ef has already been resolved by the caller.
+// knnSearchByVector walks the graph with the resolved ef; only the filter
+// strategy is read from params, which may be nil.
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList, params *searchparams.VectorSearchParams,
 ) ([]uint64, []float32, error) {
@@ -1249,9 +1235,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	} else {
 		strategy = SWEEPING
 	}
-	// Annotate only when the request named a strategy: boxing into `any`
-	// allocates and the default path must stay allocation-free. The value is
-	// the strategy after the ratio/entrypoint fallbacks, i.e. what runs.
+	// the strategy that runs, after fallbacks; only for request overrides
 	if params.FilterStrategyOrEmpty() != "" {
 		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_effective", strategy.String())
 	}

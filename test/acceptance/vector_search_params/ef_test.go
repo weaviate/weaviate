@@ -597,12 +597,9 @@ func TestVectorSearchParamsEF_FlatIgnores(t *testing.T) {
 	}
 }
 
-// assertEFSensitivity checks, per node, the mean recall@10 over the dataset
-// queries: ef=1000 must be near-exact (>= 0.95) and ef=10 must be at least 0.03
-// lower. A mean over 1000 ranked items is a more stable statistic than a count
-// of near-perfect queries. With 100 queries the standard error of the mean
-// recall@10 is roughly 0.01, so a 0.03 gap is about three standard errors
-// (0.05 on 30 queries was under one, i.e. a coin flip).
+// assertEFSensitivity checks, per node, that mean recall@10 is >= 0.95 at
+// ef=1000 and at least 0.03 lower at ef=10 (about three standard errors over
+// 100 queries).
 func assertEFSensitivity(t *testing.T, compose *docker.DockerCompose, ds *dataset, class string) {
 	for node := 1; node <= 3; node++ {
 		t.Run(fmt.Sprintf("node %d", node), func(t *testing.T) {

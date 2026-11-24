@@ -17,8 +17,7 @@ import (
 	"math"
 )
 
-// Target combination method names as they appear in the REST API. They are
-// the camelCase spelling of the TargetCombinationType values.
+// Target combination method names in the REST API.
 const (
 	TargetCombinationMethodSum           = "sum"
 	TargetCombinationMethodAverage       = "average"
@@ -27,17 +26,11 @@ const (
 	TargetCombinationMethodRelativeScore = "relativeScore"
 )
 
-// NewTargetCombination builds the combination of a multi-target vector search
-// from a method name and weights keyed by target vector name.
-//
-// An empty method yields nil for zero or one target (the engine needs no
-// combination there) and the DefaultTargetCombinationType otherwise. The
-// weights are converted to the positional form the engine expects, aligned
-// with targets: manualWeights and relativeScore need exactly one weight per
-// target, the other methods take none.
-//
-// Errors are caller (validation) errors; the message is safe to return to an
-// API client.
+// NewTargetCombination builds a multi-target combination from a method name
+// and weights keyed by target name, converted to the engine's positional
+// weights. An empty method gives nil for at most one target and the default
+// otherwise. Only manualWeights and relativeScore take weights, one per
+// target. Errors are client errors.
 func NewTargetCombination(method string, targets []string, weightsByName map[string]float64) (*TargetCombination, error) {
 	var combinationType TargetCombinationType
 	switch method {
@@ -67,9 +60,7 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 		if len(weightsByName) > 0 {
 			return nil, errors.New("weights are only allowed with manualWeights or relativeScore")
 		}
-		// The shard join reads one weight per target for every type except
-		// minimum, so sum and average carry their implicit weights (1 and
-		// 1/n), exactly as the gRPC and GraphQL parsers fill them.
+		// the shard join needs weights for sum and average too, as gRPC sets them
 		return &TargetCombination{Type: combinationType, Weights: implicitWeights(combinationType, len(targets))}, nil
 	}
 
@@ -97,9 +88,7 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 	return &TargetCombination{Type: combinationType, Weights: weights}, nil
 }
 
-// implicitWeights returns the positional weights the engine expects for the
-// methods that take none from the client: 1 per target for sum, 1/n for
-// average, and nil for minimum (which has no weights).
+// implicitWeights returns 1 per target for sum, 1/n for average, nil otherwise.
 func implicitWeights(t TargetCombinationType, n int) []float32 {
 	switch t {
 	case Sum:

@@ -855,8 +855,7 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
-	// Caps for the per-request vector search params (hnsw ef, hfresh search
-	// probe). The config-file values are already in config here.
+	// caps for per-request ef and search probe; file values are already set
 	maxSearchEF, err := resolveSearchCap("HNSW_MAX_SEARCH_EF", config.HNSWMaxSearchEF, config.QueryMaximumResults)
 	if err != nil {
 		return err

@@ -255,9 +255,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
 
-	// Mirror the REST surface: a request that runs no vector search (bm25
-	// only, or a plain object listing) cannot use per-request vector params,
-	// so they are a client mistake. Hybrid is accepted.
+	// as on REST: params need a vector search (near* or hybrid)
 	if (req.VectorSearchParams != nil || len(req.VectorSearchParamsForTargets) > 0) && !hasVectorSearch(req) {
 		if req.Bm25Search != nil {
 			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params / vector_search_params_for_targets is not applicable to bm25 search")
@@ -488,8 +486,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
-// hasVectorSearch reports whether the request runs a vector search (any near*
-// clause or hybrid), i.e. whether per-request vector search params can apply.
+// hasVectorSearch reports whether the request runs a near* or hybrid search.
 func hasVectorSearch(req *pb.SearchRequest) bool {
 	return req.NearVector != nil || req.NearObject != nil || req.NearText != nil ||
 		req.HybridSearch != nil || req.NearImage != nil || req.NearAudio != nil ||
@@ -497,15 +494,10 @@ func hasVectorSearch(req *pb.SearchRequest) bool {
 		req.NearImu != nil
 }
 
-// extractVectorSearchParams converts the request-wide vector search params
-// and the per-target overrides. It returns nil only when nothing is set: the
-// request-wide message is absent or all zero/unspecified and there are no
-// per-target entries. Per-target entries are stored as given (not merged with
-// the request-wide values); VectorSearchParams.ForTarget merges at search
-// time. targetVectors is the request's resolved target vector set (explicit
-// targets or the collection's single named vector); it is empty for a legacy
-// collection without named vectors, which cannot take per-target entries.
-// The proto fields are uint32, so negative values cannot occur.
+// extractVectorSearchParams converts the request-wide params and the
+// per-target overrides (merged later by ForTarget), or returns nil when
+// nothing is set. targetVectors is empty for a legacy single-vector
+// collection, which takes no per-target entries.
 func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.VectorSearchParamsForTarget,
 	targetVectors []string, className string, maxEF, maxProbe int64,
 ) (*searchparams.VectorSearchParams, error) {
@@ -545,9 +537,8 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 				return nil, err
 			}
 			if p.IsZero() {
-				// Validated for its name, but an entry without any override is
-				// a no-op; storing it would turn every search into the
-				// per-target path and allocate a merged copy per shard.
+				// an empty entry is a valid no-op; dropping it keeps the
+				// default search path
 				seen[target] = struct{}{}
 				continue
 			}

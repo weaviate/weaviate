@@ -109,15 +109,9 @@ func createNamedVectorCollection(t *testing.T, name string, indexes map[string]n
 	})
 }
 
-// negate returns -v. Its cosine nearest neighbours are the farthest
-// neighbours of v, which makes it a decoy query: a zero-weight target
-// searched with negate(q) contributes candidates that can never enter the
-// top k of q, so the combined result reflects the other target alone.
-//
-// This matters because a multi-target search ranks the union of every
-// target's candidates and fills the missing per-target distances exactly. A
-// zero-weight target searched with q itself would contribute q's true
-// neighbours and mask a recall loss on the weighted target.
+// negate returns -v, a decoy query: a zero-weight target searched with it
+// adds only candidates far from q, so the combined result is the other
+// target's alone (q itself would add q's true neighbours and mask a loss).
 func negate(v []float32) []float32 {
 	out := make([]float32, len(v))
 	for i := range v {
@@ -220,10 +214,8 @@ func countDiffering(a, b [][]string) int {
 	return n
 }
 
-// waitForStableResults blocks until two consecutive passes of build over the
-// dataset queries return identical ids. HFresh splits, merges and reassigns
-// postings in the background after inserts and has no "settled" signal, so a
-// test comparing two requests id by id must wait for this first.
+// waitForStableResults waits until two passes return identical ids: HFresh
+// rebalances postings in the background after inserts.
 func waitForStableResults(t *testing.T, c pb.WeaviateClient, ds *dataset, build func(q []float32) *pb.SearchRequest) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Minute)

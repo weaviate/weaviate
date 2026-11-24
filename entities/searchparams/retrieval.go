@@ -32,30 +32,20 @@ type Selection struct {
 	MMR *SelectionMMR `json:"mmr,omitempty"`
 }
 
-// Per-request HNSW filter strategies. They mirror the collection-level
-// vectorIndexConfig.filterStrategy values but are defined here so that this
-// package stays free of the index packages (which import it).
+// Per-request HNSW filter strategies, the vectorIndexConfig.filterStrategy
+// values (defined here because the index packages import this one).
 const (
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 	FilterStrategyPathseer = "pathseer"
 )
 
-// VectorSearchParams carries per-request overrides for the vector index search.
-// It is set on a single search request and takes precedence over the
-// collection-level configuration. Each field belongs to one index type and is
-// ignored by the others: EF and FilterStrategy override vectorIndexConfig.ef
-// and vectorIndexConfig.filterStrategy for HNSW, SearchProbe overrides
-// vectorIndexConfig.searchProbe for HFresh. A zero field, or a nil
-// *VectorSearchParams, means the collection default is used.
-//
-// PerTarget holds overrides for individual target vectors of a multi-target
-// search, keyed by target vector name. It is only meaningful at request and
-// shard level: the shard resolves it with ForTarget before calling an index,
-// so an index never sees a non-empty PerTarget.
-//
-// The struct crosses nodes as JSON, so new fields must keep the zero value
-// meaning "default", and nodes that predate a field drop it on decode.
+// VectorSearchParams overrides the collection's vector index config for one
+// request: EF and FilterStrategy for HNSW, SearchProbe for HFresh; other
+// indexes ignore them. A zero field or a nil pointer means the collection
+// default. PerTarget holds per-target-vector overrides; the shard resolves it
+// with ForTarget, so indexes never see it. The struct crosses nodes as JSON:
+// a new field's zero value must mean "default".
 type VectorSearchParams struct {
 	EF             int                           `json:"ef,omitempty"`
 	SearchProbe    int                           `json:"searchProbe,omitempty"`

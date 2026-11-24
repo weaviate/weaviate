@@ -361,9 +361,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				res, name, err = nearTextSubSearch(ctx, e, params, targetVectors)
 				errorText = "nearTextSubSearch"
 			} else if params.HybridSearch.NearVectorParams != nil {
-				// searchForTargets picks NearVectorParams.Vectors[i] for
-				// targetVectors[i]; the params' own TargetVectors list is not
-				// consulted here, so it is passed through untouched.
+				// searchForTargets picks Vectors[i] for targetVectors[i]
 				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {

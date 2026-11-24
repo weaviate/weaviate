@@ -726,8 +726,7 @@ type searchParametersPayload struct {
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
-	// VectorSearchParams is a pointer with omitempty so that payloads from
-	// nodes that predate the field decode to nil, meaning "use defaults".
+	// nil (and omitted) means defaults, so older nodes interoperate
 	VectorSearchParams *searchparams.VectorSearchParams `json:"vectorSearchParams,omitempty"`
 }
 

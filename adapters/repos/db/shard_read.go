@@ -710,10 +710,8 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-// annotateVectorSearchParams records the request's vector search params at
-// shard level, so indexes that report nothing themselves (flat, dynamic in
-// its flat stage) still leave a trace. It does nothing without slow-query
-// details, keeping the default path allocation-free.
+// annotateVectorSearchParams records the request's params at shard level, for
+// indexes that report nothing themselves. No-op without slow-query details.
 func annotateVectorSearchParams(ctx context.Context, params *searchparams.VectorSearchParams) {
 	if params == nil || !helpers.HasSlowQueryDetails(ctx) {
 		return

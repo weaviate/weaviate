@@ -36,14 +36,9 @@ const (
 	sum    = pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM
 )
 
-// TestVectorSearchParamsPerTarget checks vector_search_params_for_targets on
-// a collection with an HNSW (graph) and an HFresh (ivf) named vector over the
-// same data: each knob reaches only its own target and index type, and a
-// per-target entry overrides the request-wide value field by field.
-//
-// The measured target gets the query with weight 1 and the other the decoy
-// -q with weight 0 (see isolate), so the combined result is the measured
-// target's result.
+// TestVectorSearchParamsPerTarget checks that each per-target knob reaches
+// only its target (HNSW graph, HFresh ivf) and overrides the request-wide
+// value field by field. The other target gets the decoy query (see isolate).
 func TestVectorSearchParamsPerTarget(t *testing.T) {
 	const class = "PerTarget"
 	c := setupSingleNode(t)

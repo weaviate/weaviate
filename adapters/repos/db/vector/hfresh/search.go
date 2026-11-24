@@ -50,8 +50,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// Normalize before any search path to ensure consistent distance calculations
 	vector = h.normalizeVec(vector)
 
-	// Annotate only when a request override is present: boxing the int into
-	// `any` allocates, and the default path must stay allocation-free.
+	// annotate only overrides: boxing into any allocates
 	requestedProbe := params.SearchProbeOrZero()
 	if requestedProbe > 0 {
 		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_requested", requestedProbe)
@@ -65,9 +64,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
-		// Brute force: no centroid routing happens, so there is no effective
-		// probe to report. Boxing a bool does not allocate (the runtime uses
-		// a static table for single-byte values).
+		// brute force has no probe to report; boxing a bool does not allocate
 		helpers.AnnotateSlowQueryLog(ctx, "hfresh_flat_search", true)
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
@@ -86,8 +83,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	var selectedCentroids []uint64
 	var postings []Posting
 
-	// If k is larger than the configured (or requested) number of candidates,
-	// use k as the candidate number to enlarge the search space.
+	// at least k candidates, whatever the configured or requested probe
 	candidateCentroidNum := h.searchProbeFor(k, params)
 	if requestedProbe > 0 {
 		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_effective", candidateCentroidNum)
@@ -495,7 +491,6 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
 
 	routingBudget, rerankBudget := h.muveraSearchBudgets(k, params)
-	// Annotate only when a request override is present (see SearchByVector).
 	if requestedProbe := params.SearchProbeOrZero(); requestedProbe > 0 {
 		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_requested", requestedProbe)
 		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_effective", routingBudget)
@@ -509,26 +504,20 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
 }
 
-// searchProbeFor returns the centroid routing budget for one search:
-// max(k, params.SearchProbe) when the request overrides the probe, otherwise
-// max(k, searchProbe) from the collection config. A request probe replaces
-// the configured one in both directions (it may be lower), but never drops
-// below k. params is already resolved to the searched target vector; nil
-// means collection defaults. The override is per request only: it is never
-// forwarded to the centroid HNSW index.
+// searchProbeFor returns the routing budget: max(k, the request's probe if
+// set, else the configured one). A request probe may be lower than the
+// configured one.
 func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorSearchParams) int {
 	if params.SearchProbeOrZero() > 0 {
 		return max(k, params.SearchProbe)
 	}
-	// Atomic load: UpdateUserConfig stores searchProbe concurrently.
 	return max(k, int(atomic.LoadUint32(&h.searchProbe)))
 }
 
 // muveraSearchBudgets computes the decoupled budgets for a multi-vector
 // search:
 //   - routingBudget (centroid selection and posting scan breadth) is
-//     searchProbeFor(k, params): max(k, params.SearchProbe) for a per-request
-//     override, else max(k, searchProbe). searchProbe defaults to 256 at schema parse time
+//     searchProbeFor(k, params). searchProbe defaults to 256 at schema parse time
 //     and is respected in BOTH directions: a low explicit probe genuinely
 //     reduces routing work (latency/recall knob), it is not floored by
 //     rescoreLimit. This matches the pre-decoupling behavior, where the

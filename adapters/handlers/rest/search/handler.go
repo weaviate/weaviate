@@ -68,11 +68,9 @@ type HandlerConfig struct {
 	Qualifier      namespacing.Qualifier
 	DefaultLimit   int64
 	MaximumResults int64
-	// MaxSearchEF is HNSW_MAX_SEARCH_EF, the upper bound for a per-request
-	// vectorSearchParams.ef.
+	// MaxSearchEF is HNSW_MAX_SEARCH_EF.
 	MaxSearchEF int64
-	// MaxSearchProbe is HFRESH_MAX_SEARCH_PROBE, the upper bound for a
-	// per-request vectorSearchParams.searchProbe.
+	// MaxSearchProbe is HFRESH_MAX_SEARCH_PROBE.
 	MaxSearchProbe int64
 	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
 	// rejects deeper returnReferences nesting than the traverser would.

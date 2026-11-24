@@ -145,10 +145,7 @@ func searchCap(v int64) int64 {
 }
 
 // applyTargetVectorSearchParams validates targetVectorSearchParams against
-// the resolved target vectors and stores the entries in
-// out.VectorSearchParams.PerTarget, allocating out.VectorSearchParams when
-// only per-target values are set. The shard merges each entry over the
-// request-wide values (searchparams.VectorSearchParams.ForTarget).
+// the resolved targets and stores them in out.VectorSearchParams.PerTarget.
 func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *models.SearchCommon, targetVectors []string) *APIError {
 	if len(common.TargetVectorSearchParams) == 0 {
 		return nil
@@ -163,8 +160,7 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 		isTarget[target] = true
 	}
 
-	// Sorted so that a request with several invalid keys always reports the
-	// same one.
+	// sorted, so several invalid keys always report the same one
 	names := make([]string, 0, len(common.TargetVectorSearchParams))
 	for name := range common.TargetVectorSearchParams {
 		names = append(names, name)
@@ -178,8 +174,6 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 			return newAPIError(http.StatusUnprocessableEntity,
 				"targetVectorSearchParams[%s]: not a target vector of this request", name)
 		}
-		// entry is nil only on the direct-call path: a JSON null is rejected
-		// at bind time, an empty object binds to an all-nil struct.
 		params, apiErr := h.parseVectorSearchParamsEntry(entry, "targetVectorSearchParams["+name+"].")
 		if apiErr != nil {
 			return apiErr
@@ -200,9 +194,8 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 	return nil
 }
 
-// resolveSearchTargets resolves the target vectors of a vector-capable
-// search and fills what depends on them: the multi-target combination and
-// the per-target vector search params.
+// resolveSearchTargets resolves the target vectors and fills what depends on
+// them: the target combination and the per-target vector search params.
 func (h *Handler) resolveSearchTargets(out *dto.GetParams, class *models.Class, common *models.SearchCommon,
 	targetVector string, targetVectorList []string, combination *models.SearchTargetCombination,
 ) ([]string, *APIError) {
@@ -225,8 +218,7 @@ func (h *Handler) resolveSearchTargets(out *dto.GetParams, class *models.Class, 
 }
 
 // parseTargetCombination maps targetCombination onto the engine's positional
-// form (see dto.NewTargetCombination): nil for a single target without a
-// method, the default (minimum) for several targets without one.
+// form, see dto.NewTargetCombination.
 func parseTargetCombination(combination *models.SearchTargetCombination, targetVectors []string) (*dto.TargetCombination, *APIError) {
 	var method string
 	var weights map[string]float64
@@ -314,7 +306,6 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
-	// vectorSearchParams tunes the vector index; a keyword search has none
 	if common.VectorSearchParams != nil {
 		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
 			"vectorSearchParams is not applicable to bm25 search")
@@ -574,11 +565,9 @@ func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, 
 
 const errVectorXorVectorPerTarget = "exactly one of vector and vectorPerTarget must be set"
 
-// parseNearVectorVectors returns the query vectors aligned with targetVectors,
-// as the engine expects one per target: vectorPerTarget is reordered into
-// target order, a single vector is repeated for every target (gRPC parity).
-// A collection searched on its legacy vector (no targets) takes the single
-// vector as is.
+// parseNearVectorVectors returns one query vector per target, in target
+// order: vectorPerTarget is reordered, a single vector is repeated (as gRPC
+// does). Without targets (legacy vector) the single vector is used as is.
 func parseNearVectorVectors(body *models.SearchNearVectorRequest, targetVectors []string) ([]models.Vector, *APIError) {
 	if (body.Vector == nil) == (body.VectorPerTarget == nil) {
 		return nil, newAPIError(http.StatusUnprocessableEntity, errVectorXorVectorPerTarget)
@@ -875,11 +864,9 @@ func (h *Handler) parsePagination(common *models.SearchCommon) (*filters.Paginat
 	return pagination, nil
 }
 
-// resolveTargetVectors resolves the target vectors for the search:
-// targetVector names one, targetVectors several (mutually exclusive). Without
-// either, a collection with exactly one named vector selects it implicitly
-// and a collection with several is rejected. A collection searched on its
-// legacy vector resolves to no target.
+// resolveTargetVectors resolves targetVector or targetVectors (mutually
+// exclusive). Without either, a single named vector is selected implicitly,
+// several are rejected, and a legacy vector resolves to no target.
 func resolveTargetVectors(class *models.Class, targetVector string, targetVectorList []string) ([]string, *APIError) {
 	if targetVector != "" && len(targetVectorList) > 0 {
 		return nil, newAPIError(http.StatusUnprocessableEntity, "targetVector and targetVectors are mutually exclusive")
