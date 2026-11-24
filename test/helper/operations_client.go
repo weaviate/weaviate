@@ -32,7 +32,6 @@ package helper
 import (
 	"testing"
 
-	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/batch"
 	operations_apiclient "github.com/weaviate/weaviate/client/operations"
@@ -42,32 +41,12 @@ import (
 // If there is no test case at hand, pass in nil to disable logging.
 func OperationsClient(t *testing.T) operations_apiclient.ClientService {
 	target, scheme := serverTarget()
-	transport := httptransport.New(target, "/v1", []string{scheme})
-
-	// If a test case is provided, and we want to dump HTTP traffic,
-	// create a simple logger that logs HTTP traffic to the test case.
-	if t != nil && DebugHTTP {
-		transport.SetDebug(true)
-		transport.SetLogger(&testLogger{t: t})
-	}
-
-	client := operations_apiclient.New(transport, strfmt.Default)
-	return client
+	return operations_apiclient.New(newRuntime(t, target, scheme), strfmt.Default)
 }
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
 func BatchClient(t *testing.T) batch.ClientService {
 	target, scheme := serverTarget()
-	transport := httptransport.New(target, "/v1", []string{scheme})
-
-	// If a test case is provided, and we want to dump HTTP traffic,
-	// create a simple logger that logs HTTP traffic to the test case.
-	if t != nil && DebugHTTP {
-		transport.SetDebug(true)
-		transport.SetLogger(&testLogger{t: t})
-	}
-
-	client := batch.New(transport, strfmt.Default)
-	return client
+	return batch.New(newRuntime(t, target, scheme), strfmt.Default)
 }
