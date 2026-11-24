@@ -42,6 +42,7 @@ var errAuthzFake = errors.New("just a test fake")
 
 func Test_Kinds_Authorization(t *testing.T) {
 	type testCase struct {
+		name              string
 		methodName        string
 		additionalArgs    []interface{}
 		expectedVerb      string
@@ -174,6 +175,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 		// reference on objects
 		{
+			name:       "source update",
 			methodName: "AddObjectReference",
 			additionalArgs: []interface{}{
 				&AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -182,7 +184,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // A valid beacon reaches target READ after source UPDATE.
+		{
+			name:       "target read after source update",
 			methodName: "AddObjectReference",
 			additionalArgs: []interface{}{
 				&AddReferenceInput{
@@ -200,6 +203,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			prepare:           prepareReference,
 		},
 		{
+			name:       "source read",
 			methodName: "DeleteObjectReference",
 			additionalArgs: []interface{}{
 				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -208,7 +212,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // DeleteObjectReference authorizes READ then UPDATE, so this row pins the write gate
+		{
+			name:       "source update after read",
 			methodName: "DeleteObjectReference",
 			additionalArgs: []interface{}{
 				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -222,6 +227,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
+			name:       "source update",
 			methodName: "UpdateObjectReferences",
 			additionalArgs: []interface{}{
 				&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -230,7 +236,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // A valid beacon reaches target READ after source UPDATE.
+		{
+			name:       "target read after source update",
 			methodName: "UpdateObjectReferences",
 			additionalArgs: []interface{}{
 				&PutReferenceInput{
@@ -267,7 +274,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			t.Run(test.methodName, func(t *testing.T) {
+			testName := test.methodName
+			if test.name != "" {
+				testName += "/" + test.name
+			}
+			t.Run(testName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				if test.authorizedBySchemaManager {
 					schemaManager.GetschemaErr = errAuthzFake
@@ -318,6 +329,7 @@ func expectedAuthZReqs(principal *models.Principal, preceding []mocks.AuthZReq,
 
 func Test_BatchKinds_Authorization(t *testing.T) {
 	type testCase struct {
+		name              string
 		methodName        string
 		additionalArgs    []interface{}
 		expectedVerb      string
@@ -335,6 +347,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 
 	tests := []testCase{
 		{
+			name:       "source update",
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{{Class: "class", Tenant: "tenant"}},
@@ -344,7 +357,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // AddObjects authorizes UPDATE then CREATE, so this row pins the second check
+		{
+			name:       "source create after update",
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{{Class: "class", Tenant: "tenant"}},
@@ -359,6 +373,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
+			name:       "source update",
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
 				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: "tenant"}},
@@ -367,7 +382,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("Class", "tenant"),
 		},
-		{ // A valid beacon reaches target READ after source UPDATE.
+		{
+			name:       "target read after source update",
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
 				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: "tenant"}},
@@ -387,6 +403,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			},
 		},
 		{
+			name:       "source delete",
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
 				&models.BatchDeleteMatch{Class: "class"},
@@ -399,7 +416,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.DELETE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // A valid filter reaches class READ after the delete check.
+		{
+			name:       "filter read after source delete",
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
 				&models.BatchDeleteMatch{Class: "class", Where: &models.WhereFilter{
@@ -443,7 +461,11 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			t.Run(test.methodName, func(t *testing.T) {
+			testName := test.methodName
+			if test.name != "" {
+				testName += "/" + test.name
+			}
+			t.Run(testName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()

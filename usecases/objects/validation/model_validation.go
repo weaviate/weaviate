@@ -105,7 +105,8 @@ type Validator struct {
 	namespacesEnabled bool
 }
 
-// New constructs a Validator for object payloads and reference writes.
+// New carries the request identity into reference validation so target reads
+// are authorized before existence probes.
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
 	principal *models.Principal, authorizer authorization.Authorizer, namespacesEnabled bool,
