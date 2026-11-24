@@ -20,7 +20,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -64,13 +66,18 @@ const (
 	ErrorInvalidProperties string = "properties of object %v must be of type map[string]interface"
 )
 
+// Validator is not safe for concurrent use.
 type Validator struct {
 	exists            exists
 	config            *config.WeaviateConfig
 	replicationProps  *additional.ReplicationProperties
 	principal         *models.Principal
 	namespacesEnabled bool
+	authorizer        authorization.Authorizer
+	readChecked       map[refTarget]error
 }
+
+type refTarget struct{ class, tenant string }
 
 // New constructs a Validator. principal + namespacesEnabled drive
 // cross-NS deny and storage-shape normalisation for inline-payload refs.
@@ -79,6 +86,7 @@ type Validator struct {
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
 	principal *models.Principal, namespacesEnabled bool,
+	authorizer authorization.Authorizer,
 ) *Validator {
 	return &Validator{
 		exists:            exists,
@@ -86,7 +94,22 @@ func New(exists exists, config *config.WeaviateConfig,
 		replicationProps:  repl,
 		principal:         principal,
 		namespacesEnabled: namespacesEnabled,
+		authorizer:        authorizer,
 	}
+}
+
+// authorizeRefTarget requires READ on the collection a reference points to; "" means any collection.
+func (v *Validator) authorizeRefTarget(ctx context.Context, class, tenant string) error {
+	key := refTarget{class: class, tenant: tenant}
+	if err, ok := v.readChecked[key]; ok {
+		return err
+	}
+	err := v.authorizer.Authorize(ctx, v.principal, authorization.READ, authorization.ShardsData(class, tenant)...)
+	if v.readChecked == nil {
+		v.readChecked = map[refTarget]error{}
+	}
+	v.readChecked[key] = err
+	return err
 }
 
 func (v *Validator) Object(ctx context.Context, class *models.Class,
@@ -120,15 +143,26 @@ func (v *Validator) ValidateSingleRef(cref *models.SingleRef) (*crossref.Ref, er
 	return ref, nil
 }
 
+// ValidateExistence requires READ on the scope of each lookup before running it.
 func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, errorVal string, tenant string) error {
+	scopeTenant := tenant
+	if ref.Class == "" {
+		// A class-less lookup searches every collection and ignores the tenant.
+		scopeTenant = ""
+	}
+	if err := v.authorizeRefTarget(ctx, ref.Class, scopeTenant); err != nil {
+		return err
+	}
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		if tenant == "" {
+		// Only a target without multi-tenancy can answer the lookup without a tenant.
+		if tenant == "" || !errors.Is(err, schema.ErrMultiTenancyDisabled) {
 			return err
 		}
-		// since refs can be created to non-MT classes, check again if non-MT object exists
-		// (use empty tenant, if previously was given)
+		if aerr := v.authorizeRefTarget(ctx, ref.Class, ""); aerr != nil {
+			return aerr
+		}
 		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 		if err2 != nil {
 			// A target class without multi-tenancy fails the tenant call with a

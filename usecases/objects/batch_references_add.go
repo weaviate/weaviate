@@ -125,12 +125,13 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	for _, vc := range fetchedClasses {
 		schemaVersion = max(schemaVersion, vc.Version)
 	}
+	// READ on every target is checked before any target is looked up.
+	targets := make([]string, len(refs))
 	for i, ref := range refs {
 		if ref.Err != nil {
 			continue
 		}
 
-		var qualifiedTarget string
 		if ref.To != nil && ref.To.Class != "" {
 			qualified, short, err := namespacing.QualifyRefTarget(
 				principal, b.config.Config.Namespaces.Enabled,
@@ -139,36 +140,34 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 				refs[i].Err = err
 				continue
 			}
-			qualifiedTarget = qualified
+			targets[i] = qualified
 			ref.To.Class = short
 		}
 
-		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-			// Schema lookup needs qualified; storage struct ref.To stays short.
-			targetQualified := *ref.To
-			targetQualified.Class = qualifiedTarget
-			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
-			if err != nil {
-				// Per-row Err but DON'T skip — authz still needs to track the
-				// caller's intent (a missing READ must surface as 403, not be
-				// hidden by an MT-mismatch). AddBatchReferences skips the row.
-				refs[i].Err = err
-			} else if classVersion > schemaVersion {
-				schemaVersion = classVersion
-			}
-		}
-
-		if qualifiedTarget == "" {
+		if targets[i] == "" {
 			// Classless beacon on a multi-target prop (autodetect can't pick).
 			// On NS clusters the persisted ref would be un-deletable via the
 			// delete handler's gate — reject. Non-NS keeps the legacy
 			// behaviour (byte-exact compare on delete handles it).
 			if b.config.Config.Namespaces.Enabled {
 				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+				continue
 			}
+			uniqueClassShard["#"] = classAndShard{} // may point into any collection
 			continue
 		}
-		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
+		shard := ref.Tenant
+		if shard != "" {
+			_, target, _, err := getReferenceClasses(ctx, principal, b.schemaManager,
+				ref.From.Class.String(), ref.From.Property.String(), targets[i], fetchedClasses)
+			if err != nil {
+				// Still authorized below, so a missing READ surfaces as 403.
+				refs[i].Err = err
+			} else if !schema.MultiTenancyEnabled(target) {
+				shard = "" // a non-multi-tenant target is read without a tenant
+			}
+		}
+		uniqueClassShard[targets[i]+"#"+shard] = classAndShard{Class: targets[i], Shard: shard}
 	}
 
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
@@ -183,6 +182,21 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	if len(shardsDataPaths) > 0 {
 		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
 			return nil, err
+		}
+	}
+
+	for i, ref := range refs {
+		if ref.Err != nil || !shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			continue
+		}
+		// Schema lookup needs qualified; storage struct ref.To stays short.
+		targetQualified := *ref.To
+		targetQualified.Class = targets[i]
+		classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
+		if err != nil {
+			refs[i].Err = err // AddBatchReferences skips the row
+		} else if classVersion > schemaVersion {
+			schemaVersion = classVersion
 		}
 	}
 

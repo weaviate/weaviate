@@ -149,7 +149,7 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	modulesProvider := getFakeModulesProvider()
-	autoSchema := NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry())
+	autoSchema := NewAutoSchemaManager(schemaManager, vectorRepo, authorizer, cfg, logger, prometheus.NewPedanticRegistry())
 	m := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, &fakeMetrics{}, nil, autoSchema)
 	b := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, autoSchema)
 	return m, b, vectorRepo, modulesProvider, authorizer
@@ -1083,7 +1083,8 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 			},
 		}
 		_, b, repo, _, _ := newNSManagers(t, classes, false)
-		repo.On("Exists", "SourceMT", id).Return(false, nil)
+		// READ is checked before any lookup, so the denial can come first.
+		repo.On("Exists", "SourceMT", id).Return(false, nil).Maybe()
 		// AddBatchReferences must NEVER run — the inner authz READ must
 		// fail-fast with a Forbidden before we reach persistence.
 		// (No repo.On("AddBatchReferences") expectation: would assert if called.)

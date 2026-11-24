@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -102,7 +103,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled)
+		principal, m.config.Config.Namespaces.Enabled, m.authorizer)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -154,6 +155,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		}
 
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return &Error{err.Error(), StatusForbidden, err}
+			}
 			if errors.Is(err, replicaerrors.ErrReplicas) {
 				return &Error{"validate existence", StatusInternalServerError, err}
 			}

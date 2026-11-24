@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -210,7 +211,7 @@ func TestProperties(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			validator := &Validator{exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+			validator := &Validator{authorizer: &authorization.DummyAuthorizer{}, exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				return true, nil
 			}}
 			gotErr := validator.properties(context.Background(), spec.class, spec.obj, nil)
@@ -284,6 +285,7 @@ func TestProperties_MultiTargetClasslessBeacon_NSGate(t *testing.T) {
 		// Preserve the legacy behaviour to avoid breaking pre-NS callers.
 		v := &Validator{
 			namespacesEnabled: false,
+			authorizer:        &authorization.DummyAuthorizer{},
 			exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				return true, nil
 			},

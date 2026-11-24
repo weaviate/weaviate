@@ -75,11 +75,12 @@ func TestClasslessBeaconDoesNotNameMultiTenantCollections(t *testing.T) {
 
 	roleName := t.Name() + "-role"
 	readData, createData := authorization.ReadData, authorization.CreateData
-	articleName := article
+	articleName, all := article, "*"
+	// A class-less beacon needs READ on every collection.
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name: &roleName,
 		Permissions: []*models.Permission{
-			{Action: &readData, Data: &models.PermissionData{Collection: &articleName}},
+			{Action: &readData, Data: &models.PermissionData{Collection: &all}},
 			{Action: &createData, Data: &models.PermissionData{Collection: &articleName}},
 		},
 	})

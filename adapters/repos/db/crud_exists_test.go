@@ -91,3 +91,19 @@ func TestExistsWithoutClassFailsOnUnreadableCollection(t *testing.T) {
 	require.NotNil(t, hook.LastEntry())
 	assert.Equal(t, "SecretPlain", hook.LastEntry().Data["collection"])
 }
+
+// Reference validation retries without a tenant only on this error.
+func TestExistsWithTenantOnSingleTenantClass(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	logger, _ := test.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+	db.indices[indexID("Plain")] = objectsByIDTestIndex(t, "Plain", false, id)
+
+	_, err := db.Exists(t.Context(), "Plain", id, nil, "t1")
+	require.ErrorIs(t, err, schema.ErrMultiTenancyDisabled)
+	assert.Contains(t, err.Error(), "class Plain has multi-tenancy disabled, but request was with tenant")
+
+	ok, err := db.Exists(t.Context(), "Plain", id, nil, "")
+	require.NoError(t, err)
+	assert.True(t, ok)
+}

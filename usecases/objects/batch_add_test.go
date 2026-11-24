@@ -77,7 +77,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, objectFinder, mocks.NewMockAuthorizer(), config, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	reset := func() {
@@ -336,7 +336,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, objectFinder, mocks.NewMockAuthorizer(), config, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	ctx := context.Background()
@@ -480,7 +480,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, objectFinder, mocks.NewMockAuthorizer(), config, logger, prometheus.NewPedanticRegistry()))
 	}
 	reset()
 	objects := []*models.Object{
@@ -543,7 +543,7 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 			modulesProvider.On("BatchUpdateVector").Return(nil, nil)
 			manager := NewBatchManager(objectFinder, modulesProvider, schemaManager, cfg, logger,
 				mocks.NewMockAuthorizer(), nil,
-				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, objectFinder, mocks.NewMockAuthorizer(), cfg, logger, prometheus.NewPedanticRegistry()))
 
 			// A value determineType does not recognize makes getProperties fail.
 			added, err := manager.AddObjects(context.Background(), nil, []*models.Object{{
@@ -603,7 +603,7 @@ func Test_BatchManager_AddObjects_LocalSchemaBehind(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			manager := NewBatchManager(objectFinder, getFakeModulesProvider(), schemaManager, cfg, logger,
 				mocks.NewMockAuthorizer(), nil,
-				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, objectFinder, mocks.NewMockAuthorizer(), cfg, logger, prometheus.NewPedanticRegistry()))
 
 			// Every object carries a property the collection does not have yet.
 			objs := []*models.Object{

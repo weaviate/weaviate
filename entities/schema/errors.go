@@ -20,3 +20,6 @@ const (
 )
 
 var ErrRefToNonexistentClass = errors.New("reference property to nonexistent class")
+
+// ErrMultiTenancyDisabled marks a request that names a tenant on a collection without multi-tenancy.
+var ErrMultiTenancyDisabled = errors.New("has multi-tenancy disabled")

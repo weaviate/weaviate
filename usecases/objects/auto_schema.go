@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -48,6 +49,7 @@ type AutoSchemaManager struct {
 	mutex         sync.RWMutex
 	schemaManager schemaManager
 	objectFinder  objectFinder
+	authorizer    authorization.Authorizer
 	config        config.AutoSchema
 	logger        logrus.FieldLogger
 
@@ -57,7 +59,7 @@ type AutoSchemaManager struct {
 }
 
 func NewAutoSchemaManager(schemaManager schemaManager, objectFinder objectFinder,
-	config *config.WeaviateConfig, logger logrus.FieldLogger,
+	authorizer authorization.Authorizer, config *config.WeaviateConfig, logger logrus.FieldLogger,
 	reg prometheus.Registerer,
 ) *AutoSchemaManager {
 	r := promauto.With(reg)
@@ -80,6 +82,7 @@ func NewAutoSchemaManager(schemaManager schemaManager, objectFinder objectFinder
 	return &AutoSchemaManager{
 		schemaManager: schemaManager,
 		objectFinder:  objectFinder,
+		authorizer:    authorizer,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
 		tenantsCount:  tenantsCount,
@@ -194,7 +197,7 @@ func (m *AutoSchemaManager) getProperties(ctx context.Context, object *models.Ob
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
 			now := time.Now()
-			target := refTarget{class: schemaClass, property: name, sourceNamespace: namespace}
+			target := refTarget{class: schemaClass, property: name, sourceNamespace: namespace, principal: principal}
 			dt, err := m.determineType(ctx, target, value, false)
 			if err != nil {
 				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
@@ -472,6 +475,7 @@ type refTarget struct {
 	class           *models.Class
 	property        string
 	sourceNamespace string
+	principal       *models.Principal
 }
 
 // recordedDataType returns the data type class records for the property, or nil
@@ -514,6 +518,11 @@ func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 	}
 	if ref.Class != "" {
 		return schema.DataType(ref.Class), true, nil
+	}
+	// The lookup can land in any collection, so it needs READ on all of them.
+	if err := m.authorizer.Authorize(ctx, target.principal, authorization.READ,
+		authorization.Objects(namespacing.QualifiedName(target.sourceNamespace, "*"), "")); err != nil {
+		return "", false, err
 	}
 	// Asking a multi-tenant collection for a tenant can activate that tenant, so
 	// the lookup names none and ObjectsByID passes those collections over.
