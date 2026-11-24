@@ -235,7 +235,7 @@ func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, 
 
 	if _, err := h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {
-			return fmt.Errorf("alias %s not found: %w", aliasName, ErrNotFound)
+			return h.aliasNotFound(aliasName)
 		}
 		if errors.Is(err, cschema.ErrBadRequest) {
 			return fmt.Errorf("%w: %w", ErrValidation, err)

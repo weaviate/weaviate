@@ -75,7 +75,11 @@ const (
 	testNamespace   = "customer1"
 )
 
-var errAuthorizerBroken = errors.New("rbac: enforce policy: broken")
+var (
+	errAuthorizerBroken = errors.New("rbac: enforce policy: broken")
+	errLookupBroken     = errors.New("query leader: broken")
+	errDeleteBroken     = errors.New("apply delete alias: broken")
+)
 
 // aliasFixture is the caller and the stored alias, namespace-qualified when
 // namespaced.
@@ -96,12 +100,17 @@ func newAliasFixture(namespaced bool) aliasFixture {
 	}
 }
 
-func (f aliasFixture) newHandler(t *testing.T, authorizer authorization.Authorizer, namespaced, exists bool) (*Handler, *fakeSchemaManager) {
+// newHandler stubs the alias lookup: lookupErr when set, else the alias when
+// exists, else the missing-alias error.
+func (f aliasFixture) newHandler(t *testing.T, authorizer authorization.Authorizer, namespaced, exists bool, lookupErr error) (*Handler, *fakeSchemaManager) {
 	handler, sm := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 	handler.config.Namespaces.Enabled = namespaced
-	if exists {
+	switch {
+	case lookupErr != nil:
+		sm.On("GetAlias", mock.Anything, f.alias).Return((*models.Alias)(nil), lookupErr)
+	case exists:
 		sm.On("GetAlias", mock.Anything, f.alias).Return(&models.Alias{Alias: f.alias, Class: f.target}, nil)
-	} else {
+	default:
 		sm.On("GetAlias", mock.Anything, f.alias).
 			Return((*models.Alias)(nil), fmt.Errorf("resolve alias: %s, %w", f.alias, cschema.ErrAliasNotFound))
 	}
@@ -126,6 +135,7 @@ func TestGetAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 		name        string
 		namespaced  bool
 		exists      bool
+		lookupErr   error
 		authorizer  *verbAuthorizer
 		wantErr     string
 		wantAlias   bool
@@ -135,6 +145,12 @@ func TestGetAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 			name:       "missing alias",
 			authorizer: &verbAuthorizer{},
 			wantErr:    wantAliasNotFound(testAliasName),
+		},
+		{
+			name:       "lookup fails",
+			lookupErr:  errLookupBroken,
+			authorizer: &verbAuthorizer{},
+			wantErr:    errLookupBroken.Error(),
 		},
 		{
 			name:        "existing alias, read forbidden",
@@ -175,7 +191,7 @@ func TestGetAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newAliasFixture(tt.namespaced)
-			handler, _ := f.newHandler(t, tt.authorizer, tt.namespaced, tt.exists)
+			handler, _ := f.newHandler(t, tt.authorizer, tt.namespaced, tt.exists, tt.lookupErr)
 
 			got, err := handler.GetAlias(context.Background(), f.principal, testAliasName)
 
@@ -198,6 +214,8 @@ func TestDeleteAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 		name          string
 		namespaced    bool
 		exists        bool
+		lookupErr     error
+		deleteErr     error
 		authorizer    *verbAuthorizer
 		wantErr       string
 		wantForbidden bool
@@ -209,6 +227,12 @@ func TestDeleteAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 			name:       "missing alias",
 			authorizer: &verbAuthorizer{},
 			wantErr:    wantAliasNotFound(testAliasName),
+		},
+		{
+			name:       "lookup fails",
+			lookupErr:  errLookupBroken,
+			authorizer: &verbAuthorizer{},
+			wantErr:    errLookupBroken.Error(),
 		},
 		{
 			name:        "existing alias, delete and read forbidden",
@@ -231,6 +255,30 @@ func TestDeleteAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 			exists:      true,
 			authorizer:  &verbAuthorizer{},
 			wantDeleted: true,
+			wantAudited: []string{authorization.DELETE},
+		},
+		{
+			name:        "delete allowed, alias gone before the delete applies",
+			exists:      true,
+			deleteErr:   cschema.ErrAliasNotFound,
+			authorizer:  &verbAuthorizer{},
+			wantErr:     wantAliasNotFound(testAliasName),
+			wantAudited: []string{authorization.DELETE},
+		},
+		{
+			name:        "delete allowed, delete rejected as a bad request",
+			exists:      true,
+			deleteErr:   cschema.ErrBadRequest,
+			authorizer:  &verbAuthorizer{},
+			wantErr:     fmt.Errorf("%w: %w", ErrValidation, cschema.ErrBadRequest).Error(),
+			wantAudited: []string{authorization.DELETE},
+		},
+		{
+			name:        "delete allowed, delete fails",
+			exists:      true,
+			deleteErr:   errDeleteBroken,
+			authorizer:  &verbAuthorizer{},
+			wantErr:     errDeleteBroken.Error(),
 			wantAudited: []string{authorization.DELETE},
 		},
 		{
@@ -270,9 +318,10 @@ func TestDeleteAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newAliasFixture(tt.namespaced)
-			handler, sm := f.newHandler(t, tt.authorizer, tt.namespaced, tt.exists)
-			if tt.wantDeleted {
-				sm.On("DeleteAlias", mock.Anything, f.alias).Return(nil)
+			handler, sm := f.newHandler(t, tt.authorizer, tt.namespaced, tt.exists, tt.lookupErr)
+			reachesDelete := tt.wantDeleted || tt.deleteErr != nil
+			if reachesDelete {
+				sm.On("DeleteAlias", mock.Anything, f.alias).Return(tt.deleteErr)
 			}
 
 			err := handler.DeleteAlias(context.Background(), f.principal, testAliasName)
@@ -288,10 +337,47 @@ func TestDeleteAliasDoesNotRevealForbiddenAlias(t *testing.T) {
 				require.EqualError(t, err, tt.wantErr)
 				assert.NotContains(t, err.Error(), testAliasTarget)
 			}
-			if !tt.wantDeleted {
+			if !reachesDelete {
 				sm.AssertNotCalled(t, "DeleteAlias", mock.Anything, mock.Anything)
 			}
 			sm.AssertExpectations(t)
+		})
+	}
+}
+
+// A name with a namespace prefix is invalid on a cluster without namespaces.
+func TestAliasInvalidNameIsRejectedBeforeLookup(t *testing.T) {
+	const invalidName = "customer1:PublicView"
+	tests := []struct {
+		name string
+		call func(h *Handler, principal *models.Principal) error
+	}{
+		{
+			name: "get alias",
+			call: func(h *Handler, principal *models.Principal) error {
+				_, err := h.GetAlias(context.Background(), principal, invalidName)
+				return err
+			},
+		},
+		{
+			name: "delete alias",
+			call: func(h *Handler, principal *models.Principal) error {
+				return h.DeleteAlias(context.Background(), principal, invalidName)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := &verbAuthorizer{}
+			handler, sm := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+
+			err := tt.call(handler, &models.Principal{Username: "eve"})
+
+			require.ErrorIs(t, err, ErrValidation)
+			assert.Empty(t, authorizer.audited)
+			assert.Empty(t, authorizer.silent)
+			sm.AssertNotCalled(t, "GetAlias", mock.Anything, mock.Anything)
+			sm.AssertNotCalled(t, "DeleteAlias", mock.Anything, mock.Anything)
 		})
 	}
 }
