@@ -438,6 +438,84 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Lo que cuesta, sin medir:** una carga por cada posting distinto con algún permitido. Con un filtro en bola son pocas; con uno al azar del 1 % a 1M, casi todos los postings, unas 4 000 cargas por query.
 - **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito y no lee ningún código de ruteo. La medida es en `routing` y no cambia.
 
+### Resultados (noche del 23 al 24 de noviembre)
+
+*Lo midió la sesión de integración con el binario de `ada98eba8e`, sobre el índice crecido en `2e58f5c2e1`. Los datos están en `9f3d572b0f` y su lectura entera en la sección 8 de `integration-plan.md` (`723bb60c53`), las dos en `feat/posting-edge-integration`. Aquí va el resumen y mi comprobación contra este pre-registro. Cada p50 es la media de las dos rondas.*
+
+- **Cuándo:** la espera terminó a las 19:09, con 61 minutos sin teclado ni trackpad. Las rondas 1 y 2 midieron el nuestro por sus dos caminos y HNSW con `acorn`, de 19:09 a 02:32. Las rondas 3 y 4 midieron `sweeping`, de 02:32 a 03:04. No se saltó ningún punto.
+- **La parada se cumple:** ningún resultado fuera de su filtro en ninguna query, cronometrada o no.
+- **HNSW se construye otra vez en cada sesión,** así que algunos de sus puntos de 0.95 cambian de ef frente a la tarde: `acorn` al azar al 10 % pasa de 125 a 130, y anticorrelado al 10 % de 1 362 a 1 479. Cada uno se cronometra en el suyo.
+
+**El criterio:**
+
+- **Primera parte: se cumple al 50 % y no al 10 %.** Al azar al 50 %, 1.30 veces las cargas de sin filtro (24.4 frente a 18.8). Al azar al 10 %, 2.69 veces (50.6), ya en el ef más bajo de la malla. El criterio es en cargas, así que los tiempos no cambian el veredicto: en frío el 10 % cuesta 1.93 veces el p50 de sin filtro (9.30 ms frente a 4.81), y el 50 % 1.17 veces.
+- **Segunda parte: se cumple.** Con el corte de 40 000, los doce filtros llegan a 0.95: el 50 % y el 10 % por el índice, y el 1 % y el 0.1 % por la plana, que llega en ef 10.
+
+**El punto de cruce,** con los dos caminos forzados, por p50 en frío a 0.95:
+
+- **Al azar, la plana pasa a ser más barata entre el 10 % y el 1 %.** Al 10 % el índice cuesta 9.30 ms y la plana 32.15; al 1 %, 48.62 y 9.99. Una recta en escala logarítmica entre los dos puntos cruza hacia el 3.5 %, unos 35 000 permitidos. La interpolación es de la sesión de integración: entre el 10 % y el 1 % no hay medida. El corte de 40 000 cae ahí.
+- **Correlado, el índice es más barato en las cuatro selectividades.** Al 1 % cuesta 4.85 ms frente a 10.80 de la plana, y al 0.1 % 5.95 frente a 8.39. El corte manda esos dos a la plana.
+- **Anticorrelado, la plana ya es más barata al 10 %:** 32.3 ms frente a 104.7.
+- **Un corte que solo cuenta permitidos acierta con el filtro al azar** y se equivoca con los otros dos, porque no ve dónde caen los permitidos.
+
+**Frente a HNSW con `acorn`, la comparación principal,** cada filtro por el camino que le da el corte, a 0.95. El p50 va en caliente / en frío, en ms. Por debajo del 10 % es empate.
+
+| filtro | camino | nuestro | `acorn` | nuestro ÷ `acorn`, en frío | `sweeping` |
+|---|---|---|---|---:|---|
+| sin filtro | índice | 1.52 / 4.81 | 0.85 / 2.65 | 1.82 | 0.86 / 2.56 |
+| al azar 50 % | índice | 1.96 / 5.64 | 1.10 / 2.80 | 2.01 | 1.09 / 2.77 |
+| al azar 10 % | índice | 3.80 / 9.30 | 4.27 / 8.44 | 1.10 | 2.59 / 4.75 |
+| al azar 1 % | plana | 3.11 / 9.99 | 2.96 / 4.54 | 2.20 | 2.96 / 4.55 |
+| al azar 0.1 % | plana | 0.94 / 1.56 | 0.25 / 1.00 | 1.56 | 0.25 / 0.97 |
+| correlado 50 % | índice | 1.63 / 5.02 | 0.88 / 2.65 | 1.89 | 0.89 / 2.61 |
+| correlado 10 % | índice | 1.62 / 4.89 | 0.84 / 2.55 | 1.92 | 0.83 / 2.42 |
+| correlado 1 % | plana | 3.25 / 10.80 | 4.44 / 5.60 | 1.93 | 4.43 / 5.55 |
+| correlado 0.1 % | plana | 1.02 / 8.39 | 0.64 / 1.44 | 5.83 | 0.63 / 1.37 |
+| anticorrelado 50 % | índice | 6.14 / 14.51 | 3.74 / 7.18 | 2.02 | 3.76 / 7.07 |
+| anticorrelado 10 % | índice | 61.42 / 104.67 | 30.92 / 40.83 | 2.56 | 49.30 / 54.90 |
+| anticorrelado 1 % | plana | 3.16 / 11.31 | 4.62 / 7.39 | 1.53 | 4.59 / 7.36 |
+| anticorrelado 0.1 % | plana | 1.01 / 8.67 | 0.78 / 2.64 | 3.28 | 0.77 / 2.32 |
+
+- **En frío pierde el nuestro en los doce filtros y sin filtro.** Al azar al 10 % es por poco: 1.10 veces, justo por encima del empate.
+- **En caliente gana en tres:** al azar al 10 % por el índice (0.89 veces), y por la plana el correlado al 1 % (0.73) y el anticorrelado al 1 % (0.68). Al azar al 1 % es empate (1.05).
+- **Lo peor son los filtros pequeños que no son al azar,** por las 507 lecturas en frío del rescore de la plana, frente a las 39 y 120 de HNSW.
+- **Con el mejor de sus dos caminos, en frío,** gana en dos: el correlado al 1 % por el índice (4.85 ms frente a 5.60) y el anticorrelado al 10 % por la plana (32.3 frente a 40.8).
+- **Al azar, en frío, la plana sale favorecida.** El filtro al azar es el mismo conjunto para todas las queries, y en un lote de 10 las de después encuentran en caché los vectores que leyeron las de antes. Por eso la plana al azar al 0.1 % da 1.56 ms en frío y no unos 8.4 como los otros dos tipos. A HNSW le pasa lo mismo. Es el frío de un filtro compartido, como una categoría, no el de una query sola.
+- **La memoria de cada índice no entra en esta medida.** HNSW tiene el grafo y sus códigos de 1 536 bits en memoria.
+
+**`acorn` frente a `sweeping`:** al 50 %, al 1 % y al 0.1 % son lo mismo. Al 50 % `acorn` corre `sweeping` por su ratio de 0.4, y al 1 % y al 0.1 % los dos van por la plana. Al 10 %, en frío, `sweeping` es 1.78 veces más rápido al azar (4.75 ms frente a 8.44), empatan en el correlado (2.42 frente a 2.55), y `acorn` es más rápido en el anticorrelado (40.8 frente a 54.9).
+
+**El detector de deriva (mi comprobación, 03:20 del 24).** Comparo el p50 de las dos rondas de cada punto, en caliente y en frío: el mayor sobre el menor. 5 de los 51 puntos pasan del 10 %, así que quedan marcados y, por la regla, se repiten:
+
+| punto | medida | ronda 1 | ronda 2 | deriva |
+|---|---|---:|---:|---:|
+| nuestro por el índice, al azar 1 % | caliente | 23.82 ms | 26.60 ms | 11.7 % |
+| nuestro por la plana, al azar 10 % | caliente | 23.70 ms | 26.26 ms | 10.8 % |
+| nuestro por la plana, correlado 10 % | caliente | 26.68 ms | 23.71 ms | 12.5 % |
+| `acorn`, correlado 0.1 % | frío | 1.51 ms | 1.36 ms | 11.3 % |
+| `acorn`, anticorrelado 0.1 % | frío | 2.93 ms | 2.36 ms | 24.0 % |
+
+- **Ninguno cambia una conclusión.** Los tres nuestros son del punto de cruce, donde en caliente un camino cuesta de 6.6 a 15.6 veces el otro. Los dos de `acorn` quedan, en cualquiera de sus dos rondas, de 5.6 a 6.2 veces y de 3.0 a 3.7 veces por debajo del nuestro.
+- **El nuestro por el índice va más lento en la ronda 2:** en caliente en 12 de sus 13 filtros, del 2.0 al 11.7 %, y en frío en 11, del 2.6 al 8.1 %. Los que no son los anticorrelados más pequeños, los más lentos. La plana se mueve en los dos sentidos, y HNSW no se mueve: como mucho un 3.5 % en caliente. No es la máquina, que habría movido a HNSW también. Antes de cada lote en frío la medida cierra y abre otra vez el índice y su store, unas 1 900 veces en la noche. Si algo quedara vivo de cada apertura, el índice iría cada vez más lento.
+- **Eso no es (03:55 del 24).** Abrí y cerré 200 veces el índice de la medida, con el binario de `723bb60c53` y el arnés que usa la medida (`openFilteredIndex`), y medí 300 queries en caliente cada 50 aperturas:
+  - **No cambia nada de lo que podría frenar la búsqueda:** 3 goroutines y 35 ficheros abiertos de principio a fin, y la pasada de 300 queries entre 42.9 y 43.0 s en los cinco momentos. Las queries son al azar, lejos de los datos, así que cargan mucho más que las de dbpedia.
+  - **El heap sí crece algo:** de 209.8 a 213.9 MB en 200 aperturas, unos 20 KB por apertura. Miro con un perfil de heap si eso es del índice o del arnés.
+  - **Cada apertura cuesta 3.2 s.** Es casi todo lo que cuesta cada vaciado de la caché en la medida, unos 4.4 s.
+- **La lentitud de la ronda 2 queda sin explicar.** La repetición de los cinco puntos marcados, en un proceso nuevo, dirá si la ronda 2 vuelve a ir más lenta.
+
+**Lo esperado frente a lo medido** (lo esperado es *mío*, de este pre-registro y de sus enmiendas):
+
+- **Al azar al 50 %, entre 1.1 y 1.5 veces las cargas:** se cumple, con 1.30.
+- **Al azar al 10 %, entre 1.6 y 3 veces:** se cumple, con 2.69, y por eso falla la primera parte del criterio.
+- **El correlado, más fácil que el azar en las cuatro selectividades:** se cumple. Por el índice carga 18.9, 18.5, 21.7 y 50.0 postings, frente a 24.4, 50.6, 258.5 y 1 320.4 al azar.
+- **El anticorrelado al 10 % y al 50 %, quizá sin llegar a 0.95 con ef 2 048:** no se cumple. Los dos índices llegan: el nuestro con ef 12 y 14, y `sweeping` con 119 y 92. Al nuestro le cuesta 698 cargas al 10 %.
+- **La plana al 0.1 % y al 1 %, por encima de 0.99:** se cumple salvo en el anticorrelado al 1 %, que da 0.9811.
+- **El punto de cruce, entre el 2 % y el 5 %:** se cumple al azar, hacia el 3.5 %, que sale de interpolar. Como número único no sirve: el correlado no cruza en lo medido, y el anticorrelado cruza por encima del 10 %.
+- **`acorn`, mejor que `sweeping` en el anticorrelado y al 10 %; parecido al 50 % (enmienda 1):** se cumple en el anticorrelado y al 50 %. Al azar al 10 % es al revés.
+- **La plana, unos 2 ms en caliente con 40 000 permitidos (enmienda 2):** no se cumple. Cuesta entre 230 y 250 ns por permitido en caliente, lo que da unos 10 ms a 40 000 si se extrapola. Sin perfil, mi hipótesis (*mía*) es que son fallos de caché: con un filtro al azar, cada permitido salta a un sitio distinto de los 64 MB de códigos de ruteo. HNSW cuesta del mismo orden, unos 300 ns por permitido.
+
+**Queda para decidir (el usuario):** el valor del corte, y si tiene que ver dónde caen los permitidos; si la plana debe costar menos por permitido; las 507 lecturas en frío de la plana con filtros pequeños; y si los filtros se miden también a 10M.
+
 ## 10M en disco: wiki-dpr 10M con el camino de lectura de v4.0 (2026-11-21)
 
 **Estado: cerrado el 22. Las dos condiciones se cumplen, con nuestras celdas en rescore 64 y también en 150 («Resultados» y el apartado que le sigue, abajo). Pre-registrado el 21 a las 11:43, antes de construir nada a 10M y antes de ningún dato suyo, con cuatro enmiendas.** El experimento, las celdas, la configuración de HFresh y las dos condiciones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como mío. Va detrás de v5.4 y de las medidas de parámetros.
