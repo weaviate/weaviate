@@ -137,6 +137,7 @@ func createRebalanceHandlerWithFakes(t *testing.T, movementEnabled, rebalanceEna
 		logger:           logger,
 		enabled:          runtime.NewDynamicValue(movementEnabled),
 		rebalanceEnabled: runtime.NewDynamicValue(rebalanceEnabled),
+		licensed:         true,
 	}
 	return handler, authorizer, hook
 }
@@ -232,6 +233,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			name              string
 			movementDisabled  bool
 			rebalanceDisabled bool
+			unlicensed        bool
 			body              *models.ReplicationRebalanceRequest
 			nodes             *fakeRebalanceNodes
 			createErr         error
@@ -240,6 +242,8 @@ func TestRebalanceHandlers(t *testing.T) {
 		}{
 			{name: "rebalance flag off", rebalanceDisabled: true, body: validBody(), want: &replication.CreateRebalancePlanNotImplemented{}},
 			{name: "movement flag off", movementDisabled: true, body: validBody(), want: &replication.CreateRebalancePlanNotImplemented{}},
+			{name: "flags on without a license", unlicensed: true, body: validBody(), want: &replication.CreateRebalancePlanForbidden{}},
+			{name: "rebalance flag off without a license", rebalanceDisabled: true, unlicensed: true, body: validBody(), want: &replication.CreateRebalancePlanNotImplemented{}},
 			{name: "missing body", want: &replication.CreateRebalancePlanBadRequest{}},
 			{
 				name: "empty source nodes",
@@ -295,8 +299,12 @@ func TestRebalanceHandlers(t *testing.T) {
 				}
 				manager := &fakeRebalanceManager{createErr: tt.createErr}
 				handler, _, _ := createRebalanceHandlerWithFakes(t, !tt.movementDisabled, !tt.rebalanceDisabled, manager, nodes)
+				handler.licensed = !tt.unlicensed
 
 				response := create(tt.body)(handler)
+				if tt.unlicensed && !tt.rebalanceDisabled {
+					require.Contains(t, response.(*replication.CreateRebalancePlanForbidden).Payload.Error[0].Message, RebalanceFeature)
+				}
 
 				require.IsType(t, tt.want, response)
 				// Only the rows that set createErr pass validation and reach the manager.
