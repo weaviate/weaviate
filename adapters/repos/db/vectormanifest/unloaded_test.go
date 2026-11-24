@@ -12,13 +12,16 @@
 package vectormanifest
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // A cold shard's vectors are found through their records; a vector without
@@ -196,4 +199,69 @@ func TestReadUnloadedTasks(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+// A drop during a rebuild deletes both indexes, the task and the record, with
+// or without a record left.
+func TestDropUnloaded_DuringARebuild(t *testing.T) {
+	for _, recorded := range []bool{true, false} {
+		t.Run(fmt.Sprintf("recorded %v", recorded), func(t *testing.T) {
+			dir := t.TempDir()
+			m, db := openUnloaded(t, dir, "title", "body")
+			require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			if !recorded {
+				require.NoError(t, m.records.Delete("title"))
+			}
+			require.NoError(t, db.Close())
+			for _, id := range []string{"vectors_title", "vectors_a-b", "vectors_body"} {
+				plant(t, files(dir, id)...)
+			}
+
+			require.NoError(t, DropUnloaded(dir, "title", []string{"body"}))
+
+			for _, path := range append(files(dir, "vectors_title"), files(dir, "vectors_a-b")...) {
+				assert.NoDirExists(t, path)
+			}
+			for _, path := range files(dir, "vectors_body") {
+				assert.DirExists(t, path)
+			}
+			records, _, err := readUnloaded(dir, []string{"title", "body"})
+			require.NoError(t, err)
+			assert.Contains(t, records, "body")
+			assert.NotContains(t, records, "title")
+			tasks, err := readUnloadedTasks(dir, []string{"title"})
+			require.NoError(t, err)
+			assert.Empty(t, tasks)
+		})
+	}
+}
+
+// The drop refuses a task that names another vector's index.
+func TestDropUnloaded_RefusesATaskNamingASibling(t *testing.T) {
+	dir := t.TempDir()
+	m, db := openUnloaded(t, dir, "title", "body")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "vectors_body")))
+	require.NoError(t, db.Close())
+	plant(t, files(dir, "vectors_body")...)
+
+	require.ErrorContains(t, DropUnloaded(dir, "title", []string{"body"}), `an index of vector "body"`)
+	for _, path := range files(dir, "vectors_body") {
+		assert.DirExists(t, path)
+	}
+}
+
+// openUnloaded writes the records of names and returns the manifest and the DB
+// to close before the shard counts as not loaded.
+func openUnloaded(t *testing.T, dir string, names ...string) (*Manifest, *shardmeta.DB) {
+	t.Helper()
+	db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+	m := New(Config{DB: db, ShardDir: dir, Logger: logger})
+	records := map[string]record{}
+	for _, name := range names {
+		records[name] = recordFor(name, enthnsw.NewDefaultUserConfig(), stateReady)
+	}
+	require.NoError(t, m.records.Initialize(records))
+	return m, db
 }
